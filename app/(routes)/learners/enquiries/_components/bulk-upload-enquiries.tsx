@@ -310,6 +310,16 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
             // Debug log for first row to show column mapping (development only)
             if (process.env.NODE_ENV === 'development' && index === 0) {
+              console.log('[bulk-upload-enquiries] Excel column names:', Object.keys(row));
+              console.log('[bulk-upload-enquiries] Mapped education fields:', {
+                tenth_max_marks: mappedData.tenth_max_marks,
+                tenth_obtained_marks: mappedData.tenth_obtained_marks,
+                tenth_percentage: mappedData.tenth_percentage,
+                twelfth_group: mappedData.twelfth_group,
+                twelfth_max_marks: mappedData.twelfth_max_marks,
+                twelfth_obtained_marks: mappedData.twelfth_obtained_marks,
+                twelfth_percentage: mappedData.twelfth_percentage,
+              });
             }
 
             // Sanitize data (using enquiry-specific fields)
@@ -390,12 +400,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
               quota: sanitizeValue(mappedData.quota, 'text', 'quota'),
               category: sanitizeValue(mappedData.category, 'text'),
 
-              // SECTION 9: Transport
-              bus_required: sanitizeValue(mappedData.bus_required, 'text'),
-              bus_route: sanitizeValue(mappedData.bus_route, 'text'),
-              bus_pickup_location: sanitizeValue(mappedData.bus_pickup_location, 'text'),
-
-              // SECTION 10: Reference
+              // SECTION 9: Reference
               reference_type: sanitizeValue(mappedData.reference_type, 'text'),
               reference_name: sanitizeValue(mappedData.reference_name, 'text'),
               reference_contact: sanitizeValue(mappedData.reference_contact, 'text'),
@@ -479,6 +484,11 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
       // Debug logging for regulations and batches
       if (process.env.NODE_ENV === 'development') {
+        console.log('[bulk-upload-enquiries] Database validation complete');
+        console.log('[bulk-upload-enquiries] Regulations validation result:', dbValidationResult.regulations);
+        console.log('[bulk-upload-enquiries] Batches validation result:', dbValidationResult.batches);
+        console.log('[bulk-upload-enquiries] First row regulation_name:', parsedRows[0]?.sanitizedData?.regulation_name);
+        console.log('[bulk-upload-enquiries] First row batch_name:', parsedRows[0]?.sanitizedData?.batch_name);
       }
 
       // Merge database validation results with existing validation
@@ -687,6 +697,17 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
           // Debug log for education fields (helps track mapping issues)
           if (process.env.NODE_ENV === 'development') {
+            console.log('[bulk-upload-enquiries] Row', row.rowNumber, 'Education fields:', {
+              last_school: data.last_school,
+              board_of_study: data.board_of_study,
+              tenth_max_marks: data.tenth_max_marks,
+              tenth_obtained_marks: data.tenth_obtained_marks,
+              tenth_percentage: data.tenth_percentage,
+              twelfth_group: data.twelfth_group,
+              twelfth_max_marks: data.twelfth_max_marks,
+              twelfth_obtained_marks: data.twelfth_obtained_marks,
+              twelfth_percentage: data.twelfth_percentage,
+            });
           }
 
           // Build composite keys for hierarchical lookups
@@ -706,6 +727,15 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
           // Debug logging for regulation and batch IDs
           if (process.env.NODE_ENV === 'development') {
+            console.log('[bulk-upload-enquiries] Row', row.rowNumber, 'ID Resolution:', {
+              regulation_name: data.regulation_name,
+              regulation_id,
+              batch_name: data.batch_name,
+              batch_id,
+              academic_year_name: data.academic_year_name,
+              academic_year_id,
+              admission_year: data.admission_year,
+            });
           }
 
           // Prepare data for API with resolved IDs (enquiry specific)
@@ -792,11 +822,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
             counseling_applied: data.counseling_applied === 'TRUE' || data.counseling_applied === 'true',
             quota: data.quota,
             category: data.category,
-
-            // Transport
-            bus_required: data.bus_required === 'TRUE' || data.bus_required === 'true',
-            bus_route: data.bus_route,
-            bus_pickup_location: data.bus_pickup_location,
 
             // Reference
             reference_type: data.reference_type,
@@ -1323,12 +1348,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                         <TableHead className="min-w-[100px]">Quota</TableHead>
                         <TableHead className="min-w-[80px]">Category</TableHead>
 
-                        {/* SECTION 10: Transport */}
-                        <TableHead className="min-w-[100px]">Bus Required</TableHead>
-                        <TableHead className="min-w-[120px]">Bus Route</TableHead>
-                        <TableHead className="min-w-[150px]">Pickup Location</TableHead>
-
-                        {/* SECTION 11: Reference */}
+                        {/* SECTION 10: Reference */}
                         <TableHead className="min-w-[100px]">Ref. Type</TableHead>
                         <TableHead className="min-w-[120px]">Ref. Name</TableHead>
                         <TableHead className="min-w-[120px]">Ref. Contact</TableHead>
@@ -1443,12 +1463,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                           <TableCell className="text-xs">{row.sanitizedData.quota || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.category || '-'}</TableCell>
 
-                          {/* SECTION 10: Transport */}
-                          <TableCell className="text-xs">{row.sanitizedData.bus_required || '-'}</TableCell>
-                          <TableCell className="text-xs">{row.sanitizedData.bus_route || '-'}</TableCell>
-                          <TableCell className="text-xs">{row.sanitizedData.bus_pickup_location || '-'}</TableCell>
-
-                          {/* SECTION 11: Reference */}
+                          {/* SECTION 10: Reference */}
                           <TableCell className="text-xs">{row.sanitizedData.reference_type || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.reference_name || '-'}</TableCell>
                           <TableCell className="text-xs font-mono">{row.sanitizedData.reference_contact || '-'}</TableCell>

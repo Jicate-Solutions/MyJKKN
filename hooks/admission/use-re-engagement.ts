@@ -8,7 +8,6 @@ import {
   type ColdLeadFilters,
   type ReEngagementStats,
 } from '@/lib/services/admission/re-engagement-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -32,12 +31,10 @@ export const reEngagementKeys = {
  * Fetch cold/dormant leads
  */
 export function useColdLeads(filters: ColdLeadFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: reEngagementKeys.coldLeads(filters),
     queryFn: () => ReEngagementService.getColdLeads(filters),
-    enabled: isSuperAdmin || !!filters.institutionId,
+    enabled: !!filters.institutionId,
   });
 
   return {
@@ -54,12 +51,10 @@ export function useColdLeads(filters: ColdLeadFilters) {
  * Fetch re-engagement campaigns (drip sequences)
  */
 export function useReEngagementCampaigns(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: reEngagementKeys.campaigns(institutionId || ''),
     queryFn: () => ReEngagementService.getCampaigns(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {
@@ -75,12 +70,10 @@ export function useReEngagementCampaigns(institutionId?: string) {
  * Fetch re-engagement stats
  */
 export function useReEngagementStats(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: reEngagementKeys.stats(institutionId || ''),
     queryFn: () => ReEngagementService.getStats(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 60000,
   });
 

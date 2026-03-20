@@ -25,14 +25,13 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { Loader2, Save, ArrowLeft, Handshake, Building, Building2, User, Wallet, XCircle, Globe, Calendar, Camera } from 'lucide-react';
+import { Loader2, Save, ArrowLeft, Handshake, Building, User, Wallet, XCircle, Globe, Calendar, Camera } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { UpdateConsultantInput, ConsultantType, ConsultantStatus, ConsultantTier } from '@/types/education-consultants';
+import type { UpdateConsultantInput, ConsultantType } from '@/types/education-consultants';
 import { updateConsultantSchema } from '@/lib/validations/education-consultants';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -55,21 +54,6 @@ const CONSULTANT_TYPES: { value: ConsultantType; label: string }[] = [
   { value: 'student', label: 'Student Referrer' }
 ];
 
-const CONSULTANT_STATUS: { value: ConsultantStatus; label: string }[] = [
-  { value: 'active', label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'pending_verification', label: 'Pending Verification' },
-  { value: 'contract_expired', label: 'Contract Expired' }
-];
-
-const CONSULTANT_TIERS: { value: ConsultantTier; label: string }[] = [
-  { value: 'bronze', label: 'Bronze' },
-  { value: 'silver', label: 'Silver' },
-  { value: 'gold', label: 'Gold' },
-  { value: 'platinum', label: 'Platinum' },
-  { value: 'diamond', label: 'Diamond' }
-];
 
 function EditConsultantSkeleton() {
   return (
@@ -96,7 +80,6 @@ function EditConsultantForm() {
   const queryClient = useQueryClient();
   const consultantId = params.id as string;
   const { profile } = useAuth();
-  const { institutions } = useUserInstitutionAccess();
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
@@ -240,8 +223,16 @@ function EditConsultantForm() {
   });
 
   const onSubmit = (data: UpdateConsultantInput) => {
-    // Transform form field names to match DB column names
-    const { address, notes, geographic_coverage, specializations, programs_handled, id: _id, ...rest } = data as any;
+    // Transform form field names to match DB column names.
+    // status/tier are stripped here — they live on consultant_institutions (junction table),
+    // not on education_consultants. Use updateConsultantInstitution to change them.
+    const {
+      address, notes, geographic_coverage, specializations, programs_handled,
+      status: _status, tier: _tier,
+      contract_start_date: _csd, contract_end_date: _ced,
+      id: _id,
+      ...rest
+    } = data as any;
     const dbData: Record<string, any> = {
       ...rest,
       id: consultantId,
@@ -345,20 +336,6 @@ function EditConsultantForm() {
                   </p>
                 </div>
 
-                {/* Read-only institution display — institution cannot be changed after creation */}
-                {consultant && (
-                  <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
-                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-xs text-muted-foreground font-medium">Institution:</span>
-                    <span className="text-sm font-medium">
-                      {institutions.find(i => i.institution_id === (consultant as any)?.institution_id)?.institution_name
-                        ?? (consultant as any)?.institution_id
-                        ?? '—'}
-                    </span>
-                    <span className="text-xs text-muted-foreground ml-auto">(cannot be changed after creation)</span>
-                  </div>
-                )}
-
                 <div className="grid gap-4 md:grid-cols-2">
                   <FormField
                     control={form.control}
@@ -415,33 +392,6 @@ function EditConsultantForm() {
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name="status"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Status *</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select status" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {CONSULTANT_STATUS.map((status) => (
-                              <SelectItem key={status.value} value={status.value}>
-                                {status.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="phone"
@@ -630,60 +580,34 @@ function EditConsultantForm() {
                   />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="tier"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Consultant Tier</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select tier" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {CONSULTANT_TIERS.map((tier) => (
-                              <SelectItem key={tier.value} value={tier.value}>
-                                {tier.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Performance-based tier (affects commission rates)
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <p className="text-sm text-muted-foreground">
+                  Status and tier are managed per institution in the institution link settings.
+                </p>
 
-                  <FormField
-                    control={form.control}
-                    name="relationship_score"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Relationship Score (0-100)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            min="0"
-                            max="100"
-                            placeholder="50"
-                            {...field}
-                            value={field.value || 50}
-                            onChange={e => field.onChange(parseInt(e.target.value) || 50)}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Internal relationship strength metric
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                <FormField
+                  control={form.control}
+                  name="relationship_score"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Relationship Score (0-100)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="50"
+                          {...field}
+                          value={field.value || 50}
+                          onChange={e => field.onChange(parseInt(e.target.value) || 50)}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Internal relationship strength metric
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}
@@ -859,7 +783,7 @@ function EditConsultantForm() {
 
 export default function EditConsultantPage() {
   return (
-    <PermissionGuard module="consultants" action="edit">
+    <PermissionGuard module="admission.consultants" action="edit">
       <ContentLayout title="Edit Consultant">
         <Breadcrumb>
           <BreadcrumbList>

@@ -2,19 +2,38 @@
 // Import API for bulk consultant upload
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { parseExcelFile, mapColumns } from '@/lib/utils/excel-parser';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { parseExcelFile } from '@/lib/utils/excel-parser';
 import {
   CONSULTANT_COLUMN_MAPPING,
   CONSULTANT_REQUIRED_FIELDS,
   parseArrayField,
   parseNumberField,
   normalizeConsultantType,
-  normalizeStatus,
-  normalizeTier,
   cleanPhoneNumber,
-  parseDateField,
 } from '@/lib/utils/mappings/consultant-excel-mappings';
+
+/**
+ * Map Excel row data to DB fields using CONSULTANT_COLUMN_MAPPING.
+ * The mapping is { excelHeader: dbField }, so we iterate over its entries
+ * and look up each Excel header key in the raw row data.
+ */
+function mapConsultantRow(rowData: Record<string, any>): Record<string, any> {
+  // Normalize row keys: strip trailing asterisks (template marks required fields with *)
+  const normalizedRow: Record<string, any> = {};
+  for (const [key, value] of Object.entries(rowData)) {
+    normalizedRow[key.replace(/\*+$/, '').trim()] = value;
+  }
+
+  const mapped: Record<string, any> = {};
+  for (const [excelHeader, dbField] of Object.entries(CONSULTANT_COLUMN_MAPPING)) {
+    const value = normalizedRow[excelHeader];
+    if (value !== undefined && value !== null && value !== '') {
+      mapped[dbField] = value;
+    }
+  }
+  return mapped;
+}
 
 interface ImportError {
   row: number;
@@ -33,27 +52,24 @@ interface ImportResult {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createServerSupabaseClient();
-
-    // Get current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // Auth client: verify user identity and fetch profile (respects RLS/JWT)
+    const authClient = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile for institution_id
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await authClient
       .from('profiles')
       .select('institution_id, full_name')
       .eq('id', user.id)
       .single();
 
-    if (!profile?.institution_id) {
-      return NextResponse.json(
-        { error: 'User must be associated with an institution' },
-        { status: 400 }
-      );
-    }
+    // Service role client: bypasses RLS for bulk DB operations.
+    // Required because education_consultants SELECT policy checks for a
+    // consultant_institutions row that doesn't exist yet at insert time,
+    // which blocks the RETURNING clause and makes successCount always 0.
+    const supabase = createServiceRoleClient();
 
     // Parse form data
     const formData = await request.formData();
@@ -65,48 +81,66 @@ export async function POST(request: NextRequest) {
 
     // Validate file type
     if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      console.error('[consultant-import] Invalid file type:', file.name);
       return NextResponse.json(
         { error: 'Invalid file type. Please upload an Excel file (.xlsx or .xls)' },
         { status: 400 }
       );
     }
 
-    // Parse Excel file
-    const parseResult = await parseExcelFile(file, 'Consultants');
+    // Parse Excel file — no sheet name argument so parser uses the first available
+    // sheet. The downloaded template has a "Consultants" sheet, but user-created
+    // files typically use the default "Sheet1".
+    const parseResult = await parseExcelFile(file);
     if (parseResult.errors.length > 0) {
+      console.error('[consultant-import] Parse errors:', parseResult.errors);
       return NextResponse.json(
-        { success: false, errors: parseResult.errors.map((msg, i) => ({ row: 0, message: msg })) },
+        {
+          success: false,
+          successCount: 0,
+          errorCount: 0,
+          totalRows: 0,
+          errors: parseResult.errors.map((msg) => ({ row: 0, message: msg })),
+        },
         { status: 400 }
       );
     }
 
     if (parseResult.rows.length === 0) {
       return NextResponse.json(
-        { success: false, errors: [{ row: 0, message: 'No data found in the file' }] },
+        {
+          success: false,
+          successCount: 0,
+          errorCount: 0,
+          totalRows: 0,
+          errors: [{ row: 0, message: 'No data found in the file' }],
+        },
         { status: 400 }
       );
     }
-
-    // Get existing consultants for duplicate detection
+    // --- Duplicate detection ---
+    // education_consultants is a global table (no institution_id column).
+    // We check phone/email globally to prevent duplicate consultant profiles.
     const { data: existingConsultants } = await supabase
       .from('education_consultants')
-      .select('phone, email')
-      .eq('institution_id', profile.institution_id);
+      .select('phone, email');
 
-    const existingPhones = new Set(existingConsultants?.map(c => cleanPhoneNumber(c.phone)) || []);
+    const existingPhones = new Set(
+      existingConsultants?.map(c => cleanPhoneNumber(c.phone)).filter(Boolean) || []
+    );
     const existingEmails = new Set(
       existingConsultants?.map(c => c.email?.toLowerCase()).filter(Boolean) || []
     );
 
-    // Process rows
+    // --- Process rows ---
     const errors: ImportError[] = [];
-    const validConsultants: any[] = [];
+    const validRows: Array<{ profile: Record<string, any> }> = [];
     const duplicatePhones: string[] = [];
     const seenPhones = new Set<string>();
 
     for (const row of parseResult.rows) {
       const rowNum = row.rowNumber;
-      const mappedData = mapColumns(row.data, CONSULTANT_COLUMN_MAPPING as Record<string, string[]>);
+      const mappedData = mapConsultantRow(row.data);
 
       // Validate required fields
       const missingFields = CONSULTANT_REQUIRED_FIELDS.filter(field => !mappedData[field]);
@@ -130,7 +164,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Check for duplicate phone in file
+      // Check for duplicate phone within the file
       if (seenPhones.has(phone)) {
         duplicatePhones.push(phone);
         errors.push({
@@ -153,7 +187,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Validate and normalize consultant type
+      // Normalize consultant type
       const consultantType = normalizeConsultantType(mappedData.consultant_type);
       if (!consultantType) {
         errors.push({
@@ -185,63 +219,65 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Build consultant record
-      const consultant = {
-        institution_id: profile.institution_id,
+      // --- Build consultant profile (global, no institution-specific fields) ---
+      // NOTE: education_consultants was refactored 2026-02-26 to a global entity.
+      // institution_id / status / tier / contract dates now live on consultant_institutions.
+      // Array column names also differ from the CONSULTANT_COLUMN_MAPPING legacy names:
+      //   geographic_coverage → covered_states
+      //   specializations     → specialized_degrees
+      //   programs_handled    → specialized_programs
+      //   notes               → internal_notes
+      const consultantProfile: Record<string, any> = {
         name: String(mappedData.name).trim(),
-        phone: phone,
+        phone,
         consultant_type: consultantType,
         email: email || null,
         contact_person: mappedData.contact_person?.trim() || null,
         alternate_phone: cleanPhoneNumber(mappedData.alternate_phone) || null,
         website: mappedData.website?.trim() || null,
-        address: mappedData.address?.trim() || null,
+        address_line1: mappedData.address_line1?.trim() || null,
         city: mappedData.city?.trim() || null,
         state: mappedData.state?.trim() || null,
         country: mappedData.country?.trim() || 'India',
         pincode: mappedData.pincode?.toString().trim() || null,
         bank_name: mappedData.bank_name?.trim() || null,
         bank_account_number: mappedData.bank_account_number?.toString().trim() || null,
-        bank_ifsc: mappedData.bank_ifsc?.toUpperCase().trim() || null,
+        bank_ifsc: mappedData.bank_ifsc_code?.toUpperCase().trim() || null,
         bank_account_holder: mappedData.bank_account_holder?.trim() || null,
         pan_number: mappedData.pan_number?.toUpperCase().trim() || null,
         gst_number: mappedData.gst_number?.toUpperCase().trim() || null,
-        geographic_coverage: parseArrayField(mappedData.geographic_coverage),
-        specializations: parseArrayField(mappedData.specializations),
-        programs_handled: parseArrayField(mappedData.programs_handled),
-        tier: normalizeTier(mappedData.tier),
+        covered_states: parseArrayField(mappedData.geographic_coverage),
+        specialized_degrees: parseArrayField(mappedData.specializations),
+        specialized_programs: parseArrayField(mappedData.programs_handled),
         total_leads_referred: parseNumberField(mappedData.total_leads_referred, 0),
-        total_conversions: parseNumberField(mappedData.total_conversions, 0),
+        total_conversions: parseNumberField(mappedData.successful_conversions, 0),
         total_commission_earned: parseNumberField(mappedData.total_commission_earned, 0),
         pending_commission: 0,
-        relationship_score: 50, // Default score
+        relationship_score: 50,
         conversion_rate: 0,
-        contract_start_date: parseDateField(mappedData.contract_start_date),
-        contract_end_date: parseDateField(mappedData.contract_end_date),
-        status: normalizeStatus(mappedData.status),
-        notes: mappedData.notes?.trim() || null,
-        tags: parseArrayField(mappedData.tags),
-        created_by: user.id,
+        internal_notes: mappedData.notes?.trim() || null,
       };
 
-      // Calculate conversion rate if historical data provided
-      if (consultant.total_leads_referred > 0) {
-        consultant.conversion_rate = (consultant.total_conversions / consultant.total_leads_referred) * 100;
+      // Derive conversion rate from historical data if provided
+      if (consultantProfile.total_leads_referred > 0) {
+        consultantProfile.conversion_rate =
+          (consultantProfile.total_conversions / consultantProfile.total_leads_referred) * 100;
       }
 
-      validConsultants.push(consultant);
+      validRows.push({ profile: consultantProfile });
     }
 
-    // Insert valid consultants
+    // --- Insert valid consultants into the global education_consultants table ---
     let successCount = 0;
-    if (validConsultants.length > 0) {
-      const { data: insertedData, error: insertError } = await supabase
+
+    if (validRows.length > 0) {
+      const { data: insertedConsultants, error: insertError } = await supabase
         .from('education_consultants')
-        .insert(validConsultants)
+        .insert(validRows.map(r => r.profile))
         .select('id');
 
       if (insertError) {
-        console.error('[consultant-import] Insert error:', insertError);
+        console.error('[consultant-import] Profile insert error:', insertError);
         return NextResponse.json(
           {
             success: false,
@@ -254,7 +290,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      successCount = insertedData?.length || 0;
+      successCount = insertedConsultants?.length || 0;
     }
 
     const result: ImportResult = {

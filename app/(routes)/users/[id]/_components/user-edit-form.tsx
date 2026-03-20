@@ -187,7 +187,6 @@ export function UserEditForm({ user }: UserEditFormProps) {
 
       toast.success('User updated successfully');
       router.push(`/users/${user.id}`);
-      router.refresh();
     } catch (error) {
       console.error('Error updating user:', error);
       toast.error(

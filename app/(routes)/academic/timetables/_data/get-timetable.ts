@@ -4,7 +4,18 @@
  * Cached server function for fetching individual timetable.
  */
 
-
+/**
+ * SERVER-SIDE DATA FETCHER — runs in React Server Components using server Supabase client.
+ * Client-side mirror: {@link TimetableService#getTimetable} in lib/services/academic/timetable-service.ts
+ *
+ * NOTE: The service mirror uses FK-alias join syntax (e.g. `institution:institution_id(id, name)`)
+ * while this fetcher uses table-name alias syntax (e.g. `institution:institutions(id, name)`).
+ * Both resolve to the same data in PostgREST — keep select fields in sync.
+ * The service also enriches the result with `timetable_data` course/staff details after fetching.
+ *
+ * Do not replace with service call — server vs client Supabase boundary.
+ * Keep query shapes in sync when modifying either side.
+ */
 
 import { createClient } from '@/lib/supabase/server';
 
@@ -32,10 +43,10 @@ export async function getTimetable(id: string): Promise<Timetable> {
       `
       *,
       institution:institutions(id, name, counselling_code),
-      academic_year:academic_years!timetables_academic_year_id_fkey(id, academic_year_name),
+      academic_year:academic_years(id, academic_year_name),
       degree:degrees(id, degree_name),
       program:programs(id, program_name),
-      department:departments!timetables_department_id_fkey(id, department_name),
+      department:departments(id, department_name),
       semester:semesters(id, semester_name, program_id, degree_id),
       section:sections(id, section_name)
     `

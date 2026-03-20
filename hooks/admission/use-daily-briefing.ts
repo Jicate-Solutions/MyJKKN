@@ -8,7 +8,6 @@ import {
   DailyBriefing,
   BriefingRole
 } from '@/lib/services/admission/daily-briefing-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // Query key factory for briefings
 export const dailyBriefingKeys = {
@@ -32,7 +31,6 @@ export function useDailyBriefing(
   date?: string,
   options?: { autoGenerate?: boolean }
 ) {
-  const { isSuperAdmin } = usePermissions();
   const briefingDate = date || new Date().toISOString().split('T')[0];
   const autoGenerate = options?.autoGenerate ?? true;
 
@@ -55,8 +53,7 @@ export function useDailyBriefing(
 
       return null;
     },
-    // super_admin can query without institution scope (userId and role still needed)
-    enabled: !!userId && !!role && (isSuperAdmin || !!institutionId),
+    enabled: !!userId && !!institutionId && !!role,
     staleTime: 5 * 60 * 1000, // 5 minutes
     gcTime: 30 * 60 * 1000 // 30 minutes (formerly cacheTime)
   });

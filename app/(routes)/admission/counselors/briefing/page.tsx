@@ -16,7 +16,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
-import { useLatestBriefing, useBriefingNotifications } from '@/hooks/admission/use-briefing-notifications';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useLatestBriefing, useGenerateBriefing } from '@/hooks/admission/use-briefing-notifications';
 import {
   Sparkles,
   TrendingUp,
@@ -34,7 +35,8 @@ import {
   RefreshCw,
   ChevronRight,
   BarChart3,
-  Calendar
+  Calendar,
+  Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -215,9 +217,16 @@ function HighlightCard({
 
 function BriefingPageContent() {
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id;
+  const { selectedInstitutionId: institutionId } = useUserInstitutionAccess();
 
   const { data: briefing, isLoading, refetch, isRefetching } = useLatestBriefing(institutionId);
+  const generateBriefing = useGenerateBriefing();
+
+  const handleGenerate = () => {
+    if (profile?.id && institutionId) {
+      generateBriefing.mutate({ userId: profile.id, institutionId });
+    }
+  };
 
   const handlePrint = () => {
     window.print();
@@ -260,14 +269,25 @@ function BriefingPageContent() {
                 <Sparkles className="h-16 w-16 text-muted-foreground/50 mb-4" />
                 <h3 className="text-lg font-semibold mb-2">No Briefing Available</h3>
                 <p className="text-muted-foreground max-w-md">
-                  Your daily briefing has not been generated yet. Briefings are typically
-                  generated in the morning based on your admission pipeline data.
+                  Your daily briefing has not been generated yet. Generate one now to see
+                  your admission pipeline summary, hot leads, and action items for today.
                 </p>
-                <Button className="mt-6" asChild>
-                  <Link href="/admission/dashboard">
-                    Go to Dashboard
-                  </Link>
-                </Button>
+                <div className="flex gap-3 mt-6">
+                  <Button
+                    onClick={handleGenerate}
+                    disabled={generateBriefing.isPending || !institutionId}
+                  >
+                    {generateBriefing.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4 mr-2" />
+                    )}
+                    Generate Today&apos;s Briefing
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <Link href="/admission/dashboard">Go to Dashboard</Link>
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>

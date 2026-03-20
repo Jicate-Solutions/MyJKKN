@@ -45,7 +45,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useFollowUpReminders,
   useCompleteReminder,
@@ -1088,8 +1089,10 @@ function RemindersSkeleton() {
 // ============================================================================
 
 function AdmissionRemindersPageContent() {
-  const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
-  const { reminders, isLoading, refetch } = useFollowUpReminders(selectedInstitutionId);
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+  const { reminders, isLoading, refetch } = useFollowUpReminders(institutionId);
   const completeReminder = useCompleteReminder();
   const snoozeReminder = useSnoozeReminder();
 
@@ -1202,7 +1205,7 @@ function AdmissionRemindersPageContent() {
     toast.success('Rule added');
   };
 
-  const dataLoading = accessLoading || isLoading;
+  const dataLoading = isLoading;
 
   return (
     <PermissionGuard module="admission" action="view">
@@ -1447,7 +1450,7 @@ function AdmissionRemindersPageContent() {
         <CreateReminderDialog
           open={createDialogOpen}
           onOpenChange={setCreateDialogOpen}
-          institutionId={selectedInstitutionId}
+          institutionId={institutionId}
         />
         <RuleSettingsDialog
           rule={ruleSettingsTarget}

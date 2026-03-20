@@ -1,31 +1,60 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { DataTable } from '@/components/data-table/data-table';
 import { changeRequestColumns } from './columns';
 import type { ProfileChangeRequest } from '@/types/learner-profile-change';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { CheckCircle, XCircle } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { ChangeRequestsSearchWrapper } from './change-requests-search-wrapper';
 import { ChangeRequestsFilters, type ChangeRequestFilters } from './change-requests-filters';
 import type { LearnerSearchFilters } from '@/components/learners/learner-advanced-search-shared';
+import toast from 'react-hot-toast';
 
 interface ChangeRequestsClientProps {
   initialData: ProfileChangeRequest[];
+  effectiveRole: string;
 }
 
 /**
  * Change Requests Client Component
  *
  * Displays pending/approved/rejected profile change requests in a table
- * with status filter tabs and search functionality
+ * with status filter tabs, search functionality, and bulk approve/reject actions
  */
-export function ChangeRequestsClient({ initialData }: ChangeRequestsClientProps) {
+export function ChangeRequestsClient({ initialData, effectiveRole }: ChangeRequestsClientProps) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'rejected'>('pending');
   const [searchFilters, setSearchFilters] = useState<LearnerSearchFilters | null>(null);
   const [advancedFilters, setAdvancedFilters] = useState<ChangeRequestFilters>({});
+
+  // Bulk action state
+  const [showApproveDialog, setShowApproveDialog] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [bulkSelectedRows, setBulkSelectedRows] = useState<ProfileChangeRequest[]>([]);
+  const [resetSelectionFn, setResetSelectionFn] = useState<(() => void) | null>(null);
+  const [approveComments, setApproveComments] = useState('');
+  const [rejectComments, setRejectComments] = useState('');
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+
+  // Only super_admin and hod can use bulk actions
+  const canBulkAction = effectiveRole === 'super_admin' || effectiveRole === 'hod';
 
   // Apply search filters to data
   const applySearchFilters = useCallback((data: ProfileChangeRequest[], filters: LearnerSearchFilters) => {
@@ -190,6 +219,176 @@ export function ChangeRequestsClient({ initialData }: ChangeRequestsClientProps)
   }, []);
 
   /**
+   * Open bulk approve dialog
+   */
+  const handleBulkApprove = (selectedRows: ProfileChangeRequest[], resetSelection: () => void) => {
+    if (selectedRows.length === 0) return;
+    setBulkSelectedRows(selectedRows);
+    setResetSelectionFn(() => resetSelection);
+    setApproveComments('');
+    setShowApproveDialog(true);
+  };
+
+  /**
+   * Open bulk reject dialog
+   */
+  const handleBulkReject = (selectedRows: ProfileChangeRequest[], resetSelection: () => void) => {
+    if (selectedRows.length === 0) return;
+    setBulkSelectedRows(selectedRows);
+    setResetSelectionFn(() => resetSelection);
+    setRejectComments('');
+    setShowRejectDialog(true);
+  };
+
+  /**
+   * Execute bulk approve via API
+   */
+  const confirmBulkApprove = async () => {
+    if (bulkSelectedRows.length === 0) return;
+
+    setIsBulkProcessing(true);
+
+    try {
+      const response = await fetch('/api/learners/change-requests/batch/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_ids: bulkSelectedRows.map((r) => r.id),
+          review_comments: approveComments || undefined,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to bulk approve');
+      }
+
+      // Close dialog and reset
+      setShowApproveDialog(false);
+      setBulkSelectedRows([]);
+      if (resetSelectionFn) resetSelectionFn();
+
+      // Show results
+      const succeeded = result.succeeded?.length || 0;
+      const failed = result.failed?.length || 0;
+
+      if (succeeded > 0 && failed === 0) {
+        toast.success(`${succeeded} request${succeeded > 1 ? 's' : ''} approved successfully`);
+      } else if (succeeded > 0 && failed > 0) {
+        toast.success(`${succeeded} request${succeeded > 1 ? 's' : ''} approved`);
+        toast.error(`${failed} request${failed > 1 ? 's' : ''} failed to approve`);
+      } else if (failed > 0) {
+        toast.error(`Failed to approve ${failed} request${failed > 1 ? 's' : ''}`);
+      }
+
+      // Refresh page to get updated data
+      router.refresh();
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (error: any) {
+      console.error('[change-requests-client] Bulk approve error:', error);
+      toast.error(error.message || 'Failed to bulk approve requests');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  /**
+   * Execute bulk reject via API
+   */
+  const confirmBulkReject = async () => {
+    if (bulkSelectedRows.length === 0) return;
+
+    if (!rejectComments.trim()) {
+      toast.error('Rejection reason is required');
+      return;
+    }
+
+    setIsBulkProcessing(true);
+
+    try {
+      const response = await fetch('/api/learners/change-requests/batch/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          request_ids: bulkSelectedRows.map((r) => r.id),
+          review_comments: rejectComments,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to bulk reject');
+      }
+
+      // Close dialog and reset
+      setShowRejectDialog(false);
+      setBulkSelectedRows([]);
+      if (resetSelectionFn) resetSelectionFn();
+
+      // Show results
+      const succeeded = result.succeeded?.length || 0;
+      const failed = result.failed?.length || 0;
+
+      if (succeeded > 0 && failed === 0) {
+        toast.success(`${succeeded} request${succeeded > 1 ? 's' : ''} rejected successfully`);
+      } else if (succeeded > 0 && failed > 0) {
+        toast.success(`${succeeded} request${succeeded > 1 ? 's' : ''} rejected`);
+        toast.error(`${failed} request${failed > 1 ? 's' : ''} failed to reject`);
+      } else if (failed > 0) {
+        toast.error(`Failed to reject ${failed} request${failed > 1 ? 's' : ''}`);
+      }
+
+      // Refresh page to get updated data
+      router.refresh();
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (error: any) {
+      console.error('[change-requests-client] Bulk reject error:', error);
+      toast.error(error.message || 'Failed to bulk reject requests');
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
+
+  /**
+   * Custom toolbar with bulk action buttons
+   * Only visible on Pending tab for super_admin and hod roles
+   */
+  const renderBulkActionToolbar = (props: {
+    selectedRows: any[];
+    allSelectedIds: (string | number)[];
+    totalSelectedCount: number;
+    resetSelection: () => void;
+  }) => {
+    // Only show bulk actions on pending tab and for authorized roles
+    if (statusFilter !== 'pending' || !canBulkAction) return null;
+    if (props.selectedRows.length === 0) return null;
+
+    return (
+      <div className="flex items-center gap-2">
+        <Button
+          onClick={() => handleBulkApprove(props.selectedRows as ProfileChangeRequest[], props.resetSelection)}
+          size="sm"
+          className="h-8 bg-green-600 hover:bg-green-700 text-white"
+        >
+          <CheckCircle className="mr-2 h-4 w-4" />
+          Approve Selected ({props.selectedRows.length})
+        </Button>
+        <Button
+          onClick={() => handleBulkReject(props.selectedRows as ProfileChangeRequest[], props.resetSelection)}
+          variant="destructive"
+          size="sm"
+          className="h-8"
+        >
+          <XCircle className="mr-2 h-4 w-4" />
+          Reject Selected ({props.selectedRows.length})
+        </Button>
+      </div>
+    );
+  };
+
+  /**
    * Empty state message based on status filter
    */
   const getEmptyMessage = () => {
@@ -210,46 +409,158 @@ export function ChangeRequestsClient({ initialData }: ChangeRequestsClientProps)
   };
 
   return (
-    <Tabs defaultValue="pending" value={statusFilter} onValueChange={(val) => setStatusFilter(val as any)}>
-      <TabsList>
-        <TabsTrigger value="pending">Pending</TabsTrigger>
-        <TabsTrigger value="approved">Approved</TabsTrigger>
-        <TabsTrigger value="rejected">Rejected</TabsTrigger>
-      </TabsList>
+    <>
+      <Tabs defaultValue="pending" value={statusFilter} onValueChange={(val) => setStatusFilter(val as any)}>
+        <TabsList>
+          <TabsTrigger value="pending">Pending</TabsTrigger>
+          <TabsTrigger value="approved">Approved</TabsTrigger>
+          <TabsTrigger value="rejected">Rejected</TabsTrigger>
+        </TabsList>
 
-      <TabsContent value={statusFilter} className="space-y-4">
-        {/* Advanced Search */}
-        <ChangeRequestsSearchWrapper onSearch={handleSearch} onClear={handleClear} />
+        <TabsContent value={statusFilter} className="space-y-4">
+          {/* Advanced Search */}
+          <ChangeRequestsSearchWrapper onSearch={handleSearch} onClear={handleClear} />
 
-        {/* Advanced Filters */}
-        <ChangeRequestsFilters onFiltersChange={handleFiltersChange} />
-        {filteredData.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <p className="text-sm text-muted-foreground">{getEmptyMessage()}</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <DataTable
-            fetchDataFn={fetchData}
-            getColumns={() => changeRequestColumns as any}
-            exportConfig={{
-              entityName: `change-requests-${statusFilter}`,
-              columnMapping: {},
-              columnWidths: [],
-              headers: [],
-            }}
-            idField="id"
-            config={{
-              enableUrlState: true, // Enable URL state for pagination
-              enableDateFilter: false,
-              enableExport: false,
-              enableRowSelection: true,
-              enableSearch: false, // Disabled - using custom advanced search instead
-            }}
-          />
-        )}
-      </TabsContent>
-    </Tabs>
+          {/* Advanced Filters */}
+          <ChangeRequestsFilters onFiltersChange={handleFiltersChange} />
+          {filteredData.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <p className="text-sm text-muted-foreground">{getEmptyMessage()}</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <DataTable
+              fetchDataFn={fetchData}
+              getColumns={() => changeRequestColumns as any}
+              exportConfig={{
+                entityName: `change-requests-${statusFilter}`,
+                columnMapping: {},
+                columnWidths: [],
+                headers: [],
+              }}
+              idField="id"
+              config={{
+                enableUrlState: true,
+                enableDateFilter: false,
+                enableExport: false,
+                enableRowSelection: true,
+                enableSearch: false,
+              }}
+              renderToolbarContent={renderBulkActionToolbar}
+            />
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* Bulk Approve Confirmation Dialog */}
+      <AlertDialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isBulkProcessing
+                ? 'Approving change requests...'
+                : `Bulk Approve ${bulkSelectedRows.length} Change Request${bulkSelectedRows.length > 1 ? 's' : ''}`
+              }
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isBulkProcessing
+                ? 'Please wait while the selected requests are being approved. Do not close this dialog.'
+                : `You are about to approve ${bulkSelectedRows.length} change request${bulkSelectedRows.length > 1 ? 's' : ''}. This will update each student's profile with their requested changes.`
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {!isBulkProcessing && (
+            <div className="px-6 pb-2">
+              <Label htmlFor="approve-comments" className="text-sm font-medium">
+                Comments (Optional)
+              </Label>
+              <Textarea
+                id="approve-comments"
+                placeholder="Add optional comments for the approval..."
+                value={approveComments}
+                onChange={(e) => setApproveComments(e.target.value)}
+                className="mt-1.5"
+                rows={3}
+              />
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkProcessing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmBulkApprove}
+              disabled={isBulkProcessing}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isBulkProcessing ? (
+                <span className="flex items-center gap-2">
+                  <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  Approving...
+                </span>
+              ) : (
+                `Approve All (${bulkSelectedRows.length})`
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Reject Confirmation Dialog */}
+      <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isBulkProcessing
+                ? 'Rejecting change requests...'
+                : `Bulk Reject ${bulkSelectedRows.length} Change Request${bulkSelectedRows.length > 1 ? 's' : ''}`
+              }
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isBulkProcessing
+                ? 'Please wait while the selected requests are being rejected. Do not close this dialog.'
+                : `You are about to reject ${bulkSelectedRows.length} change request${bulkSelectedRows.length > 1 ? 's' : ''}. Students will be notified of the rejection.`
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {!isBulkProcessing && (
+            <div className="px-6 pb-2">
+              <Label htmlFor="reject-comments" className="text-sm font-medium">
+                Rejection Reason <span className="text-red-500">*</span>
+              </Label>
+              <Textarea
+                id="reject-comments"
+                placeholder="Provide a reason for rejecting these requests..."
+                value={rejectComments}
+                onChange={(e) => setRejectComments(e.target.value)}
+                className="mt-1.5"
+                rows={3}
+                required
+              />
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkProcessing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmBulkReject}
+              disabled={isBulkProcessing || !rejectComments.trim()}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isBulkProcessing ? (
+                <span className="flex items-center gap-2">
+                  <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                  Rejecting...
+                </span>
+              ) : (
+                `Reject All (${bulkSelectedRows.length})`
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

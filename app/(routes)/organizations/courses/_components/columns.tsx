@@ -6,7 +6,7 @@ import type { CheckedState } from '@radix-ui/react-checkbox';
 import { Badge } from '@/components/ui/badge';
 import { DataTableRowActions } from './row-actions';
 import { Course } from '@/types/organizations';
-import { BookOpen, Clock } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import Link from 'next/link';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 
@@ -85,23 +85,6 @@ export const columns: ColumnDef<Course>[] = [
     },
     enableSorting: false,
     size: 200
-  },
-  {
-    accessorKey: 'learning_hours_target',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Hours' />
-    ),
-    cell: ({ row }) => {
-      const hours = row.getValue('learning_hours_target') as number | null;
-      if (!hours) return <span className='text-muted-foreground text-sm'>—</span>;
-      return (
-        <span className='flex items-center gap-1 text-sm'>
-          <Clock className='h-3.5 w-3.5 text-muted-foreground' />
-          {hours}h
-        </span>
-      );
-    },
-    size: 80
   },
   {
     accessorKey: 'is_active',

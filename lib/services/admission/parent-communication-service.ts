@@ -115,7 +115,7 @@ export class ParentCommunicationService {
    * Get recent communication logs (SMS + WhatsApp) for parent communication
    */
   static async getCommunicationLogs(
-    institutionId: string | undefined,
+    institutionId: string,
     options?: { limit?: number; leadId?: string }
   ): Promise<CommunicationLogEntry[]> {
     const limit = options?.limit || 50;
@@ -123,9 +123,10 @@ export class ParentCommunicationService {
     // Fetch SMS logs
     let smsQuery = (this.supabase as any)
       .from('admission_sms_logs')
-      .select('id, lead_id, phone_number, message_content, status, sent_at, delivered_at, created_at');
-    if (institutionId) smsQuery = smsQuery.eq('institution_id', institutionId);
-    smsQuery = smsQuery.order('created_at', { ascending: false }).limit(limit);
+      .select('id, lead_id, phone_number, message_content, status, sent_at, delivered_at, created_at')
+      .eq('institution_id', institutionId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
     if (options?.leadId) {
       smsQuery = smsQuery.eq('lead_id', options.leadId);
@@ -134,9 +135,10 @@ export class ParentCommunicationService {
     // Fetch WhatsApp logs
     let waQuery = (this.supabase as any)
       .from('admission_whatsapp_logs')
-      .select('id, lead_id, recipient_phone, message_content, delivery_status, sent_at, delivered_at, created_at');
-    if (institutionId) waQuery = waQuery.eq('institution_id', institutionId);
-    waQuery = waQuery.order('created_at', { ascending: false }).limit(limit);
+      .select('id, lead_id, recipient_phone, message_content, delivery_status, sent_at, delivered_at, created_at')
+      .eq('institution_id', institutionId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
 
     if (options?.leadId) {
       waQuery = waQuery.eq('lead_id', options.leadId);
@@ -183,45 +185,41 @@ export class ParentCommunicationService {
   /**
    * Get parent communication stats
    */
-  static async getStats(institutionId: string | undefined): Promise<ParentCommStats> {
-    // With parent info
-    let withParentQuery = (this.supabase as any)
-      .from('admission_leads')
-      .select('id, engagement_score', { count: 'exact' });
-    if (institutionId) withParentQuery = withParentQuery.eq('institution_id', institutionId);
-    withParentQuery = withParentQuery.eq('is_active', true).not('parent_name', 'is', null);
-
-    // Without parent info
-    let withoutParentQuery = (this.supabase as any)
-      .from('admission_leads')
-      .select('id', { count: 'exact' });
-    if (institutionId) withoutParentQuery = withoutParentQuery.eq('institution_id', institutionId);
-    withoutParentQuery = withoutParentQuery.eq('is_active', true).is('parent_name', null);
-
-    // Recent SMS (last 7 days)
-    let smsLogsQuery = (this.supabase as any)
-      .from('admission_sms_logs')
-      .select('id', { count: 'exact' });
-    if (institutionId) smsLogsQuery = smsLogsQuery.eq('institution_id', institutionId);
-    smsLogsQuery = smsLogsQuery.gte(
-      'created_at',
-      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-    );
-
+  static async getStats(institutionId: string): Promise<ParentCommStats> {
     const [withParentResult, withoutParentResult, logsResult] =
-      await Promise.all([withParentQuery, withoutParentQuery, smsLogsQuery]);
+      await Promise.all([
+        (this.supabase as any)
+          .from('admission_leads')
+          .select('id, engagement_score', { count: 'exact' })
+          .eq('institution_id', institutionId)
+          .eq('is_active', true)
+          .not('parent_name', 'is', null),
+        (this.supabase as any)
+          .from('admission_leads')
+          .select('id', { count: 'exact' })
+          .eq('institution_id', institutionId)
+          .eq('is_active', true)
+          .is('parent_name', null),
+        // Recent communications (last 7 days) from both SMS and WhatsApp
+        (this.supabase as any)
+          .from('admission_sms_logs')
+          .select('id', { count: 'exact' })
+          .eq('institution_id', institutionId)
+          .gte(
+            'created_at',
+            new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+          ),
+      ]);
 
     // Also get WhatsApp recent count
-    let waLogsQuery = (this.supabase as any)
+    const waLogsResult = await (this.supabase as any)
       .from('admission_whatsapp_logs')
-      .select('id', { count: 'exact' });
-    if (institutionId) waLogsQuery = waLogsQuery.eq('institution_id', institutionId);
-    waLogsQuery = waLogsQuery.gte(
-      'created_at',
-      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-    );
-
-    const waLogsResult = await waLogsQuery;
+      .select('id', { count: 'exact' })
+      .eq('institution_id', institutionId)
+      .gte(
+        'created_at',
+        new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      );
 
     const leadsWithParent = withParentResult.data || [];
     const totalWithParent = withParentResult.count || 0;

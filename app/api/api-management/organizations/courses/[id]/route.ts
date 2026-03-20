@@ -1,37 +1,107 @@
-import { NextResponse } from 'next/server'
-import { corsHeaders } from '@/lib/api-keys/cors'
-import { withAuth } from '@/lib/auth/with-auth'
-import { errorResponse } from '@/lib/api-keys/response-helpers'
+import { createServerClient } from '@supabase/ssr';
+import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'crypto';
+import { corsHeaders } from '@/lib/api-keys/cors';
 
-export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders })
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
 
-export const GET = withAuth(async (request, auth, context) => {
-  const { id } = await context!.params!
-  const institutionId = auth.institutionId
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    // Await params as required in Next.js 15
+    const { id } = await params;
 
-  if (auth.authMethod === 'api_key' && !institutionId) {
-    return errorResponse('API key must be associated with an organization', 400)
-  }
+    // Use service role key for API key authentication to bypass RLS
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get() {
+            return undefined;
+          },
+          set() {},
+          remove() {}
+        }
+      }
+    );
 
-  let query = (auth.supabase as any)
-    .from('courses')
-    .select('*')
-    .eq('id', id)
+    // Get and verify API key
+    const authHeader = request.headers.get('authorization');
 
-  if (institutionId) {
-    query = query.eq('institution_id', institutionId)
-  }
-
-  const { data, error } = await query.single()
-
-  if (error) {
-    if (error.code === 'PGRST116') {
-      return errorResponse('Course not found', 404)
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'API key is required in Authorization header' },
+        { status: 401, headers: corsHeaders }
+      );
     }
-    throw error
+
+    const apiKey = authHeader.substring(7);
+    const hashedKey = createHash('sha256').update(apiKey).digest('hex');
+
+    // Verify API key
+    const { data: keyData, error: keyError } = await supabase
+      .from('api_keys')
+      .select('*')
+      .eq('key_value', hashedKey)
+      .eq('is_active', true)
+      .single();
+
+    if (keyError || !keyData) {
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401, headers: corsHeaders }
+      );
+    }
+
+    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
+      return NextResponse.json(
+        { error: 'API key has expired' },
+        { status: 401, headers: corsHeaders }
+      );
+    }
+
+    if (!keyData.permissions?.read) {
+      return NextResponse.json(
+        { error: 'API key does not have read permission' },
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
+    // Get course by ID - select all fields
+    const { data: course, error: courseError } = await supabase
+      .from('courses')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (courseError) {
+      if (courseError.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'Course not found' },
+          { status: 404, headers: corsHeaders }
+        );
+      }
+      throw courseError;
+    }
+
+    // Update last used timestamp
+    await supabase
+      .from('api_keys')
+      .update({ last_used_at: new Date().toISOString() })
+      .eq('id', keyData.id);
+
+    // Return response with CORS headers
+    return NextResponse.json({ data: course }, { headers: corsHeaders });
+  } catch (error) {
+    console.error('Error fetching course:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500, headers: corsHeaders }
+    );
   }
-
-  if (!data) return errorResponse('Course not found', 404)
-
-  return NextResponse.json({ data }, { headers: corsHeaders })
-}, { allowApiKey: true, requiredPermission: 'read' })
+}

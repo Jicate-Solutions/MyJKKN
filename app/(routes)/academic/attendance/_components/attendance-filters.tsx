@@ -97,7 +97,8 @@ export function AttendanceFilters({
     degree_id: searchContext.degree_id || undefined,
     program_id: searchContext.program_id || undefined,
     department_id: searchContext.department_id || undefined,
-    semester_id: searchContext.semester_id || undefined
+    semester_id: searchContext.semester_id || undefined,
+    limit: 1000 // Fixed: 2025-01-30 - Fetch all sections for attendance marking
   });
   const sections = sectionsData?.data ?? [];
 

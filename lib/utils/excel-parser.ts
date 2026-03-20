@@ -30,7 +30,7 @@ export async function parseExcelFile(
 ): Promise<ExcelParseResult> {
   try {
     const data = await file.arrayBuffer();
-    const workbook = XLSX.read(data);
+    const workbook = XLSX.read(new Uint8Array(data), { type: 'array' });
 
     // Find the sheet to use
     let worksheet: XLSX.WorkSheet;
@@ -51,6 +51,7 @@ export async function parseExcelFile(
         if (matchingSheet) {
           selectedSheetName = matchingSheet;
           worksheet = workbook.Sheets[matchingSheet];
+          console.log(`[excel-parser] Using sheet "${matchingSheet}" (case-insensitive match for "${sheetName}")`);
         } else {
           // Sheet not found - provide helpful error with available sheets
           const availableSheets = workbook.SheetNames.join(', ');

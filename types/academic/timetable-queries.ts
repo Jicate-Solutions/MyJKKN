@@ -83,6 +83,9 @@ export interface TimetableDataStructure {
 
 /**
  * Individual slot data within timetable_data
+ * @deprecated Use {@link TimetableSlotData} from '@/types/academics' instead.
+ * This local definition is shallower and uses `[key: string]: any`.
+ * Kept here to avoid breaking faculty-attendance-service.ts imports.
  */
 export interface TimetableSlotData {
   course_id?: string;

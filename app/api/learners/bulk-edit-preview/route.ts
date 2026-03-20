@@ -90,10 +90,6 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
   'hostel_type': ['Hostel Type', 'hostel_type'],
   'food_type': ['Food Type', 'food_type'],
-  'bus_required': ['Bus Required', 'bus_required'],
-  'bus_route': ['Bus Route', 'bus_route'],
-  'bus_pickup_location': ['Bus Pickup Location', 'bus_pickup_location'],
-
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
@@ -130,12 +126,15 @@ interface PreviewRow {
 export async function POST(request: NextRequest) {
   try {
     // 1. Authenticate user
+    console.log('[bulk-edit-preview] Starting authentication...');
     let supabase;
     let user;
 
     try {
       supabase = await createServerSupabaseClient();
+      console.log('[bulk-edit-preview] Supabase client created');
 
+      console.log('[bulk-edit-preview] Getting user...');
       const authResponse = await supabase.auth.getUser();
       user = authResponse.data.user;
       const authError = authResponse.error;
@@ -162,6 +161,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      console.log('[bulk-edit-preview] User authenticated:', user.id);
     } catch (authException) {
       console.error('[bulk-edit-preview] Auth exception:', authException);
       return NextResponse.json(
@@ -174,6 +174,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Check permissions
+    console.log('[bulk-edit-preview] Fetching user profile...');
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
       .select('id, role, is_super_admin, institution_id')
@@ -201,6 +202,8 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    console.log('[bulk-edit-preview] Profile fetched:', profileData.id, 'Role:', profileData.role);
 
     const profile = profileData as {
       id: string;
@@ -263,6 +266,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Parse Excel file
+    console.log('[bulk-edit-preview] Parsing file:', file.name, 'Size:', file.size);
     const parseResult = await parseExcelFile(file, 'Active Learners');
 
     if (parseResult.errors.length > 0) {
@@ -275,6 +279,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    console.log('[bulk-edit-preview] Parsed successfully:', parseResult.totalRows, 'rows');
 
     if (parseResult.totalRows === 0) {
       return NextResponse.json(

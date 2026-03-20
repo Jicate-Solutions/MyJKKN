@@ -233,6 +233,9 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
     .eq('user_id', user.id)
     .single();
 
+  console.log('[LTI Analytics] User role data:', userRole);
+  console.log('[LTI Analytics] Role error:', roleError);
+
   // Extract custom_roles from array (Supabase joins return arrays)
   const customRole = Array.isArray(userRole?.custom_roles)
     ? userRole?.custom_roles[0]
@@ -241,12 +244,18 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
   const roleKey = customRole?.role_key;
   const permissions = customRole?.permissions || {};
 
+  console.log('[LTI Analytics] Role key:', roleKey);
+  console.log('[LTI Analytics] Permissions:', permissions);
+
   // Super admin has full access, otherwise check specific permissions
   if (roleKey !== 'super_admin') {
     if (!permissions['lti.analytics.view'] && !permissions['lti.monitor']) {
+      console.log('[LTI Analytics] Access denied - redirecting to dashboard');
       redirect('/dashboard');
     }
   }
+
+  console.log('[LTI Analytics] Access granted');
 
   // Await searchParams (Next.js 16 requirement)
   const params = await searchParams;
@@ -260,37 +269,19 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
     ? new Date(params.startDate)
     : startOfDay(subDays(endDate, 30)); // Default: last 30 days
 
-  // Fetch analytics data with error handling
-  let launchStats: Awaited<ReturnType<typeof getLaunchStats>> = {
-    totalLaunches: 0,
-    uniqueUsers: 0,
-    studentLaunches: 0,
-    facultyLaunches: 0,
-    launches: []
-  };
-  let toolStats: Awaited<ReturnType<typeof getToolStats>> = [];
-  let institutionStats: Awaited<ReturnType<typeof getInstitutionStats>> = [];
-  let filterOptions: Awaited<ReturnType<typeof getFilterOptions>> = {
-    institutions: [],
-    tools: []
-  };
-
-  try {
-    [launchStats, toolStats, institutionStats, filterOptions] =
-      await Promise.all([
-        getLaunchStats(
-          startDate,
-          endDate,
-          params.institutionId,
-          params.toolId
-        ),
-        getToolStats(startDate, endDate, params.institutionId),
-        getInstitutionStats(startDate, endDate),
-        getFilterOptions()
-      ]);
-  } catch (error) {
-    console.error('[admin/lti/analytics] Error fetching analytics data:', error);
-  }
+  // Fetch analytics data
+  const [launchStats, toolStats, institutionStats, filterOptions] =
+    await Promise.all([
+      getLaunchStats(
+        startDate,
+        endDate,
+        params.institutionId,
+        params.toolId
+      ),
+      getToolStats(startDate, endDate, params.institutionId),
+      getInstitutionStats(startDate, endDate),
+      getFilterOptions()
+    ]);
 
   return (
     <ContentLayout title="LTI Analytics">
@@ -322,7 +313,6 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
               institutions={filterOptions.institutions}
               tools={filterOptions.tools}
               currentFilters={params}
-              exportData={launchStats.launches}
             />
           </Suspense>
         </CardContent>

@@ -11,7 +11,6 @@ import {
   type SendCampaignMessageInput,
   type WhatsAppDeliveryStatus,
 } from '@/lib/services/admission/whatsapp-campaign-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -35,12 +34,10 @@ export const whatsappCampaignKeys = {
  * Hook to fetch WhatsApp messages with filters
  */
 export function useWhatsAppMessages(filters: WhatsAppMessageFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: whatsappCampaignKeys.messageList(filters),
     queryFn: () => WhatsAppCampaignService.getMessages(filters),
-    enabled: isSuperAdmin || !!filters.institutionId,
+    enabled: !!filters.institutionId,
   });
 
   return {
@@ -110,12 +107,10 @@ export function useWhatsAppCampaignStats(
   dateFrom?: string,
   dateTo?: string
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: whatsappCampaignKeys.stats(institutionId || '', dateFrom, dateTo),
     queryFn: () => WhatsAppCampaignService.getCampaignStats(institutionId!, dateFrom, dateTo),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 30000, // 30 seconds
   });
 

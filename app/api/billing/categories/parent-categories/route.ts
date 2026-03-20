@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { NextResponse } from 'next/server';
 import { BillingParentCategoryService } from '@/lib/services/billing/categories/billing-parent-category-service';
 import { getAuthSession } from '@/lib/supabase/server';
+import { withUsageTracking } from '@/lib/middleware/usage-tracking-middleware';
 
 const createCategorySchema = z.object({
   institution_id: z.string().uuid('Invalid institution ID'),
@@ -24,7 +25,7 @@ const filtersSchema = z.object({
   limit: z.number().min(1).max(100).optional().default(10)
 });
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   try {
     const { session, error: sessionError } = await getAuthSession();
     if (sessionError || !session) {
@@ -71,7 +72,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const { session, error: sessionError } = await getAuthSession();
     if (sessionError || !session) {
@@ -111,3 +112,6 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export const GET = withUsageTracking(handleGET);
+export const POST = withUsageTracking(handlePOST);

@@ -3,13 +3,10 @@
 // ============================================
 // Created: 2025-01-18
 // Updated: 2025-01-19 - Updated to match admissions form structure
-// Purpose: Hostel, food, transport, and reference details
+// Purpose: Hostel, food, and reference details
 // Changes:
 // - Changed to RadioGroup for accommodation type
 // - Added conditional rendering (hostel fields only when HOSTEL selected)
-// - Added conditional rendering (bus fields only when DAY SCHOLAR selected)
-// - Changed bus required to RadioGroup
-// - Added cascading dropdowns for bus route → pickup location
 // - Updated reference types to match admission form
 // - Added form descriptions
 // - Added reset logic for dependent fields
@@ -54,18 +51,6 @@ export function AccommodationPreferencesSection({
     name: 'accommodation_type'
   });
 
-  // Watch for bus requirement to show conditional fields
-  const busRequired = useWatch({
-    control: form.control,
-    name: 'bus_required'
-  });
-
-  // Watch for bus route to show relevant pickup locations
-  const busRoute = useWatch({
-    control: form.control,
-    name: 'bus_route'
-  });
-
   // Watch for reference type to show conditional fields
   const referenceType = useWatch({
     control: form.control,
@@ -75,9 +60,7 @@ export function AccommodationPreferencesSection({
   // Reset dependent fields when selection changes
   useEffect(() => {
     if (accommodationType === 'HOSTEL') {
-      form.setValue('bus_required', undefined);
-      form.setValue('bus_route', undefined);
-      form.setValue('bus_pickup_location', undefined);
+      // Hostel selected - no resets needed
     } else if (accommodationType === 'DAY SCHOLAR') {
       form.setValue('hostel_type', undefined);
       form.setValue('food_type', undefined); // Reset food type when not hostel
@@ -85,79 +68,14 @@ export function AccommodationPreferencesSection({
       // Reset all accommodation-specific fields when no type selected
       form.setValue('hostel_type', undefined);
       form.setValue('food_type', undefined);
-      form.setValue('bus_required', undefined);
-      form.setValue('bus_route', undefined);
-      form.setValue('bus_pickup_location', undefined);
     }
   }, [accommodationType, form]);
-
-  useEffect(() => {
-    if (busRequired === false) {
-      form.setValue('bus_route', undefined);
-      form.setValue('bus_pickup_location', undefined);
-    }
-  }, [busRequired, form]);
-
-  useEffect(() => {
-    if (busRoute) {
-      form.setValue('bus_pickup_location', undefined);
-    }
-  }, [busRoute, form]);
 
   // Hostel type options (values match database format - uppercase)
   const hostelTypeOptions = [
     { value: 'AC HOSTEL', label: 'AC Hostel' },
     { value: 'NON-AC HOSTEL', label: 'Non-AC Hostel' }
   ];
-
-  // Bus route options
-  const busRouteOptions = [
-    { value: 'route_1', label: 'Route 1 - City Center' },
-    { value: 'route_2', label: 'Route 2 - East Zone' },
-    { value: 'route_3', label: 'Route 3 - West Zone' },
-    { value: 'route_4', label: 'Route 4 - South Zone' },
-    { value: 'route_5', label: 'Route 5 - North Zone' }
-  ];
-
-  // Bus pickup locations based on route
-  const getPickupLocations = () => {
-    if (!busRoute) return [];
-
-    switch (busRoute) {
-      case 'route_1':
-        return [
-          { value: 'city_hall', label: 'City Hall' },
-          { value: 'central_market', label: 'Central Market' },
-          { value: 'main_street', label: 'Main Street Junction' }
-        ];
-      case 'route_2':
-        return [
-          { value: 'east_terminal', label: 'East Bus Terminal' },
-          { value: 'hospital', label: 'General Hospital' },
-          { value: 'library', label: 'Public Library' }
-        ];
-      case 'route_3':
-        return [
-          { value: 'west_mall', label: 'West Mall' },
-          { value: 'industrial_area', label: 'Industrial Area' },
-          { value: 'tech_park', label: 'Tech Park' }
-        ];
-      case 'route_4':
-        return [
-          { value: 'south_station', label: 'South Railway Station' },
-          { value: 'beach_road', label: 'Beach Road' },
-          { value: 'temple', label: 'Main Temple' }
-        ];
-      case 'route_5':
-        return [
-          { value: 'north_junction', label: 'North Junction' },
-          { value: 'stadium', label: 'Stadium' },
-          { value: 'university', label: 'University Gate' }
-        ];
-      default:
-        return [];
-    }
-  };
 
   // Reference type options (values match database format - uppercase)
   const referenceTypeOptions = [
@@ -268,116 +186,6 @@ export function AccommodationPreferencesSection({
                 </FormItem>
               )}
             />
-          </>
-        )}
-
-        {accommodationType === 'DAY SCHOLAR' && (
-          <>
-            <FormField
-              control={form.control}
-              name='bus_required'
-              render={({ field }) => (
-                <FormItem className='space-y-3'>
-                  <FormLabel>Bus Facility Required?</FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      onValueChange={(value) =>
-                        field.onChange(value === 'true')
-                      }
-                      value={
-                        field.value === undefined
-                          ? ''
-                          : field.value
-                          ? 'true'
-                          : 'false'
-                      }
-                      className='flex flex-col space-y-1'
-                    >
-                      <div className='flex items-center space-x-2'>
-                        <RadioGroupItem value='true' id='bus-yes' />
-                        <Label htmlFor='bus-yes'>Yes</Label>
-                      </div>
-                      <div className='flex items-center space-x-2'>
-                        <RadioGroupItem value='false' id='bus-no' />
-                        <Label htmlFor='bus-no'>No</Label>
-                      </div>
-                    </RadioGroup>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {busRequired && (
-              <>
-                <FormField
-                  control={form.control}
-                  name='bus_route'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Bus Route</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value || ''}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder='Select bus route' />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent className='max-h-60 overflow-y-auto'>
-                          {busRouteOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        Select the bus route closest to your residence
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {busRoute && (
-                  <FormField
-                    control={form.control}
-                    name='bus_pickup_location'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Pickup Location</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value || ''}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder='Select pickup location' />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent className='max-h-60 overflow-y-auto'>
-                            {getPickupLocations().map((option) => (
-                              <SelectItem
-                                key={option.value}
-                                value={option.value}
-                              >
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Select your preferred pickup location along the route
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-              </>
-            )}
           </>
         )}
 

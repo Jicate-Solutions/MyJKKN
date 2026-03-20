@@ -101,13 +101,12 @@ export class DataQualityService {
   // PHONE VALIDATION
   // ─────────────────────────────────────────────────────────────────────────
 
-  static async getPhoneValidationStats(institutionId: string | undefined): Promise<PhoneValidationStats> {
+  static async getPhoneValidationStats(institutionId: string): Promise<PhoneValidationStats> {
     const supabase = createClientSupabaseClient();
-    let query = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('admission_leads')
-      .select('id, phone');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query;
+      .select('id, phone')
+      .eq('institution_id', institutionId);
 
     if (error) throw error;
     const leads = data || [];
@@ -137,15 +136,14 @@ export class DataQualityService {
   }
 
   static async getInvalidPhones(
-    institutionId: string | undefined,
+    institutionId: string,
     options?: { search?: string; issueFilter?: string }
   ): Promise<InvalidPhoneRecord[]> {
     const supabase = createClientSupabaseClient();
-    let query = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('admission_leads')
-      .select('id, full_name, phone, email, source, created_at');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query
+      .select('id, full_name, phone, email, source, created_at')
+      .eq('institution_id', institutionId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -184,13 +182,12 @@ export class DataQualityService {
     return filtered;
   }
 
-  static async getPhoneIssueBreakdown(institutionId: string | undefined): Promise<PhoneIssueBreakdown[]> {
+  static async getPhoneIssueBreakdown(institutionId: string): Promise<PhoneIssueBreakdown[]> {
     const supabase = createClientSupabaseClient();
-    let query = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('admission_leads')
-      .select('phone');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query;
+      .select('phone')
+      .eq('institution_id', institutionId);
 
     if (error) throw error;
 
@@ -231,13 +228,12 @@ export class DataQualityService {
     'gender',
   ];
 
-  static async getDataProfilingMetrics(institutionId: string | undefined): Promise<DataProfilingMetrics> {
+  static async getDataProfilingMetrics(institutionId: string): Promise<DataProfilingMetrics> {
     const supabase = createClientSupabaseClient();
-    let query = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('admission_leads')
-      .select('*');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query;
+      .select('*')
+      .eq('institution_id', institutionId);
 
     if (error) throw error;
     const leads = data || [];
@@ -273,13 +269,12 @@ export class DataQualityService {
     return { overall, completeness, validity, totalLeads };
   }
 
-  static async getFieldAnalysis(institutionId: string | undefined): Promise<FieldAnalysis[]> {
+  static async getFieldAnalysis(institutionId: string): Promise<FieldAnalysis[]> {
     const supabase = createClientSupabaseClient();
-    let query = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('admission_leads')
-      .select('*');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query;
+      .select('*')
+      .eq('institution_id', institutionId);
 
     if (error) throw error;
     const leads = data || [];
@@ -316,13 +311,12 @@ export class DataQualityService {
     });
   }
 
-  static async getDataIssues(institutionId: string | undefined): Promise<DataIssue[]> {
+  static async getDataIssues(institutionId: string): Promise<DataIssue[]> {
     const supabase = createClientSupabaseClient();
-    let query = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('admission_leads')
-      .select('phone, email, city, state, address_line1, interested_programs, source');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query;
+      .select('phone, email, city, state, address_line1, interested_programs, source')
+      .eq('institution_id', institutionId);
 
     if (error) throw error;
     const leads = data || [];
@@ -362,16 +356,15 @@ export class DataQualityService {
   // DEDUPLICATION
   // ─────────────────────────────────────────────────────────────────────────
 
-  static async getDeduplicationStats(institutionId: string | undefined): Promise<DeduplicationStats> {
+  static async getDeduplicationStats(institutionId: string): Promise<DeduplicationStats> {
     const groups = await this.findDuplicates(institutionId);
     const totalDuplicates = groups.reduce((sum, g) => sum + g.records.length - 1, 0);
 
     const supabase = createClientSupabaseClient();
-    let countQuery = (supabase as any)
+    const { count, error } = await (supabase as any)
       .from('admission_leads')
-      .select('id', { count: 'exact', head: true });
-    if (institutionId) countQuery = countQuery.eq('institution_id', institutionId);
-    const { count, error } = await countQuery;
+      .select('id', { count: 'exact', head: true })
+      .eq('institution_id', institutionId);
 
     if (error) throw error;
     const totalLeads = count || 0;
@@ -384,13 +377,12 @@ export class DataQualityService {
     };
   }
 
-  static async findDuplicates(institutionId: string | undefined): Promise<DuplicateGroup[]> {
+  static async findDuplicates(institutionId: string): Promise<DuplicateGroup[]> {
     const supabase = createClientSupabaseClient();
-    let dupeQuery = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('admission_leads')
-      .select('id, full_name, phone, email, source, created_at, score');
-    if (institutionId) dupeQuery = dupeQuery.eq('institution_id', institutionId);
-    const { data, error } = await dupeQuery
+      .select('id, full_name, phone, email, source, created_at, score')
+      .eq('institution_id', institutionId)
       .order('created_at', { ascending: true });
 
     if (error) throw error;

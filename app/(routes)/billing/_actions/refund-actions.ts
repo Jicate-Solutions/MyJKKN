@@ -239,7 +239,7 @@ export async function approveRefund(id: string): Promise<ActionResult> {
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Permission validated by RLS policies on billing_refunds table
+    // TODO: Add permission check for admin/manager role
 
     const { error: updateError } = await supabase
       .from('billing_refunds')
@@ -301,7 +301,7 @@ export async function processRefund(id: string): Promise<ActionResult> {
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Permission validated by RLS policies on billing_refunds table
+    // TODO: Add permission check for accountant role
 
     // Get refund details
     const { data: refund, error: fetchError } = await supabase
@@ -343,7 +343,8 @@ export async function processRefund(id: string): Promise<ActionResult> {
       };
     }
 
-    // Financial transactions are processed via Supabase triggers on the billing tables
+    // TODO: Add actual financial transaction processing here
+    // This should integrate with payment gateway or accounting system
 
     // Invalidate caches
     await revalidateTag(cacheTags.billing.receipts.list(), 'warm');

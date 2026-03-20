@@ -44,7 +44,7 @@ export function useCallStats(
     queryKey: callStatsKeys.stats(institutionId || '', fromDate, toDate),
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.set('institution_id', institutionId!);
+      if (institutionId) params.set('institution_id', institutionId);
       if (fromDate) params.set('from', fromDate);
       if (toDate) params.set('to', toDate);
 
@@ -57,7 +57,8 @@ export function useCallStats(
       const json = await res.json();
       return json.data;
     },
-    enabled: !!institutionId,
+    // Always fetch. Super admins have no institution_id (returns all); others always have one.
+    enabled: true,
     staleTime: 60000, // 1 minute
   });
 

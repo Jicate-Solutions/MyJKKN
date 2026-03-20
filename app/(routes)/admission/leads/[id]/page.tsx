@@ -32,9 +32,18 @@ import {
   useLeadMutations,
   useActivityMutations,
   useApplicationMutations,
-  useCounselorProfiles
+  useCounselorProfiles,
+  useActiveTemplates,
+  useTemplateVariables
 } from '@/hooks/admission';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useDegrees } from '@/hooks/organization/use-degrees';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { usePrograms } from '@/hooks/organization/use-programs';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
+import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
+import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import type { TimelineEntry } from '@/lib/services/admission/activity-service';
 import {
@@ -57,7 +66,14 @@ import {
   Edit,
   Trash2,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  Info,
+  UserPlus,
+  Image as ImageIcon,
+  Film,
+  FileText as FileTextIcon,
+  Paperclip,
+  X
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -78,6 +94,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -86,6 +108,7 @@ import { SMSCampaignService } from '@/lib/services/admission/sms-campaign-servic
 import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FunnelStage } from '@/types/admission';
+import { ALLOWED_STAGE_TRANSITIONS } from '@/lib/services/admission/lead-service';
 
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -105,7 +128,6 @@ const FUNNEL_STAGES = [
   { value: 'offer_accepted', label: 'Offer Accepted' },
   { value: 'token_paid', label: 'Token Paid' },
   { value: 'applied', label: 'Applied' },
-  { value: 'interviewed', label: 'Interviewed' },
   { value: 'offered', label: 'Offered' },
   { value: 'enrolled', label: 'Enrolled' },
   { value: 'confirmed', label: 'Confirmed' },
@@ -155,7 +177,6 @@ function getStageColor(stage: string | null): string {
     offer_accepted: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     token_paid: 'bg-teal-100 text-teal-800 border-teal-200',
     applied: 'bg-pink-100 text-pink-800 border-pink-200',
-    interviewed: 'bg-lime-100 text-lime-800 border-lime-200',
     offered: 'bg-green-100 text-green-800 border-green-200',
     enrolled: 'bg-cyan-100 text-cyan-800 border-cyan-200',
     confirmed: 'bg-emerald-100 text-emerald-800 border-emerald-200',
@@ -336,6 +357,9 @@ function LeadDetailPageContent() {
   const [selectedCounselorId, setSelectedCounselorId] = useState('');
 
   // Create application form state
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState('');
+  const [selectedDegreeId, setSelectedDegreeId] = useState('');
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState('');
   const [selectedProgramId, setSelectedProgramId] = useState('');
 
   // Validate UUID to handle Next.js PPR/DRP placeholders during prerender
@@ -345,12 +369,137 @@ function LeadDetailPageContent() {
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
   const queryClient = useQueryClient();
+  const { selectedInstitutionId: userInstitutionId } = useUserInstitutionAccess();
+
+  // Compute lead scores on-the-fly from available data
+  const computedScores = useMemo(() => {
+    if (!lead) return {
+      score: 0, category: 'Not Scored', engagement: 0, quality: 0,
+      engagementBreakdown: {} as Record<string, { count: number; points: number }>,
+      qualityBreakdown: {} as Record<string, boolean>,
+      qualityFilledCount: 0, qualityTotalFields: 14,
+      messageCount: 0,
+    };
+
+    // --- Engagement Score (0-100) based on activities ---
+    const activityEntries = timeline.filter((t: any) => t.type === 'activity');
+    const activityTypes: Record<string, number> = {};
+    activityEntries.forEach((t: any) => {
+      const type = t.metadata?.activity_type || 'note';
+      activityTypes[type] = (activityTypes[type] || 0) + 1;
+    });
+
+    // Weighted points per activity type (capped)
+    const engConfig: Array<[string, string, number, number]> = [
+      ['call', 'Calls', 15, 5],
+      ['email', 'Emails', 5, 10],
+      ['whatsapp', 'WhatsApp', 10, 10],
+      ['sms', 'SMS', 5, 10],
+      ['meeting', 'Meetings', 25, 3],
+      ['task', 'Tasks', 10, 5],
+      ['note', 'Notes', 3, 5],
+    ];
+
+    let engagementPoints = 0;
+    const engagementBreakdown: Record<string, { count: number; points: number }> = {};
+    for (const [key, label, pts, cap] of engConfig) {
+      const count = activityTypes[key] || 0;
+      const points = Math.min(count, cap) * pts;
+      engagementPoints += points;
+      if (count > 0) engagementBreakdown[label] = { count, points };
+    }
+    const msgPoints = Math.min(communicationHistory.length, 20) * 2;
+    engagementPoints += msgPoints;
+    if (communicationHistory.length > 0) {
+      engagementBreakdown['Messages'] = { count: communicationHistory.length, points: msgPoints };
+    }
+
+    const engagement = Math.min(100, Math.round((engagementPoints / 455) * 100));
+
+    // --- Quality Score (0-100) based on profile completeness ---
+    const qualityChecks: Array<[string, boolean]> = [
+      ['Full Name', !!lead.full_name],
+      ['Email', !!lead.email],
+      ['Phone', !!lead.phone],
+      ['Date of Birth', !!lead.date_of_birth],
+      ['Gender', !!lead.gender],
+      ['Address', !!(lead.address_line1 || lead.city || lead.state)],
+      ['Pincode', !!lead.pincode],
+      ['Parent Name', !!lead.parent_name],
+      ['Parent Phone', !!lead.parent_phone],
+      ['Parent Email', !!lead.parent_email],
+      ['Interested Programs', !!(lead.interested_programs?.length)],
+      ['Source', !!lead.source],
+      ['Preferred Channel', !!lead.preferred_channel],
+    ];
+    const qualityWeights: Record<string, number> = {
+      'Full Name': 10, 'Email': 10, 'Phone': 10, 'Date of Birth': 5, 'Gender': 5,
+      'Address': 10, 'Pincode': 5, 'Parent Name': 10, 'Parent Phone': 5,
+      'Parent Email': 5, 'Interested Programs': 15, 'Source': 5, 'Preferred Channel': 5,
+    };
+    let qualityPoints = 0;
+    const qualityBreakdown: Record<string, boolean> = {};
+    let qualityFilledCount = 0;
+    for (const [label, filled] of qualityChecks) {
+      qualityBreakdown[label] = filled;
+      if (filled) {
+        qualityPoints += qualityWeights[label] || 0;
+        qualityFilledCount++;
+      }
+    }
+    const quality = Math.min(100, qualityPoints);
+
+    // --- Overall Score (weighted: 50% engagement, 50% quality) ---
+    const score = Math.round(engagement * 0.5 + quality * 0.5);
+
+    // --- Category ---
+    const category = score >= 75 ? 'hot' : score >= 50 ? 'warm' : score >= 25 ? 'cool' : 'cold';
+
+    return {
+      score, category, engagement, quality,
+      engagementBreakdown, qualityBreakdown,
+      qualityFilledCount, qualityTotalFields: qualityChecks.length,
+      messageCount: communicationHistory.length,
+    };
+  }, [lead, timeline, communicationHistory]);
+
+  // Write computed scores back to DB for list page display
+  useEffect(() => {
+    if (!lead?.id || computedScores.score === 0 && computedScores.engagement === 0 && computedScores.quality === 0) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase: any = createClientSupabaseClient();
+    supabase
+      .from('admission_leads')
+      .update({
+        score: computedScores.score,
+        engagement_score: computedScores.engagement,
+        quality_score: computedScores.quality,
+        score_category: computedScores.category,
+        combined_score: computedScores.score,
+        score_updated_at: new Date().toISOString(),
+      })
+      .eq('id', lead.id)
+      .then(({ error }) => {
+        if (error) console.warn('[admission/leads] Failed to sync scores:', error.message);
+      });
+  }, [lead?.id, computedScores.score, computedScores.engagement, computedScores.quality]);
 
   // Send message dialog state
   const [showSendMsg, setShowSendMsg] = useState(false);
   const [sendChannel, setSendChannel] = useState<'sms' | 'whatsapp'>('sms');
   const [sendMessage, setSendMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [templateAttachment, setTemplateAttachment] = useState<{
+    type: 'image' | 'video' | 'document';
+    url: string;
+  } | null>(null);
+
+  // Fetch active templates filtered by the currently selected channel.
+  // Use the logged-in user's institution (not the lead's) since templates belong to the counselor's institution.
+  const { templates: channelTemplates } = useActiveTemplates(userInstitutionId, sendChannel as 'sms' | 'email' | 'whatsapp');
+  const { replaceVariables } = useTemplateVariables();
 
   const handleSendMessage = async () => {
     if (!lead || !sendMessage.trim()) return;
@@ -366,19 +515,55 @@ function LeadDetailPageContent() {
       const popTop = window.screenY + (window.outerHeight - popH) / 2;
       window.open(waUrl, 'WhatsApp', `width=${popW},height=${popH},left=${popLeft},top=${popTop}`);
 
-      // Log as activity (best-effort — don't block or show error to user)
+      // Log as activity + WhatsApp log (best-effort — don't block or show error to user)
       try {
-        await createActivity({
+        const supabase = createClientSupabaseClient();
+
+        // Insert into admission_whatsapp_logs so the Communication tab shows it
+        await (supabase as any)
+          .from('admission_whatsapp_logs')
+          .insert({
+            institution_id: lead.institution_id,
+            lead_id: lead.id,
+            recipient_phone: intlPhone,
+            message_content: sendMessage.trim(),
+            delivery_status: 'sent',
+            sent_at: new Date().toISOString(),
+            metadata: {
+                source: 'manual',
+                sent_via: 'whatsapp_web',
+                ...(selectedTemplateId && { template_id: selectedTemplateId }),
+                ...(templateAttachment && { attachment: templateAttachment }),
+              },
+          });
+
+        // Also log as activity for the timeline
+        await createActivity.mutateAsync({
           lead_id: lead.id,
-          institution_id: lead.institution_id,
           activity_type: 'whatsapp',
           title: 'WhatsApp message',
           description: sendMessage.trim(),
         });
+
         queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
       } catch (_) { /* best-effort */ }
 
       toast.success('WhatsApp opened — send the message from your account');
+
+      // Update message counters on the lead
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabaseClient: any = createClientSupabaseClient();
+      supabaseClient
+        .from('admission_leads')
+        .update({
+          total_messages_sent: (lead.total_messages_sent || 0) + 1,
+          last_message_at: new Date().toISOString(),
+        })
+        .eq('id', lead.id)
+        .then(({ error }) => {
+          if (error) console.warn('[admission/leads] Failed to update message count:', error.message);
+        });
+
       setSendMessage('');
       setShowSendMsg(false);
       return;
@@ -394,6 +579,21 @@ function LeadDetailPageContent() {
         messageContent: sendMessage.trim(),
       });
       toast.success('SMS sent successfully');
+
+      // Update message counters on the lead
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabaseClient: any = createClientSupabaseClient();
+      supabaseClient
+        .from('admission_leads')
+        .update({
+          total_messages_sent: (lead.total_messages_sent || 0) + 1,
+          last_message_at: new Date().toISOString(),
+        })
+        .eq('id', lead.id)
+        .then(({ error }) => {
+          if (error) console.warn('[admission/leads] Failed to update message count:', error.message);
+        });
+
       setSendMessage('');
       setShowSendMsg(false);
       queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
@@ -408,10 +608,41 @@ function LeadDetailPageContent() {
   const { createActivity } = useActivityMutations(leadId);
   const { createApplication } = useApplicationMutations();
 
+  // Convert to learner state
+  const [isConverting, setIsConverting] = useState(false);
+
+  const handleConvertToLearner = async () => {
+    if (!lead?.id || !lead.institution_id) return;
+    setIsConverting(true);
+    try {
+      const res = await fetch('/api/admission/bridge/convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId: lead.id, institutionId: lead.institution_id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        // If already converted (409), redirect to the existing profile
+        if (res.status === 409 && json.profileId) {
+          router.push(`/learners/enquiries/${json.profileId}/edit`);
+          return;
+        }
+        throw new Error(json.error || 'Conversion failed');
+      }
+      toast.success('Learner enquiry created — redirecting...');
+      router.push(`/learners/enquiries/${json.profileId}/edit`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Conversion failed');
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
   // Edit lead dialog state
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editForm, setEditForm] = useState({
-    full_name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     phone: '',
     alternate_phone: '',
@@ -428,17 +659,11 @@ function LeadDetailPageContent() {
     source: '',
   });
 
-  // Fetch institution name and programs for details display & Create Application dialog
+  // Fetch institution name for details display
   const [institutionName, setInstitutionName] = useState<string>('');
-  const [programs, setPrograms] = useState<{ id: string; program_name: string }[]>([]);
-  const [programsLoading, setProgramsLoading] = useState(false);
   useEffect(() => {
-    let cancelled = false;
     if (lead?.institution_id) {
-      setProgramsLoading(true);
       const supabase = createClientSupabaseClient();
-
-      // Fetch institution name
       (supabase as any)
         .from('institutions')
         .select('name')
@@ -449,32 +674,50 @@ function LeadDetailPageContent() {
             setInstitutionName(data.name);
           }
         });
-
-      // Fetch programs
-      supabase
-        .from('programs')
-        .select('id, program_name')
-        .eq('institution_id', lead.institution_id)
-        .eq('is_active', true)
-        .order('program_name')
-        .then(({ data, error }: { data: any; error: any }) => {
-          if (cancelled) return;
-          if (error) {
-            console.error('[admission/leads] Failed to fetch programs:', error.message);
-          } else {
-            setPrograms(data || []);
-          }
-          setProgramsLoading(false);
-        });
     }
-    return () => { cancelled = true; };
   }, [lead?.institution_id]);
 
-  // Counselors from profiles (role='counselor') — institution-scoped
-  const { data: counselorProfiles, isLoading: counselorsLoading } = useCounselorProfiles(
-    lead?.institution_id ?? undefined
-  );
+  // Organization hierarchy for Create Application dialog
+  const { institutions } = useInstitutionsWithAccess();
+  const { data: degreesData, isLoading: loadingDegrees } = useDegrees({
+    institution_id: selectedInstitutionId || undefined,
+  });
+  const { data: departmentsData, isLoading: loadingDepartments } = useDepartments({
+    degree_id: selectedDegreeId || undefined,
+  });
+  const { data: programsData, isLoading: loadingPrograms } = usePrograms({
+    department_id: selectedDepartmentId || undefined,
+  });
+  const filteredDegrees = degreesData?.data || [];
+  const filteredDepartments = departmentsData?.data || [];
+  const filteredPrograms = programsData?.data || [];
+
+  // All programs for the lead's institution (used for Interested Programs display)
+  const { data: allInstitutionProgramsData, isLoading: programsLoading } = usePrograms({
+    institution_id: lead?.institution_id || undefined,
+  });
+  const programs = allInstitutionProgramsData?.data || [];
+
+  // Pre-select institution from lead data
+  useEffect(() => {
+    if (lead?.institution_id && !selectedInstitutionId) {
+      setSelectedInstitutionId(lead.institution_id);
+    }
+  }, [lead?.institution_id]);
+
+  // Counselors from profiles (role='counselor') — global across all institutions
+  const { data: counselorProfiles, isLoading: counselorsLoading } = useCounselorProfiles(null);
   const counselors = counselorProfiles || [];
+
+  // Consultants for dropdown (referral leads) — global across all institutions
+  const { data: consultantsDropdown = [] } = useConsultantsForDropdown();
+
+  // Consultant attributions for this lead (used in Details tab assignment section)
+  const { attributions: leadAttributions } = useLeadAttributions(leadId);
+
+  // Edit form: selected counselor / consultant (separate from editForm text fields)
+  const [editCounselorProfileId, setEditCounselorProfileId] = useState('');
+  const [editConsultantId, setEditConsultantId] = useState('');
 
   // Map interested program IDs to names
   const interestedProgramNames = useMemo(() => {
@@ -499,7 +742,8 @@ function LeadDetailPageContent() {
     const districts = stateId ? getDistrictsByState(stateId) : [];
     const districtId = districts.find((d) => d.name === l.district)?.id || '';
     setEditForm({
-      full_name: l.full_name || '',
+      first_name: l.first_name || '',
+      last_name: l.last_name || '',
       email: l.email || '',
       phone: l.phone || '',
       alternate_phone: l.alternate_phone || '',
@@ -515,19 +759,32 @@ function LeadDetailPageContent() {
       parent_email: l.parent_email || '',
       source: l.source || '',
     });
+    // Pre-populate counselor (from assigned_counselor_id which references profiles.id)
+    setEditCounselorProfileId(l.assigned_counselor_id || '');
+    // Pre-populate consultant from primary lead attribution (stored in consultant_lead_attributions, not on the lead row)
+    const primaryAttribution = leadAttributions.find((a) => a.attribution_type === 'primary');
+    setEditConsultantId(primaryAttribution?.consultant_id || '');
     setShowEditDialog(true);
   };
 
   const handleEditChange = (field: string, value: string) => {
     setEditForm((prev) => {
       if (field === 'state') return { ...prev, state: value, district: '' };
+      // When source changes, clear the irrelevant assignment
+      if (field === 'source') {
+        if (value === 'referral') {
+          setEditCounselorProfileId('');
+        } else {
+          setEditConsultantId('');
+        }
+      }
       return { ...prev, [field]: value };
     });
   };
 
-  const handleEditSubmit = () => {
-    if (!lead || !editForm.full_name.trim() || !editForm.phone.trim()) {
-      toast.error('Full name and phone are required');
+  const handleEditSubmit = async () => {
+    if (!lead || !editForm.first_name.trim() || !editForm.phone.trim()) {
+      toast.error('First name and phone are required');
       return;
     }
     const selectedState = indianStates.find((s) => s.id === editForm.state);
@@ -536,7 +793,8 @@ function LeadDetailPageContent() {
       {
         id: lead.id,
         data: {
-          full_name: editForm.full_name.trim(),
+          first_name: editForm.first_name.trim(),
+          last_name: editForm.last_name.trim() || null,
           email: editForm.email?.trim() || null,
           phone: editForm.phone.trim(),
           alternate_phone: editForm.alternate_phone?.trim() || null,
@@ -554,7 +812,48 @@ function LeadDetailPageContent() {
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: async () => {
+          // Best-effort: assign counselor or consultant based on source
+          if (editForm.source !== 'referral' && editCounselorProfileId && editCounselorProfileId !== '_none') {
+            try {
+              // Resolve profile → admission_counselors row (creates if missing)
+              const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
+                editCounselorProfileId,
+                lead.institution_id ?? undefined
+              );
+              await assignCounselor.mutateAsync({
+                leadId: lead.id,
+                counselorId,
+                profileId: editCounselorProfileId,
+              });
+            } catch (e) {
+              console.warn('[admission/leads] Could not assign counselor during edit:', e);
+            }
+          }
+          if (editForm.source === 'referral' && editConsultantId && editConsultantId !== '_none' && lead.institution_id) {
+            try {
+              const existingAttribution = leadAttributions.find((a) => a.attribution_type === 'primary');
+              if (existingAttribution) {
+                // Update existing primary attribution to point to the (possibly new) consultant
+                const supabase = createClientSupabaseClient();
+                await (supabase as any)
+                  .from('consultant_lead_attributions')
+                  .update({ consultant_id: editConsultantId, updated_at: new Date().toISOString() })
+                  .eq('id', existingAttribution.id);
+              } else {
+                await ConsultantService.createLeadAttribution({
+                  institution_id: lead.institution_id,
+                  lead_id: lead.id,
+                  consultant_id: editConsultantId,
+                  attribution_type: 'primary',
+                  attribution_percentage: 100,
+                });
+              }
+              queryClient.invalidateQueries({ queryKey: ['lead-attributions'] });
+            } catch (e) {
+              console.warn('[admission/leads] Could not update consultant attribution during edit:', e);
+            }
+          }
           setShowEditDialog(false);
           refetch();
         },
@@ -625,7 +924,6 @@ function LeadDetailPageContent() {
     createActivity.mutate(
       {
         lead_id: leadId,
-        institution_id: lead?.institution_id,
         activity_type: activityType as any,
         title: activitySubject.trim(),
         description: activityDescription.trim() || undefined,
@@ -689,23 +987,25 @@ function LeadDetailPageContent() {
   };
 
   const handleCreateApplication = () => {
-    if (!lead || !selectedProgramId) {
-      toast.error('Please select a program');
+    if (!lead || !selectedProgramId || !selectedDegreeId || !selectedDepartmentId) {
+      toast.error('Please select all academic fields');
       return;
     }
     createApplication.mutate(
       {
-        institution_id: lead.institution_id,
+        institution_id: selectedInstitutionId,
         lead_id: leadId,
+        degree_id: selectedDegreeId,
+        department_id: selectedDepartmentId,
         program_id: selectedProgramId,
-        full_name: lead.full_name || '',
-        email: lead.email || '',
-        phone: lead.phone || '',
       },
       {
         onSuccess: () => {
-          setSelectedProgramId('');
           setShowCreateAppDialog(false);
+          setSelectedDegreeId('');
+          setSelectedDepartmentId('');
+          setSelectedProgramId('');
+          refetch();
         },
       }
     );
@@ -796,6 +1096,27 @@ function LeadDetailPageContent() {
                 <Star className="h-4 w-4 mr-1" />
                 {lead.is_priority ? 'Priority' : 'Mark Priority'}
               </Button>
+              {/* Convert to Learner Enquiry — shows "View Learner Profile" once converted */}
+              {lead.learner_profile_id ? (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`/learners/profiles/${lead.learner_profile_id}`}>
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    View Learner Profile
+                  </a>
+                </Button>
+              ) : (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleConvertToLearner}
+                  disabled={isConverting}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  <UserPlus className={`h-4 w-4 mr-2 ${isConverting ? 'animate-pulse' : ''}`} />
+                  {isConverting ? 'Converting...' : 'Convert to Learner Enquiry'}
+                </Button>
+              )}
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon">
@@ -846,11 +1167,18 @@ function LeadDetailPageContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {FUNNEL_STAGES.map((stage) => (
-                        <SelectItem key={stage.value} value={stage.value}>
-                          {stage.label}
-                        </SelectItem>
-                      ))}
+                      {(() => {
+                        const allowedNextStages = lead?.funnel_stage
+                          ? ALLOWED_STAGE_TRANSITIONS[lead.funnel_stage as FunnelStage] ?? []
+                          : FUNNEL_STAGES.map(s => s.value);
+                        return FUNNEL_STAGES.filter(
+                          s => allowedNextStages.includes(s.value as FunnelStage) || s.value === lead?.funnel_stage
+                        ).map((stage) => (
+                          <SelectItem key={stage.value} value={stage.value}>
+                            {stage.label}
+                          </SelectItem>
+                        ));
+                      })()}
                     </SelectContent>
                   </Select>
                 </div>
@@ -863,58 +1191,136 @@ function LeadDetailPageContent() {
             {/* Left Column - Details & Tabs */}
             <div className="lg:col-span-2 space-y-6">
               {/* Score Cards */}
+              <TooltipProvider delayDuration={200}>
               <div className="grid grid-cols-4 gap-4">
+                {/* Overall Score */}
                 <Card>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-muted-foreground">Score</p>
-                        <p className="text-2xl font-bold">{lead.score != null ? lead.score : 'Not scored'}</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">Score</p>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-[260px] text-xs space-y-1.5 p-3">
+                              <p className="font-semibold">Overall Lead Score</p>
+                              <p>Weighted average of Engagement and Quality:</p>
+                              <p className="font-mono text-[11px]">Score = (Engagement × 50%) + (Quality × 50%)</p>
+                              <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
+                                <p>Engagement: <span className="font-medium">{computedScores.engagement}</span> pts</p>
+                                <p>Quality: <span className="font-medium">{computedScores.quality}</span> pts</p>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <p className="text-2xl font-bold">{computedScores.score}</p>
                       </div>
                       <Target className="h-8 w-8 text-primary opacity-50" />
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Category */}
                 <Card>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-muted-foreground">Category</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">Category</p>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-[220px] text-xs space-y-1 p-3">
+                              <p className="font-semibold">Score Category Thresholds</p>
+                              <p className={`${computedScores.category === 'hot' ? 'font-bold' : 'opacity-70'} text-red-300`}>Hot: 75 – 100</p>
+                              <p className={`${computedScores.category === 'warm' ? 'font-bold' : 'opacity-70'} text-orange-300`}>Warm: 50 – 74</p>
+                              <p className={`${computedScores.category === 'cool' ? 'font-bold' : 'opacity-70'} text-cyan-300`}>Cool: 25 – 49</p>
+                              <p className={`${computedScores.category === 'cold' ? 'font-bold' : 'opacity-70'} text-blue-300`}>Cold: 0 – 24</p>
+                              <p className="border-t pt-1 mt-1">Current score: <span className="font-medium">{computedScores.score}</span></p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
                         <p className={`text-2xl font-bold capitalize ${
-                          lead.score_category === 'hot' ? 'text-red-600' :
-                          lead.score_category === 'warm' ? 'text-orange-600' :
-                          lead.score_category === 'cold' ? 'text-blue-600' : 'text-muted-foreground'
+                          computedScores.category === 'hot' ? 'text-red-600' :
+                          computedScores.category === 'warm' ? 'text-orange-600' :
+                          computedScores.category === 'cool' ? 'text-cyan-600' :
+                          computedScores.category === 'cold' ? 'text-blue-600' : 'text-muted-foreground'
                         }`}>
-                          {lead.score_category || 'Not scored'}
+                          {computedScores.category}
                         </p>
                       </div>
                       <Flame className="h-8 w-8 text-orange-500 opacity-50" />
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Engagement */}
                 <Card>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-muted-foreground">Engagement</p>
-                        <p className="text-2xl font-bold">{lead.engagement_score || 0}</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">Engagement</p>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-[260px] text-xs space-y-1.5 p-3">
+                              <p className="font-semibold">Engagement Score</p>
+                              <p>Based on activity interactions with this lead:</p>
+                              {Object.keys(computedScores.engagementBreakdown).length > 0 ? (
+                                <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
+                                  {Object.entries(computedScores.engagementBreakdown).map(([label, data]) => (
+                                    <p key={label}>{label}: {data.count}× = <span className="font-medium">{data.points} pts</span></p>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-muted-foreground italic border-t pt-1.5 mt-1.5">No activities recorded yet</p>
+                              )}
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <p className="text-2xl font-bold">{computedScores.engagement}</p>
                       </div>
                       <TrendingUp className="h-8 w-8 text-blue-500 opacity-50" />
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Quality */}
                 <Card>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-muted-foreground">Quality</p>
-                        <p className="text-2xl font-bold">{lead.quality_score || 0}</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">Quality</p>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-[240px] text-xs space-y-1.5 p-3">
+                              <p className="font-semibold">Profile Quality ({computedScores.qualityFilledCount}/{computedScores.qualityTotalFields} fields)</p>
+                              <div className="border-t pt-1.5 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                {Object.entries(computedScores.qualityBreakdown).map(([field, filled]) => (
+                                  <p key={field} className={filled ? 'text-green-300' : 'text-red-300/70'}>
+                                    {filled ? '✓' : '✗'} {field}
+                                  </p>
+                                ))}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <p className="text-2xl font-bold">{computedScores.quality}</p>
                       </div>
                       <Star className="h-8 w-8 text-yellow-500 opacity-50" />
                     </div>
                   </CardContent>
                 </Card>
               </div>
+              </TooltipProvider>
 
               {/* Tabs */}
               <Tabs defaultValue="activity" className="w-full">
@@ -961,15 +1367,15 @@ function LeadDetailPageContent() {
                           <CardTitle className="text-base">Communication History</CardTitle>
                           <CardDescription>SMS &amp; WhatsApp messages sent to this lead</CardDescription>
                         </div>
-                        <Dialog open={showSendMsg} onOpenChange={setShowSendMsg}>
+                        <Dialog open={showSendMsg} onOpenChange={(open) => { setShowSendMsg(open); setSelectedTemplateId(''); setSendMessage(''); setTemplateAttachment(null); }}>
                           <DialogTrigger asChild>
                             <Button size="sm" variant="outline">
                               <Send className="h-3.5 w-3.5 mr-1.5" />
                               Send Message
                             </Button>
                           </DialogTrigger>
-                          <DialogContent className="sm:max-w-md">
-                            <DialogHeader>
+                          <DialogContent className="w-[calc(100vw-2rem)] max-w-md flex flex-col max-h-[90vh]">
+                            <DialogHeader className="shrink-0">
                               <DialogTitle>Send Message</DialogTitle>
                               <DialogDescription>
                                 {sendChannel === 'whatsapp'
@@ -977,10 +1383,18 @@ function LeadDetailPageContent() {
                                   : `Send a direct SMS to ${lead?.full_name}`}
                               </DialogDescription>
                             </DialogHeader>
-                            <div className="space-y-4 py-2">
+                            <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
                               <div className="space-y-2">
                                 <Label>Channel</Label>
-                                <Select value={sendChannel} onValueChange={(v) => setSendChannel(v as 'sms' | 'whatsapp')}>
+                                <Select
+                                  value={sendChannel}
+                                  onValueChange={(v) => {
+                                    setSendChannel(v as 'sms' | 'whatsapp');
+                                    setSelectedTemplateId('');
+                                    setSendMessage('');
+                                    setTemplateAttachment(null);
+                                  }}
+                                >
                                   <SelectTrigger>
                                     <SelectValue />
                                   </SelectTrigger>
@@ -990,6 +1404,81 @@ function LeadDetailPageContent() {
                                   </SelectContent>
                                 </Select>
                               </div>
+                              {channelTemplates.length > 0 && (
+                                <div className="space-y-2">
+                                  <Label>
+                                    Use Template{' '}
+                                    <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                                  </Label>
+                                  <Select
+                                    value={selectedTemplateId}
+                                    onValueChange={(id) => {
+                                      setSelectedTemplateId(id);
+                                      const tmpl = channelTemplates.find((t) => t.id === id);
+                                      if (tmpl) {
+                                        setSendMessage(
+                                          replaceVariables(tmpl.content, {
+                                            first_name: lead?.full_name?.split(' ')[0] || '',
+                                            last_name: lead?.full_name?.split(' ').slice(1).join(' ') || '',
+                                            full_name: lead?.full_name || '',
+                                            phone: lead?.phone || '',
+                                            email: lead?.email || '',
+                                            program: lead?.program?.program_name || '',
+                                          })
+                                        );
+                                        setTemplateAttachment(
+                                          tmpl.attachment_type && tmpl.attachment_url
+                                            ? { type: tmpl.attachment_type, url: tmpl.attachment_url }
+                                            : null
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select a template…" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {channelTemplates.map((t) => (
+                                        <SelectItem key={t.id} value={t.id}>
+                                          {t.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
+                              {templateAttachment && (
+                                <div className="space-y-2">
+                                  <Label className="flex items-center gap-1.5">
+                                    <Paperclip className="h-3.5 w-3.5" />
+                                    Attachment
+                                  </Label>
+                                  <div className="rounded-md border bg-muted/40 p-3">
+                                    {templateAttachment.type === 'image' ? (
+                                      <img
+                                        src={templateAttachment.url}
+                                        alt="Template image"
+                                        className="w-full max-h-40 rounded object-contain"
+                                      />
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        {templateAttachment.type === 'video' && (
+                                          <Film className="h-5 w-5 text-purple-500" />
+                                        )}
+                                        {templateAttachment.type === 'document' && (
+                                          <FileTextIcon className="h-5 w-5 text-orange-500" />
+                                        )}
+                                        <span className="text-xs font-medium capitalize">{templateAttachment.type} attached</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {sendChannel === 'whatsapp' && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Send this attachment manually in WhatsApp after opening the chat.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                               <div className="space-y-2">
                                 <Label>To</Label>
                                 <Input value={lead?.phone || ''} disabled className="bg-muted" />
@@ -1004,7 +1493,7 @@ function LeadDetailPageContent() {
                                 />
                               </div>
                             </div>
-                            <DialogFooter>
+                            <DialogFooter className="shrink-0">
                               <Button variant="outline" onClick={() => setShowSendMsg(false)}>
                                 Cancel
                               </Button>
@@ -1234,6 +1723,118 @@ function LeadDetailPageContent() {
                     </CardContent>
                   </Card>
 
+                  {/* Assignment Details — source-based: referral → consultant, others → counselor */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <User className="h-4 w-4" />
+                        {lead.source === 'referral' ? 'Consultant Details' : 'Assigned Counselor'}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {lead.source === 'referral' ? (
+                        /* Consultant section for referral leads */
+                        leadAttributions.length > 0 ? (
+                          <div className="space-y-2">
+                            {leadAttributions.map((attr: any) => (
+                              <div key={attr.id} className="rounded-md border p-3">
+                                <div className="flex items-center justify-between">
+                                  <p className="font-medium">{attr.consultant?.name || 'Unknown'}</p>
+                                  <div className="flex items-center gap-1.5">
+                                    <Badge variant="outline" className="text-xs capitalize">
+                                      {attr.attribution_type}
+                                    </Badge>
+                                    {attr.is_verified ? (
+                                      <Badge className="text-xs bg-green-100 text-green-800">Verified</Badge>
+                                    ) : (
+                                      <Badge className="text-xs bg-yellow-100 text-yellow-800">Pending</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                                {(attr.consultant?.email || attr.consultant?.phone || attr.attribution_percentage != null) && (
+                                  <dl className="grid grid-cols-2 gap-2 text-sm mt-2">
+                                    {attr.consultant?.email && (
+                                      <div>
+                                        <dt className="text-muted-foreground">Email</dt>
+                                        <dd>{attr.consultant.email}</dd>
+                                      </div>
+                                    )}
+                                    {attr.consultant?.phone && (
+                                      <div>
+                                        <dt className="text-muted-foreground">Phone</dt>
+                                        <dd>{attr.consultant.phone}</dd>
+                                      </div>
+                                    )}
+                                    {attr.attribution_percentage != null && (
+                                      <div>
+                                        <dt className="text-muted-foreground">Commission</dt>
+                                        <dd>{attr.attribution_percentage}%</dd>
+                                      </div>
+                                    )}
+                                  </dl>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="rounded-md border border-dashed p-3 text-center">
+                            <p className="text-sm text-muted-foreground">No consultant linked</p>
+                          </div>
+                        )
+                      ) : (
+                        /* Counselor section for non-referral leads */
+                        lead.counselor_id && lead.counselor ? (
+                          <div className="rounded-md border p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="font-medium">{lead.counselor.name}</p>
+                              <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                Active
+                              </Badge>
+                            </div>
+                            <dl className="grid grid-cols-2 gap-2 text-sm">
+                              {lead.counselor.email && (
+                                <div>
+                                  <dt className="text-muted-foreground">Email</dt>
+                                  <dd>{lead.counselor.email}</dd>
+                                </div>
+                              )}
+                              {lead.counselor.phone && (
+                                <div>
+                                  <dt className="text-muted-foreground">Phone</dt>
+                                  <dd>{lead.counselor.phone}</dd>
+                                </div>
+                              )}
+                              {lead.counselor.designation && (
+                                <div>
+                                  <dt className="text-muted-foreground">Designation</dt>
+                                  <dd className="capitalize">{lead.counselor.designation}</dd>
+                                </div>
+                              )}
+                              {lead.assigned_at && (
+                                <div>
+                                  <dt className="text-muted-foreground">Assigned On</dt>
+                                  <dd>{new Date(lead.assigned_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</dd>
+                                </div>
+                              )}
+                            </dl>
+                          </div>
+                        ) : (
+                          <div className="rounded-md border border-dashed p-3 text-center">
+                            <p className="text-sm text-muted-foreground">No counselor assigned</p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-2"
+                              onClick={() => setShowAssignCounselorDialog(true)}
+                            >
+                              Assign Counselor
+                            </Button>
+                          </div>
+                        )
+                      )}
+                    </CardContent>
+                  </Card>
+
                   {/* Notes */}
                   {lead.notes && (
                     <Card>
@@ -1251,11 +1852,41 @@ function LeadDetailPageContent() {
 
             {/* Right Column - Tags & Quick Info */}
             <div className="space-y-6">
-              {/* Consultant Attribution */}
-              <ConsultantAttributionCard
-                leadId={leadId}
-                institutionId={lead.institution_id}
-              />
+              {/* Source-based: show Consultant Attribution for referral leads, Counselor info for others */}
+              {lead.source === 'referral' ? (
+                <ConsultantAttributionCard
+                  leadId={leadId}
+                  institutionId={lead.institution_id}
+                />
+              ) : (
+                lead.counselor_id && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <User className="h-4 w-4" />
+                          Assigned Counselor
+                        </CardTitle>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowAssignCounselorDialog(true)}
+                        >
+                          Change
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="font-medium">{lead.counselor?.name || 'Unknown'}</p>
+                      {lead.assigned_at && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Assigned {new Date(lead.assigned_at).toLocaleDateString()}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              )}
 
               {/* Tags */}
               <Card>
@@ -1284,7 +1915,7 @@ function LeadDetailPageContent() {
                             id="tag"
                             value={newTag}
                             onChange={(e) => setNewTag(e.target.value)}
-                            placeholder="e.g., engineering, scholarship"
+                            placeholder="e.g., engineering, priority"
                             className="mt-2"
                           />
                         </div>
@@ -1444,58 +2075,60 @@ function LeadDetailPageContent() {
                     </DialogContent>
                   </Dialog>
 
-                  {/* Assign Counselor Dialog */}
-                  <Dialog open={showAssignCounselorDialog} onOpenChange={(open) => { setShowAssignCounselorDialog(open); if (!open) setSelectedCounselorId(''); }}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start" size="sm">
-                        <User className="h-4 w-4 mr-2" />
-                        Assign Counselor
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Assign Counselor</DialogTitle>
-                        <DialogDescription>
-                          {lead.counselor?.name
-                            ? `Currently assigned to ${lead.counselor.name}. Select a new counselor.`
-                            : 'Select a counselor to assign to this lead.'}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <div>
-                          <Label htmlFor="counselor-select">Counselor *</Label>
-                          <Select value={selectedCounselorId} onValueChange={setSelectedCounselorId}>
-                            <SelectTrigger className="mt-2">
-                              <SelectValue placeholder="Select a counselor" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {counselorsLoading ? (
-                                <SelectItem value="_loading" disabled>Loading counselors...</SelectItem>
-                              ) : counselors.length === 0 ? (
-                                <SelectItem value="_none" disabled>No counselors found</SelectItem>
-                              ) : (
-                                counselors.map((c) => (
-                                  <SelectItem key={c.profile_id} value={c.profile_id}>
-                                    {c.name}{c.designation ? ` (${c.designation})` : ''}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => { setShowAssignCounselorDialog(false); setSelectedCounselorId(''); }}>Cancel</Button>
-                        <Button onClick={handleAssignCounselor} disabled={assignCounselor.isPending || !selectedCounselorId}>
-                          {assignCounselor.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                          Assign
+                  {/* Assign Counselor Dialog — only for non-referral leads (referral leads use consultant attribution) */}
+                  {lead.source !== 'referral' && (
+                    <Dialog open={showAssignCounselorDialog} onOpenChange={(open) => { setShowAssignCounselorDialog(open); if (!open) setSelectedCounselorId(''); }}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start" size="sm">
+                          <User className="h-4 w-4 mr-2" />
+                          Assign Counselor
                         </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Assign Counselor</DialogTitle>
+                          <DialogDescription>
+                            {lead.counselor?.name
+                              ? `Currently assigned to ${lead.counselor.name}. Select a new counselor.`
+                              : 'Select a counselor to assign to this lead.'}
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div>
+                            <Label htmlFor="counselor-select">Counselor *</Label>
+                            <Select value={selectedCounselorId} onValueChange={setSelectedCounselorId}>
+                              <SelectTrigger className="mt-2">
+                                <SelectValue placeholder="Select a counselor" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {counselorsLoading ? (
+                                  <SelectItem value="_loading" disabled>Loading counselors...</SelectItem>
+                                ) : counselors.length === 0 ? (
+                                  <SelectItem value="_none" disabled>No counselors found</SelectItem>
+                                ) : (
+                                  counselors.map((c) => (
+                                    <SelectItem key={c.profile_id} value={c.profile_id}>
+                                      {c.name}{c.designation ? ` (${c.designation})` : ''}
+                                    </SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => { setShowAssignCounselorDialog(false); setSelectedCounselorId(''); }}>Cancel</Button>
+                          <Button onClick={handleAssignCounselor} disabled={assignCounselor.isPending || !selectedCounselorId}>
+                            {assignCounselor.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            Assign
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  )}
 
                   {/* Create Application Dialog */}
-                  <Dialog open={showCreateAppDialog} onOpenChange={(open) => { setShowCreateAppDialog(open); if (!open) setSelectedProgramId(''); }}>
+                  <Dialog open={showCreateAppDialog} onOpenChange={(open) => { setShowCreateAppDialog(open); if (!open) { setSelectedDegreeId(''); setSelectedDepartmentId(''); setSelectedProgramId(''); } }}>
                     <DialogTrigger asChild>
                       <Button variant="outline" className="w-full justify-start" size="sm">
                         <Send className="h-4 w-4 mr-2" />
@@ -1510,25 +2143,79 @@ function LeadDetailPageContent() {
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
+                        {/* Institution */}
                         <div>
-                          <Label htmlFor="app-program">Program *</Label>
-                          <Select value={selectedProgramId} onValueChange={setSelectedProgramId}>
-                            <SelectTrigger className="mt-2">
-                              <SelectValue placeholder="Select a program" />
+                          <Label>Institution *</Label>
+                          <Select value={selectedInstitutionId} onValueChange={(value) => {
+                            setSelectedInstitutionId(value);
+                            setSelectedDegreeId('');
+                            setSelectedDepartmentId('');
+                            setSelectedProgramId('');
+                          }}>
+                            <SelectTrigger className="mt-1.5">
+                              <SelectValue placeholder="Select institution" />
                             </SelectTrigger>
                             <SelectContent>
-                              {programsLoading ? (
-                                <SelectItem value="_loading" disabled>Loading programs...</SelectItem>
-                              ) : programs.length === 0 ? (
-                                <SelectItem value="_none" disabled>No programs found</SelectItem>
-                              ) : (
-                                programs.map((p) => (
-                                  <SelectItem key={p.id} value={p.id}>{p.program_name}</SelectItem>
-                                ))
-                              )}
+                              {institutions.map((inst) => (
+                                <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>
+
+                        {/* Degree */}
+                        <div>
+                          <Label>Degree *</Label>
+                          <Select value={selectedDegreeId} onValueChange={(value) => {
+                            setSelectedDegreeId(value);
+                            setSelectedDepartmentId('');
+                            setSelectedProgramId('');
+                          }} disabled={!selectedInstitutionId || loadingDegrees}>
+                            <SelectTrigger className="mt-1.5">
+                              <SelectValue placeholder={loadingDegrees ? "Loading..." : "Select degree"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredDegrees.map((deg: any) => (
+                                <SelectItem key={deg.id} value={deg.id}>{deg.degree_name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Department */}
+                        <div>
+                          <Label>Department *</Label>
+                          <Select value={selectedDepartmentId} onValueChange={(value) => {
+                            setSelectedDepartmentId(value);
+                            setSelectedProgramId('');
+                          }} disabled={!selectedDegreeId || loadingDepartments}>
+                            <SelectTrigger className="mt-1.5">
+                              <SelectValue placeholder={loadingDepartments ? "Loading..." : "Select department"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredDepartments.map((dept: any) => (
+                                <SelectItem key={dept.id} value={dept.id}>{dept.department_name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Program */}
+                        <div>
+                          <Label>Program *</Label>
+                          <Select value={selectedProgramId} onValueChange={setSelectedProgramId} disabled={!selectedDepartmentId || loadingPrograms}>
+                            <SelectTrigger className="mt-1.5">
+                              <SelectValue placeholder={loadingPrograms ? "Loading..." : "Select program"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredPrograms.map((prog: any) => (
+                                <SelectItem key={prog.id} value={prog.id}>{prog.program_name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Lead info preview */}
                         <div className="rounded-md bg-muted p-3 text-sm space-y-1">
                           <p><span className="text-muted-foreground">Name:</span> {lead.full_name || '-'}</p>
                           <p><span className="text-muted-foreground">Email:</span> {lead.email || '-'}</p>
@@ -1536,8 +2223,8 @@ function LeadDetailPageContent() {
                         </div>
                       </div>
                       <DialogFooter>
-                        <Button variant="outline" onClick={() => { setShowCreateAppDialog(false); setSelectedProgramId(''); }}>Cancel</Button>
-                        <Button onClick={handleCreateApplication} disabled={createApplication.isPending || !selectedProgramId}>
+                        <Button variant="outline" onClick={() => { setShowCreateAppDialog(false); setSelectedDegreeId(''); setSelectedDepartmentId(''); setSelectedProgramId(''); }}>Cancel</Button>
+                        <Button onClick={handleCreateApplication} disabled={createApplication.isPending || !selectedProgramId || !selectedDegreeId || !selectedDepartmentId || !selectedInstitutionId}>
                           {createApplication.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                           Create Application
                         </Button>
@@ -1664,7 +2351,7 @@ function LeadDetailPageContent() {
                       </div>
                     </div>
                   )}
-                  {lead.counselor_id && (
+                  {lead.source !== 'referral' && lead.counselor_id && (
                     <div className="flex items-center gap-3">
                       <User className="h-4 w-4 text-muted-foreground" />
                       <div>
@@ -1692,12 +2379,22 @@ function LeadDetailPageContent() {
                   <h4 className="text-sm font-semibold text-muted-foreground">Personal Information</h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="edit-full_name">Full Name *</Label>
+                      <Label htmlFor="edit-first_name">First Name *</Label>
                       <Input
-                        id="edit-full_name"
-                        value={editForm.full_name}
-                        onChange={(e) => handleEditChange('full_name', e.target.value)}
+                        id="edit-first_name"
+                        value={editForm.first_name}
+                        onChange={(e) => handleEditChange('first_name', e.target.value)}
                         className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-last_name">Last Name</Label>
+                      <Input
+                        id="edit-last_name"
+                        value={editForm.last_name}
+                        onChange={(e) => handleEditChange('last_name', e.target.value)}
+                        className="mt-1"
+                        placeholder="Optional"
                       />
                     </div>
                     <div>
@@ -1869,6 +2566,45 @@ function LeadDetailPageContent() {
                     </Select>
                   </div>
                 </div>
+
+                {/* Counselor / Consultant assignment based on source */}
+                {editForm.source && (
+                  <div className="space-y-3">
+                    {editForm.source === 'referral' ? (
+                      <>
+                        <h4 className="text-sm font-semibold text-muted-foreground">Referred by Consultant</h4>
+                        <Select value={editConsultantId} onValueChange={setEditConsultantId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select consultant" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">No consultant</SelectItem>
+                            {consultantsDropdown.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </>
+                    ) : (
+                      <>
+                        <h4 className="text-sm font-semibold text-muted-foreground">Assign Counselor</h4>
+                        <Select value={editCounselorProfileId} onValueChange={setEditCounselorProfileId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select counselor" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">No counselor</SelectItem>
+                            {counselors.map((c) => (
+                              <SelectItem key={c.profile_id} value={c.profile_id}>
+                                {c.name}{c.designation ? ` (${c.designation})` : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>

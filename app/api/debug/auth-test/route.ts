@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     );
 
     // Test auth
+    console.log('Testing auth...');
     const authStart = Date.now();
     const { data: authData, error: authError } = await supabase.auth.getUser();
     const authDuration = Date.now() - authStart;
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = authData.user.id;
+    console.log('Auth successful, testing profile fetch for:', userId);
 
     // Test profile fetch
     const profileStart = Date.now();

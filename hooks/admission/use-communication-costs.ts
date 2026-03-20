@@ -8,7 +8,6 @@ import {
   type CostFilters,
   type LogCostInput,
 } from '@/lib/services/admission/communication-cost-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -29,12 +28,10 @@ export const communicationCostKeys = {
 // ============================================================================
 
 export function useCostDashboard(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: communicationCostKeys.dashboard(institutionId || ''),
     queryFn: () => CommunicationCostService.getDashboard(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 60000,
   });
 
@@ -54,12 +51,10 @@ export function useCostDashboard(institutionId?: string) {
 }
 
 export function useCostEntries(filters: CostFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: communicationCostKeys.entries(filters),
     queryFn: () => CommunicationCostService.getCosts(filters),
-    enabled: isSuperAdmin || !!filters.institutionId,
+    enabled: !!filters.institutionId,
   });
 
   return {
@@ -71,8 +66,6 @@ export function useCostEntries(filters: CostFilters) {
 }
 
 export function useMonthlyCosts(institutionId?: string, months?: number) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: communicationCostKeys.monthly(institutionId || '', months),
     queryFn: () =>
@@ -80,7 +73,7 @@ export function useMonthlyCosts(institutionId?: string, months?: number) {
         institutionId: institutionId!,
         months,
       }),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {

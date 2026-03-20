@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     // 2. Check permissions
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('id, role, is_super_admin, institution_id')
+      .select('id, role, is_super_admin')
       .eq('id', user.id)
       .single();
 
@@ -66,7 +66,6 @@ export async function POST(request: Request) {
       id: string;
       role: string;
       is_super_admin: boolean | null;
-      institution_id: string | null;
     };
 
     const { data: roleData, error: roleError } = await supabase
@@ -96,14 +95,13 @@ export async function POST(request: Request) {
       );
     }
 
-    const isSuperAdmin = !!currentProfile.is_super_admin;
-
     // 3. Get selected learner IDs from request body (optional - if not provided, sync all)
     const body = await request.json().catch(() => ({}));
     const selectedLearnerIds: string[] | undefined = body.learner_ids;
 
-    // 4. Get active learners with college emails - scoped to user's institution (super_admin sees all)
-    let learnersQuery = supabaseAdmin
+    // 4. Get all active learners with college emails
+    // Use .limit(10000) to bypass PostgREST's default 1000-row cap
+    const { data: allLearners, error: learnersError } = await supabaseAdmin
       .from('learners_profiles')
       .select(`
         id,
@@ -120,23 +118,21 @@ export async function POST(request: Request) {
       .eq('lifecycle_status', 'active')
       .eq('is_profile_complete', true)
       .not('college_email', 'is', null)
-      .not('college_email', 'eq', '');
-
-    // Institution scoping for non-super-admins
-    if (!isSuperAdmin && currentProfile.institution_id) {
-      learnersQuery = learnersQuery.eq('institution_id', currentProfile.institution_id);
-    }
-
-    const { data: allLearners, error: learnersError } = await learnersQuery;
+      .not('college_email', 'eq', '')
+      .limit(10000);
 
     if (learnersError) {
       throw new Error(`Failed to fetch learners: ${learnersError.message}`);
     }
 
-    // 5. Get existing profiles for comparison
+    // 5. Get existing profiles for comparison — use .limit(10000) to bypass PostgREST's
+    //    default 1000-row cap. Cannot use .in('email', learnerEmails) because thousands
+    //    of emails in the URL query string trigger a 414 from Cloudflare.
+    const learnerEmails = allLearners.map((l) => l.college_email.toLowerCase());
     const { data: existingProfiles, error: profilesError } = await supabaseAdmin
       .from('profiles')
-      .select('id, email, role, institution_id, department_id, learner_id, full_name, phone_number, gender, is_active');
+      .select('id, email, role, institution_id, department_id, learner_id, full_name, phone_number, gender, is_active')
+      .limit(10000);
 
     if (profilesError) {
       throw new Error(`Failed to fetch profiles: ${profilesError.message}`);
@@ -354,6 +350,10 @@ export async function POST(request: Request) {
 
         // Create auth user
         const tempPassword = generateTemporaryPassword();
+        let authUserId: string;
+        let authAction: 'created' | 'updated' = 'created';
+        let usedTempPassword = tempPassword;
+
         const { data: authUser, error: authCreateError } =
           await supabaseAdmin.auth.admin.createUser({
             email: learner.college_email,
@@ -366,14 +366,61 @@ export async function POST(request: Request) {
           });
 
         if (authCreateError) {
-          throw new Error(
-            `Failed to create auth user for ${learner.college_email}: ${authCreateError.message}`
+          // Orphaned auth account: auth user already exists but profiles row is missing.
+          // Look up the existing auth user by email and reuse their ID to create the profile.
+          const emailLower = learner.college_email.toLowerCase();
+          const isEmailConflict =
+            authCreateError.message?.toLowerCase().includes('already') ||
+            authCreateError.message?.toLowerCase().includes('registered') ||
+            authCreateError.message?.toLowerCase().includes('exists') ||
+            (authCreateError as any).code === 'email_exists';
+
+          if (!isEmailConflict) {
+            throw new Error(
+              `Failed to create auth user for ${learner.college_email}: ${authCreateError.message}`
+            );
+          }
+
+          // Find the orphaned auth user by email.
+          // Note: do NOT destructure the result — destructuring breaks TypeScript's
+          // discriminated union narrowing, causing listData.users to remain `never[]`.
+          const listResult = await supabaseAdmin.auth.admin.listUsers({
+            page: 1,
+            perPage: 1000,
+          });
+
+          if (listResult.error || !listResult.data?.users) {
+            throw new Error(
+              `Auth conflict for ${learner.college_email} but could not list auth users: ${listResult.error?.message}`
+            );
+          }
+
+          // Type assertion needed: Supabase's listUsers generic doesn't narrow
+          // users[] away from `never[]` even after an error guard in some TS versions.
+          type AuthUserMin = { id: string; email?: string | undefined };
+          const existingAuthUser = (listResult.data.users as AuthUserMin[]).find(
+            (u) => u.email?.toLowerCase() === emailLower
           );
+
+          if (!existingAuthUser) {
+            throw new Error(
+              `Auth conflict for ${learner.college_email} but could not locate existing auth user`
+            );
+          }
+
+          console.log(
+            `[learner-sync] Orphaned auth account found for ${learner.college_email} (id: ${existingAuthUser.id}), creating missing profile row`
+          );
+          authUserId = existingAuthUser.id;
+          authAction = 'updated';
+          usedTempPassword = 'Existing auth account — password unchanged';
+        } else {
+          authUserId = authUser.user.id;
         }
 
-        // Create profile
+        // Create profile row (either for the newly created auth user or the orphaned one)
         const newProfileData: Record<string, any> = {
-          id: authUser.user.id,
+          id: authUserId,
           email: learner.college_email,
           full_name: fullName,
           phone_number: learner.student_mobile,
@@ -391,21 +438,25 @@ export async function POST(request: Request) {
           .insert(newProfileData);
 
         if (profileInsertError) {
-          // Clean up auth user on profile failure
-          await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+          // Only clean up the auth user if WE just created it (not an orphaned account)
+          if (authAction === 'created') {
+            await supabaseAdmin.auth.admin.deleteUser(authUserId);
+          }
           throw new Error(
             `Failed to create profile for ${learner.college_email}: ${profileInsertError.message}`
           );
         }
 
-        createdCount++;
+        if (authAction === 'created') createdCount++;
+        else updatedCount++;
+
         results.push({
           learner_id: learner.id,
           email: learner.college_email,
           full_name: fullName,
-          user_id: authUser.user.id,
-          action: 'created',
-          temp_password: tempPassword,
+          user_id: authUserId,
+          action: authAction,
+          temp_password: usedTempPassword,
           success: true
         });
       } catch (error) {

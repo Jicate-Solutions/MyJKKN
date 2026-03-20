@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import type { TimetableData } from '@/types/academics';
 
 export class AttendanceFacultySync {
   private static supabase = createClientSupabaseClient();
@@ -32,7 +33,7 @@ export class AttendanceFacultySync {
       }
 
       // Type cast to fix TypeScript inference after React 19 upgrade
-      const attendanceData = attendance as unknown as { timetables: { timetable_data: any }; attendance_date: string; attendance_data: any };
+      const attendanceData = attendance as unknown as { timetables: { timetable_data: TimetableData }; attendance_date: string; attendance_data: any };
 
       const timetableData = attendanceData.timetables.timetable_data;
       const attendanceDate = attendanceData.attendance_date;
@@ -59,8 +60,8 @@ export class AttendanceFacultySync {
         // Find slot by slot_id
         let timetableSlot = null;
         for (const slot of Object.values(dayData)) {
-          if ((slot as any).slot_id === periodId) {
-            timetableSlot = slot as any;
+          if (slot.slot_id === periodId) {
+            timetableSlot = slot;
             break;
           }
         }
@@ -257,7 +258,7 @@ export class AttendanceFacultySync {
       const attendanceRecord = attendance as unknown as {
         attendance_data: any;
         attendance_date: string;
-        timetables: { timetable_data: any };
+        timetables: { timetable_data: TimetableData };
       } | null;
 
       if (!attendanceRecord) {
@@ -284,8 +285,8 @@ export class AttendanceFacultySync {
       // Find the slot
       let timetableSlot = null;
       for (const slot of Object.values(dayData)) {
-        if ((slot as any).slot_id === periodId) {
-          timetableSlot = slot as any;
+        if (slot.slot_id === periodId) {
+          timetableSlot = slot;
           break;
         }
       }

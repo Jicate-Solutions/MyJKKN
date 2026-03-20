@@ -2,7 +2,7 @@
 // PUT /api/admission/calls/[id]/notes — Update post-call notes
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase/server';
+import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import { TelephonyService, type CallDisposition } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -38,11 +38,12 @@ export async function PUT(
       disposition: call_disposition,
     });
 
+    const supabase = createServiceRoleClient();
     const updatedLog = await TelephonyService.updateCallNotes(id, {
       call_notes,
       call_disposition: call_disposition as CallDisposition,
       follow_up_date: follow_up_date || null,
-    });
+    }, supabase);
 
     return NextResponse.json({
       success: true,

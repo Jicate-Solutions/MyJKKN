@@ -304,12 +304,11 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: institutionId,
         activity_type: 'task',
-        title: 'Follow-up Rescheduled',
+        subject: 'Follow-up Rescheduled',
         description: `Follow-up rescheduled to ${new Date(newDate).toLocaleDateString()}`,
-        metadata: { scheduled_at: newDate },
-        performed_by: userId,
+        scheduled_at: newDate,
+        created_by: userId,
       });
 
     if (activityError) {
@@ -347,11 +346,10 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: institutionId,
         activity_type: 'note',
-        title: 'Quick Note',
+        subject: 'Quick Note',
         description: note,
-        performed_by: userId,
+        created_by: userId,
       });
 
     if (error) {
@@ -389,11 +387,10 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: institutionId,
         activity_type: 'call',
-        title: 'Phone Call',
+        subject: 'Phone Call',
         description: notes || 'Call made from counselor view',
-        performed_by: userId,
+        created_by: userId,
       });
 
     if (error) {
@@ -500,11 +497,10 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: institutionId,
         activity_type: 'stage_change',
-        title: `Stage: ${oldStage} → ${newStage}`,
+        subject: `Stage: ${oldStage} → ${newStage}`,
         description: `Stage changed from ${oldStage} to ${newStage}`,
-        performed_by: userId,
+        created_by: userId,
       });
 
     if (activityError) {
@@ -533,10 +529,18 @@ export class CounselorDailyViewService {
   }
 
   /**
-   * Fetch active profiles with role='counselor' for an institution.
-   * This is the primary source of truth for counselor dropdowns.
+   * Fetch active profiles with counselor role for an institution.
+   *
+   * Uses the SECURITY DEFINER RPC `get_counselor_profiles_for_institution` which
+   * bypasses user_roles RLS and checks both sources in one query:
+   *   - profiles.role = 'counselor'  (primary role)
+   *   - user_roles + custom_roles junction (multi-role users)
+   *
+   * The previous client-side multi-step approach silently returned an incomplete
+   * list because the user_roles RLS policy ("Users can view own roles") blocked
+   * reads of other users' role assignments for non-manager callers.
    */
-  static async getCounselorProfiles(institutionId: string): Promise<Array<{
+  static async getCounselorProfiles(institutionId: string | null): Promise<Array<{
     profile_id: string;
     name: string;
     email: string | null;
@@ -544,22 +548,21 @@ export class CounselorDailyViewService {
     designation: string | null;
   }>> {
     const supabase = createClientSupabaseClient();
+
+    // null → RPC omits the institution filter, returning counselors from all institutions.
+    // Used by super admins who haven't selected a specific institution yet.
     const { data, error } = await (supabase as any)
-      .from('profiles')
-      .select('id, full_name, email, phone_number, designation')
-      .eq('role', 'counselor')
-      .eq('institution_id', institutionId)
-      .eq('is_active', true)
-      .order('full_name');
+      .rpc('get_counselor_profiles_for_institution', {
+        p_institution_id: institutionId ?? null,
+      });
 
     if (error) {
-      // Intentionally throws (unlike getCounselors) so React Query surfaces an error state rather than silently showing an empty list.
       console.error('[CounselorDailyViewService] Failed to fetch counselor profiles:', error);
       throw new Error('Failed to fetch counselors');
     }
 
     return (data || []).map((p: any) => ({
-      profile_id: p.id,
+      profile_id: p.profile_id,
       name: p.full_name || '',
       email: p.email || null,
       phone: p.phone_number || null,

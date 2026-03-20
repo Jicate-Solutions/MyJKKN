@@ -235,7 +235,11 @@ export default function BugReportDetailsPage() {
       `Email: ${report.reporter?.email || 'Unknown'}`,
       `Role: ${formatRoleName(report.reporter?.role)}`,
       `Institution: ${report.institution_name || 'Not specified'}`,
-      `Department: ${report.department_name || 'Not specified'}`
+      `Department: ${report.department_name || 'Not specified'}`,
+      `Page URL: ${report.page_url || 'Not specified'}`,
+      ``,
+      `Description:`,
+      `${report.description || 'No description provided'}`
     ].join('\n');
 
     navigator.clipboard

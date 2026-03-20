@@ -41,7 +41,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useCallLogs,
   useCallStats,
@@ -268,8 +269,9 @@ function CallNotesDialog({
 // ============================================================================
 
 function CallLogDashboardContent() {
-  const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
-  const institutionId = selectedInstitutionId || '';
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
 
   // Filter state
   const [page, setPage] = useState(1);
@@ -301,7 +303,7 @@ function CallLogDashboardContent() {
 
   const { stats, isLoading: statsLoading } = useCallStats(institutionId);
 
-  const isLoading = accessLoading || logsLoading;
+  const isLoading = logsLoading;
 
   const clearFilters = () => {
     setStatusFilter('');
@@ -322,20 +324,6 @@ function CallLogDashboardContent() {
     });
     setNotesDialogOpen(true);
   };
-
-  if (accessLoading) {
-    return (
-      <PermissionGuard module="admission" action="view">
-        <ContentLayout title="Call Logs">
-          <div className="space-y-4">
-            {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-20 w-full" />
-            ))}
-          </div>
-        </ContentLayout>
-      </PermissionGuard>
-    );
-  }
 
   return (
     <PermissionGuard module="admission" action="view">
@@ -640,7 +628,7 @@ function CallLogDashboardContent() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <span className="text-sm">{log.counselor?.name || 'Unknown'}</span>
+                            <span className="text-sm">{log.counselor?.full_name || 'Unknown'}</span>
                           </TableCell>
                           <TableCell>{getStatusBadge(log.status)}</TableCell>
                           <TableCell>{getDispositionBadge(log.call_disposition)}</TableCell>

@@ -10,7 +10,6 @@ import {
   type UpdateAudienceRuleInput,
   type SyncResult,
 } from '@/lib/services/marketing/remarketing-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -29,12 +28,10 @@ export const remarketingKeys = {
 // ============================================================================
 
 export function useRemarketingRules(filters: AudienceRuleFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: remarketingKeys.rulesList(filters),
     queryFn: () => RemarketingService.getAudienceRules(filters),
-    enabled: isSuperAdmin || !!filters.institutionId,
+    enabled: !!filters.institutionId,
   });
 
   return {

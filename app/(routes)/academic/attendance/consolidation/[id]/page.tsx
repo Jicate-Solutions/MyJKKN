@@ -67,6 +67,7 @@ import {
 import { useConsolidationReport } from '@/hooks/academic/use-attendance-consolidation';
 import { cn } from '@/lib/utils';
 import { exportConsolidationReportToPDF } from '@/lib/utils/pdf-export/consolidation-report-pdf';
+import { exportConsolidationReportToExcel } from '@/lib/utils/excel-export/consolidation-report-excel';
 import type { StudentAttendanceSummary, GroupAttendanceSummary } from '@/types/attendance';
 
 interface PageProps {
@@ -400,6 +401,7 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
   const reportId = resolvedParams.id;
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
 
   const { data: report, isLoading, error } = useConsolidationReport(reportId);
 
@@ -433,6 +435,24 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
       toast.error('Failed to export PDF. Please try again.', { id: 'pdf-export' });
     } finally {
       setIsExportingPDF(false);
+    }
+  };
+
+  const handleExportExcel = async () => {
+    if (!report) return;
+
+    try {
+      setIsExportingExcel(true);
+      toast.loading('Generating Excel...', { id: 'excel-export' });
+
+      exportConsolidationReportToExcel(report);
+
+      toast.success('Excel exported successfully!', { id: 'excel-export' });
+    } catch (error) {
+      console.error('Failed to export Excel:', error);
+      toast.error('Failed to export Excel. Please try again.', { id: 'excel-export' });
+    } finally {
+      setIsExportingExcel(false);
     }
   };
 
@@ -594,6 +614,23 @@ export default function ConsolidationReportDetailPage({ params }: PageProps) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              onClick={handleExportExcel}
+              disabled={isExportingExcel}
+              variant="outline"
+            >
+              {isExportingExcel ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export as Excel
+                </>
+              )}
+            </Button>
             <Button
               onClick={handleExportPDF}
               disabled={isExportingPDF}

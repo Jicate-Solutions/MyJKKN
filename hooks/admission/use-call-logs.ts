@@ -10,7 +10,6 @@ import type {
   CallDisposition,
   CallDirection,
 } from '@/lib/services/telephony/telephony-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -32,8 +31,6 @@ export const callLogsKeys = {
  * Hook to fetch paginated call logs with filters.
  */
 export function useCallLogs(filters: CallLogFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery<PaginatedCallLogs>({
     queryKey: callLogsKeys.list(filters),
     queryFn: async () => {
@@ -72,7 +69,8 @@ export function useCallLogs(filters: CallLogFilters) {
         totalPages: json.metadata?.totalPages || 0,
       };
     },
-    enabled: isSuperAdmin || !!filters.institution_id,
+    // Always fetch. Super admins have no institution_id (returns all); others always have one.
+    enabled: true,
   });
 
   return {
@@ -92,8 +90,6 @@ export function useCallLogs(filters: CallLogFilters) {
  * Hook to fetch call logs for a specific lead.
  */
 export function useLeadCallLogs(institutionId: string, leadId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const filters: CallLogFilters = {
     institution_id: institutionId,
     lead_id: leadId,
@@ -104,7 +100,7 @@ export function useLeadCallLogs(institutionId: string, leadId: string) {
     queryKey: callLogsKeys.leadCalls(leadId),
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (institutionId) params.set('institution_id', institutionId);
+      params.set('institution_id', institutionId);
       params.set('lead_id', leadId);
       params.set('limit', '50');
 
@@ -123,8 +119,7 @@ export function useLeadCallLogs(institutionId: string, leadId: string) {
         totalPages: 1,
       };
     },
-    // super_admin can query without institution scope; lead ID always needed
-    enabled: (isSuperAdmin || !!institutionId) && !!leadId,
+    enabled: !!institutionId && !!leadId,
   });
 
   return {

@@ -11,7 +11,7 @@ import { CommunicationTemplatesService } from '@/lib/services/admission/communic
 import { SMSCampaignService } from '@/lib/services/admission/sms-campaign-service';
 import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, CreateApplicationInput, UpdateApplicationInput, ApplicationStatus } from '@/types/admission';
+import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, CreateApplicationInput, UpdateApplicationInput } from '@/types/admission';
 
 // Re-export reminders hooks
 export {
@@ -28,39 +28,11 @@ export {
 // Re-export from use-consultants for convenience
 export { useSourcePerformance } from './use-consultants';
 
-// Re-export parent communication hooks
-export {
-  useLeadsWithParents,
-  useParentCommLogs,
-  useParentCommStats,
-  useUpdateParentInfo,
-  parentCommKeys,
-} from './use-parent-communication';
-
 // Re-export re-engagement hooks
 export {
-  useColdLeads,
-  useReEngagementCampaigns,
-  useReEngagementStats,
   useMarkLeadAsHot,
   reEngagementKeys,
 } from './use-re-engagement';
-
-// Re-export feedback hooks
-export {
-  useFeedbackCandidates,
-  useFeedbackStats,
-  useUpdateFeedback,
-  feedbackKeys,
-} from './use-feedback';
-
-// Re-export status tracking hooks
-export {
-  useApplicationsStatus,
-  usePipelineStats,
-  useRecentActivity,
-  statusTrackingKeys,
-} from './use-status-tracking';
 
 // Re-export AI response hooks
 export {
@@ -73,17 +45,6 @@ export {
   useCommunicationChannels as useAICommunicationChannels,
   aiResponseKeys,
 } from './use-ai-responses';
-
-// Re-export scoring rules hooks
-export {
-  useScoringRules,
-  useActiveScoringRule,
-  useScoringRule,
-  useScoringRuleMutations,
-  useDefaultScoringConfig,
-  useCalculateScore,
-  scoringRulesKeys,
-} from './use-scoring-rules';
 
 // Re-export assignment rules hooks
 export {
@@ -137,55 +98,6 @@ export {
   activityKeys,
 } from './use-activities';
 
-// Re-export campaign processor hooks
-export {
-  useQueuedSteps,
-  usePendingSteps,
-  useCampaignLogs,
-  useQueueStats,
-  useExecutionStatus,
-  useCampaignProcessorMutations,
-  useCampaignProcessorHelpers,
-  useQueueRealtime,
-  campaignProcessorKeys,
-} from './use-campaign-processor';
-
-// Re-export SMS campaign hooks
-export {
-  useSMSLogs,
-  useLeadSMSLogs,
-  useSMSDeliveryStatus,
-  useSMSCampaignStats,
-  useSMSMutations,
-  useSMSTemplateHelpers,
-  useSMSStatusBadge,
-  smsCampaignKeys,
-} from './use-sms-campaign';
-
-// Re-export WhatsApp campaign hooks
-export {
-  useWhatsAppMessages,
-  useLeadWhatsAppMessages,
-  useWhatsAppMessageStatus,
-  useWhatsAppCampaignStats,
-  useWhatsAppCampaignMutations,
-  useWhatsAppTemplateHelpers,
-  useDeliveryStatusDisplay,
-  whatsappCampaignKeys,
-} from './use-whatsapp-campaign';
-
-// Re-export lead scoring engine hooks
-export {
-  useLeadScore,
-  useScoreBreakdown,
-  useLeadsByScoreRange,
-  useLeadsWithScores,
-  useScoreStatistics,
-  useScoreCalculation,
-  useScoreCategoryDisplay,
-  useScoreBreakdownFormatter,
-  leadScoringKeys,
-} from './use-lead-scoring';
 
 // Re-export drip executor hooks
 export {
@@ -212,17 +124,6 @@ export {
   campaignMonitoringKeys,
 } from './use-campaign-monitoring';
 
-// Re-export daily briefing hooks
-export {
-  useDailyBriefing,
-  useLatestBriefing,
-  useUnreadBriefings,
-  useBriefingHistory,
-  useBriefingMutations,
-  useHasUnreadBriefingToday,
-  useDailyBriefingDashboard,
-  dailyBriefingKeys,
-} from './use-daily-briefing';
 
 // Re-export briefing notification hooks
 export {
@@ -273,24 +174,6 @@ export {
   aiInsightsKeys,
 } from './use-ai-insights';
 
-// Re-export agentic query hooks
-export {
-  useAgenticQuery,
-  useAgenticQuerySync,
-  useSuggestedQueries,
-  useQueryHistory,
-  useQueryTemplates,
-  useQueryResultFormatter,
-  agenticQueryKeys,
-} from './use-agentic-query';
-export type {
-  QueryIntent,
-  QueryFilter,
-  TimeRange,
-  QueryStep,
-  AgenticQueryResult,
-  QueryHistoryEntry,
-} from './use-agentic-query';
 
 // Re-export activity alerts hooks (Phase 4.1)
 export {
@@ -310,51 +193,6 @@ export {
   campaignROIKeys,
 } from './use-campaign-roi';
 
-// Re-export WhatsApp audience segments hooks (Gap 6)
-export {
-  useWASegments,
-  useWASegment,
-  useWASegmentPreview,
-  useWASegmentMutations,
-  waSegmentKeys,
-} from './use-wa-segments';
-
-// Re-export template analytics hooks (Gap 7)
-export {
-  useTemplateAnalytics,
-  useTemplateTimeline,
-  templateAnalyticsKeys,
-} from './use-template-analytics';
-
-// Re-export voice agent hooks (Phase 4.6)
-export {
-  useVoiceAgentConfigs,
-  useVoiceAgentCalls,
-  useVoiceAgentCall,
-  useVoiceAgentAnalytics,
-  useVoiceAgentMutations,
-  useAgentTypeInfo,
-  voiceAgentKeys,
-} from './use-voice-agents';
-
-// Re-export voice broadcast hooks (Phase 4.7)
-export {
-  useVoiceBroadcastCampaigns,
-  useVoiceBroadcastCampaign,
-  useVoiceBroadcastLogs,
-  useVoiceBroadcastStats,
-  useVoiceBroadcastMutations,
-  voiceBroadcastKeys,
-} from './use-voice-broadcast';
-
-// Re-export remarketing hooks (Phase 4.8)
-export {
-  useRemarketingRules,
-  useAdAccountStatus,
-  useSyncHistory,
-  useRemarketingMutations,
-  remarketingKeys,
-} from './use-remarketing';
 
 // Re-export communication cost hooks (Phase 4.9)
 export {
@@ -393,31 +231,6 @@ export {
   formatDuration,
   callStatsKeys,
 } from './use-call-stats';
-
-// Re-export GD-PI hooks
-export {
-  useGDPISessions,
-  useGDPISession,
-  useGDPISessionResults,
-  useGDPIStats,
-  useGDPILeadSearch,
-  useGDPIEvaluatorSearch,
-  useGDPIMutations,
-  gdpiKeys,
-} from './use-gdpi';
-
-// Re-export loan connect hooks
-export {
-  useLoanPartners,
-  useLoanPartner,
-  useLoanApplications,
-  useLoanApplication,
-  useLoanAnalytics,
-  useLoanMutations,
-  useEMICalculator,
-  useLoanStatusDisplay,
-  loanKeys,
-} from './use-loans';
 
 // ============================================
 // LEADS HOOKS
@@ -501,7 +314,7 @@ export function useLeadMutations() {
     mutationFn: async ({ leadId, stage, notes }: { leadId: string; stage: FunnelStage; notes?: string }) => {
       return LeadService.updateStage(leadId, stage, notes);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success('Lead stage updated');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
@@ -510,6 +323,10 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+      // Invalidate activity/timeline queries so the Activities tab refreshes
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'timeline', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'list', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'stats', variables.leadId] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update stage');
@@ -601,12 +418,16 @@ export function useLeadMutations() {
     mutationFn: async ({ leadId, counselorId, profileId }: { leadId: string; counselorId: string; profileId?: string }) => {
       return LeadService.assignCounselor(leadId, counselorId, profileId);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success('Counselor assigned');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-performance'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+      // Invalidate activity/timeline queries so the Activities tab refreshes
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'timeline', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'list', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'stats', variables.leadId] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to assign counselor');
@@ -617,12 +438,17 @@ export function useLeadMutations() {
     mutationFn: async ({ leadId, followupDate, notes }: { leadId: string; followupDate: string; notes?: string }) => {
       return LeadService.scheduleFollowup(leadId, followupDate, notes);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success('Followup scheduled');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+      // Invalidate activity/timeline queries so the Activities tab refreshes
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'timeline', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'list', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'stats', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-timeline', variables.leadId] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to schedule followup');
@@ -671,7 +497,6 @@ export function useAdmissionApplications(filters?: any) {
     queryFn: async () => {
       return ApplicationService.getApplications({
         institutionId: filters?.institutionId,
-        leadId: filters?.leadId,
         status: filters?.status,
         search: filters?.search,
         page: filters?.page || 1,
@@ -727,7 +552,7 @@ export function useApplicationMutations() {
   });
 
   const updateApplicationStatus = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: ApplicationStatus }) => {
+    mutationFn: async ({ id, status }: { id: string; status: FunnelStage }) => {
       return ApplicationService.updateStatus(id, status);
     },
     onSuccess: () => {
@@ -745,7 +570,24 @@ export function useApplicationMutations() {
     }
   });
 
-  return { createApplication, updateApplication, updateApplicationStatus };
+  const deleteApplication = useMutation({
+    mutationFn: async (id: string) => {
+      return ApplicationService.deleteApplication(id);
+    },
+    onSuccess: () => {
+      toast.success('Application deleted successfully');
+      queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete application');
+    }
+  });
+
+  return { createApplication, updateApplication, updateApplicationStatus, deleteApplication };
 }
 
 // ============================================
@@ -899,31 +741,58 @@ export function useCommunicationMutations() {
 // ANALYTICS HOOKS
 // ============================================
 
-export function useCounselorPerformance(institutionId?: string, dateRange?: any) {
+export function useCounselorPerformance(institutionId?: string, dateRange?: any, allowGlobal = false) {
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser || allowGlobal;
   const query = useQuery({
-    queryKey: ['counselor-performance', institutionId, dateRange],
+    queryKey: ['counselor-performance', institutionId, isGlobalUser, dateRange],
     queryFn: async () => {
-      if (!institutionId) return [];
+      if (!isGlobalUser && !institutionId) return [];
       const supabase = createClientSupabaseClient();
-      // Get leads grouped by counselor
-      let leadsQuery = (supabase as any)
-        .from('admission_leads')
-        .select('counselor_id, stage, funnel_stage, score, is_hot_lead, total_messages_sent, created_at, counselor:admission_counselors(id, name, email)')
-        .eq('institution_id', institutionId)
-        .not('counselor_id', 'is', null);
-      if (dateRange?.from) leadsQuery = leadsQuery.gte('created_at', dateRange.from);
-      if (dateRange?.to) leadsQuery = leadsQuery.lte('created_at', dateRange.to);
-      const { data: leads, error } = await leadsQuery;
-      if (error) throw new Error(error.message);
-      // Aggregate by counselor
+
+      // 1. Fetch ALL active counselors (not just those with assigned leads)
+      let counselorsQuery = (supabase as any)
+        .from('admission_counselors')
+        .select('id, name, email, institution_id')
+        .eq('is_active', true);
+      if (institutionId) counselorsQuery = counselorsQuery.eq('institution_id', institutionId);
+      const { data: allCounselors, error: counselorsError } = await counselorsQuery;
+      if (counselorsError) throw new Error(counselorsError.message);
+
+      // 2. Also fetch counselor profiles (role='counselor') to include those not yet in admission_counselors
+      let profilesQuery = (supabase as any)
+        .from('profiles')
+        .select('id, full_name, email, institution_id, designation')
+        .eq('role', 'counselor')
+        .eq('is_active', true);
+      if (institutionId) profilesQuery = profilesQuery.eq('institution_id', institutionId);
+      const { data: counselorProfiles } = await profilesQuery;
+
+      // Build a merged map: admission_counselors + profiles with role='counselor'
       const counselorMap: Record<string, any> = {};
-      (leads || []).forEach((lead: any) => {
-        const cId = lead.counselor_id;
-        if (!counselorMap[cId]) {
-          counselorMap[cId] = {
-            counselorId: cId,
-            counselorName: lead.counselor?.name || 'Unknown',
-            counselorEmail: lead.counselor?.email || '',
+
+      // Add from admission_counselors first
+      (allCounselors || []).forEach((c: any) => {
+        counselorMap[c.id] = {
+          counselorId: c.id,
+          counselorName: c.name || 'Unknown',
+          counselorEmail: c.email || '',
+          totalLeads: 0,
+          convertedLeads: 0,
+          hotLeads: 0,
+          scoreSum: 0,
+          messagesSent: 0,
+        };
+      });
+
+      // Add profiles that don't have an admission_counselors entry (show them too)
+      const existingEmails = new Set(Object.values(counselorMap).map((c: any) => c.counselorEmail));
+      (counselorProfiles || []).forEach((p: any) => {
+        if (!existingEmails.has(p.email)) {
+          counselorMap[`profile-${p.id}`] = {
+            counselorId: p.id,
+            counselorName: p.full_name || 'Unknown',
+            counselorEmail: p.email || '',
             totalLeads: 0,
             convertedLeads: 0,
             hotLeads: 0,
@@ -931,14 +800,33 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any)
             messagesSent: 0,
           };
         }
-        const c = counselorMap[cId];
-        c.totalLeads++;
-        const leadStage = lead.stage || lead.funnel_stage;
-        if (leadStage === 'enrolled') c.convertedLeads++;
-        if (lead.is_hot_lead) c.hotLeads++;
-        c.scoreSum += lead.score || 0;
-        c.messagesSent += lead.total_messages_sent || 0;
       });
+
+      // 3. Fetch leads grouped by counselor
+      let leadsQuery = (supabase as any)
+        .from('admission_leads')
+        .select('counselor_id, stage, funnel_stage, score, is_hot_lead, total_messages_sent, created_at')
+        .not('counselor_id', 'is', null);
+      if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
+      if (dateRange?.from) leadsQuery = leadsQuery.gte('created_at', dateRange.from);
+      if (dateRange?.to) leadsQuery = leadsQuery.lte('created_at', dateRange.to);
+      const { data: leads, error } = await leadsQuery;
+      if (error) throw new Error(error.message);
+
+      // 4. Aggregate lead stats into counselor entries
+      (leads || []).forEach((lead: any) => {
+        const cId = lead.counselor_id;
+        if (counselorMap[cId]) {
+          const c = counselorMap[cId];
+          c.totalLeads++;
+          const leadStage = lead.stage || lead.funnel_stage;
+          if (['enrolled', 'offer_accepted', 'token_paid'].includes(leadStage)) c.convertedLeads++;
+          if (lead.is_hot_lead) c.hotLeads++;
+          c.scoreSum += lead.score || 0;
+          c.messagesSent += lead.total_messages_sent || 0;
+        }
+      });
+
       return Object.values(counselorMap).map((c: any) => ({
         counselorId: c.counselorId,
         counselorName: c.counselorName,
@@ -952,7 +840,7 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any)
         avgResponseTime: 0,
       }));
     },
-    enabled: !!institutionId
+    enabled: isGlobalUser || !!institutionId
   });
 
   // Destructure to avoid spread overwriting custom error
@@ -1010,12 +898,13 @@ export function useAdmissionDashboard(filtersOrId?: string | any) {
     ? filtersOrId
     : filtersOrId?.institution_id;
 
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
 
   const query = useQuery({
     queryKey: ['admission-dashboard', institutionId],
     queryFn: async () => {
-      if (!isSuperAdmin && !institutionId) {
+      if (!isGlobalUser && !institutionId) {
         return {
           summary: {
             totalLeads: 0,
@@ -1036,7 +925,7 @@ export function useAdmissionDashboard(filtersOrId?: string | any) {
 
       return { summary, funnel: funnel.stages };
     },
-    enabled: isSuperAdmin || !!institutionId
+    enabled: isGlobalUser || !!institutionId
   });
 
   return {
@@ -1101,47 +990,36 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
     ? filtersOrId
     : filtersOrId?.institution_id || filtersOrId?.institutionId;
 
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
 
   const query = useQuery({
     queryKey: ['funnel-analytics-dashboard', institutionId],
     queryFn: async () => {
-      if (!isSuperAdmin && !institutionId) return { enhanced: [], dropOff: [], stuckLeads: [], bottlenecks: [] };
+      if (!isGlobalUser && !institutionId) return { enhanced: [], dropOff: [], stuckLeads: [], bottlenecks: [] };
       const supabase = createClientSupabaseClient();
 
       const STAGES = [
         'new', 'contacted', 'not_reachable', 'interested', 'follow_up_scheduled',
         'engaged', 'qualified', 'application_started', 'application_submitted',
-        'documents_pending', 'documents_verified', 'interview_scheduled',
-        'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid',
-        'applied', 'interviewed', 'offered', 'enrolled',
+        'documents_pending', 'documents_verified', 'offer_sent', 'offer_accepted', 'token_paid',
+        'applied', 'offered', 'enrolled',
         'confirmed', 'declined', 'withdrew', 'expired'
       ];
 
-      // Fetch leads with stage info
+      // Fetch leads with stage info + counselor name
       let leadsQuery = (supabase as any)
         .from('admission_leads')
-        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id');
+        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id, counselor:admission_counselors(name)');
       if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
       const { data: leads } = await leadsQuery;
-
-      // Fetch stuck leads from the view
-      let stuckQuery = (supabase as any)
-        .from('v_stuck_leads')
-        .select('*')
-        .order('days_in_stage', { ascending: false });
-      if (institutionId) stuckQuery = stuckQuery.eq('institution_id', institutionId);
-      const { data: stuckData, error: stuckError } = await stuckQuery;
-
-      if (stuckError) {
-        console.error('[admission] v_stuck_leads query failed:', stuckError);
-      }
 
       const allLeads = leads || [];
       const totalLeads = allLeads.length || 1;
 
       // One week ago for WoW comparison
-      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const now = Date.now();
+      const oneWeekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
 
       // Build enhanced funnel data per stage
       const enhanced = STAGES.map(stageKey => {
@@ -1149,7 +1027,6 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         const leadCount = stageLeads.length;
 
         // Avg days in stage
-        const now = Date.now();
         let totalDays = 0;
         stageLeads.forEach((l: any) => {
           const entered = l.stage_changed_at ? new Date(l.stage_changed_at).getTime() : new Date(l.created_at).getTime();
@@ -1196,17 +1073,33 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         return { stage: stageKey, conversionRate, dropOffRate, percentageReached };
       });
 
-      // Map stuck leads from the view to expected format
-      const stuckLeads = (stuckData || []).map((s: any) => ({
-        leadId: s.lead_id,
-        currentStage: s.current_stage,
-        counselorName: s.counselor_name || null,
-        daysInStage: s.days_in_stage || 0,
-        combinedScore: s.combined_score || 0,
-        isHotLead: s.is_hot_lead || false,
-        urgencyLevel: s.urgency_level || 'low',
-        suggestedAction: s.suggested_action || 'Follow up',
-      }));
+      // Compute stuck leads inline (leads in stage > 14 days)
+      const STUCK_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
+      const stuckLeads = allLeads
+        .filter((l: any) => {
+          const entered = l.stage_changed_at ? new Date(l.stage_changed_at).getTime() : new Date(l.created_at).getTime();
+          return (now - entered) > STUCK_THRESHOLD_MS;
+        })
+        .map((l: any) => {
+          const entered = l.stage_changed_at ? new Date(l.stage_changed_at).getTime() : new Date(l.created_at).getTime();
+          const daysInStage = Math.round((now - entered) / (1000 * 60 * 60 * 24));
+          const urgencyLevel = daysInStage > 30 ? 'critical' : daysInStage > 21 ? 'high' : 'medium';
+          return {
+            leadId: l.id,
+            currentStage: l.stage || l.funnel_stage,
+            counselorName: l.counselor?.name || null,
+            daysInStage,
+            combinedScore: l.combined_score || 0,
+            isHotLead: l.is_hot_lead || false,
+            urgencyLevel,
+            suggestedAction: daysInStage > 30
+              ? 'Urgent re-engagement needed'
+              : daysInStage > 21
+              ? 'Schedule follow-up call'
+              : 'Follow up',
+          };
+        })
+        .sort((a: any, b: any) => b.daysInStage - a.daysInStage);
 
       // Build bottleneck alerts
       const bottlenecks = enhanced
@@ -1223,7 +1116,7 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
 
       return { enhanced, dropOff, stuckLeads, bottlenecks };
     },
-    enabled: isSuperAdmin || !!institutionId
+    enabled: isGlobalUser || !!institutionId
   });
 
   return {

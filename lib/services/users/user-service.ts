@@ -283,6 +283,11 @@ export class UserService {
   }
 
   static async getUserById(id: string): Promise<Profile | null> {
+    // Guard against Next.js DRP placeholders and invalid IDs
+    if (!id || id.includes('%drp:') || id.includes('%%drp:')) {
+      throw new Error('Invalid user ID');
+    }
+
     try {
       const response = await fetch(`/api/users/${id}`);
 

@@ -35,7 +35,7 @@ export interface LogCostInput {
 }
 
 export interface CostFilters {
-  institutionId: string | undefined;
+  institutionId: string;
   channel?: CostChannel;
   eventType?: CostEventType;
   fromDate?: string;
@@ -150,9 +150,9 @@ export class CommunicationCostService {
   }> {
     let query = (this.supabase as any)
       .from('communication_cost_log')
-      .select('*', { count: 'exact' });
-    if (filters.institutionId) query = query.eq('institution_id', filters.institutionId);
-    query = query.order('created_at', { ascending: false });
+      .select('*', { count: 'exact' })
+      .eq('institution_id', filters.institutionId)
+      .order('created_at', { ascending: false });
 
     if (filters.channel) query = query.eq('channel', filters.channel);
     if (filters.eventType) query = query.eq('event_type', filters.eventType);
@@ -176,14 +176,14 @@ export class CommunicationCostService {
    * Get total spend for an institution
    */
   static async getTotalSpend(params: {
-    institutionId: string | undefined;
+    institutionId: string;
     fromDate?: string;
     toDate?: string;
   }): Promise<number> {
     let query = (this.supabase as any)
       .from('communication_cost_log')
-      .select('total_cost');
-    if (params.institutionId) query = query.eq('institution_id', params.institutionId);
+      .select('total_cost')
+      .eq('institution_id', params.institutionId);
 
     if (params.fromDate) query = query.gte('created_at', params.fromDate);
     if (params.toDate) query = query.lte('created_at', params.toDate);
@@ -202,20 +202,18 @@ export class CommunicationCostService {
    * Get monthly cost summary
    */
   static async getMonthlySummary(params: {
-    institutionId: string | undefined;
+    institutionId: string;
     months?: number;
   }): Promise<MonthlyCostSummary[]> {
     const monthsBack = params.months || 12;
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - monthsBack);
 
-    let query = (this.supabase as any)
+    const { data, error } = await (this.supabase as any)
       .from('communication_cost_log')
-      .select('channel, total_cost, quantity, created_at');
-    if (params.institutionId) query = query.eq('institution_id', params.institutionId);
-    query = query.gte('created_at', startDate.toISOString());
-
-    const { data, error } = await query;
+      .select('channel, total_cost, quantity, created_at')
+      .eq('institution_id', params.institutionId)
+      .gte('created_at', startDate.toISOString());
 
     if (error) throw new Error(`Failed to fetch monthly summary: ${error.message}`);
 
@@ -253,14 +251,14 @@ export class CommunicationCostService {
    * Get channel cost breakdown
    */
   static async getChannelBreakdown(params: {
-    institutionId: string | undefined;
+    institutionId: string;
     fromDate?: string;
     toDate?: string;
   }): Promise<ChannelCostSummary[]> {
     let query = (this.supabase as any)
       .from('communication_cost_log')
-      .select('channel, total_cost, quantity');
-    if (params.institutionId) query = query.eq('institution_id', params.institutionId);
+      .select('channel, total_cost, quantity')
+      .eq('institution_id', params.institutionId);
 
     if (params.fromDate) query = query.gte('created_at', params.fromDate);
     if (params.toDate) query = query.lte('created_at', params.toDate);
@@ -292,7 +290,7 @@ export class CommunicationCostService {
   /**
    * Get full cost dashboard data
    */
-  static async getDashboard(institutionId: string | undefined): Promise<CostDashboard> {
+  static async getDashboard(institutionId: string): Promise<CostDashboard> {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();

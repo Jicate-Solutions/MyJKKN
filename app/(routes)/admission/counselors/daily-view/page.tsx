@@ -20,7 +20,9 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import {
@@ -61,13 +63,10 @@ const STAGE_FILTER_OPTIONS = [
   { value: 'application_submitted', label: 'App Submitted' },
   { value: 'documents_pending', label: 'Docs Pending' },
   { value: 'documents_verified', label: 'Docs Verified' },
-  { value: 'interview_scheduled', label: 'Interview Set' },
-  { value: 'interview_completed', label: 'Interview Done' },
   { value: 'offer_sent', label: 'Offer Sent' },
   { value: 'offer_accepted', label: 'Offer Accepted' },
   { value: 'token_paid', label: 'Token Paid' },
   { value: 'applied', label: 'Applied' },
-  { value: 'interviewed', label: 'Interviewed' },
   { value: 'offered', label: 'Offered' },
   { value: 'enrolled', label: 'Enrolled' },
   { value: 'confirmed', label: 'Confirmed' },
@@ -79,11 +78,14 @@ const STAGE_FILTER_OPTIONS = [
 ];
 
 function CounselorViewPageContent() {
-  const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const { institutions } = useInstitutionsWithAccess();
   const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
   // Multi-institution users: default to "all" (undefined) — prompt them to pick.
   // Single-institution users: always use their one institution.
-  const institutionId = chosenInstitutionId || (institutions.length <= 1 ? selectedInstitutionId : undefined);
+  const defaultInstitutionId = isSuperAdmin ? undefined : profile?.institution_id;
+  const institutionId = chosenInstitutionId || (institutions.length <= 1 ? defaultInstitutionId : undefined);
 
   const [selectedCounselorUserId, setSelectedCounselorUserId] = useState<string>('');
   const [stageFilter, setStageFilter] = useState('all');
@@ -170,12 +172,14 @@ function CounselorViewPageContent() {
     );
   }
 
-  const isAnyMutating =
-    actions.isRescheduling ||
-    actions.isAddingNote ||
-    actions.isLoggingCall ||
-    actions.isAdvancingStage ||
-    actions.isAssigning;
+  // Resolve which specific leadId is currently being actioned.
+  // React Query exposes `.variables` on the in-flight mutation so we can
+  // isolate loading state to only the card that fired the action.
+  const actioningLeadId: string | undefined =
+    (actions.isLoggingCall    ? actions.logCall.variables?.leadId           : undefined) ??
+    (actions.isAdvancingStage ? actions.advanceStage.variables?.leadId      : undefined) ??
+    (actions.isRescheduling   ? actions.rescheduleFollowup.variables?.leadId : undefined) ??
+    (actions.isAddingNote     ? actions.addQuickNote.variables?.leadId      : undefined);
 
   return (
     <ContentLayout title="Counselor View">
@@ -298,8 +302,8 @@ function CounselorViewPageContent() {
             </SelectTrigger>
             <SelectContent>
               {institutions.map((inst) => (
-                <SelectItem key={inst.institution_id} value={inst.institution_id} className="text-xs">
-                  {inst.institution_name}
+                <SelectItem key={inst.id} value={inst.id} className="text-xs">
+                  {inst.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -409,7 +413,7 @@ function CounselorViewPageContent() {
                     onAddNote={(leadId, note) =>
                       actions.addQuickNote.mutate({ leadId, note })
                     }
-                    isActioning={isAnyMutating}
+                    actioningLeadId={actioningLeadId}
                   />
                 </div>
               )}
@@ -432,7 +436,7 @@ function CounselorViewPageContent() {
                     onAddNote={(leadId, note) =>
                       actions.addQuickNote.mutate({ leadId, note })
                     }
-                    isActioning={isAnyMutating}
+                    actioningLeadId={actioningLeadId}
                   />
                 </div>
               )}

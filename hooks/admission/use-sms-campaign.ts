@@ -12,7 +12,6 @@ import {
   type SMSCampaignStats,
   type SMSDeliveryStatus,
 } from '@/lib/services/admission/sms-campaign-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -36,12 +35,10 @@ export const smsCampaignKeys = {
  * Hook to fetch SMS logs with filters
  */
 export function useSMSLogs(filters: SMSLogFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: smsCampaignKeys.logsList(filters),
     queryFn: () => SMSCampaignService.getSMSLogs(filters),
-    enabled: isSuperAdmin || !!filters.institutionId,
+    enabled: !!filters.institutionId,
   });
 
   return {
@@ -58,8 +55,6 @@ export function useSMSLogs(filters: SMSLogFilters) {
  * Hook to fetch SMS logs for a specific lead
  */
 export function useLeadSMSLogs(institutionId: string, leadId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: smsCampaignKeys.leadLogs(leadId),
     queryFn: () =>
@@ -68,7 +63,7 @@ export function useLeadSMSLogs(institutionId: string, leadId: string) {
         leadId,
         limit: 50,
       }),
-    enabled: isSuperAdmin || !!institutionId && !!leadId,
+    enabled: !!institutionId && !!leadId,
   });
 
   return {
@@ -120,12 +115,10 @@ export function useSMSCampaignStats(
   fromDate?: string,
   toDate?: string
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: smsCampaignKeys.stats(institutionId || '', fromDate, toDate),
     queryFn: () => SMSCampaignService.getCampaignStats(institutionId!, fromDate, toDate),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 60000, // 1 minute
   });
 

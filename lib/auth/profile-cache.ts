@@ -93,6 +93,7 @@ class ProfileCache {
       }
 
       if (cleaned > 0) {
+        console.log(`[ProfileCache] Cleaned ${cleaned} expired entries`);
       }
     }, 10 * 60 * 1000); // Every 10 minutes
   }

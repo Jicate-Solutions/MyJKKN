@@ -15,7 +15,6 @@
 
 # next.js
 /.next/
-/.next-*/
 /out/
 
 # production
@@ -24,6 +23,9 @@
 # misc
 .DS_Store
 *.pem
+
+# SAML certificates (private keys must never be committed)
+certs/saml/*.pem
 
 # debug
 npm-debug.log*
@@ -46,8 +48,9 @@ next-env.d.ts
 nul
 tmpclaude-b3ce-cwd
 tmpclaude-*
-.env*.local
 
-
-.mcp.json
-
+# git worktrees
+.worktrees/
+docs/features/mathswork/SAML_PRIVATE_KEY_B64.txt
+docs/features/mathswork/SAML_PUBLIC_CERTIFICATE_B64.txt
+docs/features/mathswork/myjkkn-saml-private.pem

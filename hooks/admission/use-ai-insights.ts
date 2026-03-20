@@ -13,7 +13,6 @@ import {
   type Recommendation,
   type Anomaly,
 } from '@/lib/services/admission/ai-insights-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -40,14 +39,12 @@ export const aiInsightsKeys = {
  * Get all insights for an institution
  */
 export function useInsights(filters: InsightFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: aiInsightsKeys.list(filters),
     queryFn: async () => {
       return AIInsightsService.getInsights(filters);
     },
-    enabled: isSuperAdmin || !!filters.institution_id,
+    enabled: !!filters.institution_id,
     refetchInterval: 5 * 60 * 1000, // Refetch every 5 minutes
   });
 
@@ -100,14 +97,12 @@ export function useHighPriorityInsights(institutionId: string) {
  * Get recommendations
  */
 export function useRecommendations(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: aiInsightsKeys.recommendations(institutionId),
     queryFn: async () => {
       return AIInsightsService.getRecommendations(institutionId);
     },
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {
@@ -122,14 +117,12 @@ export function useRecommendations(institutionId: string) {
  * Get trends
  */
 export function useTrends(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: aiInsightsKeys.trends(institutionId),
     queryFn: async () => {
       return AIInsightsService.getTrends(institutionId);
     },
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {
@@ -144,14 +137,12 @@ export function useTrends(institutionId: string) {
  * Get anomalies
  */
 export function useAnomalies(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: aiInsightsKeys.anomalies(institutionId),
     queryFn: async () => {
       return AIInsightsService.getAnomalies(institutionId);
     },
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {

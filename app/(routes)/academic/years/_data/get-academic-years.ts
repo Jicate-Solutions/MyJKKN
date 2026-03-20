@@ -2,7 +2,13 @@
  * Server-side data fetching for Academic Years List
  */
 
-
+/**
+ * SERVER-SIDE DATA FETCHER — runs in React Server Components using server Supabase client.
+ * Client-side mirror: {@link AcademicYearService#getAcademicYears} in lib/services/academic/academic-year-service.ts
+ *
+ * Do not replace with service call — server vs client Supabase boundary.
+ * Keep query shapes in sync when modifying either side.
+ */
 
 import { createClient } from '@/lib/supabase/server';
 

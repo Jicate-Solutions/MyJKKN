@@ -317,6 +317,13 @@ export class LtiGradeService {
       );
     }
 
+    console.log('[LTI Grade Service] Grade stored successfully:', {
+      gradeId: data.id,
+      userId: payload.userId,
+      score: `${payload.scoreGiven}/${payload.scoreMaximum}`,
+      resourceLinkId: context.resourceLinkId
+    });
+
     return data as StoredGrade;
   }
 
@@ -345,6 +352,11 @@ export class LtiGradeService {
     );
 
     if (existingGrade) {
+      console.log('[LTI Grade Service] Duplicate grade detected, skipping:', {
+        gradeId: existingGrade.id,
+        userId: payload.userId,
+        resourceLinkId: context.resourceLinkId
+      });
 
       return {
         grade: existingGrade,

@@ -38,8 +38,8 @@ export function useBillingDiscounts(initialFilters: DiscountFilters = {}) {
   }, []);
 
   const fetchDiscounts = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['billing-discounts', filters] });
-  }, [queryClient, filters]);
+    queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
+  }, [queryClient]);
 
   return {
     discounts: data?.data || [],
@@ -88,9 +88,9 @@ export function useUpdateBillingDiscount() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateDiscountDto }) =>
       BillingDiscountService.updateBillingDiscount(id, data),
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-      queryClient.invalidateQueries({ queryKey: ['billing-discount', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
       toast.success('Discount updated successfully');
     },
     onError: (error: Error) => {
@@ -120,9 +120,9 @@ export function useApproveDiscount() {
 
   return useMutation({
     mutationFn: (id: string) => BillingDiscountService.approveDiscount(id),
-    onSuccess: (_, id) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-      queryClient.invalidateQueries({ queryKey: ['billing-discount', id] });
+      queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
       queryClient.invalidateQueries({ queryKey: ['student-billing-summary'] });
       queryClient.invalidateQueries({ queryKey: ['billing-schedule'] });
       toast.success('Discount approved and bill amount updated');
@@ -139,9 +139,8 @@ export function useRejectDiscount() {
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       BillingDiscountService.rejectDiscount(id, reason),
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-      queryClient.invalidateQueries({ queryKey: ['billing-discount', variables.id] });
       toast.success('Discount rejected');
     },
     onError: (error: Error) => {
@@ -155,9 +154,9 @@ export function useReverseDiscount() {
 
   return useMutation({
     mutationFn: (id: string) => BillingDiscountService.reverseDiscount(id),
-    onSuccess: (_, id) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-      queryClient.invalidateQueries({ queryKey: ['billing-discount', id] });
+      queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
       queryClient.invalidateQueries({ queryKey: ['student-billing-summary'] });
       queryClient.invalidateQueries({ queryKey: ['billing-schedule'] });
       toast.success('Discount reversed and bill amounts restored');
@@ -188,64 +187,5 @@ export function useBulkApplyDiscounts() {
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to apply bulk discounts');
     }
-  });
-}
-
-// ============================================
-// OUTCOME-BASED DISCOUNT HOOKS
-// ============================================
-
-export function useCreateOutcomeDiscount() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (data: CreateDiscountDto) =>
-      BillingDiscountService.createOutcomeDiscount(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-      queryClient.invalidateQueries({ queryKey: ['outcome-discounts'] });
-      toast.success('Outcome-based discount created successfully');
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to create outcome discount');
-    }
-  });
-}
-
-export function useVerifyOutcomeDiscount() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({
-      discountId,
-      verifiedBy,
-      evidence
-    }: {
-      discountId: string;
-      verifiedBy: string;
-      evidence: string[];
-    }) =>
-      BillingDiscountService.verifyOutcomeDiscount(
-        discountId,
-        verifiedBy,
-        evidence
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['billing-discounts'] });
-      queryClient.invalidateQueries({ queryKey: ['billing-discount'] });
-      queryClient.invalidateQueries({ queryKey: ['outcome-discounts'] });
-      toast.success('Outcome discount verified successfully');
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to verify outcome discount');
-    }
-  });
-}
-
-export function useOutcomeDiscounts(institutionId: string) {
-  return useQuery({
-    queryKey: ['outcome-discounts', institutionId],
-    queryFn: () => BillingDiscountService.getOutcomeDiscounts(institutionId),
-    enabled: !!institutionId
   });
 }

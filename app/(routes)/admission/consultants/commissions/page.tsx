@@ -67,6 +67,7 @@ import {
 import { format } from 'date-fns';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useAuth } from '@/hooks/use-auth';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   useCommissionTransactions,
   useUpdateCommissionTransactionStatus,
@@ -294,21 +295,24 @@ export default function CommissionTrackingPage() {
 
   if (isAuthLoading) {
     return (
-      <ContentLayout title="Commission Tracking">
-        <div className="space-y-6">
-          <Skeleton className="h-8 w-64" />
-          <div className="grid gap-4 md:grid-cols-4">
-            {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-32" />
-            ))}
+      <PermissionGuard module="admission.consultants" action="view">
+        <ContentLayout title="Commission Tracking">
+          <div className="space-y-6">
+            <Skeleton className="h-8 w-64" />
+            <div className="grid gap-4 md:grid-cols-4">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-32" />
+              ))}
+            </div>
+            <Skeleton className="h-96" />
           </div>
-          <Skeleton className="h-96" />
-        </div>
-      </ContentLayout>
+        </ContentLayout>
+      </PermissionGuard>
     );
   }
 
   return (
+    <PermissionGuard module="admission.consultants" action="view">
     <ContentLayout title="Commission Tracking">
       <div className="space-y-6">
         {/* Header */}
@@ -824,5 +828,6 @@ export default function CommissionTrackingPage() {
         </DialogContent>
       </Dialog>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

@@ -62,7 +62,7 @@ export class AttendanceConsolidationService {
         sections: dto.reportParams.sections?.filter(id => id && id.trim() !== '') || [],
       };
 
-      const { data, error } = await (this.supabase as any)
+      const { data, error } = await this.supabase
         .from('attendance_consolidation_reports')
         .insert({
           report_name: dto.reportName,
@@ -188,7 +188,7 @@ export class AttendanceConsolidationService {
     params: ConsolidationReportParams
   ) {
     try {
-      let query = (this.supabase as any)
+      let query = this.supabase
         .from('student_attendance')
         .select(`
           *,
@@ -515,7 +515,7 @@ export class AttendanceConsolidationService {
           batchSize: batch.length,
         });
 
-        const { data: batchStudents, error: batchError } = await (this.supabase as any)
+        const { data: batchStudents, error: batchError } = await this.supabase
           .from('learners_profiles')
           .select(`
             id,
@@ -546,7 +546,7 @@ export class AttendanceConsolidationService {
           // Try fallback without institution filter for this batch
           logger.info('academic/attendance-consolidation', `Attempting fallback for batch ${i + 1}`);
 
-          const { data: fallbackData, error: fallbackError } = await (this.supabase as any)
+          const { data: fallbackData, error: fallbackError } = await this.supabase
             .from('learners_profiles')
             .select(`
               id,
@@ -628,22 +628,21 @@ export class AttendanceConsolidationService {
       });
 
       // Fetch hierarchy data in parallel
-      const sb = this.supabase as any;
       const [degreesResult, departmentsResult, programsResult, semestersResult, sectionsResult] = await Promise.all([
         degreeIds.size > 0
-          ? sb.from('degrees').select('id, degree_name, display_name').in('id', Array.from(degreeIds))
+          ? this.supabase.from('degrees').select('id, degree_name, display_name').in('id', Array.from(degreeIds))
           : { data: [], error: null },
         departmentIds.size > 0
-          ? sb.from('departments').select('id, department_name, department_code, display_name').in('id', Array.from(departmentIds))
+          ? this.supabase.from('departments').select('id, department_name, department_code, display_name').in('id', Array.from(departmentIds))
           : { data: [], error: null },
         programIds.size > 0
-          ? sb.from('programs').select('id, program_name, display_name').in('id', Array.from(programIds))
+          ? this.supabase.from('programs').select('id, program_name, display_name').in('id', Array.from(programIds))
           : { data: [], error: null },
         semesterIds.size > 0
-          ? sb.from('semesters').select('id, semester_name, semester_code, semester_order').in('id', Array.from(semesterIds))
+          ? this.supabase.from('semesters').select('id, semester_name, semester_code, semester_order').in('id', Array.from(semesterIds))
           : { data: [], error: null },
         sectionIds.size > 0
-          ? sb.from('sections').select('id, section_name').in('id', Array.from(sectionIds))
+          ? this.supabase.from('sections').select('id, section_name').in('id', Array.from(sectionIds))
           : { data: [], error: null },
       ]);
 
@@ -725,7 +724,7 @@ export class AttendanceConsolidationService {
    */
   static async getReport(reportId: string): Promise<AttendanceConsolidationReport | null> {
     try {
-      const { data, error } = await (this.supabase as any)
+      const { data, error } = await this.supabase
         .from('attendance_consolidation_reports')
         .select(`
           *,
@@ -759,7 +758,7 @@ export class AttendanceConsolidationService {
       const limit = filters.limit || 20;
       const offset = (page - 1) * limit;
 
-      let query = (this.supabase as any)
+      let query = this.supabase
         .from('attendance_consolidation_reports')
         .select(`
           *,
@@ -801,7 +800,7 @@ export class AttendanceConsolidationService {
       }
 
       return {
-        data: (data || []).map(this.mapDatabaseToReport),
+        data: data.map(this.mapDatabaseToReport),
         metadata: {
           total: count || 0,
           page,
@@ -834,7 +833,7 @@ export class AttendanceConsolidationService {
       if (dto.errorMessage !== undefined) updateData.error_message = dto.errorMessage;
       if (dto.completedAt !== undefined) updateData.completed_at = dto.completedAt;
 
-      const { data, error } = await (this.supabase as any)
+      const { data, error } = await this.supabase
         .from('attendance_consolidation_reports')
         .update(updateData)
         .eq('id', reportId)
@@ -867,7 +866,7 @@ export class AttendanceConsolidationService {
     try {
       logger.info('academic/attendance-consolidation', 'Attempting to delete report', { reportId, userId });
 
-      const { data, error, count } = await (this.supabase as any)
+      const { data, error, count } = await this.supabase
         .from('attendance_consolidation_reports')
         .update({
           is_deleted: true,

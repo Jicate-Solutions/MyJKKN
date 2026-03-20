@@ -40,10 +40,6 @@ export function useStaff(
   filters: StaffFilters = {}
 ): UseQueryResult<StaffListResponse, Error> {
   const { profile, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin } = usePermissions();
-
-  // super_admin sees all data, others scoped to their institution
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
 
   // Create stable query key by serializing only the values that matter
   const queryKey = useMemo(() => {
@@ -64,7 +60,7 @@ export function useStaff(
       'staff',
       stableFilters,
       profile?.role || '',
-      institutionId || 'all'
+      profile?.institution_id || ''
     ];
   }, [
     filters.search,
@@ -78,7 +74,7 @@ export function useStaff(
     filters.page,
     filters.limit,
     profile?.role,
-    institutionId
+    profile?.institution_id
   ]);
 
   const queryFn = useCallback(async () => {
@@ -89,7 +85,7 @@ export function useStaff(
         email: profile?.email || '',
         role: profile?.role || '',
         department_id: profile?.department_id || undefined,
-        institution_id: institutionId || undefined,
+        institution_id: profile?.institution_id || undefined,
         is_super_admin: profile?.is_super_admin || false
       });
     } catch (error) {
@@ -98,7 +94,7 @@ export function useStaff(
         'Failed to fetch staff. Please check the console for details.'
       );
     }
-  }, [filters, profile, institutionId]);
+  }, [filters, profile]);
 
   return useQuery({
     queryKey,
@@ -128,12 +124,11 @@ export function useStaffForSelection(
   filters: StaffFilters = {}
 ): UseQueryResult<Array<{ id: string; first_name: string; last_name: string; staff_id: string; email: string }>, Error> {
   const { profile, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin } = usePermissions();
 
   const queryKey = useMemo(() => {
     return [
       'staff-selection',
-      filters.institution_id || 'all',
+      filters.institution_id || '',
       filters.department_id || '',
       filters.isActive
     ];
@@ -151,8 +146,7 @@ export function useStaffForSelection(
   return useQuery({
     queryKey,
     queryFn,
-    // super_admin can query without institution_id
-    enabled: !authLoading && !!profile && (isSuperAdmin || !!filters.institution_id),
+    enabled: !authLoading && !!profile && !!filters.institution_id,
     staleTime: 60000, // 1 minute - can be cached longer since it's just for dropdowns
     gcTime: 600000 // 10 minutes
   });

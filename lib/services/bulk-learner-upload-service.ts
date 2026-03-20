@@ -27,21 +27,18 @@ const supabaseAdmin = createClient(
  */
 function generateTemporaryPassword(length = 12): string {
   const charset =
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-  const array = new Uint32Array(length);
-  crypto.getRandomValues(array);
+    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=';
   let password = '';
-  for (let i = 0; i < length; i++) {
-    password += charset[array[i] % charset.length];
+  for (let i = 0, n = charset.length; i < length; ++i) {
+    password += charset.charAt(Math.floor(Math.random() * n));
   }
-  // Ensure password has at least one digit and one uppercase
+  // Ensure password has at least one digit
   if (!/\d/.test(password)) {
-    const pos = array[0] % length;
-    password = password.slice(0, pos) + String(array[1] % 10) + password.slice(pos + 1);
+    password += Math.floor(Math.random() * 10);
   }
+  // Ensure password has at least one uppercase letter
   if (!/[A-Z]/.test(password)) {
-    const pos = array[2] % length;
-    password = password.slice(0, pos) + String.fromCharCode(65 + (array[3] % 26)) + password.slice(pos + 1);
+    password += String.fromCharCode(65 + Math.floor(Math.random() * 26));
   }
   return password.slice(0, length);
 }
@@ -105,7 +102,8 @@ export class BulkLearnerUploadService {
    * Creates new learners with lifecycle_status='active' and auto-creates user accounts
    */
   static async processBulkUpload(
-    rows: BulkUploadRow[]
+    rows: BulkUploadRow[],
+    userId?: string
   ): Promise<BulkUploadResult> {
     const result: BulkUploadResult = {
       success: true,
@@ -169,6 +167,26 @@ export class BulkLearnerUploadService {
       await this.processValidRows(validRows, result);
     }
 
+    // Log bulk upload activity (summary)
+    try {
+      if (userId) {
+        await supabaseAdmin.from('user_activity_logs').insert({
+          user_id: userId,
+          action_type: 'import',
+          resource_type: 'learner',
+          description: `Bulk uploaded ${result.upload_summary.learners_created} learner enquiries (${result.upload_summary.learners_failed} failed)`,
+          metadata: {
+            sub_type: 'bulk_upload',
+            success_count: result.upload_summary.learners_created,
+            failed_count: result.upload_summary.learners_failed,
+            total_rows: result.upload_summary.total_rows,
+          },
+        });
+      }
+    } catch (logError) {
+      console.error('[bulk-upload] Failed to log activity:', logError);
+    }
+
     return result;
   }
 
@@ -181,15 +199,22 @@ export class BulkLearnerUploadService {
   ): Promise<void> {
     const BATCH_SIZE = 75;
 
+    console.log(`[bulk-upload] Processing ${rows.length} valid rows in batches of ${BATCH_SIZE}`);
+
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const batch = rows.slice(i, i + BATCH_SIZE);
+      console.log(`[bulk-upload] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}: rows ${i + 1}-${i + batch.length}`);
 
       try {
         // STEP 1: Batch upsert learners FIRST (create learner records to get IDs)
+        console.log('[bulk-upload] STEP 1: Upserting learners_profiles...');
         const learnerResults = await this.batchUpsertLearners(batch, result);
+        console.log(`[bulk-upload] STEP 1 complete: ${learnerResults.size} learners processed`);
 
         // STEP 2: Batch upsert profiles WITH learner_id references
+        console.log('[bulk-upload] STEP 2: Upserting profiles with learner_id references...');
         const profileResults = await this.batchUpsertProfiles(batch, learnerResults, result);
+        console.log(`[bulk-upload] STEP 2 complete: ${profileResults.size} profiles processed`);
 
         // STEP 3: Sequential auth user creation
         const completeLearners = batch.filter(row => {
@@ -197,6 +222,7 @@ export class BulkLearnerUploadService {
           const learner = learnerResults.get(email);
           return learner && isProfileComplete(row.data);
         });
+        console.log(`[bulk-upload] STEP 3: Creating auth users for ${completeLearners.length} complete learners...`);
         await this.createAuthUsers(completeLearners, profileResults, learnerResults, result);
 
       } catch (error) {
@@ -329,6 +355,7 @@ export class BulkLearnerUploadService {
 
     // STEP 4: Batch insert new profiles
     if (toInsert.length > 0) {
+      console.log(`[bulk-upload] Inserting ${toInsert.length} new profiles with generated UUIDs`);
 
       const { data: newProfiles, error: insertError } = await supabaseAdmin
         .from('profiles')
@@ -348,6 +375,7 @@ export class BulkLearnerUploadService {
         });
       });
 
+      console.log(`[bulk-upload] ✅ Successfully inserted ${newProfiles?.length || 0} profiles`);
     }
 
     return resultMap;
@@ -383,14 +411,19 @@ export class BulkLearnerUploadService {
       resultMap.set(emailLower, { id: learner.id, inserted: false });
     });
 
+    console.log(`[bulk-upload] Found ${existingMap.size} existing learners`);
+
     // STEP 2: Separate rows into new vs existing
     const newLearners = rows.filter(
       row => !existingMap.has(row.data.college_email!.toLowerCase())
     );
 
     if (newLearners.length === 0) {
+      console.log('[bulk-upload] No new learners to insert (all already exist)');
       return resultMap;
     }
+
+    console.log(`[bulk-upload] Preparing to insert ${newLearners.length} new learners`);
 
     // STEP 3: Batch insert new learners
     const learnerData = newLearners.map(row => {
@@ -405,6 +438,7 @@ export class BulkLearnerUploadService {
 
     // Log first record for debugging
     if (learnerData.length > 0) {
+      console.log('[bulk-upload] Sample learner data (first record):', JSON.stringify(learnerData[0], null, 2));
     }
 
     const { data: insertedLearners, error: insertError } = await supabaseAdmin
@@ -427,6 +461,7 @@ export class BulkLearnerUploadService {
         throw new Error(`Batch learner insert failed: ${insertError.message}`);
       }
     } else {
+      console.log(`[bulk-upload] ✅ Successfully inserted ${insertedLearners?.length || 0} learners`);
 
       // Add inserted learners to result map
       insertedLearners?.forEach(learner => {
@@ -474,6 +509,7 @@ export class BulkLearnerUploadService {
         if (authError) {
           // Check if error is "email already exists" - this is OK, not a failure
           if (authError.message?.includes('already been registered') || authError.code === 'email_exists') {
+            console.log(`[bulk-upload] ℹ️ Auth user already exists for ${email}, skipping`);
             result.user_creation_summary.existing_users++;
             continue;
           }

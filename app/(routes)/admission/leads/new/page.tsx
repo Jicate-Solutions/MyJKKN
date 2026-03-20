@@ -76,7 +76,8 @@ const GENDERS = [
 ];
 
 interface FormData {
-  full_name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   phone: string;
   alternate_phone: string;
@@ -109,7 +110,7 @@ interface ProgramOption {
 function NewLeadPageContent() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
   const { createLeadWithProfile } = useLeadMutations();
 
@@ -124,16 +125,26 @@ function NewLeadPageContent() {
 
   // Auto-set institution if user has only one
   useEffect(() => {
-    if (!isSuperAdmin && profile?.institution_id) {
+    if (!isSuperAdmin && !isAdmissionGlobalUser && profile?.institution_id) {
       setSelectedInstitutionId(profile.institution_id);
     } else if (institutions.length === 1) {
       setSelectedInstitutionId(institutions[0].id);
     }
-  }, [profile?.institution_id, isSuperAdmin, institutions]);
+  }, [profile?.institution_id, isSuperAdmin, isAdmissionGlobalUser, institutions]);
 
   const institutionId = selectedInstitutionId;
-  const { data: counselorProfiles } = useCounselorProfiles(institutionId || undefined);
-  const { data: consultants = [] } = useConsultantsForDropdown(institutionId || undefined);
+  // Mirror the exact same institution-resolution logic as the auto-set useEffect so
+  // consultants load immediately on first render — before setState fires.
+  // Priority: explicit form selection → profile institution (non-super-admin) → only accessible institution
+  const effectiveInstitutionId =
+    institutionId ||
+    (!isSuperAdmin && !isAdmissionGlobalUser && profile?.institution_id ? profile.institution_id : undefined) ||
+    (institutions.length === 1 ? institutions[0].id : undefined);
+
+  // Counselors and consultants are shared across ALL institutions — always fetch the
+  // full list regardless of which institution is selected or which role the user has.
+  const { data: counselorProfiles } = useCounselorProfiles(null);
+  const { data: consultants = [] } = useConsultantsForDropdown();
 
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
@@ -172,8 +183,8 @@ function NewLeadPageContent() {
         id,
         program_name,
         display_name,
-        degree:degrees!fk_programs_degree(degree_name),
-        department:departments!fk_programs_department(department_name)
+        degree:degrees(degree_name),
+        department:departments(department_name)
       `)
       .eq('institution_id', institutionId)
       .eq('is_active', true)
@@ -252,7 +263,8 @@ function NewLeadPageContent() {
   }, [selectedProgramIds, programs]);
 
   const [formData, setFormData] = useState<FormData>({
-    full_name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     phone: '',
     alternate_phone: '',
@@ -280,6 +292,14 @@ function NewLeadPageContent() {
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
+    // When source changes, clear the irrelevant assignment
+    if (field === 'first_touch_source') {
+      if (value === 'referral') {
+        setSelectedCounselorProfileId('');
+      } else {
+        setSelectedConsultantId('');
+      }
+    }
   };
 
   const handleInstitutionChange = (value: string) => {
@@ -301,14 +321,17 @@ function NewLeadPageContent() {
   const validateForm = (): boolean => {
     const newErrors: Partial<Record<keyof FormData | 'institution', string>> = {};
 
-    if (!formData.full_name.trim()) {
-      newErrors.full_name = 'Full name is required';
+    if (!formData.first_name.trim()) {
+      newErrors.first_name = 'First name is required';
     }
 
     if (!formData.phone.trim()) {
       newErrors.phone = 'Phone number is required';
-    } else if (!/^\d{10}$/.test(formData.phone.replace(/\D/g, ''))) {
-      newErrors.phone = 'Invalid phone number';
+    } else {
+      const cleaned = formData.phone.replace(/[\s\-()]/g, '');
+      if (!/^(\+91|0)?[6-9]\d{9}$/.test(cleaned)) {
+        newErrors.phone = 'Enter a valid 10-digit Indian mobile number (starting with 6–9)';
+      }
     }
 
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
@@ -327,6 +350,35 @@ function NewLeadPageContent() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const resetForm = () => {
+    setFormData({
+      first_name: '',
+      last_name: '',
+      email: '',
+      phone: '',
+      alternate_phone: '',
+      date_of_birth: '',
+      gender: '',
+      parent_name: '',
+      parent_phone: '',
+      parent_email: '',
+      address_line1: '',
+      city: '',
+      state: 'tamil_nadu',
+      district: '',
+      pincode: '',
+      first_touch_source: '',
+      notes: '',
+      student_interest_level: '',
+      parent_decision_status: '',
+      academic_year: '',
+    });
+    setSelectedProgramIds([]);
+    setSelectedCounselorProfileId('');
+    setSelectedConsultantId('');
+    setErrors({});
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -340,7 +392,8 @@ function NewLeadPageContent() {
 
     const leadPayload = {
       institution_id: institutionId!,
-      full_name: formData.full_name.trim(),
+      first_name: formData.first_name.trim(),
+      last_name: formData.last_name.trim() || null,
       email: formData.email?.trim() || null,
       phone: formData.phone.trim(),
       source: formData.first_touch_source as any,
@@ -401,6 +454,7 @@ function NewLeadPageContent() {
       }
 
       toast.success('Lead created successfully');
+      resetForm();
       router.push(`/admission/leads/${lead.id}`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create lead';
@@ -410,7 +464,7 @@ function NewLeadPageContent() {
   };
 
   // Determine if user can change institution (super admin or has access to multiple)
-  const canSelectInstitution = isSuperAdmin || institutions.length > 1;
+  const canSelectInstitution = isSuperAdmin || isAdmissionGlobalUser || institutions.length > 1;
   const selectedInstitutionName = institutions.find((i) => i.id === institutionId)?.name;
 
   return (
@@ -451,19 +505,29 @@ function NewLeadPageContent() {
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="full_name">
-                          Full Name <span className="text-destructive">*</span>
+                        <Label htmlFor="first_name">
+                          First Name <span className="text-destructive">*</span>
                         </Label>
                         <Input
-                          id="full_name"
-                          value={formData.full_name}
-                          onChange={(e) => handleChange('full_name', e.target.value)}
-                          placeholder="Enter full name"
-                          className={errors.full_name ? 'border-destructive' : ''}
+                          id="first_name"
+                          value={formData.first_name}
+                          onChange={(e) => handleChange('first_name', e.target.value)}
+                          placeholder="Enter first name"
+                          className={errors.first_name ? 'border-destructive' : ''}
                         />
-                        {errors.full_name && (
-                          <p className="text-xs text-destructive">{errors.full_name}</p>
+                        {errors.first_name && (
+                          <p className="text-xs text-destructive">{errors.first_name}</p>
                         )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="last_name">Last Name</Label>
+                        <Input
+                          id="last_name"
+                          value={formData.last_name}
+                          onChange={(e) => handleChange('last_name', e.target.value)}
+                          placeholder="Enter last name (optional)"
+                        />
                       </div>
 
                       <div className="space-y-2">
@@ -931,59 +995,58 @@ function NewLeadPageContent() {
                   </CardContent>
                 </Card>
 
-                {/* Assign Counselor */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Assign Counselor</CardTitle>
-                    <CardDescription>Optional — assign on creation</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Select
-                      value={selectedCounselorProfileId}
-                      onValueChange={setSelectedCounselorProfileId}
-                      disabled={!institutionId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={institutionId ? 'Select counselor' : 'Select institution first'} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="_none">No counselor</SelectItem>
-                        {(counselorProfiles || []).map((c) => (
-                          <SelectItem key={c.profile_id} value={c.profile_id}>
-                            {c.name}{c.designation ? ` (${c.designation})` : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </CardContent>
-                </Card>
-
-                {/* Attribute to Consultant */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Referred by Consultant</CardTitle>
-                    <CardDescription>Optional — attribute this lead to a consultant</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Select
-                      value={selectedConsultantId}
-                      onValueChange={setSelectedConsultantId}
-                      disabled={!institutionId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={institutionId ? 'Select consultant' : 'Select institution first'} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="_none">No consultant</SelectItem>
-                        {consultants.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </CardContent>
-                </Card>
+                {/* Show Consultant section for referral source, Counselor for all others */}
+                {formData.first_touch_source === 'referral' ? (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Referred by Consultant</CardTitle>
+                      <CardDescription>Optional — attribute this lead to a consultant</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Select
+                        value={selectedConsultantId}
+                        onValueChange={setSelectedConsultantId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select consultant" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">No consultant</SelectItem>
+                          {consultants.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>
+                              {c.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Assign Counselor</CardTitle>
+                      <CardDescription>Optional — assign on creation</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Select
+                        value={selectedCounselorProfileId}
+                        onValueChange={setSelectedCounselorProfileId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select counselor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">No counselor</SelectItem>
+                          {(counselorProfiles || []).map((c) => (
+                            <SelectItem key={c.profile_id} value={c.profile_id}>
+                              {c.name}{c.designation ? ` (${c.designation})` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Actions */}
                 <Card>

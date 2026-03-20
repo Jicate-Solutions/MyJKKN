@@ -51,6 +51,11 @@ interface LearnerAdvancedSearchProps {
   onSearch: (filters: LearnerSearchFilters) => void;
   onClear: () => void;
   placeholder?: string;
+  initialValues?: {
+    nameQuery: string;
+    rollNumberQuery: string;
+    emailQuery: string;
+  };
 }
 
 const defaultSearchOptions: LearnerSearchOptions = {
@@ -67,12 +72,13 @@ const defaultSearchOptions: LearnerSearchOptions = {
 export function LearnerAdvancedSearch({
   onSearch,
   onClear,
-  placeholder = "Search students..."
+  placeholder = "Search students...",
+  initialValues
 }: LearnerAdvancedSearchProps) {
-  // Separate query states for each search field
-  const [nameQuery, setNameQuery] = useState('');
-  const [rollNumberQuery, setRollNumberQuery] = useState('');
-  const [emailQuery, setEmailQuery] = useState('');
+  // Separate query states for each search field - initialized from URL if available
+  const [nameQuery, setNameQuery] = useState(initialValues?.nameQuery || '');
+  const [rollNumberQuery, setRollNumberQuery] = useState(initialValues?.rollNumberQuery || '');
+  const [emailQuery, setEmailQuery] = useState(initialValues?.emailQuery || '');
   const [searchOptions, setSearchOptions] = useState<LearnerSearchOptions>(defaultSearchOptions);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 

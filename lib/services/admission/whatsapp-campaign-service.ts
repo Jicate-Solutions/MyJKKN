@@ -297,9 +297,9 @@ export class WhatsAppCampaignService {
   static async getMessages(filters: WhatsAppMessageFilters): Promise<WhatsAppMessage[]> {
     let query = this.supabase
       .from('admission_whatsapp_logs')
-      .select('*');
-    if (filters.institutionId) query = query.eq('institution_id', filters.institutionId);
-    query = query.order('created_at', { ascending: false });
+      .select('*')
+      .eq('institution_id', filters.institutionId)
+      .order('created_at', { ascending: false });
 
     if (filters.leadId) {
       query = query.eq('lead_id', filters.leadId);
@@ -440,14 +440,14 @@ export class WhatsAppCampaignService {
    * Get WhatsApp campaign statistics for an institution
    */
   static async getCampaignStats(
-    institutionId: string | undefined,
+    institutionId: string,
     dateFrom?: string,
     dateTo?: string
   ): Promise<WhatsAppCampaignStats> {
     let query = this.supabase
       .from('admission_whatsapp_logs')
-      .select('delivery_status');
-    if (institutionId) query = query.eq('institution_id', institutionId);
+      .select('delivery_status')
+      .eq('institution_id', institutionId);
 
     if (dateFrom) {
       query = query.gte('created_at', dateFrom);

@@ -7,35 +7,12 @@ import { routeMatcher } from './lib/auth/route-matcher';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
 
-// SECURITY: Helper to properly clear auth cookies with all necessary flags
-// This prevents cookies from persisting on subdomains or over insecure connections
-function clearAuthCookies(response: NextResponse) {
-  const cookieNames = ['sb-access-token', 'sb-refresh-token'];
-  const isProduction = process.env.NODE_ENV === 'production';
-
-  cookieNames.forEach((name) => {
-    response.cookies.set({
-      name,
-      value: '',
-      maxAge: 0,
-      path: '/',
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax'
-    });
-  });
-}
-
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
   '/', // Allow root path to avoid ERR_FAILED issues
   '/auth/login',
   '/auth/callback',
   '/auth/complete-profile',
-  '/auth/parent/login', // Parent portal OTP login
-  '/auth/parent/register', // Parent portal registration
-  '/auth/parent/callback', // Parent portal auth callback
-  '/auth/authorize', // OAuth authorize endpoint
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
   '/billing/payment/success', // HDFC payment success callback
@@ -43,38 +20,8 @@ const PUBLIC_PATHS_SET = new Set([
   '/sw.js',
   '/manifest.json',
   '/browserconfig.xml',
-  '/pwa-test.html',
-  '/courses' // Public VAC course listing
+  '/pwa-test.html'
 ]);
-
-// Public path prefixes - paths that start with these are public
-const PUBLIC_PATH_PREFIXES = ['/courses/'];
-
-// SECURITY: Public API routes - only these API routes are accessible without auth
-// All other /api/* routes require authentication
-const PUBLIC_API_ROUTES = new Set([
-  '/api/auth', // Auth endpoints (prefix)
-  '/api/parent-portal/auth/request-otp',
-  '/api/parent-portal/auth/verify-otp',
-  '/api/parent-portal/auth/register',
-  '/api/parent-portal/auth/csrf',
-  '/api/courses', // Public course listings (prefix)
-  '/api/social-media/cron', // Vercel Cron trigger (auth via CRON_SECRET header)
-]);
-
-// Helper to check if API route is public
-const isPublicApiRoute = (path: string): boolean => {
-  // Check exact matches
-  if (PUBLIC_API_ROUTES.has(path)) return true;
-
-  // Check prefix matches (e.g., /api/auth/* routes)
-  const routes = Array.from(PUBLIC_API_ROUTES);
-  for (const route of routes) {
-    if (path.startsWith(route)) return true;
-  }
-
-  return false;
-};
 
 // Regex for static assets - single check instead of multiple endsWith
 const STATIC_ASSET_PATTERN =
@@ -85,21 +32,11 @@ const isPublicPath = (path: string): boolean => {
   // Fast exact match check (O(1))
   if (PUBLIC_PATHS_SET.has(path)) return true;
 
-  // Single regex check for static assets
+  // Single regex check for static assets and API routes
   if (STATIC_ASSET_PATTERN.test(path)) return true;
 
-  // SECURITY FIX: Only allow specific public API routes, not all /api/* routes
-  if (path.startsWith('/api')) {
-    return isPublicApiRoute(path);
-  }
-
   // Special cases
-  if (path.includes('favicon.ico')) return true;
-
-  // Check public path prefixes (for nested public routes like /courses/[id])
-  for (const prefix of PUBLIC_PATH_PREFIXES) {
-    if (path.startsWith(prefix)) return true;
-  }
+  if (path.startsWith('/api') || path.includes('favicon.ico')) return true;
 
   return false;
 };
@@ -107,6 +44,23 @@ const isPublicPath = (path: string): boolean => {
 export async function proxy(request: NextRequest) {
   try {
     const currentPath = request.nextUrl.pathname;
+
+    // Helper: inject preconnect hints to speed up Supabase and Google connections
+    const addPreconnectHeaders = (response: NextResponse) => {
+      response.headers.set(
+        'Link',
+        [
+          '<https://kvizhngldtiuufknvehv.supabase.co>; rel=preconnect; crossorigin',
+          '<https://accounts.google.com>; rel=preconnect',
+          '<https://apis.google.com>; rel=preconnect'
+        ].join(', ')
+      );
+      // Security headers
+      response.headers.set('X-Content-Type-Options', 'nosniff');
+      response.headers.set('X-Frame-Options', 'SAMEORIGIN');
+      response.headers.set('X-XSS-Protection', '1; mode=block');
+      return response;
+    };
 
     // Special handling for PWA files
     if (currentPath === '/manifest.json') {
@@ -133,105 +87,29 @@ export async function proxy(request: NextRequest) {
       return response;
     }
 
-    // Special handling for root path to prevent cache issues
+    // Root path — allow CDN caching with short revalidation (was: aggressive no-store killing perf)
     if (currentPath === '/') {
       const response = NextResponse.next();
       response.headers.set(
         'Cache-Control',
-        'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+        'public, s-maxage=60, stale-while-revalidate=300'
       );
-      response.headers.set('Pragma', 'no-cache');
-      response.headers.set('Expires', '0');
-      // Use static app version to prevent refresh loops
       const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
       response.headers.set('X-App-Version', appVersion);
-      return response;
+      return addPreconnectHeaders(response);
     }
 
-    // Child app CORS removed - authentication now handled by separate auth server
-
-    // Skip middleware for public paths BEFORE creating Supabase client
+    // Skip proxy for public paths BEFORE creating Supabase client
     if (isPublicPath(currentPath)) {
       const res = NextResponse.next();
-      // Add cache headers for public paths too (but don't force reload)
-      res.headers.set('Cache-Control', 'no-store, must-revalidate');
-      // Remove dynamic timestamp that causes refreshes
+      // Allow short CDN caching for public paths (was: no-store blocking CDN)
+      res.headers.set('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
       const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'dev';
       res.headers.set('X-App-Version', appVersion);
-      return res;
+      return addPreconnectHeaders(res);
     }
 
-    // SECURITY: Parent portal authentication - TWO auth systems
-    // 1. Admin routes (/parent-portal, /parent-portal/access, /parent-portal/communications) use Supabase auth
-    // 2. Parent routes (/parent-portal/dashboard, /parent-portal/learner/*) use parent session cookies
-    if (currentPath.startsWith('/parent-portal')) {
-      // Admin routes - these are for staff managing the parent portal
-      const isAdminRoute =
-        currentPath === '/parent-portal' ||
-        currentPath.startsWith('/parent-portal/access') ||
-        currentPath.startsWith('/parent-portal/communications') ||
-        currentPath.startsWith('/parent-portal/feedback');
-
-      if (isAdminRoute) {
-        // Skip parent auth check - this will fall through to regular Supabase auth below
-        // Do nothing here, let the regular middleware handle it
-      } else {
-        // Parent-facing routes - require parent session
-        const parentSessionToken = request.cookies.get('parent_session')?.value;
-
-        // If no parent session, redirect to parent login
-        if (!parentSessionToken) {
-          return NextResponse.redirect(
-            new URL('/auth/parent/login', request.url)
-          );
-        }
-
-        // Parent session exists - allow access
-        // Session validation happens at API level in ParentSessionService
-        const res = NextResponse.next();
-        res.headers.set('Cache-Control', 'no-store, must-revalidate');
-        res.headers.set('x-parent-session', 'true'); // Marker for debugging
-        return res;
-      }
-    }
-
-    // SECURITY: Parent portal API routes - TWO auth systems
-    // 1. Parent-facing API routes require parent session cookies
-    // 2. Admin API routes require Supabase auth (handled by regular middleware)
-    if (
-      currentPath.startsWith('/api/parent-portal') &&
-      !isPublicApiRoute(currentPath)
-    ) {
-      // Parent-facing API routes (dashboard, learners, profile for parents)
-      const isParentApiRoute =
-        currentPath === '/api/parent-portal/dashboard' ||
-        currentPath.startsWith('/api/parent-portal/learner/') ||
-        currentPath.startsWith('/api/parent-portal/learners') ||
-        currentPath.startsWith('/api/parent-portal/communications') ||
-        currentPath.startsWith('/api/parent-portal/profile') ||
-        currentPath === '/api/parent-portal/auth/logout';
-
-      if (isParentApiRoute) {
-        const parentSessionToken = request.cookies.get('parent_session')?.value;
-
-        if (!parentSessionToken) {
-          return NextResponse.json(
-            { error: 'Authentication required' },
-            { status: 401 }
-          );
-        }
-
-        // Parent session exists - allow API access
-        // Actual validation happens in the API route via ParentSessionService
-        const res = NextResponse.next();
-        return res;
-      }
-
-      // Admin API routes - skip here, will be handled by regular Supabase auth below
-      // This includes routes for managing access, communications, etc.
-    }
-
-    const res = NextResponse.next();
+    const res = addPreconnectHeaders(NextResponse.next());
 
     // Create supabase client only for non-public paths
     const supabase = createServerClient(
@@ -244,21 +122,10 @@ export async function proxy(request: NextRequest) {
             return cookie?.value ?? '';
           },
           async set(name: string, value: string, options: CookieOptions) {
-            // SECURITY: Pass through all cookie options including httpOnly, secure, sameSite
-            // This ensures auth tokens are protected from XSS attacks
-            res.cookies.set({
-              name,
-              value,
-              ...options,
-              // Ensure secure defaults for auth cookies
-              httpOnly: options.httpOnly ?? true,
-              secure: options.secure ?? process.env.NODE_ENV === 'production',
-              sameSite: options.sameSite ?? 'lax'
-            });
+            res.cookies.set({ name, value });
           },
           async remove(name: string, options: CookieOptions) {
-            // Pass through path and other options for proper cookie removal
-            res.cookies.delete({ name, ...options });
+            res.cookies.delete(name);
           }
         }
       }
@@ -285,20 +152,14 @@ export async function proxy(request: NextRequest) {
     }
 
     // Add auth info to headers
-    // SECURITY: Sanitize user ID (UUIDs are safe but validate anyway)
-    const sanitizedUserId = user.id.replace(/[^\w-]/g, '');
-    res.headers.set('x-user-id', sanitizedUserId);
-
-    // SECURITY FIX: Don't add email to headers - potential header injection risk
-    // Email can contain newlines or special chars that break HTTP header parsing
-    // If email is needed in components, fetch from user context instead
-    // res.headers.set('x-user-email', user.email || ''); // REMOVED for security
+    res.headers.set('x-user-id', user.id);
+    res.headers.set('x-user-email', user.email || '');
 
     // Fetch and verify user profile - with caching for performance
     let profile = profileCache.get(user.id);
 
     if (!profile) {
-      // Cache miss - fetch from database
+      // Cache miss - fetch from database with retry on transient failure
       const { data, error: profileError } = await supabase
         .from('profiles')
         .select('*')
@@ -306,12 +167,33 @@ export async function proxy(request: NextRequest) {
         .single();
 
       if (profileError) {
-        // FIXED: Clear cache on profile fetch error
-        profileCache.invalidate(user.id);
-        return NextResponse.redirect(new URL('/unauthorized', request.url));
+        console.error('[Proxy] Profile fetch failed (attempt 1):', profileError.code, profileError.message);
+
+        // Retry once after short delay for transient errors (timeout, network, etc.)
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const { data: retryData, error: retryError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (retryError) {
+          console.error('[Proxy] Profile fetch failed (attempt 2):', retryError.code, retryError.message);
+          profileCache.invalidate(user.id);
+
+          // FIXED: Redirect to login with error context instead of /unauthorized
+          // /unauthorized is for permission issues, not transient fetch failures
+          const redirectUrl = new URL('/auth/login', request.url);
+          redirectUrl.searchParams.set('error', 'profile_load_failed');
+          redirectUrl.searchParams.set('redirectedFrom', currentPath);
+          return NextResponse.redirect(redirectUrl);
+        }
+
+        profile = retryData;
+      } else {
+        profile = data;
       }
 
-      profile = data;
       // Store in cache for future requests (5-minute TTL)
       profileCache.set(user.id, profile);
     }
@@ -322,20 +204,27 @@ export async function proxy(request: NextRequest) {
       const redirectUrl = new URL('/unauthorized?reason=inactive', request.url);
       const response = NextResponse.redirect(redirectUrl);
 
-      // SECURITY FIX: Use helper to properly clear auth cookies
-      clearAuthCookies(response);
+      // Clear auth cookies
+      response.cookies.delete('sb-access-token');
+      response.cookies.delete('sb-refresh-token');
 
       return response;
     }
 
     // Student Role Access Control
     if (profile.role === 'student') {
+      console.log('[Proxy] 🎓 Student detected:', user.id, 'path:', currentPath);
+      console.log('[Proxy] Feature flag ENABLE_STUDENT_PORTAL:', FEATURE_FLAGS.ENABLE_STUDENT_PORTAL);
+
       // Check feature flag first
       if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
+        // Feature disabled - block all students (original behavior)
+        console.log('[Proxy] ❌ Student portal DISABLED - blocking student');
 
         if (currentPath === '/auth/login') {
           const response = NextResponse.next();
-          clearAuthCookies(response);
+          response.cookies.delete('sb-access-token');
+          response.cookies.delete('sb-refresh-token');
           await supabase.auth.signOut();
           return response;
         }
@@ -343,17 +232,31 @@ export async function proxy(request: NextRequest) {
         const studentBlockedResponse = NextResponse.redirect(
           new URL('/auth/login?reason=student_redirect', request.url)
         );
-        clearAuthCookies(studentBlockedResponse);
+        studentBlockedResponse.cookies.delete('sb-access-token');
+        studentBlockedResponse.cookies.delete('sb-refresh-token');
         await supabase.auth.signOut();
         return studentBlockedResponse;
       } else {
+        // Feature enabled - validate student lifecycle status
+        console.log('[Proxy] ✅ Student portal ENABLED - validating access...');
+
         const validation = await StudentValidationService.validateStudentAccess(user.id);
 
+        console.log('[Proxy] Validation result:', {
+          allowed: validation.allowed,
+          reason: validation.reason,
+          status: validation.status,
+          isGraduated: validation.isGraduated
+        });
+
         if (!validation.allowed) {
+          // Student blocked due to lifecycle status
+          console.log('[Proxy] ❌ Student BLOCKED - reason:', validation.reason);
 
           if (currentPath === '/auth/login') {
             const response = NextResponse.next();
-            clearAuthCookies(response);
+            response.cookies.delete('sb-access-token');
+            response.cookies.delete('sb-refresh-token');
             await supabase.auth.signOut();
             return response;
           }
@@ -361,11 +264,13 @@ export async function proxy(request: NextRequest) {
           const blockedResponse = NextResponse.redirect(
             new URL(`/auth/login?reason=${validation.reason}`, request.url)
           );
-          clearAuthCookies(blockedResponse);
+          blockedResponse.cookies.delete('sb-access-token');
+          blockedResponse.cookies.delete('sb-refresh-token');
           await supabase.auth.signOut();
           return blockedResponse;
         } else {
           // Student allowed - continue to requested page
+          console.log('[Proxy] ✅ Student ALLOWED - continuing to:', currentPath);
           // Don't return here - let the middleware continue processing
         }
       }
@@ -378,8 +283,9 @@ export async function proxy(request: NextRequest) {
         new URL('/auth/login?reason=disabled', request.url)
       );
 
-      // SECURITY FIX: Use helper to properly clear auth cookies
-      clearAuthCookies(disabledResponse);
+      // Clear all auth cookies
+      disabledResponse.cookies.delete('sb-access-token');
+      disabledResponse.cookies.delete('sb-refresh-token');
 
       // Also sign out from Supabase
       await supabase.auth.signOut();
@@ -500,10 +406,7 @@ export const config = {
     '/students/:path*',
     '/guest/:path*',
     '/driver/:path*',
-    // SECURITY: Parent portal routes (uses separate auth system)
-    '/parent-portal/:path*',
-    '/api/parent-portal/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|icons|pwa-test.html).*)'
   ]
 };

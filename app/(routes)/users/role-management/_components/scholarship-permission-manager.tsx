@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Card,
   CardContent,
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import {
   Table,
@@ -26,67 +27,216 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from '@/components/ui/dialog';
 import { toast } from 'react-hot-toast';
+import { Separator } from '@/components/ui/separator';
 import {
   GraduationCap,
   Shield,
   Eye,
   Plus,
   Edit,
+  Trash2,
   CheckCircle,
   Users,
   AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import {
-  PERMISSION_TEMPLATES,
-  type ScholarshipPermissions,
-  type PermissionTemplate
-} from '@/lib/services/billing/scholarship-permission-service';
-import {
-  useScholarshipPermissions,
-  useApplyPermissionTemplate
-} from '@/hooks/billing/use-scholarship-permissions';
 
-interface UIPermissionTemplate extends PermissionTemplate {
+interface ScholarshipPermissions {
+  role_name: string;
+  role_key: string;
+  can_view: boolean;
+  can_create: boolean;
+  can_edit: boolean;
+  can_delete: boolean;
+  can_approve: boolean;
+  user_count?: number;
+}
+
+interface PermissionTemplate {
+  id: string;
+  name: string;
+  description: string;
   icon: React.ComponentType<{ className?: string }>;
+  permissions: {
+    can_view: boolean;
+    can_create: boolean;
+    can_edit: boolean;
+    can_delete: boolean;
+    can_approve: boolean;
+  };
   variant: 'default' | 'secondary' | 'destructive' | 'outline';
 }
 
-const UI_PERMISSION_TEMPLATES: UIPermissionTemplate[] = [
+const PERMISSION_TEMPLATES: PermissionTemplate[] = [
   {
-    ...PERMISSION_TEMPLATES[0], // full_access
+    id: 'full_access',
+    name: 'Full Manager',
+    description: 'Complete scholarship management access',
     icon: Shield,
+    permissions: {
+      can_view: true,
+      can_create: true,
+      can_edit: true,
+      can_delete: true,
+      can_approve: true
+    },
     variant: 'default'
   },
   {
-    ...PERMISSION_TEMPLATES[1], // creator
+    id: 'creator',
+    name: 'Creator',
+    description: 'Can create and edit scholarships (needs approval)',
     icon: Plus,
+    permissions: {
+      can_view: true,
+      can_create: true,
+      can_edit: true,
+      can_delete: false,
+      can_approve: false
+    },
     variant: 'secondary'
   },
   {
-    ...PERMISSION_TEMPLATES[2], // reviewer
+    id: 'reviewer',
+    name: 'Reviewer',
+    description: 'Can review and approve scholarships',
     icon: CheckCircle,
+    permissions: {
+      can_view: true,
+      can_create: false,
+      can_edit: false,
+      can_delete: false,
+      can_approve: true
+    },
     variant: 'outline'
   },
   {
-    ...PERMISSION_TEMPLATES[3], // readonly
+    id: 'readonly',
+    name: 'Read Only',
+    description: 'View-only access to scholarships',
     icon: Eye,
+    permissions: {
+      can_view: true,
+      can_create: false,
+      can_edit: false,
+      can_delete: false,
+      can_approve: false
+    },
     variant: 'outline'
   },
   {
-    ...PERMISSION_TEMPLATES[4], // no_access
+    id: 'no_access',
+    name: 'No Access',
+    description: 'Remove all scholarship permissions',
     icon: AlertTriangle,
+    permissions: {
+      can_view: false,
+      can_create: false,
+      can_edit: false,
+      can_delete: false,
+      can_approve: false
+    },
     variant: 'destructive'
   }
 ];
 
 export function ScholarshipPermissionManager() {
-  const { permissions, isLoading } = useScholarshipPermissions();
-  const applyTemplateMutation = useApplyPermissionTemplate();
-
+  const [permissions, setPermissions] = useState<ScholarshipPermissions[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+
+  useEffect(() => {
+    fetchPermissions();
+  }, []);
+
+  const fetchPermissions = async () => {
+    try {
+      setLoading(true);
+
+      // This would be replaced with actual API call
+      // For now, simulating the current state
+      const mockData: ScholarshipPermissions[] = [
+        {
+          role_name: 'Accounts',
+          role_key: 'accounts',
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: true,
+          can_approve: true,
+          user_count: 7
+        },
+        {
+          role_name: 'Administrator',
+          role_key: 'administrator',
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: true,
+          can_approve: true,
+          user_count: 5
+        },
+        {
+          role_name: 'Faculty',
+          role_key: 'faculty',
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: false,
+          can_approve: false,
+          user_count: 190
+        },
+        {
+          role_name: 'Staff',
+          role_key: 'staff',
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: false,
+          can_approve: false,
+          user_count: 0
+        },
+        {
+          role_name: 'Student',
+          role_key: 'student',
+          can_view: true,
+          can_create: false,
+          can_edit: false,
+          can_delete: false,
+          can_approve: false,
+          user_count: 194
+        },
+        {
+          role_name: 'Guest',
+          role_key: 'guest',
+          can_view: false,
+          can_create: false,
+          can_edit: false,
+          can_delete: false,
+          can_approve: false,
+          user_count: 5
+        }
+      ];
+
+      setPermissions(mockData);
+    } catch (error) {
+      console.error('Error fetching permissions:', error);
+      toast.error('Failed to load scholarship permissions');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const applyTemplate = async () => {
     if (!selectedRole || !selectedTemplate) {
@@ -94,16 +244,23 @@ export function ScholarshipPermissionManager() {
       return;
     }
 
-    const template = UI_PERMISSION_TEMPLATES.find(
+    const template = PERMISSION_TEMPLATES.find(
       (t) => t.id === selectedTemplate
     );
     if (!template) return;
 
     try {
-      await applyTemplateMutation.mutateAsync({
-        roleKey: selectedRole,
-        templateId: selectedTemplate
-      });
+      setUpdating(selectedRole);
+
+      // This would be replaced with actual API call to update permissions
+      // For demo purposes, updating local state
+      setPermissions((prev) =>
+        prev.map((perm) =>
+          perm.role_key === selectedRole
+            ? { ...perm, ...template.permissions }
+            : perm
+        )
+      );
 
       toast.success(
         `Applied "${template.name}" permissions to ${selectedRole} role`
@@ -111,21 +268,50 @@ export function ScholarshipPermissionManager() {
 
       setSelectedRole('');
       setSelectedTemplate('');
-    } catch {
-      // Error toast is handled by the mutation's onError callback
+    } catch (error) {
+      console.error('Error updating permissions:', error);
+      toast.error('Failed to update permissions');
+    } finally {
+      setUpdating(null);
     }
   };
 
-  const getAccessLevel = (
-    perm: ScholarshipPermissions
-  ): UIPermissionTemplate => {
-    for (const template of UI_PERMISSION_TEMPLATES) {
+  const togglePermission = async (
+    roleKey: string,
+    permission: keyof Omit<
+      ScholarshipPermissions,
+      'role_name' | 'role_key' | 'user_count'
+    >
+  ) => {
+    try {
+      setUpdating(roleKey);
+
+      setPermissions((prev) =>
+        prev.map((perm) =>
+          perm.role_key === roleKey
+            ? { ...perm, [permission]: !perm[permission] }
+            : perm
+        )
+      );
+
+      toast.success('Permission updated successfully');
+    } catch (error) {
+      console.error('Error toggling permission:', error);
+      toast.error('Failed to update permission');
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  const getAccessLevel = (perm: ScholarshipPermissions): PermissionTemplate => {
+    for (const template of PERMISSION_TEMPLATES) {
       const matches = Object.entries(template.permissions).every(
         ([key, value]) => perm[key as keyof typeof perm] === value
       );
       if (matches) return template;
     }
 
+    // Custom permissions
     return {
       id: 'custom',
       name: 'Custom',
@@ -142,7 +328,7 @@ export function ScholarshipPermissionManager() {
     };
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <Card>
         <CardContent className='p-6'>
@@ -215,7 +401,7 @@ export function ScholarshipPermissionManager() {
                   <SelectValue placeholder='Choose template' />
                 </SelectTrigger>
                 <SelectContent>
-                  {UI_PERMISSION_TEMPLATES.map((template) => (
+                  {PERMISSION_TEMPLATES.map((template) => (
                     <SelectItem key={template.id} value={template.id}>
                       <div className='flex items-center gap-2'>
                         <template.icon className='h-4 w-4' />
@@ -231,15 +417,11 @@ export function ScholarshipPermissionManager() {
               <Button
                 onClick={applyTemplate}
                 disabled={
-                  !selectedRole ||
-                  !selectedTemplate ||
-                  applyTemplateMutation.isPending
+                  !selectedRole || !selectedTemplate || updating !== null
                 }
                 className='w-full'
               >
-                {applyTemplateMutation.isPending
-                  ? 'Applying...'
-                  : 'Apply Template'}
+                {updating ? 'Applying...' : 'Apply Template'}
               </Button>
             </div>
           </div>
@@ -248,7 +430,7 @@ export function ScholarshipPermissionManager() {
           {selectedTemplate && (
             <div className='mt-4 p-4 bg-muted/50 rounded-lg'>
               {(() => {
-                const template = UI_PERMISSION_TEMPLATES.find(
+                const template = PERMISSION_TEMPLATES.find(
                   (t) => t.id === selectedTemplate
                 );
                 if (!template) return null;
@@ -293,7 +475,7 @@ export function ScholarshipPermissionManager() {
         <CardHeader>
           <CardTitle className='text-lg'>Role Permissions Matrix</CardTitle>
           <CardDescription>
-            Current scholarship permissions by role
+            Fine-grained control over scholarship permissions
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -313,6 +495,7 @@ export function ScholarshipPermissionManager() {
               <TableBody>
                 {permissions.map((perm) => {
                   const accessLevel = getAccessLevel(perm);
+                  const isUpdating = updating === perm.role_key;
 
                   return (
                     <TableRow key={perm.role_key}>
@@ -334,74 +517,49 @@ export function ScholarshipPermissionManager() {
                         </Badge>
                       </TableCell>
                       <TableCell className='text-center'>
-                        <div
-                          className={cn(
-                            'w-6 h-6 rounded-full mx-auto flex items-center justify-center',
-                            perm.can_view ? 'bg-green-100' : 'bg-gray-100'
-                          )}
-                        >
-                          {perm.can_view ? (
-                            <CheckCircle className='h-4 w-4 text-green-600' />
-                          ) : (
-                            <div className='w-2 h-2 bg-gray-400 rounded-full' />
-                          )}
-                        </div>
+                        <Switch
+                          checked={perm.can_view}
+                          onCheckedChange={() =>
+                            togglePermission(perm.role_key, 'can_view')
+                          }
+                          disabled={isUpdating}
+                        />
                       </TableCell>
                       <TableCell className='text-center'>
-                        <div
-                          className={cn(
-                            'w-6 h-6 rounded-full mx-auto flex items-center justify-center',
-                            perm.can_create ? 'bg-green-100' : 'bg-gray-100'
-                          )}
-                        >
-                          {perm.can_create ? (
-                            <CheckCircle className='h-4 w-4 text-green-600' />
-                          ) : (
-                            <div className='w-2 h-2 bg-gray-400 rounded-full' />
-                          )}
-                        </div>
+                        <Switch
+                          checked={perm.can_create}
+                          onCheckedChange={() =>
+                            togglePermission(perm.role_key, 'can_create')
+                          }
+                          disabled={isUpdating}
+                        />
                       </TableCell>
                       <TableCell className='text-center'>
-                        <div
-                          className={cn(
-                            'w-6 h-6 rounded-full mx-auto flex items-center justify-center',
-                            perm.can_edit ? 'bg-green-100' : 'bg-gray-100'
-                          )}
-                        >
-                          {perm.can_edit ? (
-                            <CheckCircle className='h-4 w-4 text-green-600' />
-                          ) : (
-                            <div className='w-2 h-2 bg-gray-400 rounded-full' />
-                          )}
-                        </div>
+                        <Switch
+                          checked={perm.can_edit}
+                          onCheckedChange={() =>
+                            togglePermission(perm.role_key, 'can_edit')
+                          }
+                          disabled={isUpdating}
+                        />
                       </TableCell>
                       <TableCell className='text-center'>
-                        <div
-                          className={cn(
-                            'w-6 h-6 rounded-full mx-auto flex items-center justify-center',
-                            perm.can_delete ? 'bg-green-100' : 'bg-gray-100'
-                          )}
-                        >
-                          {perm.can_delete ? (
-                            <CheckCircle className='h-4 w-4 text-green-600' />
-                          ) : (
-                            <div className='w-2 h-2 bg-gray-400 rounded-full' />
-                          )}
-                        </div>
+                        <Switch
+                          checked={perm.can_delete}
+                          onCheckedChange={() =>
+                            togglePermission(perm.role_key, 'can_delete')
+                          }
+                          disabled={isUpdating}
+                        />
                       </TableCell>
                       <TableCell className='text-center'>
-                        <div
-                          className={cn(
-                            'w-6 h-6 rounded-full mx-auto flex items-center justify-center',
-                            perm.can_approve ? 'bg-green-100' : 'bg-gray-100'
-                          )}
-                        >
-                          {perm.can_approve ? (
-                            <CheckCircle className='h-4 w-4 text-green-600' />
-                          ) : (
-                            <div className='w-2 h-2 bg-gray-400 rounded-full' />
-                          )}
-                        </div>
+                        <Switch
+                          checked={perm.can_approve}
+                          onCheckedChange={() =>
+                            togglePermission(perm.role_key, 'can_approve')
+                          }
+                          disabled={isUpdating}
+                        />
                       </TableCell>
                     </TableRow>
                   );

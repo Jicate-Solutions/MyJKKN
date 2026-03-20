@@ -10,7 +10,7 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
-import { ApiKeyService } from '@/lib/api-keys/api-key-service';
+import { generateTestApiKey } from '../_actions/generate-test-key';
 import { CopyIcon, CheckIcon } from '@/components/icons';
 import { useToast } from '@/hooks/use-toast';
 
@@ -23,7 +23,7 @@ export const ApiKeyGenerator = () => {
   const generateTestKey = async () => {
     setIsLoading(true);
     try {
-      const result = await ApiKeyService.generateTestApiKey();
+      const result = await generateTestApiKey();
       if (result?.plainTextKey) {
         setApiKey(result.plainTextKey);
         toast({

@@ -83,6 +83,30 @@ const formSchema = z.object({
     .default({})
 });
 
+// Build a reverse lookup map from nested action keys back to their original flat
+// permission keys. This prevents the underscore-to-dot corruption bug where keys
+// like "staff.status_update" were incorrectly reconstructed as "staff.status.update".
+const NESTED_TO_FLAT_MAP: Map<string, string> = (() => {
+  const map = new Map<string, string>();
+  PERMISSION_CATEGORIES.forEach((category) => {
+    category.permissions.forEach((perm) => {
+      const parts = perm.key.split('.');
+      const moduleKey = parts[0];
+      let actionKey: string;
+      if (parts.length === 2) {
+        actionKey = parts[1];
+      } else if (parts.length > 2) {
+        actionKey = parts.slice(1).join('_');
+      } else {
+        actionKey = '_';
+      }
+      // Map "moduleKey::actionKey" → original flat key
+      map.set(`${moduleKey}::${actionKey}`, perm.key);
+    });
+  });
+  return map;
+})();
+
 // Helper to convert flat permissions to nested for the form
 const nestPermissions = (
   flat: Record<string, boolean> | undefined
@@ -90,17 +114,12 @@ const nestPermissions = (
   const nested: NestedPermissions = {};
   if (!flat) return nested;
 
-  // Debug the incoming flat permissions
-
   Object.entries(flat).forEach(([key, value]) => {
     const parts = key.split('.');
     const moduleKey = parts[0];
 
-    // FIXED: Handle modern dot notation properly
     let actionKey;
     if (parts.length > 1) {
-      // For modern format like "users.view", keep the action as "view"
-      // For complex format like "academic.attendance.view", use "attendance_view"
       if (parts.length === 2) {
         actionKey = parts[1]; // Simple case: users.view -> "view"
       } else {
@@ -131,24 +150,16 @@ const flattenPermissions = (
   Object.entries(nested).forEach(([moduleKey, actions]) => {
     if (typeof actions === 'object' && actions !== null) {
       Object.entries(actions).forEach(([actionKey, value]) => {
-        // FIXED: Reconstruct the original permission key correctly
-        let finalKey;
+        let finalKey: string;
         if (actionKey === '_') {
-          finalKey = moduleKey; // Single-level key
-        } else if (actionKey.includes('_')) {
-          // Handle complex nested keys by converting underscores back to dots
-          // But only for the action part, not the module part
-          const actionParts = actionKey.split('_');
-          if (actionParts.length > 1) {
-            // This is a complex action like "attendance_view" -> "attendance.view"
-            finalKey = `${moduleKey}.${actionParts.join('.')}`;
-          } else {
-            // Simple action like "view" -> "users.view"
-            finalKey = `${moduleKey}.${actionKey}`;
-          }
+          finalKey = moduleKey;
         } else {
-          // Simple case: users + view = "users.view"
-          finalKey = `${moduleKey}.${actionKey}`;
+          // Look up the original flat key from the pre-built map
+          const lookupKey = `${moduleKey}::${actionKey}`;
+          const mappedKey = NESTED_TO_FLAT_MAP.get(lookupKey);
+          // Use the mapped key if found, otherwise fall back to simple concatenation
+          // (which preserves underscores correctly for 2-level keys)
+          finalKey = mappedKey || `${moduleKey}.${actionKey}`;
         }
         flat[finalKey] = Boolean(value);
       });
@@ -187,6 +198,7 @@ export function EditRoleDialog({
   // Initial default values for the form (nested structure)
   const defaultFormValues = useMemo(() => {
     // Debug the incoming role permissions
+    console.log('Role permissions received:', role.permissions);
 
     const nestedPerms = nestPermissions(role.permissions || {});
 
@@ -225,6 +237,12 @@ export function EditRoleDialog({
 
           // Debug when setting a specific permission
           if (fullKey === 'users.view') {
+            console.log(
+              'Setting users.view permission to:',
+              role.permissions?.[fullKey],
+              'Path:',
+              `${moduleKey}.${actionKey}`
+            );
           }
         }
       });
@@ -237,6 +255,7 @@ export function EditRoleDialog({
     };
 
     // Debug the final form values
+    console.log('Form default values:', result);
 
     return result;
   }, [role]);
@@ -251,6 +270,7 @@ export function EditRoleDialog({
     form.reset(defaultFormValues);
 
     // Debug form values after reset
+    console.log('Form values after reset:', form.getValues());
   }, [form, role, defaultFormValues]);
 
   // Adjusted handleSubmit to flatten permissions before calling onSubmit
@@ -753,6 +773,13 @@ export function EditRoleDialog({
 
                                 // Debug when rendering the specific permission
                                 if (fullKey === 'users.view') {
+                                  console.log(
+                                    'Rendering users.view permission',
+                                    `Field path: permissions.${moduleKey}.${actionKey}`,
+                                    `Current value: ${form.getValues(
+                                      `permissions.${moduleKey}.${actionKey}`
+                                    )}`
+                                  );
                                 }
 
                                 const fieldName =
@@ -779,6 +806,10 @@ export function EditRoleDialog({
                                             onCheckedChange={(checked) => {
                                               field.onChange(checked);
                                               // Debug when a permission is toggled
+                                              console.log(
+                                                `Toggled ${permission.key} to:`,
+                                                checked
+                                              );
                                             }}
                                             disabled={
                                               isSuperAdmin || isSubmitting

@@ -207,11 +207,6 @@ export function useResponseIntents() {
       description: 'Request or remind about documents'
     },
     {
-      value: 'interview_schedule',
-      label: 'Interview Schedule',
-      description: 'Schedule or confirm interviews'
-    },
-    {
       value: 'offer_details',
       label: 'Offer Details',
       description: 'Share admission offer information'

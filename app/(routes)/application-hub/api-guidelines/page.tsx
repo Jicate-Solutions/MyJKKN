@@ -9,7 +9,6 @@ import ChildAppIntegrationDocs from './_components/child-app-integration-docs';
 import { ApiModuleLayout } from '@/components/api-docs';
 import { organizationsModuleConfig } from '@/lib/data/api-endpoints/organizations';
 import { learnersModuleConfig } from '@/lib/data/api-endpoints/learners';
-import { campusLivingModuleConfig } from '@/lib/data/api-endpoints/campus-living';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -57,12 +56,11 @@ export default function ApiGuidelinesPage() {
         <ApiNav />
 
         <Tabs defaultValue='basic'>
-          <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 lg:grid lg:grid-cols-8 lg:gap-0'>
+          <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 lg:grid lg:grid-cols-7 lg:gap-0'>
             <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
             <TabsTrigger value='child-app'>Child App Integration</TabsTrigger>
             <TabsTrigger value='organization'>Organizations API</TabsTrigger>
             <TabsTrigger value='learners'>Learners API</TabsTrigger>
-            <TabsTrigger value='campus-living'>Campus Living API</TabsTrigger>
             <TabsTrigger value='academic'>Academic API</TabsTrigger>
             <TabsTrigger value='staff'>Staff API</TabsTrigger>
             <TabsTrigger value='curl'>CURL Documentation</TabsTrigger>
@@ -85,11 +83,6 @@ export default function ApiGuidelinesPage() {
           <TabsContent value='learners'>
             <Card className='p-6'>
               <ApiModuleLayout config={learnersModuleConfig} />
-            </Card>
-          </TabsContent>
-          <TabsContent value='campus-living'>
-            <Card className='p-6'>
-              <ApiModuleLayout config={campusLivingModuleConfig} />
             </Card>
           </TabsContent>
           <TabsContent value='academic'>

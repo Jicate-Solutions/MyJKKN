@@ -6,6 +6,7 @@ import { ArrowLeft, Lock, AlertCircle, Edit } from 'lucide-react';
 import { Timetable } from '@/types/academics';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 
 interface TimetableHeaderProps {
   timetable: Timetable;
@@ -14,6 +15,15 @@ interface TimetableHeaderProps {
   attendanceCount?: number;
   isSuperAdmin?: boolean;
   canEdit?: boolean; // New prop
+}
+
+/**
+ * Validates timetable ID before navigation (defense-in-depth)
+ */
+function isNavigableId(id: string | undefined): boolean {
+  if (!id) return false;
+  if (id.includes('%%drp:')) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
 
 export function TimetableHeader({
@@ -74,12 +84,18 @@ export function TimetableHeader({
             </p>
           </div>
           <div className='flex items-center gap-2'>
-            {/* Edit Button - Updated: 2025-10-08 */}
+            {/* Edit Button - Updated: 2026-02-25 - Added ID validation before navigation */}
             {canEdit && (
               <Button
                 variant='default'
                 size='sm'
-                onClick={() => router.push(`/academic/timetables/${timetable.id}/edit`)}
+                onClick={() => {
+                  if (!isNavigableId(timetable.id)) {
+                    toast.error('Unable to edit. Please refresh the page and try again.');
+                    return;
+                  }
+                  router.push(`/academic/timetables/${timetable.id}/edit`);
+                }}
               >
                 <Edit className='h-4 w-4 mr-2' />
                 Edit

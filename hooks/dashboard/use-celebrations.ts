@@ -4,7 +4,6 @@ import {
   TodayCelebrations,
   CelebrationService
 } from '@/lib/services/dashboard/celebration-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 /**
  * Get today's celebrations (birthdays + work anniversaries)
@@ -32,15 +31,13 @@ export function useUpcomingCelebrations(
   institutionId: string | null,
   days: number = 7
 ): UseQueryResult<Celebration[], Error> {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: ['celebrations-upcoming', institutionId, days],
     queryFn: async () => {
       if (!institutionId) throw new Error('Institution ID required');
       return CelebrationService.getUpcomingCelebrations(institutionId, days);
     },
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 30 * 60 * 1000, // 30 minutes
   });
 }

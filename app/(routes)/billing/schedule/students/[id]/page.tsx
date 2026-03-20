@@ -636,6 +636,7 @@ export default function StudentBillingDetailPage() {
                       variant='outline'
                       size='sm'
                       onClick={() => {
+                        console.log('Manual refresh triggered');
                         refetchSummary();
                       }}
                       disabled={isRefetchingSummary}

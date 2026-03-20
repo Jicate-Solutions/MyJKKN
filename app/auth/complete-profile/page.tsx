@@ -85,11 +85,15 @@ export default function CompleteProfile() {
         setUserEmail(user.email || '');
 
         // Try to get existing profile
+        console.log('[Complete Profile] Fetching profile for user:', user.id);
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
           .maybeSingle() as { data: { profile_completed: boolean; role: string; full_name?: string; phone_number?: string } | null; error: any };
+
+        console.log('[Complete Profile] Profile data:', profile);
+        console.log('[Complete Profile] Profile error:', profileError);
 
         // If there's a profile error other than "not found"
         if (profileError && profileError.code !== 'PGRST116') {
@@ -99,6 +103,7 @@ export default function CompleteProfile() {
 
         // If profile not found, create one
         if (!profile) {
+          console.log('[Complete Profile] No profile found, creating new one');
           const { error: insertError } = await supabase
             .from('profiles')
             .insert([
@@ -115,9 +120,15 @@ export default function CompleteProfile() {
             throw insertError;
           }
         } else {
+          console.log('[Complete Profile] Profile found:', {
+            role: profile.role,
+            profile_completed: profile.profile_completed,
+            full_name: profile.full_name
+          });
 
           // If profile exists and is completed, redirect based on role
           if (profile.profile_completed) {
+            console.log('[Complete Profile] Profile already completed, redirecting...');
             let destination = '/';
             if (profile.role === 'guest') {
               destination = '/guest';
@@ -135,11 +146,13 @@ export default function CompleteProfile() {
               destination = '/driver';
             }
 
+            console.log('[Complete Profile] Redirecting to:', destination);
             router.push(destination);
             return;
           }
 
           // Pre-fill form with existing data
+          console.log('[Complete Profile] Pre-filling form with existing data');
           if (mounted) {
             form.reset({
               full_name: profile.full_name || '',
@@ -185,8 +198,6 @@ export default function CompleteProfile() {
         throw new Error('No authenticated session');
       }
 
-      // Note: institution_id is auto-assigned by the auth callback on login
-      // (uses service role client to bypass RLS). No need to set it here.
       const { error: updateError } = await supabase
         .from('profiles')
         // @ts-ignore - TypeScript incorrectly infers update() type as 'never' after React 19 upgrade

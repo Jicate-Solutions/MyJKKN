@@ -5,8 +5,11 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   EducationConsultant,
+  ConsultantInstitution,
   CreateConsultantInput,
   UpdateConsultantInput,
+  CreateConsultantInstitutionInput,
+  UpdateConsultantInstitutionInput,
   ConsultantFilters,
   ConsultantListResponse,
   ConsultantCommissionStructure,
@@ -38,6 +41,7 @@ import type {
   ConsultantPortalDashboard,
   ConsultantLeadSubmission,
   CommissionLiabilityReport,
+  RateType,
 } from '@/types/education-consultants';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -53,7 +57,7 @@ export class ConsultantService {
   ]);
 
   private static readonly TRANSACTION_SORTABLE_COLUMNS = new Set([
-    'created_at', 'net_amount', 'gross_amount', 'tds_amount', 'status', 'paid_at', 'updated_at',
+    'created_at', 'net_amount', 'gross_amount', 'tds_amount', 'status', 'payment_date', 'updated_at',
   ]);
 
   private static readonly REWARD_SORTABLE_COLUMNS = new Set([
@@ -66,7 +70,16 @@ export class ConsultantService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Get paginated list of consultants with filters
+   * Get paginated list of consultants with filters.
+   *
+   * When NO institution_id is provided (global/super-admin view), queries
+   * education_consultants directly without joining consultant_institutions.
+   * This avoids cross-product results and correctly surfaces all global
+   * consultants regardless of whether they have any institution links.
+   *
+   * When institution_id IS provided, LEFT JOINs consultant_institutions so
+   * status/tier/contract filters apply per-institution and the junction row
+   * is merged into each consultant object for UI compatibility.
    */
   static async getConsultants(
     filters: ConsultantFilters
@@ -90,15 +103,115 @@ export class ConsultantService {
       sort_order = 'desc',
     } = filters;
 
-    let query = (supabase as any)
-      .from('education_consultants')
-      .select('*', { count: 'exact' });
+    const safeSortBy = ConsultantService.CONSULTANT_SORTABLE_COLUMNS.has(sort_by) ? sort_by : 'created_at';
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
 
-    // Apply filters
-    if (institution_id) {
-      query = query.eq('institution_id', institution_id);
+    if (!institution_id) {
+      // ── Global query: no junction join ──────────────────────────────────────
+      // Consultants are global entities; when no institution scope is requested
+      // we query education_consultants directly for a clean, complete result set.
+      let query = (supabase as any)
+        .from('education_consultants')
+        .select('*', { count: 'exact' });
+
+      if (search) {
+        const safe = sanitizeSearch(search);
+        query = query.or(
+          `name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%,code.ilike.%${safe}%`
+        );
+      }
+
+      if (consultant_type) {
+        if (Array.isArray(consultant_type)) {
+          query = query.in('consultant_type', consultant_type);
+        } else {
+          query = query.eq('consultant_type', consultant_type);
+        }
+      }
+
+      if (city) {
+        query = query.ilike('city', `%${sanitizeSearch(city)}%`);
+      }
+
+      if (state) {
+        query = query.ilike('state', `%${sanitizeSearch(state)}%`);
+      }
+
+      if (min_conversion_rate !== undefined) {
+        query = query.gte('conversion_rate', min_conversion_rate);
+      }
+
+      if (max_conversion_rate !== undefined) {
+        query = query.lte('conversion_rate', max_conversion_rate);
+      }
+
+      if (min_total_leads !== undefined) {
+        query = query.gte('total_leads_referred', min_total_leads);
+      }
+
+      query = query.order(safeSortBy, { ascending: sort_order === 'asc' });
+      query = query.range(from, to);
+
+      const { data, error, count } = await query;
+
+      if (error) {
+        console.error('[admission/consultants] Failed to fetch consultants:', error);
+        throw new Error(error.message);
+      }
+
+      return {
+        data: (data || []) as EducationConsultant[],
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: Math.ceil((count || 0) / limit),
+        },
+      };
     }
 
+    // ── Institution-scoped query: LEFT JOIN consultant_institutions ───────────
+    // Used when an institution_id filter is supplied (e.g. super-admin scoping).
+    // The junction row is merged into the consultant object for UI compatibility.
+    const ciSelect = `id, institution_id, status, tier, contract_start_date, contract_end_date, contract_document_url`;
+
+    let query = (supabase as any)
+      .from('education_consultants')
+      .select(`*, consultant_institutions!inner(${ciSelect})`, { count: 'exact' });
+
+    query = query.eq('consultant_institutions.institution_id', institution_id);
+
+    // Per-institution status filter (via junction)
+    if (status) {
+      if (Array.isArray(status)) {
+        query = query.in('consultant_institutions.status', status);
+      } else {
+        query = query.eq('consultant_institutions.status', status);
+      }
+    }
+
+    // Per-institution tier filter (via junction)
+    if (tier) {
+      if (Array.isArray(tier)) {
+        query = query.in('consultant_institutions.tier', tier);
+      } else {
+        query = query.eq('consultant_institutions.tier', tier);
+      }
+    }
+
+    // Active contract filter (via junction)
+    if (has_active_contract) {
+      const today = new Date().toISOString().split('T')[0];
+      query = query
+        .lte('consultant_institutions.contract_start_date', today)
+        .or(
+          `contract_end_date.is.null,contract_end_date.gte.${today}`,
+          { referencedTable: 'consultant_institutions' }
+        );
+    }
+
+    // Global consultant filters (primary table columns — no prefix needed)
     if (search) {
       const safe = sanitizeSearch(search);
       query = query.or(
@@ -114,30 +227,12 @@ export class ConsultantService {
       }
     }
 
-    if (status) {
-      if (Array.isArray(status)) {
-        query = query.in('status', status);
-      } else {
-        query = query.eq('status', status);
-      }
-    }
-
-    if (tier) {
-      if (Array.isArray(tier)) {
-        query = query.in('tier', tier);
-      } else {
-        query = query.eq('tier', tier);
-      }
-    }
-
     if (city) {
-      const safeCity = sanitizeSearch(city);
-      query = query.ilike('city', `%${safeCity}%`);
+      query = query.ilike('city', `%${sanitizeSearch(city)}%`);
     }
 
     if (state) {
-      const safeState = sanitizeSearch(state);
-      query = query.ilike('state', `%${safeState}%`);
+      query = query.ilike('state', `%${sanitizeSearch(state)}%`);
     }
 
     if (min_conversion_rate !== undefined) {
@@ -152,20 +247,7 @@ export class ConsultantService {
       query = query.gte('total_leads_referred', min_total_leads);
     }
 
-    if (has_active_contract) {
-      const today = new Date().toISOString().split('T')[0];
-      query = query
-        .lte('contract_start_date', today)
-        .or(`contract_end_date.is.null,contract_end_date.gte.${today}`);
-    }
-
-    // Sorting - validate against allowlist
-    const safeSortBy = ConsultantService.CONSULTANT_SORTABLE_COLUMNS.has(sort_by) ? sort_by : 'created_at';
     query = query.order(safeSortBy, { ascending: sort_order === 'asc' });
-
-    // Pagination
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
     query = query.range(from, to);
 
     const { data, error, count } = await query;
@@ -175,8 +257,26 @@ export class ConsultantService {
       throw new Error(error.message);
     }
 
+    // Merge the matching junction row into the top-level consultant object
+    // so UI components can still read consultant.status / consultant.tier.
+    const consultants: EducationConsultant[] = (data || []).map((row: any) => {
+      const { consultant_institutions: ciRows, ...consultant } = row;
+      const ciRow = Array.isArray(ciRows)
+        ? ciRows.find((r: any) => r.institution_id === institution_id)
+        : ciRows;
+      return {
+        ...consultant,
+        institution_id: ciRow?.institution_id ?? undefined,
+        status: ciRow?.status ?? 'active',
+        tier: ciRow?.tier ?? 'bronze',
+        contract_start_date: ciRow?.contract_start_date ?? null,
+        contract_end_date: ciRow?.contract_end_date ?? null,
+        contract_document_url: ciRow?.contract_document_url ?? null,
+      };
+    });
+
     return {
-      data: data || [],
+      data: consultants,
       metadata: {
         total: count || 0,
         page,
@@ -187,19 +287,34 @@ export class ConsultantService {
   }
 
   /**
-   * Get single consultant by ID
+   * Get single consultant by ID.
+   * Includes all institution links so the detail page can show them.
+   * If institutionId is provided, the matching junction row is also merged
+   * into the top-level object for backwards-compatible status/tier access.
    */
   static async getConsultantById(id: string, institutionId?: string): Promise<EducationConsultant | null> {
     const supabase = createClientSupabaseClient();
 
-    let query = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('education_consultants')
-      .select('*, institution:institutions(id, name)')
-      .eq('id', id);
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
-    const { data, error } = await query.single();
+      .select(`
+        *,
+        institutions:consultant_institutions(
+          id,
+          institution_id,
+          status,
+          tier,
+          contract_start_date,
+          contract_end_date,
+          contract_document_url,
+          created_at,
+          updated_at,
+          created_by,
+          institution:institutions(id, name)
+        )
+      `)
+      .eq('id', id)
+      .single();
 
     if (error) {
       if (error.code === 'PGRST116') {
@@ -209,7 +324,34 @@ export class ConsultantService {
       throw new Error(error.message);
     }
 
-    return data;
+    // Merge junction fields into the top-level object so UI code can read
+    // consultant.status, consultant.tier etc. without breaking.
+    // Priority: specific institution match > first institution > defaults.
+    if (data?.institutions?.length > 0) {
+      const match = institutionId
+        ? data.institutions.find((ci: any) => ci.institution_id === institutionId)
+        : data.institutions[0]; // fall back to first linked institution
+
+      if (match) {
+        return {
+          ...data,
+          institution_id: match.institution_id,
+          status: match.status,
+          tier: match.tier,
+          contract_start_date: match.contract_start_date,
+          contract_end_date: match.contract_end_date,
+          contract_document_url: match.contract_document_url,
+          institution: match.institution,
+        };
+      }
+    }
+
+    // No institutions linked yet — provide safe defaults
+    return {
+      ...data,
+      status: data?.status ?? 'active',
+      tier: data?.tier ?? 'bronze',
+    };
   }
 
   /**
@@ -220,19 +362,16 @@ export class ConsultantService {
   }
 
   /**
-   * Get consultant by code
+   * Get consultant by referral code (global lookup, no institution filter)
    */
-  static async getConsultantByCode(code: string, institutionId?: string): Promise<EducationConsultant | null> {
+  static async getConsultantByCode(code: string): Promise<EducationConsultant | null> {
     const supabase = createClientSupabaseClient();
 
-    let query = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('education_consultants')
       .select('*')
-      .eq('code', code);
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
-    const { data, error } = await query.limit(1);
+      .eq('code', code)
+      .limit(1);
 
     if (error) {
       throw new Error(error.message);
@@ -242,28 +381,146 @@ export class ConsultantService {
   }
 
   /**
-   * Create new consultant
+   * Create a new global consultant record.
+   *
+   * Consultants are now global entities — no institution link is created at
+   * creation time. Institution associations are managed separately via the
+   * institution link management methods below.
+   *
+   * Flow:
+   *  1. Insert one row into education_consultants (global personal/business data)
+   *
+   * Returns the created consultant.
    */
   static async createConsultant(
     input: CreateConsultantInput
   ): Promise<EducationConsultant> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    const {
+      // institution_ids is accepted but ignored — associations managed separately
+      institution_ids,
+      status,
+      tier,
+      contract_start_date,
+      contract_end_date,
+      // strip form aliases before inserting into DB
+      address,
+      notes,
+      geographic_coverage,
+      specializations,
+      programs_handled,
+      ...globalFields
+    } = input as any;
+
+    // Step 1: Insert global consultant record
+    const { data: consultant, error: consultantError } = await (supabase as any)
       .from('education_consultants')
-      .insert(input as any)
+      .insert(globalFields)
       .select()
+      .single();
+
+    if (consultantError) {
+      if (consultantError.code === '23505') {
+        throw new Error('A consultant with this referral code already exists');
+      }
+      console.error('[admission/consultants] Failed to create consultant:', consultantError);
+      throw new Error(consultantError.message);
+    }
+
+    return consultant as EducationConsultant;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // INSTITUTION LINK MANAGEMENT
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Get all institution links for a consultant
+   */
+  static async getConsultantInstitutions(consultantId: string): Promise<ConsultantInstitution[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('consultant_institutions')
+      .select('*, institution:institutions(id, name)')
+      .eq('consultant_id', consultantId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[admission/consultants] Failed to fetch consultant institutions:', error);
+      throw new Error(error.message);
+    }
+
+    return data || [];
+  }
+
+  /**
+   * Link an existing consultant to an additional institution
+   */
+  static async addConsultantInstitution(
+    input: CreateConsultantInstitutionInput
+  ): Promise<ConsultantInstitution> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any)
+      .from('consultant_institutions')
+      .insert(input)
+      .select('*, institution:institutions(id, name)')
       .single();
 
     if (error) {
       if (error.code === '23505') {
-        throw new Error('A consultant with this phone or email already exists');
+        throw new Error('This consultant is already linked to that institution');
       }
-      console.error('[admission/consultants] Failed to create consultant:', error);
+      console.error('[admission/consultants] Failed to add institution link:', error);
       throw new Error(error.message);
     }
 
     return data;
+  }
+
+  /**
+   * Update per-institution details (status, tier, contract dates)
+   */
+  static async updateConsultantInstitution(
+    id: string,
+    input: Partial<UpdateConsultantInstitutionInput>
+  ): Promise<ConsultantInstitution> {
+    const supabase = createClientSupabaseClient();
+
+    const { id: _id, ...payload } = input as any;
+
+    const { data, error } = await (supabase as any)
+      .from('consultant_institutions')
+      .update({ ...payload, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*, institution:institutions(id, name)')
+      .single();
+
+    if (error) {
+      console.error('[admission/consultants] Failed to update institution link:', error);
+      throw new Error(error.message);
+    }
+
+    return data;
+  }
+
+  /**
+   * Remove a consultant's link to an institution (does not delete the consultant)
+   */
+  static async removeConsultantInstitution(id: string): Promise<void> {
+    const supabase = createClientSupabaseClient();
+
+    const { error } = await (supabase as any)
+      .from('consultant_institutions')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('[admission/consultants] Failed to remove institution link:', error);
+      throw new Error(error.message);
+    }
   }
 
   /**
@@ -314,19 +571,17 @@ export class ConsultantService {
   }
 
   /**
-   * Get consultants for dropdown (active only)
+   * Get consultants for dropdown (global — education_consultants has no institution_id column)
    */
-  static async getConsultantsForDropdown(
-    institutionId: string
-  ): Promise<{ id: string; name: string; code: string | null }[]> {
+  static async getConsultantsForDropdown(): Promise<
+    { id: string; name: string; code: string | null }[]
+  > {
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
       .from('education_consultants')
       .select('id, name, code')
-      .eq('institution_id', institutionId)
-      .eq('status', 'active')
-      .order('name');
+      .order('name', { ascending: true });
 
     if (error) {
       throw new Error(error.message);
@@ -997,7 +1252,7 @@ export class ConsultantService {
       .from('consultant_commission_transactions')
       .update({
         status: 'paid',
-        paid_at: new Date().toISOString(),
+        payment_date: new Date().toISOString().split('T')[0],
         payment_reference: input.payment_reference,
         updated_at: new Date().toISOString(),
       } as any)
@@ -1901,11 +2156,40 @@ export class ConsultantService {
     const supabase = createClientSupabaseClient();
 
     // Get consultant counts by status and tier
-    let consultantsQuery = (supabase as any)
-      .from('education_consultants')
-      .select('id, name, code, status, tier, consultant_type, total_leads_referred, total_conversions');
-    if (institutionId) consultantsQuery = consultantsQuery.eq('institution_id', institutionId);
-    const { data: consultants } = await consultantsQuery;
+    // status/tier now live on consultant_institutions junction — filter through it when institutionId is set
+    let consultants: Array<{
+      id: string;
+      name: string;
+      code: string | null;
+      status: string;
+      tier: string;
+      consultant_type: string;
+      total_leads_referred: number;
+      total_conversions: number;
+    }> = [];
+
+    if (institutionId) {
+      // Query junction table to get institution-specific status/tier
+      const { data: ciRows } = await (supabase as any)
+        .from('consultant_institutions')
+        .select('status, tier, education_consultants(id, name, code, consultant_type, total_leads_referred, total_conversions)')
+        .eq('institution_id', institutionId);
+      consultants = (ciRows || []).map((ci: any) => ({
+        ...(ci.education_consultants || {}),
+        status: ci.status ?? 'active',
+        tier: ci.tier ?? 'bronze',
+      }));
+    } else {
+      // No institution filter — return all consultants with first junction row's status/tier
+      const { data: allRows } = await (supabase as any)
+        .from('education_consultants')
+        .select('id, name, code, consultant_type, total_leads_referred, total_conversions, consultant_institutions(status, tier)');
+      consultants = (allRows || []).map((c: any) => ({
+        ...c,
+        status: c.consultant_institutions?.[0]?.status ?? 'active',
+        tier: c.consultant_institutions?.[0]?.tier ?? 'bronze',
+      }));
+    }
 
     const activeConsultants = consultants?.filter((c) => c.status === 'active') || [];
 
@@ -1951,7 +2235,7 @@ export class ConsultantService {
       .from('consultant_commission_transactions')
       .select('net_amount')
       .eq('status', 'paid')
-      .gte('paid_at', startOfMonth.toISOString());
+      .gte('payment_date', startOfMonth.toISOString().split('T')[0]);
     if (institutionId) thisMonthQuery = thisMonthQuery.eq('institution_id', institutionId);
     const { data: thisMonthTransactions } = await thisMonthQuery;
 
@@ -2358,7 +2642,7 @@ export class ConsultantService {
   ): Promise<{
     calculatedAmount: number;
     commissionRate: number;
-    rateType: 'percentage' | 'flat';
+    rateType: RateType;
     volumeBonus: number;
     finalAmount: number;
   }> {

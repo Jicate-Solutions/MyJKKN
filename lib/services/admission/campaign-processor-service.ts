@@ -415,7 +415,7 @@ export class CampaignProcessorService {
    * Get execution status for a workflow or lead
    */
   static async getExecutionStatus(
-    institutionId: string | undefined,
+    institutionId: string,
     options: { workflowId?: string; leadId?: string; executionId?: string }
   ): Promise<{
     pending: number;
@@ -426,8 +426,8 @@ export class CampaignProcessorService {
   }> {
     let query = this.supabase
       .from('admission_campaign_queue')
-      .select('*');
-    if (institutionId) query = query.eq('institution_id', institutionId);
+      .select('*')
+      .eq('institution_id', institutionId);
 
     if (options.workflowId) {
       query = query.eq('workflow_id', options.workflowId);

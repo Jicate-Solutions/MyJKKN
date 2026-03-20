@@ -97,16 +97,10 @@ export default async function StudentTimetablePage({ searchParams }: PageProps) 
   }
 
   // 5. Fetch timetable data
-  let timetableData: Awaited<ReturnType<typeof StudentTimetableService.getStudentTimetable>> = null;
-
-  try {
-    timetableData = await StudentTimetableService.getStudentTimetable(
-      learner.section_id,
-      learner.semester_id
-    );
-  } catch (error) {
-    console.error('[learners/my-timetable] Error fetching timetable data:', error);
-  }
+  const timetableData = await StudentTimetableService.getStudentTimetable(
+    learner.section_id,
+    learner.semester_id
+  );
 
   // Check if timetable exists
   if (!timetableData) {

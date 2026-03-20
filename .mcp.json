@@ -2,7 +2,7 @@
   "mcpServers": {
     "supabase": {
       "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=hhprjbgknupaplivtoib",
+      "url": "https://mcp.supabase.com/mcp?project_ref=kvizhngldtiuufknvehv",
       "headers": {
         "Authorization": "Bearer sbp_47018305daf9755154b028eb0e599cbb8097c0c8"
       }
@@ -37,14 +37,8 @@
       ]
     },
     "next-devtools": {
-      "command": "npx",
-      "args": ["-y", "next-devtools-mcp@latest"]
-    },
-    "vercel": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.vercel.com"],
-      "env": {}
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "next-devtools-mcp@latest"]
     }
   }
 }

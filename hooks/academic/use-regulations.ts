@@ -1,169 +1,158 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+// hooks/academic/use-regulations.ts
+// Updated: 2026-02-28 — Migrated from useState/useCallback/useEffect to React Query
+// Previous: manual fetch with useRef to avoid stale closures + setTimeout hacks
+
+import { useState, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
 import { RegulationService } from '@/lib/services/academic/regulation-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'react-hot-toast';
 import type {
   Regulation,
   RegulationFilters,
   CreateRegulationDto,
-  UpdateRegulationDto
+  UpdateRegulationDto,
 } from '@/types/academics';
 
+// ---------------------------------------------------------------------------
+// Query keys
+// ---------------------------------------------------------------------------
+export const REGULATION_KEYS = {
+  all: ['regulations'] as const,
+  list: (filters: RegulationFilters) => ['regulations', 'list', filters] as const,
+} as const;
+
+// ---------------------------------------------------------------------------
+// useRegulations — paginated list + CRUD mutations (backward-compatible)
+//
+// Callers destructure (across all files):
+//   { regulations, loading: loadingRegulations, createRegulation }
+//   { createRegulation }   (regulations/new/page.tsx)
+// All previously exported fields are still present.
+// ---------------------------------------------------------------------------
 export function useRegulations(initialFilters: RegulationFilters = {}) {
   const { isSuperAdmin, userProfile } = usePermissions();
-  const [regulations, setRegulations] = useState<Regulation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
   const [filters, setFilters] = useState<RegulationFilters>(initialFilters);
-  const [metadata, setMetadata] = useState({
-    total: 0,
-    page: 1,
-    limit: 10,
-    totalPages: 0
+
+  // ------------------------------------------------------------------
+  // List query
+  // ------------------------------------------------------------------
+  const query = useQuery({
+    queryKey: REGULATION_KEYS.list(filters),
+    queryFn: () => {
+      return isSuperAdmin
+        ? RegulationService.getRegulations(filters)
+        : RegulationService.getRegulationsWithAccess(
+            filters,
+            userProfile?.institution_id,
+            false
+          );
+    },
+    enabled: isSuperAdmin !== undefined,
+    ...QUERY_CONFIG.STABLE_DATA,
   });
 
-  // Use ref to track the current filters to avoid stale closure issues
-  const filtersRef = useRef(filters);
-  filtersRef.current = filters;
+  const regulations: Regulation[] = query.data?.data ?? [];
+  const rawMeta = query.data?.metadata;
+  const metadata = {
+    total: rawMeta?.total ?? 0,
+    page: filters.page ?? 1,
+    limit: filters.limit ?? 10,
+    totalPages: Math.ceil((rawMeta?.total ?? 0) / (filters.limit ?? 10)),
+  };
+
+  // ------------------------------------------------------------------
+  // Filter helpers
+  // ------------------------------------------------------------------
+  const updateFilters = useCallback((newFilters: Partial<RegulationFilters>) => {
+    setFilters((prev) => ({ ...prev, ...newFilters, page: 1 }));
+  }, []);
+
+  const changePage = useCallback((newPage: number) => {
+    setFilters((prev) => ({ ...prev, page: newPage }));
+  }, []);
 
   const fetchRegulations = useCallback(
     async (newFilters?: RegulationFilters) => {
-      try {
-        setLoading(true);
-        setError(null);
-        // Use the passed filters or the current filters from ref
-        const currentFilters = newFilters || filtersRef.current;
-
-        // Use institution-aware method if user is not super admin
-        const result = isSuperAdmin
-          ? await RegulationService.getRegulations(currentFilters)
-          : await RegulationService.getRegulationsWithAccess(
-              currentFilters,
-              userProfile?.institution_id,
-              false
-            );
-        setRegulations(result.data);
-        setMetadata(result.metadata);
-
-        if (newFilters) {
-          setFilters(newFilters);
-        }
-      } catch (err) {
-        console.error('Error fetching regulations:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
+      if (newFilters) {
+        setFilters(newFilters);
+        // setFilters triggers a re-render; useQuery picks up the new key and fetches automatically.
+      } else {
+        await query.refetch();
       }
     },
-    [isSuperAdmin, userProfile?.institution_id]
+    [query]
   );
 
-  const updateFilters = useCallback(
-    (newFilters: Partial<RegulationFilters>) => {
-      setFilters((currentFilters) => {
-        const updatedFilters = {
-          ...currentFilters,
-          ...newFilters,
-          page: 1 // Reset to first page when filters change
-        };
-        // Use setTimeout to break the synchronous update cycle
-        setTimeout(() => {
-          fetchRegulations(updatedFilters);
-        }, 0);
-        return updatedFilters;
-      });
+  // ------------------------------------------------------------------
+  // Mutations
+  // ------------------------------------------------------------------
+  const createMutation = useMutation({
+    mutationFn: (data: CreateRegulationDto) =>
+      RegulationService.createRegulation(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: REGULATION_KEYS.all });
+      toast.success('Regulation created successfully');
     },
-    [fetchRegulations]
-  );
-
-  const changePage = useCallback(
-    (page: number) => {
-      setFilters((currentFilters) => {
-        const updatedFilters = { ...currentFilters, page };
-        // Use setTimeout to break the synchronous update cycle
-        setTimeout(() => {
-          fetchRegulations(updatedFilters);
-        }, 0);
-        return updatedFilters;
-      });
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create regulation');
     },
-    [fetchRegulations]
-  );
+  });
 
-  // Fetch data on mount
-  useEffect(() => {
-    fetchRegulations(initialFilters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateRegulationDto }) =>
+      RegulationService.updateRegulation(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: REGULATION_KEYS.all });
+      toast.success('Regulation updated successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update regulation');
+    },
+  });
 
-  // Update filtersRef when initialFilters change and fetch data
-  useEffect(() => {
-    if (JSON.stringify(initialFilters) !== JSON.stringify(filtersRef.current)) {
-      setFilters(initialFilters);
-      fetchRegulations(initialFilters);
-    }
-  }, [initialFilters, fetchRegulations]);
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => RegulationService.deleteRegulation(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: REGULATION_KEYS.all });
+      toast.success('Regulation deleted successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete regulation');
+    },
+  });
 
   const createRegulation = useCallback(
     async (data: CreateRegulationDto) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await RegulationService.createRegulation(data);
-        // Refresh regulations list
-        fetchRegulations();
-      } catch (err) {
-        console.error('Error creating regulation:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+      await createMutation.mutateAsync(data);
     },
-    [fetchRegulations]
+    [createMutation]
   );
 
   const updateRegulation = useCallback(
     async (id: string, data: UpdateRegulationDto) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await RegulationService.updateRegulation(id, data);
-        // Refresh regulations list
-        fetchRegulations();
-      } catch (err) {
-        console.error('Error updating regulation:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+      await updateMutation.mutateAsync({ id, data });
     },
-    [fetchRegulations]
+    [updateMutation]
   );
 
   const deleteRegulation = useCallback(
     async (id: string) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await RegulationService.deleteRegulation(id);
-        // Refresh regulations list
-        fetchRegulations();
-      } catch (err) {
-        console.error('Error deleting regulation:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+      await deleteMutation.mutateAsync(id);
     },
-    [fetchRegulations]
+    [deleteMutation]
   );
+
+  const isMutating =
+    createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
 
   return {
     regulations,
-    loading,
-    error,
+    loading: query.isLoading || query.isFetching || isMutating,
+    error: query.error ? (query.error as Error).message : null,
     metadata,
     filters,
     updateFilters,
@@ -171,6 +160,6 @@ export function useRegulations(initialFilters: RegulationFilters = {}) {
     fetchRegulations,
     createRegulation,
     updateRegulation,
-    deleteRegulation
+    deleteRegulation,
   };
 }

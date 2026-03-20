@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format as formatDate } from 'date-fns';
+import { trackUsage } from '@/lib/utils/track-usage';
 
 export class ExportService {
   /**
@@ -31,6 +32,7 @@ export class ExportService {
     // Create blob and download
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     saveAs(blob, `${filename}.csv`);
+    trackUsage({ module: 'exports', feature: 'export_csv', eventType: 'export' });
   }
 
   /**
@@ -59,6 +61,7 @@ export class ExportService {
 
     // Generate Excel file and download
     XLSX.writeFile(workbook, `${filename}.xlsx`);
+    trackUsage({ module: 'exports', feature: 'export_excel', eventType: 'export' });
   }
 
   /**
@@ -109,6 +112,7 @@ export class ExportService {
 
     // Save PDF
     doc.save(`${filename}.pdf`);
+    trackUsage({ module: 'exports', feature: 'export_pdf', eventType: 'export' });
   }
 
   /**

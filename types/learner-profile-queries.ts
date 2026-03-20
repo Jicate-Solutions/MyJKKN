@@ -114,6 +114,10 @@ export interface UserProfile {
   email: string;
   is_active: boolean;
   full_name?: string | null;
+  role?: string;
+  learner_id?: string | null;
+  institution_id?: string | null;
+  department_id?: string | null;
 }
 
 /**

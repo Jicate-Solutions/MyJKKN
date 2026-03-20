@@ -12,26 +12,7 @@ export const SYSTEM_ROLES = {
   DRIVER: 'driver',
   PARENT: 'parent',
   HOD: 'hod',
-  PRINCIPAL: 'principal',
-  // Solutions Hub roles (added 2026-02-03)
-  BUILDER: 'builder',
-  COHORT_MEMBER: 'cohort_member',
-  PRODUCTION_LEARNER: 'production_learner',
-  JICATE_STAFF: 'jicate_staff',
-  CLIENT: 'client'
-} as const;
-
-// Solutions Hub role mapping from original Solutions Hub project
-export const SOLUTIONS_HUB_ROLE_MAPPING = {
-  // MyJKKN role -> Solutions Hub equivalent
-  super_admin: 'md_caio',        // MD/CAIO master access
-  hod: 'department_head',        // Department head scope
-  staff: 'department_staff',     // Department staff scope
-  builder: 'builder',            // Software talent
-  cohort_member: 'cohort_member', // Training talent
-  production_learner: 'production_learner', // Content talent
-  jicate_staff: 'jicate_staff',  // JICATE facilitator
-  client: 'client'               // External client
+  PRINCIPAL: 'principal'
 } as const;
 
 export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';
@@ -113,6 +94,7 @@ export interface ProfileUpdate {
 // Custom role interface
 export interface CustomRole {
   id: string;
+  institution_id: string | null;
   role_key: string;
   role_name: string;
   description: string | null;
@@ -145,6 +127,7 @@ export interface CustomRoleCreate {
   description?: string | null;
   permissions?: Record<string, boolean>;
   is_system_role?: boolean;
+  institution_id?: string | null;
 }
 
 // Custom role update interface

@@ -187,6 +187,10 @@ CREATE TABLE IF NOT EXISTS public.programs (
     program_duration_yrs NUMERIC(3,1) CHECK (program_duration_yrs IS NULL OR program_duration_yrs > 0),
     pattern_type VARCHAR(10) CHECK (pattern_type IN ('Year', 'Semester')),
     is_part_time BOOLEAN DEFAULT false,
+    -- Intake Capacity Fields (Added: 2025-01-31)
+    sanctioned_intake INTEGER DEFAULT 0,
+    actual_intake INTEGER DEFAULT 0,
+    academic_year_id UUID,
     -- Standard fields
     is_active BOOLEAN DEFAULT true,
     created_by UUID,
@@ -247,19 +251,11 @@ CREATE TABLE IF NOT EXISTS public.sections (
 );
 
 -- Courses
--- Updated: 2026-02-01 - Added learning hours and competency coverage fields (Workshop Transformation Phase 1.5)
 CREATE TABLE IF NOT EXISTS public.courses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID,
     course_code TEXT NOT NULL,
     course_name TEXT NOT NULL,
-    -- Learning hours breakdown (added 2026-02-01)
-    learning_hours_target INTEGER DEFAULT 0,
-    self_study_hours INTEGER DEFAULT 0,
-    practical_hours INTEGER DEFAULT 0,
-    theory_hours INTEGER DEFAULT 0,
-    competency_coverage JSONB DEFAULT '[]'::jsonb,
-    -- Standard fields
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
@@ -365,6 +361,13 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     neet_roll_number TEXT,
     neet_score TEXT,
 
+    -- Advanced Analytics Fields (Added: 2025-01-31)
+    school_type TEXT CHECK (school_type IN ('government', 'aided', 'private', 'cbse', 'icse', 'state_board')),
+    school_district TEXT,
+    school_taluk TEXT,
+    medium_of_instruction TEXT CHECK (medium_of_instruction IN ('english', 'tamil', 'both')),
+    location_type TEXT CHECK (location_type IN ('urban', 'semi_urban', 'rural')),
+
     -- Admission/Counseling Information
     counseling_applied BOOLEAN DEFAULT false,
     counseling_number TEXT,
@@ -388,14 +391,21 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     accommodation_type TEXT NOT NULL,
     hostel_type TEXT,
     food_type TEXT,
-    bus_required BOOLEAN DEFAULT false,
-    bus_route TEXT,
-    bus_pickup_location TEXT,
-
     -- Reference Information
     reference_type TEXT,
     reference_name TEXT,
     reference_contact TEXT,
+
+    -- Finance/Fee Details (Added: 2026-03-04)
+    application_fee NUMERIC(15,2) DEFAULT NULL,
+    university_reg_fee NUMERIC(15,2) DEFAULT NULL,
+    fee_structure_type TEXT DEFAULT NULL CHECK (fee_structure_type IN ('tuition_hostel', 'dayscholar')),
+    tuition_fee NUMERIC(15,2) DEFAULT NULL,
+    hostel_fee NUMERIC(15,2) DEFAULT NULL,
+    dayscholar_fee NUMERIC(15,2) DEFAULT NULL,
+    uniform_fee NUMERIC(15,2) DEFAULT NULL,
+    hospital_training_fee NUMERIC(15,2) DEFAULT NULL,
+    placement_fee NUMERIC(15,2) DEFAULT NULL,
 
     -- Academic Assignment (unlocked after approval/enrollment)
     institution_id UUID,
@@ -413,13 +423,8 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     register_number TEXT,
     college_email TEXT,
     student_photo_url TEXT,
-    is_profile_complete BOOLEAN DEFAULT false,
-
-    -- Capabilities and career tracking (added 2026-02-01 - Workshop Transformation Phase 1.5)
-    capabilities JSONB DEFAULT '{}'::jsonb,
-    career_aspirations JSONB DEFAULT '{}'::jsonb,
-    industry_readiness_score NUMERIC(5,2) DEFAULT 0,
-    portfolio_url TEXT,
+    -- Updated: 2026-02-09 - Added NOT NULL constraint to prevent NULL values causing filter issues
+    is_profile_complete BOOLEAN NOT NULL DEFAULT false,
 
     -- Audit fields
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
@@ -427,6 +432,35 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     created_by UUID,
     updated_by UUID
 );
+
+-- Intake History Table (Added: 2025-01-31)
+-- Purpose: Track historical intake data for 3-year stability index and capacity analytics
+CREATE TABLE IF NOT EXISTS public.intake_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL,
+    program_id UUID NOT NULL,
+    academic_year_id UUID NOT NULL,
+    sanctioned_intake INTEGER DEFAULT 0,
+    actual_intake INTEGER DEFAULT 0,
+    waitlist_count INTEGER DEFAULT 0,
+    dropout_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(program_id, academic_year_id)
+);
+
+-- Indexes for intake_history analytics queries
+CREATE INDEX IF NOT EXISTS idx_intake_history_program ON intake_history(program_id);
+CREATE INDEX IF NOT EXISTS idx_intake_history_year ON intake_history(academic_year_id);
+CREATE INDEX IF NOT EXISTS idx_intake_history_institution ON intake_history(institution_id);
+
+-- Indexes for learners_profiles analytics fields
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_school_type ON learners_profiles(school_type);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_location_type ON learners_profiles(location_type);
+CREATE INDEX IF NOT EXISTS idx_learners_profiles_medium_instruction ON learners_profiles(medium_of_instruction);
+
+-- Index for programs academic year
+CREATE INDEX IF NOT EXISTS idx_programs_academic_year ON programs(academic_year_id);
 
 -- =====================================================
 -- LEGACY TABLES (To be converted to VIEWs in Phase 2)
@@ -474,16 +508,14 @@ CREATE TABLE IF NOT EXISTS public.students (
     student_email TEXT,
     accommodation_type TEXT,
     hostel_type TEXT,
-    bus_required BOOLEAN DEFAULT false,
-    bus_route TEXT,
-    bus_pickup_location TEXT,
     reference_type TEXT,
     reference_name TEXT,
     reference_contact TEXT,
     roll_number TEXT,
     student_photo_url TEXT,
     college_email TEXT,
-    is_profile_complete BOOLEAN DEFAULT false,
+    -- Updated: 2026-02-09 - Added NOT NULL constraint to prevent NULL values causing filter issues
+    is_profile_complete BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID,
@@ -534,9 +566,6 @@ CREATE TABLE IF NOT EXISTS public.admissions (
     student_email TEXT NOT NULL,
     accommodation_type TEXT NOT NULL,
     hostel_type TEXT,
-    bus_required BOOLEAN DEFAULT false,
-    bus_route TEXT,
-    bus_pickup_location TEXT,
     reference_type TEXT,
     reference_name TEXT,
     reference_contact TEXT,
@@ -585,11 +614,7 @@ CREATE TABLE IF NOT EXISTS public.staff (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     created_by UUID,
     updated_by UUID,
-    institution_email TEXT NOT NULL,
-    -- Facilitator role fields (added 2026-02-01 - Workshop Transformation Phase 1.5)
-    role_type VARCHAR(50) DEFAULT 'teacher',
-    facilitator_certification JSONB DEFAULT '[]'::jsonb,
-    outcome_metrics JSONB DEFAULT '{}'::jsonb
+    institution_email TEXT NOT NULL
 );
 
 -- Employment Categories
@@ -629,6 +654,27 @@ CREATE TABLE IF NOT EXISTS public.staff_plan_courses (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Class Incharges
+-- Added: 2026-03-08 - Assigns one or more staff as class incharges per section
+CREATE TABLE IF NOT EXISTS public.class_incharges (
+    id             UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID        NOT NULL REFERENCES public.institutions(id),
+    section_id     UUID        NOT NULL REFERENCES public.sections(id) ON DELETE CASCADE,
+    staff_id       UUID        NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+    is_active      BOOLEAN     NOT NULL DEFAULT true,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by     UUID        REFERENCES public.profiles(id),
+    updated_by     UUID        REFERENCES public.profiles(id),
+    CONSTRAINT class_incharges_unique_assignment UNIQUE (section_id, staff_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_class_incharges_institution_id ON public.class_incharges(institution_id);
+CREATE INDEX IF NOT EXISTS idx_class_incharges_section_id     ON public.class_incharges(section_id);
+CREATE INDEX IF NOT EXISTS idx_class_incharges_staff_id       ON public.class_incharges(staff_id);
+
+ALTER TABLE public.class_incharges ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
 -- SECTION 6: ATTENDANCE MANAGEMENT
@@ -847,7 +893,6 @@ CREATE TABLE IF NOT EXISTS public.billing_receipt_items (
 );
 
 -- Billing Discounts
--- Updated: 2026-02-01 - Added outcome-based discount fields (Workshop Transformation Phase 1.5)
 CREATE TABLE IF NOT EXISTS public.billing_discounts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bill_id UUID NOT NULL,
@@ -862,11 +907,6 @@ CREATE TABLE IF NOT EXISTS public.billing_discounts (
     approval_status VARCHAR(20) DEFAULT 'pending'::character varying,
     effective_date DATE NOT NULL,
     expiry_date DATE,
-    -- Outcome-based discount fields (added 2026-02-01)
-    is_outcome_based BOOLEAN DEFAULT false,
-    outcome_criteria JSONB,
-    outcome_verification JSONB,
-    -- Standard fields
     created_by UUID,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
@@ -1275,12 +1315,15 @@ CREATE TABLE IF NOT EXISTS public.migration_log (
 );
 
 -- Custom Roles
+-- Updated: 2026-02-06 - Added role_key, is_system_role columns; made institution_id nullable for system roles
 CREATE TABLE IF NOT EXISTS public.custom_roles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL,
+    institution_id UUID,
+    role_key VARCHAR(50) NOT NULL UNIQUE,
     role_name VARCHAR(50) NOT NULL,
     description TEXT,
-    permissions JSONB NOT NULL,
+    permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_system_role BOOLEAN DEFAULT false,
     is_active BOOLEAN DEFAULT true,
     created_by UUID,
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -1503,2257 +1546,771 @@ CREATE INDEX IF NOT EXISTS idx_maintenance_schedules_active ON resource_maintena
 ALTER TABLE user_app_favorites ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
--- SECTION 12: COMPETENCY CATALOG MODULE (NEW)
--- Created: 2026-02-01 - Workshop Transformation Phase 1.2
--- Purpose: Outcome-focused skill tracking to replace learner OKRs
+-- LIFECYCLE ANALYTICS TABLES
+-- Updated: 2026-02-06 - Added usage_events, module_usage_daily,
+--   institution_health_scores, feature_usage_summary, usage_events_archive
 -- =====================================================
 
--- Create competency ENUMs
-DO $$ BEGIN
-    CREATE TYPE competency_type AS ENUM ('technical', 'behavioral', 'domain', 'soft_skill');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE bloom_taxonomy_level AS ENUM ('remember', 'understand', 'apply', 'analyze', 'evaluate', 'create');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE proficiency_level AS ENUM ('novice', 'beginner', 'intermediate', 'advanced', 'expert');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
--- competency_catalog: Master competency/skill taxonomy
--- Updated: 2026-02-02 - Migrated from Bloom's to Fink's Taxonomy
--- bloom_taxonomy_level_deprecated: DEPRECATED (cognitive-only, AI can do this)
--- finks_dimensions: NEW STANDARD (holistic learning for AI era)
-CREATE TABLE IF NOT EXISTS public.competency_catalog (
+-- usage_events: Lightweight event table for tracking all platform actions
+-- Partitioned by month for fast time-range queries
+CREATE TABLE IF NOT EXISTS public.usage_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    competency_code VARCHAR(50) NOT NULL,
-    competency_name VARCHAR(255) NOT NULL,
-    competency_type competency_type NOT NULL DEFAULT 'technical',
+    user_id UUID NOT NULL,
+    session_id TEXT,
+    event_type TEXT NOT NULL,           -- page_visit, view, create, update, delete, export, login, logout
+    module TEXT NOT NULL,                -- matches MODULE_NAMES: 'academic/timetables', 'billing/invoices'
+    feature TEXT,                        -- sub-feature: 'mark_attendance', 'generate_invoice'
+    resource_type TEXT,
+    weight INTEGER NOT NULL DEFAULT 1,  -- page_visit=1, view=2, crud=5, export=3
+    institution_id UUID,
+    department_id UUID,
+    role TEXT,                           -- user's role at time of action
+    request_method TEXT,
+    source TEXT NOT NULL DEFAULT 'middleware',  -- 'middleware', 'explicit', 'backfill'
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Indexes for usage_events
+CREATE INDEX IF NOT EXISTS idx_usage_events_institution_created
+    ON usage_events(institution_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_module_created
+    ON usage_events(module, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_user_created
+    ON usage_events(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_event_type
+    ON usage_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_usage_events_source
+    ON usage_events(source);
+
+-- Enable RLS
+ALTER TABLE usage_events ENABLE ROW LEVEL SECURITY;
+
+
+-- module_usage_daily: Pre-aggregated daily rollup consumed by dashboard
+CREATE TABLE IF NOT EXISTS public.module_usage_daily (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    metric_date DATE NOT NULL,
+    institution_id UUID NOT NULL,
+    module TEXT NOT NULL,
+    event_count INTEGER DEFAULT 0,
+    unique_users INTEGER DEFAULT 0,
+    weighted_score BIGINT DEFAULT 0,
+    by_role JSONB DEFAULT '{}',         -- {"student": 120, "faculty": 45, "admin": 12}
+    by_event_type JSONB DEFAULT '{}',   -- {"view": 100, "create": 30, "export": 5}
+    UNIQUE(metric_date, institution_id, module)
+);
+
+-- Indexes for module_usage_daily
+CREATE INDEX IF NOT EXISTS idx_module_usage_daily_date
+    ON module_usage_daily(metric_date DESC);
+CREATE INDEX IF NOT EXISTS idx_module_usage_daily_institution
+    ON module_usage_daily(institution_id, metric_date DESC);
+CREATE INDEX IF NOT EXISTS idx_module_usage_daily_module
+    ON module_usage_daily(module, metric_date DESC);
+
+-- Enable RLS
+ALTER TABLE module_usage_daily ENABLE ROW LEVEL SECURITY;
+
+
+-- institution_health_scores: Composite health scores computed daily
+CREATE TABLE IF NOT EXISTS public.institution_health_scores (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    score_date DATE NOT NULL,
+    institution_id UUID NOT NULL,
+    active_user_pct NUMERIC(5,2),       -- % users logged in last 7d
+    module_breadth_score NUMERIC(5,2),  -- % of modules accessed
+    action_depth_score NUMERIC(5,2),    -- weighted actions per active user
+    consistency_score NUMERIC(5,2),     -- inverse of daily active user variance
+    feature_maturity_score NUMERIC(5,2),-- CRUD ratio vs total actions
+    health_score NUMERIC(5,2),          -- composite (0-100)
+    health_grade TEXT,                   -- A/B/C/D/F
+    metadata JSONB DEFAULT '{}',
+    UNIQUE(score_date, institution_id)
+);
+
+-- Indexes for institution_health_scores
+CREATE INDEX IF NOT EXISTS idx_health_scores_institution
+    ON institution_health_scores(institution_id, score_date DESC);
+CREATE INDEX IF NOT EXISTS idx_health_scores_date
+    ON institution_health_scores(score_date DESC);
+CREATE INDEX IF NOT EXISTS idx_health_scores_grade
+    ON institution_health_scores(health_grade);
+
+-- Enable RLS
+ALTER TABLE institution_health_scores ENABLE ROW LEVEL SECURITY;
+
+
+-- feature_usage_summary: Sub-feature level aggregation (Phase 3)
+CREATE TABLE IF NOT EXISTS public.feature_usage_summary (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    summary_date DATE NOT NULL,
+    institution_id UUID NOT NULL,
+    module TEXT NOT NULL,
+    feature TEXT NOT NULL,
+    usage_count INTEGER DEFAULT 0,
+    unique_users INTEGER DEFAULT 0,
+    UNIQUE(summary_date, institution_id, module, feature)
+);
+
+-- Indexes for feature_usage_summary
+CREATE INDEX IF NOT EXISTS idx_feature_usage_summary_date
+    ON feature_usage_summary(summary_date DESC);
+CREATE INDEX IF NOT EXISTS idx_feature_usage_summary_module
+    ON feature_usage_summary(module, summary_date DESC);
+
+-- Enable RLS
+ALTER TABLE feature_usage_summary ENABLE ROW LEVEL SECURITY;
+
+
+-- usage_events_archive: Archive table for old events (Phase 3)
+CREATE TABLE IF NOT EXISTS public.usage_events_archive (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    session_id TEXT,
+    event_type TEXT NOT NULL,
+    module TEXT NOT NULL,
+    feature TEXT,
+    resource_type TEXT,
+    weight INTEGER NOT NULL DEFAULT 1,
+    institution_id UUID,
+    department_id UUID,
+    role TEXT,
+    request_method TEXT,
+    source TEXT NOT NULL DEFAULT 'middleware',
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL,
+    archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_usage_events_archive_created
+    ON usage_events_archive(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_events_archive_institution
+    ON usage_events_archive(institution_id, created_at DESC);
+
+-- Enable RLS
+ALTER TABLE usage_events_archive ENABLE ROW LEVEL SECURITY;
+
+
+-- =====================================================
+-- SERVICE REQUEST MODULE
+-- Updated: 2026-02-09 - Service Request Module (7 tables, 5 enums)
+-- =====================================================
+
+-- Service request status enum
+CREATE TYPE service_request_status AS ENUM (
+    'draft', 'submitted', 'in_review', 'approved', 'rejected',
+    'returned', 'fulfilled', 'closed', 'cancelled'
+);
+
+CREATE TYPE service_field_type AS ENUM (
+    'text', 'select', 'date', 'number', 'boolean', 'textarea', 'file'
+);
+
+CREATE TYPE service_request_priority AS ENUM ('low', 'normal', 'high', 'urgent');
+
+CREATE TYPE service_approval_action AS ENUM ('pending', 'approved', 'rejected', 'returned');
+
+CREATE TYPE service_timeline_event_type AS ENUM (
+    'status_change', 'comment', 'internal_note', 'edit', 'attachment_added', 'system'
+);
+
+-- Service Types: Defines available service request types (Super Admin manages)
+CREATE TABLE service_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
     description TEXT,
-    proficiency_levels JSONB NOT NULL DEFAULT '[]'::jsonb,
-    evidence_requirements JSONB DEFAULT '[]'::jsonb,
-    industry_tags TEXT[] DEFAULT '{}',
-    bloom_taxonomy_level_deprecated bloom_taxonomy_level, -- DEPRECATED (2026-02-02): Use finks_dimensions
-    finks_dimensions JSONB DEFAULT '{"foundational_knowledge":0,"application":0,"integration":0,"human_dimension":0,"caring":0,"learning_how_to_learn":0}'::jsonb,
+    icon VARCHAR(50) DEFAULT 'FileText',
+    color VARCHAR(20) DEFAULT '#3B82F6',
     is_active BOOLEAN NOT NULL DEFAULT true,
-    created_by UUID,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_competency_code_per_institution UNIQUE (institution_id, competency_code),
-    CONSTRAINT check_competency_finks_range CHECK (
-        (finks_dimensions->>'foundational_knowledge')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'application')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'integration')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'human_dimension')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'caring')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'learning_how_to_learn')::int BETWEEN 0 AND 100
-    )
-);
-
--- competency_program_mapping: Links competencies to programs
-CREATE TABLE IF NOT EXISTS public.competency_program_mapping (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    competency_id UUID NOT NULL REFERENCES public.competency_catalog(id) ON DELETE CASCADE,
-    program_id UUID NOT NULL REFERENCES public.programs(id) ON DELETE CASCADE,
-    required_level proficiency_level NOT NULL DEFAULT 'intermediate',
-    weight_percentage NUMERIC(5,2) CHECK (weight_percentage IS NULL OR (weight_percentage >= 0 AND weight_percentage <= 100)),
-    semester_expected UUID REFERENCES public.semesters(id) ON DELETE SET NULL,
-    is_mandatory BOOLEAN NOT NULL DEFAULT true,
-    created_by UUID,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_competency_program UNIQUE (competency_id, program_id)
-);
-
--- course_competency_mapping: Links courses to competencies
--- Updated: 2026-02-02 - Added finks_contribution for holistic assessment
-CREATE TABLE IF NOT EXISTS public.course_competency_mapping (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    course_id UUID NOT NULL REFERENCES public.courses(id) ON DELETE CASCADE,
-    competency_id UUID NOT NULL REFERENCES public.competency_catalog(id) ON DELETE CASCADE,
-    contribution_level proficiency_level DEFAULT 'beginner',
-    learning_hours INTEGER CHECK (learning_hours IS NULL OR learning_hours >= 0),
-    assessment_method VARCHAR(255),
-    finks_contribution JSONB DEFAULT '{"foundational_knowledge":0,"application":0,"integration":0,"human_dimension":0,"caring":0,"learning_how_to_learn":0}'::jsonb,
-    created_by UUID,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_course_competency UNIQUE (course_id, competency_id),
-    CONSTRAINT check_course_finks_range CHECK (
-        (finks_contribution->>'foundational_knowledge')::int BETWEEN 0 AND 100 AND
-        (finks_contribution->>'application')::int BETWEEN 0 AND 100 AND
-        (finks_contribution->>'integration')::int BETWEEN 0 AND 100 AND
-        (finks_contribution->>'human_dimension')::int BETWEEN 0 AND 100 AND
-        (finks_contribution->>'caring')::int BETWEEN 0 AND 100 AND
-        (finks_contribution->>'learning_how_to_learn')::int BETWEEN 0 AND 100
-    )
-);
-
--- learner_competencies: Individual learner competency tracking
--- Updated: 2026-02-02 - Added finks_dimensions for holistic progress tracking
-CREATE TABLE IF NOT EXISTS public.learner_competencies (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    learner_id UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    competency_id UUID NOT NULL REFERENCES public.competency_catalog(id) ON DELETE CASCADE,
-    current_level proficiency_level NOT NULL DEFAULT 'novice',
-    evidence JSONB DEFAULT '[]'::jsonb,
-    assessments JSONB DEFAULT '[]'::jsonb,
-    finks_dimensions JSONB DEFAULT '{"foundational_knowledge":0,"application":0,"integration":0,"human_dimension":0,"caring":0,"learning_how_to_learn":0}'::jsonb,
-    verified_by UUID REFERENCES public.staff(id) ON DELETE SET NULL,
-    verified_at TIMESTAMPTZ,
-    progress_percentage NUMERIC(5,2) DEFAULT 0 CHECK (progress_percentage >= 0 AND progress_percentage <= 100),
-    last_activity_at TIMESTAMPTZ DEFAULT NOW(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_learner_competency UNIQUE (learner_id, competency_id),
-    CONSTRAINT check_learner_finks_range CHECK (
-        (finks_dimensions->>'foundational_knowledge')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'application')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'integration')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'human_dimension')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'caring')::int BETWEEN 0 AND 100 AND
-        (finks_dimensions->>'learning_how_to_learn')::int BETWEEN 0 AND 100
-    )
-);
-
--- Competency module indexes
--- Updated: 2026-02-02 - Added Fink's Taxonomy GIN indexes
-CREATE INDEX IF NOT EXISTS idx_competency_catalog_institution ON public.competency_catalog(institution_id);
-CREATE INDEX IF NOT EXISTS idx_competency_catalog_type ON public.competency_catalog(competency_type);
-CREATE INDEX IF NOT EXISTS idx_competency_catalog_active ON public.competency_catalog(institution_id, is_active) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS idx_competency_catalog_industry_tags ON public.competency_catalog USING GIN(industry_tags);
-CREATE INDEX IF NOT EXISTS idx_competency_finks ON public.competency_catalog USING GIN(finks_dimensions);
-CREATE INDEX IF NOT EXISTS idx_learner_finks ON public.learner_competencies USING GIN(finks_dimensions);
-CREATE INDEX IF NOT EXISTS idx_course_finks ON public.course_competency_mapping USING GIN(finks_contribution);
-CREATE INDEX IF NOT EXISTS idx_competency_program_competency ON public.competency_program_mapping(competency_id);
-CREATE INDEX IF NOT EXISTS idx_competency_program_program ON public.competency_program_mapping(program_id);
-CREATE INDEX IF NOT EXISTS idx_course_competency_course ON public.course_competency_mapping(course_id);
-CREATE INDEX IF NOT EXISTS idx_course_competency_competency ON public.course_competency_mapping(competency_id);
-CREATE INDEX IF NOT EXISTS idx_learner_competencies_learner ON public.learner_competencies(learner_id);
-CREATE INDEX IF NOT EXISTS idx_learner_competencies_competency ON public.learner_competencies(competency_id);
-CREATE INDEX IF NOT EXISTS idx_learner_competencies_level ON public.learner_competencies(current_level);
-CREATE INDEX IF NOT EXISTS idx_learner_competencies_progress ON public.learner_competencies(learner_id, progress_percentage);
-
--- Enable RLS on competency tables
-ALTER TABLE public.competency_catalog ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.competency_program_mapping ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.course_competency_mapping ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.learner_competencies ENABLE ROW LEVEL SECURITY;
-
--- =====================================================
--- SECTION 13: INDUSTRY INTEGRATION MODULE (NEW)
--- Created: 2026-02-01 - Workshop Transformation Phase 2.1
--- Purpose: Connect learners with industry partners, mentors, and projects
--- =====================================================
-
--- Create industry ENUMs
-DO $$ BEGIN
-    CREATE TYPE partnership_type AS ENUM ('mou', 'placement', 'project', 'mentorship', 'internship', 'sponsorship', 'training');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE project_status AS ENUM ('draft', 'open', 'assigned', 'in_progress', 'under_review', 'completed', 'cancelled');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE engagement_type AS ENUM ('project', 'internship', 'mentorship', 'workshop', 'site_visit', 'guest_lecture', 'hackathon');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE engagement_status AS ENUM ('applied', 'approved', 'active', 'completed', 'withdrawn', 'terminated');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-    CREATE TYPE difficulty_level AS ENUM ('beginner', 'intermediate', 'advanced', 'expert');
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
-
--- industry_partners: Company registry with MOU tracking
-CREATE TABLE IF NOT EXISTS public.industry_partners (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    company_name VARCHAR(255) NOT NULL,
-    company_logo_url TEXT,
-    industry_sector VARCHAR(100),
-    company_size VARCHAR(50),
-    company_website TEXT,
-    company_description TEXT,
-    partnership_type partnership_type NOT NULL DEFAULT 'mou',
-    partnership_start_date DATE,
-    partnership_end_date DATE,
-    mou_document_url TEXT,
-    partnership_value TEXT,
-    contact_person VARCHAR(255),
-    contact_designation VARCHAR(255),
-    contact_email VARCHAR(255),
-    contact_phone VARCHAR(50),
-    address_line1 TEXT,
-    city VARCHAR(100),
-    state VARCHAR(100),
-    country VARCHAR(100) DEFAULT 'India',
-    pincode VARCHAR(20),
-    total_projects_offered INTEGER DEFAULT 0,
-    total_internships_offered INTEGER DEFAULT 0,
-    total_placements INTEGER DEFAULT 0,
-    average_rating NUMERIC(3,2) DEFAULT 0,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    is_verified BOOLEAN DEFAULT false,
-    verified_by UUID,
-    verified_at TIMESTAMPTZ,
-    created_by UUID,
+    is_system_default BOOLEAN NOT NULL DEFAULT false,
+    allowed_roles TEXT[] NOT NULL DEFAULT '{}',
+    max_active_requests INTEGER NOT NULL DEFAULT 1,
+    auto_fulfill_on_approval BOOLEAN NOT NULL DEFAULT false,
+    enable_priority BOOLEAN NOT NULL DEFAULT false,
+    enable_attachments BOOLEAN NOT NULL DEFAULT false,
+    enable_email_notifications BOOLEAN NOT NULL DEFAULT true,
+    approval_workflow_type TEXT NOT NULL DEFAULT 'sequential' CHECK (approval_workflow_type IN ('sequential', 'parallel')),
+    attachment_config JSONB DEFAULT '{"max_files": 3, "max_size_mb": 10, "allowed_types": ["pdf", "jpg", "png", "doc", "docx"]}'::jsonb,
+    validity_period_days INTEGER,
+    created_by UUID REFERENCES profiles(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- industry_mentors: Expert profiles with availability
-CREATE TABLE IF NOT EXISTS public.industry_mentors (
+CREATE INDEX idx_service_types_slug ON service_types(slug);
+CREATE INDEX idx_service_types_is_active ON service_types(is_active);
+CREATE INDEX idx_service_types_is_system_default ON service_types(is_system_default);
+
+-- Service Type Fields: Dynamic form fields per service type
+CREATE TABLE service_type_fields (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    partner_id UUID REFERENCES public.industry_partners(id) ON DELETE SET NULL,
-    mentor_name VARCHAR(255) NOT NULL,
-    designation VARCHAR(255),
-    company_name VARCHAR(255),
-    profile_photo_url TEXT,
-    bio TEXT,
-    linkedin_url TEXT,
-    email VARCHAR(255) NOT NULL,
-    phone VARCHAR(50),
-    preferred_contact_method VARCHAR(50) DEFAULT 'email',
-    expertise_areas TEXT[] DEFAULT '{}',
-    industry_experience_years INTEGER,
-    competencies_can_mentor UUID[] DEFAULT '{}',
-    availability JSONB DEFAULT '{}'::jsonb,
-    max_mentees INTEGER DEFAULT 5,
-    current_mentees INTEGER DEFAULT 0,
-    total_mentees_all_time INTEGER DEFAULT 0,
-    average_rating NUMERIC(3,2) DEFAULT 0,
-    total_sessions_conducted INTEGER DEFAULT 0,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    is_verified BOOLEAN DEFAULT false,
-    verified_by UUID,
-    verified_at TIMESTAMPTZ,
-    created_by UUID,
+    service_type_id UUID NOT NULL REFERENCES service_types(id) ON DELETE CASCADE,
+    field_key VARCHAR(100) NOT NULL,
+    field_label VARCHAR(255) NOT NULL,
+    field_type service_field_type NOT NULL,
+    field_options JSONB,
+    is_required BOOLEAN NOT NULL DEFAULT false,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    placeholder VARCHAR(255),
+    help_text TEXT,
+    default_value TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    UNIQUE(service_type_id, field_key)
 );
 
--- industry_projects: Project marketplace
-CREATE TABLE IF NOT EXISTS public.industry_projects (
+CREATE INDEX idx_service_type_fields_type_id ON service_type_fields(service_type_id);
+CREATE INDEX idx_service_type_fields_order ON service_type_fields(service_type_id, display_order);
+
+-- Service Request Approval Steps
+CREATE TABLE service_request_approval_steps (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    partner_id UUID REFERENCES public.industry_partners(id) ON DELETE SET NULL,
-    project_title VARCHAR(255) NOT NULL,
-    project_code VARCHAR(50),
-    description TEXT,
-    detailed_requirements TEXT,
-    expected_outcomes TEXT,
-    deliverables JSONB DEFAULT '[]'::jsonb,
-    required_competencies UUID[] DEFAULT '{}',
-    minimum_competency_level proficiency_level DEFAULT 'beginner',
-    competencies_developed UUID[] DEFAULT '{}',
-    difficulty_level difficulty_level DEFAULT 'intermediate',
-    duration_weeks INTEGER,
-    estimated_hours INTEGER,
-    max_team_size INTEGER DEFAULT 4,
-    min_team_size INTEGER DEFAULT 1,
-    eligible_programs UUID[] DEFAULT '{}',
-    eligible_semesters UUID[] DEFAULT '{}',
-    prerequisites TEXT,
-    is_paid BOOLEAN DEFAULT false,
-    stipend_amount NUMERIC(15,2),
-    stipend_currency VARCHAR(10) DEFAULT 'INR',
-    other_benefits TEXT,
-    application_deadline DATE,
-    project_start_date DATE,
-    project_end_date DATE,
-    max_teams INTEGER DEFAULT 1,
-    current_teams INTEGER DEFAULT 0,
-    status project_status NOT NULL DEFAULT 'draft',
-    published_at TIMESTAMPTZ,
-    published_by UUID,
-    assigned_mentor_id UUID REFERENCES public.industry_mentors(id) ON DELETE SET NULL,
-    total_applications INTEGER DEFAULT 0,
-    total_completions INTEGER DEFAULT 0,
-    average_rating NUMERIC(3,2) DEFAULT 0,
-    created_by UUID,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- learner_industry_engagements: Participation tracking
-CREATE TABLE IF NOT EXISTS public.learner_industry_engagements (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    learner_id UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    engagement_type engagement_type NOT NULL,
-    project_id UUID REFERENCES public.industry_projects(id) ON DELETE SET NULL,
-    mentor_id UUID REFERENCES public.industry_mentors(id) ON DELETE SET NULL,
-    partner_id UUID REFERENCES public.industry_partners(id) ON DELETE SET NULL,
-    team_id UUID,
-    team_role VARCHAR(100),
-    applied_at TIMESTAMPTZ DEFAULT NOW(),
-    approved_at TIMESTAMPTZ,
-    approved_by UUID,
-    start_date DATE,
-    expected_end_date DATE,
-    actual_end_date DATE,
-    status engagement_status NOT NULL DEFAULT 'applied',
-    status_notes TEXT,
-    competencies_targeted UUID[] DEFAULT '{}',
-    competencies_demonstrated UUID[] DEFAULT '{}',
-    competency_levels_achieved JSONB DEFAULT '{}'::jsonb,
-    progress_percentage NUMERIC(5,2) DEFAULT 0,
-    milestones_completed JSONB DEFAULT '[]'::jsonb,
-    deliverables_submitted JSONB DEFAULT '[]'::jsonb,
-    mentor_feedback JSONB DEFAULT '{}'::jsonb,
-    learner_feedback JSONB DEFAULT '{}'::jsonb,
-    certificate_issued BOOLEAN DEFAULT false,
-    certificate_url TEXT,
-    certificate_issued_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Industry module indexes
-CREATE INDEX IF NOT EXISTS idx_industry_partners_institution ON public.industry_partners(institution_id);
-CREATE INDEX IF NOT EXISTS idx_industry_partners_type ON public.industry_partners(partnership_type);
-CREATE INDEX IF NOT EXISTS idx_industry_partners_active ON public.industry_partners(institution_id, is_active) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS idx_industry_mentors_institution ON public.industry_mentors(institution_id);
-CREATE INDEX IF NOT EXISTS idx_industry_mentors_partner ON public.industry_mentors(partner_id) WHERE partner_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_industry_mentors_active ON public.industry_mentors(institution_id, is_active) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS idx_industry_mentors_expertise ON public.industry_mentors USING GIN(expertise_areas);
-CREATE INDEX IF NOT EXISTS idx_industry_projects_institution ON public.industry_projects(institution_id);
-CREATE INDEX IF NOT EXISTS idx_industry_projects_partner ON public.industry_projects(partner_id) WHERE partner_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_industry_projects_status ON public.industry_projects(status);
-CREATE INDEX IF NOT EXISTS idx_industry_projects_open ON public.industry_projects(institution_id, status, application_deadline) WHERE status = 'open';
-CREATE INDEX IF NOT EXISTS idx_industry_projects_competencies ON public.industry_projects USING GIN(required_competencies);
-CREATE INDEX IF NOT EXISTS idx_learner_engagements_learner ON public.learner_industry_engagements(learner_id);
-CREATE INDEX IF NOT EXISTS idx_learner_engagements_institution ON public.learner_industry_engagements(institution_id);
-CREATE INDEX IF NOT EXISTS idx_learner_engagements_type ON public.learner_industry_engagements(engagement_type);
-CREATE INDEX IF NOT EXISTS idx_learner_engagements_status ON public.learner_industry_engagements(status);
-CREATE INDEX IF NOT EXISTS idx_learner_engagements_active ON public.learner_industry_engagements(learner_id, status) WHERE status IN ('approved', 'active');
-
--- Enable RLS on industry tables
-ALTER TABLE public.industry_partners ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.industry_mentors ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.industry_projects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.learner_industry_engagements ENABLE ROW LEVEL SECURITY;
-
--- =====================================================
--- SECTION 14: PERSONALIZATION MODULE (Workshop Transformation Phase 3)
--- Added: 2026-02-01
--- Tables: learning_paths, learning_path_steps, parent_portal_access, parent_communications
--- =====================================================
-
--- ENUMs for personalization module
-DO $$ BEGIN
-    CREATE TYPE learning_path_status AS ENUM (
-        'draft',         -- Path being created/configured
-        'active',        -- Learner actively working on path
-        'paused',        -- Temporarily paused
-        'completed',     -- All steps completed
-        'archived'       -- No longer relevant
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE learning_step_type AS ENUM (
-        'course',        -- Formal course enrollment
-        'project',       -- Industry or academic project
-        'mentorship',    -- Mentorship session/program
-        'certification', -- External certification
-        'workshop',      -- Workshop attendance
-        'self_study',    -- Self-paced learning resource
-        'assessment',    -- Skill assessment
-        'internship',    -- Internship placement
-        'competition'    -- Hackathon/competition
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE learning_step_status AS ENUM (
-        'pending',       -- Not yet started
-        'in_progress',   -- Currently working on
-        'completed',     -- Successfully completed
-        'skipped',       -- Skipped (optional step)
-        'failed'         -- Did not meet requirements
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE parent_access_level AS ENUM (
-        'view',          -- Read-only access to learner info
-        'interact',      -- Can message and interact
-        'full'           -- Full access including approvals
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE communication_type AS ENUM (
-        'progress_update',   -- Regular progress reports
-        'alert',             -- Important alerts (attendance, grades)
-        'feedback_request',  -- Request for parent feedback
-        'announcement',      -- General announcements
-        'fee_reminder',      -- Fee payment reminders
-        'event_invite',      -- Event invitations
-        'achievement',       -- Achievement notifications
-        'concern'            -- Concern/issue notification
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
--- learning_paths: Per-learner personalized learning journeys
-CREATE TABLE IF NOT EXISTS public.learning_paths (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    learner_id UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    path_name VARCHAR(255) NOT NULL,
-    path_description TEXT,
-    target_role VARCHAR(255),
-    target_industry VARCHAR(255),
-    target_competencies JSONB NOT NULL DEFAULT '[]'::jsonb,
-    current_progress NUMERIC(5,2) NOT NULL DEFAULT 0
-        CHECK (current_progress >= 0 AND current_progress <= 100),
-    total_steps INTEGER DEFAULT 0,
-    completed_steps INTEGER DEFAULT 0,
-    estimated_completion DATE,
-    actual_completion DATE,
-    started_at TIMESTAMPTZ,
-    is_ai_generated BOOLEAN DEFAULT false,
-    ai_confidence_score NUMERIC(3,2),
-    generation_parameters JSONB DEFAULT '{}'::jsonb,
-    status learning_path_status NOT NULL DEFAULT 'draft',
-    assigned_mentor_id UUID REFERENCES public.staff(id) ON DELETE SET NULL,
-    mentor_notes TEXT,
-    created_by UUID,
-    approved_by UUID REFERENCES public.staff(id) ON DELETE SET NULL,
-    approved_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- learning_path_steps: Sequenced activities within paths
-CREATE TABLE IF NOT EXISTS public.learning_path_steps (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    path_id UUID NOT NULL REFERENCES public.learning_paths(id) ON DELETE CASCADE,
+    service_type_id UUID NOT NULL REFERENCES service_types(id) ON DELETE CASCADE,
     step_order INTEGER NOT NULL,
     step_name VARCHAR(255) NOT NULL,
-    step_description TEXT,
-    step_type learning_step_type NOT NULL,
-    reference_id UUID,
-    reference_table VARCHAR(100),
-    external_url TEXT,
-    competency_id UUID REFERENCES public.competency_catalog(id) ON DELETE SET NULL,
-    target_competency_level proficiency_level,
-    expected_duration_hours INTEGER,
-    actual_duration_hours INTEGER,
-    prerequisite_step_ids UUID[] DEFAULT '{}',
-    is_optional BOOLEAN DEFAULT false,
-    status learning_step_status NOT NULL DEFAULT 'pending',
-    started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    evidence_url TEXT,
-    evidence_type VARCHAR(100),
-    evidence_metadata JSONB DEFAULT '{}'::jsonb,
-    learner_notes TEXT,
-    mentor_feedback TEXT,
-    rating INTEGER CHECK (rating IS NULL OR (rating >= 1 AND rating <= 5)),
+    approver_role VARCHAR(50) NOT NULL,
+    is_required BOOLEAN NOT NULL DEFAULT true,
+    on_return_restart_from_step INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_step_order_per_path UNIQUE (path_id, step_order)
+    UNIQUE(service_type_id, step_order)
 );
 
--- parent_portal_access: Parent access configuration
-CREATE TABLE IF NOT EXISTS public.parent_portal_access (
+CREATE INDEX idx_sr_approval_steps_type_id ON service_request_approval_steps(service_type_id);
+CREATE INDEX idx_sr_approval_steps_order ON service_request_approval_steps(service_type_id, step_order);
+CREATE INDEX idx_sr_approval_steps_role ON service_request_approval_steps(approver_role);
+
+-- Service Requests: Actual request submissions
+CREATE TABLE service_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    learner_id UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    parent_user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    parent_email VARCHAR(255),
-    parent_phone VARCHAR(50),
-    parent_name VARCHAR(255),
-    relationship VARCHAR(50),
-    access_code VARCHAR(50) UNIQUE,
-    access_code_expires_at TIMESTAMPTZ,
-    pin_hash VARCHAR(255),
-    access_level parent_access_level NOT NULL DEFAULT 'view',
-    permissions JSONB DEFAULT '{}'::jsonb,
-    notification_preferences JSONB DEFAULT '{}'::jsonb,
-    last_access TIMESTAMPTZ,
-    access_count INTEGER DEFAULT 0,
-    last_ip_address VARCHAR(45),
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    is_verified BOOLEAN DEFAULT false,
-    verified_at TIMESTAMPTZ,
-    deactivated_at TIMESTAMPTZ,
-    deactivation_reason TEXT,
-    created_by UUID,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_parent_learner_relationship
-        UNIQUE (learner_id, parent_email, relationship)
-);
-
--- parent_communications: Message history between institution and parents
-CREATE TABLE IF NOT EXISTS public.parent_communications (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    learner_id UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    parent_access_id UUID REFERENCES public.parent_portal_access(id) ON DELETE SET NULL,
-    communication_type communication_type NOT NULL,
-    subject VARCHAR(500) NOT NULL,
-    content TEXT NOT NULL,
-    content_html TEXT,
-    attachments JSONB DEFAULT '[]'::jsonb,
-    related_entity_type VARCHAR(100),
-    related_entity_id UUID,
-    context_data JSONB DEFAULT '{}'::jsonb,
-    sent_at TIMESTAMPTZ,
-    sent_via VARCHAR(50)[],
-    delivery_status JSONB DEFAULT '{}'::jsonb,
-    read_at TIMESTAMPTZ,
-    read_via VARCHAR(50),
-    requires_response BOOLEAN DEFAULT false,
-    response_deadline DATE,
-    response TEXT,
-    response_at TIMESTAMPTZ,
-    response_attachment_url TEXT,
-    sent_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    sent_by_role VARCHAR(50),
-    is_archived BOOLEAN DEFAULT false,
-    is_important BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Personalization module indexes
-CREATE INDEX IF NOT EXISTS idx_learning_paths_learner ON public.learning_paths(learner_id);
-CREATE INDEX IF NOT EXISTS idx_learning_paths_institution ON public.learning_paths(institution_id);
-CREATE INDEX IF NOT EXISTS idx_learning_paths_status ON public.learning_paths(status);
-CREATE INDEX IF NOT EXISTS idx_learning_paths_active ON public.learning_paths(learner_id, status) WHERE status = 'active';
-CREATE INDEX IF NOT EXISTS idx_learning_paths_mentor ON public.learning_paths(assigned_mentor_id) WHERE assigned_mentor_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_learning_paths_target_competencies ON public.learning_paths USING GIN(target_competencies);
-CREATE INDEX IF NOT EXISTS idx_learning_paths_ai_generated ON public.learning_paths(is_ai_generated, ai_confidence_score DESC) WHERE is_ai_generated = true;
-
-CREATE INDEX IF NOT EXISTS idx_learning_path_steps_path ON public.learning_path_steps(path_id);
-CREATE INDEX IF NOT EXISTS idx_learning_path_steps_path_order ON public.learning_path_steps(path_id, step_order);
-CREATE INDEX IF NOT EXISTS idx_learning_path_steps_status ON public.learning_path_steps(status);
-CREATE INDEX IF NOT EXISTS idx_learning_path_steps_type ON public.learning_path_steps(step_type);
-CREATE INDEX IF NOT EXISTS idx_learning_path_steps_competency ON public.learning_path_steps(competency_id) WHERE competency_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_learning_path_steps_reference ON public.learning_path_steps(reference_table, reference_id) WHERE reference_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_learning_path_steps_pending ON public.learning_path_steps(path_id, status) WHERE status = 'pending';
-
-CREATE INDEX IF NOT EXISTS idx_parent_portal_learner ON public.parent_portal_access(learner_id);
-CREATE INDEX IF NOT EXISTS idx_parent_portal_institution ON public.parent_portal_access(institution_id);
-CREATE INDEX IF NOT EXISTS idx_parent_portal_parent_user ON public.parent_portal_access(parent_user_id) WHERE parent_user_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_parent_portal_access_code ON public.parent_portal_access(access_code) WHERE access_code IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_parent_portal_email ON public.parent_portal_access(parent_email) WHERE parent_email IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_parent_portal_active ON public.parent_portal_access(learner_id, is_active) WHERE is_active = true;
-
-CREATE INDEX IF NOT EXISTS idx_parent_comms_learner ON public.parent_communications(learner_id);
-CREATE INDEX IF NOT EXISTS idx_parent_comms_institution ON public.parent_communications(institution_id);
-CREATE INDEX IF NOT EXISTS idx_parent_comms_parent_access ON public.parent_communications(parent_access_id) WHERE parent_access_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_parent_comms_type ON public.parent_communications(communication_type);
-CREATE INDEX IF NOT EXISTS idx_parent_comms_sent_at ON public.parent_communications(sent_at DESC);
-CREATE INDEX IF NOT EXISTS idx_parent_comms_unread ON public.parent_communications(learner_id, read_at) WHERE read_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_parent_comms_requires_response ON public.parent_communications(requires_response, response_deadline) WHERE requires_response = true AND response_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_parent_comms_important ON public.parent_communications(learner_id, is_important) WHERE is_important = true;
-
--- Enable RLS on personalization tables
-ALTER TABLE public.learning_paths ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.learning_path_steps ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.parent_portal_access ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.parent_communications ENABLE ROW LEVEL SECURITY;
-
--- =====================================================
--- SECTION 15: ACCOUNTABILITY MODULE (Workshop Transformation Phase 4)
--- Added: 2026-02-01
--- Tables: alumni_outcomes, outcome_program_correlation, facilitator_development, facilitator_industry_immersion
--- =====================================================
-
--- ENUMs for accountability module
-DO $$ BEGIN
-    CREATE TYPE outcome_type AS ENUM (
-        'employed', 'self_employed', 'entrepreneur', 'higher_studies',
-        'competitive_exams', 'family_business', 'gap_year', 'seeking', 'unknown'
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE salary_range AS ENUM (
-        'below_3l', '3l_to_5l', '5l_to_8l', '8l_to_12l',
-        '12l_to_20l', '20l_to_35l', 'above_35l', 'not_applicable', 'undisclosed'
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE verification_status AS ENUM (
-        'pending', 'self_reported', 'document_verified', 'employer_confirmed', 'linkedin_verified', 'rejected'
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE development_stage AS ENUM (
-        'novice', 'developing', 'competent', 'proficient', 'expert', 'thought_leader'
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
-DO $$ BEGIN
-    CREATE TYPE immersion_type AS ENUM (
-        'sabbatical', 'summer_internship', 'consulting', 'research_collab',
-        'site_visit', 'workshop_delivery', 'project_mentoring'
-    );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
--- alumni_outcomes: Graduate career/outcome tracking
-CREATE TABLE IF NOT EXISTS public.alumni_outcomes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    learner_id UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    program_id UUID REFERENCES public.programs(id) ON DELETE SET NULL,
-    graduation_date DATE NOT NULL,
-    graduation_year INTEGER GENERATED ALWAYS AS (EXTRACT(YEAR FROM graduation_date)) STORED,
-    batch_id UUID REFERENCES public.batches(id) ON DELETE SET NULL,
-    outcome_type outcome_type NOT NULL,
-    outcome_start_date DATE,
-    company_name VARCHAR(255),
-    company_website VARCHAR(500),
-    designation VARCHAR(255),
-    department VARCHAR(255),
-    industry_sector VARCHAR(255),
-    job_function VARCHAR(255),
-    city VARCHAR(100),
-    state VARCHAR(100),
-    country VARCHAR(100) DEFAULT 'India',
-    is_remote BOOLEAN DEFAULT false,
-    salary_range salary_range,
-    has_equity BOOLEAN DEFAULT false,
-    other_benefits TEXT,
-    is_relevant_to_program BOOLEAN,
-    relevance_percentage INTEGER CHECK (relevance_percentage IS NULL OR (relevance_percentage >= 0 AND relevance_percentage <= 100)),
-    skills_used TEXT[],
-    institution_name VARCHAR(255),
-    course_name VARCHAR(255),
-    specialization VARCHAR(255),
-    is_scholarship BOOLEAN DEFAULT false,
-    scholarship_details TEXT,
-    business_name VARCHAR(255),
-    business_type VARCHAR(255),
-    business_sector VARCHAR(255),
-    funding_raised VARCHAR(100),
-    employee_count INTEGER,
-    satisfaction_score INTEGER CHECK (satisfaction_score IS NULL OR (satisfaction_score >= 1 AND satisfaction_score <= 10)),
-    would_recommend_program BOOLEAN,
-    feedback TEXT,
-    suggestions TEXT,
-    testimonial TEXT,
-    testimonial_approved BOOLEAN DEFAULT false,
-    verification_status verification_status NOT NULL DEFAULT 'pending',
-    verified_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    verified_at TIMESTAMPTZ,
-    verification_notes TEXT,
-    verification_documents JSONB DEFAULT '[]'::jsonb,
-    is_contactable BOOLEAN DEFAULT true,
-    preferred_contact_method VARCHAR(50),
-    contact_frequency VARCHAR(50),
-    is_willing_to_mentor BOOLEAN DEFAULT false,
-    is_willing_to_hire BOOLEAN DEFAULT false,
-    is_willing_to_guest_lecture BOOLEAN DEFAULT false,
-    last_engagement_date DATE,
-    engagement_notes TEXT,
-    reported_at TIMESTAMPTZ DEFAULT NOW(),
-    last_updated_at TIMESTAMPTZ DEFAULT NOW(),
-    update_count INTEGER DEFAULT 0,
-    data_source VARCHAR(100),
-    created_by UUID,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_learner_primary_outcome UNIQUE (learner_id, graduation_date)
-);
-
--- outcome_program_correlation: Program success patterns
-CREATE TABLE IF NOT EXISTS public.outcome_program_correlation (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    program_id UUID NOT NULL REFERENCES public.programs(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    cohort_year INTEGER NOT NULL,
-    cohort_batch_id UUID REFERENCES public.batches(id) ON DELETE SET NULL,
-    total_graduates INTEGER NOT NULL DEFAULT 0,
-    tracked_graduates INTEGER DEFAULT 0,
-    tracking_percentage NUMERIC(5,2) GENERATED ALWAYS AS (
-        CASE WHEN total_graduates > 0
-        THEN (tracked_graduates::NUMERIC / total_graduates * 100)
-        ELSE 0 END
-    ) STORED,
-    employed_count INTEGER DEFAULT 0,
-    self_employed_count INTEGER DEFAULT 0,
-    entrepreneur_count INTEGER DEFAULT 0,
-    higher_studies_count INTEGER DEFAULT 0,
-    competitive_exams_count INTEGER DEFAULT 0,
-    family_business_count INTEGER DEFAULT 0,
-    seeking_count INTEGER DEFAULT 0,
-    unknown_count INTEGER DEFAULT 0,
-    employment_rate NUMERIC(5,2),
-    placement_rate NUMERIC(5,2),
-    entrepreneurship_rate NUMERIC(5,2),
-    higher_studies_rate NUMERIC(5,2),
-    average_salary_range salary_range,
-    median_salary_range salary_range,
-    salary_distribution JSONB DEFAULT '{}'::jsonb,
-    top_employers JSONB DEFAULT '[]'::jsonb,
-    top_sectors JSONB DEFAULT '[]'::jsonb,
-    top_roles JSONB DEFAULT '[]'::jsonb,
-    top_locations JSONB DEFAULT '[]'::jsonb,
-    top_institutions_for_studies JSONB DEFAULT '[]'::jsonb,
-    top_courses_pursued JSONB DEFAULT '[]'::jsonb,
-    scholarship_recipients INTEGER DEFAULT 0,
-    startups_founded INTEGER DEFAULT 0,
-    total_funding_raised VARCHAR(100),
-    jobs_created INTEGER DEFAULT 0,
-    avg_relevance_percentage NUMERIC(5,2),
-    program_satisfaction_avg NUMERIC(3,2),
-    would_recommend_percentage NUMERIC(5,2),
-    avg_days_to_placement INTEGER,
-    placement_before_graduation_count INTEGER DEFAULT 0,
-    alumni_engaged_count INTEGER DEFAULT 0,
-    mentors_available INTEGER DEFAULT 0,
-    guest_lecturers_available INTEGER DEFAULT 0,
-    potential_recruiters INTEGER DEFAULT 0,
-    industry_benchmark_employment_rate NUMERIC(5,2),
-    performance_vs_benchmark VARCHAR(50),
-    computed_at TIMESTAMPTZ DEFAULT NOW(),
-    computation_notes TEXT,
-    is_published BOOLEAN DEFAULT false,
-    published_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_program_cohort UNIQUE (program_id, cohort_year)
-);
-
--- facilitator_development: Staff professional evolution
-CREATE TABLE IF NOT EXISTS public.facilitator_development (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    staff_id UUID NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    current_stage development_stage NOT NULL DEFAULT 'novice',
-    stage_achieved_at TIMESTAMPTZ DEFAULT NOW(),
-    previous_stage development_stage,
-    stage_history JSONB DEFAULT '[]'::jsonb,
-    certifications JSONB DEFAULT '[]'::jsonb,
-    certification_count INTEGER GENERATED ALWAYS AS (jsonb_array_length(certifications)) STORED,
-    industry_immersions JSONB DEFAULT '[]'::jsonb,
-    total_industry_days INTEGER DEFAULT 0,
-    companies_worked_with TEXT[] DEFAULT '{}',
-    innovation_contributions JSONB DEFAULT '[]'::jsonb,
-    innovation_count INTEGER DEFAULT 0,
-    peer_learning_sessions_conducted INTEGER DEFAULT 0,
-    peer_learning_sessions_attended INTEGER DEFAULT 0,
-    peer_learning_topics TEXT[],
-    is_peer_learning_champion BOOLEAN DEFAULT false,
-    faculty_mentored_count INTEGER DEFAULT 0,
-    current_mentees UUID[] DEFAULT '{}',
-    mentoring_specializations TEXT[],
-    outcome_score NUMERIC(5,2) DEFAULT 0 CHECK (outcome_score >= 0 AND outcome_score <= 100),
-    outcome_score_components JSONB DEFAULT '{}'::jsonb,
-    students_mentored_count INTEGER DEFAULT 0,
-    mentee_placement_rate NUMERIC(5,2),
-    mentee_avg_package salary_range,
-    mentee_satisfaction_avg NUMERIC(3,2),
-    publications_count INTEGER DEFAULT 0,
-    patents_count INTEGER DEFAULT 0,
-    research_projects_count INTEGER DEFAULT 0,
-    industry_projects_guided INTEGER DEFAULT 0,
-    awards JSONB DEFAULT '[]'::jsonb,
-    speaking_engagements JSONB DEFAULT '[]'::jsonb,
-    media_features JSONB DEFAULT '[]'::jsonb,
-    development_goals JSONB DEFAULT '[]'::jsonb,
-    next_review_date DATE,
-    development_plan_url TEXT,
-    last_certification_date DATE,
-    last_immersion_date DATE,
-    last_innovation_date DATE,
-    last_peer_session_date DATE,
-    reviewed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    reviewed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_staff_development UNIQUE (staff_id)
-);
-
--- facilitator_industry_immersion: Industry experience records
-CREATE TABLE IF NOT EXISTS public.facilitator_industry_immersion (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    staff_id UUID NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
-    institution_id UUID NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
-    development_id UUID REFERENCES public.facilitator_development(id) ON DELETE SET NULL,
-    company_name VARCHAR(255) NOT NULL,
-    company_website VARCHAR(500),
-    industry_sector VARCHAR(255),
-    company_size VARCHAR(50),
-    partner_id UUID REFERENCES public.industry_partners(id) ON DELETE SET NULL,
-    immersion_type immersion_type NOT NULL,
-    role_title VARCHAR(255),
-    department VARCHAR(255),
-    reporting_to VARCHAR(255),
-    start_date DATE NOT NULL,
-    end_date DATE,
-    duration_days INTEGER,
-    is_ongoing BOOLEAN DEFAULT false,
-    hours_per_week INTEGER,
-    objectives TEXT,
-    key_responsibilities TEXT[],
-    projects_worked_on JSONB DEFAULT '[]'::jsonb,
-    learnings JSONB DEFAULT '{}'::jsonb,
-    key_takeaways TEXT[],
-    applied_in_teaching JSONB DEFAULT '[]'::jsonb,
-    curriculum_changes_proposed TEXT[],
-    new_courses_proposed TEXT[],
-    is_paid BOOLEAN DEFAULT false,
-    compensation_type VARCHAR(100),
-    compensation_amount NUMERIC(12,2),
-    certificate_url TEXT,
-    report_url TEXT,
-    presentation_url TEXT,
-    photos JSONB DEFAULT '[]'::jsonb,
-    company_feedback TEXT,
-    company_rating INTEGER CHECK (company_rating IS NULL OR (company_rating >= 1 AND company_rating <= 5)),
-    self_assessment TEXT,
-    self_rating INTEGER CHECK (self_rating IS NULL OR (self_rating >= 1 AND self_rating <= 5)),
-    is_relationship_ongoing BOOLEAN DEFAULT false,
-    future_collaboration_plans TEXT,
-    company_contact_name VARCHAR(255),
-    company_contact_email VARCHAR(255),
-    is_verified BOOLEAN DEFAULT false,
-    verified_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    verified_at TIMESTAMPTZ,
-    is_public BOOLEAN DEFAULT true,
-    is_featured BOOLEAN DEFAULT false,
-    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    approved_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Accountability module indexes
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_learner ON public.alumni_outcomes(learner_id);
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_institution ON public.alumni_outcomes(institution_id);
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_program ON public.alumni_outcomes(program_id) WHERE program_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_graduation_year ON public.alumni_outcomes(graduation_year);
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_outcome_type ON public.alumni_outcomes(outcome_type);
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_verification ON public.alumni_outcomes(verification_status);
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_employed ON public.alumni_outcomes(institution_id, outcome_type, salary_range) WHERE outcome_type IN ('employed', 'self_employed');
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_company ON public.alumni_outcomes(company_name) WHERE company_name IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_sector ON public.alumni_outcomes(industry_sector) WHERE industry_sector IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_alumni_outcomes_mentors ON public.alumni_outcomes(institution_id, is_willing_to_mentor) WHERE is_willing_to_mentor = true;
-
-CREATE INDEX IF NOT EXISTS idx_outcome_correlation_program ON public.outcome_program_correlation(program_id);
-CREATE INDEX IF NOT EXISTS idx_outcome_correlation_institution ON public.outcome_program_correlation(institution_id);
-CREATE INDEX IF NOT EXISTS idx_outcome_correlation_year ON public.outcome_program_correlation(cohort_year DESC);
-CREATE INDEX IF NOT EXISTS idx_outcome_correlation_published ON public.outcome_program_correlation(institution_id, is_published) WHERE is_published = true;
-CREATE INDEX IF NOT EXISTS idx_outcome_correlation_employment ON public.outcome_program_correlation(program_id, employment_rate DESC);
-
-CREATE INDEX IF NOT EXISTS idx_facilitator_dev_staff ON public.facilitator_development(staff_id);
-CREATE INDEX IF NOT EXISTS idx_facilitator_dev_institution ON public.facilitator_development(institution_id);
-CREATE INDEX IF NOT EXISTS idx_facilitator_dev_stage ON public.facilitator_development(current_stage);
-CREATE INDEX IF NOT EXISTS idx_facilitator_dev_score ON public.facilitator_development(institution_id, outcome_score DESC);
-CREATE INDEX IF NOT EXISTS idx_facilitator_dev_champions ON public.facilitator_development(institution_id, is_peer_learning_champion) WHERE is_peer_learning_champion = true;
-CREATE INDEX IF NOT EXISTS idx_facilitator_dev_certifications ON public.facilitator_development USING GIN(certifications);
-CREATE INDEX IF NOT EXISTS idx_facilitator_dev_review ON public.facilitator_development(next_review_date) WHERE next_review_date IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_staff ON public.facilitator_industry_immersion(staff_id);
-CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_institution ON public.facilitator_industry_immersion(institution_id);
-CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_company ON public.facilitator_industry_immersion(company_name);
-CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_type ON public.facilitator_industry_immersion(immersion_type);
-CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_dates ON public.facilitator_industry_immersion(start_date, end_date);
-CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_ongoing ON public.facilitator_industry_immersion(staff_id, is_ongoing) WHERE is_ongoing = true;
-CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_partner ON public.facilitator_industry_immersion(partner_id) WHERE partner_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_featured ON public.facilitator_industry_immersion(institution_id, is_featured) WHERE is_featured = true;
-CREATE INDEX IF NOT EXISTS idx_facilitator_immersion_learnings ON public.facilitator_industry_immersion USING GIN(learnings);
-
--- Enable RLS on accountability tables
-ALTER TABLE public.alumni_outcomes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.outcome_program_correlation ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.facilitator_development ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.facilitator_industry_immersion ENABLE ROW LEVEL SECURITY;
-
--- =====================================================
--- SECTION 16: SOLUTIONS HUB MODULE
--- Merged from JKKN-Solutions-Hub standalone project
--- Created: 2026-02-03
--- Purpose: Unified tracking for all solutions - software, training, content
--- Vision: "To be a Leading Global Innovative Solutions provider"
--- =====================================================
-
--- =====================================================
--- SOLUTIONS HUB ENUM TYPES
--- =====================================================
-
--- Solution type classification
-DO $$ BEGIN
-    CREATE TYPE sh_solution_type AS ENUM ('software', 'training', 'content');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Solution lifecycle status
-DO $$ BEGIN
-    CREATE TYPE sh_solution_status AS ENUM ('active', 'on_hold', 'completed', 'cancelled', 'in_amc');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Phase status (detailed workflow states)
-DO $$ BEGIN
-    CREATE TYPE sh_phase_status AS ENUM (
-        'prospecting',        -- Initial client engagement
-        'discovery',          -- Site visit and needs assessment
-        'prd_writing',        -- Requirements documentation
-        'prototype_building', -- Development phase
-        'client_demo',        -- Demo to client
-        'revisions',          -- Incorporating feedback
-        'approved',           -- Client sign-off
-        'deploying',          -- Production deployment
-        'training',           -- User training
-        'live',               -- In production use
-        'in_amc',             -- Annual maintenance contract
-        'completed',          -- Project finished
-        'on_hold',            -- Temporarily paused
-        'cancelled'           -- Project cancelled
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Client source tracking
-DO $$ BEGIN
-    CREATE TYPE sh_source_type AS ENUM (
-        'placement',   -- From placement cell
-        'alumni',      -- Alumni referral
-        'clinical',    -- Clinical/hospital connection
-        'referral',    -- External referral
-        'direct',      -- Direct approach
-        'yi',          -- Young Indians network
-        'intent'       -- Intent agency
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Partner discount status
-DO $$ BEGIN
-    CREATE TYPE sh_partner_status AS ENUM ('standard', 'yi', 'alumni', 'mou', 'referral');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Payment classifications
-DO $$ BEGIN
-    CREATE TYPE sh_payment_type AS ENUM (
-        'advance',        -- Upfront payment
-        'milestone',      -- Phase completion payment
-        'completion',     -- Final payment
-        'amc',            -- Annual maintenance
-        'mou_signing',    -- MOU signing amount
-        'deployment',     -- Deployment fee
-        'acceptance'      -- User acceptance payment
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Payment status tracking
-DO $$ BEGIN
-    CREATE TYPE sh_payment_status AS ENUM ('pending', 'processing', 'completed', 'failed', 'refunded');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Earnings recipient types
-DO $$ BEGIN
-    CREATE TYPE sh_recipient_type AS ENUM (
-        'builder',            -- Software builder
-        'cohort_member',      -- Training cohort member
-        'production_learner', -- Content production learner
-        'department',         -- Department share
-        'jicate',             -- JICATE facilitation
-        'institution',        -- Institutional share
-        'council',            -- Council share
-        'infrastructure',     -- Infrastructure fund
-        'referral_bonus'      -- Referral bonus
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Assignment/claim status
-DO $$ BEGIN
-    CREATE TYPE sh_assignment_status AS ENUM ('requested', 'approved', 'active', 'completed', 'withdrawn');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Bug severity levels
-DO $$ BEGIN
-    CREATE TYPE sh_bug_severity AS ENUM ('low', 'medium', 'high', 'critical');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Bug status tracking
-DO $$ BEGIN
-    CREATE TYPE sh_bug_status AS ENUM ('open', 'in_progress', 'resolved', 'closed', 'wont_fix');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Training program types
-DO $$ BEGIN
-    CREATE TYPE sh_program_type AS ENUM (
-        'workshop',           -- Single-day workshop
-        'bootcamp',           -- Intensive training
-        'certification',      -- Certification program
-        'custom',             -- Custom training
-        'faculty_development', -- FDP
-        'corporate',          -- Corporate training
-        'academic'            -- Academic program support
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Cohort member progression levels
-DO $$ BEGIN
-    CREATE TYPE sh_cohort_level AS ENUM ('observer', 'co_lead', 'lead', 'master');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Content order types
-DO $$ BEGIN
-    CREATE TYPE sh_content_type AS ENUM (
-        'video',
-        'graphic',
-        'document',
-        'presentation',
-        'animation',
-        'social_media',
-        'other'
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Content division classification
-DO $$ BEGIN
-    CREATE TYPE sh_content_division AS ENUM ('video', 'design', 'writing', 'animation', 'social', 'other');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Deliverable status tracking
-DO $$ BEGIN
-    CREATE TYPE sh_deliverable_status AS ENUM (
-        'pending',     -- Not started
-        'in_progress', -- Being worked on
-        'review',      -- Under review
-        'revision',    -- Needs revision
-        'approved',    -- Client approved
-        'delivered'    -- Delivered to client
-    );
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Skill proficiency levels
-DO $$ BEGIN
-    CREATE TYPE sh_skill_level AS ENUM ('beginner', 'intermediate', 'advanced', 'expert');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Communication types
-DO $$ BEGIN
-    CREATE TYPE sh_communication_type AS ENUM ('email', 'call', 'meeting', 'whatsapp', 'other');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Communication direction
-DO $$ BEGIN
-    CREATE TYPE sh_communication_direction AS ENUM ('inbound', 'outbound');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Publication types
-DO $$ BEGIN
-    CREATE TYPE sh_paper_type AS ENUM ('journal', 'conference', 'patent', 'book_chapter', 'case_study');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Journal indexing types
-DO $$ BEGIN
-    CREATE TYPE sh_journal_type AS ENUM ('scopus', 'wos', 'ugc', 'other');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Publication status
-DO $$ BEGIN
-    CREATE TYPE sh_publication_status AS ENUM ('draft', 'submitted', 'under_review', 'accepted', 'published', 'rejected');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- JICATE session outcome
-DO $$ BEGIN
-    CREATE TYPE sh_session_outcome AS ENUM ('successful', 'needs_followup', 'escalated', 'cancelled');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- MOU status
-DO $$ BEGIN
-    CREATE TYPE sh_mou_status AS ENUM ('draft', 'pending_signatures', 'active', 'expired', 'terminated');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Deployment environment
-DO $$ BEGIN
-    CREATE TYPE sh_deployment_env AS ENUM ('development', 'staging', 'production');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- Training session status
-DO $$ BEGIN
-    CREATE TYPE sh_session_status AS ENUM ('scheduled', 'in_progress', 'completed', 'cancelled', 'rescheduled');
-EXCEPTION
-    WHEN duplicate_object THEN null;
-END $$;
-
--- =====================================================
--- CLIENTS MODULE
--- External companies/organizations we serve
--- =====================================================
-
-CREATE TABLE IF NOT EXISTS public.sh_clients (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
-    company_code TEXT UNIQUE,  -- Auto-generated JKKN-CLI-YYYY-NNN
-    contact_person TEXT,
-    contact_email TEXT,
-    contact_phone TEXT,
-    address TEXT,
-    city TEXT,
-    state TEXT,
-    pincode TEXT,
-    country TEXT DEFAULT 'India',
-    gst_number TEXT,
-    pan_number TEXT,
-    source_type sh_source_type NOT NULL DEFAULT 'direct',
-    source_department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    partner_status sh_partner_status NOT NULL DEFAULT 'standard',
-    referral_count INTEGER DEFAULT 0,
-    intent_agency_id TEXT,  -- For Intent agency tracking
-    logo_url TEXT,
-    website TEXT,
-    linkedin_url TEXT,
-    industry_sector TEXT,
-    company_size TEXT,  -- startup, sme, enterprise, etc.
-    notes TEXT,
-    tags TEXT[],
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
--- Client referral tracking
-CREATE TABLE IF NOT EXISTS public.sh_client_referrals (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    client_id UUID NOT NULL REFERENCES public.sh_clients(id) ON DELETE CASCADE,
-    referring_dept_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    executing_dept_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    referral_type TEXT,  -- internal, alumni, yi, etc.
-    bonus_percentage NUMERIC(5,2) DEFAULT 5,
-    bonus_amount NUMERIC(12,2),
-    bonus_paid BOOLEAN DEFAULT false,
-    paid_at TIMESTAMPTZ,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- =====================================================
--- SOLUTIONS MODULE
--- Core work tracking for all solution types
--- =====================================================
-
-CREATE TABLE IF NOT EXISTS public.sh_solutions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    solution_code TEXT NOT NULL UNIQUE,  -- JKKN-SOL-YYYY-NNN (auto-generated)
-    solution_type sh_solution_type NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    client_id UUID REFERENCES public.sh_clients(id) ON DELETE CASCADE,
-    lead_department_id UUID NOT NULL REFERENCES public.departments(id) ON DELETE RESTRICT,
-    institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
-    status sh_solution_status NOT NULL DEFAULT 'active',
-    base_price NUMERIC(12,2),
-    final_price NUMERIC(12,2),
-    discount_percentage NUMERIC(5,2),
-    discount_reason TEXT,
-    currency TEXT DEFAULT 'INR',
-    start_date DATE,
-    target_date DATE,
-    completion_date DATE,
-    priority INTEGER DEFAULT 5 CHECK (priority >= 1 AND priority <= 10),
-    tags TEXT[],
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
--- Solution phases (workflow stages)
-CREATE TABLE IF NOT EXISTS public.sh_solution_phases (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    solution_id UUID NOT NULL REFERENCES public.sh_solutions(id) ON DELETE CASCADE,
-    phase_number INTEGER NOT NULL,
-    phase_code TEXT,  -- Optional phase reference code
-    title TEXT NOT NULL,
-    description TEXT,
-    status sh_phase_status NOT NULL DEFAULT 'prospecting',
-    owner_department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    owner_user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    estimated_value NUMERIC(12,2),
-    actual_value NUMERIC(12,2),
-    estimated_hours INTEGER,
-    actual_hours INTEGER,
-    start_date DATE,
-    due_date DATE,
-    completion_date DATE,
-    requirements_doc_url TEXT,
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(solution_id, phase_number)
-);
-
--- MOU/Agreement management
-CREATE TABLE IF NOT EXISTS public.sh_solution_mous (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    solution_id UUID NOT NULL REFERENCES public.sh_solutions(id) ON DELETE CASCADE,
-    mou_number TEXT UNIQUE,  -- JKKN-MOU-YYYY-NNN
-    deal_value NUMERIC(12,2) NOT NULL,
-    amc_value NUMERIC(12,2),
-    amc_start_date DATE,
-    amc_duration_months INTEGER DEFAULT 12,
-    payment_terms JSONB,  -- {advance: 30, milestone1: 30, completion: 40}
-    status sh_mou_status DEFAULT 'draft',
-    mou_document_url TEXT,
-    signed_date DATE,
-    expiry_date DATE,
-    signatory_client TEXT,
-    signatory_jkkn TEXT,
-    witness_1 TEXT,
-    witness_2 TEXT,
-    terms_and_conditions TEXT,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
--- =====================================================
--- BUILDERS MODULE (Software Talent)
--- Internal talent pool for software development
--- =====================================================
-
-CREATE TABLE IF NOT EXISTS public.sh_builders (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-    learner_id UUID REFERENCES public.learners_profiles(id) ON DELETE SET NULL,
-    staff_id UUID REFERENCES public.staff(id) ON DELETE SET NULL,
-    builder_code TEXT UNIQUE,  -- JKKN-BLD-YYYY-NNN
-    name TEXT NOT NULL,
-    email TEXT,
-    phone TEXT,
-    department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
-    trained_date DATE,
-    specialization TEXT,
-    bio TEXT,
-    portfolio_url TEXT,
-    github_url TEXT,
-    linkedin_url TEXT,
-    hourly_rate NUMERIC(8,2),
-    total_earnings NUMERIC(12,2) DEFAULT 0,
-    projects_completed INTEGER DEFAULT 0,
-    average_rating NUMERIC(3,2),
-    is_internal BOOLEAN DEFAULT true,  -- True for students/staff
-    is_active BOOLEAN DEFAULT true,
-    availability_status TEXT DEFAULT 'available',  -- available, busy, on_leave
-    tags TEXT[],
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Builder skill inventory
-CREATE TABLE IF NOT EXISTS public.sh_builder_skills (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    builder_id UUID NOT NULL REFERENCES public.sh_builders(id) ON DELETE CASCADE,
-    skill_name TEXT NOT NULL,
-    skill_category TEXT,  -- frontend, backend, database, devops, etc.
-    proficiency_level INTEGER CHECK (proficiency_level BETWEEN 1 AND 5),
-    years_experience NUMERIC(4,1),
-    certifications TEXT[],
-    assessed_date DATE,
-    assessed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(builder_id, skill_name)
-);
-
--- Builder phase assignments
-CREATE TABLE IF NOT EXISTS public.sh_builder_assignments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    phase_id UUID NOT NULL REFERENCES public.sh_solution_phases(id) ON DELETE CASCADE,
-    builder_id UUID NOT NULL REFERENCES public.sh_builders(id) ON DELETE CASCADE,
-    role TEXT NOT NULL DEFAULT 'contributor',  -- lead, contributor, reviewer
-    status sh_assignment_status NOT NULL DEFAULT 'requested',
-    estimated_hours INTEGER,
-    actual_hours INTEGER,
-    hourly_rate NUMERIC(8,2),
-    total_earnings NUMERIC(10,2),
-    requested_at TIMESTAMPTZ DEFAULT NOW(),
-    approved_at TIMESTAMPTZ,
-    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    rating INTEGER CHECK (rating IS NULL OR (rating >= 1 AND rating <= 5)),
-    feedback TEXT,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(phase_id, builder_id)
-);
-
--- Prototype iterations (for client demos/feedback)
-CREATE TABLE IF NOT EXISTS public.sh_prototype_iterations (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    phase_id UUID NOT NULL REFERENCES public.sh_solution_phases(id) ON DELETE CASCADE,
-    iteration_number INTEGER NOT NULL,
-    version TEXT,  -- v1.0, v1.1, etc.
-    prototype_url TEXT,
-    demo_video_url TEXT,
-    screenshots TEXT[],
-    client_approved BOOLEAN DEFAULT false,
-    approved_at TIMESTAMPTZ,
-    approved_by TEXT,  -- Client contact name
-    changes_requested TEXT,
-    changes_made TEXT,
-    feedback TEXT,
-    demo_date DATE,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    UNIQUE(phase_id, iteration_number)
-);
-
--- Bug reports for prototypes
-CREATE TABLE IF NOT EXISTS public.sh_bug_reports (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    iteration_id UUID NOT NULL REFERENCES public.sh_prototype_iterations(id) ON DELETE CASCADE,
-    phase_id UUID REFERENCES public.sh_solution_phases(id) ON DELETE SET NULL,
-    bug_code TEXT UNIQUE,  -- JKKN-BUG-YYYY-NNNNN
-    title TEXT NOT NULL,
-    description TEXT,
-    steps_to_reproduce TEXT,
-    expected_behavior TEXT,
-    actual_behavior TEXT,
-    severity sh_bug_severity NOT NULL DEFAULT 'medium',
-    status sh_bug_status NOT NULL DEFAULT 'open',
-    browser TEXT,
-    device TEXT,
-    screenshot_urls TEXT[],
-    video_url TEXT,
-    resolution_notes TEXT,
-    assigned_to UUID REFERENCES public.sh_builders(id) ON DELETE SET NULL,
-    reported_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    reporter_type TEXT,  -- client, internal, tester
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    resolved_at TIMESTAMPTZ,
-    closed_at TIMESTAMPTZ
-);
-
--- Deployment tracking
-CREATE TABLE IF NOT EXISTS public.sh_phase_deployments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    phase_id UUID NOT NULL REFERENCES public.sh_solution_phases(id) ON DELETE CASCADE,
-    environment sh_deployment_env NOT NULL,
-    deployment_number INTEGER DEFAULT 1,
-    vercel_url TEXT,
-    vercel_project_id TEXT,
-    supabase_project_id TEXT,
-    railway_project_id TEXT,
-    custom_domain TEXT,
-    ssl_enabled BOOLEAN DEFAULT true,
-    status TEXT NOT NULL DEFAULT 'pending',  -- pending, deploying, live, failed, rolled_back
-    deployed_at TIMESTAMPTZ,
-    deployed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    rollback_at TIMESTAMPTZ,
-    rollback_reason TEXT,
-    health_check_url TEXT,
-    monitoring_url TEXT,
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- End-user tracking (client's users)
-CREATE TABLE IF NOT EXISTS public.sh_implementation_users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    phase_id UUID NOT NULL REFERENCES public.sh_solution_phases(id) ON DELETE CASCADE,
-    solution_id UUID REFERENCES public.sh_solutions(id) ON DELETE CASCADE,
-    user_name TEXT NOT NULL,
-    user_email TEXT,
-    user_phone TEXT,
-    user_role TEXT,  -- admin, manager, staff, etc.
-    department TEXT,
-    trained_date DATE,
-    trained_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    training_completed BOOLEAN DEFAULT false,
-    usage_status TEXT DEFAULT 'pending',  -- pending, active, inactive, blocked
-    last_login_at TIMESTAMPTZ,
-    login_count INTEGER DEFAULT 0,
-    feedback TEXT,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- =====================================================
--- TRAINING MODULE
--- Training programs and cohort management
--- =====================================================
-
-CREATE TABLE IF NOT EXISTS public.sh_training_programs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    solution_id UUID NOT NULL REFERENCES public.sh_solutions(id) ON DELETE CASCADE,
-    program_code TEXT UNIQUE,  -- JKKN-TRN-YYYY-NNN
-    title TEXT NOT NULL,
-    program_type sh_program_type NOT NULL,
-    track TEXT,  -- Track A (internal), Track B (external), etc.
-    description TEXT,
-    objectives TEXT[],
-    prerequisites TEXT[],
-    participant_count INTEGER,
-    max_participants INTEGER,
-    location_preference TEXT,  -- on_site, virtual, hybrid
-    venue TEXT,
-    start_date DATE,
-    end_date DATE,
-    total_hours INTEGER,
-    total_sessions INTEGER,
-    price_per_participant NUMERIC(10,2),
-    total_price NUMERIC(12,2),
-    materials_included BOOLEAN DEFAULT true,
-    certification_included BOOLEAN DEFAULT true,
-    status TEXT DEFAULT 'planned',  -- planned, confirmed, in_progress, completed, cancelled
-    tags TEXT[],
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
--- Individual training sessions
-CREATE TABLE IF NOT EXISTS public.sh_training_sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    program_id UUID NOT NULL REFERENCES public.sh_training_programs(id) ON DELETE CASCADE,
-    session_number INTEGER NOT NULL,
-    title TEXT,
-    description TEXT,
-    topics TEXT[],
-    session_date DATE,
-    start_time TIME,
-    end_time TIME,
-    duration_minutes INTEGER,
-    location TEXT,
-    room TEXT,
-    is_virtual BOOLEAN DEFAULT false,
-    meeting_url TEXT,
-    status sh_session_status DEFAULT 'scheduled',
-    google_calendar_event_id TEXT,
-    microsoft_calendar_event_id TEXT,
-    attendance_count INTEGER,
-    max_attendance INTEGER,
-    materials_url TEXT,
-    recording_url TEXT,
-    feedback_form_url TEXT,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(program_id, session_number)
-);
-
--- Cohort members (internal trainers/facilitators)
-CREATE TABLE IF NOT EXISTS public.sh_cohort_members (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-    learner_id UUID REFERENCES public.learners_profiles(id) ON DELETE SET NULL,
-    staff_id UUID REFERENCES public.staff(id) ON DELETE SET NULL,
-    cohort_code TEXT UNIQUE,  -- JKKN-COH-YYYY-NNN
-    name TEXT NOT NULL,
-    email TEXT,
-    phone TEXT,
-    department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
-    level sh_cohort_level DEFAULT 'observer',
-    track TEXT,  -- Track specialty
-    specializations TEXT[],
-    bio TEXT,
-    photo_url TEXT,
-    linkedin_url TEXT,
-    sessions_observed INTEGER DEFAULT 0,
-    sessions_co_led INTEGER DEFAULT 0,
-    sessions_led INTEGER DEFAULT 0,
-    sessions_master INTEGER DEFAULT 0,
-    total_hours_trained INTEGER DEFAULT 0,
-    total_participants_trained INTEGER DEFAULT 0,
-    total_earnings NUMERIC(12,2) DEFAULT 0,
-    average_rating NUMERIC(3,2),
-    certifications TEXT[],
-    is_active BOOLEAN DEFAULT true,
-    availability_status TEXT DEFAULT 'available',
-    tags TEXT[],
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Cohort session assignments
-CREATE TABLE IF NOT EXISTS public.sh_cohort_assignments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id UUID NOT NULL REFERENCES public.sh_training_sessions(id) ON DELETE CASCADE,
-    cohort_member_id UUID NOT NULL REFERENCES public.sh_cohort_members(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,  -- observer, co_lead, lead, master, support
-    status sh_assignment_status DEFAULT 'requested',
-    earnings NUMERIC(10,2),
-    hours_worked NUMERIC(6,2),
-    rating INTEGER CHECK (rating IS NULL OR (rating >= 1 AND rating <= 5)),
-    feedback_from_participants TEXT,
-    self_reflection TEXT,
-    mentor_feedback TEXT,
-    areas_of_improvement TEXT[],
-    requested_at TIMESTAMPTZ DEFAULT NOW(),
-    approved_at TIMESTAMPTZ,
-    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(session_id, cohort_member_id)
-);
-
--- =====================================================
--- CONTENT MODULE
--- Content production tracking
--- =====================================================
-
-CREATE TABLE IF NOT EXISTS public.sh_content_orders (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    solution_id UUID NOT NULL REFERENCES public.sh_solutions(id) ON DELETE CASCADE,
-    order_code TEXT UNIQUE,  -- JKKN-CNT-YYYY-NNN
-    title TEXT NOT NULL,
-    order_type sh_content_type NOT NULL,
-    division sh_content_division NOT NULL,
-    description TEXT,
-    requirements TEXT,
-    brand_guidelines_url TEXT,
-    reference_files TEXT[],
-    quantity INTEGER DEFAULT 1,
-    duration_minutes INTEGER,  -- For video content
-    dimensions TEXT,  -- For graphics
-    format TEXT,  -- mp4, pdf, png, etc.
-    revision_rounds INTEGER DEFAULT 2,
-    revisions_used INTEGER DEFAULT 0,
-    due_date DATE,
-    priority INTEGER DEFAULT 5 CHECK (priority >= 1 AND priority <= 10),
-    estimated_hours INTEGER,
-    actual_hours INTEGER,
-    price NUMERIC(10,2),
-    status TEXT DEFAULT 'pending',  -- pending, assigned, in_progress, review, completed, cancelled
-    tags TEXT[],
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
-);
-
--- Individual deliverables
-CREATE TABLE IF NOT EXISTS public.sh_content_deliverables (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_id UUID NOT NULL REFERENCES public.sh_content_orders(id) ON DELETE CASCADE,
-    deliverable_number INTEGER DEFAULT 1,
-    title TEXT NOT NULL,
-    description TEXT,
-    file_url TEXT,
-    preview_url TEXT,
-    thumbnail_url TEXT,
-    file_size_kb INTEGER,
-    file_format TEXT,
-    duration_seconds INTEGER,
-    status sh_deliverable_status DEFAULT 'pending',
-    revision_count INTEGER DEFAULT 0,
-    current_revision_notes TEXT,
-    client_feedback TEXT,
-    approved_at TIMESTAMPTZ,
-    approved_by TEXT,  -- Client contact
-    delivered_at TIMESTAMPTZ,
-    delivery_method TEXT,  -- download, drive, email, etc.
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Production learners (content creators)
-CREATE TABLE IF NOT EXISTS public.sh_production_learners (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
-    learner_id UUID REFERENCES public.learners_profiles(id) ON DELETE SET NULL,
-    staff_id UUID REFERENCES public.staff(id) ON DELETE SET NULL,
-    learner_code TEXT UNIQUE,  -- JKKN-PRD-YYYY-NNN
-    name TEXT NOT NULL,
-    email TEXT,
-    phone TEXT,
-    department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
-    division sh_content_division NOT NULL,
-    skill_level sh_skill_level DEFAULT 'beginner',
-    specializations TEXT[],
-    software_tools TEXT[],  -- Photoshop, Premiere, etc.
-    bio TEXT,
-    portfolio_url TEXT,
-    behance_url TEXT,
-    dribbble_url TEXT,
-    orders_completed INTEGER DEFAULT 0,
-    total_deliverables INTEGER DEFAULT 0,
-    total_earnings NUMERIC(12,2) DEFAULT 0,
-    average_rating NUMERIC(3,2),
-    is_active BOOLEAN DEFAULT true,
-    availability_status TEXT DEFAULT 'available',
-    tags TEXT[],
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Production assignments
-CREATE TABLE IF NOT EXISTS public.sh_production_assignments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    deliverable_id UUID NOT NULL REFERENCES public.sh_content_deliverables(id) ON DELETE CASCADE,
-    learner_id UUID NOT NULL REFERENCES public.sh_production_learners(id) ON DELETE CASCADE,
-    role TEXT DEFAULT 'creator',  -- creator, reviewer, lead, editor
-    status sh_assignment_status DEFAULT 'requested',
-    estimated_hours INTEGER,
-    actual_hours INTEGER,
-    earnings NUMERIC(10,2),
-    quality_rating INTEGER CHECK (quality_rating IS NULL OR (quality_rating >= 1 AND quality_rating <= 5)),
-    timeliness_rating INTEGER CHECK (timeliness_rating IS NULL OR (timeliness_rating >= 1 AND timeliness_rating <= 5)),
-    feedback TEXT,
-    requested_at TIMESTAMPTZ DEFAULT NOW(),
-    approved_at TIMESTAMPTZ,
-    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    started_at TIMESTAMPTZ,
+    request_number VARCHAR(20) NOT NULL UNIQUE,
+    service_type_id UUID NOT NULL REFERENCES service_types(id),
+    requester_id UUID NOT NULL REFERENCES profiles(id),
+    institution_id UUID REFERENCES institutions(id),
+    status service_request_status NOT NULL DEFAULT 'draft',
+    priority service_request_priority DEFAULT 'normal',
+    current_approval_step INTEGER DEFAULT 0,
+    form_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    requester_context JSONB DEFAULT '{}'::jsonb,
     submitted_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    notes TEXT,
+    approved_at TIMESTAMPTZ,
+    fulfilled_at TIMESTAMPTZ,
+    closed_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    validity_expires_at TIMESTAMPTZ,
+    cancellation_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(deliverable_id, learner_id)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by UUID REFERENCES profiles(id),
+    updated_by UUID REFERENCES profiles(id)
 );
 
--- =====================================================
--- DISCOVERY & COMMUNICATIONS MODULE
--- Client engagement tracking
--- =====================================================
+CREATE INDEX idx_service_requests_number ON service_requests(request_number);
+CREATE INDEX idx_service_requests_type_id ON service_requests(service_type_id);
+CREATE INDEX idx_service_requests_requester ON service_requests(requester_id);
+CREATE INDEX idx_service_requests_institution ON service_requests(institution_id);
+CREATE INDEX idx_service_requests_status ON service_requests(status);
+CREATE INDEX idx_service_requests_priority ON service_requests(priority);
+CREATE INDEX idx_service_requests_submitted_at ON service_requests(submitted_at DESC);
+CREATE INDEX idx_service_requests_created_at ON service_requests(created_at DESC);
+CREATE INDEX idx_service_requests_requester_type ON service_requests(requester_id, service_type_id);
+CREATE INDEX idx_service_requests_status_type ON service_requests(status, service_type_id);
+CREATE INDEX idx_service_requests_institution_status ON service_requests(institution_id, status);
+CREATE INDEX idx_service_requests_active ON service_requests(requester_id, service_type_id)
+    WHERE status NOT IN ('closed', 'cancelled', 'rejected');
 
-CREATE TABLE IF NOT EXISTS public.sh_discovery_visits (
+-- Service Request Approvals
+CREATE TABLE service_request_approvals (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    client_id UUID NOT NULL REFERENCES public.sh_clients(id) ON DELETE CASCADE,
-    solution_id UUID REFERENCES public.sh_solutions(id) ON DELETE SET NULL,
-    department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    visit_code TEXT UNIQUE,  -- JKKN-VIS-YYYY-NNN
-    visit_date DATE NOT NULL,
-    visit_time TIME,
-    duration_hours NUMERIC(4,2),
-    location TEXT,
-    visit_type TEXT,  -- initial, followup, demo, training, support
-    visitors JSONB DEFAULT '[]'::jsonb,  -- [{name, role, email}]
-    client_attendees JSONB DEFAULT '[]'::jsonb,
-    observations TEXT,
-    current_systems TEXT,
-    pain_points TEXT,
-    opportunities TEXT,
-    competitor_info TEXT,
-    budget_indication TEXT,
-    timeline_indication TEXT,
-    decision_makers TEXT[],
-    photos_urls TEXT[],
-    document_urls TEXT[],
-    follow_up_required BOOLEAN DEFAULT false,
-    follow_up_date DATE,
-    follow_up_notes TEXT,
-    outcome TEXT,  -- positive, neutral, negative, proposal_requested
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+    service_request_id UUID NOT NULL REFERENCES service_requests(id) ON DELETE CASCADE,
+    approval_step_id UUID REFERENCES service_request_approval_steps(id),
+    step_order INTEGER NOT NULL,
+    approver_id UUID NOT NULL REFERENCES profiles(id),
+    action service_approval_action NOT NULL DEFAULT 'pending',
+    comments TEXT,
+    acted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Communication log
-CREATE TABLE IF NOT EXISTS public.sh_client_communications (
+CREATE INDEX idx_sr_approvals_request ON service_request_approvals(service_request_id);
+CREATE INDEX idx_sr_approvals_approver ON service_request_approvals(approver_id);
+CREATE INDEX idx_sr_approvals_action ON service_request_approvals(action);
+CREATE INDEX idx_sr_approvals_pending ON service_request_approvals(approver_id, action)
+    WHERE action = 'pending';
+
+-- Service Request Timeline
+CREATE TABLE service_request_timeline (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    client_id UUID NOT NULL REFERENCES public.sh_clients(id) ON DELETE CASCADE,
-    solution_id UUID REFERENCES public.sh_solutions(id) ON DELETE SET NULL,
-    phase_id UUID REFERENCES public.sh_solution_phases(id) ON DELETE SET NULL,
-    communication_type sh_communication_type NOT NULL,
-    source TEXT DEFAULT 'manual',  -- manual, gmail_sync, whatsapp_sync, calendar
-    direction sh_communication_direction NOT NULL,
-    subject TEXT,
+    service_request_id UUID NOT NULL REFERENCES service_requests(id) ON DELETE CASCADE,
+    actor_id UUID REFERENCES profiles(id),
+    event_type service_timeline_event_type NOT NULL,
+    old_status service_request_status,
+    new_status service_request_status,
     content TEXT,
-    summary TEXT,
-    participants TEXT[],
-    attachments TEXT[],
-    communication_date TIMESTAMPTZ DEFAULT NOW(),
-    duration_minutes INTEGER,
-    outcome TEXT,
-    follow_up_required BOOLEAN DEFAULT false,
-    follow_up_date DATE,
-    tags TEXT[],
-    external_id TEXT,  -- Gmail/WhatsApp message ID
+    is_internal BOOLEAN NOT NULL DEFAULT false,
     metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_sr_timeline_request ON service_request_timeline(service_request_id);
+CREATE INDEX idx_sr_timeline_created ON service_request_timeline(service_request_id, created_at DESC);
+CREATE INDEX idx_sr_timeline_internal ON service_request_timeline(service_request_id, is_internal);
+
+-- Service Request Attachments
+CREATE TABLE service_request_attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    service_request_id UUID NOT NULL REFERENCES service_requests(id) ON DELETE CASCADE,
+    file_name VARCHAR(255) NOT NULL,
+    file_url TEXT NOT NULL,
+    file_size INTEGER,
+    file_type VARCHAR(50),
+    uploaded_by UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_sr_attachments_request ON service_request_attachments(service_request_id);
+
+-- Enable RLS on all service request tables
+ALTER TABLE service_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_type_fields ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_request_approval_steps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_request_approvals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_request_timeline ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_request_attachments ENABLE ROW LEVEL SECURITY;
+
 -- =====================================================
--- FINANCIALS MODULE
--- Revenue tracking and distribution
+-- SECTION: STARTUP STUDIO MODULE
+-- Created: 2026-03-05 - Startup Studio events platform
+-- Purpose: Generic event platform for hackathons, competitions, buildathons
 -- =====================================================
 
--- Revenue split models
-CREATE TABLE IF NOT EXISTS public.sh_revenue_split_models (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    solution_type sh_solution_type NOT NULL,
+-- Startup Events (generic, reusable across future events)
+CREATE TABLE IF NOT EXISTS public.startup_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
     description TEXT,
-    split_config JSONB NOT NULL,  -- {builder: 40, department: 30, jicate: 15, institution: 15}
-    is_default BOOLEAN DEFAULT false,
-    effective_from DATE,
-    effective_to DATE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    UNIQUE(solution_type, name)
+    host_institution_id UUID REFERENCES institutions(id),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','registration_open','registration_closed','build_day','demo_day','closed')),
+    start_date TIMESTAMPTZ,
+    end_date TIMESTAMPTZ,
+    demo_date TIMESTAMPTZ,
+    registration_deadline TIMESTAMPTZ,
+    submission_deadline TIMESTAMPTZ,
+    metrics_deadline TIMESTAMPTZ,
+    is_results_published BOOLEAN DEFAULT false,
+    metrics_frozen_at TIMESTAMPTZ,          -- When admin froze team metrics (added 2026-03-08)
+    results_published_at TIMESTAMPTZ,       -- When results were published (added 2026-03-08)
+    config JSONB DEFAULT '{}'::jsonb,
+    created_by UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Payment records
-CREATE TABLE IF NOT EXISTS public.sh_payments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    payment_code TEXT UNIQUE,  -- JKKN-PAY-YYYY-NNNNN
-    solution_id UUID REFERENCES public.sh_solutions(id) ON DELETE SET NULL,
-    phase_id UUID REFERENCES public.sh_solution_phases(id) ON DELETE SET NULL,
-    order_id UUID REFERENCES public.sh_content_orders(id) ON DELETE SET NULL,
-    program_id UUID REFERENCES public.sh_training_programs(id) ON DELETE SET NULL,
-    mou_id UUID REFERENCES public.sh_solution_mous(id) ON DELETE SET NULL,
-    client_id UUID REFERENCES public.sh_clients(id) ON DELETE SET NULL,
-    amount NUMERIC(12,2) NOT NULL,
-    currency TEXT DEFAULT 'INR',
-    payment_type sh_payment_type NOT NULL,
-    status sh_payment_status NOT NULL DEFAULT 'pending',
-    payment_date DATE,
-    due_date DATE,
-    payment_method TEXT,  -- bank_transfer, upi, cheque, cash, online
-    reference_number TEXT,
-    invoice_number TEXT,
-    invoice_url TEXT,
-    receipt_url TEXT,
-    split_model_id UUID REFERENCES public.sh_revenue_split_models(id) ON DELETE SET NULL,
-    split_processed BOOLEAN DEFAULT false,
-    split_processed_at TIMESTAMPTZ,
-    gst_amount NUMERIC(10,2),
-    tds_amount NUMERIC(10,2),
-    net_amount NUMERIC(12,2),
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+-- Event Registrations (team registrations)
+CREATE TABLE IF NOT EXISTS public.event_registrations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    team_name TEXT NOT NULL,
+    problem_idea TEXT, -- nullable: optional field in registration form (updated 2026-03-07)
+    owner_id UUID NOT NULL REFERENCES profiles(id),
+    institution_id UUID NOT NULL REFERENCES institutions(id),
+    checked_in BOOLEAN DEFAULT false,
+    checked_in_at TIMESTAMPTZ,
+    checked_in_by UUID REFERENCES profiles(id),
+    status TEXT NOT NULL DEFAULT 'registered' CHECK (status IN ('registered','checked_in','disqualified')),
+    team_code           TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(event_id, owner_id)
 );
 
--- Earnings ledger (distributed earnings)
-CREATE TABLE IF NOT EXISTS public.sh_earnings_ledger (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    ledger_code TEXT UNIQUE,  -- JKKN-ERN-YYYY-NNNNN
-    payment_id UUID NOT NULL REFERENCES public.sh_payments(id) ON DELETE CASCADE,
-    recipient_type sh_recipient_type NOT NULL,
-    recipient_id UUID,  -- References builder, cohort_member, production_learner, or NULL for department/institution
-    builder_id UUID REFERENCES public.sh_builders(id) ON DELETE SET NULL,
-    cohort_member_id UUID REFERENCES public.sh_cohort_members(id) ON DELETE SET NULL,
-    production_learner_id UUID REFERENCES public.sh_production_learners(id) ON DELETE SET NULL,
-    department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
-    amount NUMERIC(12,2) NOT NULL,
-    percentage NUMERIC(5,2),
-    status TEXT DEFAULT 'pending',  -- pending, approved, processed, paid, cancelled
-    approved_at TIMESTAMPTZ,
-    approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    processed_at TIMESTAMPTZ,
-    paid_at TIMESTAMPTZ,
-    payment_reference TEXT,
-    bank_account TEXT,  -- Last 4 digits for reference
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- Event Team Members (instant add, no confirmation)
+CREATE TABLE IF NOT EXISTS public.event_team_members (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    registration_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+    profile_id UUID REFERENCES profiles(id),
+    email TEXT NOT NULL,
+    full_name TEXT,
+    student_id TEXT,
+    has_laptop BOOLEAN DEFAULT false,
+    added_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    learner_id          UUID REFERENCES learners_profiles(id) ON DELETE SET NULL,
+    status              TEXT NOT NULL DEFAULT 'accepted' CHECK (status IN ('pending', 'accepted', 'declined', 'removed')),
+    is_leader           BOOLEAN NOT NULL DEFAULT false,
+    responded_at        TIMESTAMPTZ,
+    UNIQUE(registration_id, email)
 );
 
--- =====================================================
--- ACCREDITATION & PUBLICATIONS MODULE
--- Academic output tracking for NIRF/NAAC
--- =====================================================
-
-CREATE TABLE IF NOT EXISTS public.sh_publications (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    publication_code TEXT UNIQUE,  -- JKKN-PUB-YYYY-NNN
-    solution_id UUID REFERENCES public.sh_solutions(id) ON DELETE SET NULL,
-    phase_id UUID REFERENCES public.sh_solution_phases(id) ON DELETE SET NULL,
-    institution_id UUID REFERENCES public.institutions(id) ON DELETE SET NULL,
-    department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    paper_type sh_paper_type NOT NULL,
-    title TEXT NOT NULL,
-    abstract TEXT,
-    authors TEXT[] NOT NULL,
-    keywords TEXT[],
-    journal_name TEXT,
-    conference_name TEXT,
-    conference_location TEXT,
-    conference_date DATE,
-    journal_type sh_journal_type,
-    issn TEXT,
-    isbn TEXT,
-    volume TEXT,
-    issue TEXT,
-    page_numbers TEXT,
-    publisher TEXT,
-    status sh_publication_status DEFAULT 'draft',
-    submission_date DATE,
-    acceptance_date DATE,
-    publication_date DATE,
-    doi TEXT,
-    url TEXT,
-    pdf_url TEXT,
-    impact_factor NUMERIC(6,3),
-    citation_count INTEGER DEFAULT 0,
-    h_index_contribution INTEGER,
-    nirf_category TEXT,  -- Research & Professional Practice
-    naac_criterion TEXT,  -- Criterion 3: Research, etc.
-    scopus_indexed BOOLEAN DEFAULT false,
-    wos_indexed BOOLEAN DEFAULT false,
-    ugc_listed BOOLEAN DEFAULT false,
-    peer_reviewed BOOLEAN DEFAULT true,
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+-- Event Venue Assignments (link events to rooms/labs)
+CREATE TABLE IF NOT EXISTS public.event_venue_assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    resource_id UUID REFERENCES resources(id),
+    manual_name TEXT,
+    manual_building TEXT,
+    manual_room TEXT,
+    capacity_override INT,
+    day_type TEXT NOT NULL CHECK (day_type IN ('build_day','demo_day')),
+    institution_id UUID NOT NULL REFERENCES institutions(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Publication contributor tracking
-CREATE TABLE IF NOT EXISTS public.sh_publication_contributors (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    publication_id UUID NOT NULL REFERENCES public.sh_publications(id) ON DELETE CASCADE,
-    builder_id UUID REFERENCES public.sh_builders(id) ON DELETE SET NULL,
-    cohort_member_id UUID REFERENCES public.sh_cohort_members(id) ON DELETE SET NULL,
-    learner_id UUID REFERENCES public.sh_production_learners(id) ON DELETE SET NULL,
-    staff_id UUID REFERENCES public.staff(id) ON DELETE SET NULL,
-    external_author_name TEXT,
-    external_author_affiliation TEXT,
-    author_order INTEGER,
-    is_corresponding BOOLEAN DEFAULT false,
-    credit_type TEXT DEFAULT 'coauthor',  -- first_author, coauthor, corresponding, acknowledgment
-    contribution_description TEXT,
-    orcid TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- Event Team Venue Allocations (team-to-venue mapping)
+CREATE TABLE IF NOT EXISTS public.event_team_venue_allocations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    registration_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+    venue_assignment_id UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
+    day_type TEXT NOT NULL CHECK (day_type IN ('build_day','demo_day')),
+    allocated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    allocated_by UUID REFERENCES profiles(id),
+    UNIQUE(event_id, registration_id, day_type)
 );
 
--- Accreditation metrics reference
-CREATE TABLE IF NOT EXISTS public.sh_accreditation_metrics (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    metric_type TEXT NOT NULL,  -- nirf, naac, nba, abet
-    metric_code TEXT NOT NULL,
-    metric_name TEXT NOT NULL,
+-- Event Staff Assignments (mentors/judges at venues)
+CREATE TABLE IF NOT EXISTS public.event_staff_assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    venue_assignment_id UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
+    staff_id UUID NOT NULL REFERENCES staff(id),
+    role TEXT NOT NULL CHECK (role IN ('mentor','lead_mentor','judge','panel_chair','evaluator')),
+    day_type TEXT NOT NULL CHECK (day_type IN ('build_day','demo_day')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(event_id, staff_id, venue_assignment_id, day_type)
+);
+
+-- Event Demo Slots (presentation schedule)
+CREATE TABLE IF NOT EXISTS public.event_demo_slots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    venue_assignment_id UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
+    registration_id UUID REFERENCES event_registrations(id) ON DELETE CASCADE,
+    start_time TIMESTAMPTZ,
+    duration_minutes INT DEFAULT 5,
+    room_label TEXT,
+    slot_order INT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Event Submissions (two-phase deadline)
+CREATE TABLE IF NOT EXISTS public.event_submissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    registration_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+    UNIQUE(event_id, registration_id),
+
+    -- Phase 1 fields: locked at submission_deadline
+    app_name TEXT,
+    github_url TEXT,
+    live_app_url TEXT,
+    description TEXT,
     category TEXT,
-    max_score NUMERIC(5,2),
-    weightage NUMERIC(5,2),
-    calculation_method TEXT,
-    data_sources TEXT[],
-    verification_requirements TEXT,
-    is_active BOOLEAN DEFAULT true,
-    valid_from DATE,
-    valid_to DATE,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(metric_type, metric_code)
+
+    -- Phase 2 fields: locked at metrics_deadline
+    -- Updated: 2026-03-08 - Added active_users_count for Demo Day tier verification
+    mrr_amount DECIMAL(10,2) DEFAULT 0,
+    paying_users_count INT DEFAULT 0,
+    user_count INT DEFAULT 0,
+    active_users_count INT DEFAULT 0,         -- Active users (separate from total signups; added 2026-03-08)
+    proof_urls TEXT[] DEFAULT '{}',
+
+    -- Verification (batch - only Level 4/5 teams)
+    mrr_verified BOOLEAN DEFAULT false,
+    mrr_verified_at TIMESTAMPTZ,
+    mrr_verified_by UUID REFERENCES profiles(id),
+    mrr_rejected_reason TEXT,
+
+    -- Denormalized scoring
+    tier_level INT DEFAULT 0,
+    tier_points INT DEFAULT 0,
+    mrr_bonus_points INT DEFAULT 0,
+    total_score INT DEFAULT 0,
+
+    submitted_at TIMESTAMPTZ,
+    submitted_by UUID REFERENCES profiles(id),
+    metrics_updated_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- =====================================================
--- JICATE & SYSTEM MODULE
--- Facilitation tracking and system notifications
--- =====================================================
-
--- JICATE facilitation sessions
-CREATE TABLE IF NOT EXISTS public.sh_jicate_sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_code TEXT UNIQUE,  -- JKKN-JIC-YYYY-NNN
-    solution_id UUID REFERENCES public.sh_solutions(id) ON DELETE SET NULL,
-    phase_id UUID REFERENCES public.sh_solution_phases(id) ON DELETE SET NULL,
-    client_id UUID REFERENCES public.sh_clients(id) ON DELETE SET NULL,
-    session_type TEXT,  -- client_meeting, internal_review, demo, training
-    session_date DATE NOT NULL,
-    session_time TIME,
-    duration_minutes INTEGER,
-    booked_by_dept_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-    booked_by_user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    attendees JSONB DEFAULT '[]'::jsonb,  -- [{name, role, email, department}]
-    jicate_facilitator TEXT,
-    jicate_facilitator_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    agenda TEXT,
-    materials_url TEXT,
-    presentation_url TEXT,
-    outcome sh_session_outcome,
-    outcome_notes TEXT,
-    action_items JSONB DEFAULT '[]'::jsonb,  -- [{item, assignee, due_date, status}]
-    next_session_date DATE,
-    google_meet_url TEXT,
-    recording_url TEXT,
-    notes TEXT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Solutions Hub notifications
-CREATE TABLE IF NOT EXISTS public.sh_notifications (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    notification_type TEXT NOT NULL,
-    category TEXT,  -- assignment, payment, deadline, approval, system
+-- Event Checklists (multi-role)
+CREATE TABLE IF NOT EXISTS public.event_checklists (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
-    message TEXT,
-    priority TEXT DEFAULT 'normal',  -- low, normal, high, urgent
-    is_read BOOLEAN DEFAULT false,
-    read_at TIMESTAMPTZ,
-    action_url TEXT,
-    action_label TEXT,
-    related_entity_type TEXT,  -- solution, phase, payment, etc.
-    related_entity_id UUID,
-    metadata JSONB DEFAULT '{}'::jsonb,
-    expires_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    phase TEXT NOT NULL CHECK (phase IN ('pre_event','on_day','build_day','demo_day','post_event')),
+    target_role TEXT NOT NULL CHECK (target_role IN ('admin','mentor','team')),
+    order_index INT DEFAULT 0
 );
 
--- Comprehensive audit log
-CREATE TABLE IF NOT EXISTS public.sh_audit_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    user_email TEXT,
-    user_role TEXT,
-    action TEXT NOT NULL,  -- create, update, delete, view, export, etc.
-    entity_type TEXT NOT NULL,
-    entity_id UUID,
-    entity_code TEXT,
-    old_values JSONB,
-    new_values JSONB,
-    changed_fields TEXT[],
-    details JSONB,
-    ip_address INET,
-    user_agent TEXT,
-    session_id TEXT,
-    request_id TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- Event Checklist Items
+CREATE TABLE IF NOT EXISTS public.event_checklist_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    checklist_id UUID NOT NULL REFERENCES event_checklists(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    order_index INT DEFAULT 0,
+    is_required BOOLEAN DEFAULT false
 );
 
--- =====================================================
--- SOLUTIONS HUB INDEXES
--- Performance optimization for all tables
--- =====================================================
+-- Event Checklist Completions
+CREATE TABLE IF NOT EXISTS public.event_checklist_completions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    checklist_item_id UUID NOT NULL REFERENCES event_checklist_items(id) ON DELETE CASCADE,
+    completed_by UUID NOT NULL REFERENCES profiles(id),
+    registration_id UUID REFERENCES event_registrations(id) ON DELETE CASCADE,
+    staff_assignment_id UUID REFERENCES event_staff_assignments(id),
+    completed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
--- Client indexes
-CREATE INDEX IF NOT EXISTS idx_sh_clients_source_type ON public.sh_clients(source_type);
-CREATE INDEX IF NOT EXISTS idx_sh_clients_partner_status ON public.sh_clients(partner_status);
-CREATE INDEX IF NOT EXISTS idx_sh_clients_source_dept ON public.sh_clients(source_department_id) WHERE source_department_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_clients_active ON public.sh_clients(is_active) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS idx_sh_clients_created_by ON public.sh_clients(created_by) WHERE created_by IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_clients_name ON public.sh_clients(name);
-CREATE INDEX IF NOT EXISTS idx_sh_clients_code ON public.sh_clients(company_code) WHERE company_code IS NOT NULL;
+-- Updated: 2026-03-07 - Partial unique index for per-team checklist completions
+CREATE UNIQUE INDEX IF NOT EXISTS idx_checklist_completions_item_reg
+  ON event_checklist_completions(checklist_item_id, registration_id)
+  WHERE registration_id IS NOT NULL;
 
--- Client referral indexes
-CREATE INDEX IF NOT EXISTS idx_sh_client_referrals_client ON public.sh_client_referrals(client_id);
-CREATE INDEX IF NOT EXISTS idx_sh_client_referrals_referring ON public.sh_client_referrals(referring_dept_id) WHERE referring_dept_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_client_referrals_executing ON public.sh_client_referrals(executing_dept_id) WHERE executing_dept_id IS NOT NULL;
+-- Indexes for Startup Studio
+CREATE INDEX idx_startup_events_status ON startup_events(status);
+CREATE INDEX idx_event_registrations_event ON event_registrations(event_id);
+CREATE INDEX idx_event_registrations_owner ON event_registrations(owner_id);
+CREATE INDEX idx_event_team_members_registration ON event_team_members(registration_id);
+CREATE INDEX idx_event_team_members_email ON event_team_members(email);
+CREATE INDEX idx_event_venue_assignments_event ON event_venue_assignments(event_id);
+CREATE INDEX idx_event_submissions_event ON event_submissions(event_id);
+CREATE INDEX idx_event_submissions_score ON event_submissions(event_id, total_score DESC, mrr_amount DESC);
+CREATE INDEX idx_event_staff_assignments_event ON event_staff_assignments(event_id);
+CREATE INDEX idx_event_demo_slots_event ON event_demo_slots(event_id);
 
--- Solution indexes
-CREATE INDEX IF NOT EXISTS idx_sh_solutions_type ON public.sh_solutions(solution_type);
-CREATE INDEX IF NOT EXISTS idx_sh_solutions_status ON public.sh_solutions(status);
-CREATE INDEX IF NOT EXISTS idx_sh_solutions_client ON public.sh_solutions(client_id);
-CREATE INDEX IF NOT EXISTS idx_sh_solutions_department ON public.sh_solutions(lead_department_id);
-CREATE INDEX IF NOT EXISTS idx_sh_solutions_institution ON public.sh_solutions(institution_id) WHERE institution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_solutions_created ON public.sh_solutions(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_sh_solutions_code ON public.sh_solutions(solution_code);
-CREATE INDEX IF NOT EXISTS idx_sh_solutions_active ON public.sh_solutions(status, solution_type) WHERE status = 'active';
+-- Enable RLS on all startup studio tables
+ALTER TABLE startup_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_registrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_venue_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_team_venue_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_staff_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_demo_slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_checklists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_checklist_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_checklist_completions ENABLE ROW LEVEL SECURITY;
 
--- Phase indexes
-CREATE INDEX IF NOT EXISTS idx_sh_phases_solution ON public.sh_solution_phases(solution_id);
-CREATE INDEX IF NOT EXISTS idx_sh_phases_status ON public.sh_solution_phases(status);
-CREATE INDEX IF NOT EXISTS idx_sh_phases_owner_dept ON public.sh_solution_phases(owner_department_id) WHERE owner_department_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_phases_owner_user ON public.sh_solution_phases(owner_user_id) WHERE owner_user_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_phases_due_date ON public.sh_solution_phases(due_date) WHERE due_date IS NOT NULL;
+-- Updated: 2026-03-06 - Team invitation workflow columns
+-- event_registrations: added team_code TEXT (institution-wise auto-generated, unique per event+institution)
+-- event_team_members: added learner_id UUID (→ learners_profiles), status TEXT (pending/accepted/declined/removed),
+--                     is_leader BOOLEAN, responded_at TIMESTAMPTZ
 
--- MOU indexes
-CREATE INDEX IF NOT EXISTS idx_sh_mous_solution ON public.sh_solution_mous(solution_id);
-CREATE INDEX IF NOT EXISTS idx_sh_mous_status ON public.sh_solution_mous(status);
-CREATE INDEX IF NOT EXISTS idx_sh_mous_expiry ON public.sh_solution_mous(expiry_date) WHERE expiry_date IS NOT NULL;
+-- ── event_team_attendance (startup studio attendance) — Added 2026-03-07 ──────
+CREATE TABLE IF NOT EXISTS public.event_team_attendance (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    registration_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+    venue_assignment_id UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
+    day_type TEXT NOT NULL CHECK (day_type IN ('build_day', 'demo_day')),
+    status TEXT NOT NULL DEFAULT 'present' CHECK (status IN ('present', 'absent', 'late')),
+    marked_by UUID NOT NULL REFERENCES profiles(id),
+    marked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notes TEXT,
+    UNIQUE(event_id, registration_id, day_type)
+);
 
--- Builder indexes
-CREATE INDEX IF NOT EXISTS idx_sh_builders_user ON public.sh_builders(user_id) WHERE user_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_builders_learner ON public.sh_builders(learner_id) WHERE learner_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_builders_staff ON public.sh_builders(staff_id) WHERE staff_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_builders_department ON public.sh_builders(department_id) WHERE department_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_builders_institution ON public.sh_builders(institution_id) WHERE institution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_builders_active ON public.sh_builders(is_active) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS idx_sh_builders_code ON public.sh_builders(builder_code) WHERE builder_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_event_team_attendance_event ON event_team_attendance(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_team_attendance_venue ON event_team_attendance(venue_assignment_id);
+CREATE INDEX IF NOT EXISTS idx_event_team_attendance_registration ON event_team_attendance(registration_id);
 
--- Builder skills indexes
-CREATE INDEX IF NOT EXISTS idx_sh_builder_skills_builder ON public.sh_builder_skills(builder_id);
-CREATE INDEX IF NOT EXISTS idx_sh_builder_skills_name ON public.sh_builder_skills(skill_name);
-CREATE INDEX IF NOT EXISTS idx_sh_builder_skills_category ON public.sh_builder_skills(skill_category) WHERE skill_category IS NOT NULL;
+ALTER TABLE public.event_team_attendance ENABLE ROW LEVEL SECURITY;
 
--- Builder assignment indexes
-CREATE INDEX IF NOT EXISTS idx_sh_builder_assignments_phase ON public.sh_builder_assignments(phase_id);
-CREATE INDEX IF NOT EXISTS idx_sh_builder_assignments_builder ON public.sh_builder_assignments(builder_id);
-CREATE INDEX IF NOT EXISTS idx_sh_builder_assignments_status ON public.sh_builder_assignments(status);
+-- ══════════════════════════════════════════════════════════════
+-- APPATHON ROLE CARDS (Added: 2026-03-08 — Skill Bank Phase 1)
+-- ══════════════════════════════════════════════════════════════
 
--- Prototype iteration indexes
-CREATE INDEX IF NOT EXISTS idx_sh_iterations_phase ON public.sh_prototype_iterations(phase_id);
-CREATE INDEX IF NOT EXISTS idx_sh_iterations_approved ON public.sh_prototype_iterations(client_approved) WHERE client_approved = true;
+CREATE TABLE IF NOT EXISTS appathon_role_cards (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id UUID NOT NULL REFERENCES event_submissions(id) ON DELETE CASCADE,
+  team_id      UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+  profile_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  learner_id   UUID REFERENCES learners_profiles(id) ON DELETE SET NULL,
+  self_roles   TEXT[] NOT NULL,
+  proud_of     TEXT NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(submission_id, profile_id)
+);
 
--- Bug report indexes
-CREATE INDEX IF NOT EXISTS idx_sh_bugs_iteration ON public.sh_bug_reports(iteration_id);
-CREATE INDEX IF NOT EXISTS idx_sh_bugs_phase ON public.sh_bug_reports(phase_id) WHERE phase_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_bugs_severity ON public.sh_bug_reports(severity);
-CREATE INDEX IF NOT EXISTS idx_sh_bugs_status ON public.sh_bug_reports(status);
-CREATE INDEX IF NOT EXISTS idx_sh_bugs_assigned ON public.sh_bug_reports(assigned_to) WHERE assigned_to IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_bugs_code ON public.sh_bug_reports(bug_code) WHERE bug_code IS NOT NULL;
+CREATE TABLE IF NOT EXISTS appathon_peer_tags (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  role_card_id     UUID NOT NULL REFERENCES appathon_role_cards(id) ON DELETE CASCADE,
+  tagger_profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  tagged_profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  tagged_role      TEXT NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(role_card_id, tagged_profile_id)
+);
 
--- Deployment indexes
-CREATE INDEX IF NOT EXISTS idx_sh_deployments_phase ON public.sh_phase_deployments(phase_id);
-CREATE INDEX IF NOT EXISTS idx_sh_deployments_env ON public.sh_phase_deployments(environment);
-CREATE INDEX IF NOT EXISTS idx_sh_deployments_status ON public.sh_phase_deployments(status);
+-- Indexes for Skill Bank queries
+CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_submission  ON appathon_role_cards(submission_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_team        ON appathon_role_cards(team_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_profile     ON appathon_role_cards(profile_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_learner     ON appathon_role_cards(learner_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_appathon_role_cards_learner_unique
+  ON appathon_role_cards(submission_id, learner_id) WHERE learner_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_role_card    ON appathon_peer_tags(role_card_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_tagged       ON appathon_peer_tags(tagged_profile_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_tagged_role  ON appathon_peer_tags(tagged_role);
 
--- Implementation user indexes
-CREATE INDEX IF NOT EXISTS idx_sh_impl_users_phase ON public.sh_implementation_users(phase_id);
-CREATE INDEX IF NOT EXISTS idx_sh_impl_users_solution ON public.sh_implementation_users(solution_id) WHERE solution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_impl_users_status ON public.sh_implementation_users(usage_status);
+-- ─── Appathon Verifications (Demo Day Evaluation System) ──────────────────
+-- Added: 2026-03-08 - One row per evaluator per team. Evaluators verify
+-- team claims (live URL, user counts, revenue) during Demo Day presentations.
+-- Uses T1-T4 user-based tier scoring + revenue bonus (separate from T0-T5 self-reported).
+CREATE TABLE IF NOT EXISTS public.appathon_verifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
--- Training program indexes
-CREATE INDEX IF NOT EXISTS idx_sh_programs_solution ON public.sh_training_programs(solution_id);
-CREATE INDEX IF NOT EXISTS idx_sh_programs_type ON public.sh_training_programs(program_type);
-CREATE INDEX IF NOT EXISTS idx_sh_programs_status ON public.sh_training_programs(status);
-CREATE INDEX IF NOT EXISTS idx_sh_programs_dates ON public.sh_training_programs(start_date, end_date);
-CREATE INDEX IF NOT EXISTS idx_sh_programs_code ON public.sh_training_programs(program_code) WHERE program_code IS NOT NULL;
+    -- Core relationships
+    submission_id UUID NOT NULL REFERENCES event_submissions(id) ON DELETE CASCADE,
+    evaluator_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    venue_id      UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
 
--- Training session indexes
-CREATE INDEX IF NOT EXISTS idx_sh_sessions_program ON public.sh_training_sessions(program_id);
-CREATE INDEX IF NOT EXISTS idx_sh_sessions_date ON public.sh_training_sessions(session_date);
-CREATE INDEX IF NOT EXISTS idx_sh_sessions_status ON public.sh_training_sessions(status);
+    -- Team presence
+    presented          BOOLEAN DEFAULT false,
+    presentation_slot  INT,
 
--- Cohort member indexes
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_user ON public.sh_cohort_members(user_id) WHERE user_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_learner ON public.sh_cohort_members(learner_id) WHERE learner_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_staff ON public.sh_cohort_members(staff_id) WHERE staff_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_department ON public.sh_cohort_members(department_id) WHERE department_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_institution ON public.sh_cohort_members(institution_id) WHERE institution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_level ON public.sh_cohort_members(level);
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_active ON public.sh_cohort_members(is_active) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_code ON public.sh_cohort_members(cohort_code) WHERE cohort_code IS NOT NULL;
+    -- App verification
+    app_live BOOLEAN DEFAULT false,
 
--- Cohort assignment indexes
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_assignments_session ON public.sh_cohort_assignments(session_id);
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_assignments_member ON public.sh_cohort_assignments(cohort_member_id);
-CREATE INDEX IF NOT EXISTS idx_sh_cohort_assignments_status ON public.sh_cohort_assignments(status);
+    -- Claimed values (copied from event_submissions at freeze time)
+    claimed_users        INT           DEFAULT 0,
+    claimed_active_users INT           DEFAULT 0,
+    claimed_revenue      NUMERIC(10,2) DEFAULT 0,
 
--- Content order indexes
-CREATE INDEX IF NOT EXISTS idx_sh_content_orders_solution ON public.sh_content_orders(solution_id);
-CREATE INDEX IF NOT EXISTS idx_sh_content_orders_type ON public.sh_content_orders(order_type);
-CREATE INDEX IF NOT EXISTS idx_sh_content_orders_division ON public.sh_content_orders(division);
-CREATE INDEX IF NOT EXISTS idx_sh_content_orders_status ON public.sh_content_orders(status);
-CREATE INDEX IF NOT EXISTS idx_sh_content_orders_due ON public.sh_content_orders(due_date) WHERE due_date IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_content_orders_code ON public.sh_content_orders(order_code) WHERE order_code IS NOT NULL;
+    -- Verified values (evaluator-confirmed)
+    verified_users        INT           DEFAULT 0,
+    verified_active_users INT           DEFAULT 0,
+    verified_revenue      NUMERIC(10,2) DEFAULT 0,
 
--- Content deliverable indexes
-CREATE INDEX IF NOT EXISTS idx_sh_deliverables_order ON public.sh_content_deliverables(order_id);
-CREATE INDEX IF NOT EXISTS idx_sh_deliverables_status ON public.sh_content_deliverables(status);
+    -- Calculated scores (server-recomputed, do not trust client)
+    verified_tier  INT DEFAULT 0,
+    revenue_bonus  INT DEFAULT 0,
+    total_score    INT DEFAULT 0,
 
--- Production learner indexes
-CREATE INDEX IF NOT EXISTS idx_sh_production_user ON public.sh_production_learners(user_id) WHERE user_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_production_learner ON public.sh_production_learners(learner_id) WHERE learner_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_production_staff ON public.sh_production_learners(staff_id) WHERE staff_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_production_department ON public.sh_production_learners(department_id) WHERE department_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_production_institution ON public.sh_production_learners(institution_id) WHERE institution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_production_division ON public.sh_production_learners(division);
-CREATE INDEX IF NOT EXISTS idx_sh_production_active ON public.sh_production_learners(is_active) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS idx_sh_production_code ON public.sh_production_learners(learner_code) WHERE learner_code IS NOT NULL;
+    -- Verification outcome
+    verification_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (verification_status IN ('pending', 'verified', 'flagged', 'disqualified')),
+    flag_reason TEXT,
+    notes TEXT,
 
--- Production assignment indexes
-CREATE INDEX IF NOT EXISTS idx_sh_prod_assignments_deliverable ON public.sh_production_assignments(deliverable_id);
-CREATE INDEX IF NOT EXISTS idx_sh_prod_assignments_learner ON public.sh_production_assignments(learner_id);
-CREATE INDEX IF NOT EXISTS idx_sh_prod_assignments_status ON public.sh_production_assignments(status);
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
--- Discovery visit indexes
-CREATE INDEX IF NOT EXISTS idx_sh_visits_client ON public.sh_discovery_visits(client_id);
-CREATE INDEX IF NOT EXISTS idx_sh_visits_solution ON public.sh_discovery_visits(solution_id) WHERE solution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_visits_date ON public.sh_discovery_visits(visit_date DESC);
-CREATE INDEX IF NOT EXISTS idx_sh_visits_followup ON public.sh_discovery_visits(follow_up_required, follow_up_date) WHERE follow_up_required = true;
-CREATE INDEX IF NOT EXISTS idx_sh_visits_code ON public.sh_discovery_visits(visit_code) WHERE visit_code IS NOT NULL;
+    UNIQUE(submission_id, evaluator_id)
+);
 
--- Communication indexes
-CREATE INDEX IF NOT EXISTS idx_sh_comms_client ON public.sh_client_communications(client_id);
-CREATE INDEX IF NOT EXISTS idx_sh_comms_solution ON public.sh_client_communications(solution_id) WHERE solution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_comms_phase ON public.sh_client_communications(phase_id) WHERE phase_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_comms_type ON public.sh_client_communications(communication_type);
-CREATE INDEX IF NOT EXISTS idx_sh_comms_date ON public.sh_client_communications(communication_date DESC);
+CREATE INDEX IF NOT EXISTS idx_appathon_verifications_submission
+    ON appathon_verifications(submission_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_verifications_evaluator
+    ON appathon_verifications(evaluator_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_verifications_venue
+    ON appathon_verifications(venue_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_verifications_status
+    ON appathon_verifications(verification_status);
 
--- Revenue split model indexes
-CREATE INDEX IF NOT EXISTS idx_sh_split_models_type ON public.sh_revenue_split_models(solution_type);
-CREATE INDEX IF NOT EXISTS idx_sh_split_models_default ON public.sh_revenue_split_models(is_default) WHERE is_default = true;
+-- ─── Audience Votes (Demo Day Live Voting) ────────────────────────────────
+-- Updated: 2026-03-08 - Added audience_votes table for Demo Day live voting
+-- Audience members rate each startup team (1–5 stars) during the live event.
+-- One vote per audience member per submission (UNIQUE constraint).
+-- voting_opened_at / voting_closed_at on startup_events control the window.
+CREATE TABLE IF NOT EXISTS audience_votes (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id         UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+  submission_id    UUID NOT NULL REFERENCES event_submissions(id) ON DELETE CASCADE,
+  voter_profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  rating           INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  voted_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(submission_id, voter_profile_id)
+);
 
--- Payment indexes
-CREATE INDEX IF NOT EXISTS idx_sh_payments_solution ON public.sh_payments(solution_id) WHERE solution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_payments_phase ON public.sh_payments(phase_id) WHERE phase_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_payments_order ON public.sh_payments(order_id) WHERE order_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_payments_program ON public.sh_payments(program_id) WHERE program_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_payments_client ON public.sh_payments(client_id) WHERE client_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_payments_status ON public.sh_payments(status);
-CREATE INDEX IF NOT EXISTS idx_sh_payments_type ON public.sh_payments(payment_type);
-CREATE INDEX IF NOT EXISTS idx_sh_payments_date ON public.sh_payments(payment_date) WHERE payment_date IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_payments_code ON public.sh_payments(payment_code) WHERE payment_code IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_payments_unprocessed ON public.sh_payments(split_processed, status) WHERE split_processed = false AND status = 'completed';
+CREATE INDEX IF NOT EXISTS idx_audience_votes_event      ON audience_votes(event_id);
+CREATE INDEX IF NOT EXISTS idx_audience_votes_submission ON audience_votes(submission_id);
+CREATE INDEX IF NOT EXISTS idx_audience_votes_voter      ON audience_votes(voter_profile_id);
 
--- Earnings ledger indexes
-CREATE INDEX IF NOT EXISTS idx_sh_earnings_payment ON public.sh_earnings_ledger(payment_id);
-CREATE INDEX IF NOT EXISTS idx_sh_earnings_recipient ON public.sh_earnings_ledger(recipient_type, recipient_id);
-CREATE INDEX IF NOT EXISTS idx_sh_earnings_builder ON public.sh_earnings_ledger(builder_id) WHERE builder_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_earnings_cohort ON public.sh_earnings_ledger(cohort_member_id) WHERE cohort_member_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_earnings_production ON public.sh_earnings_ledger(production_learner_id) WHERE production_learner_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_earnings_department ON public.sh_earnings_ledger(department_id) WHERE department_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_earnings_institution ON public.sh_earnings_ledger(institution_id) WHERE institution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_earnings_status ON public.sh_earnings_ledger(status);
-CREATE INDEX IF NOT EXISTS idx_sh_earnings_code ON public.sh_earnings_ledger(ledger_code) WHERE ledger_code IS NOT NULL;
+-- Voting window columns on startup_events
+-- NULL means voting has not been opened/closed yet.
+ALTER TABLE startup_events
+  ADD COLUMN IF NOT EXISTS voting_opened_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS voting_closed_at TIMESTAMPTZ;
 
--- Publication indexes
-CREATE INDEX IF NOT EXISTS idx_sh_publications_solution ON public.sh_publications(solution_id) WHERE solution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_publications_phase ON public.sh_publications(phase_id) WHERE phase_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_publications_institution ON public.sh_publications(institution_id) WHERE institution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_publications_department ON public.sh_publications(department_id) WHERE department_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_publications_type ON public.sh_publications(paper_type);
-CREATE INDEX IF NOT EXISTS idx_sh_publications_status ON public.sh_publications(status);
-CREATE INDEX IF NOT EXISTS idx_sh_publications_date ON public.sh_publications(publication_date) WHERE publication_date IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_publications_journal_type ON public.sh_publications(journal_type) WHERE journal_type IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_publications_code ON public.sh_publications(publication_code) WHERE publication_code IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_publications_indexed ON public.sh_publications(scopus_indexed, wos_indexed, ugc_listed);
+-- ============================================================
+-- POST DEMO DAY PIPELINE TABLES
+-- Added: 2026-03-09 — Spec: Spec-Post-Demo-Day-Pipeline.md
+-- ============================================================
 
--- Publication contributor indexes
-CREATE INDEX IF NOT EXISTS idx_sh_pub_contributors_pub ON public.sh_publication_contributors(publication_id);
-CREATE INDEX IF NOT EXISTS idx_sh_pub_contributors_builder ON public.sh_publication_contributors(builder_id) WHERE builder_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_pub_contributors_cohort ON public.sh_publication_contributors(cohort_member_id) WHERE cohort_member_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_pub_contributors_learner ON public.sh_publication_contributors(learner_id) WHERE learner_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_pub_contributors_staff ON public.sh_publication_contributors(staff_id) WHERE staff_id IS NOT NULL;
+-- Track Declarations: Teams declare which path they want after Demo Day
+CREATE TABLE IF NOT EXISTS track_declarations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+  team_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+  track TEXT NOT NULL,
+  reason TEXT,
+  declared_by UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  declared_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  mentor_approved BOOLEAN DEFAULT NULL,
+  mentor_notes TEXT,
+  approved_at TIMESTAMPTZ,
+  approved_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (event_id, team_id),
+  CHECK (track IN ('solve_for_100', 'jicate_solutions', 'solve_for_industry', 'completed'))
+);
 
--- Accreditation metrics indexes
-CREATE INDEX IF NOT EXISTS idx_sh_accred_type ON public.sh_accreditation_metrics(metric_type);
-CREATE INDEX IF NOT EXISTS idx_sh_accred_active ON public.sh_accreditation_metrics(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_track_declarations_event ON track_declarations(event_id);
+CREATE INDEX IF NOT EXISTS idx_track_declarations_team ON track_declarations(team_id);
+CREATE INDEX IF NOT EXISTS idx_track_declarations_track ON track_declarations(track);
+CREATE INDEX IF NOT EXISTS idx_track_declarations_declared_by ON track_declarations(declared_by);
 
--- JICATE session indexes
-CREATE INDEX IF NOT EXISTS idx_sh_jicate_solution ON public.sh_jicate_sessions(solution_id) WHERE solution_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_jicate_phase ON public.sh_jicate_sessions(phase_id) WHERE phase_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_jicate_client ON public.sh_jicate_sessions(client_id) WHERE client_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_jicate_date ON public.sh_jicate_sessions(session_date DESC);
-CREATE INDEX IF NOT EXISTS idx_sh_jicate_booked_dept ON public.sh_jicate_sessions(booked_by_dept_id) WHERE booked_by_dept_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_jicate_facilitator ON public.sh_jicate_sessions(jicate_facilitator_id) WHERE jicate_facilitator_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_jicate_outcome ON public.sh_jicate_sessions(outcome) WHERE outcome IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_jicate_code ON public.sh_jicate_sessions(session_code) WHERE session_code IS NOT NULL;
+-- Progression Levels: Individual learner progression across 5-stage identity ladder
+CREATE TABLE IF NOT EXISTS progression_levels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+  team_id UUID REFERENCES event_registrations(id) ON DELETE SET NULL,
+  level INTEGER NOT NULL,
+  level_name TEXT NOT NULL,
+  achieved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+  awarded_by TEXT NOT NULL DEFAULT 'system',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (profile_id, event_id, level),
+  CHECK (level BETWEEN 1 AND 5)
+);
 
--- Notification indexes
-CREATE INDEX IF NOT EXISTS idx_sh_notifications_user ON public.sh_notifications(user_id, is_read);
-CREATE INDEX IF NOT EXISTS idx_sh_notifications_unread ON public.sh_notifications(user_id, created_at DESC) WHERE is_read = false;
-CREATE INDEX IF NOT EXISTS idx_sh_notifications_type ON public.sh_notifications(notification_type);
-CREATE INDEX IF NOT EXISTS idx_sh_notifications_entity ON public.sh_notifications(related_entity_type, related_entity_id) WHERE related_entity_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_progression_levels_profile ON progression_levels(profile_id);
+CREATE INDEX IF NOT EXISTS idx_progression_levels_event ON progression_levels(event_id);
+CREATE INDEX IF NOT EXISTS idx_progression_levels_team ON progression_levels(team_id);
 
--- Audit log indexes
-CREATE INDEX IF NOT EXISTS idx_sh_audit_user ON public.sh_audit_logs(user_id) WHERE user_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sh_audit_entity ON public.sh_audit_logs(entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_sh_audit_action ON public.sh_audit_logs(action);
-CREATE INDEX IF NOT EXISTS idx_sh_audit_created ON public.sh_audit_logs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_sh_audit_code ON public.sh_audit_logs(entity_code) WHERE entity_code IS NOT NULL;
+-- Case Studies: Structured narratives for solve_for_industry and jicate_solutions tracks
+CREATE TABLE IF NOT EXISTS case_studies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+  team_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+  track TEXT NOT NULL,
+  problem TEXT NOT NULL,
+  solution TEXT NOT NULL,
+  proof TEXT NOT NULL,
+  who_else TEXT,
+  demo_url TEXT,
+  app_name TEXT,
+  app_url TEXT,
+  score INTEGER CHECK (score IS NULL OR score BETWEEN 0 AND 500),
+  featured BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (event_id, team_id),
+  CHECK (track IN ('solve_for_industry', 'jicate_solutions'))
+);
 
--- =====================================================
--- ENABLE ROW LEVEL SECURITY ON ALL SOLUTIONS HUB TABLES
--- =====================================================
-
-ALTER TABLE public.sh_clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_client_referrals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_solutions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_solution_phases ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_solution_mous ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_builders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_builder_skills ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_builder_assignments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_prototype_iterations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_bug_reports ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_phase_deployments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_implementation_users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_training_programs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_training_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_cohort_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_cohort_assignments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_content_orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_content_deliverables ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_production_learners ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_production_assignments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_discovery_visits ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_client_communications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_revenue_split_models ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_earnings_ledger ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_publications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_publication_contributors ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_accreditation_metrics ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_jicate_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_notifications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sh_audit_logs ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_case_studies_event ON case_studies(event_id);
+CREATE INDEX IF NOT EXISTS idx_case_studies_team ON case_studies(team_id);
+CREATE INDEX IF NOT EXISTS idx_case_studies_track ON case_studies(track);
+CREATE INDEX IF NOT EXISTS idx_case_studies_featured ON case_studies(featured);
 
 -- =====================================================
 -- END OF TABLE DEFINITIONS

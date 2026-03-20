@@ -68,6 +68,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useAuth } from '@/hooks/use-auth';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   useRewardConfigs,
   useCreateRewardConfig,
@@ -111,7 +112,7 @@ const statusConfig: Record<RewardStatus, { label: string; variant: 'default' | '
 const rewardConfigSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   description: z.string().optional(),
-  reward_type: z.enum(['discount', 'fee_discount', 'cashback', 'cash', 'credit', 'credits', 'voucher', 'merchandise']),
+  reward_type: z.enum(['discount', 'fee_discount', 'cashback', 'cash', 'credit', 'credits', 'voucher', 'merchandise', 'scholarship', 'gift', 'points']),
   reward_value: z.number().min(0, 'Value must be positive'),
   reward_value_type: z.enum(['percentage', 'flat']),
   min_referrals: z.number().min(1, 'Minimum 1 referral required'),
@@ -341,21 +342,24 @@ export default function RewardsManagementPage() {
 
   if (isAuthLoading) {
     return (
-      <ContentLayout title="Referral Rewards">
-        <div className="space-y-6">
-          <Skeleton className="h-8 w-64" />
-          <div className="grid gap-4 md:grid-cols-4">
-            {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-32" />
-            ))}
+      <PermissionGuard module="admission.consultants" action="view">
+        <ContentLayout title="Referral Rewards">
+          <div className="space-y-6">
+            <Skeleton className="h-8 w-64" />
+            <div className="grid gap-4 md:grid-cols-4">
+              {[1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-32" />
+              ))}
+            </div>
+            <Skeleton className="h-96" />
           </div>
-          <Skeleton className="h-96" />
-        </div>
-      </ContentLayout>
+        </ContentLayout>
+      </PermissionGuard>
     );
   }
 
   return (
+    <PermissionGuard module="admission.consultants" action="view">
     <ContentLayout title="Referral Rewards">
       <div className="space-y-6">
         {/* Header */}
@@ -1103,5 +1107,6 @@ export default function RewardsManagementPage() {
         </DialogContent>
       </Dialog>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

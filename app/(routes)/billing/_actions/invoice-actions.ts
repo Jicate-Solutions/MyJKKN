@@ -233,11 +233,7 @@ export async function deleteInvoice(id: string): Promise<ActionResult> {
 
 /**
  * Send invoice via email
- *
- * NOTE: Email service integration pending - currently simulated.
- * Validates the invoice exists and logs the send attempt.
- * When an email service (e.g., Resend, SendGrid) is integrated, replace the
- * simulation below with actual email delivery.
+ * TODO: Implement actual email sending via Edge Function or external service
  */
 export async function sendInvoice(
   id: string,
@@ -255,10 +251,16 @@ export async function sendInvoice(
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Verify invoice exists before acknowledging
+    // Get invoice details
     const { data: invoice, error: fetchError } = await supabase
       .from('billing_invoices')
-      .select('id, invoice_number')
+      .select(
+        `
+        *,
+        student:learners_profiles(id, first_name, last_name, college_email),
+        institution:institutions(id, name)
+      `
+      )
       .eq('id', id)
       .single();
 
@@ -269,17 +271,19 @@ export async function sendInvoice(
       };
     }
 
-    // NOTE: Email service integration pending - currently simulated
-    console.log(
-      `[billing/invoices] Simulated email send: Invoice ${invoice.invoice_number} to ${email} by user ${user.id}`
-    );
+    // TODO: Implement actual email sending
+    // For now, just log the action
+    console.log('[sendInvoice] Sending invoice to:', email);
+    console.log('[sendInvoice] Invoice:', invoice.invoice_number);
+
+    // In production, you would:
+    // 1. Generate PDF using Puppeteer or similar
+    // 2. Call Supabase Edge Function or external email service
+    // 3. Send email with PDF attachment
 
     return {
       success: true,
-      data: {
-        action: 'email_simulated',
-        message: `Invoice ${invoice.invoice_number} sent to ${email}`
-      }
+      data: { message: 'Email functionality pending implementation' }
     };
   } catch (error) {
     console.error('[sendInvoice] Unexpected error:', error);
@@ -292,10 +296,7 @@ export async function sendInvoice(
 
 /**
  * Download invoice as PDF
- *
- * Uses browser-native Print -> Save as PDF approach on the client side.
- * This server action validates the invoice exists and returns a signal
- * for the client to open a formatted print view.
+ * TODO: Implement server-side PDF generation
  */
 export async function downloadInvoicePDF(id: string): Promise<ActionResult<{ url: string }>> {
   try {
@@ -310,10 +311,22 @@ export async function downloadInvoicePDF(id: string): Promise<ActionResult<{ url
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Verify invoice exists
+    // Get invoice details
     const { data: invoice, error: fetchError } = await supabase
       .from('billing_invoices')
-      .select('id, invoice_number')
+      .select(
+        `
+        *,
+        student:learners_profiles(id, first_name, last_name, roll_number, college_email),
+        institution:institutions(id, name, counselling_code),
+        invoice_items:billing_invoice_items(
+          id,
+          receipt_id,
+          amount,
+          receipt:billing_receipts(id, receipt_number, payment_amount)
+        )
+      `
+      )
       .eq('id', id)
       .single();
 
@@ -324,10 +337,19 @@ export async function downloadInvoicePDF(id: string): Promise<ActionResult<{ url
       };
     }
 
+    // TODO: Implement server-side PDF generation
+    // For now, return a placeholder
+    console.log('[downloadInvoicePDF] Generating PDF for:', invoice.invoice_number);
+
+    // In production, you would:
+    // 1. Use Puppeteer or PDF library to generate PDF
+    // 2. Upload to Supabase Storage or return as blob
+    // 3. Return download URL
+
     return {
       success: true,
       data: {
-        url: 'print' // Signals the client to use browser print/save-as-PDF
+        url: '#' // Placeholder - client will handle HTML download for now
       }
     };
   } catch (error) {

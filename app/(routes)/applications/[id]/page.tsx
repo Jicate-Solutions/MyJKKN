@@ -94,6 +94,14 @@ export default function ApplicationDetailsPage({
     }
   }, [application]);
 
+  const [copiedUriIndex, setCopiedUriIndex] = useState<number | null>(null);
+
+  const copyUri = (uri: string, index: number) => {
+    navigator.clipboard.writeText(uri);
+    setCopiedUriIndex(index);
+    setTimeout(() => setCopiedUriIndex(null), 2000);
+  };
+
   const hasScreenshots =
     application?.screenshots && application.screenshots.length > 0;
 
@@ -516,24 +524,40 @@ export default function ApplicationDetailsPage({
                 </div>
 
                 {/* Redirect URIs */}
-                {application.allowed_redirect_uris &&
-                  application.allowed_redirect_uris.length > 0 && (
-                    <div>
-                      <h3 className='text-sm font-medium text-muted-foreground mb-2'>
-                        Allowed Redirect URIs
-                      </h3>
-                      <div className='space-y-1'>
-                        {application.allowed_redirect_uris.map((uri, index) => (
-                          <div key={index} className='flex items-center gap-2'>
-                            <Globe className='h-3 w-3 text-muted-foreground' />
-                            <code className='text-xs bg-muted px-2 py-1 rounded'>
-                              {uri}
-                            </code>
-                          </div>
-                        ))}
-                      </div>
+                <div>
+                  <h3 className='text-sm font-medium text-muted-foreground mb-2'>
+                    Allowed Redirect URIs
+                  </h3>
+                  {application.allowed_redirect_uris &&
+                  application.allowed_redirect_uris.length > 0 ? (
+                    <div className='space-y-2'>
+                      {application.allowed_redirect_uris.map((uri, index) => (
+                        <div
+                          key={index}
+                          className='flex items-center gap-2 bg-muted/50 border rounded-md px-3 py-2'
+                        >
+                          <Globe className='h-3 w-3 text-muted-foreground shrink-0' />
+                          <code className='text-xs flex-1 break-all'>{uri}</code>
+                          <button
+                            type='button'
+                            onClick={() => copyUri(uri, index)}
+                            className='text-muted-foreground hover:text-foreground shrink-0'
+                          >
+                            {copiedUriIndex === index ? (
+                              <Check className='h-3 w-3 text-green-500' />
+                            ) : (
+                              <Copy className='h-3 w-3' />
+                            )}
+                          </button>
+                        </div>
+                      ))}
                     </div>
+                  ) : (
+                    <p className='text-sm text-muted-foreground'>
+                      No redirect URIs configured
+                    </p>
                   )}
+                </div>
 
                 {/* Permission Scopes */}
                 {application.allowed_scopes &&

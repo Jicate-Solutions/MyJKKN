@@ -1,5 +1,4 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { usePermissions } from '@/hooks/use-permissions';
 import { StudentSearchService } from '@/lib/services/billing/schedule/student-search-service';
 import type {
   StudentForBillingListResponse,
@@ -166,8 +165,6 @@ export function useSearchStudentsByQuery(
   institutionId?: string,
   limit: number = 10
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery<StudentForBilling[], Error>({
     queryKey: studentSearchKeys.searchByQuery(
       searchQuery,
@@ -180,8 +177,7 @@ export function useSearchStudentsByQuery(
         institutionId,
         limit
       ),
-    // super_admin can search without institution scope
-    enabled: !!searchQuery && searchQuery.length >= 2 && (isSuperAdmin || !!institutionId),
+    enabled: !!searchQuery && searchQuery.length >= 2 && !!institutionId, // Ensure institutionId is also present
     staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000
   });
@@ -193,8 +189,6 @@ export function useStudentsForBulkOperations(
   departmentId?: string,
   semesterId?: string
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   // For bulk operations, we typically want a larger, less paginated list based on broad criteria.
   // We can reuse the searchStudentsForBilling service method with appropriate filters.
   const filters: StudentSearchFiltersType = {
@@ -212,8 +206,7 @@ export function useStudentsForBulkOperations(
       semesterId
     ),
     queryFn: () => StudentSearchService.searchStudentsForBilling(filters),
-    // super_admin can fetch without institution scope
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId, // Fetch only if institutionId is present
     staleTime: 5 * 60 * 1000
   });
 }

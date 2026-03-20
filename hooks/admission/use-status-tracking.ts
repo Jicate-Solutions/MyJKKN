@@ -7,7 +7,6 @@ import {
   type StatusFilters,
   type StatusPipelineStats,
 } from '@/lib/services/admission/status-tracking-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -31,12 +30,10 @@ export const statusTrackingKeys = {
  * Fetch applications with lead info for status tracking
  */
 export function useApplicationsStatus(filters: StatusFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: statusTrackingKeys.applications(filters),
     queryFn: () => StatusTrackingService.getApplications(filters),
-    enabled: isSuperAdmin || !!filters.institutionId,
+    enabled: !!filters.institutionId,
   });
 
   return {
@@ -53,12 +50,10 @@ export function useApplicationsStatus(filters: StatusFilters) {
  * Fetch pipeline stats (counts by status)
  */
 export function usePipelineStats(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: statusTrackingKeys.pipeline(institutionId || ''),
     queryFn: () => StatusTrackingService.getPipelineStats(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 60000,
   });
 
@@ -81,13 +76,11 @@ export function usePipelineStats(institutionId?: string) {
  * Fetch recent activity log
  */
 export function useRecentActivity(institutionId?: string, limit?: number) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: statusTrackingKeys.activity(institutionId || ''),
     queryFn: () =>
       StatusTrackingService.getRecentActivity(institutionId!, limit || 20),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {

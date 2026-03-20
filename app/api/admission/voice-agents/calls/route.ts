@@ -2,17 +2,11 @@
 // GET agent call logs
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase/server';
 import { VoiceAgentService } from '@/lib/services/ai/voice-agent-service';
 import type { VoiceAgentType, CallStatus, CallOutcome } from '@/lib/services/ai/voice-agent-service';
 
 export async function GET(req: NextRequest) {
   try {
-    const { user, error: authError } = await getAuthUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { searchParams } = new URL(req.url);
     const institutionId = searchParams.get('institution_id');
     const callId = searchParams.get('call_id');

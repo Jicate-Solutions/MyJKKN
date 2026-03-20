@@ -85,13 +85,7 @@ export const ROLE_LABELS: Record<string, string> = {
   [SYSTEM_ROLES.GUEST]: 'Guest',
   [SYSTEM_ROLES.PARENT]: 'Parent',
   [SYSTEM_ROLES.HOD]: 'HOD',
-  [SYSTEM_ROLES.PRINCIPAL]: 'Principal',
-  // Solutions Hub roles (added 2026-02-03)
-  [SYSTEM_ROLES.BUILDER]: 'Builder',
-  [SYSTEM_ROLES.COHORT_MEMBER]: 'Cohort Member',
-  [SYSTEM_ROLES.PRODUCTION_LEARNER]: 'Production Learner',
-  [SYSTEM_ROLES.JICATE_STAFF]: 'JICATE Staff',
-  [SYSTEM_ROLES.CLIENT]: 'Client'
+  [SYSTEM_ROLES.PRINCIPAL]: 'Principal'
 } as const;
 
 // Default permissions for new roles
@@ -246,8 +240,10 @@ export const PERMISSION_CATEGORIES = [
 
       // Specific Page Access (Granular Permissions)
       // Admin Features
+      { key: 'learners.dashboard.view', label: 'View Learners Analytics Dashboard' },
       { key: 'learners.profiles.view', label: 'View Learner Profiles (Admin)' },
       { key: 'learners.alumni.view', label: 'View Alumni & Graduates (Admin)' },
+      { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' },
 
       // Learner Portal Features (Student Self-Service)
       { key: 'learners.my-timetable.view', label: 'View My Timetable (Students)' },
@@ -294,7 +290,16 @@ export const PERMISSION_CATEGORIES = [
 
       // Learner Enquiries Bulk Operations
       { key: 'learners.enquiries.bulk_upload', label: 'Bulk Upload Enquiries' },
-      { key: 'learners.enquiries.bulk_status_update', label: 'Bulk Status Update for Enquiries' }
+      { key: 'learners.enquiries.bulk_status_update', label: 'Bulk Status Update for Enquiries' },
+
+      // Learner Profile Change Requests
+      { key: 'learners.change-requests.view', label: 'View Profile Change Requests' },
+      { key: 'learners.change-requests.approve', label: 'Approve Profile Change Requests' },
+      { key: 'learners.change-requests.reject', label: 'Reject Profile Change Requests' },
+
+      // Learner Finance Section
+      { key: 'learners.finance.view', label: 'View Finance Details (Fee Structure)' },
+      { key: 'learners.finance.edit', label: 'Edit Finance Details (Fee Structure)' }
     ]
   },
   {
@@ -309,7 +314,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'staff.view', label: 'View Facilitators' },
       { key: 'staff.create', label: 'Create Facilitators' },
       { key: 'staff.edit', label: 'Edit Facilitators' },
-      { key: 'staff.delete', label: 'Delete Facilitators' }
+      { key: 'staff.delete', label: 'Delete Facilitators' },
+      { key: 'staff.status_update', label: 'Update Facilitator Status' },
+      { key: 'staff.class_incharges.view', label: 'View Class Incharges' },
+      { key: 'staff.class_incharges.create', label: 'Assign Class Incharges' },
+      { key: 'staff.class_incharges.delete', label: 'Remove Class Incharges' }
     ]
   },
   {
@@ -406,6 +415,22 @@ export const PERMISSION_CATEGORIES = [
 
       // Leave Analytics
       { key: 'academic.leaves.analytics.view', label: 'View Leave Analytics' }
+    ]
+  },
+  {
+    name: 'Leave/OnDuty Application System',
+    key: 'leave_onduty',
+    permissions: [
+      // Academic/Admin Permissions
+      { key: 'academic.leave_onduty.approve', label: 'View & Process Approvals (Academic)' },
+      { key: 'academic.leave_onduty.manage', label: 'Manage Workflow Settings (Academic)' },
+      { key: 'academic.leave_onduty.reports', label: 'View Reports & Analytics (Academic)' },
+
+      // Learner/Student Permissions
+      { key: 'learners.leave_onduty.apply', label: 'Apply for Leave/OnDuty (Students)' },
+      { key: 'learners.leave_onduty.view', label: 'View My Applications (Students)' },
+      { key: 'learners.leave_onduty.edit', label: 'Edit My Applications (Students)' },
+      { key: 'learners.leave_onduty.cancel', label: 'Cancel My Applications (Students)' }
     ]
   },
   {
@@ -525,7 +550,10 @@ export const PERMISSION_CATEGORIES = [
       },
       { key: 'resources.approvals.reject', label: 'Reject Resource Requests' },
       { key: 'resources.analytics.view', label: 'View Resource Analytics' },
-      { key: 'resources.reports.view', label: 'View Resource Reports' }
+      { key: 'resources.reports.view', label: 'View Resource Reports' },
+      { key: 'resources.maintenance.view', label: 'View Resource Maintenance' },
+      { key: 'resources.maintenance.create', label: 'Create Maintenance Records' },
+      { key: 'resources.maintenance.edit', label: 'Edit Maintenance Records' }
     ]
   },
   {
@@ -561,246 +589,146 @@ export const PERMISSION_CATEGORIES = [
       { key: 'lti.launches.debug', label: 'Debug LTI Launches' }
     ]
   },
-  // ============================================
-  // SOLUTIONS HUB PERMISSIONS
-  // Added: 2026-02-03 for Solutions Hub integration
-  // ============================================
   {
-    name: 'Solutions Hub - General',
-    key: 'solutions_hub',
+    name: 'Service Requests',
+    key: 'service_requests',
     permissions: [
-      { key: 'solutions_hub.view', label: 'View Solutions Hub' },
-      { key: 'solutions_hub.admin', label: 'Admin Access' },
-      { key: 'solutions_hub.full_access', label: 'Full Access (Super Admin)' },
-      { key: 'solutions_hub.department.dashboard', label: 'View Department Dashboard' },
-      { key: 'solutions_hub.department.view', label: 'View Department Data' },
-      { key: 'solutions_hub.reports.view', label: 'View Reports' },
-      { key: 'solutions_hub.reports.export', label: 'Export Reports' },
-      { key: 'solutions_hub.analytics.view', label: 'View Analytics' },
-      { key: 'solutions_hub.settings.view', label: 'View Settings' },
-      { key: 'solutions_hub.settings.edit', label: 'Edit Settings' }
+      { key: 'service_requests.types.view', label: 'View Service Types' },
+      { key: 'service_requests.types.create', label: 'Create Service Types' },
+      { key: 'service_requests.types.edit', label: 'Edit Service Types' },
+      { key: 'service_requests.types.delete', label: 'Delete Service Types' },
+      { key: 'service_requests.submit', label: 'Submit Service Requests' },
+      { key: 'service_requests.view_own', label: 'View Own Requests' },
+      { key: 'service_requests.view_all', label: 'View All Requests' },
+      { key: 'service_requests.edit_own', label: 'Edit Own Requests' },
+      { key: 'service_requests.cancel_own', label: 'Cancel Own Requests' },
+      { key: 'service_requests.approve', label: 'Approve/Reject Requests' },
+      { key: 'service_requests.fulfill', label: 'Mark Requests Fulfilled' },
+      { key: 'service_requests.close', label: 'Close Requests' },
+      { key: 'service_requests.analytics.view', label: 'View Analytics' },
+      { key: 'service_requests.external_api.manage', label: 'Manage External API' },
     ]
   },
-  {
-    name: 'Solutions Hub - Clients',
-    key: 'solutions_hub_clients',
-    permissions: [
-      { key: 'solutions_hub.clients.view', label: 'View Clients' },
-      { key: 'solutions_hub.clients.create', label: 'Create Clients' },
-      { key: 'solutions_hub.clients.edit', label: 'Edit Clients' },
-      { key: 'solutions_hub.clients.delete', label: 'Delete Clients' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Solutions',
-    key: 'solutions_hub_solutions',
-    permissions: [
-      { key: 'solutions_hub.solutions.view', label: 'View Solutions' },
-      { key: 'solutions_hub.solutions.create', label: 'Create Solutions' },
-      { key: 'solutions_hub.solutions.edit', label: 'Edit Solutions' },
-      { key: 'solutions_hub.solutions.delete', label: 'Delete Solutions' },
-      { key: 'solutions_hub.solutions.approve', label: 'Approve Solutions' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Compliance',
-    key: 'solutions_hub_compliance',
-    permissions: [
-      { key: 'solutions_hub.compliance.view', label: 'View Compliance Dashboard' },
-      { key: 'solutions_hub.compliance.manage', label: 'Manage Clearance (Grant/Revoke)' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Phases',
-    key: 'solutions_hub_phases',
-    permissions: [
-      { key: 'solutions_hub.phases.view', label: 'View Phases' },
-      { key: 'solutions_hub.phases.create', label: 'Create Phases' },
-      { key: 'solutions_hub.phases.edit', label: 'Edit Phases' },
-      { key: 'solutions_hub.phases.delete', label: 'Delete Phases' },
-      { key: 'solutions_hub.phases.assign', label: 'Assign Phases' },
-      { key: 'solutions_hub.phases.approve', label: 'Approve Phases' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Builders (Software Talent)',
-    key: 'solutions_hub_builders',
-    permissions: [
-      // Admin permissions
-      { key: 'solutions_hub.builders.view', label: 'View Builders' },
-      { key: 'solutions_hub.builders.create', label: 'Create Builders' },
-      { key: 'solutions_hub.builders.edit', label: 'Edit Builders' },
-      { key: 'solutions_hub.builders.delete', label: 'Delete Builders' },
-      { key: 'solutions_hub.builders.assign', label: 'Assign Builders to Phases' },
-      // Builder portal permissions
-      { key: 'solutions_hub.builder.dashboard', label: 'Builder Portal Dashboard' },
-      { key: 'solutions_hub.builder.assignments.view', label: 'View My Assignments' },
-      { key: 'solutions_hub.builder.assignments.claim', label: 'Claim Assignments' },
-      { key: 'solutions_hub.builder.phases.view', label: 'View Available Phases' },
-      { key: 'solutions_hub.builder.phases.claim', label: 'Claim Phases' },
-      { key: 'solutions_hub.builder.work.submit', label: 'Submit Work' },
-      { key: 'solutions_hub.builder.iterations.view', label: 'View Iterations' },
-      { key: 'solutions_hub.builder.iterations.create', label: 'Create Iterations' },
-      { key: 'solutions_hub.builder.bugs.view', label: 'View Bug Reports' },
-      { key: 'solutions_hub.builder.bugs.create', label: 'Create Bug Reports' },
-      { key: 'solutions_hub.builder.earnings.view', label: 'View My Earnings' },
-      { key: 'solutions_hub.builder.profile.view', label: 'View Builder Profile' },
-      { key: 'solutions_hub.builder.profile.edit', label: 'Edit Builder Profile' },
-      { key: 'solutions_hub.builder.skills.view', label: 'View Skills' },
-      { key: 'solutions_hub.builder.skills.edit', label: 'Edit Skills' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Training & Cohort',
-    key: 'solutions_hub_training',
-    permissions: [
-      // Admin permissions
-      { key: 'solutions_hub.training.view', label: 'View Training Programs' },
-      { key: 'solutions_hub.training.create', label: 'Create Training Programs' },
-      { key: 'solutions_hub.training.edit', label: 'Edit Training Programs' },
-      { key: 'solutions_hub.training.delete', label: 'Delete Training Programs' },
-      { key: 'solutions_hub.training.sessions.view', label: 'View Training Sessions' },
-      { key: 'solutions_hub.training.sessions.manage', label: 'Manage Training Sessions' },
-      { key: 'solutions_hub.cohort.view', label: 'View Cohort Members' },
-      { key: 'solutions_hub.cohort.manage', label: 'Manage Cohort Members' },
-      // Cohort member portal permissions
-      { key: 'solutions_hub.cohort.dashboard', label: 'Cohort Portal Dashboard' },
-      { key: 'solutions_hub.cohort.sessions.view', label: 'View Available Sessions' },
-      { key: 'solutions_hub.cohort.sessions.claim', label: 'Claim Sessions' },
-      { key: 'solutions_hub.cohort.assignments.view', label: 'View My Assignments' },
-      { key: 'solutions_hub.cohort.assignments.claim', label: 'Claim Assignments' },
-      { key: 'solutions_hub.cohort.programs.view', label: 'View My Programs' },
-      { key: 'solutions_hub.cohort.earnings.view', label: 'View My Earnings' },
-      { key: 'solutions_hub.cohort.profile.view', label: 'View Cohort Profile' },
-      { key: 'solutions_hub.cohort.profile.edit', label: 'Edit Cohort Profile' },
-      { key: 'solutions_hub.cohort.stats.view', label: 'View My Stats' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Content & Production',
-    key: 'solutions_hub_content',
-    permissions: [
-      // Admin permissions
-      { key: 'solutions_hub.content.view', label: 'View Content Orders' },
-      { key: 'solutions_hub.content.create', label: 'Create Content Orders' },
-      { key: 'solutions_hub.content.edit', label: 'Edit Content Orders' },
-      { key: 'solutions_hub.content.delete', label: 'Delete Content Orders' },
-      { key: 'solutions_hub.content.orders.view', label: 'View Order Details' },
-      { key: 'solutions_hub.content.orders.manage', label: 'Manage Orders' },
-      { key: 'solutions_hub.production.view', label: 'View Production Learners' },
-      { key: 'solutions_hub.production.manage', label: 'Manage Production Learners' },
-      // Production learner portal permissions
-      { key: 'solutions_hub.production.dashboard', label: 'Production Portal Dashboard' },
-      { key: 'solutions_hub.production.orders.view', label: 'View My Orders' },
-      { key: 'solutions_hub.production.deliverables.view', label: 'View Deliverables' },
-      { key: 'solutions_hub.production.deliverables.submit', label: 'Submit Deliverables' },
-      { key: 'solutions_hub.production.assignments.view', label: 'View My Assignments' },
-      { key: 'solutions_hub.production.assignments.claim', label: 'Claim Assignments' },
-      { key: 'solutions_hub.production.queue.view', label: 'View Work Queue' },
-      { key: 'solutions_hub.production.earnings.view', label: 'View My Earnings' },
-      { key: 'solutions_hub.production.profile.view', label: 'View Production Profile' },
-      { key: 'solutions_hub.production.profile.edit', label: 'Edit Production Profile' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Discovery',
-    key: 'solutions_hub_discovery',
-    permissions: [
-      { key: 'solutions_hub.discovery.view', label: 'View Discovery Visits' },
-      { key: 'solutions_hub.discovery.create', label: 'Create Discovery Visits' },
-      { key: 'solutions_hub.discovery.edit', label: 'Edit Discovery Visits' },
-      { key: 'solutions_hub.discovery.delete', label: 'Delete Discovery Visits' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Financials',
-    key: 'solutions_hub_financials',
-    permissions: [
-      { key: 'solutions_hub.payments.view', label: 'View Payments' },
-      { key: 'solutions_hub.payments.create', label: 'Create Payments' },
-      { key: 'solutions_hub.payments.edit', label: 'Edit Payments' },
-      { key: 'solutions_hub.payments.delete', label: 'Delete Payments' },
-      { key: 'solutions_hub.payments.approve', label: 'Approve Payments' },
-      { key: 'solutions_hub.earnings.view', label: 'View Earnings Ledger' },
-      { key: 'solutions_hub.earnings.process', label: 'Process Earnings' },
-      { key: 'solutions_hub.revenue.view', label: 'View Revenue Split' },
-      { key: 'solutions_hub.revenue.configure', label: 'Configure Revenue Split' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Publications',
-    key: 'solutions_hub_publications',
-    permissions: [
-      { key: 'solutions_hub.publications.view', label: 'View Publications' },
-      { key: 'solutions_hub.publications.create', label: 'Create Publications' },
-      { key: 'solutions_hub.publications.edit', label: 'Edit Publications' },
-      { key: 'solutions_hub.publications.delete', label: 'Delete Publications' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - JICATE',
-    key: 'solutions_hub_jicate',
-    permissions: [
-      { key: 'solutions_hub.jicate.sessions.view', label: 'View JICATE Sessions' },
-      { key: 'solutions_hub.jicate.sessions.manage', label: 'Manage JICATE Sessions' }
-    ]
-  },
-  {
-    name: 'Solutions Hub - Client Portal',
-    key: 'solutions_hub_client_portal',
-    permissions: [
-      { key: 'solutions_hub.client.portal', label: 'Access Client Portal' },
-      { key: 'solutions_hub.client.dashboard', label: 'Client Dashboard' },
-      { key: 'solutions_hub.client.solutions.view_own', label: 'View Own Solutions' },
-      { key: 'solutions_hub.client.phases.view_own', label: 'View Own Phases' },
-      { key: 'solutions_hub.client.deliverables.view_own', label: 'View Own Deliverables' },
-      { key: 'solutions_hub.client.invoices.view_own', label: 'View Own Invoices' },
-      { key: 'solutions_hub.client.payments.view_own', label: 'View Own Payments' },
-      { key: 'solutions_hub.client.communications.view_own', label: 'View Communications' },
-      { key: 'solutions_hub.client.communications.create', label: 'Send Communications' },
-      { key: 'solutions_hub.client.profile.view', label: 'View Client Profile' },
-      { key: 'solutions_hub.client.profile.edit', label: 'Edit Client Profile' }
-    ]
-  },
-  // ============================================
-  // STARTUP STUDIO PERMISSIONS
-  // Added: 2026-03-05 for Startup Studio module
-  // ============================================
   {
     name: 'Startup Studio',
     key: 'startup_studio',
     permissions: [
-      // General access
-      { key: 'startup_studio.view', label: 'View Startup Studio Dashboard' },
-
-      // Flywheel Cycles
-      { key: 'startup_studio.cycles.view', label: 'View Flywheel Cycles' },
-      { key: 'startup_studio.cycles.create', label: 'Create Flywheel Cycles' },
-
       // Events
       { key: 'startup_studio.events.view', label: 'View Events' },
       { key: 'startup_studio.events.create', label: 'Create Events' },
-      { key: 'startup_studio.events.edit', label: 'Edit Events' },
-      { key: 'startup_studio.events.register', label: 'Register for Events' },
-      { key: 'startup_studio.events.submit', label: 'Submit to Events' },
+      { key: 'startup_studio.events.manage', label: 'Manage Events (Edit, Status, Config)' },
 
-      // Problem Bank
-      { key: 'startup_studio.problem_bank.view', label: 'View Problem Bank' },
-      { key: 'startup_studio.problem_bank.create', label: 'Create Problems' },
-      { key: 'startup_studio.problem_bank.edit', label: 'Edit Problems' },
+      // Registrations
+      { key: 'startup_studio.registrations.view', label: 'View Registrations' },
+      { key: 'startup_studio.registrations.manage', label: 'Manage Registrations (Check-in, Lovable Verify)' },
 
-      // Submissions / Appathon
-      { key: 'startup_studio.submissions.view', label: 'View Submissions / Appathon' },
-      { key: 'startup_studio.submissions.create', label: 'Create Submissions' },
-      { key: 'startup_studio.submissions.score', label: 'Score Submissions (Judge)' },
+      // Venues & Staff
+      { key: 'startup_studio.venues.manage', label: 'Manage Venues & Staff Assignments' },
 
-      // Admin-only features
-      { key: 'startup_studio.nif.view', label: 'View NIF Pipeline (Admin)' },
-      { key: 'startup_studio.nif.manage', label: 'Manage NIF Pipeline (Admin)' },
-      { key: 'startup_studio.analytics.view', label: 'View Analytics (Admin)' },
-      { key: 'startup_studio.registrations.view', label: 'View Registrations Dashboard (Admin)' },
-      { key: 'startup_studio.checklists.view', label: 'View Event Checklists (Admin)' },
-      { key: 'startup_studio.checklists.manage', label: 'Manage Event Checklists (Admin)' }
+      // Submissions
+      { key: 'startup_studio.submissions.view', label: 'View Submissions' },
+      { key: 'startup_studio.submissions.verify_mrr', label: 'Verify/Reject MRR Claims' },
+
+      // Leaderboard
+      { key: 'startup_studio.leaderboard.view', label: 'View Leaderboard' },
+      { key: 'startup_studio.leaderboard.publish', label: 'Publish/Unpublish Results' },
+
+      // Demo Day
+      { key: 'startup_studio.demo_day.manage', label: 'Manage Demo Day Slots' },
+
+      // Evaluations
+      { key: 'startup_studio.evaluations.manage', label: 'Manage Demo Day Evaluations' },
+
+      // Checklists
+      { key: 'startup_studio.checklists.manage', label: 'Manage Event Checklists' },
+    ]
+  },
+  {
+    name: 'Administration',
+    key: 'admin',
+    permissions: [
+      { key: 'admin.lifecycle.view', label: 'View Lifecycle Analytics Dashboard' },
+      { key: 'system.bugs.view', label: 'View All Bug Reports (Admin)' },
+      { key: 'audit.view', label: 'View Audit Trail' },
+      { key: 'users.dashboard.view', label: 'View User Analytics Dashboard' },
+      { key: 'ai_query.view', label: 'Access AI Assistant' }
+    ]
+  },
+  {
+    name: 'Admission CRM',
+    key: 'admission',
+    permissions: [
+      // Dashboard & Analytics
+      { key: 'admission.dashboard.view', label: 'View Admission Dashboard' },
+      { key: 'admission.analytics.view', label: 'View Admission Analytics' },
+      { key: 'admission.group_dashboard.view', label: 'View Group Dashboard' },
+      { key: 'admission.insights.view', label: 'View AI Insights' },
+
+      // Lead Management
+      { key: 'admission.leads.view', label: 'View Leads' },
+      { key: 'admission.leads.create', label: 'Create Leads' },
+      { key: 'admission.leads.edit', label: 'Edit Leads' },
+      { key: 'admission.leads.delete', label: 'Delete Leads' },
+      { key: 'admission.leads.assign', label: 'Assign Leads to Counselors' },
+      { key: 'admission.leads.bulk_upload', label: 'Bulk Upload Leads' },
+      { key: 'admission.leads.bulk_status_update', label: 'Bulk Update Lead Status' },
+      { key: 'admission.leads.export', label: 'Export Leads' },
+
+      // Application Management
+      { key: 'admission.applications.view', label: 'View Applications' },
+      { key: 'admission.applications.create', label: 'Create Applications' },
+      { key: 'admission.applications.edit', label: 'Edit Applications' },
+      { key: 'admission.applications.delete', label: 'Delete Applications' },
+      { key: 'admission.applications.approve', label: 'Approve/Reject Applications' },
+
+      // Counselor Management
+      { key: 'admission.counselors.view', label: 'View Counselors' },
+      { key: 'admission.counselors.create', label: 'Create Counselors' },
+      { key: 'admission.counselors.edit', label: 'Edit Counselors' },
+      { key: 'admission.counselors.delete', label: 'Delete Counselors' },
+      { key: 'admission.counselors.performance.view', label: 'View Counselor Performance' },
+
+      // Consultant Management
+      { key: 'admission.consultants.view', label: 'View Education Consultants' },
+      { key: 'admission.consultants.create', label: 'Create Education Consultants' },
+      { key: 'admission.consultants.edit', label: 'Edit Education Consultants' },
+      { key: 'admission.consultants.delete', label: 'Delete Education Consultants' },
+      { key: 'admission.consultants.analytics.view', label: 'View Consultant Analytics' },
+      { key: 'admission.consultants.commissions.view', label: 'View Commissions' },
+      { key: 'admission.consultants.commissions.manage', label: 'Manage Commissions & Payouts' },
+      { key: 'admission.consultants.referrals.view', label: 'View Referrals' },
+      { key: 'admission.consultants.rewards.view', label: 'View Rewards' },
+      { key: 'admission.consultants.rewards.manage', label: 'Manage Rewards Configuration' },
+
+      // Marketing & Campaigns
+      { key: 'admission.marketing.view', label: 'View Marketing Campaigns' },
+      { key: 'admission.marketing.create', label: 'Create Marketing Campaigns' },
+      { key: 'admission.marketing.edit', label: 'Edit Marketing Campaigns' },
+      { key: 'admission.marketing.delete', label: 'Delete Marketing Campaigns' },
+      { key: 'admission.marketing.chat.view', label: 'View WhatsApp Chat' },
+      { key: 'admission.marketing.chat.manage', label: 'Manage WhatsApp Chat' },
+      { key: 'admission.marketing.chatbot.view', label: 'View Chatbot' },
+      { key: 'admission.marketing.chatbot.manage', label: 'Manage Chatbot & Knowledge Base' },
+      { key: 'admission.marketing.voice.view', label: 'View Voice Agents & Broadcast' },
+      { key: 'admission.marketing.voice.manage', label: 'Manage Voice Agents & Broadcast' },
+
+      // Data Quality
+      { key: 'admission.data_quality.view', label: 'View Data Quality Reports' },
+      { key: 'admission.data_quality.manage', label: 'Manage Data Quality (Dedup, Validation)' },
+
+      // Settings & Configuration
+      { key: 'admission.settings.view', label: 'View Admission Settings' },
+      { key: 'admission.settings.manage', label: 'Manage Admission Settings' },
+      { key: 'admission.settings.templates.view', label: 'View Communication Templates' },
+      { key: 'admission.settings.templates.manage', label: 'Manage Communication Templates' },
+      { key: 'admission.settings.workflows.view', label: 'View Workflows' },
+      { key: 'admission.settings.workflows.manage', label: 'Manage Workflows & Configuration' },
+      { key: 'admission.settings.assignment.view', label: 'View Assignment Rules' },
+      { key: 'admission.settings.assignment.manage', label: 'Manage Assignment Rules' },
+      { key: 'admission.settings.sources.view', label: 'View Lead Sources' },
+      { key: 'admission.settings.sources.manage', label: 'Manage Lead Sources' },
+      { key: 'admission.settings.whatsapp.view', label: 'View WhatsApp Settings' },
+      { key: 'admission.settings.whatsapp.manage', label: 'Manage WhatsApp Numbers & Settings' }
     ]
   }
 ];

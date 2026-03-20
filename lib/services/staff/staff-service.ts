@@ -18,12 +18,13 @@ import type {
   StaffGeographicStats,
   StaffDemographicStats,
   StaffTenureAnalytics,
-  StaffProfileAnalytics,
-  StaffRoleType,
-  FacilitatorCertification,
-  StaffOutcomeMetrics
+  StaffProfileAnalytics
 } from '@/types/staff';
 import toast from 'react-hot-toast';
+import {
+  buildStaffSearchConditions,
+  resolveStaffFiltersForUser
+} from '@/lib/utils/staff-search';
 
 interface CreateStaffDto {
   first_name: string;
@@ -115,6 +116,7 @@ export class StaffService {
         (error.code === '42501' ||
           error.message?.includes('row-level security'))
       ) {
+        console.log('RLS error detected, attempting API route creation...');
 
         try {
           // Use fetch to call our API route which has proper service role access
@@ -144,6 +146,9 @@ export class StaffService {
       // Profile auto-creation is handled by the database trigger (sync_staff_to_profiles)
       // The trigger creates/updates a profile when staff with institution_email is created
       if (staff?.institution_email) {
+        console.log(
+          `✓ Staff created successfully. Profile will be auto-created by database trigger for ${staff.institution_email}`
+        );
 
         if (!suppressToast) {
           toast.success(
@@ -151,6 +156,9 @@ export class StaffService {
           );
         }
       } else {
+        console.log(
+          'No institution_email provided, profile will not be created'
+        );
         if (!suppressToast) {
           toast.success(`Staff created successfully`);
         }
@@ -172,15 +180,22 @@ export class StaffService {
       if (!userData.user) throw new Error('No authenticated user');
 
       // Get the current staff data before update
-      const { data: currentStaff, error: fetchError } = await this.supabase
+      let currentStaff: any = null;
+      const { data: fetchedStaff, error: fetchError } = await this.supabase
         .from('staff')
         .select('institution_email, institution_id')
         .eq('id', id)
         .single();
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        // RLS may block the read — try via API route
+        console.warn('[staff-service] Direct fetch for pre-update data failed, will use API fallback');
+      } else {
+        currentStaff = fetchedStaff;
+      }
 
-      const { data: staff, error } = await (this.supabase
+      // First attempt: Try with regular authenticated client
+      let { data: staff, error } = await (this.supabase
         .from('staff') as any)
         .update({
           ...data,
@@ -191,15 +206,46 @@ export class StaffService {
         .select()
         .single();
 
+      // If we get a RLS/PGRST116 error, fall back to API route
+      if (
+        error &&
+        (error.code === '42501' ||
+          error.code === 'PGRST116' ||
+          error.message?.includes('row-level security') ||
+          error.message?.includes('0 rows'))
+      ) {
+        console.log('[staff-service] RLS error on update, attempting API route...');
+
+        try {
+          const response = await fetch(`/api/staff/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'API route update failed');
+          }
+
+          staff = await response.json();
+          error = null;
+        } catch (apiError) {
+          console.error('[staff-service] API route update also failed:', apiError);
+          // Re-throw the original error if API also fails
+        }
+      }
+
       if (error) throw error;
 
       // If institution_id was updated and staff has an institution_email, update the profile
-      if (data.institution_id && (currentStaff as any).institution_email) {
+      const institutionEmail = currentStaff?.institution_email || staff?.institution_email;
+      if (data.institution_id && institutionEmail) {
         try {
           const { error: profileUpdateError } = await (this.supabase
             .from('profiles') as any)
             .update({ institution_id: data.institution_id })
-            .eq('email', (currentStaff as any).institution_email);
+            .eq('email', institutionEmail);
 
           if (profileUpdateError) {
             console.warn(
@@ -210,6 +256,9 @@ export class StaffService {
               'Staff updated but failed to sync user profile institution'
             );
           } else {
+            console.log(
+              `Updated institution_id in profile for ${institutionEmail}`
+            );
           }
         } catch (profileError) {
           console.warn('Error updating profile institution_id:', profileError);
@@ -225,6 +274,7 @@ export class StaffService {
 
   static async deleteStaff(id: string): Promise<void> {
     try {
+      console.log(`Deleting staff ${id}. Profile will be auto-deleted by database trigger.`);
 
       // Delete the staff record
       // The database trigger (trg_delete_staff_profile) will automatically delete
@@ -233,6 +283,7 @@ export class StaffService {
 
       if (error) throw error;
 
+      console.log(`✓ Staff ${id} deleted successfully. Profile auto-deleted by trigger.`);
     } catch (error) {
       console.error('Error deleting staff:', error);
       throw error;
@@ -278,12 +329,12 @@ export class StaffService {
             id,
             category_name
           ),
-          institution:institutions!staff_institution_id_fkey(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          department:departments!staff_department_id_fkey(
+          department:departments(
             id,
             department_name
           )
@@ -295,13 +346,20 @@ export class StaffService {
       // This reduces the dataset before applying other filters, dramatically improving performance
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
+        console.log('[staff-service] Applied institution filter first:', filters.institution_id);
       }
 
       // Apply other filters AFTER institution filter
       if (filters.search) {
-        query = query.or(
-          `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,staff_id.ilike.%${filters.search}%`
-        );
+        const searchConditions = buildStaffSearchConditions(filters.search, {
+          caseSensitive: filters.search_case_sensitive,
+          exactMatch: filters.search_exact_match,
+          searchFields: filters.search_fields
+        });
+
+        if (searchConditions.length > 0) {
+          query = query.or(searchConditions.join(','));
+        }
       }
 
       if (filters.category_id) {
@@ -342,6 +400,7 @@ export class StaffService {
       const queryTime = endTime - startTime;
 
       // Log performance metrics
+      console.log(`[staff-service] Query completed in ${queryTime.toFixed(2)}ms | Returned ${staff?.length || 0} records | Estimated total: ${count || 0}`);
 
       // Warn if query is slow
       if (queryTime > 5000) {
@@ -363,10 +422,12 @@ export class StaffService {
     }
   }
 
-  // Enhanced method with automatic institution filtering for HOD users
+  // Enhanced method with automatic institution filtering for HOD/faculty users
   static async getStaffWithRoleBasedFiltering(
     filters: StaffFilters = {},
     userProfile?: {
+      id?: string;
+      email?: string;
       role: string;
       department_id?: string;
       institution_id?: string;
@@ -374,25 +435,104 @@ export class StaffService {
     }
   ): Promise<StaffListResponse> {
     try {
+      const effectiveFilters = resolveStaffFiltersForUser(filters, {
+        role: userProfile?.role || '',
+        institution_id: userProfile?.institution_id
+      });
+
+      // Super admins see all staff
+      if (userProfile?.is_super_admin) {
+        return await this.getStaff(effectiveFilters);
+      }
+
+      // Faculty users can only view their own staff record
+      if (userProfile?.role === 'faculty' && userProfile.email) {
+        console.log(
+          '[staff-service] Applied faculty self-only filter for:',
+          userProfile.email
+        );
+        return await this.getStaffForFacultyUser(
+          effectiveFilters,
+          userProfile.email
+        );
+      }
+
       // If user is HOD and has an institution, automatically filter by their institution
       if (
         userProfile?.role === 'hod' &&
-        userProfile.institution_id &&
-        !userProfile.is_super_admin
+        userProfile.institution_id
       ) {
-        filters.institution_id = userProfile.institution_id;
+        console.log(
+          'Applied HOD institution filter:',
+          userProfile.institution_id
+        );
 
         // For HOD users, use optimized query with explicit institution filtering
         return await this.getStaffOptimizedForHOD(
-          filters,
+          effectiveFilters,
           userProfile.institution_id
         );
       }
 
       // Use the existing getStaff method with enhanced filters
-      return await this.getStaff(filters);
+      return await this.getStaff(effectiveFilters);
     } catch (error) {
       console.error('Error fetching staff with role-based filtering:', error);
+      throw error;
+    }
+  }
+
+  // Faculty users see only their own staff record matched by institution_email
+  private static async getStaffForFacultyUser(
+    filters: StaffFilters,
+    userEmail: string
+  ): Promise<StaffListResponse> {
+    try {
+      const startTime = performance.now();
+
+      let query = (this.supabase as any).from('staff').select(
+        `
+          *,
+          category:employment_categories(
+            id,
+            category_name
+          ),
+          institution:institutions(
+            id,
+            name,
+            counselling_code
+          ),
+          department:departments(
+            id,
+            department_name
+          )
+        `,
+        { count: 'exact' }
+      );
+
+      // Filter to only the faculty user's own record
+      query = query.eq('institution_email', userEmail);
+
+      const { data: staff, error, count } = await query;
+
+      if (error) throw error;
+
+      const endTime = performance.now();
+      console.log(
+        `[staff-service] Faculty self-query completed in ${(endTime - startTime).toFixed(2)}ms | Found ${staff?.length || 0} record(s)`
+      );
+
+      return {
+        data: staff || [],
+        metadata: {
+          total: count || 0,
+          page: 1,
+          limit: filters.limit || 10,
+          totalPages: 1
+        }
+      };
+    } catch (error) {
+      console.error('[staff-service] Error in faculty self-query:', error);
       throw error;
     }
   }
@@ -404,6 +544,7 @@ export class StaffService {
   ): Promise<StaffListResponse> {
     try {
       const startTime = performance.now();
+      console.log('[staff-service] Using optimized HOD query for institution:', institutionId);
 
       // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
       let query = (this.supabase as any).from('staff').select(
@@ -413,12 +554,12 @@ export class StaffService {
             id,
             category_name
           ),
-          institution:institutions!staff_institution_id_fkey(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          department:departments!staff_department_id_fkey(
+          department:departments(
             id,
             department_name
           )
@@ -431,13 +572,23 @@ export class StaffService {
 
       // Apply other filters
       if (filters.search) {
-        query = query.or(
-          `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,staff_id.ilike.%${filters.search}%`
-        );
+        const searchConditions = buildStaffSearchConditions(filters.search, {
+          caseSensitive: filters.search_case_sensitive,
+          exactMatch: filters.search_exact_match,
+          searchFields: filters.search_fields
+        });
+
+        if (searchConditions.length > 0) {
+          query = query.or(searchConditions.join(','));
+        }
       }
 
       if (filters.category_id) {
         query = query.eq('category_id', filters.category_id);
+      }
+
+      if (filters.department_id) {
+        query = query.eq('department_id', filters.department_id);
       }
 
       if (filters.institution_id) {
@@ -480,6 +631,7 @@ export class StaffService {
       const queryTime = endTime - startTime;
 
       // Log performance metrics
+      console.log(`[staff-service] HOD query completed in ${queryTime.toFixed(2)}ms | Returned ${staff?.length || 0} records | Estimated total: ${count || 0}`);
 
       return {
         data: staff || [],
@@ -512,12 +664,12 @@ export class StaffService {
             id,
             category_name
           ),
-          institution:institutions!staff_institution_id_fkey(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          department:departments!staff_department_id_fkey(
+          department:departments(
             id,
             department_name
           )
@@ -686,100 +838,6 @@ export class StaffService {
     }
   }
 
-  // ============================================
-  // FACILITATOR ROLE METHODS (Workshop Transformation P1.5.3)
-  // ============================================
-
-  /**
-   * Update staff role type
-   */
-  static async updateRoleType(
-    staffId: string,
-    roleType: StaffRoleType
-  ): Promise<void> {
-    try {
-      const { error } = await (this.supabase as any)
-        .from('staff')
-        .update({
-          role_type: roleType,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', staffId);
-
-      if (error) throw error;
-      toast.success('Role type updated successfully');
-    } catch (error) {
-      console.error('[staff-service] Error updating role type:', error);
-      toast.error('Failed to update role type');
-      throw error;
-    }
-  }
-
-  /**
-   * Update facilitator certifications
-   */
-  static async updateFacilitatorCertifications(
-    staffId: string,
-    certifications: FacilitatorCertification[]
-  ): Promise<void> {
-    try {
-      const { error } = await (this.supabase as any)
-        .from('staff')
-        .update({
-          facilitator_certification: certifications,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', staffId);
-
-      if (error) throw error;
-      toast.success('Certifications updated successfully');
-    } catch (error) {
-      console.error('[staff-service] Error updating certifications:', error);
-      toast.error('Failed to update certifications');
-      throw error;
-    }
-  }
-
-  /**
-   * Update staff outcome metrics
-   */
-  static async updateOutcomeMetrics(
-    staffId: string,
-    metrics: Partial<StaffOutcomeMetrics>
-  ): Promise<void> {
-    try {
-      // Get current metrics and merge
-      const { data: current, error: fetchError } = await (this.supabase as any)
-        .from('staff')
-        .select('outcome_metrics')
-        .eq('id', staffId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      const merged = {
-        ...(current?.outcome_metrics || {}),
-        ...metrics,
-        last_computed: new Date().toISOString()
-      };
-
-      const { error } = await (this.supabase as any)
-        .from('staff')
-        .update({
-          outcome_metrics: merged,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', staffId);
-
-      if (error) throw error;
-      toast.success('Outcome metrics updated successfully');
-    } catch (error) {
-      console.error('[staff-service] Error updating outcome metrics:', error);
-      toast.error('Failed to update outcome metrics');
-      throw error;
-    }
-  }
-
   // Dashboard Analytics Methods
 
   static async getDashboardStats(
@@ -907,7 +965,7 @@ export class StaffService {
     });
 
     const profileCompletionRate =
-      totalStaff > 0 && totalFieldsExpected > 0 ? (totalFieldsCompleted / totalFieldsExpected) * 100 : 0;
+      totalStaff > 0 ? (totalFieldsCompleted / totalFieldsExpected) * 100 : 0;
 
     // Calculate average tenure
     const totalTenure =
@@ -1010,7 +1068,7 @@ export class StaffService {
     let query = (supabase as any).from('staff').select(`
         institution_id,
         is_active,
-        institution:institutions!staff_institution_id_fkey(id, name)
+        institution:institutions(id, name)
       `);
 
     // Apply filters
@@ -1051,8 +1109,8 @@ export class StaffService {
         department_id,
         institution_id,
         is_active,
-        department:departments!staff_department_id_fkey(id, department_name),
-        institution:institutions!staff_institution_id_fkey(id, name)
+        department:departments(id, department_name),
+        institution:institutions(id, name)
       `);
 
     // Apply filters
@@ -1209,8 +1267,8 @@ export class StaffService {
     let query = (supabase as any).from('staff').select(`
         date_of_joining,
         category:employment_categories(category_name),
-        department:departments!staff_department_id_fkey(department_name),
-        institution:institutions!staff_institution_id_fkey(name)
+        department:departments(department_name),
+        institution:institutions(name)
       `);
 
     // Apply filters

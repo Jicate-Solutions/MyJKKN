@@ -183,8 +183,8 @@ export class WhatsAppChatService {
 
     // Use !inner join when filtering by funnel_stage so only conversations with matching leads are returned
     const leadJoin = filters.funnel_stage
-      ? 'lead:admission_leads!wa_conversations_lead_id_fkey!inner(id, full_name, email, phone, stage, funnel_stage, score, source, assigned_to)'
-      : 'lead:admission_leads!wa_conversations_lead_id_fkey(id, full_name, email, phone, stage, score, source, assigned_to)';
+      ? 'lead:admission_leads!wa_conversations_lead_id_fkey!inner(id, full_name, email, phone, stage, funnel_stage, score, source, counselor_id)'
+      : 'lead:admission_leads!wa_conversations_lead_id_fkey(id, full_name, email, phone, stage, score, source, counselor_id)';
 
     let query = supabase
       .from('wa_conversations')

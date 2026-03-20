@@ -10,7 +10,6 @@ import {
   type UpdateAssignmentRuleInput,
   type AssignmentStats,
 } from '@/lib/services/admission/assignment-rules-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // Query keys
 export const assignmentRulesKeys = {
@@ -27,12 +26,10 @@ export const assignmentRulesKeys = {
  * Hook to fetch all assignment rules for an institution
  */
 export function useAssignmentRules(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: assignmentRulesKeys.list(institutionId || ''),
     queryFn: () => AssignmentRulesService.getAssignmentRules(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {
@@ -48,12 +45,10 @@ export function useAssignmentRules(institutionId?: string) {
  * Hook to fetch active assignment rules for an institution
  */
 export function useActiveAssignmentRules(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: assignmentRulesKeys.active(institutionId || ''),
     queryFn: () => AssignmentRulesService.getActiveAssignmentRules(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {
@@ -88,12 +83,10 @@ export function useAssignmentRule(id?: string) {
  * Hook to fetch assignment statistics
  */
 export function useAssignmentStats(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: assignmentRulesKeys.stats(institutionId || ''),
     queryFn: () => AssignmentRulesService.getAssignmentStats(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 30000, // 30 seconds
   });
 

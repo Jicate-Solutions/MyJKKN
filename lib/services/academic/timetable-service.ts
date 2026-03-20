@@ -1,6 +1,8 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { trackUsage } from '@/lib/utils/track-usage';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   Timetable,
   CreateTimetableDto,
@@ -11,7 +13,8 @@ import type {
   TemplateListResponse,
   CreateTemplateDto,
   UpdateTemplateDto,
-  DayOfWeek
+  DayOfWeek,
+  TimetableData
 } from '@/types/academics';
 import toast from 'react-hot-toast';
 
@@ -373,6 +376,35 @@ Please select a different date period that doesn't overlap.`
         throw new Error('Failed to create timetable.');
       }
 
+      trackUsage({ module: 'academic/timetables', feature: 'create_timetable', eventType: 'create' });
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const isTemplate = timetable.is_template;
+          const name = timetable.timetable_name || timetable.template_name || timetable.id;
+          const template = isTemplate
+            ? AcademicActivityTemplates.timetableTemplateCreated(name)
+            : AcademicActivityTemplates.timetableCreated(name);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: timetable.id,
+            resourceName: name,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              is_template: timetable.is_template,
+              section_id: timetable.section_id,
+              semester_id: timetable.semester_id,
+              academic_year_id: timetable.academic_year_id,
+            },
+            institutionId: timetable.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return timetable;
     } catch (error) {
       logger.error('academic/timetables', 'Error in createTimetable service', error);
@@ -584,6 +616,26 @@ Please select a different date period that doesn't overlap.`
         throw error;
       }
 
+      trackUsage({ module: 'academic/timetables', feature: 'update_timetable', eventType: 'update' });
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const name = timetable.timetable_name || id;
+          const template = AcademicActivityTemplates.timetableUpdated(name, Object.keys(data));
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: name,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, changed_fields: Object.keys(data) },
+            institutionId: timetable.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       toast.success('Timetable configuration saved successfully!', {
         duration: 3000,
         position: 'top-center',
@@ -601,6 +653,19 @@ Please select a different date period that doesn't overlap.`
 
   static async deleteTimetable(id: string, showToast = true): Promise<void> {
     try {
+      // Pre-fetch timetable name for activity logging before any guard checks
+      let timetableNameForLog = id;
+      let timetableInstitutionId: string | undefined;
+      try {
+        const { data: tt } = await TimetableService.supabase
+          .from('timetables')
+          .select('timetable_name, institution_id')
+          .eq('id', id)
+          .single();
+        timetableNameForLog = tt?.timetable_name || id;
+        timetableInstitutionId = tt?.institution_id;
+      } catch { /* ignore */ }
+
       // First check if this timetable has any attendance records
       const { data: attendanceRecords, error: attendanceCheckError } = (await this.supabase
         .from('student_attendance')
@@ -647,6 +712,25 @@ Please select a different date period that doesn't overlap.`
 
       if (error) throw error;
 
+      trackUsage({ module: 'academic/timetables', feature: 'delete_timetable', eventType: 'delete' });
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.timetableDeleted(timetableNameForLog);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: timetableNameForLog,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: timetableInstitutionId,
+          });
+        } catch { /* never block */ }
+      })();
       if (showToast) {
         toast.success('Timetable deleted successfully');
       }
@@ -1034,7 +1118,7 @@ Please select a different date period that doesn't overlap.`
     timetable: any
   ): Promise<Timetable> {
     try {
-      const timetableData = timetable.timetable_data;
+      const timetableData = timetable.timetable_data as TimetableData | null;
       if (!timetableData || typeof timetableData !== 'object') {
         return timetable;
       }
@@ -1044,9 +1128,9 @@ Please select a different date period that doesn't overlap.`
       const courseIds = new Set<string>();
       const staffIds = new Set<string>();
 
-      Object.values(timetableData).forEach((daySlots: any) => {
+      Object.values(timetableData).forEach((daySlots) => {
         if (daySlots && typeof daySlots === 'object') {
-          Object.values(daySlots).forEach((slot: any) => {
+          Object.values(daySlots).forEach((slot) => {
             if (slot && typeof slot === 'object') {
               // Extract from main slot
               if (slot.course_id) {
@@ -1389,7 +1473,7 @@ Please select a different date period that doesn't overlap.`
           throw error;
         }
 
-        return (data || []).map((item: any) => item.slot);
+        return data.map((item: any) => item.slot);
       } else {
         // New logic to fetch all slots if no day or date is provided
         const { data, error } = await (this.supabase as any).rpc(
@@ -1403,7 +1487,7 @@ Please select a different date period that doesn't overlap.`
           logger.error('academic/timetables', 'Error in getTimetableSlots (all)', error);
           throw error;
         }
-        return (data || []).map((item: any) => item.slot);
+        return data.map((item: any) => item.slot);
       }
     } catch (error) {
       logger.error('academic/timetables', 'Error fetching timetable slots', error);
@@ -1610,6 +1694,26 @@ Please select a different date period that doesn't overlap.`
       if (!suppressToast) {
         toast.success('Timetable slot updated successfully!');
       }
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.timetableSlotUpdated(
+            timetableId,
+            day || 'unknown',
+            periodId || 'slot'
+          );
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: timetableId,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, day, period_id: periodId },
+          });
+        } catch { /* never block */ }
+      })();
       return data;
     } catch (error) {
       logger.error('academic/timetables', 'Error in updateTimetableSlot', error);
@@ -1677,6 +1781,26 @@ Please select a different date period that doesn't overlap.`
         );
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.timetableSlotUpdated(
+            timetableId,
+            `batch(${dates.length} dates)`,
+            periodId || 'slot'
+          );
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: timetableId,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, dates, period_id: periodId },
+          });
+        } catch { /* never block */ }
+      })();
       return data;
     } catch (error) {
       logger.error('academic/timetables', 'Error in updateTimetableSlotsBatch', error);
@@ -2226,6 +2350,29 @@ Please select a different date period that doesn't overlap.`
         }
       );
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const sourceName = template.template_name || template.timetable_name || templateId;
+          const targetName = newTimetable.timetable_name || newTimetable.id;
+          const activityTemplate = AcademicActivityTemplates.timetableCloned(sourceName, targetName);
+          await logActivityClient({
+            userId: user.id,
+            actionType: activityTemplate.actionType,
+            resourceType: activityTemplate.resourceType,
+            resourceId: newTimetable.id,
+            resourceName: targetName,
+            description: activityTemplate.description,
+            metadata: {
+              sub_type: activityTemplate.sub_type,
+              source_template_id: templateId,
+            },
+            institutionId: newTimetable.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return newTimetable;
     } catch (error) {
       logger.error('academic/timetables', 'Error creating timetable from template', error);
@@ -2551,5 +2698,39 @@ Please select a different date period that doesn't overlap.`
       logger.error('academic/timetables', 'Error duplicating template', error);
       throw error;
     }
+  }
+
+  // Added: 2026-02-28 - Task 2.3: Extracted from conflicts page to service layer
+  static async getAllStaffConflicts(): Promise<any[]> {
+    const { data, error } = await (this.supabase as any)
+      .rpc('get_all_timetable_staff_conflicts');
+
+    if (error) {
+      logger.error('academic/timetables', 'Failed to fetch staff conflicts', error);
+      throw error;  // Let the caller (page's try/catch) handle the error state
+    }
+    return data ?? [];
+  }
+
+  // Added: 2026-02-28 - Task 2.3: Extracted from conflicts page to service layer
+  static async syncStaffAssignment(params: {
+    timetableId: string;
+    courseId: string;
+    oldStaffId: string;
+    newStaffId: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    const { error } = await (this.supabase as any)
+      .rpc('sync_timetable_staff_assignment', {
+        p_timetable_id: params.timetableId,
+        p_course_id: params.courseId,
+        p_old_staff_id: params.oldStaffId,
+        p_new_staff_id: params.newStaffId,
+      });
+
+    if (error) {
+      logger.error('academic/timetables', 'Failed to sync staff assignment', { params, error });
+      return { success: false, error: error.message };
+    }
+    return { success: true };
   }
 }

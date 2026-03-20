@@ -2,7 +2,6 @@
 // FEATURE FLAGS CONFIGURATION
 // ============================================
 // Created: 2025-01-18
-// Updated: 2026-01-31 - Added ENABLE_DEV_AUTH flag
 // Purpose: Gradual rollout of unified learners profiles module
 // ============================================
 
@@ -61,23 +60,6 @@ export const FEATURE_FLAGS = {
    * Unified lifecycle funnel and insights
    */
   LEARNERS_ANALYTICS: process.env.NEXT_PUBLIC_LEARNERS_ANALYTICS === 'true',
-
-  // ============================================
-  // DEV AUTH MODE (Added: 2026-01-31)
-  // ============================================
-  /**
-   * Development Authentication Mode
-   * Enables email/password login on development sites for testing
-   *
-   * When true: Shows email/password login form alongside Google OAuth
-   * When false: Only Google OAuth available
-   *
-   * Purpose: Allow testing with multiple user roles without needing
-   * separate Google accounts for each role
-   *
-   * Default: Enabled on myjkkn-omm-dev.vercel.app via env var
-   */
-  ENABLE_DEV_AUTH: process.env.NEXT_PUBLIC_ENABLE_DEV_AUTH === 'true',
 
   // ============================================
   // STUDENT PORTAL ACCESS (Added: 2025-12-27)
@@ -139,13 +121,6 @@ export function isStudentPortalEnabled(): boolean {
 }
 
 /**
- * Check if dev auth mode is enabled (email/password login)
- */
-export function isDevAuthEnabled(): boolean {
-  return FEATURE_FLAGS.ENABLE_DEV_AUTH;
-}
-
-/**
  * Get feature flag status for admin panel
  */
 export function getFeatureFlagStatus() {
@@ -159,7 +134,6 @@ export function getFeatureFlagStatus() {
       analytics: FEATURE_FLAGS.LEARNERS_ANALYTICS,
     },
     studentPortal: FEATURE_FLAGS.ENABLE_STUDENT_PORTAL,
-    devAuth: FEATURE_FLAGS.ENABLE_DEV_AUTH,
     allEnabled: Object.values(FEATURE_FLAGS).every((flag) => flag === true),
     anyEnabled: hasAnyLearnerModuleEnabled(),
   };

@@ -179,18 +179,19 @@ export function ReportsDataTable({ institutionId, onCreateClick, refreshTrigger:
         }}
         exportConfig={{
           entityName: 'consolidation-reports',
+          // Keys must match the flattened object produced by transformFunction below
           headers: [
-            'Report Name',
-            'Description',
-            'Status',
-            'Format',
-            'Group By',
-            'Date From',
-            'Date To',
-            'Total Students',
-            'Avg Attendance',
-            'Groups',
-            'Generated At',
+            'reportName',
+            'reportDescription',
+            'status',
+            'format',
+            'groupBy',
+            'dateFrom',
+            'dateTo',
+            'totalStudents',
+            'avgAttendance',
+            'totalGroups',
+            'createdAt',
           ],
           columnMapping: {
             reportName: 'Report Name',
@@ -201,8 +202,8 @@ export function ReportsDataTable({ institutionId, onCreateClick, refreshTrigger:
             dateFrom: 'Date From',
             dateTo: 'Date To',
             totalStudents: 'Total Students',
-            avgAttendance: 'Avg Attendance',
-            groups: 'Groups',
+            avgAttendance: 'Avg Attendance (%)',
+            totalGroups: 'Groups Count',
             createdAt: 'Generated At',
           },
           columnWidths: [
@@ -210,14 +211,32 @@ export function ReportsDataTable({ institutionId, onCreateClick, refreshTrigger:
             { wch: 30 }, // Description
             { wch: 12 }, // Status
             { wch: 10 }, // Format
-            { wch: 15 }, // Group By
+            { wch: 12 }, // Group By
             { wch: 12 }, // Date From
             { wch: 12 }, // Date To
             { wch: 15 }, // Total Students
-            { wch: 15 }, // Avg Attendance
-            { wch: 10 }, // Groups
-            { wch: 20 }, // Generated At
+            { wch: 18 }, // Avg Attendance
+            { wch: 12 }, // Groups Count
+            { wch: 22 }, // Generated At
           ],
+          // Flatten nested reportParams and reportData.summary into a flat exportable row
+          transformFunction: (report: any) => ({
+            reportName: report.reportName || '',
+            reportDescription: report.reportDescription || '',
+            status: report.status || '',
+            format: report.format || '',
+            groupBy: report.reportParams?.groupBy || '',
+            dateFrom: report.reportParams?.dateFrom || '',
+            dateTo: report.reportParams?.dateTo || '',
+            totalStudents: report.reportData?.summary?.totalStudents ?? '',
+            avgAttendance: report.reportData?.summary?.averageAttendance != null
+              ? Number(report.reportData.summary.averageAttendance.toFixed(2))
+              : '',
+            totalGroups: report.reportData?.groups?.length ?? '',
+            createdAt: report.createdAt
+              ? new Date(report.createdAt).toLocaleDateString('en-GB')
+              : '',
+          }),
         }}
         renderToolbarContent={renderCustomToolbar}
       />

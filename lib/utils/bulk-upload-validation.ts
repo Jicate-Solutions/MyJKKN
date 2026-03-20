@@ -161,12 +161,7 @@ export const COLUMN_MAPPING: Record<string, string[]> = {
   'quota': ['Quota', 'quota'],
   'category': ['Category', 'category'],
 
-  // SECTION 11: Transport
-  'bus_required': ['Bus Required', 'bus_required'],
-  'bus_route': ['Bus Route', 'bus_route'],
-  'bus_pickup_location': ['Bus Pickup Location', 'bus_pickup_location', 'pickup_location'],
-
-  // SECTION 12: Reference Information
+  // SECTION 11: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
   'reference_contact': ['Reference Contact', 'reference_contact'],

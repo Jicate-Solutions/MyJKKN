@@ -20,10 +20,13 @@ import {
  *
  * Supported formats:
  * 1. Pure numeric: 6-10 digits (e.g., 123654789)
- * 2. Alphanumeric: Optional leading digits + 2-4 letters + 2-6 digits (e.g., 24MBA60, DB22092)
+ * 2. Alphanumeric with letters first then digits-letters-digits: (e.g., APG24MA01, APG24MA02)
+ * 3. Alphanumeric: Optional leading digits + 2-4 letters + 2-6 digits (e.g., 24MBA60, DB22092)
  *
  * Examples:
  * - "123654789.jpg" → "123654789"
+ * - "APG24MA01.jpg" → "APG24MA01"
+ * - "APG24MA02.jpeg" → "APG24MA02"
  * - "24MBA60.jpg" → "24MBA60"
  * - "DB22092.jpg" → "DB22092"
  * - "cs21001.png" → "CS21001"
@@ -37,15 +40,25 @@ export function extractRollNumberFromFilename(filename: string): string | null {
   // Remove file extension
   const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
 
-  // Pattern matches either:
-  // 1. Pure numeric: \d{6,10} = 6-10 digits (e.g., "123654789")
-  // 2. Alphanumeric: \d*[A-Z]{2,4}\d{2,6} = optional leading digits + 2-4 letters + 2-6 digits
-  //    Examples: "24MBA60", "DB22092", "CS21001"
-  const pattern = /(\d{6,10}|\d*[A-Z]{2,4}\d{2,6})/i;
-  const match = nameWithoutExt.match(pattern);
+  // Try patterns in order of specificity (most specific first)
+  const patterns = [
+    // Pattern 1: Letters + digits + letters + digits (e.g., "APG24MA01", "ABC12XY34")
+    /([A-Z]{2,4}\d{2,4}[A-Z]{1,4}\d{1,4})/i,
+    // Pattern 2: Pure numeric: 6-10 digits (e.g., "123654789")
+    /(\d{6,10})/,
+    // Pattern 3: Optional leading digits + 2-4 letters + 2-6 digits (e.g., "24MBA60", "DB22092", "CS21001")
+    /(\d*[A-Z]{2,4}\d{2,6})/i,
+  ];
 
-  // Return uppercase for consistency
-  return match ? match[1].toUpperCase() : null;
+  for (const pattern of patterns) {
+    const match = nameWithoutExt.match(pattern);
+    if (match) {
+      // Return uppercase for consistency
+      return match[1].toUpperCase();
+    }
+  }
+
+  return null;
 }
 
 /**

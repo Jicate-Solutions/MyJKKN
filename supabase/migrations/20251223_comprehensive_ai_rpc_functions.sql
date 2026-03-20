@@ -408,7 +408,6 @@ BEGIN
       -- Accommodation breakdown
       COUNT(*) FILTER (WHERE accommodation_type = 'hostel') as hostel_count,
       COUNT(*) FILTER (WHERE accommodation_type = 'dayscholar') as dayscholar_count,
-      COUNT(*) FILTER (WHERE bus_required = TRUE) as bus_required_count,
       -- Academic breakdown
       COUNT(*) FILTER (WHERE first_graduate = TRUE) as first_graduate_count,
       COUNT(*) FILTER (WHERE counseling_applied = TRUE) as counseling_applied_count,

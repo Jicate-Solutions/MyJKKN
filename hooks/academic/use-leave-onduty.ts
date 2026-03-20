@@ -28,7 +28,8 @@ import {
   UpdateFlowInput,
 } from '@/types/leave-onduty';
 import toast from 'react-hot-toast';
-import { usePermissions } from '@/hooks/use-permissions';
+import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // =====================================================
 // QUERY KEYS
@@ -109,6 +110,35 @@ export function useCreateLeaveOndutyApplication() {
       });
       queryClient.invalidateQueries({ queryKey: KEYS.applications.lists() });
       toast.success('Application submitted successfully');
+
+      // Activity logging (fire-and-forget)
+      createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+        if (userData?.user?.id) {
+          const duration = `${variables.data.start_date} to ${variables.data.end_date}`;
+          const template = LearnerActivityTemplates.leaveApplied(
+            userData.user.email || 'User',
+            variables.data.category,
+            duration
+          );
+          logActivityClient({
+            userId: userData.user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              learner_id: variables.learnerId,
+              institution_id: variables.institutionId,
+              category: variables.data.category,
+              sub_category: variables.data.sub_category,
+              start_date: variables.data.start_date,
+              end_date: variables.data.end_date,
+              period_type: variables.data.period_type,
+            },
+            institutionId: variables.institutionId,
+          });
+        }
+      });
     },
     onError: (error: Error) => {
       toast.error(`Failed to submit application: ${error.message}`);
@@ -171,6 +201,26 @@ export function useCancelLeaveOndutyApplication() {
         queryKey: KEYS.applications.detail(variables.applicationId),
       });
       toast.success('Application cancelled successfully');
+
+      // Activity logging (fire-and-forget)
+      createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+        if (userData?.user?.id) {
+          const template = LearnerActivityTemplates.leaveCancelled(
+            userData.user.email || 'User'
+          );
+          logActivityClient({
+            userId: userData.user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              learner_id: variables.learnerId,
+              application_id: variables.applicationId,
+            },
+          });
+        }
+      });
     },
     onError: (error: Error) => {
       toast.error(`Failed to cancel application: ${error.message}`);
@@ -315,8 +365,6 @@ export function useApplicationsByStatusForInstitution(
   departmentId?: string | null,
   enabled: boolean = true
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: [...KEYS.approvals.all, 'institution', institutionId, departmentId, status],
     queryFn: () => {
@@ -329,7 +377,7 @@ export function useApplicationsByStatusForInstitution(
         departmentId || undefined
       );
     },
-    enabled: isSuperAdmin || (enabled && !!institutionId),
+    enabled: enabled && !!institutionId,
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 }
@@ -353,6 +401,29 @@ export function useProcessApproval() {
       toast.success(
         `Application ${variables.status === 'approved' ? 'approved' : 'rejected'} successfully`
       );
+
+      // Activity logging (fire-and-forget)
+      createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+        if (userData?.user?.id) {
+          const template = LearnerActivityTemplates.leaveApprovalProcessed(
+            userData.user.email || 'Approver',
+            'Learner',
+            variables.status
+          );
+          logActivityClient({
+            userId: userData.user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              application_id: variables.application_id,
+              decision: variables.status,
+              comments: variables.comments,
+            },
+          });
+        }
+      });
     },
     onError: (error: Error) => {
       toast.error(`Failed to process approval: ${error.message}`);
@@ -562,12 +633,10 @@ export function useDeleteFlow() {
  * Get flow statistics
  */
 export function useFlowStatistics(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: KEYS.flows.stats(institutionId),
     queryFn: () => LeaveOndutyFlowService.getFlowStatistics(institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 }
 

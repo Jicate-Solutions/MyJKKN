@@ -108,12 +108,12 @@ export class RemindersService {
       .from('admission_leads')
       .select(
         'id, full_name, phone, email, funnel_stage, next_followup_at, counselor_id, last_contact_at, last_activity_at, is_hot_lead, is_priority, created_at, counselor:admission_counselors(id, name)'
-      );
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    query = query
+      )
       .eq('is_active', true)
       .not('next_followup_at', 'is', null)
       .order('next_followup_at', { ascending: true });
+
+    if (institutionId) query = query.eq('institution_id', institutionId);
 
     if (filters?.counselorId) {
       query = query.eq('counselor_id', filters.counselorId);
@@ -269,23 +269,20 @@ export class RemindersService {
    * Search leads for creating reminders.
    */
   static async searchLeadsForReminder(
-    institutionId: string | undefined,
+    institutionId: string,
     search: string
   ): Promise<{ id: string; fullName: string; phone: string; stage: string }[]> {
     const supabase = createClientSupabaseClient();
     const sanitized = search.replace(/[%_]/g, '');
 
-    let query = (supabase as any)
+    const { data, error } = await (supabase as any)
       .from('admission_leads')
-      .select('id, full_name, phone, funnel_stage');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    query = query
+      .select('id, full_name, phone, funnel_stage')
+      .eq('institution_id', institutionId)
       .eq('is_active', true)
       .or(`full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%`)
       .order('full_name', { ascending: true })
       .limit(20);
-
-    const { data, error } = await query;
 
     if (error) {
       console.error('[admission/reminders] Error searching leads:', error);

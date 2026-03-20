@@ -36,6 +36,7 @@ export function OptimizedImage({
       return;
     }
 
+    console.log('OptimizedImage: Loading image from source:', src);
     setImgSrc(src);
     setError(false);
     setLoading(true);
@@ -80,6 +81,7 @@ export function OptimizedImage({
           objectFit === 'fill' && 'object-fill'
         )}
         onLoadingComplete={() => {
+          console.log('OptimizedImage: Image loaded successfully:', imgSrc);
           setLoading(false);
         }}
         onError={() => {

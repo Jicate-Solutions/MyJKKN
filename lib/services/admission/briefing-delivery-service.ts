@@ -98,6 +98,7 @@ export interface BriefingContent {
 
 export interface CreateBriefingInput {
   institution_id: string;
+  user_id: string;
   briefing_date: string;
   title: string;
   summary: string;
@@ -182,6 +183,7 @@ export async function createBriefing(input: CreateBriefingInput): Promise<Briefi
     .from('admission_daily_briefings')
     .insert({
       institution_id: input.institution_id,
+      user_id: input.user_id,
       briefing_date: input.briefing_date,
       content: input.content,
       is_read: false,
@@ -224,12 +226,11 @@ export async function getBriefing(briefingId: string): Promise<Briefing | null> 
 export async function getLatestBriefing(institutionId: string | undefined): Promise<Briefing | null> {
   let query = (supabase as any)
     .from('admission_daily_briefings')
-    .select('*');
-  if (institutionId) query = query.eq('institution_id', institutionId);
-  const { data, error } = await query
+    .select('*')
     .order('briefing_date', { ascending: false })
-    .limit(1)
-    .single();
+    .limit(1);
+  if (institutionId) query = query.eq('institution_id', institutionId);
+  const { data, error } = await query.single();
 
   if (error) {
     if (error.code === 'PGRST116') {
@@ -250,12 +251,12 @@ export async function getTodaysBriefing(institutionId: string | undefined): Prom
 
   let query = (supabase as any)
     .from('admission_daily_briefings')
-    .select('*');
-  if (institutionId) query = query.eq('institution_id', institutionId);
-  const { data, error } = await query
+    .select('*')
     .eq('briefing_date', today)
     .order('created_at', { ascending: false })
     .limit(1);
+  if (institutionId) query = query.eq('institution_id', institutionId);
+  const { data, error } = await query;
 
   if (error) {
     console.error('[admission/briefing-delivery] Error fetching today\'s briefing:', error);
@@ -434,6 +435,146 @@ export async function dismissNotification(notificationId: string): Promise<Brief
 }
 
 // ============================================
+// BRIEFING GENERATION
+// ============================================
+
+/**
+ * Generate today's briefing for an institution, or return existing one.
+ * Queries real admission data and formats it as BriefingContent for the page.
+ */
+export async function generateDailyBriefing(
+  userId: string,
+  institutionId: string
+): Promise<Briefing> {
+  const today = new Date().toISOString().split('T')[0];
+
+  // Return today's existing briefing if already generated
+  const existing = await getTodaysBriefing(institutionId);
+  if (existing) return existing;
+
+  // ── Fetch lead data ──────────────────────────────────────────────────────
+  const todayStart = `${today}T00:00:00`;
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: leads } = await (supabase as any)
+    .from('admission_leads')
+    .select('id, full_name, funnel_stage, created_at, is_hot_lead, score, last_contact_at')
+    .eq('institution_id', institutionId);
+
+  const allLeads: any[] = leads || [];
+
+  // ── Compute key metrics ──────────────────────────────────────────────────
+  const total_leads = allLeads.length;
+  const new_leads = allLeads.filter((l) => l.created_at >= todayStart).length;
+  const hot_leads = allLeads.filter((l) => l.is_hot_lead).length;
+  const enrolled_count = allLeads.filter((l) => l.funnel_stage === 'enrolled').length;
+  const conversion_rate =
+    total_leads > 0 ? Math.round((enrolled_count / total_leads) * 1000) / 10 : 0;
+
+  const overdue_followups = allLeads.filter((l) => {
+    if (l.funnel_stage === 'enrolled' || l.funnel_stage === 'lost') return false;
+    if (!l.last_contact_at) return true;
+    return l.last_contact_at < threeDaysAgo;
+  }).length;
+
+  const leads_by_stage: Record<string, number> = {};
+  allLeads.forEach((l) => {
+    leads_by_stage[l.funnel_stage] = (leads_by_stage[l.funnel_stage] || 0) + 1;
+  });
+
+  // ── Build action items from hot leads + overdue ──────────────────────────
+  const topHot = allLeads
+    .filter((l) => l.is_hot_lead && l.funnel_stage !== 'enrolled' && l.funnel_stage !== 'lost')
+    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .slice(0, 3);
+
+  const action_items: ActionItem[] = [
+    ...topHot.map((l) => ({
+      id: `hot-${l.id}`,
+      title: `Follow up with ${l.full_name}`,
+      description: 'Hot lead — high conversion potential',
+      priority: 'high' as const,
+      type: 'followup' as const,
+      link: `/admission/leads/${l.id}`,
+    })),
+    ...(overdue_followups > 0
+      ? [
+          {
+            id: 'overdue-batch',
+            title: `${overdue_followups} overdue follow-up${overdue_followups > 1 ? 's' : ''}`,
+            description: 'Leads not contacted in 3+ days — review and re-engage',
+            priority: 'medium' as const,
+            type: 'alert' as const,
+            link: '/admission/leads',
+          },
+        ]
+      : []),
+  ];
+
+  // ── Build highlights ─────────────────────────────────────────────────────
+  const highlights: BriefingContent['highlights'] = [];
+  if (new_leads > 0) {
+    highlights.push({
+      title: `${new_leads} new lead${new_leads > 1 ? 's' : ''} today`,
+      description: 'Fresh prospects added to your pipeline',
+      type: 'success',
+    });
+  }
+  if (hot_leads > 0) {
+    highlights.push({
+      title: `${hot_leads} hot lead${hot_leads > 1 ? 's' : ''} in pipeline`,
+      description: 'High-engagement prospects ready for action',
+      type: 'info',
+    });
+  }
+  if (overdue_followups > 0) {
+    highlights.push({
+      title: `${overdue_followups} overdue follow-up${overdue_followups > 1 ? 's' : ''}`,
+      description: 'Leads not contacted in 3+ days',
+      type: 'warning',
+    });
+  }
+
+  // ── Executive summary ────────────────────────────────────────────────────
+  const parts: string[] = [];
+  if (new_leads > 0) parts.push(`${new_leads} new lead${new_leads > 1 ? 's' : ''}`);
+  if (hot_leads > 0) parts.push(`${hot_leads} hot lead${hot_leads > 1 ? 's' : ''}`);
+  if (overdue_followups > 0)
+    parts.push(`${overdue_followups} overdue follow-up${overdue_followups > 1 ? 's' : ''}`);
+
+  const executive_summary =
+    parts.length > 0
+      ? `Good morning! Today: ${parts.join(', ')}. Overall conversion rate: ${conversion_rate}%.`
+      : `Good morning! Your pipeline is steady today with ${total_leads} total leads. Conversion rate: ${conversion_rate}%.`;
+
+  const content: BriefingContent = {
+    executive_summary,
+    key_metrics: {
+      total_leads,
+      new_leads,
+      hot_leads,
+      followups_today: overdue_followups,
+      overdue_followups,
+      conversion_rate,
+      leads_by_stage,
+    },
+    highlights,
+    action_items,
+    predictions: [],
+    recommendations: [],
+  };
+
+  return createBriefing({
+    institution_id: institutionId,
+    user_id: userId,
+    briefing_date: today,
+    title: 'Daily Briefing',
+    summary: executive_summary,
+    content,
+  });
+}
+
+// ============================================
 // BRIEFING SERVICE EXPORT
 // ============================================
 
@@ -443,6 +584,9 @@ export const BriefingDeliveryService = {
   getBriefing,
   getLatestBriefing,
   getTodaysBriefing,
+
+  // Generation
+  generateDailyBriefing,
 
   // Delivery
   deliverBriefing,

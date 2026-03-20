@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { UserRolesService } from '@/lib/services/users/user-roles-service';
 import { SYSTEM_ROLES, UserRoleAssignment } from '@/types/auth';
@@ -30,6 +31,19 @@ const isPermissionAllowedForGraduated = (permission: string): boolean => {
   );
 };
 
+interface PermissionData {
+  permissions: Record<string, boolean>;
+  isSuperAdmin: boolean;
+  userRoles: UserRoleAssignment[];
+  primaryRole: UserRoleAssignment | null;
+}
+
+// Stable fallback references to prevent infinite re-render loops.
+// Using inline `|| {}` or `|| []` creates new objects each render,
+// which breaks useMemo dependency checks downstream.
+const EMPTY_PERMISSIONS: Record<string, boolean> = {};
+const EMPTY_ROLES: UserRoleAssignment[] = [];
+
 export function usePermissions(
   requiredPermissions: string[] = [],
   options: UsePermissionsOptions = {}
@@ -39,13 +53,160 @@ export function usePermissions(
     isLoading: authLoading,
     error: authError
   } = useAuth();
-  const [permissions, setPermissions] = useState<Record<string, boolean>>({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [userRoles, setUserRoles] = useState<UserRoleAssignment[]>([]);
-  const [primaryRole, setPrimaryRole] = useState<UserRoleAssignment | null>(null);
+  
   const { waitForLoad = false } = options;
+
+  // Fetch permissions using React Query for caching
+  const { 
+    data: permissionData, 
+    isLoading: queryLoading, 
+    error: queryError 
+  } = useQuery<PermissionData>({
+    queryKey: ['permissions', userProfile?.id, userProfile?.role],
+    queryFn: async () => {
+      // If there's no user profile, return empty defaults
+      if (!userProfile) {
+        return {
+          permissions: {},
+          isSuperAdmin: false,
+          userRoles: [],
+          primaryRole: null
+        };
+      }
+
+      // Check if user is a super admin (either by role or is_super_admin flag)
+      const isSuperAdminUser =
+        userProfile.role === SYSTEM_ROLES.SUPER_ADMIN ||
+        userProfile.is_super_admin === true;
+
+      // Super admins have all permissions, no need to fetch.
+      if (isSuperAdminUser) {
+        return {
+          permissions: {}, // No specific permissions needed, isSuperAdmin flag is enough
+          isSuperAdmin: true,
+          userRoles: [],
+          primaryRole: null
+        };
+      }
+
+      // Try multi-role approach first (fetches roles with permissions via SECURITY DEFINER)
+      try {
+        const roles = await UserRolesService.getUserRoles(userProfile.id);
+
+        if (roles && roles.length > 0) {
+          // Merge permissions client-side from the already-fetched role data
+          // This avoids the separate getMergedPermissions RPC which uses
+          // SECURITY INVOKER and can fail due to RLS restrictions
+          const mergedPermissions: Record<string, boolean> = {};
+          for (const role of roles) {
+            const rolePerms = role.permissions || {};
+            for (const [key, value] of Object.entries(rolePerms)) {
+              // Union (OR) logic: if ANY role grants permission, user has it
+              if (value === true) {
+                mergedPermissions[key] = true;
+              } else if (mergedPermissions[key] !== true) {
+                mergedPermissions[key] = value as boolean;
+              }
+            }
+          }
+
+          // Safety net: If the user's profiles.role is not represented in user_roles,
+          // also merge permissions from the profile role's custom_role.
+          // This handles data mismatches where profiles.role = 'hod' but user_roles
+          // links to different custom_roles (e.g., Faculty + COE instead of HOD).
+          const profileRoleKey = userProfile.role;
+          const hasProfileRole = roles.some(
+            (r) => r.role_key === profileRoleKey
+          );
+
+          if (!hasProfileRole && profileRoleKey) {
+            console.warn(
+              `[permissions] profiles.role="${profileRoleKey}" not found in user_roles (has: ${roles.map(r => r.role_key).join(', ')}). Merging profile role permissions as fallback.`
+            );
+            try {
+              const profileRole = await RoleService.getRoleByKey(profileRoleKey);
+              if (profileRole && profileRole.permissions) {
+                for (const [key, value] of Object.entries(profileRole.permissions)) {
+                  if (value === true) {
+                    mergedPermissions[key] = true;
+                  } else if (mergedPermissions[key] !== true) {
+                    mergedPermissions[key] = value as boolean;
+                  }
+                }
+              }
+            } catch (profileRoleError) {
+              console.warn(
+                `[permissions] Failed to fetch profile role "${profileRoleKey}":`,
+                profileRoleError
+              );
+            }
+          }
+
+          return {
+            permissions: mergedPermissions,
+            isSuperAdmin: false,
+            userRoles: roles,
+            primaryRole: roles.find((r) => r.is_primary) || roles[0]
+          };
+        }
+      } catch (multiRoleError) {
+        // Multi-role not available or failed, fall back to legacy
+        console.warn(
+          '[permissions] Multi-role fetch failed, falling back to legacy:',
+          multiRoleError
+        );
+      }
+
+      // Fall back to legacy single-role approach
+      const role = await RoleService.getRoleByKey(userProfile.role);
+      let rolePermissions = {};
+
+      if (!role || typeof role !== 'object' || !('permissions' in role)) {
+        console.warn(
+          `Role ${userProfile.role} not found, using empty permissions`
+        );
+      } else {
+        rolePermissions = (role as any).permissions || {};
+      }
+
+      return {
+        permissions: rolePermissions,
+        isSuperAdmin: false,
+        userRoles: [],
+        primaryRole: null
+      };
+    },
+    enabled: !!userProfile && !authLoading,
+    staleTime: 2 * 60 * 1000, // 2 minutes cache (reduced from 10 to reflect permission changes faster)
+    gcTime: 10 * 60 * 1000,   // 10 minutes garbage collection
+    retry: 1,
+    // Respect global default (false). The old per-query override caused PermissionGuard
+    // to re-render the entire page tree on every window focus event.
+    // Permissions are cached for 2 minutes and refresh on mount — that's sufficient.
+    refetchOnWindowFocus: false,
+    // Only re-render when actual data/error/loading state changes.
+    // Exclude isFetching: background refetches should not cascade re-renders
+    // through PermissionGuard → ContentLayout → entire page.
+    notifyOnChangeProps: ['data', 'error', 'isLoading'],
+  });
+
+  const permissions = permissionData?.permissions ?? EMPTY_PERMISSIONS;
+  const isSuperAdmin = permissionData?.isSuperAdmin ?? false;
+  const userRoles = permissionData?.userRoles ?? EMPTY_ROLES;
+  const primaryRole = permissionData?.primaryRole ?? null;
+
+  // Users with the 'admission' custom role get global (all-institution) access
+  // in the admission CRM module, matching super_admin behavior for institution scoping.
+  const isAdmissionGlobalUser = useMemo(() => {
+    return (
+      userProfile?.role === 'admission' ||
+      userRoles.some((r) => r.role_key === 'admission')
+    );
+  }, [userProfile?.role, userRoles]);
+  
+  // Overall loading state
+  const isLoading = authLoading || (!!userProfile && queryLoading);
+  const error = authError ? new Error(authError) : (queryError as Error | null);
 
   // Student-specific properties
   const isStudent = useMemo(
@@ -112,127 +273,9 @@ export function usePermissions(
     }
   }, [permissions, isStudent, studentStatus, isSuperAdmin]);
 
-  // Load permissions from role
-  useEffect(() => {
-    let mounted = true;
-
-    const fetchPermissions = async () => {
-      // If there's no user profile, reset states and finish loading.
-      if (!userProfile) {
-        if (mounted) {
-          setPermissions({});
-          setIsSuperAdmin(false);
-          setUserRoles([]);
-          setPrimaryRole(null);
-          setError(authError ? new Error(authError) : null);
-          setIsLoading(false);
-        }
-        return;
-      }
-
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        // Check if user is a super admin (either by role or is_super_admin flag)
-        const isSuperAdminUser =
-          userProfile.role === SYSTEM_ROLES.SUPER_ADMIN ||
-          userProfile.is_super_admin === true;
-        if (mounted) {
-          setIsSuperAdmin(isSuperAdminUser);
-        }
-
-        // Super admins have all permissions, no need to fetch.
-        if (isSuperAdminUser) {
-          if (mounted) {
-            setPermissions({}); // No specific permissions needed, isSuperAdmin flag is enough
-            setUserRoles([]);
-            setPrimaryRole(null);
-            setIsLoading(false);
-          }
-          return;
-        }
-
-        // Try multi-role approach first (fetches merged permissions from all roles)
-        try {
-          const roles = await UserRolesService.getUserRoles(userProfile.id);
-
-          if (roles && roles.length > 0) {
-            // User has roles in the junction table - use multi-role permissions
-            if (mounted) {
-              setUserRoles(roles);
-              setPrimaryRole(roles.find((r) => r.is_primary) || roles[0]);
-            }
-
-            // Get merged permissions (Union/OR logic)
-            const mergedPermissions = await UserRolesService.getMergedPermissions(
-              userProfile.id
-            );
-
-            if (mounted) {
-              setPermissions(mergedPermissions);
-            }
-
-            return;
-          }
-        } catch (multiRoleError) {
-          // Multi-role not available or failed, fall back to legacy
-          console.warn(
-            '[permissions] Multi-role fetch failed, falling back to legacy:',
-            multiRoleError
-          );
-        }
-
-        // Fall back to legacy single-role approach
-        if (mounted) {
-          setUserRoles([]);
-          setPrimaryRole(null);
-        }
-
-        // Get role permissions from legacy single-role
-        const role = await RoleService.getRoleByKey(userProfile.role);
-
-        if (!role || typeof role !== 'object' || !('permissions' in role)) {
-          console.warn(
-            `Role ${userProfile.role} not found, using empty permissions`
-          );
-          if (mounted) {
-            setPermissions({});
-          }
-        } else {
-          if (mounted) {
-            setPermissions((role as any).permissions || {});
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching permissions:', err);
-        if (mounted) {
-          setError(
-            err instanceof Error
-              ? err
-              : new Error('Unknown error fetching permissions')
-          );
-          setPermissions({});
-          setUserRoles([]);
-          setPrimaryRole(null);
-        }
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    // Only fetch permissions once authentication is complete.
-    if (!authLoading) {
-      fetchPermissions();
-    }
-
-    return () => {
-      mounted = false;
-    };
-  }, [userProfile, authLoading, authError]);
-
+  // Load permissions from role - REPLACED BY REACT QUERY ABOVE
+  // useEffect removed in favor of useQuery
+  
   // Check if user has all required permissions (using enhanced permissions)
   const hasAllPermissions = useMemo(() => {
     if (isLoading && waitForLoad) return false;
@@ -275,16 +318,10 @@ export function usePermissions(
         return true;
       }
 
-      // CRITICAL FIX: Don't block access while permissions are loading for non-students
-      // This prevents the race condition that causes unauthorized redirects
+      // Block access for ALL users while permissions are loading
+      // This prevents content flash for unauthorized pages
       if (isLoading) {
-        // For students, we need to be more restrictive during loading
-        if (isStudent) {
-          return false;
-        }
-        // For staff/admin users, allow temporary access during loading to prevent redirects
-        // The actual permissions will be checked once loading completes
-        return true;
+        return false;
       }
 
       const permKey = `${module}.${action}`;
@@ -346,6 +383,7 @@ export function usePermissions(
     hasAllPermissions,
     hasAnyPermission,
     isSuperAdmin,
+    isAdmissionGlobalUser,
     userProfile,
 
     // Multi-role properties
@@ -361,7 +399,7 @@ export function usePermissions(
 
     // Generic permission check (legacy support) - using enhanced permissions
     can: (permission: string) =>
-      isSuperAdmin ? true : enhancedPermissions[permission] || false,
+      isLoading ? false : isSuperAdmin ? true : enhancedPermissions[permission] || false,
     // New module-based permission checks
     canAccess,
     canPerformAll,

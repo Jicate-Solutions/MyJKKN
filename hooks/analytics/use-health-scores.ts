@@ -1,6 +1,5 @@
 import { useQuery, UseQueryResult } from '@tanstack/react-query';
 import type { InstitutionHealthScore } from '@/types/usage-analytics';
-import { usePermissions } from '@/hooks/use-permissions';
 
 interface UseHealthScoresParams {
   institutionId?: string;
@@ -57,8 +56,6 @@ export function useHealthScoreDetail({
   { current: InstitutionHealthScore | null; history: InstitutionHealthScore[] },
   Error
 > {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: ['health-score-detail', institutionId, days],
     queryFn: async () => {
@@ -76,7 +73,7 @@ export function useHealthScoreDetail({
       const result = await response.json();
       return result.data;
     },
-    enabled: isSuperAdmin || (enabled && !!institutionId),
+    enabled: enabled && !!institutionId,
     staleTime: 5 * 60 * 1000,
   });
 }

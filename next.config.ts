@@ -1,20 +1,34 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // Enable Cache Components for server-side caching (Next.js 16.1.1)
   cacheComponents: true,
 
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // Force SWC to re-compile Supabase packages as local source instead of
+  // treating them as native ESM externals. This prevents the Turbopack
+  // "module factory not available / deleted in HMR update" error on first
+  // cold load in development (the symptom: works on refresh but fails first time).
+  transpilePackages: ['@supabase/ssr', '@supabase/supabase-js'],
 
   experimental: {
+    // Optimize large barrel-file packages — tree-shake unused exports.
+    // NOTE: Only list barrel-file packages here (ones with a large index.js
+    // re-exporting many things). Native ESM packages like @supabase/* belong
+    // in transpilePackages above, not here.
+    optimizePackageImports: [
+      'lucide-react',
+      'react-icons',
+      '@radix-ui/react-icons',
+      'date-fns',
+      'react-hot-toast'
+    ]
   },
 
   images: {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'hhprjbgknupaplivtoib.supabase.co',
+        hostname: 'kvizhngldtiuufknvehv.supabase.co',
         pathname: '/**'
       }
     ]
@@ -23,24 +37,26 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // Root page — allow CDN/ISR caching (was: no-store killing performance)
         source: '/',
         headers: [
           {
             key: 'Cache-Control',
-            value:
-              'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+            value: 'public, s-maxage=60, stale-while-revalidate=300'
+          }
+        ]
+      },
+      {
+        // Auth pages — never cache
+        source: '/auth/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate'
           },
           {
             key: 'Pragma',
             value: 'no-cache'
-          },
-          {
-            key: 'Expires',
-            value: '0'
-          },
-          {
-            key: 'Surrogate-Control',
-            value: 'no-store'
           }
         ]
       },
@@ -95,24 +111,9 @@ const nextConfig: NextConfig = {
             value: 'public, max-age=31536000, immutable'
           }
         ]
-      },
-      {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'X-Content-Type-Options',
-            value: 'nosniff'
-          },
-          {
-            key: 'X-Frame-Options',
-            value: 'SAMEORIGIN'
-          },
-          {
-            key: 'X-XSS-Protection',
-            value: '1; mode=block'
-          }
-        ]
       }
+      // Security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection)
+      // are now injected by proxy.ts for better performance
     ];
   }
 };

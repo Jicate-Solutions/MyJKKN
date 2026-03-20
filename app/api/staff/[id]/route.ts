@@ -80,10 +80,10 @@ export async function PATCH(
     const isSuperAdmin =
       userProfile.is_super_admin || userProfile.role === 'super_admin';
 
-    // Get the staff record to verify ownership and institution
+    // Get the staff record to verify ownership for faculty users
     const { data: staffRecord, error: staffFetchError } = await supabaseAdmin
       .from('staff')
-      .select('id, institution_email, institution_id')
+      .select('id, institution_email')
       .eq('id', id)
       .single();
 
@@ -91,14 +91,6 @@ export async function PATCH(
       return NextResponse.json(
         { error: 'Staff record not found' },
         { status: 404 }
-      );
-    }
-
-    // Institution scoping: non-super-admins can only update staff in their institution
-    if (!isSuperAdmin && staffRecord.institution_id !== userProfile.institution_id) {
-      return NextResponse.json(
-        { error: 'You can only update staff in your institution' },
-        { status: 403 }
       );
     }
 

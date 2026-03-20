@@ -63,21 +63,7 @@ export default async function BillingInvoicesPage({
   };
 
   // Fetch data server-side with caching
-  let invoices: Awaited<ReturnType<typeof getInvoices>>['data'] = [];
-  let metadata: Awaited<ReturnType<typeof getInvoices>>['metadata'] = {
-    page: 1,
-    totalPages: 0,
-    total: 0,
-    limit: 20
-  };
-
-  try {
-    const result = await getInvoices(filters);
-    invoices = result.data;
-    metadata = result.metadata;
-  } catch (error) {
-    console.error('[billing/invoices] Error fetching invoices:', error);
-  }
+  const { data: invoices, metadata } = await getInvoices(filters);
 
   return (
     <ContentLayout title='Billing Invoices'>

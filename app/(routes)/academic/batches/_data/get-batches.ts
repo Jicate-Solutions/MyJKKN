@@ -2,7 +2,13 @@
  * Server-side data fetching for Batches List
  */
 
-
+/**
+ * SERVER-SIDE DATA FETCHER — runs in React Server Components using server Supabase client.
+ * Client-side mirror: {@link BatchService#getBatches} in lib/services/academic/batch-service.ts
+ *
+ * Do not replace with service call — server vs client Supabase boundary.
+ * Keep query shapes in sync when modifying either side.
+ */
 
 import { createClient } from '@/lib/supabase/server';
 

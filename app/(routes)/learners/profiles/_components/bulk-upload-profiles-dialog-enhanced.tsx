@@ -289,11 +289,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         'Quota': 'MANAGEMENT',
         'Category': 'General',
 
-        // Transport (Optional)
-        'Bus Required': 'TRUE',
-        'Bus Route': 'Route 5',
-        'Bus Pickup Location': 'Central Bus Stand',
-
         // Reference (Optional)
         'Reference Type': 'Alumni',
         'Reference Name': 'Dr. Kumar',
@@ -339,7 +334,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { 'Food Type (Optional)': 'VEG  |  NON-VEG  |  VEGAN' },
         { 'Quota (Optional)': 'GOVERNMENT  |  MANAGEMENT' },
         { 'Counseling Applied (Optional)': 'TRUE  |  FALSE  |  YES  |  NO  |  1  |  0' },
-        { 'Bus Required (Optional)': 'TRUE  |  FALSE  |  YES  |  NO  |  1  |  0' },
         { '': '' },
 
         { '📝 FORMAT GUIDELINES': '' },
@@ -458,6 +452,13 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
             // Debug: Log first row to see what's in the Excel file
             if (index === 0) {
+              console.log('[bulk-upload-dialog] 📋 First row RAW from Excel:', row);
+              console.log('[bulk-upload-dialog] 🗺️ After column mapping:', {
+                last_name: mappedData.last_name,
+                caste: mappedData.caste,
+                academic_year_name: mappedData.academic_year_name,
+                scholarship_type: mappedData.scholarship_type
+              });
             }
 
             // Sanitize data
@@ -533,12 +534,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
               quota: sanitizeValue(mappedData.quota, 'text', 'quota'),
               category: sanitizeValue(mappedData.category, 'text'),
 
-              // SECTION 11: Transport
-              bus_required: sanitizeValue(mappedData.bus_required, 'text'),
-              bus_route: sanitizeValue(mappedData.bus_route, 'text'),
-              bus_pickup_location: sanitizeValue(mappedData.bus_pickup_location, 'text'),
-
-              // SECTION 12: Reference Information
+              // SECTION 11: Reference Information
               reference_type: sanitizeValue(mappedData.reference_type, 'text'),
               reference_name: sanitizeValue(mappedData.reference_name, 'text'),
               reference_contact: sanitizeValue(mappedData.reference_contact, 'text'),
@@ -551,6 +547,12 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
             // Debug: Log first row after sanitization
             if (index === 0) {
+              console.log('[bulk-upload-dialog] 🧹 After sanitization:', {
+                last_name: sanitizedData.last_name,
+                caste: sanitizedData.caste,
+                academic_year_name: sanitizedData.academic_year_name,
+                scholarship_type: sanitizedData.scholarship_type
+              });
             }
 
             // Validate row
@@ -623,6 +625,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
       const dbValidationResult = await validateDatabaseFields(parsedRows);
 
       // Log database validation results for debugging
+      console.log('[bulk-upload] Database validation complete');
 
       const notFoundInstitutions = Object.entries(dbValidationResult.institutions)
         .filter(([_, v]) => !v.found)
@@ -672,6 +675,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
                          notFoundDegrees.length + notFoundDepartments.length;
 
       if (totalErrors === 0) {
+        console.log('[bulk-upload] ✅ All database validations passed!');
       } else {
         console.warn(`[bulk-upload] ⚠️ Found ${totalErrors} database validation errors across ${parsedRows.length} rows`);
       }
@@ -790,7 +794,14 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
       // sanitizedData has clean columns like "last_name" with properly processed values
       const dataToUpload = selectedRows.map(row => row.sanitizedData);
 
+      console.log('[bulk-upload-dialog] 📤 Uploading', selectedRows.length, 'rows with sanitized data');
       if (selectedRows.length > 0) {
+        console.log('[bulk-upload-dialog] ✅ Sample row being uploaded:', {
+          last_name: selectedRows[0].sanitizedData.last_name,
+          caste: selectedRows[0].sanitizedData.caste,
+          academic_year_name: selectedRows[0].sanitizedData.academic_year_name,
+          scholarship_type: selectedRows[0].sanitizedData.scholarship_type
+        });
       }
 
       const ws = XLSX.utils.json_to_sheet(dataToUpload);
@@ -812,6 +823,8 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
       const estimatedBatches = Math.ceil(totalRows / BATCH_SIZE);
       const timePerBatch = 2000; // 2 seconds per batch estimate
 
+      console.log(`[bulk-upload] Starting upload: ${totalRows} rows, ${estimatedBatches} batches estimated`);
+
       let currentProgress = 0;
       const progressInterval = setInterval(() => {
         currentProgress += (100 / estimatedBatches);
@@ -829,6 +842,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
       clearInterval(progressInterval);
       setState(prev => ({ ...prev, uploadProgress: 100 }));
+      console.log('[bulk-upload] Upload complete, progress set to 100%');
 
       const data: UploadResult = await response.json();
 

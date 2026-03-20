@@ -174,6 +174,7 @@ export function CreateMissingProfilesButton() {
         );
       }
 
+      console.log('Profile creation results:', data.results);
     } catch (error) {
       console.error('Error creating profiles:', error);
       toast.error(

@@ -200,6 +200,7 @@ export function SectionForm({ section, isEditing }: SectionFormProps) {
   // Initialize form with section data when editing
   useEffect(() => {
     if (section && isEditing && !isInitialized) {
+      console.log('Initializing form with section data:', section);
 
       // Set all form values at once
       form.reset({

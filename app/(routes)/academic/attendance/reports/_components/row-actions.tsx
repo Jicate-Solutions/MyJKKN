@@ -26,11 +26,22 @@ export function DataTableRowActions<TData>({
   const router = useRouter();
   const report = row.original as AttendanceReport;
 
+  // Validate report ID to prevent placeholder UUID errors
+  const isValidId = report?.id && !report.id.includes('%%drp:id:');
+
   const handleViewReport = () => {
+    if (!isValidId) {
+      toast.error('Invalid report data. Please refresh the page.');
+      return;
+    }
     router.push(`/academic/attendance/reports/${report.id}`);
   };
 
   const handleExportExcel = async () => {
+    if (!isValidId) {
+      toast.error('Invalid report data. Please refresh the page.');
+      return;
+    }
     try {
       const result = await AttendanceExportService.exportToExcel(
         [report],
@@ -47,6 +58,10 @@ export function DataTableRowActions<TData>({
   };
 
   const handleExportPDF = async () => {
+    if (!isValidId) {
+      toast.error('Invalid report data. Please refresh the page.');
+      return;
+    }
     try {
       const result = await AttendanceExportService.exportToPDF(
         [report],
@@ -63,6 +78,10 @@ export function DataTableRowActions<TData>({
   };
 
   const handleExportCSV = async () => {
+    if (!isValidId) {
+      toast.error('Invalid report data. Please refresh the page.');
+      return;
+    }
     try {
       const result = await AttendanceExportService.exportToCSV(
         [report],

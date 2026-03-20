@@ -482,7 +482,9 @@ export function SlotDialog({
           ...(timetable?.department_id ? {
             department_id: timetable.department_id
           } : {}),
-          ...(timetable?.program_id ? { program_id: timetable.program_id } : {})
+          ...(timetable?.program_id ? { program_id: timetable.program_id } : {}),
+          // Added: 2026-01-30 - Filter by academic year to show only staff from current timetable's academic year
+          ...(timetable?.academic_year_id ? { academic_year_id: timetable.academic_year_id } : {})
         };
 
         const assignedStaff = await StaffPlanService.getStaffAssignedToCourse(
@@ -533,7 +535,9 @@ export function SlotDialog({
           ...(timetable?.department_id ? {
             department_id: timetable.department_id
           } : {}),
-          ...(timetable?.program_id ? { program_id: timetable.program_id } : {})
+          ...(timetable?.program_id ? { program_id: timetable.program_id } : {}),
+          // Added: 2026-01-30 - Filter by academic year to show only staff from current timetable's academic year
+          ...(timetable?.academic_year_id ? { academic_year_id: timetable.academic_year_id } : {})
         };
 
         const assignedStaff = await StaffPlanService.getStaffAssignedToCourse(
@@ -669,7 +673,9 @@ export function SlotDialog({
           ...(timetable?.department_id ? {
             department_id: timetable.department_id
           } : {}),
-          ...(timetable?.program_id ? { program_id: timetable.program_id } : {})
+          ...(timetable?.program_id ? { program_id: timetable.program_id } : {}),
+          // Added: 2026-01-30 - Filter by academic year to show only staff from current timetable's academic year
+          ...(timetable?.academic_year_id ? { academic_year_id: timetable.academic_year_id } : {})
         };
 
         // Get staff for all courses and combine into unique list
@@ -1213,18 +1219,21 @@ export function SlotDialog({
                         )}
                       </SelectContent>
                     </Select>
-                    {/* Updated: 2025-12-01 - Only show warning if no staff available for selected course */}
-                    {!isUsingStaffPlanningData && courses?.length > 0 && courseAssignedStaff?.length === 0 && !existingSlotStaff?.length && (
-                      <p className='text-xs text-amber-600'>
-                        ⚠️ No staff planning found for semester &quot;
+                    {/* Updated: 2026-01-30 - Show warning when no staff planning exists */}
+                    {!isUsingStaffPlanningData && courses?.length === 0 && (
+                      <p className='text-xs text-red-600'>
+                        ❌ No staff planning found for semester &quot;
                         {timetable?.semesters?.semester_name ||
                           timetable?.semester_id}
-                        &quot;. Showing all available courses.
+                        &quot; and academic year &quot;
+                        {timetable?.academic_year?.academic_year_name ||
+                          timetable?.academic_year_id}
+                        &quot;. Please create a staff plan first or clone an existing plan to this academic year.
                       </p>
                     )}
-                    {(isUsingStaffPlanningData || courseAssignedStaff?.length > 0 || existingSlotStaff?.length > 0) && (
+                    {isUsingStaffPlanningData && courses?.length > 0 && (
                       <p className='text-xs text-green-600'>
-                        ✓ Showing courses for semester
+                        ✓ Showing courses from staff planning for semester
                         &quot;
                         {timetable?.semesters?.semester_name ||
                           timetable?.semester_id}
@@ -1330,8 +1339,9 @@ export function SlotDialog({
                       <p className='text-xs text-red-600'>
                         ❌ No staff assigned to this course in staff planning
                         for semester &quot;
-                        {timetable?.semester_id}&quot;. Please assign staff in
-                        Staff Planning module first.
+                        {timetable?.semesters?.semester_name || 'Unknown Semester'}
+                        &quot; ({timetable?.academic_year?.academic_year_name || 'Unknown Year'}).
+                        Please assign staff in Staff Planning module first.
                       </p>
                     )}
                     {displayStaff?.length > 0 && (
@@ -1405,7 +1415,7 @@ export function SlotDialog({
                           !loadingFilteredSections && (
                             <div className='text-center py-4 text-gray-500 text-sm'>
                               <div className='mb-1'>
-                                No sections found for {timetable?.semester_id}
+                                No sections found for {timetable?.semesters?.semester_name || 'this semester'}
                               </div>
                               <div className='text-xs text-gray-400'>
                                 Please create sections for this semester first
@@ -1749,7 +1759,7 @@ export function SlotDialog({
                                   <div className='text-center py-2 text-gray-500 text-xs'>
                                     <div className='mb-1'>
                                       No sections available for{' '}
-                                      {timetable?.semester_id}
+                                      {timetable?.semesters?.semester_name || 'this semester'}
                                     </div>
                                     <div className='text-xs text-gray-400'>
                                       Create sections for this semester first

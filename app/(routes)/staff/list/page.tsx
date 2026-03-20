@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,7 +25,6 @@ import BulkUploadStaff from './_components/bulk-upload-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
 import { StaffFilters as StaffFiltersType, Staff } from '@/types/staff';
-import { searchStaffMembers, debounce } from '@/lib/utils/search-utils';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Users, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -48,20 +47,6 @@ export default function StaffPage() {
     limit: 20 // Optimized limit to balance performance and user experience (reduced from 50)
   });
 
-  // Search state for client-side advanced search
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchOptions, setSearchOptions] = useState<SearchOptions>({
-    searchFields: {
-      name: true,
-      email: true,
-      institutionEmail: true,
-      staffId: false,
-      designation: false
-    },
-    caseSensitive: false,
-    exactMatch: false
-  });
-
   // Use the simplified staff hook
   const {
     data: staffData,
@@ -77,32 +62,7 @@ export default function StaffPage() {
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
   // const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
 
-  // Apply client-side search to staff data
-  const { filteredStaff, searchResults } = useMemo(() => {
-    const allStaff = staffData?.data || [];
-
-    if (!searchQuery.trim()) {
-      return {
-        filteredStaff: allStaff,
-        searchResults: {
-          results: allStaff,
-          highlightInfo: new Map(),
-          totalResults: allStaff.length
-        }
-      };
-    }
-
-    const searchResults = searchStaffMembers(
-      allStaff,
-      searchQuery,
-      searchOptions
-    );
-
-    return {
-      filteredStaff: searchResults.results,
-      searchResults
-    };
-  }, [staffData?.data, searchQuery, searchOptions]);
+  const staffList = staffData?.data || [];
 
   // Memoized filter change handler to prevent unnecessary re-renders
   const handleFilterChange = useCallback(
@@ -133,17 +93,34 @@ export default function StaffPage() {
 
   // Handle search input - using inline function to avoid dependency issues
   const handleSearch = useCallback((query: string, options: SearchOptions) => {
-    // Inline debounce logic to avoid dependency issues
-    const debouncedUpdate = debounce((q: string, opts: SearchOptions) => {
-      setSearchQuery(q);
-      setSearchOptions(opts);
-    }, 300);
-    debouncedUpdate(query, options);
+    const activeFields = Object.entries(options.searchFields)
+      .filter(([, enabled]) => enabled)
+      .map(([field]) => {
+        if (field === 'institutionEmail') return 'institution_email';
+        if (field === 'staffId') return 'staff_id';
+        return field;
+      });
+
+    setFilters((prev) => ({
+      ...prev,
+      search: query || undefined,
+      search_case_sensitive: options.caseSensitive || undefined,
+      search_exact_match: options.exactMatch || undefined,
+      search_fields: activeFields.length ? activeFields : undefined,
+      page: 1
+    }));
   }, []);
 
   // Handle search clear
   const handleSearchClear = useCallback(() => {
-    setSearchQuery('');
+    setFilters((prev) => ({
+      ...prev,
+      search: undefined,
+      search_case_sensitive: undefined,
+      search_exact_match: undefined,
+      search_fields: undefined,
+      page: 1
+    }));
   }, []);
 
   // Show loading while permissions are loading
@@ -262,17 +239,16 @@ export default function StaffPage() {
                 <div className='flex items-center gap-2'>
                   <Users className='h-4 w-4 text-muted-foreground' />
                   <span className='text-sm font-medium'>
-                    {searchQuery ? (
+                    {filters.search ? (
                       <>
-                        Found: {filteredStaff.length} of{' '}
-                        {staffData.metadata?.total || 0} facilitators
+                        Found: {staffData.metadata?.total || 0} facilitators
                       </>
                     ) : (
                       <>Total: {staffData.metadata?.total || 0} facilitators</>
                     )}
                   </span>
                 </div>
-                {searchQuery && filteredStaff.length > 0 && (
+                {filters.search && staffList.length > 0 && (
                   <Badge
                     variant='default'
                     className='bg-green-100 text-green-800 border-green-300'
@@ -282,7 +258,7 @@ export default function StaffPage() {
                 )}
                 {staffData.metadata &&
                   staffData.metadata.total > 0 &&
-                  !searchQuery && (
+                  !filters.search && (
                     <Badge variant='secondary'>
                       Page {staffData.metadata.page} of{' '}
                       {staffData.metadata.totalPages}
@@ -314,31 +290,24 @@ export default function StaffPage() {
             {/* Staff List */}
             {!isLoading && staffData && (
               <StaffList
-                staff={filteredStaff}
+                staff={staffList}
                 metadata={
-                  searchQuery
-                    ? {
-                        total: filteredStaff.length,
-                        page: 1,
-                        limit: filteredStaff.length,
-                        totalPages: 1
-                      }
-                    : staffData.metadata || {
-                        total: 0,
-                        page: 1,
-                        limit: 10,
-                        totalPages: 0
-                      }
+                  staffData.metadata || {
+                    total: 0,
+                    page: 1,
+                    limit: 10,
+                    totalPages: 0
+                  }
                 }
-                onPageChange={searchQuery ? () => {} : handlePageChange}
-                onPageSizeChange={searchQuery ? () => {} : handlePageSizeChange}
+                onPageChange={handlePageChange}
+                onPageSizeChange={handlePageSizeChange}
                 onRefresh={handleRefresh}
                 canEdit={canEditStaff}
               />
             )}
 
             {/* No Search Results */}
-            {!isLoading && searchQuery && filteredStaff.length === 0 && (
+            {!isLoading && filters.search && staffList.length === 0 && (
               <div className='text-center py-12'>
                 <Users className='h-12 w-12 text-muted-foreground mx-auto mb-4' />
                 <h3 className='text-lg font-medium mb-2'>

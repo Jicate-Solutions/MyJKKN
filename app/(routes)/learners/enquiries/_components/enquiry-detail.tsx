@@ -10,7 +10,8 @@ import {
   School,
   Home,
   BookText,
-  FileEdit
+  FileEdit,
+  IndianRupee
 } from 'lucide-react';
 import {
   Card,
@@ -25,6 +26,7 @@ import { LearnerProfile } from '@/types/learner-profile';
 import { cn } from '@/lib/utils';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { UserIcon } from 'lucide-react';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface EnquiryDetailProps {
   enquiry: LearnerProfile;
@@ -32,6 +34,8 @@ interface EnquiryDetailProps {
 
 export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
   const [activeSection, setActiveSection] = useState('personal');
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const canViewFinance = isSuperAdmin || canAccess('learners', 'finance.view');
 
   const sections = [
     {
@@ -59,6 +63,11 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
       label: 'Accommodation',
       icon: Home
     },
+    ...(canViewFinance ? [{
+      id: 'finance',
+      label: 'Finance Details',
+      icon: IndianRupee
+    }] : []),
     {
       id: 'enquiry',
       label: 'Enquiry Details',
@@ -692,7 +701,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
             <>
               <CardHeader>
                 <CardTitle>Accommodation Preferences</CardTitle>
-                <CardDescription>Hostel and transport details</CardDescription>
+                <CardDescription>Hostel and accommodation details</CardDescription>
               </CardHeader>
               <CardContent className='space-y-6'>
                 <div className='grid grid-cols-2 gap-4'>
@@ -716,30 +725,6 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                     </h3>
                     <p className='text-sm'>
                       {enquiry.food_type || 'Not applicable'}
-                    </p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Bus Required
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.bus_required ? 'Yes' : 'No'}
-                    </p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Bus Route
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.bus_route || 'Not applicable'}
-                    </p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Pickup Location
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.bus_pickup_location || 'Not applicable'}
                     </p>
                   </div>
                 </div>
@@ -771,6 +756,121 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                       </h4>
                       <p className='text-sm'>
                         {enquiry.reference_contact || 'Not applicable'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </>
+          )}
+
+          {/* Finance Details Section */}
+          {activeSection === 'finance' && canViewFinance && (
+            <>
+              <CardHeader>
+                <CardTitle>Finance Details</CardTitle>
+                <CardDescription>Fee structure and payment details</CardDescription>
+              </CardHeader>
+              <CardContent className='space-y-6'>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Common Fees</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Application Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.application_fee != null ? `₹${Number(enquiry.application_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        University Registration Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.university_reg_fee != null ? `₹${Number(enquiry.university_reg_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Fee Structure</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Fee Structure Type
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.fee_structure_type === 'tuition_hostel'
+                          ? 'Tuition + Hostel Fee'
+                          : enquiry.fee_structure_type === 'dayscholar'
+                            ? 'Day Scholar Fee'
+                            : 'Not specified'}
+                      </p>
+                    </div>
+                    {enquiry.fee_structure_type === 'tuition_hostel' && (
+                      <>
+                        <div className='space-y-1'>
+                          <h4 className='text-sm font-medium text-muted-foreground'>
+                            Tuition Fee
+                          </h4>
+                          <p className='text-sm'>
+                            {enquiry.tuition_fee != null ? `₹${Number(enquiry.tuition_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                          </p>
+                        </div>
+                        <div className='space-y-1'>
+                          <h4 className='text-sm font-medium text-muted-foreground'>
+                            Hostel Fee
+                          </h4>
+                          <p className='text-sm'>
+                            {enquiry.hostel_fee != null ? `₹${Number(enquiry.hostel_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                    {enquiry.fee_structure_type === 'dayscholar' && (
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Day Scholar Fee
+                        </h4>
+                        <p className='text-sm'>
+                          {enquiry.dayscholar_fee != null ? `₹${Number(enquiry.dayscholar_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Optional Fees</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Uniform Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.uniform_fee != null ? `₹${Number(enquiry.uniform_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Hospital Training Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.hospital_training_fee != null ? `₹${Number(enquiry.hospital_training_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Placement Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {enquiry.placement_fee != null ? `₹${Number(enquiry.placement_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
                       </p>
                     </div>
                   </div>

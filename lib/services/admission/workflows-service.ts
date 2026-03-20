@@ -108,12 +108,12 @@ export class WorkflowsService {
   /**
    * Get all workflows for an institution
    */
-  static async getWorkflows(institutionId: string | undefined): Promise<Workflow[]> {
-    let query = this.supabase
+  static async getWorkflows(institutionId: string): Promise<Workflow[]> {
+    const { data, error } = await this.supabase
       .from('admission_workflows')
-      .select('*');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query.order('created_at', { ascending: false });
+      .select('*')
+      .eq('institution_id', institutionId)
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('[admission/workflows] Failed to fetch workflows:', error);
@@ -134,12 +134,11 @@ export class WorkflowsService {
   /**
    * Get active workflows for an institution (for execution engine)
    */
-  static async getActiveWorkflows(institutionId: string | undefined): Promise<Workflow[]> {
-    let query = this.supabase
+  static async getActiveWorkflows(institutionId: string): Promise<Workflow[]> {
+    const { data, error } = await this.supabase
       .from('admission_workflows')
-      .select('*');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query
+      .select('*')
+      .eq('institution_id', institutionId)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 
@@ -431,13 +430,12 @@ export class WorkflowsService {
   /**
    * Get workflow statistics for an institution
    */
-  static async getWorkflowStats(institutionId: string | undefined): Promise<WorkflowStats> {
+  static async getWorkflowStats(institutionId: string): Promise<WorkflowStats> {
     // Get workflows
-    let wfQuery = this.supabase
+    const { data: workflows, error: workflowsError } = await this.supabase
       .from('admission_workflows')
-      .select('id, is_active');
-    if (institutionId) wfQuery = wfQuery.eq('institution_id', institutionId);
-    const { data: workflows, error: workflowsError } = await wfQuery;
+      .select('id, is_active')
+      .eq('institution_id', institutionId);
 
     if (workflowsError) {
       console.warn('[admission/workflows] Failed to fetch workflow stats:', workflowsError);

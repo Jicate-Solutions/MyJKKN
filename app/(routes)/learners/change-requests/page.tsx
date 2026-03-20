@@ -48,11 +48,36 @@ export default async function ChangeRequestsPage() {
     redirect('/unauthorized');
   }
 
-  // 3. Verify role is HOD, Staff, or Super Admin
+  // 3. Get effective roles (profiles.role + user_roles for multi-role support)
+  const effectiveRoles = new Set<string>();
+  if (profile.role) effectiveRoles.add(profile.role);
+
+  const { data: userRoles } = await supabase
+    .from('user_roles')
+    .select('custom_roles!inner(role_key)')
+    .eq('user_id', user.id);
+
+  if (userRoles) {
+    userRoles.forEach((ur: any) => {
+      if (ur.custom_roles?.role_key) effectiveRoles.add(ur.custom_roles.role_key);
+    });
+  }
+
+  // Verify user has an allowed role (legacy or multi-role)
   const allowedRoles = ['super_admin', 'hod', 'staff'];
-  if (!allowedRoles.includes(profile.role)) {
+  const hasAllowedRole = allowedRoles.some((r) => effectiveRoles.has(r));
+  if (!hasAllowedRole) {
     redirect('/unauthorized');
   }
+
+  // Determine effective role for filtering (priority: super_admin > hod > staff)
+  const effectiveRole = effectiveRoles.has('super_admin')
+    ? 'super_admin'
+    : effectiveRoles.has('hod')
+      ? 'hod'
+      : effectiveRoles.has('staff')
+        ? 'staff'
+        : profile.role;
 
   // 4. Fetch pending requests with role-based filtering
   let filters: {
@@ -62,64 +87,48 @@ export default async function ChangeRequestsPage() {
   } = {};
 
   // Apply role-based filters
-  if (profile.role === 'super_admin') {
+  if (effectiveRole === 'super_admin') {
     // Super Admin sees all requests (no filters)
     filters = {};
-  } else if (profile.role === 'hod') {
+  } else if (effectiveRole === 'hod') {
     // HOD sees institution-wide requests
     filters = {
       institution_id: profile.institution_id || undefined,
     };
-  } else if (profile.role === 'staff') {
+  } else if (effectiveRole === 'staff') {
     // Staff sees department-only requests
     filters = {
       department_id: profile.department_id || undefined,
     };
   }
 
-  // Fetch all statuses (client component will handle filtering by tabs)
-  let allRequests: any[] = [];
-  let fetchError: string | null = null;
+  // Fetch all requests for each status (no pagination limit on server)
+  let allRequests: Awaited<ReturnType<typeof LearnerProfileChangeService.getPendingRequests>>['data'] = [];
 
   try {
     const [pendingRequests, approvedRequests, rejectedRequests] = await Promise.all([
       LearnerProfileChangeService.getPendingRequests({
         ...filters,
         status: 'pending',
-        limit: 1000, // Fetch all
       }),
       LearnerProfileChangeService.getPendingRequests({
         ...filters,
         status: 'approved',
-        limit: 1000,
       }),
       LearnerProfileChangeService.getPendingRequests({
         ...filters,
         status: 'rejected',
-        limit: 1000,
       }),
     ]);
 
-    // Combine all requests for client component
     allRequests = [
       ...pendingRequests.data,
       ...approvedRequests.data,
       ...rejectedRequests.data,
     ];
-  } catch (error: any) {
-    console.error('[learners/change-requests] Error fetching change requests:', error);
-    // Check if this is a "table does not exist" error
-    const errorMessage = error?.message || '';
-    if (
-      errorMessage.includes('profile_change_requests') ||
-      errorMessage.includes('relation') ||
-      errorMessage.includes('does not exist') ||
-      errorMessage.includes('42P01') // PostgreSQL code for undefined_table
-    ) {
-      fetchError = 'module_not_ready';
-    } else {
-      fetchError = errorMessage || 'An unexpected error occurred while loading change requests.';
-    }
+  } catch (error) {
+    console.error('[change-requests-page] Error fetching requests:', error);
+    // Continue with empty data rather than crashing the page
   }
 
   return (
@@ -143,61 +152,8 @@ export default async function ChangeRequestsPage() {
           </div>
         </div>
 
-        {/* Show error state or data */}
-        {fetchError === 'module_not_ready' ? (
-          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-muted-foreground"
-              >
-                <path d="M12 6v6l4 2" />
-                <circle cx="12" cy="12" r="10" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold">Profile Change Requests Module Is Being Set Up</h3>
-            <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              This feature is currently being configured by the development team.
-              Once the setup is complete, you will be able to review and manage student profile change requests here.
-            </p>
-          </div>
-        ) : fetchError ? (
-          <div className="flex flex-col items-center justify-center rounded-lg border border-destructive/50 bg-destructive/5 p-12 text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-destructive"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold">Unable to Load Change Requests</h3>
-            <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              {fetchError}
-            </p>
-          </div>
-        ) : (
-          /* Client Component with Tabs and Table */
-          <ChangeRequestsClient initialData={allRequests} />
-        )}
+        {/* Client Component with Tabs and Table */}
+        <ChangeRequestsClient initialData={allRequests} effectiveRole={effectiveRole} />
       </div>
     </ContentLayout>
   );

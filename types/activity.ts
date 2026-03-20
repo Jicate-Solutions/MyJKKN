@@ -13,7 +13,7 @@ export interface UserActivityLog {
   request_url?: string;
   request_method?: string;
   status_code?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   session_id?: string;
   institution_id?: string;
   created_at: string;
@@ -66,7 +66,7 @@ export interface CreateActivityLogRequest {
   request_url?: string;
   request_method?: string;
   status_code?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   session_id?: string;
   institution_id?: string;
 }
@@ -163,6 +163,9 @@ export const ACTIVITY_TYPES = {
   // Export/Import
   EXPORT: 'export',
   IMPORT: 'import',
+  APPROVE: 'approve',
+  REJECT: 'reject',
+  MARK: 'mark',
 
   // Security
   SECURITY_VIOLATION: 'security_violation',
@@ -173,6 +176,7 @@ export const ACTIVITY_TYPES = {
 // Resource types
 export const RESOURCE_TYPES = {
   USER: 'user',
+  LEARNER: 'learner',
   STUDENT: 'student',
   STAFF: 'staff',
   INSTITUTION: 'institution',
@@ -200,6 +204,12 @@ export const RESOURCE_TYPES = {
   CATEGORY: 'category',
   API_KEY: 'api_key',
   PROFILE: 'profile',
+  BATCH: 'batch',
+  REGULATION: 'regulation',
+  STAFF_PLAN: 'staff_plan',
+  ATTENDANCE: 'attendance',
+  LEAVE: 'leave',
+  LEAVE_TYPE: 'leave_type',
   AUTH: 'auth'
 } as const;
 

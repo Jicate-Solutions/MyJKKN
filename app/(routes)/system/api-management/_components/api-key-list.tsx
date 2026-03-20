@@ -67,7 +67,6 @@ export function ApiKeyList({
             />
           </TableHead>
           <TableHead>Name</TableHead>
-          <TableHead className="hidden lg:table-cell">Scope</TableHead>
           <TableHead>Status</TableHead>
           <TableHead className="hidden md:table-cell">Last Used</TableHead>
           <TableHead className="hidden md:table-cell">Expires</TableHead>
@@ -78,7 +77,7 @@ export function ApiKeyList({
       <TableBody>
         {apiKeys.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={8} className="text-center">
+            <TableCell colSpan={7} className="text-center">
               No API keys found
             </TableCell>
           </TableRow>
@@ -93,11 +92,6 @@ export function ApiKeyList({
                 />
               </TableCell>
               <TableCell className="font-medium">{key.name}</TableCell>
-              <TableCell className="hidden lg:table-cell">
-                <Badge variant={key.organization_id ? 'outline' : 'secondary'}>
-                  {key.organization_id ? 'Org-scoped' : 'Global'}
-                </Badge>
-              </TableCell>
               <TableCell>
                 <Badge
                   variant={key.is_active ? 'default' : 'secondary'}

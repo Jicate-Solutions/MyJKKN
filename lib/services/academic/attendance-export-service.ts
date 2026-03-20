@@ -6,6 +6,7 @@ import type {
   DetailedAttendanceReport
 } from '@/types/attendance-reports';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 
 export class AttendanceExportService {
   /**
@@ -13,7 +14,8 @@ export class AttendanceExportService {
    */
   static async exportToExcel(
     reports: AttendanceReport[],
-    filename: string = 'attendance-reports'
+    filename: string = 'attendance-reports',
+    userId?: string
   ) {
     try {
       // Prepare data for Excel
@@ -54,6 +56,23 @@ export class AttendanceExportService {
         `${filename}-${new Date().toISOString().split('T')[0]}.xlsx`
       );
 
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'Excel';
+            const count = Array.isArray(reports) ? reports.length : 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
+
       return { success: true, error: null };
     } catch (error) {
       logger.error('academic/attendance', 'Error exporting to Excel', error);
@@ -69,7 +88,8 @@ export class AttendanceExportService {
    */
   static async exportDetailedToExcel(
     report: DetailedAttendanceReport,
-    filename: string = 'attendance-detail'
+    filename: string = 'attendance-detail',
+    userId?: string
   ) {
     try {
       const wb = XLSX.utils.book_new();
@@ -216,6 +236,23 @@ export class AttendanceExportService {
       // Save file
       XLSX.writeFile(wb, `${filename}-${report.attendance_date}-detailed.xlsx`);
 
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'Excel';
+            const count = 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
+
       return { success: true, error: null };
     } catch (error) {
       logger.error('academic/attendance', 'Error exporting detailed report to Excel', error);
@@ -227,64 +264,141 @@ export class AttendanceExportService {
   }
 
   /**
-   * Export attendance reports to PDF
+   * Export attendance reports to PDF (landscape for full institution details)
    */
   static async exportToPDF(
     reports: AttendanceReport[],
-    filename: string = 'attendance-reports'
+    filename: string = 'attendance-reports',
+    userId?: string
   ) {
     try {
-      const doc = new jsPDF();
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.width;
+      let yPosition = 14;
 
-      // Add title
-      doc.setFontSize(20);
-      doc.text('Attendance Reports', 14, 22);
+      // Derive unique institution names for the subtitle
+      const institutions = [...new Set(reports.map((r) => r.institution_name).filter(Boolean))];
+      const institutionLabel = institutions.length === 1
+        ? institutions[0]!
+        : institutions.length > 1
+          ? `${institutions.slice(0, 2).join(', ')}${institutions.length > 2 ? ` +${institutions.length - 2} more` : ''}`
+          : 'All Institutions';
 
-      // Add generation date
+      // Title block
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ATTENDANCE REPORTS', pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += 7;
+
       doc.setFontSize(10);
-      doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 30);
+      doc.setFont('helvetica', 'normal');
+      doc.text(institutionLabel, pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += 5;
 
-      // Prepare table data
+      doc.setFontSize(8);
+      doc.setTextColor(100);
+      doc.text(`Generated: ${new Date().toLocaleString()}`, pageWidth / 2, yPosition, { align: 'center' });
+      doc.setTextColor(0);
+      yPosition += 6;
+
+      // Summary line
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Total Records: ${reports.length}`, 14, yPosition);
+      doc.setFont('helvetica', 'normal');
+      yPosition += 5;
+
+      // Prepare table data — institution details included
       const tableData = reports.map((report) => [
-        new Date(report.attendance_date).toLocaleDateString(),
-        report.section_name || '-',
+        new Date(report.attendance_date).toLocaleDateString('en-GB'),
+        report.institution_name || '-',
+        report.degree_name || '-',
+        report.department_name || '-',
         report.semester_name || '-',
+        report.section_name || '-',
         `${report.periods_count}`,
         `${report.total_students}`,
         `${report.average_attendance.toFixed(1)}%`,
         report.faculty_details.map((f) => f.faculty_name).join(', ')
       ]);
 
-      // Add table
       autoTable(doc, {
-        head: [
-          [
-            'Date',
-            'Section',
-            'Semester',
-            'Periods',
-            'Students',
-            'Attendance',
-            'Faculty'
-          ]
-        ],
+        head: [['Date', 'Institution', 'Degree', 'Department', 'Semester', 'Section', 'Periods', 'Students', 'Attendance', 'Faculty']],
         body: tableData,
-        startY: 35,
+        startY: yPosition,
         styles: {
-          fontSize: 8,
-          cellPadding: 2
+          fontSize: 7.5,
+          cellPadding: 2,
+          lineColor: [220, 220, 220],
+          lineWidth: 0.1,
         },
         headStyles: {
-          fillColor: [41, 128, 185],
-          textColor: 255
+          fillColor: [37, 99, 235],
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 8,
+          halign: 'center',
         },
         alternateRowStyles: {
-          fillColor: [245, 245, 245]
-        }
+          fillColor: [248, 250, 252],
+        },
+        columnStyles: {
+          0: { cellWidth: 22, halign: 'center' },  // Date
+          1: { cellWidth: 38 },                    // Institution
+          2: { cellWidth: 25 },                    // Degree
+          3: { cellWidth: 32 },                    // Department
+          4: { cellWidth: 22 },                    // Semester
+          5: { cellWidth: 16, halign: 'center' },  // Section
+          6: { cellWidth: 14, halign: 'center' },  // Periods
+          7: { cellWidth: 16, halign: 'center' },  // Students
+          8: { cellWidth: 20, halign: 'center', fontStyle: 'bold' }, // Attendance
+          9: { cellWidth: 'auto' },                // Faculty
+        },
+        didParseCell: (data) => {
+          // Colour-code attendance column
+          if (data.column.index === 8 && data.cell.section === 'body') {
+            const pct = parseFloat(String(data.cell.raw || '0'));
+            if (pct >= 85) data.cell.styles.textColor = [22, 163, 74];
+            else if (pct >= 75) data.cell.styles.textColor = [202, 138, 4];
+            else data.cell.styles.textColor = [220, 38, 38];
+          }
+        },
       });
+
+      // Footer on every page
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7.5);
+        doc.setTextColor(128);
+        doc.text(`Page ${i} of ${pageCount}`, 14, doc.internal.pageSize.height - 8);
+        doc.text(
+          `Generated: ${new Date().toLocaleString()}`,
+          pageWidth - 14,
+          doc.internal.pageSize.height - 8,
+          { align: 'right' }
+        );
+      }
 
       // Save PDF
       doc.save(`${filename}-${new Date().toISOString().split('T')[0]}.pdf`);
+
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'PDF';
+            const count = Array.isArray(reports) ? reports.length : 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
 
       return { success: true, error: null };
     } catch (error) {
@@ -301,7 +415,8 @@ export class AttendanceExportService {
    */
   static async exportDetailedToPDF(
     report: DetailedAttendanceReport,
-    filename: string = 'attendance-detail'
+    filename: string = 'attendance-detail',
+    userId?: string
   ) {
     try {
       const doc = new jsPDF('p', 'mm', 'a4');
@@ -667,6 +782,23 @@ export class AttendanceExportService {
       // Save PDF
       doc.save(`${filename}-${report.attendance_date}-detailed.pdf`);
 
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'PDF';
+            const count = 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
+
       return { success: true, error: null };
     } catch (error) {
       logger.error('academic/attendance', 'Error exporting detailed report to PDF', error);
@@ -682,7 +814,8 @@ export class AttendanceExportService {
    */
   static async exportToCSV(
     reports: AttendanceReport[],
-    filename: string = 'attendance-reports'
+    filename: string = 'attendance-reports',
+    userId?: string
   ) {
     try {
       // Prepare CSV content
@@ -735,6 +868,23 @@ export class AttendanceExportService {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'CSV';
+            const count = Array.isArray(reports) ? reports.length : 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
 
       return { success: true, error: null };
     } catch (error) {

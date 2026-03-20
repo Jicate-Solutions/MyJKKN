@@ -10,7 +10,6 @@ import {
   type LeadWithParents,
   type CommunicationLogEntry,
 } from '@/lib/services/admission/parent-communication-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -34,12 +33,10 @@ export const parentCommKeys = {
  * Fetch leads with parent information
  */
 export function useLeadsWithParents(filters: ParentCommFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: parentCommKeys.leads(filters),
     queryFn: () => ParentCommunicationService.getLeadsWithParentInfo(filters),
-    enabled: isSuperAdmin || !!filters.institutionId,
+    enabled: !!filters.institutionId,
   });
 
   return {
@@ -60,8 +57,6 @@ export function useParentCommLogs(
   leadId?: string,
   limit?: number
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: parentCommKeys.logs(institutionId || '', leadId),
     queryFn: () =>
@@ -69,7 +64,7 @@ export function useParentCommLogs(
         limit: limit || 50,
         leadId,
       }),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {
@@ -85,12 +80,10 @@ export function useParentCommLogs(
  * Fetch parent communication stats
  */
 export function useParentCommStats(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: parentCommKeys.stats(institutionId || ''),
     queryFn: () => ParentCommunicationService.getStats(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 60000,
   });
 

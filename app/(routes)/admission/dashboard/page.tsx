@@ -62,13 +62,10 @@ const FUNNEL_STAGES = [
   { key: 'application_submitted', label: 'Application Submitted', color: 'bg-rose-500' },
   { key: 'documents_pending', label: 'Documents Pending', color: 'bg-orange-500' },
   { key: 'documents_verified', label: 'Documents Verified', color: 'bg-amber-500' },
-  { key: 'interview_scheduled', label: 'Interview Scheduled', color: 'bg-yellow-500' },
-  { key: 'interview_completed', label: 'Interview Completed', color: 'bg-lime-500' },
   { key: 'offer_sent', label: 'Offer Sent', color: 'bg-green-500' },
   { key: 'offer_accepted', label: 'Offer Accepted', color: 'bg-emerald-500' },
   { key: 'token_paid', label: 'Token Paid', color: 'bg-teal-500' },
   { key: 'applied', label: 'Applied', color: 'bg-violet-400' },
-  { key: 'interviewed', label: 'Interviewed', color: 'bg-rose-400' },
   { key: 'offered', label: 'Offered', color: 'bg-orange-400' },
   { key: 'enrolled', label: 'Enrolled', color: 'bg-cyan-500' },
   { key: 'confirmed', label: 'Confirmed', color: 'bg-green-600' },
@@ -475,7 +472,7 @@ function AdmissionDashboardPageContent() {
                   </Link>
                 </Button>
                 <Button variant="outline" className="h-auto py-4 flex flex-col gap-2" asChild>
-                  <Link href="/admission/templates">
+                  <Link href="/admission/settings/templates">
                     <AlertCircle className="h-5 w-5" />
                     <span>Templates</span>
                   </Link>

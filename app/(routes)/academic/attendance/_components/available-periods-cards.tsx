@@ -14,7 +14,8 @@ import {
   BookOpen,
   Loader2,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  FlaskConical
 } from 'lucide-react';
 import { AttendancePeriodOption } from '@/types/attendance';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
@@ -68,9 +69,15 @@ export function AvailablePeriodsCards({
       try {
         setCheckingAttendance(true);
 
+        // Updated: 2026-02-06 - Separate practical periods from standard periods
+        // Practical periods use batches instead of sections, so the standard
+        // attendance check (which requires section_id) doesn't apply to them
+        const standardPeriods = periods.filter((p) => p.period_mode !== 'practical');
+        const practicalPeriods = periods.filter((p) => p.period_mode === 'practical');
+
         // Updated: 2025-10-09 - For multi-section periods, check using the first section
         // The service will check both section_id and section_ids array automatically
-        const periodChecks = periods.map((period) => ({
+        const periodChecks = standardPeriods.map((period) => ({
           timetable_slot_id: period.timetable_slot_id,
           timetable_id: period.timetable_id,
           // Use first section's ID for multi-section periods (service checks section_ids array)
@@ -80,10 +87,21 @@ export function AvailablePeriodsCards({
           attendance_date: targetDate
         }));
 
-        const attendanceMap =
-          await AttendanceService.checkExistingAttendanceForPeriods(
-            periodChecks
-          );
+        // Only check standard periods; practical periods default to "not marked"
+        // (practical attendance is tracked per-batch, not per-section)
+        let attendanceMap = new Map<string, { isMarked: boolean; recordId?: string }>();
+
+        if (periodChecks.length > 0) {
+          attendanceMap =
+            await AttendanceService.checkExistingAttendanceForPeriods(
+              periodChecks
+            );
+        }
+
+        // Mark practical periods as unchecked (they'll be verified on the mark page)
+        practicalPeriods.forEach((period) => {
+          attendanceMap.set(period.timetable_slot_id, { isMarked: false });
+        });
 
         // Updated: 2025-10-09 - Simplified: One check per slot, service handles multi-section logic
         const marked = new Set<string>();
@@ -171,37 +189,38 @@ export function AvailablePeriodsCards({
     checkLeavesForDate();
   }, [periods, targetDate]);
 
-  const parseTimeString = (timeStr: string): Date | null => {
-    if (!timeStr) return null;
-    const parts = timeStr.trim().split(' ');
-    if (parts.length < 2) return null;
-    const [time, period] = parts;
-    const timeParts = time.split(':').map(Number);
-    if (timeParts.length < 2) return null;
-    const [hours, minutes] = timeParts;
-    const date = new Date(targetDate + 'T00:00:00');
-    let h = hours;
-    if (period?.toUpperCase() === 'PM' && hours !== 12) h += 12;
-    if (period?.toUpperCase() === 'AM' && hours === 12) h = 0;
-    date.setHours(h, minutes, 0, 0);
-    return date;
-  };
+  const getTimeStatus = (startTime: string) => {
+    // TEMPORARY: Remove time-based restrictions - faculty can mark attendance anytime
+    // TODO: Implement proper time restriction logic in future
+    // For now, always allow attendance marking regardless of time
+    return 'current';
 
-  const getTimeStatus = (startTime: string, endTime?: string): 'past' | 'current' | 'upcoming' => {
-    // Visual indicator only - faculty can still mark attendance for any period
-    if (!startTime) return 'current';
+    /* COMMENTED OUT - Original time-based logic for future implementation
+    if (!startTime) return 'upcoming';
+
     const now = new Date();
-    const periodStart = parseTimeString(startTime);
-    if (!periodStart) return 'current';
+    const [time, period] = startTime.split(' ');
+    const [hours, minutes] = time.split(':').map(Number);
 
-    if (now < periodStart) return 'upcoming';
+    // Create period time using the selected date, not today's date
+    const periodTime = new Date(targetDate + 'T00:00:00');
+    periodTime.setHours(
+      period === 'PM' && hours !== 12 ? hours + 12 : hours,
+      minutes,
+      0,
+      0
+    );
 
-    if (endTime) {
-      const periodEnd = parseTimeString(endTime);
-      if (periodEnd && now <= periodEnd) return 'current';
-    }
+    // Add buffer time (e.g., allow marking attendance up to 2 hours after period ends)
+    const bufferMinutes = 240; // 4 hours buffer
+    const periodEndTime = new Date(
+      periodTime.getTime() + bufferMinutes * 60000
+    );
 
-    return 'past';
+    if (now < periodTime) return 'upcoming';
+    if (now > periodEndTime) return 'past';
+    return 'current';
+    */
   };
 
   const handlePeriodClick = (period: AttendancePeriodOption) => {
@@ -279,7 +298,7 @@ export function AvailablePeriodsCards({
       <CardContent>
         <div className='grid gap-4'>
           {filteredPeriods.map((period) => {
-            const timeStatus = getTimeStatus(period.start_time, period.end_time);
+            const timeStatus = getTimeStatus(period.start_time);
             const isMarked = markedPeriods.has(period.timetable_slot_id);
             const isMultiSection = period.sections && period.sections.length > 1;
 
@@ -288,7 +307,7 @@ export function AvailablePeriodsCards({
                 key={period.timetable_slot_id}
                 className={cn(
                   'border-2 transition-all duration-200',
-                  timeStatus === 'past' && !isMarked && 'opacity-75',
+                  // timeStatus === 'past' && !isMarked && 'opacity-75', // TEMPORARY: Removed past period styling
                   isMarked && 'border-green-500 dark:border-green-600'
                 )}
               >
@@ -310,16 +329,6 @@ export function AvailablePeriodsCards({
                           >
                             {period.period_name}
                           </Badge>
-                          {timeStatus === 'past' && !isMarked && (
-                            <Badge variant='secondary' className='text-xs w-fit bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'>
-                              Ended
-                            </Badge>
-                          )}
-                          {timeStatus === 'upcoming' && !isMarked && (
-                            <Badge variant='secondary' className='text-xs w-fit bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'>
-                              Upcoming
-                            </Badge>
-                          )}
                         </div>
                         {isMarked && (
                           <div className='flex items-center gap-2 self-start sm:self-auto'>
@@ -365,6 +374,54 @@ export function AvailablePeriodsCards({
                             {period.course.course_name}
                           </span>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Updated: 2026-02-06 - Practical Period Batch & Course Info */}
+                    {period.period_mode === 'practical' && period.practical_config && (
+                      <div className='space-y-2'>
+                        {/* Practical Period Indicator with Batches */}
+                        {period.practical_config.batches && period.practical_config.batches.length > 0 && (
+                          <div className='bg-purple-50 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-800 px-3 py-2.5 rounded-md'>
+                            <div className='flex items-center gap-2 mb-1.5'>
+                              <FlaskConical className='h-4 w-4 text-purple-600 dark:text-purple-400 flex-shrink-0' />
+                              <span className='font-semibold text-xs text-purple-700 dark:text-purple-300 uppercase tracking-wide'>
+                                Practical - {period.practical_config.batches.length} {period.practical_config.batches.length === 1 ? 'Batch' : 'Batches'}
+                              </span>
+                            </div>
+                            <div className='flex flex-wrap gap-1.5 ml-6'>
+                              {period.practical_config.batches.map((batch: any) => (
+                                <Badge
+                                  key={batch.batch_id}
+                                  variant='outline'
+                                  className='text-xs bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700'
+                                >
+                                  {batch.batch_name}
+                                  {batch.estimated_count > 0 && (
+                                    <span className='ml-1 text-purple-500 dark:text-purple-400'>
+                                      ({batch.estimated_count})
+                                    </span>
+                                  )}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Available Courses for Practical Period */}
+                        {!period.course && period.practical_config.available_courses && period.practical_config.available_courses.length > 0 && (
+                          <div className='flex items-start gap-2'>
+                            <BookOpen className='h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0' />
+                            <div className='min-w-0 flex-1'>
+                              <span className='text-xs text-muted-foreground'>Available Courses: </span>
+                              <span className='font-medium text-sm'>
+                                {period.practical_config.available_courses.map((c: any) =>
+                                  c.course_code ? `${c.course_code} - ${c.course_name}` : c.course_name
+                                ).join(', ')}
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -421,7 +478,7 @@ export function AvailablePeriodsCards({
                     <div className='pt-3 border-t border-border/50'>
                       <Button
                         onClick={() => handlePeriodClick(period)}
-                        disabled={(leaveInfo.has(period.timetable_slot_id) && leaveInfo.get(period.timetable_slot_id) !== null) || checkingLeaves}
+                        disabled={leaveInfo.get(period.timetable_slot_id) !== null || checkingLeaves}
                         size='sm'
                         className={cn(
                           'w-full h-10 font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]',
@@ -438,11 +495,17 @@ export function AvailablePeriodsCards({
                           </>
                         ) : (
                           <>
-                            <Users className='h-4 w-4 mr-2 flex-shrink-0' />
+                            {period.period_mode === 'practical' ? (
+                              <FlaskConical className='h-4 w-4 mr-2 flex-shrink-0' />
+                            ) : (
+                              <Users className='h-4 w-4 mr-2 flex-shrink-0' />
+                            )}
                             <span className='text-sm'>
-                              {isMultiSection
-                                ? 'Mark All Sections'
-                                : 'Mark Attendance'}
+                              {period.period_mode === 'practical'
+                                ? 'Select Batch & Mark Attendance'
+                                : isMultiSection
+                                  ? 'Mark All Sections'
+                                  : 'Mark Attendance'}
                             </span>
                           </>
                         )}

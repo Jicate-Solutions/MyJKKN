@@ -16,7 +16,7 @@ import { useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 
 interface Grade {
-  score_percentage: number;
+  score_percentage: number | null;
 }
 
 interface GradeDistributionChartProps {
@@ -49,7 +49,7 @@ export function GradeDistributionChart({
 
     // Count grades in each range
     grades.forEach((grade) => {
-      const percentage = grade.score_percentage;
+      const percentage = grade.score_percentage ?? 0;
       const range = ranges.find((r) => percentage >= r.min && percentage <= r.max);
       if (range) {
         range.count++;
@@ -88,7 +88,7 @@ export function GradeDistributionChart({
           <div className="text-sm text-muted-foreground">Average</div>
           <div className="text-2xl font-bold">
             {(
-              grades.reduce((sum, g) => sum + g.score_percentage, 0) /
+              grades.reduce((sum, g) => sum + (g.score_percentage ?? 0), 0) /
               grades.length
             ).toFixed(1)}
             %
@@ -97,13 +97,13 @@ export function GradeDistributionChart({
         <Card className="p-4">
           <div className="text-sm text-muted-foreground">Passing (&gt;50%)</div>
           <div className="text-2xl font-bold text-green-600">
-            {grades.filter((g) => g.score_percentage >= 50).length}
+            {grades.filter((g) => (g.score_percentage ?? 0) >= 50).length}
           </div>
         </Card>
         <Card className="p-4">
           <div className="text-sm text-muted-foreground">Failing (&lt;50%)</div>
           <div className="text-2xl font-bold text-red-600">
-            {grades.filter((g) => g.score_percentage < 50).length}
+            {grades.filter((g) => (g.score_percentage ?? 0) < 50).length}
           </div>
         </Card>
       </div>

@@ -12,9 +12,11 @@
  * @route /academic/leave-onduty/reports
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAllLeaveOndutyApplications } from '@/hooks/academic/use-leave-onduty';
 import { ApplicationFilters } from '@/types/leave-onduty';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -54,12 +56,21 @@ import {
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { exportToCSV } from '@/lib/utils/export-utils';
 
 export default function LeaveOndutyReportsPage() {
-  const { profile } = useAuth();
+  const router = useRouter();
+  const { profile, isLoading: authLoading } = useAuth();
+  const { can, isLoading: permissionsLoading } = usePermissions();
   const [dateFrom, setDateFrom] = useState<Date>(startOfMonth(subMonths(new Date(), 1)));
   const [dateTo, setDateTo] = useState<Date>(endOfMonth(new Date()));
+
+  // Permission check - redirect if unauthorized
+  // CRITICAL: Wait for both auth AND permissions to finish loading before checking
+  useEffect(() => {
+    if (!authLoading && !permissionsLoading && !can('academic.leave_onduty.reports')) {
+      router.replace('/');
+    }
+  }, [authLoading, permissionsLoading, can, router]);
 
   const filters: ApplicationFilters = {
     institution_id: profile?.institution_id || '',
@@ -117,23 +128,8 @@ export default function LeaveOndutyReportsPage() {
   const stats = calculateStatistics();
 
   const handleExport = () => {
-    if (!applications || applications.length === 0) return;
-    exportToCSV(applications, 'leave-onduty-report', [
-      { key: 'id', label: 'Application ID' },
-      { key: 'category', label: 'Category' },
-      { key: 'sub_category', label: 'Sub Category' },
-      { key: 'status', label: 'Status' },
-      { key: 'learner.first_name', label: 'First Name' },
-      { key: 'learner.last_name', label: 'Last Name' },
-      { key: 'learner.roll_number', label: 'Roll Number' },
-      { key: 'application_date', label: 'Application Date' },
-      { key: 'start_date', label: 'Start Date' },
-      { key: 'end_date', label: 'End Date' },
-      { key: 'period_type', label: 'Period Type' },
-      { key: 'reason', label: 'Reason' },
-      { key: 'created_at', label: 'Created At' },
-      { key: 'updated_at', label: 'Updated At' },
-    ]);
+    // TODO: Implement export to CSV/Excel
+    console.log('Export functionality coming soon');
   };
 
   if (isLoading) {

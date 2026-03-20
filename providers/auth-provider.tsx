@@ -8,14 +8,14 @@ import {
   useState,
   ReactNode,
   useCallback,
-  useRef,
-  useMemo
+  useRef
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { Profile } from '@/types/auth';
 import { AuthService } from '@/lib/auth/auth-service';
 import { toast } from 'react-hot-toast';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { createBrowserClient } from '@supabase/ssr';
+import { Database } from '@/types/supabase';
 
 interface AuthContextType {
   user: Profile | null;
@@ -39,28 +39,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-
-  // Memoize Supabase client to ensure stable reference across re-renders
-  // This prevents creating new auth subscriptions on every render
-  const supabase = useMemo(() => createClientSupabaseClient(), []);
+  const supabase = createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
   // Cache management
   const lastFetchTime = useRef<number>(0);
   const lastRefreshTimestamp = useRef<number>(0);
   const profileCache = useRef<Profile | null>(null);
   const isFetchingRef = useRef(false);
-  const isHandlingAuthChangeRef = useRef(false);
 
   const refreshUser = useCallback(async () => {
     const now = Date.now();
 
     // Debounce: Prevent rapid successive calls
     if (now - lastRefreshTimestamp.current < DEBOUNCE_TIME) {
+      console.log('[AuthProvider] Debounced refresh call');
       return;
     }
 
     // Prevent concurrent fetches
     if (isFetchingRef.current) {
+      console.log('[AuthProvider] Already fetching, skipping');
       return;
     }
 
@@ -69,27 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileCache.current &&
       now - lastFetchTime.current < PROFILE_CACHE_TIME
     ) {
-
-      // CRITICAL: Even with cached data, ALWAYS verify is_active status
-      // This prevents deactivated users from accessing the system during cache window
-      if (profileCache.current.is_active === false) {
-        console.warn('[AuthProvider] Cached user is inactive, signing out');
-        try {
-          await supabase.auth.signOut();
-          setUser(null);
-          profileCache.current = null;
-          router.push('/unauthorized?reason=inactive');
-          toast.error(
-            'Your account has been deactivated. Please contact your administrator.'
-          );
-        } catch (error) {
-          console.error('[AuthProvider] Error signing out inactive user:', error);
-        } finally {
-          setLoading(false);
-        }
-        return;
-      }
-
+      console.log('[AuthProvider] Using cached profile');
       setUser(profileCache.current);
       setLoading(false);
       return;
@@ -106,35 +87,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // If no profile, check if we're actually logged in
         const { data, error } = await supabase.auth.getUser();
         if (error || !data.user) {
+          // Not authenticated — clear state
           setUser(null);
           profileCache.current = null;
           return;
         }
+
+        // User is authenticated but profile fetch returned null (RLS issue, timeout, etc.)
+        // Keep the existing cached profile to prevent Access Denied flash
+        if (profileCache.current) {
+          console.warn('[AuthProvider] Profile fetch returned null for authenticated user, keeping cached profile');
+          lastFetchTime.current = now; // Extend cache to avoid retrying immediately
+          setUser(profileCache.current);
+        }
+        return;
       }
 
       // Check if user account is active
-      if (profile && profile.is_active === false) {
+      if (profile.is_active === false) {
         // Sign out inactive user and redirect to unauthorized page
-        try {
-          await supabase.auth.signOut();
-        } catch (signOutError) {
-          console.error('[AuthProvider] Error signing out inactive user:', signOutError);
-          // Continue with cleanup even if sign out fails
-        }
-
+        await supabase.auth.signOut();
         setUser(null);
         profileCache.current = null;
-
-        try {
-          router.push('/unauthorized?reason=inactive');
-        } catch (routerError) {
-          console.error('[AuthProvider] Error routing to unauthorized:', routerError);
-          // Fallback to direct navigation if router fails
-          if (typeof window !== 'undefined') {
-            window.location.href = '/unauthorized?reason=inactive';
-          }
-        }
-
+        router.push('/unauthorized?reason=inactive');
         toast.error(
           'Your account has been deactivated. Please contact your administrator.'
         );
@@ -147,33 +122,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(profile);
     } catch (error) {
       console.error('[AuthProvider] Error fetching profile:', error);
-
-      // On error, verify auth and redirect if needed
-      // Wrap in try-catch to prevent error handler from crashing
-      try {
-        const { data, error: userError } = await supabase.auth.getUser();
-        if (userError || !data.user) {
-          setUser(null);
-          profileCache.current = null;
-
-          try {
-            router.push('/auth/login');
-          } catch (routerError) {
-            console.error('[AuthProvider] Error routing to login:', routerError);
-            // Fallback to direct navigation if router fails
-            if (typeof window !== 'undefined') {
-              window.location.href = '/auth/login';
-            }
-          }
-        }
-      } catch (authCheckError) {
-        console.error('[AuthProvider] Error checking auth in error handler:', authCheckError);
-        // Last resort: clear state and force page reload to login
+      // On error, verify auth status
+      const { data, error: userError } = await supabase.auth.getUser();
+      if (userError || !data.user) {
+        // Not authenticated — redirect to login
         setUser(null);
         profileCache.current = null;
-        if (typeof window !== 'undefined') {
-          window.location.href = '/auth/login';
-        }
+        router.push('/auth/login');
+      } else if (profileCache.current) {
+        // Authenticated but profile fetch failed — keep cached profile
+        console.warn('[AuthProvider] Profile fetch error for authenticated user, keeping cached profile');
+        setUser(profileCache.current);
       }
     } finally {
       setLoading(false);
@@ -193,17 +152,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         window.google.accounts.id.disableAutoSelect();
       }
 
-      try {
-        router.push('/auth/login');
-      } catch (routerError) {
-        console.error('[AuthProvider] Error routing after sign out:', routerError);
-        // Fallback to direct navigation if router fails
-        if (typeof window !== 'undefined') {
-          window.location.href = '/auth/login';
-        }
-      }
+      router.push('/auth/login');
     } catch (error) {
-      console.error('[AuthProvider] Sign out error:', error);
       toast.error('Error signing out');
     }
   };
@@ -215,45 +165,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Optimized session sync - only listen to critical auth events
   useEffect(() => {
+    // Track if initial session has been handled to distinguish
+    // first SIGNED_IN from token-refresh SIGNED_IN
+    let initialSessionHandled = false;
+
     const handleAuthChange = async (event: string) => {
       const now = Date.now();
-
-      // Prevent concurrent auth change handling
-      if (isHandlingAuthChangeRef.current) {
-        return;
-      }
 
       // Debounce auth change handler
       if (now - lastRefreshTimestamp.current < DEBOUNCE_TIME) {
         return;
       }
 
-      try {
-        isHandlingAuthChangeRef.current = true;
+      // Add a small delay to prevent race conditions
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
-        // Add a small delay to prevent race conditions
-        await new Promise((resolve) => setTimeout(resolve, 100));
+      if (event === 'INITIAL_SESSION') {
+        // Mark initial session as handled — refreshUser() from mount useEffect covers this
+        initialSessionHandled = true;
+        return;
+      }
 
       if (event === 'SIGNED_IN') {
-        await refreshUser();
-        try {
+        if (!initialSessionHandled) {
+          // First SIGNED_IN — genuine sign-in
+          initialSessionHandled = true;
+          await refreshUser();
           router.refresh();
-        } catch (routerError) {
-          console.error('[AuthProvider] Error refreshing router:', routerError);
-          // Non-critical error, continue without router refresh
+        } else {
+          // Subsequent SIGNED_IN events are from token refresh — skip heavy refresh
+          // Profile hasn't changed, just the token
+          console.log('[AuthProvider] SIGNED_IN from token refresh, skipping profile refetch');
         }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         profileCache.current = null;
-        try {
-          router.push('/auth/login');
-        } catch (routerError) {
-          console.error('[AuthProvider] Error routing to login:', routerError);
-          // Fallback to direct navigation if router fails
-          if (typeof window !== 'undefined') {
-            window.location.href = '/auth/login';
-          }
-        }
+        router.push('/auth/login');
       } else if (event === 'USER_UPDATED') {
         // Force refresh on user update
         profileCache.current = null;
@@ -261,9 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else if (event === 'TOKEN_REFRESHED') {
         // Token refresh doesn't need profile refresh
         // Profile data hasn't changed, just the token
-      }
-      } finally {
-        isHandlingAuthChangeRef.current = false;
+        console.log('[AuthProvider] Token refreshed, no profile fetch needed');
       }
     };
 

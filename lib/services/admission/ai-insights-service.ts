@@ -112,22 +112,25 @@ export class AIInsightsService {
       .from('admission_ai_insights')
       .select('*')
       .eq('institution_id', filters.institution_id)
-      .order('priority', { ascending: true })
+      // DB column is 'severity' (maps to service 'priority')
+      .order('severity', { ascending: true })
       .order('created_at', { ascending: false });
 
     if (filters.type) {
+      // DB column is 'insight_type' (maps to service 'type')
       if (Array.isArray(filters.type)) {
-        query = query.in('type', filters.type);
+        query = query.in('insight_type', filters.type);
       } else {
-        query = query.eq('type', filters.type);
+        query = query.eq('insight_type', filters.type);
       }
     }
 
     if (filters.priority) {
+      // DB column is 'severity' (maps to service 'priority')
       if (Array.isArray(filters.priority)) {
-        query = query.in('priority', filters.priority);
+        query = query.in('severity', filters.priority);
       } else {
-        query = query.eq('priority', filters.priority);
+        query = query.eq('severity', filters.priority);
       }
     }
 
@@ -150,7 +153,7 @@ export class AIInsightsService {
       throw new Error(`Failed to fetch insights: ${error.message}`);
     }
 
-    return (data || []) as AIInsight[];
+    return (data || []).map(AIInsightsService.mapRowToInsight);
   }
 
   /**
@@ -161,11 +164,8 @@ export class AIInsightsService {
 
     const { error } = await (this.supabase as any)
       .from('admission_ai_insights')
-      .update({
-        is_dismissed: true,
-        dismissed_at: new Date().toISOString(),
-        dismissed_by: user?.id || null,
-      })
+      // DB has no dismissed_at / dismissed_by columns — only is_dismissed
+      .update({ is_dismissed: true })
       .eq('id', insightId);
 
     if (error) {
@@ -179,79 +179,25 @@ export class AIInsightsService {
   // ==========================================================================
 
   /**
-   * Generate and store insights by analyzing lead data
+   * Generate AI-powered insights via the server-side API route.
+   * Delegates to /api/admission/insights/generate which uses Claude claude-sonnet-4-6
+   * and a service-role Supabase client (bypasses RLS for read/write).
    */
   static async generateInsights(institutionId: string): Promise<AIInsight[]> {
-    const insights: Omit<AIInsight, 'id' | 'created_at' | 'updated_at'>[] = [];
+    const response = await fetch('/api/admission/insights/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ institutionId }),
+    });
 
-    try {
-      // Fetch leads data
-      const { data: leads, error: leadsError } = await (this.supabase as any)
-        .from('admission_leads')
-        .select(`
-          *,
-          counselor:admission_counselors(id, name)
-        `)
-        .eq('institution_id', institutionId);
-
-      if (leadsError) {
-        console.error('[AIInsightsService] Error fetching leads:', leadsError);
-        throw leadsError;
-      }
-
-      const allLeads = (leads || []) as AdmissionLead[];
-
-      // Generate various insights
-      const hotLeadsInsight = this.analyzeHotLeadsNoContact(allLeads, institutionId);
-      if (hotLeadsInsight) insights.push(hotLeadsInsight);
-
-      const staleLeadsInsight = this.analyzeStaleLeads(allLeads, institutionId);
-      if (staleLeadsInsight) insights.push(staleLeadsInsight);
-
-      const conversionInsight = this.analyzeConversionOpportunities(allLeads, institutionId);
-      if (conversionInsight) insights.push(conversionInsight);
-
-      const sourceInsight = this.analyzeSourcePerformance(allLeads, institutionId);
-      if (sourceInsight) insights.push(sourceInsight);
-
-      const todayFollowupsInsight = this.analyzeTodayFollowups(allLeads, institutionId);
-      if (todayFollowupsInsight) insights.push(todayFollowupsInsight);
-
-      const overdueFollowupsInsight = this.analyzeOverdueFollowups(allLeads, institutionId);
-      if (overdueFollowupsInsight) insights.push(overdueFollowupsInsight);
-
-      const unassignedLeadsInsight = this.analyzeUnassignedLeads(allLeads, institutionId);
-      if (unassignedLeadsInsight) insights.push(unassignedLeadsInsight);
-
-      const weeklyTrendInsight = this.analyzeWeeklyTrend(allLeads, institutionId);
-      if (weeklyTrendInsight) insights.push(weeklyTrendInsight);
-
-      // Clear existing non-dismissed insights and insert new ones
-      await (this.supabase as any)
-        .from('admission_ai_insights')
-        .delete()
-        .eq('institution_id', institutionId)
-        .eq('is_dismissed', false);
-
-      if (insights.length > 0) {
-        const { data: inserted, error: insertError } = await (this.supabase as any)
-          .from('admission_ai_insights')
-          .insert(insights)
-          .select();
-
-        if (insertError) {
-          console.error('[AIInsightsService] Error inserting insights:', insertError);
-          throw insertError;
-        }
-
-        return (inserted || []) as AIInsight[];
-      }
-
-      return [];
-    } catch (error) {
-      console.error('[AIInsightsService] Error generating insights:', error);
-      throw error;
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('[AIInsightsService] API route error:', err);
+      throw new Error(err.error || `Failed to generate insights (${response.status})`);
     }
+
+    const { insights } = await response.json();
+    return (insights || []).map(AIInsightsService.mapRowToInsight);
   }
 
   // ==========================================================================
@@ -708,6 +654,70 @@ export class AIInsightsService {
       actual: insight.metric_value || 0,
       deviation: insight.metric_change || 0,
     }));
+  }
+
+  // ==========================================================================
+  // ROW MAPPERS
+  // DB schema: insight_type, severity, data(jsonb), actions(jsonb)
+  // Service type: type, priority, action_type, action_url, related_lead_ids, etc.
+  // All extended fields are stored/read from the JSONB 'data' column.
+  // ==========================================================================
+
+  private static mapRowToInsight(row: any): AIInsight {
+    const data = (row.data || {}) as Record<string, any>;
+    const actions = Array.isArray(row.actions) ? row.actions : [];
+    const firstAction = actions[0] || {};
+
+    return {
+      id: row.id,
+      institution_id: row.institution_id,
+      type: row.insight_type as InsightType,
+      priority: row.severity as InsightPriority,
+      title: row.title,
+      description: row.description,
+      action_type: (firstAction.type as InsightAction) || 'no_action',
+      action_data: data.action_data || {},
+      action_url: data.action_url || firstAction.url,
+      related_lead_ids: data.related_lead_ids || [],
+      related_counselor_ids: data.related_counselor_ids || [],
+      metric_value: data.metric_value,
+      metric_change: data.metric_change,
+      metric_label: data.metric_label,
+      is_dismissed: row.is_dismissed,
+      dismissed_at: data.dismissed_at,
+      dismissed_by: data.dismissed_by,
+      expires_at: row.expires_at,
+      metadata: data.metadata || {},
+      created_at: row.created_at,
+      updated_at: row.created_at, // no updated_at column in DB
+    };
+  }
+
+  private static mapInsightToRow(
+    insight: Omit<AIInsight, 'id' | 'created_at' | 'updated_at'>
+  ): Record<string, unknown> {
+    return {
+      institution_id: insight.institution_id,
+      insight_type: insight.type,
+      title: insight.title,
+      description: insight.description,
+      severity: insight.priority,
+      data: {
+        action_url: insight.action_url,
+        action_data: insight.action_data,
+        related_lead_ids: insight.related_lead_ids,
+        related_counselor_ids: insight.related_counselor_ids,
+        metric_value: insight.metric_value,
+        metric_change: insight.metric_change,
+        metric_label: insight.metric_label,
+        metadata: insight.metadata,
+      },
+      actions: insight.action_type !== 'no_action'
+        ? [{ type: insight.action_type, url: insight.action_url }]
+        : [],
+      is_dismissed: insight.is_dismissed,
+      expires_at: insight.expires_at,
+    };
   }
 
   // ==========================================================================

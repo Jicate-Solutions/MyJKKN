@@ -69,10 +69,30 @@ async function ProfilesContent({
     }
   }
 
+  // Debug: Log raw searchParams received by server component
+  if (process.env.NODE_ENV === 'development') {
+    const filterKeys = ['institution_id', 'degree_id', 'department_id', 'program_id', 'semester_id', 'section_id'];
+    const activeFilters = filterKeys.filter(k => searchParams[k]);
+    console.log(`[ProfilesContent] statusFilter=${statusFilter} | Active filters: ${activeFilters.join(', ') || 'none'} | Raw params:`,
+      Object.fromEntries(filterKeys.map(k => [k, searchParams[k] || '(empty)'])));
+  }
+
   // Parse search parameters
   const page = Number(searchParams.page) || 1;
   const limit = Number(searchParams.pageSize) || Number(searchParams.limit) || 10; // Support both pageSize (DataTable) and limit (legacy)
   const search = (searchParams.search as string) || undefined;
+  const search_case_sensitive = searchParams.search_case_sensitive
+    ? searchParams.search_case_sensitive === 'true'
+    : undefined;
+  const search_exact_match = searchParams.search_exact_match
+    ? searchParams.search_exact_match === 'true'
+    : undefined;
+  const search_fields = (searchParams.search_fields as string | undefined)
+    ? (searchParams.search_fields as string)
+        .split(',')
+        .map((field) => field.trim())
+        .filter(Boolean)
+    : undefined;
   const institution_id = (searchParams.institution_id as string) || undefined;
   const degree_id = (searchParams.degree_id as string) || undefined;
   const department_id = (searchParams.department_id as string) || undefined;
@@ -84,14 +104,17 @@ async function ProfilesContent({
   const is_profile_complete = searchParams.is_profile_complete
     ? searchParams.is_profile_complete === 'true'
     : undefined;
-  const sortBy = (searchParams.sort_by as string) || 'created_at';
-  const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'desc';
+  const sortBy = (searchParams.sort_by as string) || 'first_name';
+  const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'asc';
 
   // Fetch data on server with caching
   const { data: profiles, metadata } = await getLearnerProfiles({
     page,
     limit,
     search,
+    search_case_sensitive,
+    search_exact_match,
+    search_fields,
     lifecycle_status: statusFilter,
     institution_id,
     degree_id,
@@ -107,29 +130,12 @@ async function ProfilesContent({
     learner_id: learnerIdFilter // Student filter - only see own profile
   });
 
-  const parsedParams = profilesSearchParamsSchema.parse(searchParams);
-
   return (
-    <>
-      {/* Advanced Search - Hidden for students */}
-      {!isStudent && (
-        <div className="mb-4">
-          <ProfilesSearchWrapper statusFilter={statusFilter as any} />
-        </div>
-      )}
-
-      {/* Filters (Client Component) - Hidden for students */}
-      {!isStudent && (
-        <ProfilesFilters searchParams={parsedParams} statusFilter={statusFilter as any} />
-      )}
-
-      {/* Table */}
-      <ProfilesTableServer
-        initialData={profiles}
-        metadata={metadata}
-        statusFilter={statusFilter as any}
-      />
-    </>
+    <ProfilesTableServer
+      initialData={profiles}
+      metadata={metadata}
+      statusFilter={statusFilter as any}
+    />
   );
 }
 
@@ -190,15 +196,16 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
 
       <div className="space-y-6 mt-4">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+        <div className="space-y-4">
+          {/* Title Section */}
           <div>
             <h1 className="text-2xl font-bold py-1">{pageTitle}</h1>
             <p className="text-sm sm:text-base text-muted-foreground">{headerDescription}</p>
           </div>
 
-          {/* Bulk actions - Hidden for students */}
+          {/* Action Buttons - Hidden for students */}
           {!isStudent && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <CreateMissingProfilesButton />
               <BulkUploadProfilesDialogEnhanced />
               <BulkUploadLearnerImages institutionId={params.institution_id as string | undefined} />
@@ -219,48 +226,51 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
           // Students see only their active profile (no tabs)
           <div className="space-y-4">
             <Suspense
-              key={`active-${JSON.stringify(params)}`}
               fallback={<TableSkeleton rows={1} columns={10} />}
             >
               <ProfilesContent searchParams={params} statusFilter="active" />
             </Suspense>
           </div>
         ) : (
-          // Admins see tabs for different statuses
-          <Tabs defaultValue="active" className="w-full">
-            <TabsList>
-              <TabsTrigger value="active">Active</TabsTrigger>
-              <TabsTrigger value="inactive">Inactive</TabsTrigger>
-              <TabsTrigger value="exited">Exited</TabsTrigger>
-            </TabsList>
+          // Admins: search & filters outside Suspense so they stay visible during loading
+          <div className="space-y-4">
+            {/* Search & Filters - always visible, never unmounted by Suspense */}
+            <ProfilesSearchWrapper />
+            <ProfilesFilters searchParams={profilesSearchParamsSchema.safeParse(params).data ?? { page: 1, pageSize: 50 }} />
 
-            <TabsContent value="active" className="space-y-4">
-              <Suspense
-                key={`active-${JSON.stringify(params)}`}
-                fallback={<TableSkeleton rows={10} columns={10} />}
-              >
-                <ProfilesContent searchParams={params} statusFilter="active" />
-              </Suspense>
-            </TabsContent>
+            {/* Tabs with data tables inside Suspense */}
+            <Tabs defaultValue="active" className="w-full">
+              <TabsList>
+                <TabsTrigger value="active">Active</TabsTrigger>
+                <TabsTrigger value="inactive">Inactive</TabsTrigger>
+                <TabsTrigger value="exited">Exited</TabsTrigger>
+              </TabsList>
 
-          <TabsContent value="inactive" className="space-y-4">
-            <Suspense
-              key={`inactive-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={10} />}
-            >
-              <ProfilesContent searchParams={params} statusFilter="inactive" />
-            </Suspense>
-          </TabsContent>
+              <TabsContent value="active" className="space-y-4">
+                <Suspense
+                  fallback={<TableSkeleton rows={10} columns={10} />}
+                >
+                  <ProfilesContent searchParams={params} statusFilter="active" />
+                </Suspense>
+              </TabsContent>
 
-          <TabsContent value="exited" className="space-y-4">
-            <Suspense
-              key={`exited-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={10} />}
-            >
-              <ProfilesContent searchParams={params} statusFilter="exited" />
-            </Suspense>
-          </TabsContent>
-        </Tabs>
+              <TabsContent value="inactive" className="space-y-4">
+                <Suspense
+                  fallback={<TableSkeleton rows={10} columns={10} />}
+                >
+                  <ProfilesContent searchParams={params} statusFilter="inactive" />
+                </Suspense>
+              </TabsContent>
+
+              <TabsContent value="exited" className="space-y-4">
+                <Suspense
+                  fallback={<TableSkeleton rows={10} columns={10} />}
+                >
+                  <ProfilesContent searchParams={params} statusFilter="exited" />
+                </Suspense>
+              </TabsContent>
+            </Tabs>
+          </div>
         )}
       </div>
     </ContentLayout>

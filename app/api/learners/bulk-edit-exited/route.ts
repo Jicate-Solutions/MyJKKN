@@ -103,10 +103,6 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
   'hostel_type': ['Hostel Type', 'hostel_type'],
   'food_type': ['Food Type', 'food_type'],
-  'bus_required': ['Bus Required', 'bus_required'],
-  'bus_route': ['Bus Route', 'bus_route'],
-  'bus_pickup_location': ['Bus Pickup Location', 'bus_pickup_location'],
-
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
@@ -555,17 +551,6 @@ export async function POST(request: NextRequest) {
       if (mappedData.food_type) {
         sanitizedData.food_type = sanitizeValue(mappedData.food_type, 'text');
       }
-      if (mappedData.bus_required !== undefined) {
-        const val = String(mappedData.bus_required).toUpperCase();
-        sanitizedData.bus_required = val === 'TRUE' || val === '1' || val === 'YES';
-      }
-      if (mappedData.bus_route) {
-        sanitizedData.bus_route = sanitizeValue(mappedData.bus_route, 'text');
-      }
-      if (mappedData.bus_pickup_location) {
-        sanitizedData.bus_pickup_location = sanitizeValue(mappedData.bus_pickup_location, 'text');
-      }
-
       // SECTION 10: Reference Information
       if (mappedData.reference_type) {
         sanitizedData.reference_type = sanitizeValue(mappedData.reference_type, 'text');
@@ -608,7 +593,8 @@ export async function POST(request: NextRequest) {
     const result = await BulkLearnerEditService.processBulkEdit(
       bulkEditRows,
       profile.institution_id || undefined,
-      !!profile.is_super_admin
+      !!profile.is_super_admin,
+      user.id
     );
 
     // 7. Return result

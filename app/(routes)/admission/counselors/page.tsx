@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useCounselorPerformance } from '@/hooks/admission';
 import type { DateRange } from '@/lib/services/admission';
 import {
@@ -383,17 +385,30 @@ function CounselorLeaderboard({
 
 function CounselorPerformancePageContent() {
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id || '';
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
+  const { institutions } = useInstitutionsWithAccess();
+  const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
+  // Global users (super admins + admission role) see all institutions by default; can optionally filter.
+  // Single-institution users auto-resolve to their own institution.
+  const defaultInstitutionId = isGlobalUser ? undefined : profile?.institution_id;
+  // For global users: no selection or "__all" → undefined (all institutions)
+  const resolvedChoice = chosenInstitutionId === '__all' ? undefined : chosenInstitutionId;
+  const institutionId = resolvedChoice || (institutions.length === 1 ? institutions[0]?.id : defaultInstitutionId) || undefined;
   const [dateRange, setDateRange] = useState('30');
   const [isRefetching, setIsRefetching] = useState(false);
 
-  // Calculate date range for query
-  const dateRangeQuery: DateRange | undefined = dateRange ? {
-    from: new Date(Date.now() - parseInt(dateRange) * 24 * 60 * 60 * 1000).toISOString(),
-    to: new Date().toISOString()
-  } : undefined;
+  // Calculate date range for query — memoized so the object reference is stable
+  // and the React Query key doesn't change on every render (which would cause infinite refetches)
+  const dateRangeQuery = useMemo<DateRange | undefined>(() =>
+    dateRange ? {
+      from: new Date(Date.now() - parseInt(dateRange) * 24 * 60 * 60 * 1000).toISOString(),
+      to: new Date().toISOString()
+    } : undefined,
+    [dateRange]
+  );
 
-  const { counselors, isLoading, error, refetch } = useCounselorPerformance(institutionId, dateRangeQuery);
+  const { counselors, isLoading, error, refetch } = useCounselorPerformance(institutionId, dateRangeQuery, isGlobalUser);
 
   const handleRefresh = async () => {
     setIsRefetching(true);
@@ -441,6 +456,24 @@ function CounselorPerformancePageContent() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {/* Institution selector for global users (super admins / admission role) / multi-institution users */}
+              {(isGlobalUser || institutions.length > 1) && (
+                <Select value={chosenInstitutionId} onValueChange={setChosenInstitutionId}>
+                  <SelectTrigger className="w-56">
+                    <SelectValue placeholder={isGlobalUser ? 'All Institutions' : 'Select institution'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isGlobalUser && (
+                      <SelectItem value="__all">All Institutions</SelectItem>
+                    )}
+                    {institutions.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={dateRange} onValueChange={setDateRange}>
                 <SelectTrigger className="w-40">
                   <SelectValue placeholder="Select period" />
@@ -471,7 +504,17 @@ function CounselorPerformancePageContent() {
             </Card>
           )}
 
-          {isLoading ? (
+          {!institutionId && !isGlobalUser && institutions.length > 1 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center py-8 text-muted-foreground">
+                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="font-medium">Select an Institution</p>
+                  <p className="text-sm mt-1">Choose an institution from the dropdown above to view counselor performance.</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : isLoading ? (
             <CounselorSkeleton />
           ) : (
             <>
@@ -480,7 +523,7 @@ function CounselorPerformancePageContent() {
                 <MetricCard
                   title="Active Counselors"
                   value={counselors.length}
-                  description="Team members with assigned leads"
+                  description="Active team members"
                   icon={Users}
                   color="text-blue-600"
                 />

@@ -51,13 +51,13 @@ When updating any SQL file:
 
 ## 📊 Current Database Objects
 
-### Tables (60 total in database - Updated 2025-01-19)
+### Tables (83 total in database - Updated 2026-02-09)
 
 | Module          | Tables                                                                                                                                                                                                                  | Count | Status                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------- |
 | Academic        | academic_years, degrees, departments, programs, semesters, sections, courses, course_mappings, regulations, batches                                                                                                     | 10    | ✅                          |
 | Billing         | billing_student_bills, billing_receipts, billing_invoices, billing_invoice_items, billing_receipt_items, billing_discounts, billing_refunds, billing_parent_categories, billing_sub_categories, billing_item_categories | 10    | ✅                          |
-| Learners (Unified) | learners_profiles | 1 | ✅ Complete - Single source of truth for enquiry→alumni lifecycle |
+| Learners (Unified) | learners_profiles, intake_history | 2 | ✅ Complete - Single source of truth for enquiry→alumni lifecycle + capacity analytics |
 | Students (Active Tables) | students | 1 | ✅ Live table with sync triggers → learners_profiles |
 | Staff           | staff, staff_plans, staff_plan_courses                                                                                                                                                                                  | 3     | ✅                          |
 | Admissions (Active Tables) | admissions | 1 | ✅ Live table with sync triggers → learners_profiles |
@@ -69,19 +69,17 @@ When updating any SQL file:
 | API             | api_keys                                                                                                                                                                                                                | 1     | ✅                          |
 | User Management | profiles, users, user_institution_access, custom_roles                                                                                                                                                                  | 4     | ✅                          |
 | Dashboard       | dashboard_configurations, dashboard_widgets, dashboard_widget_types                                                                                                                                                     | 3     | ✅                          |
+| Dashboard System | user_dashboard_preferences, dashboard_widgets                                                                                                                                                           | 2     | ✅ Personalized role-based widgets |
 | **Engagement Analytics** | **user_sessions, daily_engagement_metrics, student_engagement_scores, mv_engagement_overview (materialized view)** | **4** | **✅ Complete - Advanced student engagement tracking** |
+| **Lifecycle Analytics** | **usage_events, module_usage_daily, institution_health_scores, feature_usage_summary, usage_events_archive, mv_lifecycle_dashboard (materialized view)** | **6** | **✅ NEW - Cross-institution usage tracking and health scoring** |
 | Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
 | LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
-| OKR Module | okr_objectives, okr_key_results, okr_check_ins, okr_kr_updates, okr_dependencies, okr_tasks, okr_risks, okr_compliance, okr_user_status, ~~learner_core_okrs~~, ~~learner_okr_assignments~~, ~~learner_elective_okrs~~, okr_milestones, okr_auto_track_sources, okr_comments, okr_reactions, okr_attachments | 17 (3 deprecated) | ✅ Complete - 3 learner tables DEPRECATED 2026-02-01 |
-| **OKR Metrics Registry** | **okr_metric_registry, okr_metric_execution_log, okr_metric_cache, okr_external_api_credentials** | **4** | **✅ NEW - Universal auto-metrics system** |
-| **Competency Module (NEW)** | **competency_catalog, competency_program_mapping, course_competency_mapping, learner_competencies** | **4** | **⏳ PENDING - Workshop Transformation Phase 1.2** |
-| **Industry Integration (NEW)** | **industry_partners, industry_mentors, industry_projects, learner_industry_engagements** | **4** | **⏳ PENDING - Workshop Transformation Phase 2.1** |
-| **Personalization Module (NEW)** | **learning_paths, learning_path_steps, parent_portal_access, parent_communications** | **4** | **⏳ PENDING - Workshop Transformation Phase 3** |
-| **Accountability Module (NEW)** | **alumni_outcomes, outcome_program_correlation, facilitator_development, facilitator_industry_immersion** | **4** | **⏳ PENDING - Workshop Transformation Phase 4** |
-| **Solutions Hub (NEW)** | **sh_clients, sh_solutions, sh_solution_phases, sh_solution_mous, sh_builders, sh_builder_skills, sh_builder_assignments, sh_prototype_iterations, sh_bug_reports, sh_phase_deployments, sh_implementation_users, sh_training_programs, sh_training_sessions, sh_cohort_members, sh_cohort_assignments, sh_content_orders, sh_content_deliverables, sh_production_learners, sh_production_assignments, sh_discovery_visits, sh_client_communications, sh_revenue_split_models, sh_payments, sh_earnings_ledger, sh_client_referrals, sh_publications, sh_publication_contributors, sh_accreditation_metrics, sh_jicate_sessions, sh_notifications, sh_audit_logs** | **31** | **⏳ PENDING - RLS Policies Ready** |
+| **Service Requests** | **service_types, service_type_fields, service_request_approval_steps, service_requests, service_request_approvals, service_request_timeline, service_request_attachments** | **7** | **✅ NEW - Dynamic configurable service request system** |
+| **Startup Studio** | **startup_events, event_registrations, event_team_members, event_venue_assignments, event_team_venue_allocations, event_staff_assignments, event_demo_slots, event_submissions, event_checklists, event_checklist_items, event_checklist_completions, event_team_attendance, appathon_role_cards, appathon_peer_tags, appathon_verifications** | **15** | **NEW - Generic event platform for hackathons/competitions** |
+| **Post-Demo Day Pipeline** | **track_declarations, progression_levels, case_studies** | **3** | **NEW 2026-03-09 — Post-demo-day team path declaration, learner identity progression (5 levels), and case study narratives** |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
-### Functions (242 total - Updated 2025-01-19)
+### Functions (244 total - Updated 2026-02-09)
 
 | Category              | Location               | Count | Purpose                         |
 | --------------------- | ---------------------- | ----- | ------------------------------- |
@@ -89,6 +87,7 @@ When updating any SQL file:
 | Institution Access    | setup/02_functions.sql | 10    | Institution access control      |
 | Billing               | setup/02_functions.sql | 20    | Billing calculations, invoices  |
 | Attendance            | setup/02_functions.sql | 5     | Attendance statistics           |
+| **Facilitator Attendance** | **setup/02_functions.sql** | **1** | **get_facilitator_attendance_stats() — periods marked per facilitator for live dashboard** |
 | Timetable             | setup/02_functions.sql | 10    | Timetable management            |
 | Academic              | setup/02_functions.sql | 15    | Academic hierarchy, validations |
 | Staff                 | setup/02_functions.sql | 5     | Staff management                |
@@ -97,6 +96,7 @@ When updating any SQL file:
 | Resources             | setup/02_functions.sql | 6     | Resource management             |
 | Notifications         | setup/02_functions.sql | 1     | User notifications              |
 | API Keys              | setup/02_functions.sql | 4     | API key management              |
+| **Service Requests**  | setup/02_functions.sql | **2** | **generate_service_request_number(), count_active_service_requests()** |
 | Activity Logging      | setup/02_functions.sql | 2     | Log cleanup, stats              |
 | **Engagement Analytics** | **Migrations**         | **6** | **Session management, metrics computation, engagement scoring** |
 | Utilities             | setup/02_functions.sql | 10+   | Helper functions                |
@@ -104,32 +104,11 @@ When updating any SQL file:
 | Permissions           | setup/02_functions.sql | 6     | Role and permission checks      |
 | Child App Auth        | ~~setup/02_functions.sql~~ | 0     | ~~Session cleanup~~ (REMOVED 2025-01-20) |
 
-### RLS Policies (370+ total - Updated 2026-02-03)
+### RLS Policies (250+ total)
 
 | Location              | Count | Coverage          |
 | --------------------- | ----- | ----------------- |
-| setup/03_policies.sql | 250+  | 53 tables (existing MyJKKN) |
-| setup/03_policies.sql | 122   | 31 tables (Solutions Hub sh_ prefix) |
-
-### Solutions Hub RLS Helper Functions (15 total - NEW 2026-02-03)
-
-| Function | Returns | Purpose |
-|----------|---------|---------|
-| `sh_is_admin()` | BOOLEAN | Check super_admin, admin, jicate_staff |
-| `sh_is_jicate_staff()` | BOOLEAN | Check if JICATE staff |
-| `sh_is_hod()` | BOOLEAN | Check if HOD |
-| `sh_is_staff()` | BOOLEAN | Check if department staff |
-| `sh_user_department_id()` | UUID | Get user's department |
-| `sh_user_institution_id()` | UUID | Get user's institution |
-| `sh_is_builder()` | BOOLEAN | Check if active builder |
-| `sh_get_builder_id()` | UUID | Get builder ID |
-| `sh_is_cohort_member()` | BOOLEAN | Check if active cohort member |
-| `sh_get_cohort_member_id()` | UUID | Get cohort member ID |
-| `sh_is_production_learner()` | BOOLEAN | Check if active production learner |
-| `sh_get_production_learner_id()` | UUID | Get production learner ID |
-| `sh_is_client()` | BOOLEAN | Check if client role |
-| `sh_get_client_id()` | UUID | Get client ID by email match |
-| `sh_can_access_solution(UUID)` | BOOLEAN | Check solution access |
+| setup/03_policies.sql | 250+  | 53 tables (94.6%) |
 
 ### Triggers (74 total - Updated 2025-01-18)
 
@@ -214,610 +193,206 @@ When updating any SQL file:
 
 ## 📝 Change Log
 
-### 2026-02-03: Solutions Hub Schema Migration (Complete Database Tables) 🚀
+### 2026-03-09: Post-Demo Day Pipeline — 3 New Tables
 
-- **File**: `setup/01_tables.sql` - Section 16 Added ✅ **COMPLETE**
-- **File**: `setup/02_functions.sql` - Section 21 Added ✅ **COMPLETE**
-- **File**: `setup/04_triggers.sql` - Section 21 Added ✅ **COMPLETE**
+- **Files Updated**:
+  - `supabase/setup/01_tables.sql` — Added `track_declarations`, `progression_levels`, `case_studies` tables with indexes
+  - `supabase/setup/03_policies.sql` — Added RLS (ENABLE + 13 policies across 3 tables)
+  - `supabase/setup/04_triggers.sql` — Added `update_case_studies_updated_at` trigger
 
-  **Purpose**: Complete database schema migration for Solutions Hub module merged from standalone JKKN-Solutions-Hub project into MyJKKN ERP.
+  **Purpose**: Track team path declarations after Demo Day, individual learner identity-ladder progression (5 levels), and structured case study narratives for `solve_for_industry` / `jicate_solutions` tracks.
 
-  **ENUMs Created (22)**:
-  | ENUM | Values |
-  |------|--------|
-  | `sh_solution_type` | software, training, content |
-  | `sh_solution_status` | active, on_hold, completed, cancelled, in_amc |
-  | `sh_phase_status` | prospecting → completed (14 states) |
-  | `sh_source_type` | placement, alumni, clinical, referral, direct, yi, intent |
-  | `sh_partner_status` | standard, yi, alumni, mou, referral |
-  | `sh_payment_type` | advance, milestone, completion, amc, mou_signing, deployment, acceptance |
-  | `sh_payment_status` | pending, processing, completed, failed, refunded |
-  | `sh_recipient_type` | builder, cohort_member, production_learner, department, jicate, institution, council, infrastructure, referral_bonus |
-  | `sh_assignment_status` | requested, approved, active, completed, withdrawn |
-  | `sh_bug_severity` | low, medium, high, critical |
-  | `sh_bug_status` | open, in_progress, resolved, closed, wont_fix |
-  | `sh_program_type` | workshop, bootcamp, certification, custom, faculty_development, corporate, academic |
-  | `sh_cohort_level` | observer, co_lead, lead, master |
-  | `sh_content_type` | video, graphic, document, presentation, animation, social_media, other |
-  | `sh_content_division` | video, design, writing, animation, social, other |
-  | `sh_deliverable_status` | pending, in_progress, review, revision, approved, delivered |
-  | `sh_skill_level` | beginner, intermediate, advanced, expert |
-  | `sh_communication_type` | email, call, meeting, whatsapp, other |
-  | `sh_communication_direction` | inbound, outbound |
-  | `sh_paper_type` | journal, conference, patent, book_chapter, case_study |
-  | `sh_journal_type` | scopus, wos, ugc, other |
-  | `sh_publication_status` | draft, submitted, under_review, accepted, published, rejected |
-  | `sh_session_outcome` | successful, needs_followup, escalated, cancelled |
-  | `sh_mou_status` | draft, pending_signatures, active, expired, terminated |
-  | `sh_deployment_env` | development, staging, production |
-  | `sh_session_status` | scheduled, in_progress, completed, cancelled, rescheduled |
+**track_declarations** — New table:
+- `event_id` → `startup_events(id)`, `team_id` → `event_registrations(id)`
+- `track TEXT` — `'solve_for_100'` | `'jicate_solutions'` | `'solve_for_industry'` | `'completed'`
+- `declared_by` → `profiles(id)`, `declared_at TIMESTAMPTZ`
+- `mentor_approved BOOLEAN`, `mentor_notes TEXT`, `approved_at`, `approved_by`
+- UNIQUE on `(event_id, team_id)`
 
-  **Tables Created (31)** - All with `sh_` prefix:
-  | Module | Tables | Count |
-  |--------|--------|-------|
-  | Clients | sh_clients, sh_client_referrals | 2 |
-  | Solutions | sh_solutions, sh_solution_phases, sh_solution_mous | 3 |
-  | Builders | sh_builders, sh_builder_skills, sh_builder_assignments | 3 |
-  | Software | sh_prototype_iterations, sh_bug_reports, sh_phase_deployments, sh_implementation_users | 4 |
-  | Training | sh_training_programs, sh_training_sessions, sh_cohort_members, sh_cohort_assignments | 4 |
-  | Content | sh_content_orders, sh_content_deliverables, sh_production_learners, sh_production_assignments | 4 |
-  | Discovery | sh_discovery_visits, sh_client_communications | 2 |
-  | Financials | sh_revenue_split_models, sh_payments, sh_earnings_ledger | 3 |
-  | Publications | sh_publications, sh_publication_contributors, sh_accreditation_metrics | 3 |
-  | System | sh_jicate_sessions, sh_notifications, sh_audit_logs | 3 |
+**progression_levels** — New table:
+- `profile_id` → `profiles(id)`, `event_id` → `startup_events(id)`, `team_id` → `event_registrations(id)`
+- `level INTEGER` (1–5), `level_name TEXT`, `achieved_at TIMESTAMPTZ`
+- `evidence JSONB`, `awarded_by TEXT` (default `'system'`)
+- UNIQUE on `(profile_id, event_id, level)`
 
-  **Indexes Created (145)** - Performance optimized:
-  - Foreign key indexes for all relationships
-  - Status and type filtering indexes
-  - Date-based sorting indexes
-  - Unique code indexes
-  - Partial indexes for active records
-  - GIN indexes for JSONB columns
-
-  **Functions Created (28)** - Section 21 in 02_functions.sql:
-  | Category | Functions | Purpose |
-  |----------|-----------|---------|
-  | Code Generation | 14 | Auto-generate JKKN-SOL-YYYY-NNN, JKKN-CLI-YYYY-NNN, etc. |
-  | Role Checks | 11 | sh_is_admin(), sh_is_builder(), sh_get_client_id(), etc. |
-  | Statistics | 4 | Update builder/cohort/production stats on completion |
-  | Revenue Split | 1 | sh_process_payment_split() |
-  | Dashboard | 2 | sh_get_dashboard_summary(), sh_get_builder_earnings_summary() |
-  | Audit | 1 | sh_create_audit_log() |
-
-  **Triggers Created (35)** - Section 21 in 04_triggers.sql:
-  | Category | Count | Purpose |
-  |----------|-------|---------|
-  | updated_at | 15 | Auto-update timestamps |
-  | Code Generation | 15 | Auto-generate codes (JKKN-*) |
-  | Statistics | 5 | Update talent stats on assignment completion |
-
-  **Auto-Generated Codes**:
-  | Entity | Format | Example |
-  |--------|--------|---------|
-  | Solution | JKKN-SOL-YYYY-NNN | JKKN-SOL-2026-001 |
-  | Client | JKKN-CLI-YYYY-NNN | JKKN-CLI-2026-001 |
-  | Builder | JKKN-BLD-YYYY-NNN | JKKN-BLD-2026-001 |
-  | Cohort Member | JKKN-COH-YYYY-NNN | JKKN-COH-2026-001 |
-  | Production Learner | JKKN-PRD-YYYY-NNN | JKKN-PRD-2026-001 |
-  | Training Program | JKKN-TRN-YYYY-NNN | JKKN-TRN-2026-001 |
-  | Content Order | JKKN-CNT-YYYY-NNN | JKKN-CNT-2026-001 |
-  | Payment | JKKN-PAY-YYYY-NNNNN | JKKN-PAY-2026-00001 |
-  | Bug Report | JKKN-BUG-YYYY-NNNNN | JKKN-BUG-2026-00001 |
-  | Discovery Visit | JKKN-VIS-YYYY-NNN | JKKN-VIS-2026-001 |
-  | MOU | JKKN-MOU-YYYY-NNN | JKKN-MOU-2026-001 |
-  | Earnings | JKKN-ERN-YYYY-NNNNN | JKKN-ERN-2026-00001 |
-  | Publication | JKKN-PUB-YYYY-NNN | JKKN-PUB-2026-001 |
-  | JICATE Session | JKKN-JIC-YYYY-NNN | JKKN-JIC-2026-001 |
-
-  **Key Integration Points**:
-  - Uses existing `departments` table (no duplication)
-  - Uses existing `institutions` table
-  - Uses existing `profiles` table for user authentication
-  - Uses existing `learners_profiles` for student builders/cohort/production
-  - Uses existing `staff` for staff builders/cohort/production
-
-  **RLS Enabled**: All 31 tables have `ENABLE ROW LEVEL SECURITY`
-
-  **Report Generated**: `.claude/schema-migration-report.md`
-
-  **Files Updated**:
-  - `supabase/setup/01_tables.sql` - Added Section 16 (~2000 lines)
-  - `supabase/setup/02_functions.sql` - Added Section 21 (~800 lines)
-  - `supabase/setup/04_triggers.sql` - Added Section 21 (~150 lines)
-  - `supabase/SQL_FILE_INDEX.md` - Updated tables/functions/triggers counts
+**case_studies** — New table:
+- `event_id` → `startup_events(id)`, `team_id` → `event_registrations(id)`
+- `track TEXT` — `'solve_for_industry'` | `'jicate_solutions'`
+- `problem TEXT`, `solution TEXT`, `proof TEXT`, `who_else TEXT`
+- `demo_url TEXT`, `app_name TEXT`, `app_url TEXT`
+- `score INTEGER`, `featured BOOLEAN` (default `false`)
+- UNIQUE on `(event_id, team_id)`; `updated_at` auto-managed by trigger
 
 ---
 
-### 2026-02-03: Solutions Hub RLS Policies (Complete Integration) 🚀
+### 2026-03-06: Facilitator Attendance Report — RPC Function
 
-- **File**: `setup/03_policies.sql` ✅ **UPDATED - Section 16 Added**
+- **Files Updated**:
+  - `supabase/setup/02_functions.sql` — Added `get_facilitator_attendance_stats()` RPC function
+  - `supabase/setup/03_policies.sql` — Added `GRANT EXECUTE` for `authenticated` role
 
-  **Purpose**: Complete RLS policies for Solutions Hub integration into MyJKKN. Covers 31 tables with 122 policies and 15 helper functions.
+  **Purpose**: Aggregates `student_attendance.marked_by` counts per staff member to power the live facilitator attendance dashboard at `/attendance/consolidation/facilitators`. Returns summary totals, per-facilitator detail with weekly trend and daily heatmap data, and department-level breakdown — all as a single JSONB response.
 
-  **Tables Covered (31)**:
-  - Clients: `sh_clients`
-  - Solutions: `sh_solutions`, `sh_solution_phases`, `sh_solution_mous`
-  - Builders: `sh_builders`, `sh_builder_skills`, `sh_builder_assignments`
-  - Software: `sh_prototype_iterations`, `sh_bug_reports`, `sh_phase_deployments`, `sh_implementation_users`
-  - Training: `sh_training_programs`, `sh_training_sessions`, `sh_cohort_members`, `sh_cohort_assignments`
-  - Content: `sh_content_orders`, `sh_content_deliverables`, `sh_production_learners`, `sh_production_assignments`
-  - Discovery: `sh_discovery_visits`, `sh_client_communications`
-  - Financials: `sh_revenue_split_models`, `sh_payments`, `sh_earnings_ledger`, `sh_client_referrals`
-  - Publications: `sh_publications`, `sh_publication_contributors`, `sh_accreditation_metrics`
-  - System: `sh_jicate_sessions`, `sh_notifications`, `sh_audit_logs`
-
-  **Helper Functions Created (15)**: All with `sh_` prefix
-  - Role detection: `sh_is_admin()`, `sh_is_jicate_staff()`, `sh_is_hod()`, `sh_is_staff()`
-  - Talent detection: `sh_is_builder()`, `sh_is_cohort_member()`, `sh_is_production_learner()`, `sh_is_client()`
-  - ID retrieval: `sh_user_department_id()`, `sh_user_institution_id()`, `sh_get_builder_id()`, `sh_get_cohort_member_id()`, `sh_get_production_learner_id()`, `sh_get_client_id()`
-  - Access control: `sh_can_access_solution(UUID)`
-
-  **Policies Per Table (4 each)**: SELECT, INSERT, UPDATE, DELETE
-  - Total new policies: 122
-
-  **Key Security Patterns**:
-  - **Client Isolation**: Clients ONLY see their own data (solutions, payments, deliverables)
-  - **Builder Isolation**: Builders see only assigned phases and own earnings
-  - **Cohort Isolation**: Cohort members see only assigned sessions and own earnings
-  - **Production Isolation**: Production learners see only assigned deliverables and own earnings
-  - **Department Scoping**: HOD/Staff see department-level data only
-  - **Financial Protection**: Payments/Earnings restricted to Admin/HOD
-  - **Audit Immutability**: Audit logs have no UPDATE/DELETE policies
-
-  **Roles Supported (8)**:
-  - `super_admin`, `admin` - Full access
-  - `jicate_staff` - Full Solutions Hub access
-  - `hod` - Department-scoped + financial visibility
-  - `staff` - Department-scoped, no sensitive financials
-  - `builder` - Own profile + assigned phases
-  - `cohort_member` - Own profile + assigned sessions
-  - `production_learner` - Own profile + assigned deliverables
-  - `client` - Own solutions/payments/deliverables only
-
-  **Report Generated**: `.claude/rls-policies-report.md`
-
-  **Prerequisites**:
-  1. Schema migration must create all `sh_` tables first
-  2. Custom roles must be added: `builder`, `cohort_member`, `production_learner`, `jicate_staff`, `client`
-
-  **Files Updated**:
-  - `supabase/setup/03_policies.sql` - Added Section 16 (~1200 lines)
-  - `supabase/SQL_FILE_INDEX.md` - Updated counts and added changelog
+  **Function signature**: `get_facilitator_attendance_stats(p_institution_id UUID, p_date_from DATE, p_date_to DATE, p_department_id UUID DEFAULT NULL, p_program_id UUID DEFAULT NULL, p_semester_id UUID DEFAULT NULL, p_facilitator_id UUID DEFAULT NULL) → JSONB`
 
 ---
 
-### 2026-02-02: Fink's Taxonomy Migration (CRITICAL - AI Era Education) 🚀
+### 2026-03-08: Demo Day Evaluation — appathon_verifications Table
 
-- **File**: `migrations/20260202000001_migrate_to_finks_taxonomy.sql` ✅ **READY FOR REVIEW**
+- **Files Updated**:
+  - `supabase/setup/01_tables.sql` — Added `appathon_verifications` table with 4 indexes
+  - `supabase/setup/03_policies.sql` — Added RLS (ENABLE + 3 policies: SELECT, INSERT, UPDATE)
 
-  **Purpose**: Replace Bloom's Taxonomy (cognitive-only) with Fink's Taxonomy (holistic learning) in competency catalog. This is CRITICAL for AI-era education where AI can handle all cognitive tasks (Bloom's) but humans must develop caring, relationships, and transformation (Fink's).
+  **Purpose**: Core evaluation table for Demo Day. One row per evaluator per team. Evaluators verify team claims (live URL, user counts, revenue) during presentations and record tier scores (T1–T4) + revenue bonus. Calculated scores are server-recomputed and not trusted from client. Admission restricted to staff assigned as judge/panel_chair/evaluator for `demo_day` day_type.
 
-  **CRITICAL CONTEXT - WHY THIS MATTERS**:
-  - **Bloom's Taxonomy (1956)**: Focuses on cognitive skills - remember, understand, apply, analyze, evaluate, create
-  - **Problem**: AI/LLMs can now perform ALL cognitive tasks at expert level
-  - **Fink's Taxonomy (2003)**: Designed for significant learning beyond cognition
-  - **Solution**: Focuses on what makes humans uniquely valuable in AI era
-
-  **Fink's 6 Dimensions** (replacing single bloom_taxonomy_level):
-  1. **foundational_knowledge** (0-100) - Understanding and remembering information
-  2. **application** (0-100) - Skills, critical thinking, managing projects
-  3. **integration** (0-100) - Connecting ideas, people, and realms of life
-  4. **human_dimension** (0-100) - Learning about oneself and others (CRITICAL in AI era)
-  5. **caring** (0-100) - Developing new feelings, interests, values (CRITICAL in AI era)
-  6. **learning_how_to_learn** (0-100) - Becoming a better student (CRITICAL in AI era)
-
-  **Database Changes**:
-  - **Added Column**: `fink_taxonomy_scores JSONB` to `competency_catalog` table
-    - Structure: All 6 dimensions with scores 0-100 (nullable)
-    - Default: All dimensions set to null (to be populated)
-  - **Deprecated Column**: `bloom_taxonomy_level` (NOT deleted, kept for backward compatibility)
-    - Marked as DEPRECATED in comments
-    - Will be removed in future version after data migration
-  - **Constraint Added**: `check_fink_scores_range` - Validates all scores are 0-100 or null
-  - **Indexes Created** (5):
-    - `idx_competency_catalog_fink_scores` - GIN index for JSONB queries
-    - `idx_competency_catalog_fink_foundational` - Partial index for foundational_knowledge
-    - `idx_competency_catalog_fink_application` - Partial index for application
-    - `idx_competency_catalog_fink_human_dimension` - Partial index for human_dimension (CRITICAL)
-    - `idx_competency_catalog_fink_caring` - Partial index for caring (CRITICAL)
-
-  **Functions Created** (2):
-  1. `calculate_fink_overall_score(fink_scores, weights)` - Calculates weighted average
-     - Default weights favor human-centric dimensions (human_dimension: 20%, caring: 15%, learning: 15%)
-     - Returns NUMERIC(5,2) overall score
-     - Immutable function for performance
-
-  2. `get_human_centric_competencies(institution_id, min_score)` - Finds competencies strong in human dimensions
-     - Returns competencies with high scores in human_dimension, caring, or learning_how_to_learn
-     - Default min_score: 70 (advanced level)
-     - Critical for identifying AI-era essential competencies
-
-  **Backward Compatibility**:
-  - ✅ NO breaking changes - bloom_taxonomy_level column preserved
-  - ✅ Existing queries continue working
-  - ✅ New field is JSONB with sensible defaults
-  - ✅ All scores nullable for gradual migration
-
-  **Migration Strategy**:
-  - Phase 1: ✅ Add column and indexes (this migration)
-  - Phase 2: ⏳ Update types/competency.ts with Fink's types
-  - Phase 3: ⏳ Update service layer to use fink_taxonomy_scores
-  - Phase 4: ⏳ Update UI to display 6 dimensions
-  - Phase 5: ⏳ Data migration script (convert bloom → fink)
-  - Phase 6: ⏳ Drop bloom_taxonomy_level column
-
-  **Impact on MyJKKN**:
-  - ✅ Competencies now aligned with AI-era educational goals
-  - ✅ Focus shifts from "what AI can do" to "what makes humans valuable"
-  - ✅ Human-centric dimensions (caring, relationships, transformation) become measurable
-  - ✅ Program outcomes can emphasize uniquely human competencies
-  - ✅ Foundation for future AI-integrated curriculum design
-
-  **Setup Files Updated**:
-  - `supabase/setup/01_tables.sql` - Updated competency_catalog table definition
-  - `supabase/SQL_FILE_INDEX.md` - This entry
-
-  **Related Documentation**:
-  - Fink, L. D. (2003). Creating Significant Learning Experiences
-  - Workshop Transformation initiative (AI-era education redesign)
+**appathon_verifications** — New table:
+- `submission_id` → `event_submissions(id)`
+- `evaluator_id` → `profiles(id)`
+- `venue_id` → `event_venue_assignments(id)`
+- `presented BOOLEAN`, `presentation_slot INT`
+- `app_live BOOLEAN`
+- `claimed_users`, `claimed_active_users`, `claimed_revenue` — copied at freeze time
+- `verified_users`, `verified_active_users`, `verified_revenue` — evaluator-confirmed
+- `verified_tier INT`, `revenue_bonus INT`, `total_score INT` — server-computed
+- `verification_status TEXT` — `'pending'` | `'verified'` | `'flagged'` | `'disqualified'`
+- `flag_reason TEXT`, `notes TEXT`
+- UNIQUE constraint on `(submission_id, evaluator_id)`
 
 ---
 
-### 2026-02-01: Workshop Transformation - Accountability Module (Phase 4)
+### 2026-03-07: Startup Studio — Per-Venue Team Attendance
 
-- **File**: `migrations/20260201_create_accountability_tables.sql` ⏳ **PENDING REVIEW**
+- **Files Updated**:
+  - `supabase/setup/01_tables.sql` — Added `event_team_attendance` table with 3 indexes and RLS enabled
+  - `supabase/setup/03_policies.sql` — Added 4 RLS policies for `event_team_attendance`
+  - `supabase/migrations/20260307000000_add_event_team_attendance.sql` — Applied migration ✅
 
-  **Purpose**: Create Accountability module for tracking alumni outcomes and facilitator development as part of Workshop Transformation Phase 4.
+  **Purpose**: Track per-team attendance for each day type (build_day / demo_day) at a given venue. Enforces a unique attendance record per `(event_id, registration_id, day_type)`. Insert/update restricted to admins or staff assigned to that venue; delete restricted to super admins.
 
-  **Tables Created (4)**:
-
-  **1. alumni_outcomes** - Graduate career/outcome tracking:
-  - Core: learner_id, institution_id, program_id, graduation_date
-  - Auto-computed: graduation_year (from graduation_date)
-  - Outcome: outcome_type ENUM, outcome_start_date
-  - Employment: company_name, designation, department, industry_sector, job_function
-  - Location: city, state, country, is_remote
-  - Compensation: salary_range ENUM, has_equity, other_benefits
-  - Relevance: is_relevant_to_program, relevance_percentage, skills_used
-  - Higher studies: institution_name, course_name, specialization, scholarship
-  - Entrepreneurship: business_name, business_type, funding_raised, employee_count
-  - Feedback: satisfaction_score (1-10), would_recommend_program, testimonial
-  - Verification: verification_status ENUM, verified_by, documents JSONB
-  - Engagement: is_willing_to_mentor/hire/guest_lecture
-
-  **2. outcome_program_correlation** - Program success analytics:
-  - Core: program_id, institution_id, cohort_year
-  - Counts: total_graduates, tracked_graduates, employed/entrepreneur/studies counts
-  - Auto-computed: tracking_percentage
-  - Rates: employment_rate, placement_rate, entrepreneurship_rate
-  - Salary analytics: average/median salary_range, salary_distribution JSONB
-  - Top performers: top_employers, top_sectors, top_roles, top_locations (all JSONB)
-  - Satisfaction: avg_relevance_percentage, program_satisfaction_avg
-  - Benchmarks: industry_benchmark_employment_rate, performance_vs_benchmark
-
-  **3. facilitator_development** - Staff professional evolution:
-  - Core: staff_id, institution_id
-  - Stage: current_stage (development_stage ENUM), stage_history JSONB
-  - Certifications: certifications JSONB, certification_count (auto-computed)
-  - Industry: industry_immersions JSONB, total_industry_days, companies_worked_with
-  - Innovation: innovation_contributions JSONB, innovation_count
-  - Peer learning: sessions_conducted/attended, is_peer_learning_champion
-  - Mentoring: faculty_mentored_count, current_mentees, specializations
-  - Score: outcome_score (0-100), outcome_score_components JSONB
-  - Research: publications_count, patents_count, industry_projects_guided
-  - Recognition: awards, speaking_engagements, media_features (all JSONB)
-  - Goals: development_goals JSONB, next_review_date
-
-  **4. facilitator_industry_immersion** - Industry experience records:
-  - Core: staff_id, institution_id, development_id (FK)
-  - Company: company_name, website, industry_sector, company_size
-  - Immersion: immersion_type ENUM, role_title, department
-  - Duration: start_date, end_date, duration_days, hours_per_week
-  - Work: objectives, key_responsibilities, projects_worked_on JSONB
-  - Learnings: learnings JSONB (technical, process, soft_skills, insights)
-  - Application: applied_in_teaching JSONB, curriculum_changes_proposed
-  - Compensation: is_paid, compensation_type, compensation_amount
-  - Documentation: certificate_url, report_url, presentation_url
-  - Feedback: company_feedback/rating, self_assessment/rating
-  - Visibility: is_public, is_featured
-
-  **ENUMs Created (5)**:
-  - `outcome_type`: employed, self_employed, entrepreneur, higher_studies, competitive_exams, family_business, gap_year, seeking, unknown
-  - `salary_range`: below_3l, 3l_to_5l, 5l_to_8l, 8l_to_12l, 12l_to_20l, 20l_to_35l, above_35l, not_applicable, undisclosed
-  - `verification_status`: pending, self_reported, document_verified, employer_confirmed, linkedin_verified, rejected
-  - `development_stage`: novice, developing, competent, proficient, expert, thought_leader
-  - `immersion_type`: sabbatical, summer_internship, consulting, research_collab, site_visit, workshop_delivery, project_mentoring
-
-  **Indexes Created**: 28
-  **RLS Policies Created**: 16 (4 per table)
-  **Triggers Created**: 5 (4 updated_at + 1 auto-update facilitator stats)
-  **Functions Created**: 3
-  - `compute_outcome_program_correlation(program_id, cohort_year)` - Aggregates outcome data
-  - `update_facilitator_development_stats(staff_id)` - Updates stats from immersions
-  - `trigger_update_facilitator_stats()` - Trigger function for auto-updates
-
-  **Key Features**:
-  - Comprehensive alumni tracking (employment, entrepreneurship, higher studies)
-  - Salary range tracking with verification workflow
-  - Program-level outcome correlation analytics with benchmarks
-  - Facilitator development stages (novice to thought leader)
-  - Industry immersion tracking with curriculum application
-  - Auto-computed metrics (graduation_year, tracking_percentage, certification_count)
-
-  **Setup Files Updated**:
-  - `supabase/setup/01_tables.sql` - Section 15: Accountability Module
-  - `supabase/setup/03_policies.sql` - Section 15: RLS policies
-
-  **Related Plan**: Workshop Alignment Transformation (Phase 4 - Final)
+**event_team_attendance** — New table:
+- `event_id` → `startup_events.id`
+- `registration_id` → `event_registrations.id`
+- `venue_assignment_id` → `event_venue_assignments.id`
+- `day_type TEXT` — `'build_day'` or `'demo_day'`
+- `status TEXT` — `'present'` | `'absent'` | `'late'` (default `'present'`)
+- `marked_by` → `profiles.id`
+- `marked_at TIMESTAMPTZ`
+- `notes TEXT`
+- UNIQUE constraint on `(event_id, registration_id, day_type)`
 
 ---
 
-### 2026-02-01: Workshop Transformation - Personalization Module (Phase 3)
+### 2026-03-06: Startup Studio — Team Invitation Workflow
 
-- **File**: `migrations/20260201_create_personalization_tables.sql` ⏳ **PENDING REVIEW**
+- **Files Updated**:
+  - `supabase/setup/01_tables.sql` — Added `team_code` to `event_registrations`; added `learner_id`, `status`, `is_leader`, `responded_at` to `event_team_members`
+  - `supabase/setup/02_functions.sql` — Added `generate_team_code()` function
+  - `supabase/migrations/20260306000000_add_team_invitation_workflow.sql` — Applied migration ✅
 
-  **Purpose**: Create Personalization module for AI-powered learning paths and parent engagement portal as part of Workshop Transformation Phase 3.
+  **Purpose**: Enable structured team-based participation in startup studio events. Teams are identified by an auto-generated institution-prefixed code; members can be invited by the team leader and must accept or decline before the event.
 
-  **Tables Created (4)**:
+#### Updated 2026-03-06 — Team Invitation Workflow
 
-  **1. learning_paths** - Per-learner personalized learning journeys:
-  - Core: learner_id, institution_id, path_name, path_description
-  - Career targets: target_role, target_industry
-  - Competencies: target_competencies (JSONB array with levels, priorities)
-  - Progress: current_progress (%), total_steps, completed_steps
-  - Timeline: estimated_completion, actual_completion, started_at
-  - AI metadata: is_ai_generated, ai_confidence_score, generation_parameters
-  - Status: learning_path_status ENUM
-  - Mentorship: assigned_mentor_id, mentor_notes
-  - Approval: approved_by, approved_at
+**event_registrations** — Added column:
+- `team_code TEXT` — Institution-wise auto-generated team code (e.g., `JKKN-001`). Generated via `generate_team_code()` DB function at registration time. Unique per `(event_id, institution_id)` combination.
 
-  **2. learning_path_steps** - Sequenced activities within paths:
-  - Ordering: path_id, step_order (unique per path)
-  - Definition: step_name, step_description, step_type (ENUM)
-  - Resource reference: reference_id, reference_table (polymorphic), external_url
-  - Competency link: competency_id, target_competency_level
-  - Duration: expected_duration_hours, actual_duration_hours
-  - Dependencies: prerequisite_step_ids (UUID[]), is_optional
-  - Status: learning_step_status ENUM, started_at, completed_at
-  - Evidence: evidence_url, evidence_type, evidence_metadata (JSONB)
-  - Feedback: learner_notes, mentor_feedback, rating (1-5)
+**event_team_members** — Added columns:
+- `learner_id UUID` → `learners_profiles.id` — Links member to verified learner profile for validated invitations
+- `status TEXT` — Member workflow status: `pending` (invited, awaiting response) | `accepted` (confirmed member) | `declined` (rejected) | `removed` (removed by leader). Default: `accepted` (for backward compat with pre-invitation rows)
+- `is_leader BOOLEAN` — Marks the team leader (auto-set to `true` for team owner at registration). Default: `false`
+- `responded_at TIMESTAMPTZ` — When the invitee accepted or declined
 
-  **3. parent_portal_access** - Parent access configuration:
-  - Learner link: learner_id, institution_id
-  - Parent identification: parent_user_id, parent_email, parent_phone, parent_name, relationship
-  - Access credentials: access_code (unique), access_code_expires_at, pin_hash
-  - Access level: parent_access_level ENUM (view, interact, full)
-  - Permissions: JSONB (view_attendance, view_grades, view_fees, etc.)
-  - Notifications: notification_preferences JSONB (channels, frequency, alert_types)
-  - Activity: last_access, access_count, last_ip_address
-  - Status: is_active, is_verified, deactivated_at, deactivation_reason
-
-  **4. parent_communications** - Institution-parent message history:
-  - Links: learner_id, institution_id, parent_access_id
-  - Content: communication_type ENUM, subject, content, content_html
-  - Attachments: JSONB array with name, url, type, size
-  - Context: related_entity_type, related_entity_id, context_data JSONB
-  - Delivery: sent_at, sent_via (VARCHAR[]), delivery_status JSONB
-  - Read tracking: read_at, read_via
-  - Response handling: requires_response, response_deadline, response, response_at
-  - Sender: sent_by, sent_by_role
-  - Flags: is_archived, is_important
-
-  **ENUMs Created (5)**:
-  - `learning_path_status`: draft, active, paused, completed, archived
-  - `learning_step_type`: course, project, mentorship, certification, workshop, self_study, assessment, internship, competition
-  - `learning_step_status`: pending, in_progress, completed, skipped, failed
-  - `parent_access_level`: view, interact, full
-  - `communication_type`: progress_update, alert, feedback_request, announcement, fee_reminder, event_invite, achievement, concern
-
-  **Indexes Created**: 27
-  **RLS Policies Created**: 16 (4 per table)
-  **Triggers Created**: 5 (4 updated_at + 1 progress auto-calculation)
-  **Functions Created**: 2
-  - `generate_parent_access_code(institution_id)` - Creates unique JKKN-P-XXXXXX codes
-  - `update_learning_path_progress()` - Auto-updates path progress on step completion
-
-  **Key Features**:
-  - AI-generated learning paths with confidence scores
-  - Polymorphic step references (courses, projects, mentorships, etc.)
-  - Code-based parent portal access (no account required)
-  - Multi-channel communication delivery (email, SMS, WhatsApp, in-app)
-  - Automatic path progress calculation on step completion
-  - Competency-linked learning progression
-
-  **Setup Files Updated**:
-  - `supabase/setup/01_tables.sql` - Section 14: Personalization Module
-  - `supabase/setup/03_policies.sql` - Section 14: RLS policies
-
-  **Related Plan**: Workshop Alignment Transformation (Phase 3)
+**New DB function:**
+- `generate_team_code(p_event_id UUID, p_institution_id UUID) → TEXT` — Generates sequential team codes using `institutions.counselling_code` as prefix. Defined in `supabase/setup/02_functions.sql`
 
 ---
 
-### 2026-02-01: Workshop Transformation - Industry Integration Module (Phase 2)
+### 2026-02-06: Lifecycle Analytics System
 
-- **File**: `migrations/20260201_create_industry_integration_tables.sql` ⏳ **PENDING REVIEW**
+- **Files Updated**:
+  - `setup/01_tables.sql` - Added 5 tables: usage_events, module_usage_daily, institution_health_scores, feature_usage_summary, usage_events_archive
+  - `setup/02_functions.sql` - Added 7 functions: compute_module_usage_daily, refresh_lifecycle_dashboard_view, compute_institution_health_scores, backfill_usage_events, archive_old_usage_events, ensure_usage_events_partitions, compute_feature_usage_summary
+  - `setup/03_policies.sql` - Added 12 RLS policies for all lifecycle analytics tables
+  - `setup/05_views.sql` - Added mv_lifecycle_dashboard materialized view
 
-  **Purpose**: Create Industry Integration module for connecting learners with industry partners, mentors, and real-world projects.
+  **Purpose**: Cross-institution lifecycle analytics dashboard with module-level usage tracking, health scoring, and report generation
 
-  **Tables Created (4)**:
+  **Tables Created**:
+  - `usage_events` - Raw event tracking (page visits, CRUD actions, exports)
+  - `module_usage_daily` - Pre-aggregated daily rollup by institution/module
+  - `institution_health_scores` - Composite health scores (Phase 2)
+  - `feature_usage_summary` - Sub-feature level aggregation (Phase 3)
+  - `usage_events_archive` - Archive for old events (Phase 3)
 
-  **1. industry_partners** - Company registry with MOU tracking:
-  - Company info: name, logo, sector, size, website, description
-  - Partnership: type, dates, MOU document, value description
-  - Contact: person, designation, email, phone
-  - Address: full address fields
-  - Tracking: projects offered, internships, placements, rating
-  - Verification: is_verified, verified_by, verified_at
+  **Views Created**:
+  - `mv_lifecycle_dashboard` - Materialized view refreshed every 5 min for dashboard
 
-  **2. industry_mentors** - Expert profiles with availability:
-  - Profile: name, designation, company, photo, bio, linkedin
-  - Contact: email, phone, preferred method
-  - Expertise: areas (TEXT[]), experience years, competencies_can_mentor (UUID[])
-  - Availability: JSONB (days, hours, mode, timezone)
-  - Capacity: max_mentees, current_mentees
-  - Tracking: total mentees, rating, sessions conducted
+  **Functions Created**:
+  - `compute_module_usage_daily(target_date)` - Daily rollup from usage_events
+  - `refresh_lifecycle_dashboard_view()` - MV refresh (every 5 min via pg_cron)
+  - `compute_institution_health_scores(target_date)` - Health score calculation
+  - `backfill_usage_events()` - One-time backfill from user_sessions
+  - `archive_old_usage_events(months_to_keep)` - Monthly maintenance
+  - `ensure_usage_events_partitions()` - Auto-create monthly partitions (Phase 3)
+  - `compute_feature_usage_summary(target_date)` - Feature-level daily aggregation (Phase 3)
 
-  **3. industry_projects** - Project marketplace:
-  - Project info: title, code, description, requirements, outcomes
-  - Deliverables: JSONB array
-  - Competencies: required (UUID[]), minimum level, developed (UUID[])
-  - Parameters: difficulty, duration, team size, hours
-  - Eligibility: programs (UUID[]), semesters (UUID[]), prerequisites
-  - Compensation: is_paid, stipend, benefits
-  - Timeline: deadline, start/end dates
-  - Status: project_status ENUM, capacity tracking
+  **Application Layer (Phase 1)**:
+  - Types: `types/usage-analytics.ts`
+  - Service: `lib/services/analytics/usage-tracking-service.ts`
+  - Service: `lib/services/analytics/lifecycle-dashboard-service.ts`
+  - Middleware: `lib/middleware/usage-tracking-middleware.ts`
+  - Middleware: `lib/middleware/url-module-mapper.ts`
+  - Hooks: `hooks/analytics/use-lifecycle-dashboard.ts`, `use-module-breakdown.ts`
+  - API: `app/api/analytics/usage/dashboard|modules|events|trends/route.ts`
+  - UI: `app/(routes)/admin/lifecycle/page.tsx` + 6 components
+  - Sidebar: Added "Lifecycle Analytics" to Administration group
 
-  **4. learner_industry_engagements** - Participation tracking:
-  - Relationships: learner, project, mentor, partner
-  - Team: team_id, role
-  - Timeline: applied, approved, start, end dates
-  - Status: engagement_status ENUM
-  - Competencies: targeted, demonstrated, levels achieved
-  - Progress: percentage, milestones JSONB
-  - Deliverables: submitted JSONB
-  - Feedback: mentor JSONB, learner JSONB
-  - Certificate: issued, url, date
+  **Application Layer (Phase 2)**:
+  - Service: `lib/services/analytics/health-score-service.ts`
+  - Service: `lib/services/analytics/usage-report-service.ts`
+  - Hooks: `hooks/analytics/use-health-scores.ts`, `use-institution-comparison.ts`, `use-lifecycle-reports.ts`
+  - API: `app/api/analytics/usage/health-scores/route.ts`, `health-scores/[id]/route.ts`, `comparison/route.ts`, `reports/generate/route.ts`
+  - UI: `institution-comparison-tab.tsx`, `reports-tab.tsx` (added to lifecycle dashboard)
 
-  **ENUMs Created (5)**:
-  - `partnership_type`: mou, placement, project, mentorship, internship, sponsorship, training
-  - `project_status`: draft, open, assigned, in_progress, under_review, completed, cancelled
-  - `engagement_type`: project, internship, mentorship, workshop, site_visit, guest_lecture, hackathon
-  - `engagement_status`: applied, approved, active, completed, withdrawn, terminated
-  - `difficulty_level`: beginner, intermediate, advanced, expert
+  **Application Layer (Phase 3)**:
+  - Live health score in KPI card with progress bar + color coding
+  - Dormant institution alerts in Overview tab
+  - Archive strategy: `ensure_usage_events_partitions()` + `compute_feature_usage_summary()`
 
-  **Indexes Created**: 23
-  **RLS Policies Created**: 16 (4 per table)
-  **Triggers Created**: 4 (updated_at)
+### 2026-01-30: Personalized Dashboard System
 
-  **Key Features**:
-  - Full partner/mentor/project lifecycle management
-  - Competency integration (required & developed)
-  - Feedback tracking (mentor & learner)
-  - Certificate issuance support
-  - Team project support
-  - Eligibility filtering
+- **Migration**: `migrations/20260130140000_create_dashboard_tables.sql` ✅ **APPLIED**
 
-  **Related Plan**: Workshop Alignment Transformation (Phase 2.1)
+  **Purpose**: Personalized role-based dashboard system with customizable widget visibility per user
 
----
+  **Tables Created**:
+  - `user_dashboard_preferences` - Widget visibility preferences per user/role
+    - Fields: user_id, role, widget_id, is_visible, created_at, updated_at
+    - Composite primary key: (user_id, role, widget_id)
+    - Indexes: user_role index, widget_id index
+  - `dashboard_widgets` - Registry of available widgets per role
+    - Fields: widget_id, role, title, description, category, default_visible, display_order
+    - Composite primary key: (widget_id, role)
+    - Indexes: role index, category index
 
-### 2026-02-01: Workshop Transformation - Existing Table Modifications
+  **Features**:
+  - ✅ Role-based widget registry (student, faculty, leadership, admin)
+  - ✅ Per-user widget visibility preferences
+  - ✅ Customizable dashboard settings dialog
+  - ✅ Widget grouping by category (Academic, Finance, Community, etc.)
+  - ✅ Reset to defaults functionality
+  - ✅ Optimistic UI updates
+  - ✅ Mobile-responsive design
 
-- **File**: `migrations/20260201_modify_existing_tables_workshop.sql` ⏳ **PENDING REVIEW**
+  **Application Layer**:
+  - Service: `lib/services/dashboard/dashboard-preferences-service.ts`
+  - Hooks: `hooks/dashboard/use-dashboard-preferences.ts`
+  - Components:
+    - `app/(routes)/dashboard/_components/dashboard-settings-dialog.tsx`
+    - `app/(routes)/dashboard/_components/widget-visibility-settings.tsx`
+    - `app/(routes)/dashboard/_components/widget-registry.ts`
 
-  **Purpose**: Add new columns to existing tables to support outcome-focused education model.
-
-  **Tables Modified (4)**:
-
-  **1. courses** - Learning hours and competency coverage:
-  - `learning_hours_target INTEGER` - Total learning hours target
-  - `self_study_hours INTEGER` - Expected self-study hours per week
-  - `practical_hours INTEGER` - Lab/practical hours per week
-  - `theory_hours INTEGER` - Lecture/theory hours per week
-  - `competency_coverage JSONB` - Maps competencies to course with weights
-  - + 1 GIN index, 4 constraints
-
-  **2. learners_profiles** - Capabilities and career tracking:
-  - `capabilities JSONB` - Competency achievements with evidence
-  - `career_aspirations JSONB` - Career goals and preferences
-  - `industry_readiness_score NUMERIC(5,2)` - Computed placement readiness (0-100)
-  - `portfolio_url TEXT` - Link to learner portfolio
-  - + 3 indexes, 1 constraint
-
-  **3. staff** - Facilitator role and metrics:
-  - `role_type VARCHAR(50)` - teacher, facilitator, trainer, industry_mentor, hybrid
-  - `facilitator_certification JSONB` - Certifications array
-  - `outcome_metrics JSONB` - Performance metrics tracking
-  - + 3 indexes, 1 constraint
-
-  **4. billing_discounts** - Outcome-based discounts:
-  - `is_outcome_based BOOLEAN` - Flag for outcome-based discounts
-  - `outcome_criteria JSONB` - Competency requirements for qualification
-  - `outcome_verification JSONB` - Verification tracking
-  - + 3 indexes
-
-  **Summary**: 15 new columns, 10 new indexes, 6 new constraints
-
-  **Related Plan**: Workshop Alignment Transformation (Phase 1.5)
-
----
-
-### 2026-02-01: Workshop Transformation - Competency Catalog Module (NEW)
-
-- **File**: `migrations/20260201_create_competency_tables.sql` ⏳ **PENDING REVIEW**
-
-  **Purpose**: Create Competency Catalog module as part of Workshop Transformation for outcome-focused skill tracking. Replaces deprecated learner OKR tables.
-
-  **Tables Created (4)**:
-  - `competency_catalog` - Master competency/skill taxonomy
-    - Fields: competency_code, competency_name, competency_type, description
-    - JSONB: proficiency_levels, evidence_requirements
-    - Array: industry_tags
-    - Bloom's taxonomy level support
-  - `competency_program_mapping` - Program competency requirements
-    - Links competencies to programs with required levels
-    - Fields: required_level, weight_percentage, semester_expected, is_mandatory
-  - `course_competency_mapping` - Course competency links
-    - Links courses to competencies with contribution details
-    - Fields: contribution_level, learning_hours, assessment_method
-  - `learner_competencies` - Individual learner competency tracking
-    - Replaces deprecated learner_okr_assignments
-    - Fields: current_level, progress_percentage
-    - JSONB: evidence, assessments
-    - Verification by staff (verified_by, verified_at)
-
-  **ENUMs Created (3)**:
-  - `competency_type`: technical, behavioral, domain, soft_skill
-  - `bloom_taxonomy_level`: remember, understand, apply, analyze, evaluate, create
-  - `proficiency_level`: novice, beginner, intermediate, advanced, expert
-
-  **Indexes Created**: 16 total
-  **RLS Policies Created**: 16 (4 per table: SELECT, INSERT, UPDATE, DELETE)
-  **Triggers Created**: 4 (updated_at for each table)
-
-  **Related Plan**: Workshop Alignment Transformation (Phase 1.2)
-
----
-
-### 2026-02-01: Workshop Transformation - Learner OKR Deprecation
-
-- **File**: `migrations/20260201_deprecate_learner_okr_tables.sql` ⏳ **PENDING REVIEW**
-
-  **Purpose**: Soft-deprecate learner-specific OKR tables as part of Workshop Transformation. Learner OKRs being replaced by Competency module for outcome-focused tracking.
-
-  **Tables Affected**:
-  - `learner_core_okrs` - Added deprecated_at, blocked new inserts
-  - `learner_okr_assignments` - Added deprecated_at, blocked new inserts
-  - `learner_elective_okrs` - Added deprecated_at, blocked new inserts
-
-  **Changes**:
-  - Added `deprecated_at TIMESTAMPTZ` column to all 3 tables (set to NOW() for all existing records)
-  - Created RLS policies with `WITH CHECK (false)` to block new inserts
-  - Added deprecation comments to tables
-  - Created indexes on deprecated_at columns for future cleanup queries
-
-  **What Still Works**:
-  - SELECT: All existing data remains accessible
-  - UPDATE: Existing records can still be updated
-  - DELETE: Existing records can still be deleted (by owners)
-
-  **What's Blocked**:
-  - INSERT: No new records can be created in these tables
-
-  **Data Preserved**:
-  - All existing learner OKR data preserved (zero data loss)
-  - Historical reference available via deprecated_at timestamp
-
-  **Replacement**:
-  - Core OKRs → competency_catalog + learner_competencies (Task #4)
-  - Elective OKRs → learning_paths + learning_path_steps (Phase 3)
-
-  **Related Plan**: Workshop Alignment Transformation (Phase 1.1)
-
-  **Files Updated**:
-  - `supabase/SQL_FILE_INDEX.md` - This entry
-
----
+  **Remaining Work**: Phases 2-6 (additional widgets, drag-and-drop, analytics, performance)
 
 ### 2025-01-19: Advanced Engagement Analytics System ⭐ NEW
 
@@ -1191,6 +766,71 @@ When updating any SQL file:
 
 ## 📝 Recent Migrations
 
+### 2026-02-03: SAML Identity Provider Tables
+
+- **File**: `migrations/20260203000001_create_saml_tables.sql`
+- **Tables Added**:
+  - `saml_service_providers`: Registry of trusted SAML SPs (e.g., MathWorks)
+  - `saml_sessions`: Track active SSO sessions for Single Logout
+- **Functions**: `cleanup_expired_saml_sessions()` - Remove expired sessions
+- **Purpose**: Enable SAML SSO with MathWorks and other external systems
+
+### 2026-02-02: Apply Advanced Analytics Columns to Database ✅ APPLIED
+
+- **File**: `migrations/20260202_add_advanced_analytics_columns.sql` ✅ **APPLIED**
+
+  **Purpose**: Apply the advanced analytics schema changes that were added to `01_tables.sql` but never executed on the actual database
+
+  **Problem Solved**:
+  - Runtime errors: "column learners_profiles.first_graduate does not exist"
+  - Runtime errors: "column learners_profiles.school_type does not exist"
+  - Runtime errors: "column programs.sanctioned_intake does not exist"
+  - Schema file and actual database were out of sync
+
+  **Changes Applied**:
+  1. **programs table** (3 new columns):
+     - `sanctioned_intake INTEGER DEFAULT 0` - Government approved intake capacity
+     - `actual_intake INTEGER DEFAULT 0` - Actual students admitted
+     - `academic_year_id UUID` - Reference to academic year
+
+  2. **learners_profiles table** (6 new columns):
+     - `school_type TEXT` - Type of previous school (government/aided/private/cbse/icse/state_board)
+     - `school_district TEXT` - District of previous school
+     - `school_taluk TEXT` - Taluk of previous school
+     - `medium_of_instruction TEXT` - Medium in previous school (english/tamil/both)
+     - `location_type TEXT` - Student residence classification (urban/semi_urban/rural)
+     - `first_graduate BOOLEAN DEFAULT false` - First generation graduate in family
+
+  3. **intake_history table** (NEW):
+     - Tracks historical intake data for 3-year stability index
+     - Foreign keys to institutions, programs, academic_years
+     - Unique constraint on (program_id, academic_year_id)
+
+  4. **Indexes Created** (8 new):
+     - 3 for intake_history (program, year, institution)
+     - 4 for learners_profiles analytics fields
+     - 1 for programs academic_year_id
+
+  **Verification**:
+  ```sql
+  -- Verified all columns created successfully:
+  - programs: sanctioned_intake, actual_intake, academic_year_id ✅
+  - learners_profiles: school_type, school_district, school_taluk,
+                       medium_of_instruction, location_type, first_graduate ✅
+  - intake_history: table created with 10 columns ✅
+  ```
+
+  **Impact**:
+  - ✅ All advanced analytics features will work correctly
+  - ✅ No more runtime column errors
+  - ✅ Intake & Capacity analytics functional
+  - ✅ Geography analytics functional
+  - ✅ Trends analytics functional
+  - ✅ School Feeders analytics functional
+  - ✅ Fully backward compatible (all columns nullable/have defaults)
+
+  **Status**: ✅ **COMPLETE - MIGRATION APPLIED SUCCESSFULLY** (2026-02-02 via Supabase MCP)
+
 ### 2025-12-29: Enhanced Program and Semester Fields
 
 - **File**: `migrations/add_program_semester_enhanced_fields.sql` ✅ **APPLIED**
@@ -1486,6 +1126,127 @@ When updating any SQL file:
   - Database: Created function `sync_profile_data_from_learners()`
   - Database: Applied 3 migrations (fix duplicates, sync data, add unique constraint)
   - `docs/fixes/2025-01/2025-01-27-FIX-sync-profile-data-from-learners.md` (NEW - Documentation)
+
+---
+
+### **2026-01-28: Learner-Profile Sync Enhancement**
+
+**Issue**: College email updates in `learners_profiles` didn't sync to `profiles` table, roles stuck as 'guest', no mismatch detection.
+
+**Solution**: Three-layer fix for comprehensive synchronization:
+
+1. **Enhanced Service Layer** (`lib/services/learner-profile-service.ts`):
+   - Smart profile lookup (by email, then learner_id fallback)
+   - Syncs ALL fields: email, role, is_active, learner_id, institution_id, department_id
+   - Comprehensive logging for debugging
+
+2. **Database Triggers** (AUTO-SYNC):
+   - `trg_sync_learner_email_to_profile`: Auto-syncs college_email changes
+   - `trg_sync_learner_status_to_profile`: Auto-syncs lifecycle_status to is_active
+   - Handles orphaned profile linking
+
+3. **Diagnostic & Repair Tools**:
+   - `scripts/debug-learner-profile-sync.ts`: Detect mismatches
+   - `scripts/repair-learner-profile-sync.ts`: Auto-fix issues
+   - `scripts/LEARNER_PROFILE_SYNC_GUIDE.md`: Complete usage guide
+
+**Database Changes**:
+```sql
+-- New Functions (02_functions.sql)
+CREATE FUNCTION sync_learner_email_to_profile() -- Syncs email, role, org data
+CREATE FUNCTION sync_learner_status_to_profile() -- Syncs is_active status
+
+-- New Triggers (04_triggers.sql)
+CREATE TRIGGER trg_sync_learner_email_to_profile -- On INSERT/UPDATE college_email
+CREATE TRIGGER trg_sync_learner_status_to_profile -- On UPDATE lifecycle_status
+```
+
+**Results**:
+- ✅ Email changes automatically sync to profiles table
+- ✅ User roles correctly set to 'student'
+- ✅ Orphaned profiles automatically linked
+- ✅ is_active status always matches lifecycle_status
+- ✅ Comprehensive logging and diagnostics
+- ✅ Automatic repair tools available
+
+**Usage**:
+```bash
+# Detect issues
+npx tsx scripts/debug-learner-profile-sync.ts
+
+# Fix issues (dry run first)
+npx tsx scripts/repair-learner-profile-sync.ts --dry-run
+npx tsx scripts/repair-learner-profile-sync.ts
+```
+
+**Files Updated**:
+- `lib/services/learner-profile-service.ts` (Enhanced syncProfileStatus function)
+- `supabase/setup/02_functions.sql` (Added 2 sync functions)
+- `supabase/setup/04_triggers.sql` (Added 2 triggers, total: 75)
+- `scripts/debug-learner-profile-sync.ts` (NEW - Diagnostic tool)
+- `scripts/repair-learner-profile-sync.ts` (NEW - Repair tool)
+- `scripts/LEARNER_PROFILE_SYNC_GUIDE.md` (NEW - Complete guide)
+- `docs/fixes/2026-01/2026-01-28-FIX-learner-profile-sync-issues.md` (NEW - Root cause analysis)
+
+---
+
+### **2025-01-31: Advanced Learner Analytics Schema Update**
+
+**Purpose**: Add database support for 4 new analytics categories: Intake & Capacity, Geography, Trends, and School Feeders
+
+**Database Changes**:
+
+1. **learners_profiles table** (5 new columns):
+   - `school_type TEXT` - Classification: government, aided, private, cbse, icse, state_board
+   - `school_district TEXT` - School's district location
+   - `school_taluk TEXT` - School's taluk location
+   - `medium_of_instruction TEXT` - english, tamil, both
+   - `location_type TEXT` - urban, semi_urban, rural (auto-classified)
+
+2. **programs table** (3 new columns):
+   - `sanctioned_intake INTEGER` - Approved intake capacity (default: 0)
+   - `actual_intake INTEGER` - Current admitted students (default: 0)
+   - `academic_year_id UUID` - Link to academic year
+
+3. **intake_history table** (NEW):
+   - Tracks historical intake data for 3-year stability index calculations
+   - Columns: institution_id, program_id, academic_year_id, sanctioned_intake, actual_intake, waitlist_count, dropout_count
+   - Unique constraint on (program_id, academic_year_id)
+   - 3 indexes for analytics queries (program, year, institution)
+
+4. **Indexes Created** (4 new):
+   - `idx_learners_profiles_school_type` - Filter by school type
+   - `idx_learners_profiles_location_type` - Filter by location classification
+   - `idx_learners_profiles_medium_instruction` - Filter by medium
+   - `idx_programs_academic_year` - Program capacity by year
+
+5. **RLS Policies** (4 new for intake_history):
+   - SELECT, INSERT, UPDATE policies based on user_institution_access
+   - DELETE policy restricted to admin access_type
+
+**Analytics Enabled**:
+- ✅ Intake & Capacity Analytics (seat utilization, over-intake alerts, waitlist conversion, 3-year stability)
+- ✅ Geography Analytics (district/taluk contribution, hostel ratios - data already 100% available)
+- ✅ Trend Analytics (gender ratio, category mix, first-generation, income distribution)
+- ✅ School Feeder Analytics (feeder institution tracking, school type classification)
+
+**Impact**:
+- All new fields are optional (backward compatible)
+- Existing 3,506 learner profiles need data migration for analytics fields
+- Data migration scripts to populate school_type, location_type automatically
+- Intake history seeding script to backfill last 3 years
+
+**Next Steps**:
+- Create TypeScript types for analytics interfaces
+- Implement advanced analytics service layer
+- Build API routes and React Query hooks
+- Create UI components for 4 new analytics tabs
+- Run data migration scripts
+
+**Files Updated**:
+- `supabase/setup/01_tables.sql` - Added columns, table, indexes
+- `supabase/setup/03_policies.sql` - Added RLS policies for intake_history
+- `supabase/SQL_FILE_INDEX.md` - Updated table count, added changelog
 
 ---
 

@@ -63,6 +63,9 @@ CREATE TRIGGER update_staff_plans_updated_at BEFORE UPDATE ON staff_plans
 CREATE TRIGGER update_staff_plan_courses_updated_at BEFORE UPDATE ON staff_plan_courses
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_class_incharges_updated_at BEFORE UPDATE ON class_incharges
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ================================================================================
 -- SECTION 2: ADMISSION MODULE TRIGGERS
 -- ================================================================================
@@ -138,10 +141,6 @@ CREATE TRIGGER trigger_refunds_refresh_summary AFTER INSERT OR UPDATE OR DELETE 
 -- ================================================================================
 -- SECTION 4: ACADEMIC MODULE TRIGGERS
 -- ================================================================================
-
--- Auto-populate academic year institution
-CREATE TRIGGER trigger_auto_populate_academic_year_institution BEFORE INSERT ON academic_years
-    FOR EACH ROW EXECUTE FUNCTION auto_populate_academic_year_institution();
 
 -- Institution ID auto-population triggers
 CREATE TRIGGER trg_degrees_set_institution_id BEFORE INSERT ON degrees
@@ -513,201 +512,77 @@ COMMENT ON TRIGGER trigger_auto_link_profile_to_approved_learner ON profiles IS
 'Auto-links new profiles to approved learners on first login. Includes institution/department from learner.';
 
 -- ================================================================================
--- SECTION 21: SOLUTIONS HUB MODULE TRIGGERS
--- Created: 2026-02-03
--- Purpose: Triggers for Solutions Hub tables
--- Merged from JKKN-Solutions-Hub standalone project
+-- SECTION 8: LEARNER PROFILE SYNC TRIGGERS
+-- Created: 2026-01-28 - Auto-sync learner changes to profiles table
 -- ================================================================================
 
--- ============================================
--- Updated_at Triggers (30 tables)
--- ============================================
+-- Sync learner college_email changes to profiles table
+-- Runs on both INSERT and UPDATE to handle new learners and email changes
+DROP TRIGGER IF EXISTS trg_sync_learner_email_to_profile ON public.learners_profiles;
+CREATE TRIGGER trg_sync_learner_email_to_profile
+  AFTER INSERT OR UPDATE OF college_email ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION sync_learner_email_to_profile();
 
-CREATE TRIGGER tr_sh_clients_updated_at
-    BEFORE UPDATE ON public.sh_clients
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+COMMENT ON TRIGGER trg_sync_learner_email_to_profile ON learners_profiles IS
+'Auto-syncs college_email changes from learners to profiles. Handles email updates and orphaned profile linking.';
 
-CREATE TRIGGER tr_sh_solutions_updated_at
-    BEFORE UPDATE ON public.sh_solutions
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+-- Sync learner lifecycle_status changes to profile is_active
+-- Ensures users can only log in when learner status is active
+DROP TRIGGER IF EXISTS trg_sync_learner_status_to_profile ON public.learners_profiles;
+CREATE TRIGGER trg_sync_learner_status_to_profile
+  AFTER UPDATE OF lifecycle_status ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION sync_learner_status_to_profile();
 
-CREATE TRIGGER tr_sh_phases_updated_at
-    BEFORE UPDATE ON public.sh_solution_phases
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+COMMENT ON TRIGGER trg_sync_learner_status_to_profile ON learners_profiles IS
+'Auto-syncs lifecycle_status changes to profile is_active. Only active learners can log in.';
 
-CREATE TRIGGER tr_sh_mous_updated_at
-    BEFORE UPDATE ON public.sh_solution_mous
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
+-- ================================================================================
+-- SERVICE REQUEST MODULE TRIGGERS
+-- Updated: 2026-02-09
+-- ================================================================================
 
-CREATE TRIGGER tr_sh_builders_updated_at
-    BEFORE UPDATE ON public.sh_builders
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_training_programs_updated_at
-    BEFORE UPDATE ON public.sh_training_programs
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_training_sessions_updated_at
-    BEFORE UPDATE ON public.sh_training_sessions
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_cohort_members_updated_at
-    BEFORE UPDATE ON public.sh_cohort_members
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_content_orders_updated_at
-    BEFORE UPDATE ON public.sh_content_orders
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_content_deliverables_updated_at
-    BEFORE UPDATE ON public.sh_content_deliverables
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_production_learners_updated_at
-    BEFORE UPDATE ON public.sh_production_learners
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_implementation_users_updated_at
-    BEFORE UPDATE ON public.sh_implementation_users
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_payments_updated_at
-    BEFORE UPDATE ON public.sh_payments
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_publications_updated_at
-    BEFORE UPDATE ON public.sh_publications
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
-CREATE TRIGGER tr_sh_jicate_sessions_updated_at
-    BEFORE UPDATE ON public.sh_jicate_sessions
-    FOR EACH ROW EXECUTE FUNCTION sh_update_updated_at();
-
--- ============================================
--- Auto-Code Generation Triggers
--- ============================================
-
-CREATE TRIGGER tr_sh_solutions_code
-    BEFORE INSERT ON public.sh_solutions
+CREATE TRIGGER update_service_types_updated_at
+    BEFORE UPDATE ON service_types
     FOR EACH ROW
-    WHEN (NEW.solution_code IS NULL)
-    EXECUTE FUNCTION sh_generate_solution_code();
+    EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER tr_sh_clients_code
-    BEFORE INSERT ON public.sh_clients
+CREATE TRIGGER update_service_requests_updated_at
+    BEFORE UPDATE ON service_requests
     FOR EACH ROW
-    WHEN (NEW.company_code IS NULL)
-    EXECUTE FUNCTION sh_generate_client_code();
+    EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER tr_sh_builders_code
-    BEFORE INSERT ON public.sh_builders
-    FOR EACH ROW
-    WHEN (NEW.builder_code IS NULL)
-    EXECUTE FUNCTION sh_generate_builder_code();
+-- =====================================================
+-- STARTUP STUDIO: trg_prevent_duplicate_event_member
+-- Added: 2026-03-07
+-- Fires BEFORE INSERT OR UPDATE on event_team_members.
+-- Prevents same learner_id from being accepted in
+-- more than one team per event (DB-level enforcement).
+-- Function: prevent_duplicate_event_member() in 02_functions.sql
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_prevent_duplicate_event_member ON event_team_members;
+CREATE TRIGGER trg_prevent_duplicate_event_member
+BEFORE INSERT OR UPDATE ON event_team_members
+FOR EACH ROW EXECUTE FUNCTION prevent_duplicate_event_member();
 
-CREATE TRIGGER tr_sh_cohort_members_code
-    BEFORE INSERT ON public.sh_cohort_members
-    FOR EACH ROW
-    WHEN (NEW.cohort_code IS NULL)
-    EXECUTE FUNCTION sh_generate_cohort_code();
+-- Added: 2026-03-08 - Auto-update updated_at on appathon_verifications
+CREATE TRIGGER update_appathon_verifications_updated_at
+    BEFORE UPDATE ON appathon_verifications
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER tr_sh_production_learners_code
-    BEFORE INSERT ON public.sh_production_learners
-    FOR EACH ROW
-    WHEN (NEW.learner_code IS NULL)
-    EXECUTE FUNCTION sh_generate_production_code();
+-- updated_at trigger for case_studies
+-- Added: 2026-03-09
 
-CREATE TRIGGER tr_sh_training_programs_code
-    BEFORE INSERT ON public.sh_training_programs
-    FOR EACH ROW
-    WHEN (NEW.program_code IS NULL)
-    EXECUTE FUNCTION sh_generate_program_code();
+CREATE TRIGGER update_case_studies_updated_at
+  BEFORE UPDATE ON case_studies
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER tr_sh_content_orders_code
-    BEFORE INSERT ON public.sh_content_orders
-    FOR EACH ROW
-    WHEN (NEW.order_code IS NULL)
-    EXECUTE FUNCTION sh_generate_content_code();
-
-CREATE TRIGGER tr_sh_payments_code
-    BEFORE INSERT ON public.sh_payments
-    FOR EACH ROW
-    WHEN (NEW.payment_code IS NULL)
-    EXECUTE FUNCTION sh_generate_payment_code();
-
-CREATE TRIGGER tr_sh_bug_reports_code
-    BEFORE INSERT ON public.sh_bug_reports
-    FOR EACH ROW
-    WHEN (NEW.bug_code IS NULL)
-    EXECUTE FUNCTION sh_generate_bug_code();
-
-CREATE TRIGGER tr_sh_discovery_visits_code
-    BEFORE INSERT ON public.sh_discovery_visits
-    FOR EACH ROW
-    WHEN (NEW.visit_code IS NULL)
-    EXECUTE FUNCTION sh_generate_visit_code();
-
-CREATE TRIGGER tr_sh_mous_number
-    BEFORE INSERT ON public.sh_solution_mous
-    FOR EACH ROW
-    WHEN (NEW.mou_number IS NULL)
-    EXECUTE FUNCTION sh_generate_mou_number();
-
-CREATE TRIGGER tr_sh_earnings_code
-    BEFORE INSERT ON public.sh_earnings_ledger
-    FOR EACH ROW
-    WHEN (NEW.ledger_code IS NULL)
-    EXECUTE FUNCTION sh_generate_earnings_code();
-
-CREATE TRIGGER tr_sh_publications_code
-    BEFORE INSERT ON public.sh_publications
-    FOR EACH ROW
-    WHEN (NEW.publication_code IS NULL)
-    EXECUTE FUNCTION sh_generate_publication_code();
-
-CREATE TRIGGER tr_sh_jicate_sessions_code
-    BEFORE INSERT ON public.sh_jicate_sessions
-    FOR EACH ROW
-    WHEN (NEW.session_code IS NULL)
-    EXECUTE FUNCTION sh_generate_jicate_code();
-
--- ============================================
--- Statistics Update Triggers
--- ============================================
-
--- Update builder stats when assignment is completed
-CREATE TRIGGER tr_sh_builder_assignment_stats
-    AFTER UPDATE OF status ON public.sh_builder_assignments
-    FOR EACH ROW
-    WHEN (NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed')
-    EXECUTE FUNCTION sh_update_builder_stats();
-
--- Update cohort member stats when session assignment is completed
-CREATE TRIGGER tr_sh_cohort_assignment_stats
-    AFTER UPDATE OF status ON public.sh_cohort_assignments
-    FOR EACH ROW
-    WHEN (NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed')
-    EXECUTE FUNCTION sh_update_cohort_stats();
-
--- Update production learner stats when production assignment is completed
-CREATE TRIGGER tr_sh_production_assignment_stats
-    AFTER UPDATE OF status ON public.sh_production_assignments
-    FOR EACH ROW
-    WHEN (NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed')
-    EXECUTE FUNCTION sh_update_production_stats();
-
--- Update client referral count
-CREATE TRIGGER tr_sh_client_referral_count_insert
-    AFTER INSERT ON public.sh_client_referrals
-    FOR EACH ROW
-    EXECUTE FUNCTION sh_update_client_referral_count();
-
-CREATE TRIGGER tr_sh_client_referral_count_delete
-    AFTER DELETE ON public.sh_client_referrals
-    FOR EACH ROW
-    EXECUTE FUNCTION sh_update_client_referral_count();
+CREATE TRIGGER update_track_declarations_updated_at
+  BEFORE UPDATE ON track_declarations
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ================================================================================
 -- End of Triggers File
--- Total Triggers: 108 (73 original + 35 Solutions Hub)
+-- Total Triggers: 81 (Updated: 2026-03-09)
 -- ================================================================================

@@ -1,7 +1,6 @@
 // lib/services/notification/notification-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { EmailService } from '@/lib/services/email/email-service';
 
 const supabase = createClientSupabaseClient();
 import type {
@@ -411,29 +410,20 @@ export async function sendNotification(
 // ==================== HELPER FUNCTIONS ====================
 
 async function sendToChannels(notification: Notification): Promise<void> {
+  // TODO: Implement actual channel sending
   for (const channel of notification.channels) {
     switch (channel) {
       case NotificationChannel.EMAIL:
-        if (EmailService.isConfigured() && notification.user?.email) {
-          await EmailService.sendEmail({
-            to: notification.user.email,
-            subject: notification.title,
-            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #0b6d41;">${notification.title}</h2>
-              <p>${notification.message}</p>
-              ${notification.action_url ? `<p><a href="${notification.action_url}" style="display: inline-block; padding: 10px 20px; background-color: #0b6d41; color: white; text-decoration: none; border-radius: 4px;">${notification.action_label || 'View Details'}</a></p>` : ''}
-            </div>`,
-            metadata: {
-              institution_id: notification.metadata?.custom_data?.institution_id as string | undefined,
-            },
-          });
-        }
+        // await sendEmail(notification);
+        console.log('Email notification sent:', notification.id);
         break;
       case NotificationChannel.SMS:
-        // TODO: Wire to SMS service when ready
+        // await sendSMS(notification);
+        console.log('SMS notification sent:', notification.id);
         break;
       case NotificationChannel.PUSH:
-        // TODO: Wire to push notification service when ready
+        // await sendPush(notification);
+        console.log('Push notification sent:', notification.id);
         break;
       case NotificationChannel.IN_APP:
         // Already stored in database
@@ -471,9 +461,8 @@ async function renderTemplate(
   variables: Record<string, string>,
   dto: SendNotificationDto
 ): Promise<{ title: string; message: string }> {
-  // Template database (notification_templates table) not yet created.
-  // When available, fetch template by templateName and merge variables into its body.
-  // Current approach: use the caller-provided title/message with simple {{var}} replacement.
+  // TODO: Fetch template from database and render with variables
+  // For now, just use the provided title/message
   let title = dto.title;
   let message = dto.message;
 

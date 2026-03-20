@@ -40,6 +40,8 @@ import {
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import toast from 'react-hot-toast';
+import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface BulkStatusUpdateDialogProps {
   open: boolean;
@@ -222,6 +224,33 @@ export function BulkStatusUpdateDialog({
       // Call success callback
       if (successCount > 0) {
         onSuccess();
+      }
+
+      // Activity logging (fire-and-forget)
+      if (successCount > 0) {
+        createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+          if (userData?.user?.id) {
+            const template = LearnerActivityTemplates.enquiryBulkStatusChanged(
+              userData.user.email || 'User',
+              successCount,
+              targetStatus
+            );
+            logActivityClient({
+              userId: userData.user.id,
+              actionType: template.actionType,
+              resourceType: template.resourceType,
+              description: template.description,
+              metadata: {
+                sub_type: template.sub_type,
+                target_status: targetStatus,
+                success_count: successCount,
+                error_count: errorCount,
+                users_created_count: usersCreatedCount,
+                total_selected: selectedLearners.length,
+              },
+            });
+          }
+        });
       }
     } catch (error) {
       console.error('[bulk-status-update] Bulk update error:', error);

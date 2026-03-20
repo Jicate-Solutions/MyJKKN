@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { WorkflowConfigService } from '@/lib/services/admission/workflow-config-service';
 import type { AdmissionWorkflowConfig } from '@/types/admission-workflow-config';
-import { usePermissions } from '@/hooks/use-permissions';
 
 export const workflowConfigKeys = {
   all: ['admission-workflow-config'] as const,
@@ -18,23 +17,19 @@ export function useActiveWorkflowConfig(
   institutionId: string | undefined,
   academicYear?: string
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: workflowConfigKeys.active(institutionId || '', academicYear),
     queryFn: () => WorkflowConfigService.getActiveConfig(institutionId!, academicYear),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 5 * 60 * 1000,
   });
 }
 
 export function useWorkflowConfigList(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: workflowConfigKeys.list(institutionId || ''),
     queryFn: () => WorkflowConfigService.listConfigs(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 5 * 60 * 1000,
   });
 }

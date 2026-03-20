@@ -4,7 +4,6 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // =============================================================================
 // Types
@@ -59,28 +58,24 @@ async function fetchAdmissionPerformance(
 ): Promise<{ counselors: CounselorPerformanceMetrics[]; distribution: ResponseTimeDistribution[] }> {
   const supabase = createClientSupabaseClient();
 
-  // 1. Get all active counselors (scoped to institution when provided)
+  // 1. Get active counselors — filter by institution only when specified
   let counselorQuery = (supabase as any)
     .from('admission_counselors')
     .select('id, name, email')
     .eq('is_active', true);
-  if (institutionId) {
-    counselorQuery = counselorQuery.eq('institution_id', institutionId);
-  }
+  if (institutionId) counselorQuery = counselorQuery.eq('institution_id', institutionId);
 
   const { data: counselors, error: counselorError } = await counselorQuery;
 
   if (counselorError) throw new Error(`Failed to fetch counselors: ${counselorError.message}`);
   if (!counselors?.length) return { counselors: [], distribution: [] };
 
-  // 2. Get leads assigned to any counselor (scoped to institution when provided)
+  // 2. Get leads assigned to counselors — filter by institution only when specified
   let leadsQuery = (supabase as any)
     .from('admission_leads')
     .select('id, counselor_id, funnel_stage, created_at, assigned_at, last_contact_at')
     .not('counselor_id', 'is', null);
-  if (institutionId) {
-    leadsQuery = leadsQuery.eq('institution_id', institutionId);
-  }
+  if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
 
   if (from) leadsQuery = leadsQuery.gte('created_at', from);
   if (to) leadsQuery = leadsQuery.lte('created_at', to);
@@ -160,19 +155,19 @@ async function fetchAdmissionPerformance(
 
 export function useCounselorPerformance(
   institutionId: string | undefined,
-  dateRange?: { from?: string; to?: string }
+  dateRange?: { from?: string; to?: string },
+  /** When true, fetches all counselors across institutions (for global/admission users) */
+  allowGlobal = false,
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: counselorPerfKeys.list(
-      institutionId || '',
+      institutionId || '__all',
       dateRange?.from,
       dateRange?.to
     ),
     queryFn: () =>
       fetchAdmissionPerformance(institutionId, dateRange?.from, dateRange?.to),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId || allowGlobal,
   });
 
   return {
@@ -189,16 +184,13 @@ export function useCounselorTimeline(
   institutionId: string | undefined,
   dateRange?: { from: string; to: string }
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery<CounselorTimelineEntry[]>({
     queryKey: counselorPerfKeys.timeline(counselorId || '', institutionId, dateRange?.from, dateRange?.to),
     queryFn: async () => {
       // Timeline not yet implemented for admission-based metrics
       return [];
     },
-    // super_admin can query without institution scope
-    enabled: !!counselorId && (isSuperAdmin || !!institutionId),
+    enabled: !!counselorId && !!institutionId,
   });
 
   return {

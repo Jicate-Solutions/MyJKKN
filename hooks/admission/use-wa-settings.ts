@@ -4,7 +4,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { WhatsAppSettings } from '@/types/whatsapp';
-import { usePermissions } from '@/hooks/use-permissions';
 
 export const waSettingsKeys = {
   all: ['wa-settings'] as const,
@@ -41,12 +40,10 @@ async function updateSettings(
 }
 
 export function useWASettings(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: waSettingsKeys.detail(institutionId || ''),
     queryFn: () => fetchSettings(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {

@@ -1,17 +1,7 @@
 // Admission Services Index
+// Only exports services that are actively used by hooks, components, or pages
 
-export { AdmissionService } from './admission-service';
-export { AdmissionAIService } from './admission-ai-service';
 export { ConsultantService } from './consultant-service';
-export { ScoringRulesService } from './scoring-rules-service';
-export type {
-  ScoringRule,
-  ScoringRuleConfig,
-  ScoringCriterion,
-  ScoreRange,
-  CreateScoringRuleInput,
-  UpdateScoringRuleInput,
-} from './scoring-rules-service';
 export { AssignmentRulesService } from './assignment-rules-service';
 export type {
   AssignmentRule,
@@ -186,35 +176,6 @@ export type {
   Recommendation,
   Anomaly,
 } from './ai-insights-service';
-export { AgenticQueryService } from './agentic-query-service';
-export type {
-  QueryIntent,
-  QueryFilter,
-  TimeRange,
-  OrderBy,
-  QueryStep,
-  AgenticQueryResult,
-  QueryHistoryEntry,
-} from './agentic-query-service';
-
-export { GDPIService } from './gdpi-service';
-export type {
-  GDPISession,
-  GDPIEvaluator,
-  GDPICandidate,
-  GDPIScore,
-  GDPISessionType,
-  GDPISessionStatus,
-  GDPICandidateStatus,
-  GDPIRecommendation,
-  GDPIEvaluatorRole,
-  GDPISessionFilters,
-  GDPIStats,
-  CreateSessionInput,
-  UpdateSessionInput,
-  ScoreInput,
-} from './gdpi-service';
-export { GD_CRITERIA, PI_CRITERIA } from './gdpi-service';
 
 // Simple DateRange type for admission services
 export interface DateRange {

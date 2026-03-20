@@ -131,11 +131,15 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
     existingSlot?: any,
     readOnly = false
   ) => {
-    setSelectedDay(day);
-    setSelectedPeriod(period);
-    setSelectedSlot(existingSlot || null);
-    setSlotDialogReadOnly(readOnly);
-    setSlotDialogOpen(true);
+    // FIX: 2026-01-31 - Add setTimeout to prevent Radix Dialog race condition
+    // When dialog closes and reopens quickly, Radix needs time to clean up
+    setTimeout(() => {
+      setSelectedDay(day);
+      setSelectedPeriod(period);
+      setSelectedSlot(existingSlot || null);
+      setSlotDialogReadOnly(readOnly);
+      setSlotDialogOpen(true);
+    }, 0);
   }, []);
 
   // Subdivision Dialog Control
@@ -147,13 +151,16 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
     day?: DayOfWeek | string;
     students?: any[];
   }) => {
-    if (config.type) setSubdivisionType(config.type);
-    if (config.mode) setSubdivisionMode(config.mode);
-    if (config.slotData !== undefined) setPendingSlotData(config.slotData);
-    if (config.period) setPendingPeriod(config.period);
-    if (config.day) setPendingDay(config.day);
-    if (config.students) setAllStudentsForSubdivision(config.students);
-    setSubdivisionDialogOpen(true);
+    // FIX: 2026-01-31 - Add setTimeout to prevent Radix Dialog race condition
+    setTimeout(() => {
+      if (config.type) setSubdivisionType(config.type);
+      if (config.mode) setSubdivisionMode(config.mode);
+      if (config.slotData !== undefined) setPendingSlotData(config.slotData);
+      if (config.period) setPendingPeriod(config.period);
+      if (config.day) setPendingDay(config.day);
+      if (config.students) setAllStudentsForSubdivision(config.students);
+      setSubdivisionDialogOpen(true);
+    }, 0);
   }, []);
 
   // Delete Dialog Control
@@ -168,12 +175,38 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
     setNewEndDate(undefined);
   }, []);
 
+  // FIX: 2026-01-31 - Proper cleanup on dialog close
+  const closeSlotDialog = useCallback(() => {
+    setSlotDialogOpen(false);
+    // Clear state after dialog animation completes
+    setTimeout(() => {
+      setSelectedDay(null);
+      setSelectedPeriod(null);
+      setSelectedSlot(null);
+      setSlotDialogReadOnly(false);
+    }, 150); // Wait for Radix close animation
+  }, []);
+
+  // FIX: 2026-01-31 - Proper cleanup on subdivision dialog close
+  const closeSubdivisionDialog = useCallback(() => {
+    setSubdivisionDialogOpen(false);
+    // Clear state after dialog animation completes
+    setTimeout(() => {
+      setSubdivisionType('practical');
+      setSubdivisionMode('auto');
+      setPendingSlotData(null);
+      setPendingPeriod(null);
+      setPendingDay(null);
+      setAllStudentsForSubdivision([]);
+    }, 150); // Wait for Radix close animation
+  }, []);
+
   return {
     // Slot Dialog
     slotDialog: {
       isOpen: slotDialogOpen,
       open: () => setSlotDialogOpen(true),
-      close: () => setSlotDialogOpen(false),
+      close: closeSlotDialog,
       data: {
         selectedDay,
         selectedPeriod,
@@ -187,7 +220,7 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
     subdivisionDialog: {
       isOpen: subdivisionDialogOpen,
       open: () => setSubdivisionDialogOpen(true),
-      close: () => setSubdivisionDialogOpen(false),
+      close: closeSubdivisionDialog,
       data: {
         type: subdivisionType,
         mode: subdivisionMode,

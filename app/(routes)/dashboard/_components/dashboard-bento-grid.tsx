@@ -141,7 +141,7 @@ export function DashboardBentoGrid({ currentUser }: DashboardBentoGridProps) {
             <div className='backdrop-blur-sm bg-white/30 dark:bg-black/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 border border-white/30 dark:border-white/20 shadow-[var(--glass-shadow-sm)]'>
               <div className='text-lg sm:text-xl lg:text-2xl font-mono font-bold text-green-700 dark:text-green-300 tabular-nums mb-1'>
                 {currentDate.toLocaleTimeString('en-US', {
-                  hour12: false,
+                  hour12: true,
                   hour: '2-digit',
                   minute: '2-digit',
                   second: '2-digit'

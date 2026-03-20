@@ -350,6 +350,7 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
           );
 
           setResourceCode(finalResourceCode);
+          console.log('Auto-generated resource code on submit:', finalResourceCode);
         } catch (error) {
           console.error('Error generating resource code:', error);
           toast.error('Failed to generate resource code');

@@ -215,11 +215,6 @@ export async function deleteReceipt(id: string): Promise<ActionResult> {
 
 /**
  * Send receipt via email
- *
- * NOTE: Email service integration pending - currently simulated.
- * Validates the receipt exists and logs the send attempt.
- * When an email service (e.g., Resend, SendGrid) is integrated, replace the
- * simulation below with actual email delivery.
  */
 export async function sendReceipt(
   id: string,
@@ -255,17 +250,13 @@ export async function sendReceipt(
       };
     }
 
-    // NOTE: Email service integration pending - currently simulated
-    console.log(
-      `[billing/receipts] Simulated email send: Receipt ${receipt.receipt_number} to ${email} by user ${user.id}`
-    );
+    // TODO: Implement actual email sending
+    console.log('[sendReceipt] Sending receipt to:', email);
+    console.log('[sendReceipt] Receipt:', receipt.receipt_number);
 
     return {
       success: true,
-      data: {
-        action: 'email_simulated',
-        message: `Receipt ${receipt.receipt_number} sent to ${email}`
-      }
+      data: { message: 'Email functionality pending implementation' }
     };
   } catch (error) {
     console.error('[sendReceipt] Unexpected error:', error);
@@ -278,10 +269,6 @@ export async function sendReceipt(
 
 /**
  * Download receipt as PDF
- *
- * Uses browser-native Print -> Save as PDF approach on the client side.
- * This server action validates the receipt exists and returns a signal
- * for the client to open a formatted print view.
  */
 export async function downloadReceiptPDF(id: string): Promise<ActionResult<{ url: string }>> {
   try {
@@ -295,10 +282,10 @@ export async function downloadReceiptPDF(id: string): Promise<ActionResult<{ url
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Verify receipt exists
+    // Get receipt details
     const { data: receipt, error: fetchError } = await supabase
       .from('billing_receipts')
-      .select('id, receipt_number')
+      .select('*')
       .eq('id', id)
       .single();
 
@@ -309,10 +296,13 @@ export async function downloadReceiptPDF(id: string): Promise<ActionResult<{ url
       };
     }
 
+    // TODO: Implement server-side PDF generation
+    console.log('[downloadReceiptPDF] Generating PDF for:', receipt.receipt_number);
+
     return {
       success: true,
       data: {
-        url: 'print' // Signals the client to use browser print/save-as-PDF
+        url: '#'
       }
     };
   } catch (error) {

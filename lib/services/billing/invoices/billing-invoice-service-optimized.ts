@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { trackUsage } from '@/lib/utils/track-usage';
 import type {
   BillingInvoice,
   CreateInvoiceDto,
@@ -348,6 +349,7 @@ export class BillingInvoiceServiceOptimized {
         }
       }
 
+      trackUsage({ module: 'billing/invoices', feature: 'create_invoice', eventType: 'create' });
       // Return the created invoice with full details
       return await this.getBillingInvoice((data as any).id);
     } catch (error) {
@@ -406,6 +408,7 @@ export class BillingInvoiceServiceOptimized {
         console.error('Error deleting invoice:', error);
         throw new Error(`Failed to delete invoice: ${error.message}`);
       }
+      trackUsage({ module: 'billing/invoices', feature: 'delete_invoice', eventType: 'delete' });
     } catch (error) {
       console.error('Error in deleteBillingInvoice:', error);
       throw error;
@@ -522,21 +525,14 @@ export class BillingInvoiceServiceOptimized {
 
   // Additional utility methods
   static async sendInvoice(id: string, email: string): Promise<void> {
-    // Email integration pending: Requires email provider (e.g., Resend, SendGrid).
-    // When ready, call EmailService.sendInvoice(invoice) here.
-    // See: https://resend.com/docs for recommended provider.
-    console.info('[billing/invoices] Invoice email not sent — email provider not configured', {
-      invoiceId: id,
-      recipientEmail: email,
-    });
+    // Implementation for sending invoice via email
+    console.log(`Sending invoice ${id} to ${email}`);
+    // TODO: Implement email sending logic
   }
 
   static async downloadInvoicePDF(id: string): Promise<void> {
-    // PDF generation pending: Requires a PDF library (e.g., @react-pdf/renderer, jsPDF, Puppeteer).
-    // When ready, generate PDF from invoice HTML and trigger browser download.
-    // See: https://react-pdf.org/ for recommended approach in Next.js.
-    console.info('[billing/invoices] PDF download not available — PDF generator not configured', {
-      invoiceId: id,
-    });
+    // Implementation for downloading invoice as PDF
+    console.log(`Downloading PDF for invoice ${id}`);
+    // TODO: Implement PDF generation and download
   }
 }

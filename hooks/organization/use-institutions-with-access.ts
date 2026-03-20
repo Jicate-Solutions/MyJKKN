@@ -13,7 +13,7 @@ export function useInstitutionsWithAccess(
 ) {
   const { isActive = true, autoFetch = true } = options;
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
 
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string; counselling_code: string }>
@@ -34,8 +34,10 @@ export function useInstitutionsWithAccess(
 
       let institutionNames;
 
-      if (isSuperAdmin) {
-        // Super admin sees all institutions - don't pass userId to bypass filtering
+      if (isSuperAdmin || isAdmissionGlobalUser) {
+        // Super admins and admission global users see all institutions —
+        // admission role users are cross-institution (no institution_id on their profile)
+        // so user-based filtering would return an empty list.
         institutionNames = await OrganizationService.getInstitutionNames(
           isActive
         );
@@ -57,7 +59,7 @@ export function useInstitutionsWithAccess(
     } finally {
       setLoading(false);
     }
-  }, [profile?.id, isSuperAdmin, isActive]);
+  }, [profile?.id, isSuperAdmin, isAdmissionGlobalUser, isActive]);
 
   // Memoize the effect dependencies to prevent unnecessary re-runs
   const shouldFetch = useMemo(

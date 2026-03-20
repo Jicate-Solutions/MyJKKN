@@ -193,6 +193,7 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
             <Button
               onClick={() => {
                 // Handle bulk export
+                console.log('Export selected students:', props.selectedRows);
               }}
               variant='outline'
               size='sm'

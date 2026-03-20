@@ -53,39 +53,6 @@ export type BloodGroup =
   | 'A1+'
   | 'A1B';
 
-// ============================================
-// FACILITATOR ROLE TYPES (Workshop Transformation)
-// ============================================
-
-/**
- * Staff role type for outcome-focused education
- */
-export type StaffRoleType = 'teacher' | 'facilitator' | 'trainer' | 'industry_mentor' | 'hybrid';
-
-/**
- * Facilitator certification entry
- */
-export interface FacilitatorCertification {
-  certification_name: string;
-  issuing_body: string;
-  issue_date: string;
-  expiry_date?: string;
-  certificate_url?: string;
-}
-
-/**
- * Outcome metrics for staff performance tracking
- */
-export interface StaffOutcomeMetrics {
-  learners_mentored?: number;
-  average_competency_improvement?: number;
-  courses_with_competency_mapping?: number;
-  industry_projects_facilitated?: number;
-  placement_success_rate?: number;
-  student_satisfaction_score?: number;
-  last_computed?: string;
-}
-
 export interface Staff {
   id: string;
   first_name: string;
@@ -123,11 +90,6 @@ export interface Staff {
     department_name: string;
   };
 
-  // Facilitator & Outcome Fields (Workshop Transformation)
-  role_type?: StaffRoleType;
-  facilitator_certification?: FacilitatorCertification[];
-  outcome_metrics?: StaffOutcomeMetrics;
-
   // Audit fields
   is_active: boolean;
   created_at: string;
@@ -164,6 +126,9 @@ export interface UpdateStaffDto extends Partial<CreateStaffDto> {}
 
 export interface StaffFilters {
   search?: string;
+  search_case_sensitive?: boolean;
+  search_exact_match?: boolean;
+  search_fields?: string[];
   category_id?: string;
   institution_id?: string;
   institution_email?: string;
@@ -325,4 +290,119 @@ export interface StaffDashboardStats {
   demographicStats: StaffDemographicStats;
   tenureAnalytics: StaffTenureAnalytics;
   profileAnalytics: StaffProfileAnalytics;
+}
+
+/**
+ * Incomplete Staff Profile Detail
+ * Individual staff member with missing field details for drill-down views
+ */
+export interface IncompleteStaffDetail {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  designation: string;
+  staff_id: string | null;
+  institution_email: string | null;
+  is_active: boolean;
+  created_at: string;
+  missingFields: string[];
+  institution_name: string | null;
+  department_name: string | null;
+  category_name: string | null;
+}
+
+/**
+ * Incomplete Staff Profiles Response
+ * Paginated response for incomplete staff profiles API
+ */
+export interface IncompleteStaffResponse {
+  profiles: IncompleteStaffDetail[];
+  total: number;
+  limit: number;
+}
+
+// =============================================
+// CLASS INCHARGES TYPES
+// Added: 2026-03-08
+// =============================================
+
+export interface ClassInchargeStaff {
+  id: string;
+  first_name: string;
+  last_name: string;
+  designation: string | null;
+  profile_picture: string | null;
+}
+
+export interface ClassIncharge {
+  id: string;
+  institution_id: string;
+  section_id: string;
+  staff_id: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  // Relations (populated via Supabase select joins)
+  staff?: ClassInchargeStaff;
+}
+
+export interface SectionWithIncharges {
+  id: string;
+  section_name: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  semester_id: string;
+  is_active: boolean;
+  // Joined relations
+  degree?: { id: string; degree_name: string };
+  department?: { id: string; department_name: string };
+  program?: { id: string; program_name: string };
+  semester?: { id: string; semester_name: string; semester_code: string };
+  // Embedded incharges
+  class_incharges?: ClassIncharge[];
+}
+
+export interface ClassInchargeFilters {
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  is_active?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface AssignInchargeDto {
+  institution_id: string;
+  section_id: string;
+  staff_id: string;
+}
+
+export interface BulkAssignInchargeDto {
+  institution_id: string;
+  section_ids: string[];
+  staff_id: string;
+}
+
+export interface BulkAssignResult {
+  assigned: number;
+  skipped: number;
+}
+
+export interface SectionWithInchargesResponse {
+  data: SectionWithIncharges[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
 }

@@ -48,7 +48,7 @@ docs/auth/
 
 ### Current State (MyJKKN)
 
-**Supabase Project**: `hhprjbgknupaplivtoib`  
+**Supabase Project**: `kvizhngldtiuufknvehv`  
 **Region**: `ap-south-1`
 
 **Tables to Migrate:**
@@ -81,7 +81,7 @@ MyJKKN/lib/services/*child-app*     → auth-server/lib/services/*
 
 ```bash
 # Check you have access to:
-- MyJKKN Supabase (hhprjbgknupaplivtoib)
+- MyJKKN Supabase (kvizhngldtiuufknvehv)
 - Auth Server Supabase (nhiniwzkarxqyvgglmiy)
 - Vercel account
 - GitHub repository access

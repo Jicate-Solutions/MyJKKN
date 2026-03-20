@@ -2,8 +2,33 @@
 // Lead Scoring Engine Service - Calculates and manages lead scores
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { ScoringRulesService, ScoringRuleConfig, ScoreRange } from './scoring-rules-service';
 import { ActivityService } from './activity-service';
+
+// Inlined types from removed scoring-rules-service
+interface ScoringRuleConfig {
+  engagementCriteria: Array<{
+    name: string;
+    enabled: boolean;
+    points?: number;
+    maxOccurrence?: number;
+  }>;
+  qualityCriteria: Array<{
+    name: string;
+    enabled: boolean;
+    weight?: number;
+  }>;
+  engagementWeight: number;
+  qualityWeight: number;
+  scoreRanges: ScoreRange[];
+}
+
+interface ScoreRange {
+  min: number;
+  max: number;
+  label: string;
+  action: string;
+  color?: string;
+}
 
 // Types
 export interface LeadScore {
@@ -19,7 +44,6 @@ export interface LeadScore {
   recommended_action: string | null;
   scoring_rule_id: string | null;
   calculated_at: string;
-  expires_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -67,7 +91,6 @@ export interface LeadScoreFilters {
   min_score?: number;
   max_score?: number;
   category?: string;
-  expired_only?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -102,8 +125,8 @@ export class LeadScoringEngineService {
       throw new Error('Lead not found');
     }
 
-    // 2. Get active scoring rule for the institution
-    const scoringRule = await ScoringRulesService.getActiveScoringRule(lead.institution_id);
+    // 2. Get active scoring rule for the institution (scoring rules feature removed — always returns null)
+    const scoringRule = await this.getActiveScoringRule(lead.institution_id);
 
     if (!scoringRule) {
       console.warn('[admission/scoring-engine] No active scoring rule found for institution:', lead.institution_id);
@@ -245,17 +268,8 @@ export class LeadScoringEngineService {
       };
     }
 
-    // Get the scoring rule to fetch category info
-    let categoryInfo: ScoreRange | null = null;
-    if (score.scoring_rule_id) {
-      const rule = await ScoringRulesService.getScoringRule(score.scoring_rule_id);
-      if (rule) {
-        const config = rule.criteria as ScoringRuleConfig;
-        categoryInfo = config.scoreRanges.find(
-          (r) => score.total_score >= r.min && score.total_score <= r.max
-        ) || null;
-      }
-    }
+    // Scoring rules feature removed — category info no longer available
+    const categoryInfo: ScoreRange | null = null;
 
     return {
       score,
@@ -287,10 +301,6 @@ export class LeadScoringEngineService {
 
     if (filters.category) {
       query = query.eq('score_category', filters.category);
-    }
-
-    if (filters.expired_only) {
-      query = query.lt('expires_at', new Date().toISOString());
     }
 
     query = query.order('total_score', { ascending: false });
@@ -459,9 +469,9 @@ export class LeadScoringEngineService {
     // Top performers (top 5 by score)
     const topPerformers = allScores.slice(0, 5);
 
-    // Needs attention (bottom 5 or expired scores)
+    // Needs attention (bottom 5 by score)
     const needsAttention = allScores
-      .filter((s: LeadScore) => s.total_score < 30 || (s.expires_at && new Date(s.expires_at) < new Date()))
+      .filter((s: LeadScore) => s.total_score < 30)
       .slice(0, 5);
 
     return {
@@ -473,6 +483,30 @@ export class LeadScoringEngineService {
       topPerformers,
       needsAttention,
     };
+  }
+
+  // ============================================================================
+  // SCORING RULE HELPERS (scoring rules feature removed — graceful fallback)
+  // ============================================================================
+
+  /**
+   * Get active scoring rule for an institution.
+   * Scoring rules feature was removed — this returns null gracefully.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private static async getActiveScoringRule(_institutionId: string): Promise<any | null> {
+    try {
+      const { data } = await this.supabase
+        .from('admission_scoring_rules')
+        .select('*')
+        .eq('institution_id', _institutionId)
+        .eq('is_active', true)
+        .single();
+      return data;
+    } catch {
+      // Table may not exist (feature removed) — return null
+      return null;
+    }
   }
 
   // ============================================================================
@@ -687,10 +721,7 @@ export class LeadScoringEngineService {
     },
     scoringRuleId: string
   ): Promise<void> {
-    // Set expiration to 7 days from now (configurable)
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
+    // expires_at intentionally omitted: scores refresh on activity, not on a 7-day timer
     const scoreData = {
       lead_id: leadId,
       institution_id: institutionId,
@@ -703,7 +734,6 @@ export class LeadScoringEngineService {
       recommended_action: result.recommendedAction,
       scoring_rule_id: scoringRuleId,
       calculated_at: new Date().toISOString(),
-      expires_at: expiresAt.toISOString(),
     };
 
     const { error } = await this.supabase

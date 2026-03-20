@@ -1,85 +1,96 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
 import { usePermissions } from '@/hooks/use-permissions';
-import { StaffPlan, StaffPlanFilters } from '@/types/staff-planning';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
+import type { StaffPlan, StaffPlanFilters } from '@/types/staff-planning';
+
+// ─── Query keys ──────────────────────────────────────────────────────────────
+
+export const STAFF_PLANS_KEYS = {
+  all: ['staff-plans'] as const,
+  list: (filters: StaffPlanFilters) =>
+    ['staff-plans', 'list', filters] as const,
+};
+
+// ─── Main hook ───────────────────────────────────────────────────────────────
 
 export function useStaffPlans(initialFilters: StaffPlanFilters = {}) {
   const { isSuperAdmin, userProfile } = usePermissions();
-  const [staffPlans, setStaffPlans] = useState<StaffPlan[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [metadata, setMetadata] = useState({
-    total: 0,
-    page: 1,
-    limit: 10,
-    totalPages: 0
-  });
+  const queryClient = useQueryClient();
+
+  // Filters live in local state so pagination / filter changes are instant
   const [filters, setFilters] = useState<StaffPlanFilters>(initialFilters);
 
-  const fetchStaffPlans = useCallback(
-    async (newFilters?: StaffPlanFilters) => {
-      try {
-        setLoading(true);
-        setError(null);
-        const currentFilters = newFilters || filters;
-        // Apply institution filtering for non-super admin users
-        const filtersWithInstitution = {
-          ...currentFilters,
-          ...(!isSuperAdmin &&
-            userProfile?.institution_id && {
-              institution_id: userProfile.institution_id
-            })
-        };
-
-        const result = await StaffPlanService.getStaffPlans(
-          filtersWithInstitution
-        );
-        setStaffPlans(result.data);
-        setMetadata(result.metadata);
-        if (newFilters) {
-          setFilters(newFilters);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
-      }
-    },
+  // Inject institution constraint for non-super-admins
+  const effectiveFilters = useMemo<StaffPlanFilters>(
+    () => ({
+      ...filters,
+      ...(!isSuperAdmin &&
+        userProfile?.institution_id && {
+          institution_id: userProfile.institution_id,
+        }),
+    }),
     [filters, isSuperAdmin, userProfile?.institution_id]
   );
 
-  const updateFilters = useCallback(
-    (newFilters: Partial<StaffPlanFilters>) => {
-      const updatedFilters = {
-        ...filters,
-        ...newFilters,
-        page: 1 // Reset to first page when filters change
-      };
-      setFilters(updatedFilters);
-      fetchStaffPlans(updatedFilters);
-    },
-    [filters, fetchStaffPlans]
-  );
+  const query = useQuery({
+    queryKey: STAFF_PLANS_KEYS.list(effectiveFilters),
+    queryFn: () => StaffPlanService.getStaffPlans(effectiveFilters),
+    enabled: true,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
-  const changePage = useCallback(
-    (page: number) => {
-      const updatedFilters = { ...filters, page };
-      setFilters(updatedFilters);
-      fetchStaffPlans(updatedFilters);
-    },
-    [filters, fetchStaffPlans]
-  );
+  // ── Derived state (computed, not server state) ─────────────────────────────
+
+  const staffPlans: StaffPlan[] = query.data?.data ?? [];
+  const metadata = query.data?.metadata ?? {
+    total: 0,
+    page: 1,
+    limit: 10,
+    totalPages: 0,
+  };
+
+  // ── Filter helpers ─────────────────────────────────────────────────────────
+
+  const updateFilters = (newFilters: Partial<StaffPlanFilters>) => {
+    setFilters((current) => ({
+      ...current,
+      ...newFilters,
+      page: 1, // Reset to first page when filters change
+    }));
+  };
+
+  const changePage = (page: number) => {
+    setFilters((current) => ({ ...current, page }));
+  };
+
+  // ── Imperative refetch (backward compat) ───────────────────────────────────
+
+  const fetchStaffPlans = async (newFilters?: StaffPlanFilters) => {
+    if (newFilters) {
+      setFilters(newFilters);
+    } else {
+      await queryClient.invalidateQueries({
+        queryKey: STAFF_PLANS_KEYS.list(effectiveFilters),
+      });
+    }
+  };
 
   return {
+    // Backward-compatible field names
     staffPlans,
-    loading,
-    error,
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
     metadata,
     filters,
     updateFilters,
     changePage,
-    fetchStaffPlans
+    fetchStaffPlans,
+    // React Query extras
+    refetch: query.refetch,
+    isFetching: query.isFetching,
   };
 }

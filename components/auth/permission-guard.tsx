@@ -48,7 +48,7 @@ export function PermissionGuard({
   fallback = null,
   loading = null
 }: PermissionGuardProps) {
-  const { isLoading, canPerformAll, canPerformAny, isSuperAdmin } =
+  const { isLoading, canPerformAll, canPerformAny, isSuperAdmin, isAdmissionGlobalUser } =
     usePermissions([], {
       waitForLoad: true
     });
@@ -60,6 +60,11 @@ export function PermissionGuard({
 
   // Super admins always have access to everything
   if (isSuperAdmin) {
+    return <>{children}</>;
+  }
+
+  // Admission global users have full access to all admission module pages
+  if (isAdmissionGlobalUser && (module === 'admission' || module.startsWith('admission.'))) {
     return <>{children}</>;
   }
 

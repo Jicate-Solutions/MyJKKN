@@ -20,10 +20,25 @@ import { BeatLoader } from 'react-spinners';
 import { toast } from 'react-hot-toast';
 import { ArrowLeft } from 'lucide-react';
 
+// Normalize dynamic route param to a single string
+const getUserId = (value: string | string[] | undefined) =>
+  Array.isArray(value) ? value[0] : value;
+
+const isPlaceholderId = (id: string | undefined): boolean =>
+  !!id && (id.includes('%drp:') || id.includes('%%drp:'));
+
+// Validate user ID - reject placeholders and non-UUID values
+const isValidUserId = (id: string | undefined): boolean => {
+  if (!id) return false;
+  const uuidPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidPattern.test(id);
+};
+
 export default function EditUserPage() {
   const router = useRouter();
   const params = useParams();
-  const userId = params.id as string;
+  const userId = getUserId(params.id);
 
   const [user, setUser] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,8 +46,21 @@ export default function EditUserPage() {
 
   useEffect(() => {
     const fetchUser = async () => {
+      if (!userId || isPlaceholderId(userId)) {
+        setLoading(true);
+        setError(null);
+        return;
+      }
+
+      if (!isValidUserId(userId)) {
+        setError('Invalid user ID. Please go back and try again.');
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
+        setError(null);
         const userData = await UserService.getUserById(userId);
         setUser(userData);
       } catch (err) {

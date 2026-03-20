@@ -10,7 +10,6 @@ import type {
   ConsentLogEntry,
   ConsentStats,
 } from '@/lib/services/whatsapp/whatsapp-consent-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // =============================================================================
 // Query Keys
@@ -138,12 +137,10 @@ export function useWAConsentMutation() {
  * Consent statistics for an institution
  */
 export function useWAConsentStats(institutionId: string | null | undefined) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: waConsentKeys.stats(institutionId || ''),
     queryFn: () => fetchConsentStats(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 60000,
   });
 

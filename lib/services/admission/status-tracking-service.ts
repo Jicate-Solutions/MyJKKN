@@ -120,13 +120,12 @@ export class StatusTrackingService {
    * Get pipeline stats (counts by status)
    */
   static async getPipelineStats(
-    institutionId: string | undefined
+    institutionId: string
   ): Promise<StatusPipelineStats> {
-    let query = (this.supabase as any)
+    const { data, error } = await (this.supabase as any)
       .from('admission_applications')
-      .select('status');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query;
+      .select('status')
+      .eq('institution_id', institutionId);
 
     if (error) {
       console.error('[admission/status-tracking] Error fetching pipeline stats:', error);
@@ -162,7 +161,7 @@ export class StatusTrackingService {
    * Get recent activity log from campaign logs
    */
   static async getRecentActivity(
-    institutionId: string | undefined,
+    institutionId: string,
     limit: number = 20
   ): Promise<
     Array<{
@@ -173,11 +172,10 @@ export class StatusTrackingService {
       created_at: string;
     }>
   > {
-    let query = (this.supabase as any)
+    const { data, error } = await (this.supabase as any)
       .from('admission_campaign_logs')
-      .select('id, action, lead_id, step_type, created_at');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query
+      .select('id, action, lead_id, step_type, created_at')
+      .eq('institution_id', institutionId)
       .order('created_at', { ascending: false })
       .limit(limit);
 

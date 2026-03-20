@@ -8,8 +8,7 @@
     ],
     "allowJs": true,
     "types": [
-      "node",
-      "vitest/globals"
+      "node"
     ],
     "skipLibCheck": true,
     // TEMPORARY: Relaxed for Next.js 16 migration - Re-enable strict mode incrementally
@@ -56,7 +55,7 @@
   ],
   "exclude": [
     "node_modules",
-    "**/*.example.ts",
-    "scripts/**"
+    "scripts",
+    "__tests__"
   ]
 }

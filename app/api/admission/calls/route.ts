@@ -2,7 +2,7 @@
 // GET /api/admission/calls — List call logs with filters
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase/server';
+import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import { TelephonyService, type CallLogFilters, type CallStatus, type CallDisposition, type CallDirection } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -19,14 +19,8 @@ export async function GET(request: NextRequest) {
 
     // Parse query params
     const { searchParams } = request.nextUrl;
-    const institution_id = searchParams.get('institution_id');
-
-    if (!institution_id) {
-      return NextResponse.json(
-        { error: 'VALIDATION_ERROR', message: 'institution_id query parameter is required' },
-        { status: 400 }
-      );
-    }
+    // institution_id is optional — omitting it returns all institutions (super admins).
+    const institution_id = searchParams.get('institution_id') || undefined;
 
     const filters: CallLogFilters = {
       institution_id,
@@ -43,7 +37,8 @@ export async function GET(request: NextRequest) {
       limit: parseInt(searchParams.get('limit') || '20', 10),
     };
 
-    const result = await TelephonyService.getCallLogs(filters);
+    const supabase = createServiceRoleClient();
+    const result = await TelephonyService.getCallLogs(filters, supabase);
 
     return NextResponse.json({
       success: true,

@@ -60,7 +60,8 @@ export function CalendarFilters({
   const sectionsQuery = useSections({
     institution_id: effectiveInstitutionId,
     department_id: selectedDepartment,
-    semester_id: selectedSemester
+    semester_id: selectedSemester,
+    limit: 1000 // Fixed: 2025-01-30 - Fetch all sections for leave calendar
   });
 
   const departments = (departmentsQuery.data?.data || []) as Department[];

@@ -88,7 +88,9 @@ export interface LeaveOndutyApplication {
 export interface LeaveOndutyApprovalFlow {
   id: string;
   institution_id: string;
+  degree_id: string | null;
   department_id: string | null;
+  program_id: string | null;
   semester_id: string | null;
   category: LeaveOndutyCategory | 'all';
   sub_category: string | null;
@@ -104,13 +106,21 @@ export interface LeaveOndutyApprovalFlow {
     id: string;
     name: string;
   };
+  degree?: {
+    id: string;
+    degree_name: string;
+  };
   department?: {
     id: string;
-    name: string;
+    department_name: string;
+  };
+  program?: {
+    id: string;
+    program_name: string;
   };
   semester?: {
     id: string;
-    name: string;
+    semester_name: string;
   };
   creator?: {
     id: string;
@@ -124,10 +134,10 @@ export interface LeaveOndutyApprovalFlow {
  */
 export interface ApprovalFlowStep {
   step_order: number;
-  role: ApproverRole;
-  scope: 'assigned_faculty' | 'department' | 'institution';
+  role_id: string; // Custom role ID from custom_roles table
+  role_name: string; // Display name for the role
+  approver_ids: string[]; // Array of user profile IDs who can approve
   is_required: boolean;
-  description: string;
 }
 
 /**
@@ -211,11 +221,14 @@ export interface ApprovalActionData {
 /**
  * Flow Creation Data
  * Used for creating new approval flows
+ * All hierarchy fields are required for new flows
  */
 export interface FlowCreationData {
   institution_id: string;
-  department_id: string | null;
-  semester_id: string | null;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  semester_id: string;
   category: LeaveOndutyCategory | 'all';
   sub_category: string | null;
   flow_type: FlowType;

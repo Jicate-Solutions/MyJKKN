@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -59,6 +59,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useToast } from '@/hooks/use-toast';
 import { Timetable, UpdateTimetableDto } from '@/types/academics';
 import { cn } from '@/lib/utils';
+import { useResolvedRouteId } from '../_hooks/use-resolved-route-id';
 
 // Define the schema for timetable editing
 // Updated: 2025-10-08 - Added timetable_type support
@@ -121,13 +122,13 @@ const timetableFormSchema = z
 
 type TimetableFormValues = z.infer<typeof timetableFormSchema>;
 
-export default function EditTimetablePage({
-  params
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id: timetableId } = use(params);
+export default function EditTimetablePage() {
   const router = useRouter();
+
+  // Fix: 2026-02-25 - Use useResolvedRouteId to avoid Next.js DRP placeholder issue.
+  // During client-side navigation with cacheComponents, use(params) can resolve to
+  // %%drp:id:xxxx%% placeholders. useResolvedRouteId falls back to useParams()/pathname.
+  const { id: timetableId, isResolving, isInvalid } = useResolvedRouteId();
   const { updateTimetable } = useTimetables();
   const { isSuperAdmin, userProfile } = usePermissions();
   const { toast } = useToast();
@@ -138,6 +139,10 @@ export default function EditTimetablePage({
   const [error, setError] = useState<string | null>(null);
   const [timetable, setTimetable] = useState<Timetable | null>(null);
   const [hasAttendance, setHasAttendance] = useState(false);
+  
+  // Flag to track if initial data has been loaded
+  // This prevents cascading refetches when form is reset with timetable data
+  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
 
   // State for hierarchical dropdowns
   const [selectedInstitutionId, setSelectedInstitutionId] =
@@ -278,8 +283,20 @@ export default function EditTimetablePage({
   );
 
   // Fetch timetable data
+  // Fixed: 2026-02-03 - Only depend on timetableId to prevent infinite re-render loops
+  // form.reset and fetchAcademicYears are called inside but shouldn't trigger re-runs
   useEffect(() => {
     const fetchTimetable = async () => {
+      // Skip fetch if ID is still resolving (Next.js DRP placeholder)
+      if (isResolving || isInvalid || !timetableId) {
+        if (isInvalid) {
+          logger.error('academic/timetables', 'Invalid timetable ID format', { timetableId });
+          setError('Invalid timetable ID. Please navigate from the timetables list.');
+        }
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setError(null);
@@ -315,7 +332,8 @@ export default function EditTimetablePage({
           template_name: timetableData.template_name || ''
         });
 
-        // Set state variables for hierarchical dropdowns
+        // Set state variables for hierarchical dropdowns BEFORE marking initial load complete
+        // This prevents the cascading useEffects from triggering unnecessary refetches
         setSelectedInstitutionId(timetableData.institution_id);
         setSelectedDegreeId(timetableData.degree_id);
         setSelectedDepartmentId(timetableData.department_id);
@@ -325,6 +343,12 @@ export default function EditTimetablePage({
         if (timetableData.institution_id) {
           fetchAcademicYears(timetableData.institution_id);
         }
+        
+        // Mark initial load as complete AFTER setting all state
+        // Use setTimeout to ensure React has batched all state updates
+        setTimeout(() => {
+          setIsInitialLoadComplete(true);
+        }, 0);
       } catch (err) {
         logger.error('academic/timetables', 'Error fetching timetable', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -334,7 +358,8 @@ export default function EditTimetablePage({
     };
 
     fetchTimetable();
-  }, [timetableId, form, fetchAcademicYears]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timetableId, isResolving, isInvalid]); // Re-run when ID resolves from DRP placeholder
 
   // Initial data loading - fetch all required data
   useEffect(() => {
@@ -349,7 +374,11 @@ export default function EditTimetablePage({
   }, []);
 
   // Update state and fetch dependent data when institution changes
+  // Fixed: 2026-02-03 - Skip cascading updates during initial load to prevent double refresh
   useEffect(() => {
+    // Skip during initial load - the timetable fetch already set up the correct state
+    if (!isInitialLoadComplete) return;
+    
     if (watchInstitutionId !== selectedInstitutionId) {
       setSelectedInstitutionId(watchInstitutionId || '');
 
@@ -392,6 +421,7 @@ export default function EditTimetablePage({
       }
     }
   }, [
+    isInitialLoadComplete,
     watchInstitutionId,
     selectedInstitutionId,
     fetchAcademicYears,
@@ -408,7 +438,10 @@ export default function EditTimetablePage({
   const watchAcademicYearId = form.watch('academic_year_id');
 
   // Update state and fetch dependent data when degree changes
+  // Fixed: 2026-02-03 - Skip during initial load
   useEffect(() => {
+    if (!isInitialLoadComplete) return;
+    
     if (watchDegreeId !== selectedDegreeId) {
       setSelectedDegreeId(watchDegreeId || '');
 
@@ -432,10 +465,13 @@ export default function EditTimetablePage({
         });
       }
     }
-  }, [watchDegreeId, selectedDegreeId, form, toast]);
+  }, [isInitialLoadComplete, watchDegreeId, selectedDegreeId, form, toast]);
 
   // Update state and fetch dependent data when department changes
+  // Fixed: 2026-02-03 - Skip during initial load
   useEffect(() => {
+    if (!isInitialLoadComplete) return;
+    
     if (watchDepartmentId !== selectedDepartmentId) {
       setSelectedDepartmentId(watchDepartmentId || '');
 
@@ -457,10 +493,13 @@ export default function EditTimetablePage({
         });
       }
     }
-  }, [watchDepartmentId, selectedDepartmentId, form, toast]);
+  }, [isInitialLoadComplete, watchDepartmentId, selectedDepartmentId, form, toast]);
 
   // Update state when program changes
+  // Fixed: 2026-02-03 - Skip during initial load
   useEffect(() => {
+    if (!isInitialLoadComplete) return;
+    
     if (watchProgramId !== selectedProgramId) {
       setSelectedProgramId(watchProgramId || '');
 
@@ -478,7 +517,7 @@ export default function EditTimetablePage({
         });
       }
     }
-  }, [watchProgramId, selectedProgramId, form, toast]);
+  }, [isInitialLoadComplete, watchProgramId, selectedProgramId, form, toast]);
 
   // Update state when semester changes - reset section
   useEffect(() => {
@@ -569,6 +608,11 @@ export default function EditTimetablePage({
     loadingDepartments ||
     loadingSemesters ||
     loadingSections;
+
+  // Show loading while Next.js DRP placeholder is resolving
+  if (isResolving) {
+    return <Loading title='Loading timetable data...' />;
+  }
 
   if (isLoading) {
     return <Loading title='Loading timetable data...' />;

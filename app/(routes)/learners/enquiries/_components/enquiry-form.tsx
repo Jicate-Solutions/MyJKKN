@@ -37,7 +37,9 @@ import { AcademicInformationSection } from './form-sections/academic-information
 import { CourseSelectionSection } from './form-sections/course-selection';
 import { ContactDetailsSection } from './form-sections/contact-details';
 import { AccommodationPreferencesSection } from './form-sections/accommodation-preferences';
+import { FinanceDetailsSection } from './form-sections/finance-details';
 import { uploadProfileImage } from './profile-image-upload';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Import location data for converting names to IDs
 import {
@@ -146,12 +148,20 @@ export const enquiryFormSchema = z.object({
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
   hostel_type: z.string().nullable().optional(),
   food_type: z.string().nullable().optional(),
-  bus_required: z.boolean().nullable().optional(),
-  bus_route: z.string().nullable().optional(),
-  bus_pickup_location: z.string().nullable().optional(),
   reference_type: z.string().nullable().optional(),
   reference_name: z.string().nullable().optional(),
   reference_contact: z.string().nullable().optional(),
+
+  // Finance Details
+  application_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  university_reg_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  fee_structure_type: z.enum(['tuition_hostel', 'dayscholar']).nullable().optional(),
+  tuition_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  hostel_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  dayscholar_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  uniform_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  hospital_training_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  placement_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
 });
 
 // Required fields schema for final submission
@@ -180,6 +190,7 @@ interface EnquiryFormProps {
     { id: 'course-selection', label: 'Course Selection' },
     { id: 'contact-details', label: 'Contact Details' },
     { id: 'accommodation-preferences', label: 'Accommodation' },
+    { id: 'finance-details', label: 'Finance Details' },
   ];
 
 /**
@@ -249,10 +260,12 @@ function getLocationIdByName(
   stateId?: string
 ): string | undefined {
   if (!name) {
+    console.log(`[enquiry-form] No ${type} name provided`);
     return '';
   }
 
   try {
+    console.log(`[enquiry-form] Converting ${type} name "${name}" to ID`);
 
     // Normalize name for case-insensitive comparison
     const normalizedName = name.trim().toLowerCase();
@@ -260,6 +273,7 @@ function getLocationIdByName(
     if (type === 'state') {
       const state = indianStates.find((s) => s.name.toLowerCase() === normalizedName);
       if (state) {
+        console.log(`[enquiry-form] Found state ID: ${state.id} for name: ${name}`);
         return state.id;
       } else {
         console.warn(`[enquiry-form] State "${name}" not found in indianStates`);
@@ -273,6 +287,7 @@ function getLocationIdByName(
         const districts = getDistrictsByState(state.id);
         const district = districts.find((d) => d.name.toLowerCase() === normalizedName);
         if (district) {
+          console.log(`[enquiry-form] Found district ID: ${district.id} for name: ${name}`);
           return district.id;
         }
       }
@@ -283,22 +298,26 @@ function getLocationIdByName(
     if (type === 'taluk') {
       // If we have stateId, search more efficiently
       if (stateId) {
+        console.log(`[enquiry-form] Searching taluk in state: ${stateId}`);
         const districts = getDistrictsByState(stateId);
         for (const district of districts) {
           const taluks = getTaluksByDistrict(stateId, district.id);
           const taluk = taluks.find((t) => t.name.toLowerCase() === normalizedName);
           if (taluk) {
+            console.log(`[enquiry-form] Found taluk ID: ${taluk.id} for name: ${name}`);
             return taluk.id;
           }
         }
       } else {
         // Search all states if no stateId provided
+        console.log(`[enquiry-form] Searching taluk across all states`);
         for (const state of indianStates) {
           const districts = getDistrictsByState(state.id);
           for (const district of districts) {
             const taluks = getTaluksByDistrict(state.id, district.id);
             const taluk = taluks.find((t) => t.name.toLowerCase() === normalizedName);
             if (taluk) {
+              console.log(`[enquiry-form] Found taluk ID: ${taluk.id} for name: ${name}`);
               return taluk.id;
             }
           }
@@ -386,12 +405,20 @@ const fieldToTabMap: Record<string, string> = {
   accommodation_type: 'accommodation-preferences',
   hostel_type: 'accommodation-preferences',
   food_type: 'accommodation-preferences',
-  bus_required: 'accommodation-preferences',
-  bus_route: 'accommodation-preferences',
-  bus_pickup_location: 'accommodation-preferences',
   reference_type: 'accommodation-preferences',
   reference_name: 'accommodation-preferences',
   reference_contact: 'accommodation-preferences',
+
+  // Finance Details
+  application_fee: 'finance-details',
+  university_reg_fee: 'finance-details',
+  fee_structure_type: 'finance-details',
+  tuition_fee: 'finance-details',
+  hostel_fee: 'finance-details',
+  dayscholar_fee: 'finance-details',
+  uniform_fee: 'finance-details',
+  hospital_training_fee: 'finance-details',
+  placement_fee: 'finance-details',
 };
 
 /**
@@ -421,15 +448,39 @@ export function EnquiryForm({
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
 
-  const formTabs = visibleTabs 
+  const formTabs = visibleTabs
     ? ALL_TABS.filter(tab => visibleTabs.includes(tab.id))
     : ALL_TABS;
+
+  // Finance tab permission check
+  const { canAccess, isSuperAdmin: isSuperAdminUser } = usePermissions();
+  const canViewFinance = isSuperAdminUser || canAccess('learners', 'finance.view');
+  const canEditFinance = isSuperAdminUser || canAccess('learners', 'finance.edit');
+
+  // Filter out finance tab if user lacks permission
+  const filteredFormTabs = canViewFinance
+    ? formTabs
+    : formTabs.filter(tab => tab.id !== 'finance-details');
 
   // Initialize form with all fields
   const form = useForm<EnquiryFormValues>({
     resolver: zodResolver(enquiryFormSchema),
     defaultValues: learner
       ? (() => {
+          console.log('[enquiry-form] Loading learner data:', {
+            id: learner.id,
+            name: `${learner.first_name} ${learner.last_name}`,
+            lifecycle_status: learner.lifecycle_status,
+            institution_id: learner.institution_id,
+            degree_id: learner.degree_id,
+            department_id: learner.department_id,
+            program_id: learner.program_id,
+            academic_year_id: learner.academic_year_id,
+            semester_id: learner.semester_id,
+            section_id: learner.section_id,
+            tenth_marks: learner.tenth_marks,
+            twelfth_marks: learner.twelfth_marks,
+          });
           return {
           // Basic Details
           enquiry_date: learner.enquiry_date || new Date().toISOString().split('T')[0],
@@ -497,30 +548,37 @@ export function EnquiryForm({
           // Course Selection
           institution_id: (() => {
             const id = learner.institution_id || '';
+            console.log('[enquiry-form] Institution ID:', id);
             return id;
           })(),
           degree_id: (() => {
             const id = learner.degree_id || '';
+            console.log('[enquiry-form] Degree ID:', id);
             return id;
           })(),
           department_id: (() => {
             const id = learner.department_id || '';
+            console.log('[enquiry-form] Department ID:', id);
             return id;
           })(),
           program_id: (() => {
             const id = learner.program_id || '';
+            console.log('[enquiry-form] Program ID:', id);
             return id;
           })(),
           academic_year_id: (() => {
             const id = learner.academic_year_id || '';
+            console.log('[enquiry-form] Academic Year ID:', id);
             return id;
           })(),
           semester_id: (() => {
             const id = learner.semester_id || '';
+            console.log('[enquiry-form] Semester ID:', id);
             return id;
           })(),
           section_id: (() => {
             const id = learner.section_id || '';
+            console.log('[enquiry-form] Section ID:', id);
             return id;
           })(),
           roll_number: learner.roll_number || '',
@@ -552,12 +610,20 @@ export function EnquiryForm({
           accommodation_type: learner.accommodation_type || '',
           hostel_type: learner.hostel_type || '',
           food_type: learner.food_type || '',
-          bus_required: learner.bus_required || false,
-          bus_route: learner.bus_route || '',
-          bus_pickup_location: learner.bus_pickup_location || '',
           reference_type: normalizeReferenceType(learner.reference_type),
           reference_name: learner.reference_name || '',
           reference_contact: learner.reference_contact || '',
+
+          // Finance Details
+          application_fee: learner?.application_fee ?? null,
+          university_reg_fee: learner?.university_reg_fee ?? null,
+          fee_structure_type: learner?.fee_structure_type ?? null,
+          tuition_fee: learner?.tuition_fee ?? null,
+          hostel_fee: learner?.hostel_fee ?? null,
+          dayscholar_fee: learner?.dayscholar_fee ?? null,
+          uniform_fee: learner?.uniform_fee ?? null,
+          hospital_training_fee: learner?.hospital_training_fee ?? null,
+          placement_fee: learner?.placement_fee ?? null,
         };
         })()
       : {
@@ -651,12 +717,20 @@ export function EnquiryForm({
           accommodation_type: '',
           hostel_type: '',
           food_type: '',
-          bus_required: false,
-          bus_route: '',
-          bus_pickup_location: '',
           reference_type: '',
           reference_name: '',
           reference_contact: '',
+
+          // Finance Details
+          application_fee: null,
+          university_reg_fee: null,
+          fee_structure_type: null,
+          tuition_fee: null,
+          hostel_fee: null,
+          dayscholar_fee: null,
+          uniform_fee: null,
+          hospital_training_fee: null,
+          placement_fee: null,
         },
   });
 
@@ -670,19 +744,19 @@ export function EnquiryForm({
   // ============================================
   // NAVIGATION FUNCTIONS
   // ============================================
-  const currentTabIndex = formTabs.findIndex((tab) => tab.id === activeTab);
+  const currentTabIndex = filteredFormTabs.findIndex((tab) => tab.id === activeTab);
   const isFirstTab = currentTabIndex === 0;
-  const isLastTab = currentTabIndex === formTabs.length - 1;
+  const isLastTab = currentTabIndex === filteredFormTabs.length - 1;
 
   const goToNextTab = () => {
     if (!isLastTab) {
-      setActiveTab(formTabs[currentTabIndex + 1].id);
+      setActiveTab(filteredFormTabs[currentTabIndex + 1].id);
     }
   };
 
   const goToPreviousTab = () => {
     if (!isFirstTab) {
-      setActiveTab(formTabs[currentTabIndex - 1].id);
+      setActiveTab(filteredFormTabs[currentTabIndex - 1].id);
     }
   };
 
@@ -821,12 +895,20 @@ export function EnquiryForm({
       accommodation_type: values.accommodation_type || '',
       hostel_type: values.hostel_type || undefined,
       food_type: values.food_type || undefined,
-      bus_required: values.bus_required || undefined,
-      bus_route: values.bus_route || undefined,
-      bus_pickup_location: values.bus_pickup_location || undefined,
       reference_type: values.reference_type || undefined,
       reference_name: toUpperCaseField(values.reference_name),
       reference_contact: values.reference_contact || undefined,
+
+      // Finance Details
+      application_fee: values.application_fee ?? null,
+      university_reg_fee: values.university_reg_fee ?? null,
+      fee_structure_type: values.fee_structure_type ?? null,
+      tuition_fee: values.fee_structure_type === 'tuition_hostel' ? (values.tuition_fee ?? null) : null,
+      hostel_fee: values.fee_structure_type === 'tuition_hostel' ? (values.hostel_fee ?? null) : null,
+      dayscholar_fee: values.fee_structure_type === 'dayscholar' ? (values.dayscholar_fee ?? null) : null,
+      uniform_fee: values.uniform_fee ?? null,
+      hospital_training_fee: values.hospital_training_fee ?? null,
+      placement_fee: values.placement_fee ?? null,
 
       // System fields - Preserve existing values when editing, default to 'enquiry' when creating
       lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),
@@ -944,6 +1026,7 @@ export function EnquiryForm({
           { duration: 4000 }
         );
         
+        console.log('[enquiry-form] Form validation failed:', errors);
       } else {
         toast.error('Please check the form for errors.');
       }
@@ -1040,9 +1123,11 @@ export function EnquiryForm({
     try {
       // Upload pending image file first (if exists)
       if (pendingImageFile) {
+        console.log('[enquiry-form] Uploading pending image file...');
         try {
           const imageUrl = await uploadProfileImage(pendingImageFile);
           values.student_photo_url = imageUrl; // Update form value with uploaded URL
+          console.log('[enquiry-form] Image uploaded successfully:', imageUrl);
           toast.success('Image uploaded successfully');
         } catch (error) {
           console.error('[enquiry-form] Image upload failed:', error);
@@ -1056,6 +1141,7 @@ export function EnquiryForm({
 
       // Allow overriding submission logic (e.g. for change requests)
       if (onSubmitProp) {
+        console.log('[enquiry-form] Using custom onSubmit handler');
         await onSubmitProp(data);
         setIsSubmitting(false);
         return;
@@ -1183,7 +1269,7 @@ export function EnquiryForm({
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full flex justify-start h-auto p-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-          {formTabs.map((tab) => (
+          {filteredFormTabs.map((tab) => (
             <TabsTrigger
               key={tab.id}
               value={tab.id}
@@ -1227,6 +1313,14 @@ export function EnquiryForm({
               <AccommodationPreferencesSection form={form} isStudentView={isStudentView} />
             </Card>
           </TabsContent>
+
+          {canViewFinance && (
+            <TabsContent value="finance-details" className="space-y-4 mt-4">
+              <Card className="p-3 sm:p-4 md:p-6">
+                <FinanceDetailsSection form={form} readOnly={!canEditFinance} />
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Form Actions - Navigation Buttons */}

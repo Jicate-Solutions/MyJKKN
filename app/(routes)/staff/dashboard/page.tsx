@@ -372,6 +372,7 @@ export default function StaffDashboardPage() {
               <ProfileAnalytics
                 data={dashboardData?.profileAnalytics}
                 isLoading={isLoading}
+                filters={filters}
               />
             </div>
           </TabsContent>

@@ -12,7 +12,6 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { getLearnerProfile } from '../_data/get-learner-profile';
-import { getLearnerBilling } from '../_data/get-learner-billing';
 import { LearnerDetail } from '../_components/learner-detail';
 import { LearnerDetailActions } from '../_components/learner-detail-actions';
 
@@ -56,16 +55,10 @@ export default async function LearnerDetailPage({ params }: LearnerDetailPagePro
     );
   }
 
-  // Fetch data on server with caching (billing in parallel, non-blocking)
+  // Fetch data on server with caching
   let learner;
-  let billing = null;
   try {
-    const [learnerResult, billingResult] = await Promise.all([
-      getLearnerProfile(id),
-      getLearnerBilling(id),
-    ]);
-    learner = learnerResult;
-    billing = billingResult;
+    learner = await getLearnerProfile(id);
   } catch (error) {
     console.error('[learners/profiles/[id]] Error fetching learner:', error);
     return (
@@ -137,7 +130,7 @@ export default async function LearnerDetailPage({ params }: LearnerDetailPagePro
         </div>
 
         <div className="flex flex-col lg:flex-row gap-8">
-          <LearnerDetail learner={learner} billing={billing} />
+          <LearnerDetail learner={learner} />
         </div>
       </div>
     </ContentLayout>

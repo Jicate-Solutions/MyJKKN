@@ -19,12 +19,13 @@ export interface SourceStats {
 }
 
 export class SourceTrackingService {
-  static async getSourceBreakdown(institutionId: string): Promise<SourceSummary[]> {
+  static async getSourceBreakdown(institutionId?: string): Promise<SourceSummary[]> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('admission_leads')
-      .select('source, funnel_stage')
-      .eq('institution_id', institutionId);
+      .select('source, funnel_stage');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query;
 
     if (error) throw error;
 
@@ -51,7 +52,7 @@ export class SourceTrackingService {
       .sort((a, b) => b.leads - a.leads);
   }
 
-  static async getSourceStats(institutionId: string): Promise<SourceStats> {
+  static async getSourceStats(institutionId?: string): Promise<SourceStats> {
     const breakdown = await this.getSourceBreakdown(institutionId);
     const totalLeads = breakdown.reduce((sum, s) => sum + s.leads, 0);
     const attributed = breakdown.filter(s => s.source !== 'Unknown').reduce((sum, s) => sum + s.leads, 0);

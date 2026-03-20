@@ -3,16 +3,11 @@
 
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
 import { DataQualityService } from '@/lib/services/admission/data-quality-service';
-import { ScholarshipService } from '@/lib/services/admission/scholarship-service';
-import { HostelService } from '@/lib/services/admission/hostel-service';
 import { SourceTrackingService } from '@/lib/services/admission/source-tracking-service';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
-import { DocumentService } from '@/lib/services/admission/document-service';
 
 function useInstitutionId() {
   const { selectedInstitutionId } = useUserInstitutionAccess();
@@ -104,98 +99,6 @@ export function useDuplicateGroups() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SCHOLARSHIPS
-// ═══════════════════════════════════════════════════════════════════════════
-
-export function useScholarships() {
-  const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
-  return useQuery({
-    queryKey: ['admission', 'scholarships', institutionId],
-    queryFn: () => ScholarshipService.getScholarships(institutionId),
-    enabled: isSuperAdmin || !!institutionId,
-  });
-}
-
-export function useScholarshipApplications() {
-  const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
-  return useQuery({
-    queryKey: ['admission', 'scholarship-applications', institutionId],
-    queryFn: () => ScholarshipService.getScholarshipApplications(institutionId),
-    enabled: isSuperAdmin || !!institutionId,
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// HOSTELS
-// ═══════════════════════════════════════════════════════════════════════════
-
-export function useHostels() {
-  const institutionId = useInstitutionId();
-  return useQuery({
-    queryKey: ['admission', 'hostels', institutionId],
-    queryFn: () => HostelService.getHostels(institutionId!),
-    enabled: !!institutionId,
-  });
-}
-
-export function useHostelAllocations() {
-  const institutionId = useInstitutionId();
-  return useQuery({
-    queryKey: ['admission', 'hostel-allocations', institutionId],
-    queryFn: () => HostelService.getAllocations(institutionId!),
-    enabled: !!institutionId,
-  });
-}
-
-export function useHostelWaitlist() {
-  const institutionId = useInstitutionId();
-  return useQuery({
-    queryKey: ['admission', 'hostel-waitlist', institutionId],
-    queryFn: () => HostelService.getWaitlist(institutionId!),
-    enabled: !!institutionId,
-  });
-}
-
-export function useAllocateHostelRoom() {
-  const queryClient = useQueryClient();
-  const institutionId = useInstitutionId();
-  return useMutation({
-    mutationFn: (params: {
-      student_id: string;
-      hostel_id: string;
-      room_id?: string;
-      bed_id?: string;
-      academic_year?: string;
-      semester?: string;
-    }) => {
-      if (!institutionId) throw new Error('No institution selected');
-      return HostelService.allocateRoom({ ...params, institution_id: institutionId });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admission', 'hostel-allocations'] });
-      queryClient.invalidateQueries({ queryKey: ['admission', 'hostels'] });
-    },
-  });
-}
-
-export function useUpdateWaitlistStatus() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (params: { id: string; status: string }) =>
-      HostelService.updateWaitlistStatus(params.id, params.status),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admission', 'hostel-waitlist'] });
-      queryClient.invalidateQueries({ queryKey: ['admission', 'hostel-allocations'] });
-      queryClient.invalidateQueries({ queryKey: ['admission', 'hostels'] });
-    },
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // SOURCES
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -238,55 +141,3 @@ export function usePublishers() {
   });
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// DOCUMENTS
-// ═══════════════════════════════════════════════════════════════════════════
-
-export function useDocumentTypes() {
-  const institutionId = useInstitutionId();
-  return useQuery({
-    queryKey: ['admission', 'document-types', institutionId],
-    queryFn: () => DocumentService.getDocumentTypes(institutionId!),
-    enabled: !!institutionId,
-  });
-}
-
-export function useDocumentStats() {
-  const institutionId = useInstitutionId();
-  return useQuery({
-    queryKey: ['admission', 'document-stats', institutionId],
-    queryFn: () => DocumentService.getDocumentStats(institutionId!),
-    enabled: !!institutionId,
-  });
-}
-
-export function usePendingDocuments() {
-  const institutionId = useInstitutionId();
-  return useQuery({
-    queryKey: ['admission', 'pending-documents', institutionId],
-    queryFn: () => DocumentService.getPendingDocuments(institutionId!),
-    enabled: !!institutionId,
-  });
-}
-
-export function useRecentVerifications() {
-  const institutionId = useInstitutionId();
-  return useQuery({
-    queryKey: ['admission', 'recent-verifications', institutionId],
-    queryFn: () => DocumentService.getRecentVerifications(institutionId!),
-    enabled: !!institutionId,
-  });
-}
-
-export function useUpdateDocumentVerification() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (params: { docId: string; status: 'verified' | 'rejected' | 'pending'; rejectionReason?: string }) =>
-      DocumentService.updateVerificationStatus(params.docId, params.status, params.rejectionReason),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admission', 'pending-documents'] });
-      queryClient.invalidateQueries({ queryKey: ['admission', 'recent-verifications'] });
-      queryClient.invalidateQueries({ queryKey: ['admission', 'document-stats'] });
-    },
-  });
-}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
+import { useEffect, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -16,16 +16,15 @@ import {
   Bell,
   Settings,
   TabletSmartphone,
+  Bug,
+  Rocket,
   LucideIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
-import { GetRoleBasedPages } from '@/lib/sidebarMenuLink';
-import { AuthService } from '@/lib/auth/auth-service';
-import { RoleService } from '@/lib/services/roles/role-service';
-import { CustomRole } from '@/types/auth';
-import { useIsHostelResident } from '@/hooks/campus-living/use-is-hostel-resident';
+import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
+import { usePermissions } from '@/hooks/use-permissions';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu } from './bottom-nav-more-menu';
@@ -39,14 +38,16 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   'Applications': TabletSmartphone,
   'Application Management': TabletSmartphone,
   'Organization Management': Building,
-  'Learners Management': GraduationCap,
+  'Learners': GraduationCap,
   'Facilitators Management': Users,
   'Academic Management': CalendarClock,
   'Resource Management': Package,
   'Admissions Management': ClipboardCheck,
-  'Billing Management': FileText,
+  'Accounts': FileText,
+  'Bugs': Bug,
   'Administration': Bell,
-  'System': Settings
+  'System': Settings,
+  'Startup Studio': Rocket,
 };
 
 // Routes that are parent-only (no actual page, only submenus)
@@ -121,12 +122,15 @@ export function BottomNavbar() {
   const pathname = usePathname();
   const router = useRouter();
   const isMobile = useIsMobile();
-  const [userRole, setUserRole] = useState<CustomRole | null>(null);
-  const [profileId, setProfileId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const hasInitialized = useRef(false);
   const hasHydrated = useBottomNavHydration();
-  const isHostelResident = useIsHostelResident(profileId);
+
+  const {
+    permissions,
+    isSuperAdmin,
+    isLoading,
+    userProfile
+  } = usePermissions();
 
   const {
     activeNavId,
@@ -142,30 +146,27 @@ export function BottomNavbar() {
     setActivePage
   } = useBottomNav();
 
-  // Fetch user role on mount
-  useEffect(() => {
-    const fetchUserRole = async () => {
-      try {
-        setIsLoading(true);
-        const profile = await AuthService.getUserProfile();
-        if (profile?.role) {
-          setProfileId(profile.id);
-          const roleData = await RoleService.getRoleByKey(profile.role);
-          setUserRole(roleData);
-        }
-      } catch (error) {
-        console.error('[BottomNav] Error fetching user role:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchUserRole();
-  }, []);
+  // Build RolePermissionData from usePermissions (multi-role merged)
+  const roleData = useMemo((): RolePermissionData | null => {
+    if (!userProfile) return null;
 
-  // Get filtered pages based on role
+    if (isSuperAdmin) {
+      return {
+        role_key: 'super_admin',
+        permissions: {}
+      };
+    }
+
+    return {
+      role_key: userProfile.role || '',
+      permissions
+    };
+  }, [userProfile, permissions, isSuperAdmin]);
+
+  // Get filtered pages based on merged permissions
   const filteredPages = useMemo(() => {
-    return GetRoleBasedPages(pathname, userRole, { isHostelResident });
-  }, [pathname, userRole, isHostelResident]);
+    return GetRoleBasedPages(pathname, roleData);
+  }, [pathname, roleData]);
 
   // Transform filtered pages into bottom nav groups
   const allNavGroups = useMemo((): BottomNavGroup[] => {
@@ -420,9 +421,10 @@ export function BottomNavbar() {
               id="more"
               icon={MoreHorizontal}
               label="More"
-              isActive={isMoreMenuOpen}
+              isActive={true} // Always show as active/highlighted
               hasSubmenu={true}
-              badgeCount={moreNavGroups.length}
+              hideIndicator={true} // Remove underline
+              customColor="text-rose-700" // Dark rose color
               onClick={handleMoreClick}
             />
           )}

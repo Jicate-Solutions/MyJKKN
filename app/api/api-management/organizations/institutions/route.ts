@@ -1,55 +1,163 @@
-import { NextResponse } from 'next/server'
-import { corsHeaders } from '@/lib/api-keys/cors'
-import { withAuth } from '@/lib/auth/with-auth'
-import { paginatedResponse, errorResponse } from '@/lib/api-keys/response-helpers'
-import { getPaginationParams, getStringParam } from '@/lib/api-keys/query-helpers'
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'crypto';
+import { corsHeaders } from '@/lib/api-keys/cors';
 
-export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders })
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
 
-export const GET = withAuth(async (request, auth) => {
-  const url = new URL(request.url)
-  const { page, limit, from, to } = getPaginationParams(url)
-  const search = getStringParam(url, 'search')
-  const isActive = getStringParam(url, 'isActive')
+export async function GET(request: NextRequest) {
+  try {
+    // Add CORS headers to response
+    const response = NextResponse.next();
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
 
-  // Institution scoping: for the institutions table, the table IS the institution
-  // API key auth: only return the API key's own institution
-  // Session auth: super_admin can override via query param
-  let institutionId: string | null = auth.institutionId
+    // Use service role key for API key authentication to bypass RLS
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get() {
+            return undefined;
+          },
+          set() {},
+          remove() {}
+        }
+      }
+    );
 
-  if (auth.authMethod === 'session') {
-    const queryInstitutionId = url.searchParams.get('institution_id')
-    if (queryInstitutionId && auth.user?.role === 'super_admin') {
-      institutionId = queryInstitutionId
+    // Get API key from Authorization header
+    const authHeader = request.headers.get('authorization');
+    console.log('1. Auth header:', authHeader);
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'API key is required in Authorization header' },
+        { status: 401, headers: corsHeaders }
+      );
     }
+
+    const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
+    const hashedKey = createHash('sha256').update(apiKey).digest('hex');
+    console.log('2. Hashed key:', hashedKey);
+
+    // Verify API key
+    const { data: keyData, error: keyError } = await supabase
+      .from('api_keys')
+      .select('*')
+      .eq('key_value', hashedKey)
+      .eq('is_active', true)
+      .single();
+
+    console.log('3. Key verification:', {
+      found: !!keyData,
+      error: keyError?.message,
+      keyData: keyData
+        ? {
+            id: keyData.id,
+            name: keyData.name,
+            is_active: keyData.is_active,
+            permissions: keyData.permissions
+          }
+        : null
+    });
+
+    // Check RLS policies
+    console.log('4. Checking RLS policies');
+
+    if (keyError || !keyData) {
+      return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
+    }
+
+    // Check if key has expired
+    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
+      return NextResponse.json(
+        { error: 'API key has expired' },
+        { status: 401 }
+      );
+    }
+
+    // Check read permission
+    if (!keyData.permissions?.read) {
+      return NextResponse.json(
+        { error: 'API key does not have read permission' },
+        { status: 403 }
+      );
+    }
+
+    // Get query parameters
+    const url = new URL(request.url);
+    console.log('4. Query params:', Object.fromEntries(url.searchParams));
+
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '10');
+    const search = url.searchParams.get('search');
+    const isActive = url.searchParams.get('isActive');
+
+    // Build query
+    let query = (supabase as any).from('institutions').select('*', { count: 'exact' });
+
+    console.log('5. Executing query...');
+
+    // Apply filters
+    if (search) {
+      query = query.or(`name.ilike.%${search}%,code.ilike.%${search}%`);
+    }
+
+    if (isActive !== null) {
+      query = query.eq('is_active', isActive === 'true');
+    }
+
+    // Apply pagination
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to).order('created_at', { ascending: false });
+
+    // Execute query
+    const { data: institutions, error, count } = await query;
+
+    console.log('6. Query result:', {
+      success: !!institutions,
+      error: error?.message,
+      count,
+      firstRecord: institutions?.[0]
+        ? {
+            id: institutions[0].id,
+            name: institutions[0].name
+          }
+        : null
+    });
+
+    if (error) throw error;
+
+    // Update last used timestamp
+    await supabase
+      .from('api_keys')
+      .update({ last_used_at: new Date().toISOString() })
+      .eq('id', keyData.id);
+
+    return NextResponse.json(
+      {
+        data: institutions || [],
+        metadata: {
+          total: count || 0,
+          page: 1,
+          limit: 10,
+          totalPages: count ? Math.ceil(count / 10) : 0
+        }
+      },
+      { headers: corsHeaders }
+    );
+  } catch (error) {
+    console.error('Error fetching institutions:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500, headers: corsHeaders }
+    );
   }
-
-  if (auth.authMethod === 'api_key' && !institutionId) {
-    return errorResponse('API key must be associated with an organization', 400)
-  }
-
-  let query = (auth.supabase as any)
-    .from('institutions')
-    .select('*', { count: 'exact' })
-
-  // For institutions table, filter by id (not institution_id)
-  if (institutionId) {
-    query = query.eq('id', institutionId)
-  }
-
-  if (search) {
-    query = query.or(`name.ilike.%${search}%,code.ilike.%${search}%`)
-  }
-
-  if (isActive !== undefined) {
-    query = query.eq('is_active', isActive === 'true')
-  }
-
-  query = query.range(from, to).order('created_at', { ascending: false })
-
-  const { data, error, count } = await query
-
-  if (error) throw error
-
-  return paginatedResponse(data ?? [], count ?? 0, page, limit)
-}, { allowApiKey: true, requiredPermission: 'read' })
+}

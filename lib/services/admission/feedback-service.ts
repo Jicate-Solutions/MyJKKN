@@ -115,12 +115,11 @@ export class FeedbackService {
   /**
    * Get feedback stats
    */
-  static async getStats(institutionId: string | undefined): Promise<FeedbackStats> {
-    let statsQuery = (this.supabase as any)
+  static async getStats(institutionId: string): Promise<FeedbackStats> {
+    const { data, error } = await (this.supabase as any)
       .from('admission_leads')
-      .select('id, funnel_stage, is_lost, lost_reason');
-    if (institutionId) statsQuery = statsQuery.eq('institution_id', institutionId);
-    const { data, error } = await statsQuery
+      .select('id, funnel_stage, is_lost, lost_reason')
+      .eq('institution_id', institutionId)
       .or(
         'is_lost.eq.true,funnel_stage.eq.declined,funnel_stage.eq.withdrew,funnel_stage.eq.lost,funnel_stage.eq.expired'
       );

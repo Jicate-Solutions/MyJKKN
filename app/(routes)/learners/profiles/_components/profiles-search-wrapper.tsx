@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LearnerAdvancedSearch, type LearnerSearchFilters } from './learner-advanced-search';
 
@@ -17,6 +17,29 @@ interface ProfilesSearchWrapperProps {
 export function ProfilesSearchWrapper({ statusFilter }: ProfilesSearchWrapperProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Parse initial search values from URL so fields persist across navigations
+  const initialValues = useMemo(() => {
+    const search = searchParams.get('search') || '';
+    let nameQuery = '';
+    let rollNumberQuery = '';
+    let emailQuery = '';
+
+    if (search) {
+      const parts = search.split('|');
+      for (const part of parts) {
+        if (part.startsWith('name:')) {
+          nameQuery = part.substring(5);
+        } else if (part.startsWith('roll:')) {
+          rollNumberQuery = part.substring(5);
+        } else if (part.startsWith('email:')) {
+          emailQuery = part.substring(6);
+        }
+      }
+    }
+
+    return { nameQuery, rollNumberQuery, emailQuery };
+  }, []); // Empty deps - only compute on mount to avoid overwriting user input
 
   // Handle search execution - update URL params
   const handleSearch = useCallback((filters: LearnerSearchFilters) => {
@@ -93,6 +116,7 @@ export function ProfilesSearchWrapper({ statusFilter }: ProfilesSearchWrapperPro
     <LearnerAdvancedSearch
       onSearch={handleSearch}
       onClear={handleClear}
+      initialValues={initialValues}
     />
   );
 }

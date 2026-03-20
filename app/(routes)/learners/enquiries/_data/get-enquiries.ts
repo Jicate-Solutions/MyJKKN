@@ -60,8 +60,8 @@ export async function getEnquiries(
     degree_id,
     department_id,
     lifecycle_status,
-    sortBy = 'created_at',
-    sortOrder = 'desc'
+    sortBy = 'first_name',
+    sortOrder = 'asc'
   } = params;
 
   // Build query - filter for enquiry and pending statuses

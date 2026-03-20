@@ -5,7 +5,6 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { Database } from '@/types/auth';
-import { getAuthSession } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -28,56 +27,51 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    // Try session auth first, then fall back to API key auth
-    const { session } = await getAuthSession();
-
-    if (!session) {
-      // No session — require API key
-      const authHeader = request.headers.get('authorization');
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return NextResponse.json(
-          { error: 'Authentication required (session or API key)' },
-          { status: 401 }
-        );
-      }
-
-      const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
-      const hashedKey = createHash('sha256').update(apiKey).digest('hex');
-
-      // Verify API key
-      const { data: keyData, error: keyError } = await supabase
-        .from('api_keys')
-        .select('*')
-        .eq('key_value', hashedKey)
-        .eq('is_active', true)
-        .single();
-
-      if (keyError || !keyData) {
-        return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
-      }
-
-      // Check if key has expired
-      if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
-        return NextResponse.json(
-          { error: 'API key has expired' },
-          { status: 401 }
-        );
-      }
-
-      // Check read permission
-      if (!keyData.permissions?.read) {
-        return NextResponse.json(
-          { error: 'API key does not have read permission' },
-          { status: 403 }
-        );
-      }
-
-      // Update last used timestamp
-      await supabase
-        .from('api_keys')
-        .update({ last_used_at: new Date().toISOString() })
-        .eq('id', keyData.id);
+    // Get API key from Authorization header
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'API key is required in Authorization header' },
+        { status: 401 }
+      );
     }
+
+    const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
+    const hashedKey = createHash('sha256').update(apiKey).digest('hex');
+
+    // Verify API key
+    const { data: keyData, error: keyError } = await supabase
+      .from('api_keys')
+      .select('*')
+      .eq('key_value', hashedKey)
+      .eq('is_active', true)
+      .single();
+
+    if (keyError || !keyData) {
+      return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
+    }
+
+    // Check if key has expired
+    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
+      return NextResponse.json(
+        { error: 'API key has expired' },
+        { status: 401 }
+      );
+    }
+
+    // Check read permission
+    if (!keyData.permissions?.read) {
+      return NextResponse.json(
+        { error: 'API key does not have read permission' },
+        { status: 403 }
+      );
+    }
+
+    // Update last used timestamp
+    await supabase
+      .from('api_keys')
+      .update({ last_used_at: new Date().toISOString() })
+      .eq('id', keyData.id);
 
     // Get query parameters
     const url = new URL(request.url);

@@ -1,18 +1,113 @@
 // hooks/academic/use-leave-calendar.ts
 // React hook for leave calendar functionality
-// Created: 2025-12-16
+// Migrated to React Query: 2026-02-28
 //
-// Pattern: useState, useCallback
+// Pattern: useQuery for all calendar data (read-only, no mutations)
 
-import { useState, useCallback, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { LeaveCalendarService } from '@/lib/services/academic/leave-calendar-service';
 import { LeaveAttendanceIntegration } from '@/lib/services/academic/leave-attendance-integration';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
 import type {
   CalendarLeave,
   MonthlyCalendarData,
   LeaveCalendarFilters,
   LeaveBlockInfo
 } from '@/types/leaves';
+
+// ─── Query keys ──────────────────────────────────────────────────────────────
+
+export const LEAVE_CALENDAR_KEYS = {
+  all: ['leave-calendar'] as const,
+  monthly: (
+    institutionId: string,
+    year: number,
+    month: number,
+    departmentId?: string,
+    semesterId?: string,
+    sectionId?: string
+  ) =>
+    [
+      'leave-calendar',
+      'monthly',
+      institutionId,
+      year,
+      month,
+      departmentId,
+      semesterId,
+      sectionId,
+    ] as const,
+  monthlyLeaves: (institutionId: string, year: number, month: number) =>
+    ['leave-calendar', 'monthly-leaves', institutionId, year, month] as const,
+  workingDays: (
+    institutionId: string,
+    startDate: string,
+    endDate: string,
+    departmentId?: string,
+    semesterId?: string,
+    sectionId?: string
+  ) =>
+    [
+      'leave-calendar',
+      'working-days',
+      institutionId,
+      startDate,
+      endDate,
+      departmentId,
+      semesterId,
+      sectionId,
+    ] as const,
+  dateCheck: (
+    institutionId: string,
+    date: string,
+    departmentId?: string,
+    semesterId?: string,
+    sectionId?: string
+  ) =>
+    [
+      'leave-calendar',
+      'date-check',
+      institutionId,
+      date,
+      departmentId,
+      semesterId,
+      sectionId,
+    ] as const,
+  leaveDatesInRange: (
+    institutionId: string,
+    startDate: string,
+    endDate: string
+  ) =>
+    [
+      'leave-calendar',
+      'leave-dates-range',
+      institutionId,
+      startDate,
+      endDate,
+    ] as const,
+  monthlySummary: (institutionId: string, year: number, month: number) =>
+    ['leave-calendar', 'monthly-summary', institutionId, year, month] as const,
+  blockedDates: (
+    institutionId: string,
+    startDate: string,
+    endDate: string,
+    departmentId?: string,
+    semesterId?: string,
+    sectionId?: string
+  ) =>
+    [
+      'leave-calendar',
+      'blocked-dates',
+      institutionId,
+      startDate,
+      endDate,
+      departmentId,
+      semesterId,
+      sectionId,
+    ] as const,
+};
+
+// ─── Hooks ───────────────────────────────────────────────────────────────────
 
 /**
  * Hook for monthly calendar view
@@ -25,48 +120,37 @@ export function useLeaveCalendar(
   semesterId?: string,
   sectionId?: string
 ) {
-  const [calendarData, setCalendarData] = useState<MonthlyCalendarData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchCalendarData = useCallback(async () => {
-    if (!institutionId) {
-      setCalendarData(null);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
+  const query = useQuery<MonthlyCalendarData>({
+    queryKey: institutionId
+      ? LEAVE_CALENDAR_KEYS.monthly(
+          institutionId,
+          year,
+          month,
+          departmentId,
+          semesterId,
+          sectionId
+        )
+      : LEAVE_CALENDAR_KEYS.all,
+    queryFn: () => {
       const filters: LeaveCalendarFilters = {
-        institution_id: institutionId,
+        institution_id: institutionId!,
         year,
         month,
         department_id: departmentId,
         semester_id: semesterId,
-        section_id: sectionId
+        section_id: sectionId,
       };
-
-      const result = await LeaveCalendarService.getMonthlyCalendarData(filters);
-      setCalendarData(result);
-    } catch (err) {
-      console.error('Error fetching calendar data:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [institutionId, year, month, departmentId, semesterId, sectionId]);
-
-  useEffect(() => {
-    fetchCalendarData();
-  }, [fetchCalendarData]);
+      return LeaveCalendarService.getMonthlyCalendarData(filters);
+    },
+    enabled: !!institutionId,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
   return {
-    calendarData,
-    loading,
-    error,
-    refetch: fetchCalendarData
+    calendarData: query.data ?? null,
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    refetch: query.refetch,
   };
 }
 
@@ -78,43 +162,25 @@ export function useMonthlyLeaves(
   year: number,
   month: number
 ) {
-  const [leaves, setLeaves] = useState<CalendarLeave[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchLeaves = useCallback(async () => {
-    if (!institutionId) {
-      setLeaves([]);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const result = await LeaveCalendarService.getLeavesForMonth({
-        institution_id: institutionId,
+  const query = useQuery<CalendarLeave[]>({
+    queryKey: institutionId
+      ? LEAVE_CALENDAR_KEYS.monthlyLeaves(institutionId, year, month)
+      : LEAVE_CALENDAR_KEYS.all,
+    queryFn: () =>
+      LeaveCalendarService.getLeavesForMonth({
+        institution_id: institutionId!,
         year,
-        month
-      });
-      setLeaves(result);
-    } catch (err) {
-      console.error('Error fetching monthly leaves:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [institutionId, year, month]);
-
-  useEffect(() => {
-    fetchLeaves();
-  }, [fetchLeaves]);
+        month,
+      }),
+    enabled: !!institutionId,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
   return {
-    leaves,
-    loading,
-    error,
-    refetch: fetchLeaves
+    leaves: query.data ?? [],
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    refetch: query.refetch,
   };
 }
 
@@ -129,51 +195,43 @@ export function useWorkingDays(
   semesterId?: string,
   sectionId?: string
 ) {
-  const [workingDaysData, setWorkingDaysData] = useState<{
+  const enabled = !!institutionId && !!startDate && !!endDate;
+
+  const query = useQuery<{
     total_days: number;
     working_days: number;
     leave_days: number;
     weekend_days: number;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchWorkingDays = useCallback(async () => {
-    if (!institutionId || !startDate || !endDate) {
-      setWorkingDaysData(null);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const result = await LeaveCalendarService.getWorkingDays(
-        institutionId,
-        startDate,
-        endDate,
+  }>({
+    queryKey:
+      enabled
+        ? LEAVE_CALENDAR_KEYS.workingDays(
+            institutionId!,
+            startDate!,
+            endDate!,
+            departmentId,
+            semesterId,
+            sectionId
+          )
+        : LEAVE_CALENDAR_KEYS.all,
+    queryFn: () =>
+      LeaveCalendarService.getWorkingDays(
+        institutionId!,
+        startDate!,
+        endDate!,
         departmentId,
         semesterId,
         sectionId
-      );
-      setWorkingDaysData(result);
-    } catch (err) {
-      console.error('Error calculating working days:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [institutionId, startDate, endDate, departmentId, semesterId, sectionId]);
-
-  useEffect(() => {
-    fetchWorkingDays();
-  }, [fetchWorkingDays]);
+      ),
+    enabled,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
   return {
-    workingDaysData,
-    loading,
-    error,
-    refetch: fetchWorkingDays
+    workingDaysData: query.data ?? null,
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    refetch: query.refetch,
   };
 }
 
@@ -187,48 +245,39 @@ export function useDateLeaveCheck(
   semesterId?: string,
   sectionId?: string
 ) {
-  const [leaveInfo, setLeaveInfo] = useState<LeaveBlockInfo | null>(null);
-  const [isBlocked, setIsBlocked] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const enabled = !!institutionId && !!date;
 
-  const checkDate = useCallback(async () => {
-    if (!institutionId || !date) {
-      setLeaveInfo(null);
-      setIsBlocked(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      const result = await LeaveAttendanceIntegration.canMarkAttendance({
-        institution_id: institutionId,
-        date,
+  const query = useQuery<{
+    allowed: boolean;
+    leave?: LeaveBlockInfo;
+  }>({
+    queryKey:
+      enabled
+        ? LEAVE_CALENDAR_KEYS.dateCheck(
+            institutionId!,
+            date!,
+            departmentId,
+            semesterId,
+            sectionId
+          )
+        : LEAVE_CALENDAR_KEYS.all,
+    queryFn: () =>
+      LeaveAttendanceIntegration.canMarkAttendance({
+        institution_id: institutionId!,
+        date: date!,
         department_id: departmentId,
         semester_id: semesterId,
-        section_id: sectionId
-      });
-
-      setIsBlocked(!result.allowed);
-      setLeaveInfo(result.leave || null);
-    } catch (err) {
-      console.error('Error checking date:', err);
-      setLeaveInfo(null);
-      setIsBlocked(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [institutionId, date, departmentId, semesterId, sectionId]);
-
-  useEffect(() => {
-    checkDate();
-  }, [checkDate]);
+        section_id: sectionId,
+      }),
+    enabled,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
   return {
-    leaveInfo,
-    isBlocked,
-    loading,
-    recheck: checkDate
+    leaveInfo: query.data?.leave ?? null,
+    isBlocked: query.data ? !query.data.allowed : false,
+    loading: query.isPending,
+    recheck: query.refetch,
   };
 }
 
@@ -240,45 +289,32 @@ export function useLeaveDatesInRange(
   startDate: string | null,
   endDate: string | null
 ) {
-  const [leaveDates, setLeaveDates] = useState<
-    { date: string; color: string; status: string }[]
-  >([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const enabled = !!institutionId && !!startDate && !!endDate;
 
-  const fetchLeaveDates = useCallback(async () => {
-    if (!institutionId || !startDate || !endDate) {
-      setLeaveDates([]);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const result = await LeaveCalendarService.getLeaveDatesInRange(
-        institutionId,
-        startDate,
-        endDate
-      );
-      setLeaveDates(result);
-    } catch (err) {
-      console.error('Error fetching leave dates:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [institutionId, startDate, endDate]);
-
-  useEffect(() => {
-    fetchLeaveDates();
-  }, [fetchLeaveDates]);
+  const query = useQuery<{ date: string; color: string; status: string }[]>({
+    queryKey:
+      enabled
+        ? LEAVE_CALENDAR_KEYS.leaveDatesInRange(
+            institutionId!,
+            startDate!,
+            endDate!
+          )
+        : LEAVE_CALENDAR_KEYS.all,
+    queryFn: () =>
+      LeaveCalendarService.getLeaveDatesInRange(
+        institutionId!,
+        startDate!,
+        endDate!
+      ),
+    enabled,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
   return {
-    leaveDates,
-    loading,
-    error,
-    refetch: fetchLeaveDates
+    leaveDates: query.data ?? [],
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    refetch: query.refetch,
   };
 }
 
@@ -290,48 +326,30 @@ export function useMonthlyLeaveSummary(
   year: number,
   month: number
 ) {
-  const [summary, setSummary] = useState<{
+  const query = useQuery<{
     total_leaves: number;
     approved_count: number;
     pending_count: number;
     by_type: { leave_type_name: string; count: number; color_code: string }[];
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchSummary = useCallback(async () => {
-    if (!institutionId) {
-      setSummary(null);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const result = await LeaveCalendarService.getMonthlyLeaveSummary(
-        institutionId,
+  }>({
+    queryKey: institutionId
+      ? LEAVE_CALENDAR_KEYS.monthlySummary(institutionId, year, month)
+      : LEAVE_CALENDAR_KEYS.all,
+    queryFn: () =>
+      LeaveCalendarService.getMonthlyLeaveSummary(
+        institutionId!,
         year,
         month
-      );
-      setSummary(result);
-    } catch (err) {
-      console.error('Error fetching monthly summary:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [institutionId, year, month]);
-
-  useEffect(() => {
-    fetchSummary();
-  }, [fetchSummary]);
+      ),
+    enabled: !!institutionId,
+    ...QUERY_CONFIG.DASHBOARD_DATA,
+  });
 
   return {
-    summary,
-    loading,
-    error,
-    refetch: fetchSummary
+    summary: query.data ?? null,
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    refetch: query.refetch,
   };
 }
 
@@ -346,45 +364,37 @@ export function useBlockedDates(
   semesterId?: string,
   sectionId?: string
 ) {
-  const [blockedDates, setBlockedDates] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const enabled = !!institutionId && !!startDate && !!endDate;
 
-  const fetchBlockedDates = useCallback(async () => {
-    if (!institutionId || !startDate || !endDate) {
-      setBlockedDates([]);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      const result = await LeaveAttendanceIntegration.getBlockedDatesInRange(
-        institutionId,
-        startDate,
-        endDate,
+  const query = useQuery<string[]>({
+    queryKey:
+      enabled
+        ? LEAVE_CALENDAR_KEYS.blockedDates(
+            institutionId!,
+            startDate!,
+            endDate!,
+            departmentId,
+            semesterId,
+            sectionId
+          )
+        : LEAVE_CALENDAR_KEYS.all,
+    queryFn: () =>
+      LeaveAttendanceIntegration.getBlockedDatesInRange(
+        institutionId!,
+        startDate!,
+        endDate!,
         departmentId,
         semesterId,
         sectionId
-      );
-      setBlockedDates(result);
-    } catch (err) {
-      console.error('Error fetching blocked dates:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [institutionId, startDate, endDate, departmentId, semesterId, sectionId]);
-
-  useEffect(() => {
-    fetchBlockedDates();
-  }, [fetchBlockedDates]);
+      ),
+    enabled,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
   return {
-    blockedDates,
-    loading,
-    error,
-    refetch: fetchBlockedDates
+    blockedDates: query.data ?? [],
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    refetch: query.refetch,
   };
 }

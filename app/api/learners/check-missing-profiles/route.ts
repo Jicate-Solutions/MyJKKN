@@ -34,7 +34,7 @@ export async function GET() {
     // 2. Check permissions
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select('id, role, is_super_admin, institution_id')
+      .select('id, role, is_super_admin')
       .eq('id', user.id)
       .single();
 
@@ -49,7 +49,6 @@ export async function GET() {
       id: string;
       role: string;
       is_super_admin: boolean | null;
-      institution_id: string | null;
     };
 
     // Get user's role and permissions
@@ -80,10 +79,9 @@ export async function GET() {
       );
     }
 
-    const isSuperAdmin = !!profile.is_super_admin;
-
-    // 3. Get active learners with college emails - scoped to user's institution (super_admin sees all)
-    let learnersQuery = supabaseAdmin
+    // 3. Get all active learners with college emails
+    // Use .limit(10000) to bypass PostgREST's default 1000-row cap
+    const { data: allLearners, error: learnersError } = await supabaseAdmin
       .from('learners_profiles')
       .select(`
         id,
@@ -100,14 +98,8 @@ export async function GET() {
       .eq('lifecycle_status', 'active')
       .eq('is_profile_complete', true)
       .not('college_email', 'is', null)
-      .not('college_email', 'eq', '');
-
-    // Institution scoping for non-super-admins
-    if (!isSuperAdmin && profile.institution_id) {
-      learnersQuery = learnersQuery.eq('institution_id', profile.institution_id);
-    }
-
-    const { data: allLearners, error: learnersError } = await learnersQuery;
+      .not('college_email', 'eq', '')
+      .limit(10000);
 
     if (learnersError) {
       throw new Error(`Failed to fetch learners: ${learnersError.message}`);
@@ -131,11 +123,14 @@ export async function GET() {
       });
     }
 
-    // 4. Get existing profiles matching learner emails (case-insensitive via lowercase)
+    // 4. Get existing profiles — use .limit(10000) to bypass PostgREST's default 1000-row cap.
+    //    Cannot use .in('email', learnerEmails) here because thousands of emails in a URL
+    //    query string triggers a 414 Request-URI Too Large from Cloudflare.
     const learnerEmails = allLearners.map((l) => l.college_email.toLowerCase());
     const { data: existingProfiles, error: profilesError } = await supabaseAdmin
       .from('profiles')
-      .select('id, email, role, institution_id, department_id, learner_id, full_name, phone_number, gender, is_active');
+      .select('id, email, role, institution_id, department_id, learner_id, full_name, phone_number, gender, is_active')
+      .limit(10000);
 
     if (profilesError) {
       throw new Error(`Failed to fetch profiles: ${profilesError.message}`);

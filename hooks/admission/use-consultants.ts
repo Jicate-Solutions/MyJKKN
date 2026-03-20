@@ -11,7 +11,6 @@ import type {
   CreateConsultantInstitutionInput,
   UpdateConsultantInstitutionInput,
 } from '@/types/education-consultants';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================
 // CONSULTANTS CRUD
@@ -80,12 +79,10 @@ export function useConsultantMutations() {
 // ============================================
 
 export function useConsultantCommissions(filters: CommissionTransactionFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: ['consultant-commissions', filters],
     queryFn: () => ConsultantService.getCommissionTransactions(filters),
-    enabled: isSuperAdmin || !!filters.institution_id
+    enabled: !!filters.institution_id
   });
 }
 
@@ -150,12 +147,10 @@ export function useCommissionMutations() {
 // ============================================
 
 export function useConsultantRewards(filters: RewardFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: ['consultant-rewards', filters],
     queryFn: () => ConsultantService.getRewards(filters),
-    enabled: isSuperAdmin || !!filters.institution_id
+    enabled: !!filters.institution_id
   });
 }
 
@@ -196,12 +191,10 @@ export function useRewardMutations() {
 // ============================================
 
 export function useConsultantDashboardStats(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: ['consultant-dashboard-stats', institutionId],
     queryFn: () => ConsultantService.getDashboardStats(institutionId),
-    enabled: isSuperAdmin || !!institutionId
+    enabled: !!institutionId
   });
 }
 
@@ -232,14 +225,23 @@ export function useConsultantPerformance(consultantId: string) {
 // DROPDOWN HOOKS
 // ============================================
 
-export function useConsultantsForDropdown(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
+/**
+ * Fetch active consultants for a dropdown.
+ *
+ * institutionId semantics (three states):
+ *   string (non-empty) → filter to consultants linked to that institution
+ *   ''  (empty string) → query disabled — institution not yet known (backward compat)
+ *   undefined          → fetch ALL active consultants across all institutions
+ *
+ * Consultants are global entities (education_consultants has no institution_id).
+ * The institution filter is optional — omit it to get the global list.
+ */
+export function useConsultantsForDropdown(institutionId?: string) {
   return useQuery({
-    queryKey: ['consultants-dropdown', institutionId],
+    queryKey: ['consultants-dropdown', institutionId ?? 'all'],
     queryFn: async () => {
       const result = await ConsultantService.getConsultants({
-        institution_id: institutionId,
+        ...(institutionId ? { institution_id: institutionId } : {}),
         status: 'active',
         limit: 1000
       });
@@ -250,7 +252,9 @@ export function useConsultantsForDropdown(institutionId: string) {
         label: c.name
       }));
     },
-    enabled: isSuperAdmin || !!institutionId
+    // '' keeps the query disabled (backward compat for callers using `institutionId || ''`).
+    // undefined fires it without an institution filter (global list).
+    enabled: institutionId !== ''
   });
 }
 
@@ -259,12 +263,10 @@ export function useConsultantsForDropdown(institutionId: string) {
 // ============================================
 
 export function useCommissionTransactions(filters: CommissionTransactionFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: ['commission-transactions', filters],
     queryFn: () => ConsultantService.getCommissionTransactions(filters),
-    enabled: isSuperAdmin || !!filters.institution_id
+    enabled: !!filters.institution_id
   });
 }
 
@@ -433,18 +435,14 @@ export function useRejectReward() {
 }
 
 export function useRewardConfigs(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: ['reward-configs', institutionId],
     queryFn: () => ConsultantService.getRewardConfigs(institutionId),
-    enabled: isSuperAdmin || !!institutionId
+    enabled: !!institutionId
   });
 }
 
 export function useRewardStats(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: ['reward-stats', institutionId],
     queryFn: async () => {
@@ -458,17 +456,15 @@ export function useRewardStats(institutionId: string) {
         totalValueRedeemed: stats.totalValueRedeemed
       };
     },
-    enabled: isSuperAdmin || !!institutionId
+    enabled: !!institutionId
   });
 }
 
 export function useRewards(filters: RewardFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
     queryKey: ['rewards', filters],
     queryFn: () => ConsultantService.getRewards(filters),
-    enabled: isSuperAdmin || !!filters.institution_id
+    enabled: !!filters.institution_id
   });
 }
 
@@ -502,8 +498,6 @@ interface SourcePerformanceData {
 }
 
 export function useSourcePerformance(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery<SourcePerformanceData[]>({
     queryKey: ['source-performance', institutionId],
     queryFn: async (): Promise<SourcePerformanceData[]> => {
@@ -520,7 +514,7 @@ export function useSourcePerformance(institutionId: string) {
         costPerConversion: undefined
       }));
     },
-    enabled: isSuperAdmin || !!institutionId
+    enabled: !!institutionId
   });
 
   return {

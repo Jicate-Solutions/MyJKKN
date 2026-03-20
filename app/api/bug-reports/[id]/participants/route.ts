@@ -1,17 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
-import { getAuthSession } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { session, error: sessionError } = await getAuthSession();
-  if (sessionError || !session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   const { id: reportId } = await params;
 
   try {

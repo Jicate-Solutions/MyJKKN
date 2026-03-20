@@ -186,6 +186,7 @@ export function EngagementFilters({
   const loadDepartments = async (institutionId: string) => {
     setLoading(prev => ({ ...prev, departments: true }));
     try {
+      console.log('[EngagementFilters] Loading departments for institution:', institutionId);
       const { data, error } = await supabase
         .from('departments')
         .select('id, department_name')
@@ -195,6 +196,7 @@ export function EngagementFilters({
       if (error) {
         console.error('[EngagementFilters] Error loading departments:', error);
       } else {
+        console.log('[EngagementFilters] Departments loaded:', data);
       }
 
       setDepartments(data?.map((d: any) => ({ id: d.id, name: d.department_name })) || []);
@@ -206,6 +208,7 @@ export function EngagementFilters({
   const loadPrograms = async (departmentId: string) => {
     setLoading(prev => ({ ...prev, programs: true }));
     try {
+      console.log('[EngagementFilters] Loading programs for department:', departmentId);
       const { data, error } = await supabase
         .from('programs')
         .select('id, program_name')
@@ -216,6 +219,7 @@ export function EngagementFilters({
       if (error) {
         console.error('[EngagementFilters] Error loading programs:', error);
       } else {
+        console.log('[EngagementFilters] Programs loaded:', data);
       }
 
       // Map program_name to name for consistency
@@ -233,6 +237,7 @@ export function EngagementFilters({
   const loadSemesters = async (programId: string) => {
     setLoading(prev => ({ ...prev, semesters: true }));
     try {
+      console.log('[EngagementFilters] Loading semesters for program:', programId);
       const { data, error } = await supabase
         .from('semesters')
         .select('id, semester_name')
@@ -243,6 +248,7 @@ export function EngagementFilters({
       if (error) {
         console.error('[EngagementFilters] Error loading semesters:', error);
       } else {
+        console.log('[EngagementFilters] Semesters loaded:', data);
       }
 
       // Map semester_name to name for consistency
@@ -260,6 +266,7 @@ export function EngagementFilters({
   const loadSections = async (semesterId: string) => {
     setLoading(prev => ({ ...prev, sections: true }));
     try {
+      console.log('[EngagementFilters] Loading sections for semester:', semesterId);
       const { data, error } = await supabase
         .from('sections')
         .select('id, section_name')
@@ -270,6 +277,7 @@ export function EngagementFilters({
       if (error) {
         console.error('[EngagementFilters] Error loading sections:', error);
       } else {
+        console.log('[EngagementFilters] Sections loaded:', data);
       }
 
       // Map section_name to name for consistency

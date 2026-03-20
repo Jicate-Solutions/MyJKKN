@@ -29,95 +29,6 @@ export type LifecycleStatus =
  */
 export type MigrationSource = 'merged' | 'admission' | 'student' | 'direct';
 
-// ============================================
-// CAPABILITY & CAREER TYPES (Workshop Transformation)
-// ============================================
-
-/**
- * Individual competency tracking within capabilities JSONB
- * Extended with Fink's Taxonomy dimensions for transformational learning tracking
- */
-export interface LearnerCapabilityCompetency {
-  competency_id: string;
-  competency_name?: string;
-  current_level: 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert';
-
-  /**
-   * Learner's current Fink's dimensions scores for this competency (0-100)
-   * Tracks transformational learning progress across all 6 dimensions
-   */
-  finks_progress?: {
-    foundational_knowledge: number;
-    application: number;
-    integration: number;
-    human_dimension: number;
-    caring: number;
-    learning_how_to_learn: number;
-  };
-
-  evidence: string[]; // URLs to certificates, projects, etc.
-  verified_at?: string;
-  verified_by?: string;
-}
-
-/**
- * Summary counts for capabilities
- */
-export interface LearnerCapabilitySummary {
-  technical_skills: number;
-  behavioral_skills: number;
-  domain_knowledge: number;
-  soft_skills: number;
-}
-
-/**
- * Learner capabilities JSONB structure
- * Tracks competency mastery and transformational learning dimensions
- */
-export interface LearnerCapabilities {
-  competencies: LearnerCapabilityCompetency[];
-  summary?: LearnerCapabilitySummary;
-
-  /**
-   * Overall Fink's dimensions profile for this learner (0-100)
-   * Aggregated across all competencies to show transformational learning progress
-   *
-   * AI Era Significance:
-   * - High human_dimension, caring, learning_how_to_learn = AI-proof human skills
-   * - Low scores = Over-reliance on AI-commoditized skills (risk of irrelevance)
-   */
-  overall_finks_profile?: {
-    foundational_knowledge: number;
-    application: number;
-    integration: number;
-    human_dimension: number;
-    caring: number;
-    learning_how_to_learn: number;
-  };
-
-  /**
-   * AI-era readiness score (0-100)
-   * Weighted average prioritizing human_dimension, caring, learning_how_to_learn
-   * Formula: (human_dimension * 0.3) + (caring * 0.3) + (learning_how_to_learn * 0.3) + (integration * 0.1)
-   */
-  ai_era_readiness_score?: number;
-
-  last_updated?: string;
-}
-
-/**
- * Career aspirations JSONB structure
- */
-export interface LearnerCareerAspirations {
-  target_roles?: string[];
-  preferred_industries?: string[];
-  location_preferences?: string[];
-  salary_expectations?: string;
-  further_studies?: boolean;
-  entrepreneurship_interest?: boolean;
-  updated_at?: string;
-}
-
 /**
  * Main LearnerProfile Interface
  * Single source of truth for all learner data
@@ -178,6 +89,13 @@ export interface LearnerProfile {
   neet_roll_number?: string;
   neet_score?: string;
 
+  // Advanced Analytics Fields (Added: 2025-01-31)
+  school_type?: 'government' | 'aided' | 'private' | 'cbse' | 'icse' | 'state_board';
+  school_district?: string;
+  school_taluk?: string;
+  medium_of_instruction?: 'english' | 'tamil' | 'both';
+  location_type?: 'urban' | 'semi_urban' | 'rural';
+
   // Admission/Counseling Information
   counseling_applied?: boolean;
   counseling_number?: string;
@@ -201,14 +119,21 @@ export interface LearnerProfile {
   accommodation_type: string;
   hostel_type?: string;
   food_type?: string;
-  bus_required?: boolean;
-  bus_route?: string;
-  bus_pickup_location?: string;
-
   // Reference Information
   reference_type?: string;
   reference_name?: string;
   reference_contact?: string;
+
+  // Finance/Fee Details (Added: 2026-03-04)
+  application_fee?: number | null;
+  university_reg_fee?: number | null;
+  fee_structure_type?: 'tuition_hostel' | 'dayscholar' | null;
+  tuition_fee?: number | null;
+  hostel_fee?: number | null;
+  dayscholar_fee?: number | null;
+  uniform_fee?: number | null;
+  hospital_training_fee?: number | null;
+  placement_fee?: number | null;
 
   // Academic Assignment (unlocked after approval/enrollment)
   institution_id?: string;
@@ -227,12 +152,6 @@ export interface LearnerProfile {
   college_email?: string;
   student_photo_url?: string;
   is_profile_complete: boolean;
-
-  // Capability & Career Tracking (Workshop Transformation)
-  capabilities?: LearnerCapabilities;
-  career_aspirations?: LearnerCareerAspirations;
-  industry_readiness_score?: number; // 0-100, computed from competencies
-  portfolio_url?: string;
 
   // Audit fields
   created_at: string;
@@ -370,10 +289,6 @@ export const learnerProfileSchema = z.object({
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
   hostel_type: z.string().optional(),
   food_type: z.string().optional(),
-  bus_required: z.boolean().optional(),
-  bus_route: z.string().optional(),
-  bus_pickup_location: z.string().optional(),
-
   // Reference
   reference_type: z.string().optional(),
   reference_name: z.string().optional(),
@@ -491,14 +406,21 @@ export interface UpdateLearnerProfileDto {
   accommodation_type?: string;
   hostel_type?: string | null;
   food_type?: string | null;
-  bus_required?: boolean | null;
-  bus_route?: string | null;
-  bus_pickup_location?: string | null;
-
   // Reference Information
   reference_type?: string | null;
   reference_name?: string | null;
   reference_contact?: string | null;
+
+  // Finance/Fee Details
+  application_fee?: number | null;
+  university_reg_fee?: number | null;
+  fee_structure_type?: 'tuition_hostel' | 'dayscholar' | null;
+  tuition_fee?: number | null;
+  hostel_fee?: number | null;
+  dayscholar_fee?: number | null;
+  uniform_fee?: number | null;
+  hospital_training_fee?: number | null;
+  placement_fee?: number | null;
 
   // Academic Assignment
   institution_id?: string | null;

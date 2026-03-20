@@ -34,7 +34,11 @@ export function useCreateChangeRequest() {
     onSuccess: (data) => {
       toast.success('Change request submitted successfully!');
 
-      // Invalidate queries
+      // Directly set the pending request data in cache so the UI updates immediately
+      // (invalidateQueries only triggers a background refetch which may return stale/cached data)
+      queryClient.setQueryData(['change-request', 'pending', data.learner_id], data);
+
+      // Also invalidate to ensure eventual consistency
       queryClient.invalidateQueries({ queryKey: ['change-request', 'pending', data.learner_id] });
       queryClient.invalidateQueries({ queryKey: ['learner-profile', data.learner_id] });
     },

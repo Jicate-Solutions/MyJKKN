@@ -171,8 +171,19 @@ export class AttendanceReportService {
       const { data, error, count } = await query;
 
       if (error) {
-        logger.error('academic/attendance-reports', 'Error fetching reports', error);
+        logger.error('academic/attendance-reports', 'Error fetching reports', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          filters
+        });
         return { data: [], count: 0, error: error.message };
+      }
+
+      if (!data || data.length === 0) {
+        logger.info('academic/attendance-reports', 'No reports found', { filters, userRole });
+        return { data: [], count: 0, error: null };
       }
 
       // Fetch related data in batch for better performance
@@ -865,11 +876,7 @@ export class AttendanceReportService {
             avatar_url: freshData.avatar_url || s.avatar_url,
             section_id: sectionId,
             section_name: sectionName,
-            is_present: s.status === 'Present',
-            // P1.5.4 - Include engagement data from attendance record
-            ...(s.engagement_score && { engagement_score: s.engagement_score }),
-            ...(s.learning_behaviors && s.learning_behaviors.length > 0 && { learning_behaviors: s.learning_behaviors }),
-            ...(s.engagement_notes && { engagement_notes: s.engagement_notes })
+            is_present: s.status === 'Present'
           };
         });
 
@@ -905,9 +912,6 @@ export class AttendanceReportService {
           course_name: period.course_name || 'Unknown Course',
           faculty: facultyArray,
           marked_by_details: period.marked_by_details,
-          // P1.5.4 - Include engagement metadata
-          ...(period.engagement_required !== undefined && { engagement_required: period.engagement_required }),
-          ...(period.average_engagement_score !== undefined && { average_engagement_score: period.average_engagement_score }),
           students: processedStudents,
           present_count: presentCount,
           absent_count: totalCount - presentCount,
@@ -924,7 +928,7 @@ export class AttendanceReportService {
           return {
             ...student,
             is_present: attendedCount > 0,
-            attendance_percentage: periods.length > 0 ? (attendedCount / periods.length) * 100 : 0
+            attendance_percentage: (attendedCount / periods.length) * 100
           };
         }
       );
@@ -1314,7 +1318,7 @@ export class AttendanceReportService {
         })
         .map(([date, stats]) => ({
           date,
-          percentage: stats.total > 0 ? (stats.present / stats.total) * 100 : 0,
+          percentage: (stats.present / stats.total) * 100,
           section: undefined // Can be enhanced to include section info
         }))
         .sort((a, b) => b.date.localeCompare(a.date))

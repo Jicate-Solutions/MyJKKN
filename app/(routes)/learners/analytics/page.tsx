@@ -2,13 +2,14 @@
 // LEARNERS ANALYTICS DASHBOARD - COMPREHENSIVE
 // ============================================
 // Created: 2025-01-20
-// Updated: 2025-01-23 - Complete dashboard with 6 tabs
+// Updated: 2025-02-02 - Complete dashboard with 8 tabs (combined geography and trends tabs)
 // Purpose: Unified analytics for entire learner lifecycle
 // ============================================
 
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { subDays, formatDistanceToNow } from 'date-fns';
 import {
   BarChart3,
@@ -21,7 +22,12 @@ import {
   Filter,
   AlertCircle,
   Download,
-  Sparkles
+  Sparkles,
+  PieChart,
+  School,
+  Globe,
+  Target,
+  FileEdit,
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -35,18 +41,26 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
+import type { LearnerDashboardFilters, ChangeRequestAnalytics } from '@/types/learner-dashboard';
 import toast from 'react-hot-toast';
 
-// Tab components (will be created in subsequent phases)
+// Tab components
 import { OverviewTab } from './_components/overview-tab';
 import { OrganizationalTab } from './_components/organizational-tab';
 import { DemographicsTab } from './_components/demographics-tab';
-import { GeographicTab } from './_components/geographic-tab';
-import { TrendsTab } from './_components/trends-tab';
+import { GeographicTabCombined } from './_components/geographic-tab-combined';
+import { TrendsTabCombined } from './_components/trends-tab-combined';
 import { ProfileCompletionTab } from './_components/profile-completion-tab';
 import { DashboardFilters } from './_components/dashboard-filters';
 import { ExportDashboardDialog } from './_components/export-dashboard-dialog';
+
+// Advanced Analytics Tab Components
+import { IntakeCapacityTab } from './_components/intake-capacity-tab';
+import { SchoolFeedersTab } from './_components/school-feeders-tab';
+import { ChangeRequestsAnalyticsTab } from './_components/change-requests-analytics-tab';
+
+// Advanced Analytics Hook
+import { useLearnerAdvancedAnalytics } from '@/hooks/use-learner-advanced-analytics';
 
 /**
  * Learners Analytics Dashboard - Main Page
@@ -56,7 +70,7 @@ import { ExportDashboardDialog } from './_components/export-dashboard-dialog';
  * - Old admission dashboard (conversion funnel, status breakdown)
  *
  * Features:
- * - 6 tabbed sections for organized data presentation
+ * - 8 tabbed sections for organized data presentation (combined geography and trends tabs)
  * - Advanced filtering with cascading dropdowns
  * - Export functionality (PDF, Excel, CSV)
  * - Interactive charts with drill-down capability
@@ -73,6 +87,20 @@ export default function LearnersAnalyticsDashboard() {
   const queryClient = useQueryClient();
   const { can, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const { profile, isLoading: authLoading } = useAuth();
+  
+  // URL State Management for Tabs
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const activeTab = searchParams.get('tab') || 'overview';
+
+  const handleTabChange = (value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', value);
+    // Use replace to prevent polluting browser history with every tab switch
+    // scroll: false maintains scroll position
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
 
   // Institution access based on user's profile
   // Super admins can access all institutions
@@ -164,6 +192,54 @@ export default function LearnersAnalyticsDashboard() {
     gcTime: 10 * 60 * 1000,        // 10 minutes (keep in memory for 10 min)
     refetchOnMount: true,           // Revalidate in background on mount
     refetchOnWindowFocus: false     // Don't refetch when window regains focus
+  });
+
+  // Fetch advanced analytics data
+  const {
+    data: advancedAnalytics,
+    isLoading: isLoadingAdvanced,
+    error: errorAdvanced,
+  } = useLearnerAdvancedAnalytics(
+    {
+      institutionId: filters.institutionIds?.[0],
+      degreeId: filters.degreeId,
+      departmentId: filters.departmentId,
+      programId: filters.programId,
+      semesterId: filters.semesterId,
+      sectionId: filters.sectionId,
+      academicYearId: filters.academicYearId,
+      lifecycleStatus: filters.lifecycleStatuses,
+      gender: filters.gender,
+      dateFrom: filters.dateRange?.from?.toISOString(),
+      dateTo: filters.dateRange?.to?.toISOString(),
+    },
+    {
+      enabled: hasAccess && !authLoading && !permissionsLoading,
+    }
+  );
+
+  // Fetch change request analytics
+  const {
+    data: changeRequestAnalytics,
+    isLoading: isLoadingChangeRequests,
+    error: errorChangeRequests,
+  } = useQuery<ChangeRequestAnalytics>({
+    queryKey: ['learners', 'analytics', 'change-requests', filters.institutionIds?.[0]],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.institutionIds?.[0]) {
+        params.set('institutionId', filters.institutionIds[0]);
+      }
+      const response = await fetch(`/api/learners/analytics/change-requests?${params.toString()}`);
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to fetch change request analytics');
+      }
+      return response.json();
+    },
+    enabled: hasAccess && !authLoading && !permissionsLoading,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
 
   // Handle manual refresh
@@ -365,31 +441,47 @@ export default function LearnersAnalyticsDashboard() {
         )}
 
         {/* Tabbed Analytics */}
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 gap-2">
-            <TabsTrigger value="overview" className="flex items-center gap-2">
+        <Tabs 
+          value={activeTab} 
+          onValueChange={handleTabChange}
+          className="space-y-4"
+        >
+          <TabsList className="flex h-auto w-full items-center justify-start gap-2 overflow-x-auto bg-muted p-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <TabsTrigger value="overview" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Overview</span>
+              <span>Overview</span>
             </TabsTrigger>
-            <TabsTrigger value="organizational" className="flex items-center gap-2">
+            <TabsTrigger value="organizational" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <Building2 className="h-4 w-4" />
-              <span className="hidden sm:inline">Organizational</span>
+              <span>Org</span>
             </TabsTrigger>
-            <TabsTrigger value="demographics" className="flex items-center gap-2">
+            <TabsTrigger value="demographics" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <Users className="h-4 w-4" />
-              <span className="hidden sm:inline">Demographics</span>
+              <span>Demographics</span>
             </TabsTrigger>
-            <TabsTrigger value="geographic" className="flex items-center gap-2">
+            <TabsTrigger value="geographic" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <MapPin className="h-4 w-4" />
-              <span className="hidden sm:inline">Geographic</span>
+              <span>Geographic</span>
             </TabsTrigger>
-            <TabsTrigger value="trends" className="flex items-center gap-2">
+            <TabsTrigger value="trends" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <TrendingUp className="h-4 w-4" />
-              <span className="hidden sm:inline">Trends</span>
+              <span>Trends</span>
             </TabsTrigger>
-            <TabsTrigger value="profile-completion" className="flex items-center gap-2">
+            <TabsTrigger value="profile-completion" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
               <UserCheck className="h-4 w-4" />
-              <span className="hidden sm:inline">Profile Completion</span>
+              <span>Profile</span>
+            </TabsTrigger>
+            <TabsTrigger value="intake-capacity" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
+              <Target className="h-4 w-4" />
+              <span>Intake</span>
+            </TabsTrigger>
+            <TabsTrigger value="school-feeders" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
+              <School className="h-4 w-4" />
+              <span>Schools</span>
+            </TabsTrigger>
+            <TabsTrigger value="change-requests" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
+              <FileEdit className="h-4 w-4" />
+              <span>Changes</span>
             </TabsTrigger>
           </TabsList>
 
@@ -417,18 +509,20 @@ export default function LearnersAnalyticsDashboard() {
             />
           </TabsContent>
 
-          {/* Geographic Tab */}
+          {/* Geographic Tab - Combined */}
           <TabsContent value="geographic">
-            <GeographicTab
-              data={stats}
+            <GeographicTabCombined
+              basicData={stats}
+              advancedData={advancedAnalytics?.geography}
               filters={filters}
             />
           </TabsContent>
 
-          {/* Trends Tab */}
+          {/* Trends Tab - Combined */}
           <TabsContent value="trends">
-            <TrendsTab
-              data={stats}
+            <TrendsTabCombined
+              basicData={stats}
+              advancedData={advancedAnalytics?.trends}
               filters={filters}
             />
           </TabsContent>
@@ -439,6 +533,97 @@ export default function LearnersAnalyticsDashboard() {
               data={stats}
               filters={filters}
             />
+          </TabsContent>
+
+          {/* Advanced Analytics Tabs */}
+          {/* Intake & Capacity Tab */}
+          <TabsContent value="intake-capacity">
+            {isLoadingAdvanced ? (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : errorAdvanced ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to load intake capacity data. Please try again.
+                </AlertDescription>
+              </Alert>
+            ) : advancedAnalytics?.intakeCapacity ? (
+              <IntakeCapacityTab data={advancedAnalytics.intakeCapacity} />
+            ) : (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No intake capacity data available.
+                </AlertDescription>
+              </Alert>
+            )}
+          </TabsContent>
+
+          {/* School Feeders Tab */}
+          <TabsContent value="school-feeders">
+            {isLoadingAdvanced ? (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : errorAdvanced ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to load school feeders data. Please try again.
+                </AlertDescription>
+              </Alert>
+            ) : advancedAnalytics?.schoolFeeders ? (
+              <SchoolFeedersTab data={advancedAnalytics.schoolFeeders} />
+            ) : (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No school feeders data available.
+                </AlertDescription>
+              </Alert>
+            )}
+          </TabsContent>
+
+          {/* Change Requests Analytics Tab */}
+          <TabsContent value="change-requests">
+            {isLoadingChangeRequests ? (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : errorChangeRequests ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to load change request analytics. Please try again.
+                </AlertDescription>
+              </Alert>
+            ) : changeRequestAnalytics ? (
+              <ChangeRequestsAnalyticsTab data={changeRequestAnalytics} />
+            ) : (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No change request data available.
+                </AlertDescription>
+              </Alert>
+            )}
           </TabsContent>
         </Tabs>
 

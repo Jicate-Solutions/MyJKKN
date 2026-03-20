@@ -1,169 +1,159 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+// hooks/academic/use-batches.ts
+// Updated: 2026-02-28 — Migrated from useState/useCallback/useEffect to React Query
+// Previous: manual fetch with useRef to avoid stale closures + setTimeout hacks
+
+import { useState, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
 import { BatchService } from '@/lib/services/academic/batch-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'react-hot-toast';
 import type {
   Batch,
   BatchFilters,
   CreateBatchDto,
-  UpdateBatchDto
+  UpdateBatchDto,
 } from '@/types/academics';
 
+// ---------------------------------------------------------------------------
+// Query keys
+// ---------------------------------------------------------------------------
+export const BATCH_KEYS = {
+  all: ['batches'] as const,
+  list: (filters: BatchFilters) => ['batches', 'list', filters] as const,
+} as const;
+
+// ---------------------------------------------------------------------------
+// useBatches — paginated list + CRUD mutations (backward-compatible)
+//
+// Callers destructure (across all files):
+//   { batches, loading, createBatch }
+//   { batches, loading: loadingBatches }
+//   { createBatch }
+// All fields are preserved.
+// ---------------------------------------------------------------------------
 export function useBatches(initialFilters: BatchFilters = {}) {
   const { isSuperAdmin, userProfile } = usePermissions();
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
   const [filters, setFilters] = useState<BatchFilters>(initialFilters);
-  const [metadata, setMetadata] = useState({
-    total: 0,
-    page: 1,
-    limit: 10,
-    totalPages: 0
+
+  // ------------------------------------------------------------------
+  // List query
+  // ------------------------------------------------------------------
+  const query = useQuery({
+    queryKey: BATCH_KEYS.list(filters),
+    queryFn: () => {
+      return isSuperAdmin
+        ? BatchService.getBatches(filters)
+        : BatchService.getBatchesWithAccess(
+            filters,
+            userProfile?.institution_id,
+            false
+          );
+    },
+    enabled: isSuperAdmin !== undefined,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 
-  // Use ref to track the current filters to avoid stale closure issues
-  const filtersRef = useRef(filters);
-  filtersRef.current = filters;
+  const batches: Batch[] = query.data?.data ?? [];
+  const rawMeta = query.data?.metadata;
+  const metadata = {
+    total: rawMeta?.total ?? 0,
+    page: filters.page ?? 1,
+    limit: filters.limit ?? 10,
+    totalPages: Math.ceil((rawMeta?.total ?? 0) / (filters.limit ?? 10)),
+  };
+
+  // ------------------------------------------------------------------
+  // Filter helpers
+  // ------------------------------------------------------------------
+  const updateFilters = useCallback((newFilters: Partial<BatchFilters>) => {
+    setFilters((prev) => ({ ...prev, ...newFilters, page: 1 }));
+  }, []);
+
+  const changePage = useCallback((newPage: number) => {
+    setFilters((prev) => ({ ...prev, page: newPage }));
+  }, []);
 
   const fetchBatches = useCallback(
     async (newFilters?: BatchFilters) => {
-      try {
-        setLoading(true);
-        setError(null);
-        // Use the passed filters or the current filters from ref
-        const currentFilters = newFilters || filtersRef.current;
-
-        // Use institution-aware method if user is not super admin
-        const result = isSuperAdmin
-          ? await BatchService.getBatches(currentFilters)
-          : await BatchService.getBatchesWithAccess(
-              currentFilters,
-              userProfile?.institution_id,
-              false
-            );
-        setBatches(result.data);
-        setMetadata(result.metadata);
-
-        if (newFilters) {
-          setFilters(newFilters);
-        }
-      } catch (err) {
-        console.error('Error fetching batches:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
+      if (newFilters) {
+        setFilters(newFilters);
+        // setFilters triggers a re-render; useQuery picks up the new key and fetches automatically.
+      } else {
+        await query.refetch();
       }
     },
-    [isSuperAdmin, userProfile?.institution_id]
+    [query]
   );
 
-  const updateFilters = useCallback(
-    (newFilters: Partial<BatchFilters>) => {
-      setFilters((currentFilters) => {
-        const updatedFilters = {
-          ...currentFilters,
-          ...newFilters,
-          page: 1 // Reset to first page when filters change
-        };
-        // Use setTimeout to break the synchronous update cycle
-        setTimeout(() => {
-          fetchBatches(updatedFilters);
-        }, 0);
-        return updatedFilters;
-      });
+  // ------------------------------------------------------------------
+  // Mutations — keep the same async function signatures callers expect
+  // ------------------------------------------------------------------
+  const createMutation = useMutation({
+    mutationFn: (data: CreateBatchDto) => BatchService.createBatch(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: BATCH_KEYS.all });
+      toast.success('Batch created successfully');
     },
-    [fetchBatches]
-  );
-
-  const changePage = useCallback(
-    (page: number) => {
-      setFilters((currentFilters) => {
-        const updatedFilters = { ...currentFilters, page };
-        // Use setTimeout to break the synchronous update cycle
-        setTimeout(() => {
-          fetchBatches(updatedFilters);
-        }, 0);
-        return updatedFilters;
-      });
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create batch');
     },
-    [fetchBatches]
-  );
+  });
 
-  // Fetch data on mount
-  useEffect(() => {
-    fetchBatches(initialFilters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateBatchDto }) =>
+      BatchService.updateBatch(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: BATCH_KEYS.all });
+      toast.success('Batch updated successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update batch');
+    },
+  });
 
-  // Update filtersRef when initialFilters change and fetch data
-  useEffect(() => {
-    if (JSON.stringify(initialFilters) !== JSON.stringify(filtersRef.current)) {
-      setFilters(initialFilters);
-      fetchBatches(initialFilters);
-    }
-  }, [initialFilters, fetchBatches]);
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => BatchService.deleteBatch(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: BATCH_KEYS.all });
+      toast.success('Batch deleted successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete batch');
+    },
+  });
 
+  // Wrap mutations in the same async throw-on-error shape the old hook used
   const createBatch = useCallback(
     async (data: CreateBatchDto) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await BatchService.createBatch(data);
-        // Refresh batches list
-        fetchBatches();
-      } catch (err) {
-        console.error('Error creating batch:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+      await createMutation.mutateAsync(data);
     },
-    [fetchBatches]
+    [createMutation]
   );
 
   const updateBatch = useCallback(
     async (id: string, data: UpdateBatchDto) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await BatchService.updateBatch(id, data);
-        // Refresh batches list
-        fetchBatches();
-      } catch (err) {
-        console.error('Error updating batch:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+      await updateMutation.mutateAsync({ id, data });
     },
-    [fetchBatches]
+    [updateMutation]
   );
 
   const deleteBatch = useCallback(
     async (id: string) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await BatchService.deleteBatch(id);
-        // Refresh batches list
-        fetchBatches();
-      } catch (err) {
-        console.error('Error deleting batch:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+      await deleteMutation.mutateAsync(id);
     },
-    [fetchBatches]
+    [deleteMutation]
   );
+
+  const isMutating =
+    createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
 
   return {
     batches,
-    loading,
-    error,
+    loading: query.isLoading || query.isFetching || isMutating,
+    error: query.error ? (query.error as Error).message : null,
     metadata,
     filters,
     updateFilters,
@@ -171,6 +161,6 @@ export function useBatches(initialFilters: BatchFilters = {}) {
     fetchBatches,
     createBatch,
     updateBatch,
-    deleteBatch
+    deleteBatch,
   };
 }

@@ -3,15 +3,12 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { usePermissions } from '@/hooks/use-permissions';
 
 export const chatbotConfigKeys = {
   config: (institutionId: string) => ['chatbot-config', institutionId] as const,
 };
 
 export function useChatbotConfig(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: chatbotConfigKeys.config(institutionId || ''),
     queryFn: async () => {
@@ -20,7 +17,7 @@ export function useChatbotConfig(institutionId?: string) {
       const data = await res.json();
       return data.config;
     },
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {

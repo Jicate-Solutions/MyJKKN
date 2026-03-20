@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 interface PeriodSelectorProps {
   sectionId: string;
+  semesterId: string;
   selectedDate: string;
   periodType: PeriodType;
   selectedPeriods: string[];
@@ -32,6 +33,7 @@ interface PeriodSelectorProps {
 
 export function PeriodSelector({
   sectionId,
+  semesterId,
   selectedDate,
   periodType,
   selectedPeriods,
@@ -44,7 +46,21 @@ export function PeriodSelector({
     data: periodDetection,
     isLoading,
     error,
-  } = usePeriodsForDate(sectionId, selectedDate, periodType);
+  } = usePeriodsForDate(sectionId, semesterId, selectedDate, periodType);
+
+  // Debug logging
+  console.log('[PeriodSelector] Props:', {
+    sectionId,
+    semesterId,
+    selectedDate,
+    periodType,
+    selectedPeriods,
+  });
+  console.log('[PeriodSelector] Query result:', {
+    periodDetection,
+    isLoading,
+    error,
+  });
 
   // Auto-update selected periods when period type changes
   useEffect(() => {
@@ -81,99 +97,121 @@ export function PeriodSelector({
     );
   }
 
-  if (isLoading) {
-    return <PeriodSelectorSkeleton />;
-  }
-
-  if (error || !periodDetection?.valid) {
-    return (
-      <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-4">
-        <div className="flex items-start gap-2">
-          <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-500 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-red-800 dark:text-red-200">
-              Unable to load periods
-            </p>
-            <p className="text-sm text-red-700 dark:text-red-300 mt-1">
-              {periodDetection?.error || 'No timetable found for selected date'}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const timetableData = periodDetection.timetable || {};
+  const hasTimetable = periodDetection?.valid && !error;
+  const timetableData = periodDetection?.timetable || {};
   const availablePeriods = Object.keys(timetableData);
 
   return (
-    <div className={cn('space-y-6', className)}>
-      {/* Period Type Selection */}
-      <div className="space-y-3">
-        <Label className="text-base font-medium">Select Period Type</Label>
-        <RadioGroup
-          value={periodType}
-          onValueChange={handlePeriodTypeChange}
-          disabled={disabled}
-          className="grid grid-cols-1 md:grid-cols-2 gap-3"
-        >
-          {PERIOD_TYPES.map((type) => (
-            <label
-              key={type.value}
-              className={cn(
-                'flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition-all',
-                periodType === type.value
-                  ? 'border-primary bg-primary/5'
-                  : 'border-gray-200 dark:border-gray-700 hover:border-primary/50',
-                disabled && 'opacity-50 cursor-not-allowed'
-              )}
-            >
-              <RadioGroupItem value={type.value} id={type.value} className="mt-1" />
-              <div className="flex-1">
-                <div className="font-medium text-gray-900 dark:text-gray-100">
-                  {type.label}
-                </div>
-                <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  {type.description}
-                </div>
-                {periodType === type.value && type.value !== 'periodwise' && (
-                  <div className="text-xs text-primary mt-2 font-medium">
-                    {periodDetection.periods.length} period(s) selected
-                  </div>
+    <div className={cn('space-y-4 sm:space-y-6', className)}>
+      {/* Period Type Selection - Always show */}
+      <div className="space-y-2 sm:space-y-3">
+        <Label className="text-sm sm:text-base font-medium">
+          Select Period Type<span className="text-red-500 ml-1">*</span>
+        </Label>
+
+        {isLoading ? (
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            {[1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-20 sm:h-24 w-full rounded-lg" />
+            ))}
+          </div>
+        ) : (
+          <RadioGroup
+            value={periodType}
+            onValueChange={handlePeriodTypeChange}
+            disabled={disabled}
+            className="grid grid-cols-2 gap-2 sm:gap-3"
+          >
+            {PERIOD_TYPES.map((type) => (
+              <label
+                key={type.value}
+                className={cn(
+                  'flex items-start gap-2 sm:gap-3 rounded-lg border-2 p-2.5 sm:p-4 cursor-pointer transition-all',
+                  periodType === type.value
+                    ? 'border-primary bg-primary/5'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-primary/50',
+                  disabled && 'opacity-50 cursor-not-allowed'
                 )}
-              </div>
-            </label>
-          ))}
-        </RadioGroup>
+              >
+                <RadioGroupItem value={type.value} id={type.value} className="mt-0.5 h-4 w-4" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-xs sm:text-sm text-gray-900 dark:text-gray-100">
+                    {type.label}
+                  </div>
+                  <div className="text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 mt-0.5 sm:mt-1 line-clamp-2">
+                    {type.description}
+                  </div>
+                  {periodType === type.value && type.value !== 'periodwise' && hasTimetable && periodDetection?.periods && (
+                    <div className="text-[10px] sm:text-xs text-primary mt-1 sm:mt-2 font-medium">
+                      {periodDetection.periods.length} selected
+                    </div>
+                  )}
+                </div>
+              </label>
+            ))}
+          </RadioGroup>
+        )}
       </div>
 
-      {/* Period-wise Selection */}
-      {periodType === 'periodwise' && (
-        <div className="space-y-3">
-          <Label className="text-base font-medium">
+      {/* Timetable Warning - Show if no timetable found */}
+      {!isLoading && !hasTimetable && (
+        <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 p-3 sm:p-4">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600 dark:text-yellow-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs sm:text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                No timetable found
+              </p>
+              <p className="text-[10px] sm:text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                {periodDetection?.error || 'No timetable found for selected date. Your application will be processed based on the selected period type.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Period-wise Selection - Only show if timetable exists */}
+      {periodType === 'periodwise' && hasTimetable && (
+        <div className="space-y-2 sm:space-y-3">
+          <Label className="text-sm sm:text-base font-medium">
             Select Specific Periods
             {selectedPeriods.length > 0 && (
-              <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
+              <span className="text-xs sm:text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
                 ({selectedPeriods.length} selected)
               </span>
             )}
           </Label>
 
           {availablePeriods.length === 0 ? (
-            <div className="text-sm text-gray-500 dark:text-gray-400">
+            <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
               No periods available for this date
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {availablePeriods.map((slotId) => {
-                const period = timetableData[slotId];
-                const isSelected = selectedPeriods.includes(slotId);
+            <div className="grid grid-cols-1 gap-2 sm:gap-3">
+              {availablePeriods.map((periodId, index) => {
+                const period = timetableData[periodId];
+                const isSelected = selectedPeriods.includes(periodId);
+
+                // Skip break periods
+                if (period?.is_break) return null;
+
+                // Get display values from enriched data
+                const periodName = period?.period_name || `Period ${index + 1}`;
+                const startTime = period?.start_time || '';
+                const endTime = period?.end_time || '';
+                const courseName = period?.course_name || '';
+                const courseCode = period?.course_code || '';
+
+                // Format time display
+                const timeDisplay = startTime && endTime
+                  ? `${startTime} - ${endTime}`
+                  : startTime || '';
 
                 return (
                   <label
-                    key={slotId}
+                    key={periodId}
                     className={cn(
-                      'flex items-start gap-3 rounded-lg border-2 p-3 cursor-pointer transition-all',
+                      'flex items-center gap-2 sm:gap-3 rounded-lg border-2 p-2.5 sm:p-3 cursor-pointer transition-all',
                       isSelected
                         ? 'border-primary bg-primary/5'
                         : 'border-gray-200 dark:border-gray-700 hover:border-primary/50',
@@ -183,29 +221,26 @@ export function PeriodSelector({
                     <Checkbox
                       checked={isSelected}
                       onCheckedChange={(checked) =>
-                        handlePeriodToggle(slotId, checked as boolean)
+                        handlePeriodToggle(periodId, checked as boolean)
                       }
                       disabled={disabled}
-                      className="mt-1"
+                      className="h-4 w-4"
                     />
-                    <div className="flex-1">
-                      <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">
-                        {period.period_name || `Period ${period.period_id}`}
-                        {period.course_name && (
-                          <span className="text-gray-600 dark:text-gray-400 ml-1">
-                            ({period.course_name})
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-gray-900 dark:text-gray-100 text-xs sm:text-sm truncate">
+                          {periodName}
+                        </span>
+                        {timeDisplay && (
+                          <span className="flex items-center gap-1 text-[10px] sm:text-xs text-gray-600 dark:text-gray-400 flex-shrink-0">
+                            <Clock className="h-3 w-3" />
+                            {timeDisplay}
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 mt-1">
-                        <Clock className="h-3 w-3" />
-                        <span>
-                          {period.start_time} - {period.end_time}
-                        </span>
-                      </div>
-                      {period.faculty_name && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          Faculty: {period.faculty_name}
+                      {(courseName || courseCode) && (
+                        <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+                          {courseCode ? `${courseCode} - ${courseName}` : courseName}
                         </div>
                       )}
                     </div>
@@ -215,9 +250,9 @@ export function PeriodSelector({
             </div>
           )}
 
-          {periodType === 'periodwise' && selectedPeriods.length === 0 && (
-            <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 p-3">
-              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+          {selectedPeriods.length === 0 && (
+            <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 p-2 sm:p-3">
+              <p className="text-xs sm:text-sm text-yellow-800 dark:text-yellow-200">
                 Please select at least one period
               </p>
             </div>
@@ -225,31 +260,17 @@ export function PeriodSelector({
         </div>
       )}
 
-      {/* Auto-detected Periods Summary */}
-      {periodType !== 'periodwise' && periodDetection.periods.length > 0 && (
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800">
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
-            Auto-detected Periods:
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {periodDetection.periods.map((slotId) => {
-              const period = timetableData[slotId];
-              return (
-                <div
-                  key={slotId}
-                  className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary"
-                >
-                  <Clock className="h-3 w-3" />
-                  {period?.period_name || slotId}
-                  <span className="text-gray-600 dark:text-gray-400">
-                    ({period?.start_time})
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+      {/* Period-wise without timetable */}
+      {periodType === 'periodwise' && !hasTimetable && !isLoading && (
+        <div className="rounded-md bg-gray-50 dark:bg-gray-800 p-3 sm:p-4">
+          <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+            Period-wise selection requires a timetable. Please select Full Day, Forenoon, or Afternoon instead.
+          </p>
         </div>
       )}
+
+      {/* Auto-detected Periods Summary - Hidden, periods are auto-selected in background */}
+      {/* Only show count indicator in the period type card instead */}
     </div>
   );
 }

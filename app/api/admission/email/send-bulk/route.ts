@@ -3,16 +3,18 @@
 // Body: { recipients: [{ to, template_id, variables, lead_id }], institution_id }
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser, createServerSupabaseClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { EmailService } from '@/lib/services/email/email-service';
 
 export async function POST(request: NextRequest) {
   try {
     // Authenticate user
-    const { user, error: authError } = await getAuthUser();
+    const supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
     if (authError || !user) {
       return NextResponse.json(
-        { error: 'UNAUTHORIZED', message: 'Authentication required' },
+        { error: 'Unauthorized' },
         { status: 401 }
       );
     }
@@ -53,18 +55,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = await createServerSupabaseClient();
+    // Verify user has access to the institution
+    const { data: access, error: accessError } = await supabase
+      .from('user_institution_access')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institution_id)
+      .maybeSingle();
 
-    // Verify user has access to the institution via profiles (NOT user_institution_access)
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('institution_id, role')
-      .eq('id', user.id)
-      .single();
-
-    // super_admin always has full access regardless of institution_id
-    const isSuperAdmin = profile?.role === 'super_admin';
-    if (!isSuperAdmin && profile?.institution_id !== institution_id) {
+    if (accessError || !access) {
       return NextResponse.json(
         { error: 'You do not have access to this institution' },
         { status: 403 }

@@ -9,7 +9,6 @@ import {
   type VoiceAgentType,
   type AgentCallFilters,
 } from '@/lib/services/ai/voice-agent-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -30,12 +29,10 @@ export const voiceAgentKeys = {
 // ============================================================================
 
 export function useVoiceAgentConfigs(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: voiceAgentKeys.configs(institutionId || ''),
     queryFn: () => VoiceAgentService.getAgentConfigs(institutionId!),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {
@@ -48,12 +45,10 @@ export function useVoiceAgentConfigs(institutionId?: string) {
 }
 
 export function useVoiceAgentCalls(filters: AgentCallFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: voiceAgentKeys.callsList(filters),
     queryFn: () => VoiceAgentService.getAgentCalls(filters),
-    enabled: isSuperAdmin || !!filters.institutionId,
+    enabled: !!filters.institutionId,
   });
 
   return {

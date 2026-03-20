@@ -20,6 +20,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 
 export default function GroupDashboardPage() {
   const queryClient = useQueryClient();
@@ -32,24 +33,27 @@ export default function GroupDashboardPage() {
 
   if (isError) {
     return (
-      <ContentLayout title="Group Dashboard">
-        <div className="p-6 mx-auto mt-12">
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>
-              {(error as Error)?.message || 'Failed to load group dashboard.'}
-            </AlertDescription>
-          </Alert>
-          <Button className="mt-4" onClick={handleRefresh}>
-            Try Again
-          </Button>
-        </div>
-      </ContentLayout>
+      <PermissionGuard module="admission" action="view">
+        <ContentLayout title="Group Dashboard">
+          <div className="p-6 mx-auto mt-12">
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>
+                {(error as Error)?.message || 'Failed to load group dashboard.'}
+              </AlertDescription>
+            </Alert>
+            <Button className="mt-4" onClick={handleRefresh}>
+              Try Again
+            </Button>
+          </div>
+        </ContentLayout>
+      </PermissionGuard>
     );
   }
 
   return (
+    <PermissionGuard module="admission" action="view">
     <ContentLayout title="Group Dashboard">
       <div className="p-4 sm:p-6 mx-auto space-y-4">
         <Breadcrumb>
@@ -131,5 +135,6 @@ export default function GroupDashboardPage() {
         )}
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }

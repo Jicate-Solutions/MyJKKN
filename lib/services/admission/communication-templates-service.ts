@@ -22,6 +22,8 @@ export interface CommunicationTemplate {
   channel: TemplateChannel;
   subject: string | null;
   content: string;
+  attachment_type: 'image' | 'video' | 'document' | null;
+  attachment_url: string | null;
   description: string | null;
   category: string | null;
   variables: TemplateVariable[];
@@ -41,6 +43,8 @@ export interface CreateTemplateInput {
   description?: string;
   category?: string;
   variables?: TemplateVariable[];
+  attachment_type?: 'image' | 'video' | 'document' | null;
+  attachment_url?: string | null;
   is_active?: boolean;
 }
 
@@ -52,6 +56,8 @@ export interface UpdateTemplateInput {
   description?: string;
   category?: string;
   variables?: TemplateVariable[];
+  attachment_type?: 'image' | 'video' | 'document' | null;
+  attachment_url?: string | null;
   is_active?: boolean;
 }
 
@@ -124,14 +130,17 @@ export class CommunicationTemplatesService {
   /**
    * Get active templates for an institution (for use in workflows/campaigns)
    */
-  static async getActiveTemplates(institutionId: string | undefined, type?: TemplateType): Promise<CommunicationTemplate[]> {
+  static async getActiveTemplates(institutionId?: string, type?: TemplateType): Promise<CommunicationTemplate[]> {
     let query = this.supabase
       .from('admission_communication_templates')
-      .select('*');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    query = query
+      .select('*')
       .eq('is_active', true)
       .order('name', { ascending: true });
+
+    // Filter by institution when provided; super admins pass undefined and rely on RLS for full access
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
 
     if (type) {
       query = query.eq('channel', type);
@@ -180,6 +189,8 @@ export class CommunicationTemplatesService {
         description: input.description || null,
         category: input.category || null,
         variables: input.variables || [],
+        attachment_type: input.attachment_type ?? null,
+        attachment_url: input.attachment_url ?? null,
         is_active: input.is_active ?? true,
       })
       .select()
@@ -208,6 +219,8 @@ export class CommunicationTemplatesService {
     if (input.description !== undefined) updateData.description = input.description;
     if (input.category !== undefined) updateData.category = input.category;
     if (input.variables !== undefined) updateData.variables = input.variables;
+    if (input.attachment_type !== undefined) updateData.attachment_type = input.attachment_type;
+    if (input.attachment_url !== undefined) updateData.attachment_url = input.attachment_url;
     if (input.is_active !== undefined) updateData.is_active = input.is_active;
 
     const { data, error } = await this.supabase
@@ -265,6 +278,8 @@ export class CommunicationTemplatesService {
       description: original.description || undefined,
       category: original.category || undefined,
       variables: original.variables,
+      attachment_type: original.attachment_type ?? undefined,
+      attachment_url: original.attachment_url ?? undefined,
       is_active: false, // Start duplicates as inactive
     });
   }
@@ -276,12 +291,11 @@ export class CommunicationTemplatesService {
   /**
    * Get template statistics for an institution
    */
-  static async getTemplateStats(institutionId: string | undefined): Promise<TemplateStats> {
-    let statsQuery = this.supabase
+  static async getTemplateStats(institutionId: string): Promise<TemplateStats> {
+    const { data, error } = await this.supabase
       .from('admission_communication_templates')
-      .select('id, channel, is_active');
-    if (institutionId) statsQuery = statsQuery.eq('institution_id', institutionId);
-    const { data, error } = await statsQuery;
+      .select('id, channel, is_active')
+      .eq('institution_id', institutionId);
 
     if (error) {
       console.warn('[admission/communication-templates] Failed to fetch stats:', error);

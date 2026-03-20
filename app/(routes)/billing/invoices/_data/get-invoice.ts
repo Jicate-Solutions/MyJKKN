@@ -38,7 +38,7 @@ export async function getInvoice(id: string): Promise<BillingInvoice> {
         roll_number,
         college_email
       ),
-      institution:institutions!fk_billing_invoices_institution(
+      institution:institutions(
         id,
         name,
         counselling_code

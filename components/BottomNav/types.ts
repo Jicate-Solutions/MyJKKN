@@ -22,6 +22,8 @@ export interface BottomNavItemProps {
   isActive: boolean;
   hasSubmenu: boolean;
   badgeCount?: number;
+  hideIndicator?: boolean; // Hide the bottom underline indicator
+  customColor?: string; // Custom color for icon and label
   onClick: () => void;
 }
 

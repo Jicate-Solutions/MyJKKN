@@ -10,7 +10,6 @@ import {
   CalculateScoreResult,
   BulkScoreResult,
 } from '@/lib/services/admission/lead-scoring-engine-service';
-import { usePermissions } from '@/hooks/use-permissions';
 
 // Query keys for cache management
 export const leadScoringKeys = {
@@ -73,12 +72,10 @@ export function useScoreBreakdown(leadId: string) {
  * Hook to get leads by score range
  */
 export function useLeadsByScoreRange(filters: LeadScoreFilters) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: leadScoringKeys.byRange(filters),
     queryFn: () => LeadScoringEngineService.getLeadsByScoreRange(filters),
-    enabled: isSuperAdmin || !!filters.institution_id,
+    enabled: !!filters.institution_id,
     staleTime: 2 * 60 * 1000, // 2 minutes
   });
 
@@ -103,12 +100,10 @@ export function useLeadsWithScores(
     limit?: number;
   }
 ) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: leadScoringKeys.withScores(institutionId, options),
     queryFn: () => LeadScoringEngineService.getLeadsWithScores(institutionId, options),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 2 * 60 * 1000,
   });
 
@@ -124,12 +119,10 @@ export function useLeadsWithScores(
  * Hook to get score statistics for an institution
  */
 export function useScoreStatistics(institutionId: string) {
-  const { isSuperAdmin } = usePermissions();
-
   const query = useQuery({
     queryKey: leadScoringKeys.statistics(institutionId),
     queryFn: () => LeadScoringEngineService.getScoreStatistics(institutionId),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
     staleTime: 5 * 60 * 1000,
   });
 

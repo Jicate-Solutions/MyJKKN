@@ -53,9 +53,25 @@ export default async function RequestDetailPage({ params }: RequestDetailPagePro
     redirect('/unauthorized');
   }
 
-  // 3. Verify role is HOD, Staff, or Super Admin
+  // 3. Get effective roles (profiles.role + user_roles for multi-role support)
+  const effectiveRoles = new Set<string>();
+  if (profile.role) effectiveRoles.add(profile.role);
+
+  const { data: userRoles } = await supabase
+    .from('user_roles')
+    .select('custom_roles!inner(role_key)')
+    .eq('user_id', user.id);
+
+  if (userRoles) {
+    userRoles.forEach((ur: any) => {
+      if (ur.custom_roles?.role_key) effectiveRoles.add(ur.custom_roles.role_key);
+    });
+  }
+
+  // Verify user has an allowed role (legacy or multi-role)
   const allowedRoles = ['super_admin', 'hod', 'staff'];
-  if (!allowedRoles.includes(profile.role)) {
+  const hasAllowedRole = allowedRoles.some((r) => effectiveRoles.has(r));
+  if (!hasAllowedRole) {
     redirect('/unauthorized');
   }
 
@@ -97,16 +113,16 @@ export default async function RequestDetailPage({ params }: RequestDetailPagePro
     );
   }
 
-  // Check role-based permission
+  // Check role-based permission (using effective roles for multi-role support)
   let hasPermission = false;
 
-  if (profile.role === 'super_admin') {
+  if (effectiveRoles.has('super_admin')) {
     // Super Admin can view all requests
     hasPermission = true;
-  } else if (profile.role === 'hod') {
+  } else if (effectiveRoles.has('hod')) {
     // HOD can view institution-wide requests
     hasPermission = request.learner.institution_id === profile.institution_id;
-  } else if (profile.role === 'staff') {
+  } else if (effectiveRoles.has('staff')) {
     // Staff can view department-only requests
     hasPermission = request.learner.department_id === profile.department_id;
   }

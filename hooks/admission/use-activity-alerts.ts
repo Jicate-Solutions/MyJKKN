@@ -31,7 +31,7 @@ export const activityAlertKeys = {
 export function useAlertRules(institutionId?: string) {
   const query = useQuery({
     queryKey: activityAlertKeys.rulesList({ institutionId: institutionId || '' }),
-    queryFn: () => ActivityAlertService.getAlertRules({ institutionId: institutionId! }),
+    queryFn: () => ActivityAlertService.getAlertRules({ institutionId: institutionId }),
     enabled: !!institutionId,
   });
 

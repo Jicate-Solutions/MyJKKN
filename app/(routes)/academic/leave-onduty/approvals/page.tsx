@@ -12,16 +12,22 @@
  * @route /academic/leave-onduty/approvals
  */
 
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   usePendingApprovals,
   useProcessApproval,
   useApprovalStatistics,
+  useAllApplicationsForSuperAdminByStatus,
+  useSuperAdminApprovalStatistics,
+  useApplicationsByStatusForInstitution,
 } from '@/hooks/academic/use-leave-onduty';
 import { ApprovalActionData } from '@/types/leave-onduty';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { convertToAuthenticatedUrl } from '@/lib/utils/storage-url-helper';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -45,6 +51,9 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApprovalTimeline } from '@/components/academic/leave-onduty/approval-timeline';
+import { AttachmentLink } from '@/components/academic/leave-onduty/attachment-link';
+import { createColumns } from './_components/approvals-columns';
+import { DataTable } from '@/components/ui/data-table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -61,20 +70,68 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
+import { ApplicationDetailsDialog } from './_components/application-details-dialog';
+
 export default function ApprovalsPage() {
-  const { profile } = useAuth();
+  const router = useRouter();
+  const { profile, isLoading: authLoading } = useAuth();
+  const { can, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
   const [approvalAction, setApprovalAction] = useState<'approved' | 'rejected' | null>(null);
   const [comments, setComments] = useState('');
+  const [rowSelection, setRowSelection] = useState({});
+  const [bulkAction, setBulkAction] = useState<'approved' | 'rejected' | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>('pending');
 
-  const { data: pendingApprovals, isLoading, error } = usePendingApprovals(profile?.id || '');
-  const { data: stats } = useApprovalStatistics(profile?.id || '');
+  // Permission check - redirect if unauthorized
+  // CRITICAL: Wait for both auth AND permissions to finish loading before checking
+  useEffect(() => {
+    if (!authLoading && !permissionsLoading && !can('academic.leave_onduty.approve')) {
+      router.replace('/');
+    }
+  }, [authLoading, permissionsLoading, can, router]);
+
+  // Use different hooks based on user role - only enable the relevant one
+  // Super admin: fetch all applications across all institutions
+  const { data: superAdminApps, isLoading: superAdminLoading, error: superAdminError } =
+    useAllApplicationsForSuperAdminByStatus(statusFilter, isSuperAdmin);
+
+  // Institution-based: fetch applications for user's institution/department
+  const { data: institutionApps, isLoading: institutionLoading, error: institutionError } =
+    useApplicationsByStatusForInstitution(
+      statusFilter,
+      profile?.institution_id || null,
+      profile?.department_id || null,
+      !isSuperAdmin // Only enable for non-super admin
+    );
+
+  // Stats hooks - only enable the relevant one
+  const { data: approverStats } = useApprovalStatistics(
+    profile?.id || '',
+    undefined,
+    undefined,
+    !isSuperAdmin // Only enable for non-super admin
+  );
+  const { data: superAdminStats } = useSuperAdminApprovalStatistics(isSuperAdmin);
+
   const processApproval = useProcessApproval();
 
-  const selectedApproval = pendingApprovals?.find(
-    (a) => a.application_id === selectedApplicationId
+  // Determine which data to use based on role
+  const isLoading = isSuperAdmin ? superAdminLoading : institutionLoading;
+  const error = isSuperAdmin ? superAdminError : institutionError;
+  const stats = isSuperAdmin ? superAdminStats : approverStats;
+
+  // Normalize data structure - both super admin and institution return applications directly
+  const normalizedApprovals = useMemo(() => {
+    if (isSuperAdmin) {
+      return superAdminApps || [];
+    }
+    return institutionApps || [];
+  }, [isSuperAdmin, superAdminApps, institutionApps]);
+
+  const selectedApplication = normalizedApprovals?.find(
+    (app: any) => app.id === selectedApplicationId
   );
-  const selectedApplication = selectedApproval?.application;
 
   const handleProcessApproval = async () => {
     if (!approvalAction || !selectedApplicationId || !profile?.id) return;
@@ -94,6 +151,80 @@ export default function ApprovalsPage() {
       },
     });
   };
+
+  // Table action handlers
+  const handleViewDetails = (row: any) => {
+    setSelectedApplicationId(row.id);
+  };
+
+  const handleApprove = (row: any) => {
+    setSelectedApplicationId(row.id);
+    setApprovalAction('approved');
+  };
+
+  const handleReject = (row: any) => {
+    setSelectedApplicationId(row.id);
+    setApprovalAction('rejected');
+  };
+
+  // Bulk action handlers
+  const handleBulkApprove = () => {
+    const selectedRows = Object.keys(rowSelection).filter(key => rowSelection[key]);
+    if (selectedRows.length === 0) {
+      toast.error('Please select at least one application');
+      return;
+    }
+    setBulkAction('approved');
+  };
+
+  const handleBulkReject = () => {
+    const selectedRows = Object.keys(rowSelection).filter(key => rowSelection[key]);
+    if (selectedRows.length === 0) {
+      toast.error('Please select at least one application');
+      return;
+    }
+    setBulkAction('rejected');
+  };
+
+  const handleProcessBulkApproval = async () => {
+    if (!bulkAction || !profile?.id) return;
+
+    const selectedRows = Object.keys(rowSelection).filter(key => rowSelection[key]);
+    const selectedApps = selectedRows
+      .map(index => normalizedApprovals?.[parseInt(index)])
+      .filter(Boolean);
+
+    if (selectedApps.length === 0) return;
+
+    // Process each approval sequentially
+    for (const app of selectedApps) {
+      const data: ApprovalActionData = {
+        application_id: app.id,
+        approver_id: profile.id,
+        status: bulkAction,
+        comments: comments.trim(),
+      };
+
+      await new Promise((resolve) => {
+        processApproval.mutate(data, {
+          onSuccess: () => resolve(true),
+          onError: () => resolve(false),
+        });
+      });
+    }
+
+    // Reset after processing
+    setRowSelection({});
+    setBulkAction(null);
+    setComments('');
+    toast.success(`${selectedApps.length} application(s) ${bulkAction}`);
+  };
+
+  // Create table columns
+  const columns = useMemo(
+    () => createColumns(isSuperAdmin, handleViewDetails, handleApprove, handleReject),
+    [isSuperAdmin]
+  );
 
   if (isLoading) {
     return (
@@ -211,9 +342,13 @@ export default function ApprovalsPage() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Avg. Turnaround</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {isSuperAdmin ? 'Total Applications' : 'Avg. Turnaround'}
+                  </p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                    {stats.average_turnaround_hours}h
+                    {isSuperAdmin
+                      ? (stats as any).total_applications
+                      : `${(stats as any).average_turnaround_hours}h`}
                   </p>
                 </div>
                 <TrendingUp className="h-8 w-8 text-blue-500" />
@@ -223,106 +358,74 @@ export default function ApprovalsPage() {
         </div>
       )}
 
-      {/* Pending Approvals List */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Pending Approvals</CardTitle>
+      {/* Status Tabs */}
+      <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full">
+        <TabsList className="grid w-full grid-cols-4 max-w-md">
+          <TabsTrigger value="pending">Pending</TabsTrigger>
+          <TabsTrigger value="approved">Approved</TabsTrigger>
+          <TabsTrigger value="rejected">Rejected</TabsTrigger>
+          <TabsTrigger value="all">All</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value={statusFilter} className="mt-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>
+                    {statusFilter === 'pending' && 'Pending Approvals'}
+                    {statusFilter === 'approved' && 'Approved Applications'}
+                    {statusFilter === 'rejected' && 'Rejected Applications'}
+                    {statusFilter === 'all' && 'All Applications'}
+                    {isSuperAdmin && (
+                      <Badge variant="outline" className="ml-2 text-xs">
+                        Super Admin - All Institutions
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </div>
+
+            {/* Bulk Action Buttons - Only show for pending applications */}
+            {statusFilter === 'pending' && Object.keys(rowSelection).filter(key => rowSelection[key]).length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  {Object.keys(rowSelection).filter(key => rowSelection[key]).length} selected
+                </span>
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={handleBulkApprove}
+                  className="gap-2"
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  Approve Selected
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleBulkReject}
+                  className="gap-2"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Reject Selected
+                </Button>
+              </div>
+            )}
+          </div>
         </CardHeader>
-        <CardContent>
-          {!pendingApprovals || pendingApprovals.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <FileText className="h-12 w-12 text-gray-400 mb-4" />
-              <p className="text-gray-600 dark:text-gray-400 text-center">
-                No pending approvals
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {pendingApprovals.map((approval) => {
-                const application = approval.application;
-                if (!application) return null;
-
-                return (
-                  <Card
-                    key={approval.id}
-                    className="cursor-pointer hover:shadow-md transition-shadow"
-                    onClick={() => setSelectedApplicationId(application.id)}
-                  >
-                    <CardContent className="p-6">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="font-medium text-gray-900 dark:text-gray-100">
-                              {application.learner?.first_name} {application.learner?.last_name}
-                            </span>
-                            <Badge variant="secondary" className="capitalize">
-                              {application.category}
-                            </Badge>
-                            <span className="text-sm text-gray-500">
-                              {application.sub_category.replace('_', ' ')}
-                            </span>
-                          </div>
-
-                          {application.learner?.roll_number && (
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                              Roll No: {application.learner.roll_number}
-                            </p>
-                          )}
-
-                          <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-4 w-4" />
-                              <span>
-                                {format(new Date(application.start_date), 'MMM dd')} -{' '}
-                                {format(new Date(application.end_date), 'MMM dd, yyyy')}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-4 w-4" />
-                              <span className="capitalize">{application.period_type}</span>
-                            </div>
-                          </div>
-
-                          <p className="text-sm text-gray-700 dark:text-gray-300 mt-2 line-clamp-2">
-                            {application.reason}
-                          </p>
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="default"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedApplicationId(application.id);
-                              setApprovalAction('approved');
-                            }}
-                          >
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedApplicationId(application.id);
-                              setApprovalAction('rejected');
-                            }}
-                          >
-                            <XCircle className="h-4 w-4 mr-1" />
-                            Reject
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+        <CardContent className="p-6">
+          <DataTable
+            columns={columns}
+            data={normalizedApprovals || []}
+            filterColumn="reason"
+            searchPlaceholder="Search applications..."
+            rowSelection={statusFilter === 'pending' ? rowSelection : undefined}
+            onRowSelectionChange={statusFilter === 'pending' ? (setRowSelection as any) : undefined}
+          />
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Approval Action Dialog */}
       <Dialog
@@ -405,76 +508,96 @@ export default function ApprovalsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Application Details Dialog */}
+      {/* Bulk Approval Action Dialog */}
       <Dialog
-        open={!!selectedApplicationId && !approvalAction}
-        onOpenChange={(open) => !open && setSelectedApplicationId(null)}
+        open={!!bulkAction}
+        onOpenChange={(open) => {
+          if (!open) {
+            setBulkAction(null);
+            setComments('');
+          }
+        }}
       >
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Application Details</DialogTitle>
+            <DialogTitle>
+              {bulkAction === 'approved' ? 'Approve' : 'Reject'} Multiple Applications
+            </DialogTitle>
+            <DialogDescription>
+              You are about to {bulkAction === 'approved' ? 'approve' : 'reject'}{' '}
+              {Object.keys(rowSelection).filter(key => rowSelection[key]).length} application(s).
+              {bulkAction === 'rejected' && ' Please provide a reason for rejection.'}
+            </DialogDescription>
           </DialogHeader>
 
-          {selectedApplication && (
-            <div className="space-y-6">
-              {/* Student Info */}
-              <div>
-                <h4 className="font-medium mb-2">Student Information</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {selectedApplication.learner?.first_name}{' '}
-                  {selectedApplication.learner?.last_name}
-                  {selectedApplication.learner?.roll_number && (
-                    <span className="ml-2">({selectedApplication.learner.roll_number})</span>
-                  )}
-                </p>
-              </div>
-
-              {/* Date Range */}
-              <div>
-                <h4 className="font-medium mb-2">Date Range</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {format(new Date(selectedApplication.start_date), 'MMMM dd, yyyy')} to{' '}
-                  {format(new Date(selectedApplication.end_date), 'MMMM dd, yyyy')}
-                </p>
-                <p className="text-sm text-gray-500 mt-1 capitalize">
-                  Period Type: {selectedApplication.period_type}
-                </p>
-              </div>
-
-              {/* Reason */}
-              <div>
-                <h4 className="font-medium mb-2">Reason</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
-                  {selectedApplication.reason}
-                </p>
-              </div>
-
-              {/* Attachment */}
-              {selectedApplication.attachment_url && (
-                <div>
-                  <h4 className="font-medium mb-2">Attachment</h4>
-                  <a
-                    href={selectedApplication.attachment_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
-                  >
-                    <FileText className="h-4 w-4" />
-                    View Attachment
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
-              )}
-
-              {/* Approval Timeline */}
-              <div>
-                <h4 className="font-medium mb-4">Approval Timeline</h4>
-                <ApprovalTimeline applicationId={selectedApplication.id} />
-              </div>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="bulk-comments">
+                Comments {bulkAction === 'rejected' && <span className="text-red-500">*</span>}
+              </Label>
+              <Textarea
+                id="bulk-comments"
+                value={comments}
+                onChange={(e) => setComments(e.target.value)}
+                placeholder={
+                  bulkAction === 'approved'
+                    ? 'Add any comments (optional)'
+                    : 'Provide a reason for rejection'
+                }
+                className="min-h-[100px]"
+              />
             </div>
-          )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setBulkAction(null);
+                setComments('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={bulkAction === 'approved' ? 'default' : 'destructive'}
+              onClick={handleProcessBulkApproval}
+              disabled={
+                processApproval.isPending ||
+                (bulkAction === 'rejected' && comments.trim().length === 0)
+              }
+            >
+              {processApproval.isPending ? (
+                <>Processing...</>
+              ) : (
+                <>
+                  {bulkAction === 'approved' ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Approve {Object.keys(rowSelection).filter(key => rowSelection[key]).length} Applications
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-4 w-4 mr-2" />
+                      Reject {Object.keys(rowSelection).filter(key => rowSelection[key]).length} Applications
+                    </>
+                  )}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Application Details Dialog */}
+      <ApplicationDetailsDialog
+        isOpen={!!selectedApplicationId && !approvalAction}
+        onOpenChange={(open) => !open && setSelectedApplicationId(null)}
+        application={selectedApplication}
+        onApprove={() => setApprovalAction('approved')}
+        onReject={() => setApprovalAction('rejected')}
+        isSuperAdmin={isSuperAdmin}
+      />
       </div>
     </ContentLayout>
   );

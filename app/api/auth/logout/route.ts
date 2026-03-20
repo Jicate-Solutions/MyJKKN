@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
         if (sessionId) {
           const closed = await SessionTrackingService.closeSession(sessionId);
           if (closed) {
+            console.log('[Logout] ✅ Analytics session closed:', sessionId);
           }
 
           // Clear the session cookie

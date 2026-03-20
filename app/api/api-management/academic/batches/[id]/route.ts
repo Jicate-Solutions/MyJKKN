@@ -1,57 +1,43 @@
-// app/api/api-management/academic/batches/[id]/route.ts
-// External API for single Batch by ID
-
-import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/auth/with-auth'
-import { corsHeaders } from '@/lib/api-keys/cors'
+import { NextRequest, NextResponse } from 'next/server';
+import { corsHeaders } from '@/lib/api-keys/cors';
+import { authenticateApiKey } from '@/lib/api-keys/authenticate';
 
 export async function OPTIONS() {
-  return new NextResponse(null, { headers: corsHeaders })
+  return NextResponse.json({}, { headers: corsHeaders });
 }
 
-export const GET = withAuth(async (request: NextRequest, auth, context) => {
-  const { id } = await context!.params!
-  const url = new URL(request.url)
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    // Authenticate — requires 'academic' module access
+    const authResult = await authenticateApiKey(request, { requiredModule: 'academic' });
+    if ('error' in authResult) return authResult.error;
+    const { supabase } = authResult.context;
 
-  // Enforce institution scoping
-  let institutionId: string | null = auth.institutionId
-  if (auth.authMethod === 'api_key') {
-    if (!institutionId) {
-      return NextResponse.json(
-        { error: 'API key must be scoped to an organization' },
-        { status: 400, headers: corsHeaders }
-      )
-    }
-  } else {
-    // Session: allow super_admin to query specific institution
-    const queryInstitutionId = url.searchParams.get('institution_id')
-    if (queryInstitutionId && auth.user.role === 'super_admin') {
-      institutionId = queryInstitutionId
-    }
-  }
+    const { id } = await params;
 
-  // Fetch batch by ID
-  let query = (auth.supabase as any)
-    .from('batches')
-    .select('*')
-    .eq('id', id)
+    // Fetch batch by ID - select all fields
+    const { data: batch, error } = await supabase
+      .from('batches')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-  // Apply institution scoping
-  if (institutionId) {
-    query = query.eq('institution_id', institutionId)
-  }
-
-  const { data: batch, error } = await query.single()
-
-  if (error) {
-    if (error.code === 'PGRST116') {
+    if (error || !batch) {
       return NextResponse.json(
         { error: 'Batch not found' },
         { status: 404, headers: corsHeaders }
-      )
+      );
     }
-    throw error
-  }
 
-  return NextResponse.json({ data: batch }, { headers: corsHeaders })
-}, { allowApiKey: true, requiredPermission: 'read' })
+    return NextResponse.json({ data: batch }, { headers: corsHeaders });
+  } catch (error) {
+    console.error('Error fetching batch:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500, headers: corsHeaders }
+    );
+  }
+}

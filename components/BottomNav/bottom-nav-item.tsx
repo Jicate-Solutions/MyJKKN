@@ -32,15 +32,24 @@ export function BottomNavItem({
   isActive,
   hasSubmenu,
   badgeCount,
+  hideIndicator = false,
+  customColor,
   onClick
 }: BottomNavItemProps) {
+  // Determine the color class based on custom color or default behavior
+  const colorClass = customColor
+    ? customColor
+    : isActive
+      ? 'text-primary'
+      : 'text-muted-foreground';
+
   return (
     <motion.button
       onClick={onClick}
       className={cn(
         'relative flex flex-col items-center justify-center px-2 py-2 min-w-[64px] flex-1',
         'transition-colors duration-150',
-        isActive ? 'text-primary' : 'text-muted-foreground'
+        colorClass
       )}
       whileTap={{ scale: 0.92 }}
       transition={tapSpring}
@@ -93,7 +102,7 @@ export function BottomNavItem({
       </motion.span>
 
       {/* Active indicator with smooth slide */}
-      {isActive && (
+      {isActive && !hideIndicator && (
         <motion.div
           layoutId="bottomNavActiveIndicator"
           className="absolute bottom-0 h-0.5 w-8 rounded-full bg-primary"

@@ -64,6 +64,7 @@ export function useInitiatePayment() {
     mutationFn: initiatePayment,
     onSuccess: (data) => {
       // Don't show success toast here, as we'll redirect to payment gateway
+      console.log('[billing/payment] Payment session created:', data.session_id);
     },
     onError: (error: Error) => {
       toast.error('Payment Initiation Failed', {

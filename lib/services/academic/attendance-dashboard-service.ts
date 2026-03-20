@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { cache } from 'react';
 import { logger } from '@/lib/utils/enhanced-logger';
+import type { TimetableData } from '@/types/academics';
 import type {
   AttendanceStats,
   PendingAttendancePeriod,
@@ -369,8 +370,8 @@ export class AttendanceDashboardService {
 
             // Average attendance across periods if multiple periods
             if (periodCount > 1) {
-              sectionPresent = periodCount > 0 ? Math.round(sectionPresent / periodCount) : 0;
-              sectionAbsent = periodCount > 0 ? Math.round(sectionAbsent / periodCount) : 0;
+              sectionPresent = Math.round(sectionPresent / periodCount);
+              sectionAbsent = Math.round(sectionAbsent / periodCount);
             }
 
             // Update section attendance data (student count already set from student data)
@@ -502,9 +503,9 @@ export class AttendanceDashboardService {
           start_date,
           end_date,
           institution:institutions(id, name),
-          academic_year:academic_years!timetables_academic_year_id_fkey(id, academic_year_name),
+          academic_year:academic_years(id, academic_year_name),
           degree:degrees(id, degree_name),
-          department:departments!timetables_department_id_fkey(id, department_name),
+          department:departments(id, department_name),
           program:programs(id, program_name),
           semester:semesters(id, semester_name),
           section:sections(id, section_name)
@@ -539,15 +540,9 @@ export class AttendanceDashboardService {
         timetableQuery = timetableQuery.eq('section_id', sectionId);
       }
 
-      // Filter timetables to those valid within the requested date range.
-      // A timetable is valid if its start_date <= queryEndDate AND its end_date >= queryStartDate.
-      // We use .or() to also include timetables with null dates (always valid).
-      timetableQuery = timetableQuery.or(
-        `start_date.is.null,start_date.lte.${queryEndDate}`
-      );
-      timetableQuery = timetableQuery.or(
-        `end_date.is.null,end_date.gte.${queryStartDate}`
-      );
+      // Apply date range filtering for timetable validity - remove for now to get all timetables
+      // TODO: Add proper date filtering logic later if needed
+      // For now, let's get all active timetables and filter in code
 
       const { data: timetables, error: timetableError } = await timetableQuery;
 
@@ -564,9 +559,9 @@ export class AttendanceDashboardService {
       const staffIds = new Set<string>();
 
       timetablesData?.forEach((timetable) => {
-        const timetableData = timetable.timetable_data as any;
+        const timetableData = timetable.timetable_data as TimetableData | null;
         if (timetableData) {
-          Object.values(timetableData).forEach((daySlots: any) => {
+          Object.values(timetableData).forEach((daySlots) => {
             if (daySlots && typeof daySlots === 'object') {
               Object.values(daySlots).forEach((slot: any) => {
                 if (slot?.course_id) courseIds.add(slot.course_id);
@@ -630,12 +625,12 @@ export class AttendanceDashboardService {
             return; // Skip this timetable for this date
           }
 
-          const timetableData = timetable.timetable_data as any;
+          const timetableData = timetable.timetable_data as TimetableData | null;
           const periods = timetable.periods as any;
 
           if (timetableData && timetableData[dayOfWeek]) {
             Object.entries(timetableData[dayOfWeek]).forEach(
-              ([periodId, slot]: [string, any]) => {
+              ([periodId, slot]) => {
                 if (slot && !slot.is_break_slot && slot.course_id) {
                   const periodInfo = Array.isArray(periods)
                     ? periods.find((p: any) => p.period_id === periodId)
@@ -895,6 +890,23 @@ export class AttendanceDashboardService {
       logger.error('academic/attendance-dashboard', 'Error in getTodayPendingAttendance', error);
       throw error;
     }
+  }
+
+  /**
+   * Get all active institutions for super admin institution selector
+   */
+  static async getActiveInstitutions(): Promise<{ id: string; name: string }[]> {
+    const { data, error } = await this.supabase
+      .from('institutions')
+      .select('id, name')
+      .eq('is_active', true)
+      .order('name');
+
+    if (error) {
+      logger.error('academic/attendance-dashboard', 'Failed to fetch active institutions', error);
+      return [];
+    }
+    return data ?? [];
   }
 
   /**

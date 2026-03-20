@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Save, Percent, AlertCircle, Award } from 'lucide-react';
+import { ArrowLeft, Save, Percent, AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { usePermissions } from '@/hooks/use-permissions';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { BeatLoader } from 'react-spinners';
@@ -26,9 +25,7 @@ import { useCreateBillingDiscount } from '@/hooks/billing/use-billing-discounts'
 import type {
   DiscountCategory,
   DiscountType,
-  CreateDiscountDto,
-  OutcomeCriteria,
-  OutcomeCriteriaType
+  CreateDiscountDto
 } from '@/types/billing-schedule';
 import {
   Table,
@@ -54,11 +51,6 @@ export default function NewDiscountPage() {
     discount_type: 'percentage',
     discount_value: 0,
     effective_date: new Date().toISOString().split('T')[0]
-  });
-  const [isOutcomeBased, setIsOutcomeBased] = useState(false);
-  const [outcomeCriteria, setOutcomeCriteria] = useState<Partial<OutcomeCriteria>>({
-    type: 'competency_achievement',
-    minimum_level: 'intermediate'
   });
 
   const {
@@ -130,8 +122,6 @@ export default function NewDiscountPage() {
   };
 
   const calculateDiscountAmount = (billAmount: number) => {
-    if (!billAmount || billAmount === 0) return 0;
-
     if (formData.discount_type === 'percentage') {
       return (billAmount * (formData.discount_value || 0)) / 100;
     } else {
@@ -140,13 +130,13 @@ export default function NewDiscountPage() {
   };
 
   const totalBillAmount = selectedBills.reduce(
-    (sum, bill) => sum + (bill.total_amount ?? bill.final_amount ?? 0),
+    (sum, bill) => sum + (bill.total_amount || bill.final_amount),
     0
   );
 
   const totalDiscountAmount = selectedBills.reduce(
     (sum, bill) =>
-      sum + calculateDiscountAmount(bill.total_amount ?? bill.final_amount ?? 0),
+      sum + calculateDiscountAmount(bill.total_amount || bill.final_amount),
     0
   );
 
@@ -190,10 +180,7 @@ export default function NewDiscountPage() {
           discount_value: formData.discount_value!,
           discount_reason: formData.discount_reason!,
           effective_date: formData.effective_date!,
-          expiry_date: formData.expiry_date,
-          // Outcome-based discount fields
-          is_outcome_based: isOutcomeBased,
-          outcome_criteria: isOutcomeBased ? outcomeCriteria as OutcomeCriteria : undefined
+          expiry_date: formData.expiry_date
         };
 
         // Create the discount using the mutation
@@ -250,44 +237,8 @@ export default function NewDiscountPage() {
           </div>
         </div>
 
-        {/* Empty State - No Bills Selected */}
-        {!isLoadingBills && selectedBills.length === 0 && !billId && !billIds && (
-          <Card>
-            <CardContent className='py-12'>
-              <div className='text-center space-y-4'>
-                <div className='flex justify-center'>
-                  <Percent className='h-12 w-12 text-muted-foreground' />
-                </div>
-                <div>
-                  <h3 className='font-semibold text-lg'>No Bills Selected</h3>
-                  <p className='text-sm text-muted-foreground mt-2'>
-                    To apply a scholarship, first select one or more bills from the Billing Schedule.
-                  </p>
-                </div>
-                <Button variant='outline' onClick={() => router.push('/billing/schedule')}>
-                  Go to Billing Schedule
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
         {/* Selected Bills Section */}
-        {isLoadingBills ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                <Percent className='h-5 w-5' />
-                Loading Bills...
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className='flex justify-center items-center p-8'>
-                <BeatLoader color='#00e902' />
-              </div>
-            </CardContent>
-          </Card>
-        ) : selectedBills.length > 0 ? (
+        {selectedBills.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
@@ -399,7 +350,7 @@ export default function NewDiscountPage() {
               </div>
             </CardContent>
           </Card>
-        ) : null}
+        )}
 
         {/* Discount Form */}
         <Card>
@@ -483,13 +434,12 @@ export default function NewDiscountPage() {
                       formData.discount_type === 'percentage' ? '10.5' : '1000'
                     }
                     value={formData.discount_value || ''}
-                    onChange={(e) => {
-                      const value = parseFloat(e.target.value);
+                    onChange={(e) =>
                       handleInputChange(
                         'discount_value',
-                        isNaN(value) ? 0 : value
-                      );
-                    }}
+                        parseFloat(e.target.value)
+                      )
+                    }
                     required
                   />
                 </div>
@@ -536,184 +486,6 @@ export default function NewDiscountPage() {
                   rows={3}
                   required
                 />
-              </div>
-
-              {/* Outcome-Based Discount Toggle */}
-              <div className='space-y-4'>
-                <div className='flex items-center justify-between p-4 border rounded-lg bg-muted/30'>
-                  <div className='space-y-0.5'>
-                    <Label htmlFor='outcome-toggle' className='text-base font-medium flex items-center gap-2'>
-                      <Award className='h-4 w-4 text-amber-600' />
-                      Outcome-Based Discount
-                    </Label>
-                    <p className='text-sm text-muted-foreground'>
-                      Link this discount to student learning outcomes or competency achievements
-                    </p>
-                  </div>
-                  <Switch
-                    id='outcome-toggle'
-                    checked={isOutcomeBased}
-                    onCheckedChange={setIsOutcomeBased}
-                  />
-                </div>
-
-                {/* Outcome Criteria Fields (shown when toggle is on) */}
-                {isOutcomeBased && (
-                  <Card className='border-amber-200 bg-amber-50/50'>
-                    <CardHeader className='pb-3'>
-                      <CardTitle className='text-base flex items-center gap-2'>
-                        <Award className='h-4 w-4 text-amber-600' />
-                        Outcome Criteria
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                        {/* Criteria Type */}
-                        <div className='space-y-2'>
-                          <Label htmlFor='outcome_type'>Achievement Type *</Label>
-                          <Select
-                            value={outcomeCriteria.type || 'competency_achievement'}
-                            onValueChange={(value) =>
-                              setOutcomeCriteria((prev) => ({
-                                ...prev,
-                                type: value as OutcomeCriteriaType
-                              }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder='Select achievement type' />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='competency_achievement'>Competency Achieved</SelectItem>
-                              <SelectItem value='attendance'>Attendance Target Met</SelectItem>
-                              <SelectItem value='cgpa'>CGPA Threshold Met</SelectItem>
-                              <SelectItem value='industry_readiness'>Industry Readiness Score</SelectItem>
-                              <SelectItem value='placement'>Placement Secured</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Min Proficiency Level */}
-                        <div className='space-y-2'>
-                          <Label htmlFor='minimum_level'>Min Proficiency Level</Label>
-                          <Select
-                            value={outcomeCriteria.minimum_level || 'intermediate'}
-                            onValueChange={(value) =>
-                              setOutcomeCriteria((prev) => ({
-                                ...prev,
-                                minimum_level: value as 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert'
-                              }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder='Select proficiency level' />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='novice'>Novice</SelectItem>
-                              <SelectItem value='beginner'>Beginner</SelectItem>
-                              <SelectItem value='intermediate'>Intermediate</SelectItem>
-                              <SelectItem value='advanced'>Advanced</SelectItem>
-                              <SelectItem value='expert'>Expert</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Min Score (0-100) */}
-                        <div className='space-y-2'>
-                          <Label htmlFor='min_score'>Min Score (0-100)</Label>
-                          <Input
-                            id='min_score'
-                            type='number'
-                            step='1'
-                            min='0'
-                            max='100'
-                            placeholder='70'
-                            value={outcomeCriteria.min_score ?? ''}
-                            onChange={(e) =>
-                              setOutcomeCriteria((prev) => ({
-                                ...prev,
-                                min_score: parseInt(e.target.value) || 0
-                              }))
-                            }
-                          />
-                        </div>
-
-                        {/* Evaluation Period (Days) */}
-                        <div className='space-y-2'>
-                          <Label htmlFor='evaluation_period_days'>Evaluation Period (days)</Label>
-                          <Input
-                            id='evaluation_period_days'
-                            type='number'
-                            step='1'
-                            min='1'
-                            max='365'
-                            placeholder='90'
-                            value={outcomeCriteria.evaluation_period_days ?? ''}
-                            onChange={(e) =>
-                              setOutcomeCriteria((prev) => ({
-                                ...prev,
-                                evaluation_period_days: parseInt(e.target.value) || 90
-                              }))
-                            }
-                          />
-                          <p className='text-xs text-muted-foreground'>
-                            Number of days over which the outcome is evaluated
-                          </p>
-                        </div>
-
-                        {/* Industry Readiness Threshold */}
-                        {outcomeCriteria.type === 'industry_readiness' && (
-                          <div className='space-y-2'>
-                            <Label htmlFor='readiness_threshold'>Industry Readiness Threshold (0-100)</Label>
-                            <Input
-                              id='readiness_threshold'
-                              type='number'
-                              step='1'
-                              min='0'
-                              max='100'
-                              placeholder='70'
-                              value={outcomeCriteria.industry_readiness_threshold || ''}
-                              onChange={(e) =>
-                                setOutcomeCriteria((prev) => ({
-                                  ...prev,
-                                  industry_readiness_threshold: parseInt(e.target.value)
-                                }))
-                              }
-                            />
-                          </div>
-                        )}
-
-                        {/* Competency IDs (multi-select via text input) */}
-                        {(outcomeCriteria.type === 'competency_achievement') && (
-                          <div className='space-y-2 md:col-span-2'>
-                            <Label htmlFor='competency_ids'>
-                              Competency IDs (comma-separated)
-                            </Label>
-                            <Input
-                              id='competency_ids'
-                              type='text'
-                              placeholder='e.g., comp-001, comp-002'
-                              value={(outcomeCriteria.competency_ids || []).join(', ')}
-                              onChange={(e) => {
-                                const ids = e.target.value
-                                  .split(',')
-                                  .map((s) => s.trim())
-                                  .filter(Boolean);
-                                setOutcomeCriteria((prev) => ({
-                                  ...prev,
-                                  competency_ids: ids
-                                }));
-                              }}
-                            />
-                            <p className='text-xs text-muted-foreground'>
-                              Enter competency IDs from the competency catalog
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
               </div>
 
               {/* Validation Warning */}

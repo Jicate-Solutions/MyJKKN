@@ -34,20 +34,22 @@ import {
   DashboardFilters,
   type DashboardFilterState
 } from './_components/dashboard-filters';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useActiveInstitutions } from '@/hooks/academic/use-attendance-dashboard';
 import { format } from 'date-fns';
-import { logger } from '@/lib/utils/enhanced-logger';
-
-interface Institution {
-  id: string;
-  name: string;
-}
 
 function AttendanceDashboardContent() {
   const { profile } = useAuth();
   const { canAccess } = usePermissions();
-  const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // Check if user can view all institutions
+  const canViewAllInstitutions = canAccess(
+    'academic.attendance.dashboard',
+    'view_all_institutions'
+  );
+
+  const { institutions, isLoading: institutionsLoading } = useActiveInstitutions(canViewAllInstitutions);
+  const loading = institutionsLoading && canViewAllInstitutions;
+
   const [filters, setFilters] = useState<DashboardFilterState>({
     selectedDate: new Date()
   });
@@ -62,12 +64,6 @@ function AttendanceDashboardContent() {
     attendanceDate?: string;
   }>({});
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-
-  // Check if user can view all institutions
-  const canViewAllInstitutions = canAccess(
-    'academic.attendance.dashboard',
-    'view_all_institutions'
-  );
 
   // Initialize filters based on user permissions and role
   useEffect(() => {
@@ -111,37 +107,6 @@ function AttendanceDashboardContent() {
     profile?.role,
     profile?.department_id
   ]);
-
-  // Fetch institutions for super admin
-  useEffect(() => {
-    async function fetchInstitutions() {
-      if (!canViewAllInstitutions) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const supabase = createClientSupabaseClient();
-        const { data, error } = await supabase
-          .from('institutions')
-          .select('id, name')
-          .eq('is_active', true)
-          .order('name');
-
-        if (error) {
-          logger.error('academic/attendance-dashboard', 'Error fetching institutions', error);
-        } else {
-          setInstitutions(data || []);
-        }
-      } catch (error) {
-        logger.error('academic/attendance-dashboard', 'Error fetching institutions', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchInstitutions();
-  }, [canViewAllInstitutions]);
 
   // Handle filter changes
   const handleFiltersChange = useCallback(

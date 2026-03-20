@@ -12,6 +12,7 @@ import type {
   LearnerLifecycleFunnel,
   LifecycleStatus,
 } from '@/types/learner-profile';
+import type { IncompleteProfilesResponse, LearnerDashboardFilters } from '@/types/learner-dashboard';
 
 // ============================================
 // REACT QUERY HOOKS - LEARNER PROFILES
@@ -48,7 +49,10 @@ export function useLearnerProfile(
   return useQuery<LearnerProfile | null, Error>({
     queryKey: learnerProfileKeys.detail(id),
     queryFn: () => LearnerProfileService.getLearnerProfile(id),
-    enabled: !!id,
+    // Guard against Next.js DRP placeholders (%%drp:id:...%%) that appear during
+    // client-side navigation with PPR enabled. Passing these to Supabase causes
+    // "invalid input syntax for type uuid" errors.
+    enabled: !!id && !id.includes('%%drp:'),
     ...options,
   });
 }
@@ -428,5 +432,38 @@ export function useBulkUpdateStatus() {
       // Invalidate all caches
       queryClient.invalidateQueries({ queryKey: learnerProfileKeys.all });
     },
+  });
+}
+
+// ============================================
+// INCOMPLETE PROFILES HOOK
+// ============================================
+
+/**
+ * Fetch detailed incomplete profiles for drill-down table
+ * Used by Profile Completion Tab to show WHO has incomplete profiles
+ */
+export function useIncompleteProfiles(
+  filters: Pick<LearnerDashboardFilters, 'institutionIds'> & { limit?: number },
+  options?: Omit<UseQueryOptions<IncompleteProfilesResponse, Error>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery<IncompleteProfilesResponse, Error>({
+    queryKey: ['learners', 'analytics', 'incomplete-profiles', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.institutionIds?.length) {
+        params.set('institutionIds', filters.institutionIds.join(','));
+      }
+      if (filters.limit) {
+        params.set('limit', String(filters.limit));
+      }
+      const res = await fetch(`/api/learners/analytics/incomplete-profiles?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error('Failed to fetch incomplete profiles');
+      }
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    ...options,
   });
 }

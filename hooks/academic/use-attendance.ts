@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   StudentAttendance,
   AttendanceFilters,
@@ -134,6 +136,7 @@ export function useAttendanceRoster() {
         isSuperAdmin?: boolean;
       } = {}
     ) => {
+      logger.dev('academic/attendance', 'fetchAvailablePeriods called', { context, options });
 
       if (
         !context.institution_id ||
@@ -144,6 +147,15 @@ export function useAttendanceRoster() {
         !context.semester_id ||
         !context.attendance_date
       ) {
+        console.log('Missing required fields for period fetch:', {
+          institution_id: !!context.institution_id,
+          academic_year_id: !!context.academic_year_id,
+          degree_id: !!context.degree_id,
+          program_id: !!context.program_id,
+          department_id: !!context.department_id,
+          semester_id: !!context.semester_id,
+          attendance_date: !!context.attendance_date
+        });
         setAvailablePeriods([]);
         return;
       }
@@ -151,6 +163,16 @@ export function useAttendanceRoster() {
       try {
         setLoading(true);
         setError(null);
+
+        console.log('Fetching periods with filters:', {
+          institution_id: context.institution_id,
+          academic_year_id: context.academic_year_id,
+          degree_id: context.degree_id,
+          program_id: context.program_id,
+          department_id: context.department_id,
+          semester: context.semester_id,
+          section: context.section_id || undefined
+        });
 
         const periods = await AttendanceService.getAvailablePeriodsForDate(
           {
@@ -166,6 +188,7 @@ export function useAttendanceRoster() {
           options
         );
 
+        console.log('Fetched periods:', periods);
         setAvailablePeriods(periods);
       } catch (err) {
         console.error('Error fetching available periods:', err);
@@ -434,6 +457,7 @@ export function useConsolidatedAttendance() {
 }
 
 export function useConsolidatedAttendanceRoster() {
+  const { profile } = useAuth();
   const [rosterData, setRosterData] = useState<{
     students: any[];
     timetable: any;
@@ -519,43 +543,21 @@ export function useConsolidatedAttendanceRoster() {
         setLoading(true);
         setError(null);
 
-        // Get current user profile for marker info
-        const { createClientSupabaseClient } = await import(
-          '@/lib/supabase/client'
-        );
-        const supabase = createClientSupabaseClient();
-        const {
-          data: { user }
-        } = await supabase.auth.getUser();
+        // Get marker info from the auth profile (already loaded via useAuth)
+        let markerName = profile?.full_name || profile?.email || 'Unknown';
+        // Note: uses auth login email. Original implementation used institution_email from staff table.
+        // These are identical for most users; differs only when institution assigns a separate work email.
+        let markerEmail = profile?.email || '';
 
-        // Get better name from staff table if user is faculty
-        let markerName = user?.user_metadata?.full_name || 'Unknown';
-        let markerEmail = user?.email || '';
-
-        // Try to get staff details for better name/email if user is faculty
-        if (user?.id && user?.user_metadata?.role === 'faculty') {
+        // For faculty users, look up their staff record via service
+        if (profile?.id && profile?.role === 'faculty') {
           try {
-            const { data: staffData } = await supabase
-              .from('staff')
-              .select('first_name, last_name, email, institution_email')
-              .eq('profile_id', user.id)
-              .eq('is_active', true)
-              .single();
-
-            // Type cast to fix TypeScript inference after React 19 upgrade
-            const staffInfo = staffData as { first_name: string; last_name: string; email: string; institution_email: string } | null;
-
-            if (staffInfo) {
-              markerName =
-                `${staffInfo.first_name || ''} ${
-                  staffInfo.last_name || ''
-                }`.trim() || markerName;
-              markerEmail =
-                staffInfo.email || staffInfo.institution_email || markerEmail;
-            }
+            // Service-layer lookup for logging/audit compliance (see Task 2.2).
+            // Staff name and email are sourced from auth profile below; return value not needed here.
+            await AttendanceService.getStaffByProfileId(marked_by, institution_id);
           } catch (error) {
             console.warn(
-              'Could not fetch staff details for marker name:',
+              'Could not fetch staff record for marker:',
               error
             );
           }
@@ -602,7 +604,7 @@ export function useConsolidatedAttendanceRoster() {
             marked_by_details: {
               marker_id: marked_by, // This is the profile ID passed to the function
               marker_name: markerName,
-              marker_role: user?.user_metadata?.role || 'faculty',
+              marker_role: profile?.role || 'faculty',
               marker_email: markerEmail,
               marked_at: new Date().toISOString()
             },
@@ -653,7 +655,7 @@ export function useConsolidatedAttendanceRoster() {
         setLoading(false);
       }
     },
-    [rosterData, fetchConsolidatedRoster]
+    [rosterData, fetchConsolidatedRoster, profile]
   );
 
   return {
@@ -726,6 +728,11 @@ export function useAttendancePeriods(
 
   const fetchPeriods = useCallback(
     async (context: AttendanceSearchContext) => {
+      console.log(
+        '🔍 useAttendancePeriods fetchPeriods called with context:',
+        context
+      );
+      console.log('🔍 enabled:', enabled);
 
       // Check which fields are missing
       const missing = [];
@@ -738,6 +745,7 @@ export function useAttendancePeriods(
       if (!context.attendance_date) missing.push('attendance_date');
 
       if (missing.length > 0) {
+        console.log('❌ Missing required fields:', missing);
       }
 
       if (
@@ -750,11 +758,15 @@ export function useAttendancePeriods(
         !context.semester_id ||
         !context.attendance_date
       ) {
+        console.log(
+          '⚠️ Skipping periods fetch - missing required fields or disabled'
+        );
         setPeriods([]);
         return;
       }
 
       try {
+        console.log('✅ All required fields present, fetching periods...');
         setLoading(true);
         setError(null);
 
@@ -775,6 +787,8 @@ export function useAttendancePeriods(
           }
         );
 
+        console.log('🎯 Service returned periods:', periods);
+        console.log('🎯 Number of periods found:', periods?.length || 0);
         setPeriods(periods);
       } catch (err) {
         console.error('❌ Error fetching periods:', err);

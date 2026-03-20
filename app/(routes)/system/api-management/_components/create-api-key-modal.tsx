@@ -1,13 +1,12 @@
 // app/(routes)/system/api-management/_components/create-api-key-modal.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
 import { CalendarIcon, Copy, Check } from 'lucide-react';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { format } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
@@ -36,20 +35,12 @@ import {
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const formSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   expires_at: z.date().optional(),
-  read_only: z.boolean().default(true),
-  organization_id: z.string().optional()
+  read_only: z.boolean().default(true)
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -69,26 +60,12 @@ export function CreateApiKeyModal({
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
   const [hasConfirmedCopy, setHasConfirmedCopy] = useState(false);
-  const [institutions, setInstitutions] = useState<{ id: string; name: string }[]>([]);
-
-  useEffect(() => {
-    if (!open) return;
-    const supabase = createClientSupabaseClient();
-    (supabase as any)
-      .from('institutions')
-      .select('id, name')
-      .order('name')
-      .then(({ data }: any) => {
-        if (data) setInstitutions(data);
-      });
-  }, [open]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: '',
-      read_only: true,
-      organization_id: undefined
+      read_only: true
     }
   });
 
@@ -106,8 +83,7 @@ export function CreateApiKeyModal({
           permissions: {
             read: true,
             write: !values.read_only
-          },
-          organization_id: values.organization_id || null
+          }
         })
       });
 
@@ -242,38 +218,6 @@ export function CreateApiKeyModal({
                     </FormControl>
                     <FormDescription>
                       A descriptive name for your API key
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='organization_id'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Organization</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='All organizations (unscoped)' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      Scope this key to a specific organization. Required for
-                      campus-living endpoints.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

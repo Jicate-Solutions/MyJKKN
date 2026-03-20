@@ -14,8 +14,7 @@ import {
   Eye,
   Check,
   X,
-  FileText,
-  Award
+  FileText
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import type { BillingDiscount } from '@/types/billing-schedule';
@@ -245,36 +244,6 @@ export function DiscountList({
     );
   };
 
-  const getOutcomeStatusBadge = (discount: BillingDiscount) => {
-    if (!discount.is_outcome_based) return null;
-
-    const verificationStatus = discount.outcome_verification?.status || 'pending';
-    const statusConfig = {
-      pending: {
-        className: 'bg-amber-100 text-amber-800 border-amber-200',
-        label: 'Outcome Pending'
-      },
-      verified: {
-        className: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-        label: 'Outcome Verified'
-      },
-      rejected: {
-        className: 'bg-red-100 text-red-800 border-red-200',
-        label: 'Outcome Rejected'
-      }
-    };
-
-    const config = statusConfig[verificationStatus as keyof typeof statusConfig];
-    if (!config) return null;
-
-    return (
-      <Badge variant='outline' className={config.className}>
-        <Award className='mr-1 h-3 w-3' />
-        {config.label}
-      </Badge>
-    );
-  };
-
   return (
     <div className='space-y-4'>
       <div className='flex justify-between items-center'>
@@ -325,7 +294,6 @@ export function DiscountList({
               <TableHead>Value</TableHead>
               <TableHead>Amount</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Outcome</TableHead>
               <TableHead>Effective Date</TableHead>
               <TableHead className='text-right'>Actions</TableHead>
             </TableRow>
@@ -334,7 +302,7 @@ export function DiscountList({
             {discounts.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={canDeleteDiscounts ? 11 : 10}
+                  colSpan={canDeleteDiscounts ? 10 : 9}
                   className='text-center py-8'
                 >
                   <div className='flex flex-col items-center space-y-3'>
@@ -368,7 +336,7 @@ export function DiscountList({
                         }`.trim()}
                       </span>
                       <span className='text-sm text-muted-foreground'>
-                        {discount.bill?.student?.student_id}
+                        {discount.bill?.student?.roll_number}
                       </span>
                     </div>
                   </TableCell>
@@ -399,11 +367,6 @@ export function DiscountList({
                   </TableCell>
                   <TableCell>
                     {getApprovalStatusBadge(discount.approval_status)}
-                  </TableCell>
-                  <TableCell>
-                    {getOutcomeStatusBadge(discount) || (
-                      <span className='text-xs text-muted-foreground'>--</span>
-                    )}
                   </TableCell>
                   <TableCell>{formatDate(discount.effective_date)}</TableCell>
                   <TableCell className='text-right'>
@@ -587,49 +550,6 @@ export function DiscountList({
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Bulk delete confirmation dialog */}
-      <AlertDialog
-        open={showBulkDeleteDialog}
-        onOpenChange={setShowBulkDeleteDialog}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Multiple Scholarships?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete {selectedDiscounts.length} scholarship(s).
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                try {
-                  setIsLoading(true);
-                  await Promise.all(
-                    selectedDiscounts.map((id) =>
-                      BillingDiscountService.deleteBillingDiscount(id)
-                    )
-                  );
-                  toast.success(`${selectedDiscounts.length} discount(s) deleted successfully`);
-                  setSelectedDiscounts([]);
-                  onRefresh();
-                } catch (error) {
-                  console.error('Error deleting discounts:', error);
-                  toast.error('Failed to delete some discounts');
-                } finally {
-                  setIsLoading(false);
-                  setShowBulkDeleteDialog(false);
-                }
-              }}
-              disabled={isLoading}
-              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
-            >
-              {isLoading ? 'Deleting...' : 'Delete All'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

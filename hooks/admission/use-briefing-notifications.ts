@@ -99,8 +99,8 @@ export function useBriefing(briefingId: string | undefined) {
 export function useLatestBriefing(institutionId: string | undefined) {
   return useQuery({
     queryKey: briefingNotificationsKeys.latestBriefing(institutionId || ''),
-    queryFn: () => BriefingDeliveryService.getLatestBriefing(institutionId!),
-    enabled: !!institutionId
+    queryFn: () => BriefingDeliveryService.getLatestBriefing(institutionId),
+    enabled: !!institutionId,
   });
 }
 
@@ -110,8 +110,27 @@ export function useLatestBriefing(institutionId: string | undefined) {
 export function useTodaysBriefing(institutionId: string | undefined) {
   return useQuery({
     queryKey: briefingNotificationsKeys.todaysBriefing(institutionId || ''),
-    queryFn: () => BriefingDeliveryService.getTodaysBriefing(institutionId!),
-    enabled: !!institutionId
+    queryFn: () => BriefingDeliveryService.getTodaysBriefing(institutionId),
+    enabled: !!institutionId,
+  });
+}
+
+/**
+ * Generate today's briefing on demand
+ */
+export function useGenerateBriefing() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId, institutionId }: { userId: string; institutionId: string }) =>
+      BriefingDeliveryService.generateDailyBriefing(userId, institutionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: briefingNotificationsKeys.all });
+      toast.success('Daily briefing generated');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to generate briefing');
+    },
   });
 }
 

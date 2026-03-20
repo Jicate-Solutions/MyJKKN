@@ -54,6 +54,7 @@ import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import type { ConsultantLeadAttribution, LeadAttributionFilters } from '@/types/education-consultants';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inner component that reads search params (wrapped in Suspense)
@@ -209,6 +210,7 @@ function ReferralsContent() {
   };
 
   return (
+    <PermissionGuard module="admission.consultants" action="view">
     <ContentLayout title="Referrals">
       <Breadcrumb>
         <BreadcrumbList>
@@ -550,6 +552,7 @@ function ReferralsContent() {
         </Card>
       </div>
     </ContentLayout>
+    </PermissionGuard>
   );
 }
 

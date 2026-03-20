@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function PATCH(request: NextRequest) {
   try {
+    console.log('=== User Auth Management API Called ===');
 
     // Check if service role key is available
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -48,6 +49,8 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    console.log('Requesting user:', user.email);
+
     // Check if user has admin permissions
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -71,6 +74,8 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    console.log('User role:', profile.role);
+
     if (!['super_admin', 'administrator'].includes(profile.role)) {
       console.error(
         'Insufficient permissions for user:',
@@ -87,6 +92,8 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const { action, email } = body;
 
+    console.log('Request body:', { action, email });
+
     if (!action || !email) {
       console.error('Missing required fields:', { action, email });
       return NextResponse.json(
@@ -94,6 +101,8 @@ export async function PATCH(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    console.log('Attempting to list users with admin client...');
 
     // Find the user by email
     const { data: users, error: listError } = (await supabaseAdmin.auth.admin.listUsers()) as { data: { users: any[] } | null; error: any };
@@ -106,6 +115,8 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    console.log('Successfully listed users, count:', users?.users.length);
+
     const targetUser = users?.users.find((u: any) => u.email === email);
 
     if (!targetUser) {
@@ -113,10 +124,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
+    console.log('Found target user:', targetUser.id, targetUser.email);
+
     // Perform the requested action
     let result;
     switch (action) {
       case 'disable':
+        console.log('Disabling user account...');
         // Simply update user metadata to mark as disabled
         result = await supabaseAdmin.auth.admin.updateUserById(targetUser.id, {
           user_metadata: {
@@ -129,6 +143,7 @@ export async function PATCH(request: NextRequest) {
         break;
 
       case 'enable':
+        console.log('Enabling user account...');
         // Remove the disabled flag from user metadata
         result = await supabaseAdmin.auth.admin.updateUserById(targetUser.id, {
           user_metadata: {
@@ -156,9 +171,15 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    console.log('Successfully updated user account:', action);
+
     // Also update the profile is_active status
     try {
       const isActive = action === 'enable';
+      console.log(
+        `Updating profile is_active to ${isActive} for user:`,
+        targetUser.email
+      );
 
       const { error: profileUpdateError } = await supabaseAdmin
         .from('profiles')
@@ -169,6 +190,7 @@ export async function PATCH(request: NextRequest) {
         console.error('Error updating profile status:', profileUpdateError);
         // Don't fail the entire operation, just log the error
       } else {
+        console.log('Successfully updated profile is_active status');
       }
     } catch (profileError) {
       console.error('Error updating profile:', profileError);

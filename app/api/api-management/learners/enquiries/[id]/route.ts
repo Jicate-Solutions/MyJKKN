@@ -1,80 +1,134 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/auth/with-auth'
-import { corsHeaders } from '@/lib/api-keys/cors'
+import { createServerClient } from '@supabase/ssr';
+import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'crypto';
+import { corsHeaders } from '@/lib/api-keys/cors';
 
 export async function OPTIONS() {
-  return new NextResponse(null, { headers: corsHeaders })
+  return NextResponse.json({}, { headers: corsHeaders });
 }
 
-export const GET = withAuth(async (request: NextRequest, auth, context) => {
-  const { id } = await context!.params!
-  const url = new URL(request.url)
-  const expand = url.searchParams.get('expand')
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    // Use service role key for API key authentication to bypass RLS
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get() {
+            return undefined;
+          },
+          set() {},
+          remove() {}
+        }
+      }
+    );
 
-  // ── Institution scoping ──────────────────────────────────────
-  let institutionId: string | null = auth.institutionId
-  if (auth.authMethod === 'api_key') {
-    if (!institutionId) {
+    // Get API key from Authorization header
+    const authHeader = request.headers.get('authorization');
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
-        { error: 'API key must be scoped to an organization' },
-        { status: 400, headers: corsHeaders }
-      )
+        { error: 'API key is required in Authorization header' },
+        { status: 401, headers: corsHeaders }
+      );
     }
-  } else {
-    // Session auth: allow super_admin to query specific institution
-    const queryInstitutionId = url.searchParams.get('institution_id')
-    if (queryInstitutionId && auth.user.role === 'super_admin') {
-      institutionId = queryInstitutionId
+
+    const apiKey = authHeader.substring(7);
+    const hashedKey = createHash('sha256').update(apiKey).digest('hex');
+
+    // Verify API key
+    const { data: keyData, error: keyError } = await supabase
+      .from('api_keys')
+      .select('*')
+      .eq('key_value', hashedKey)
+      .eq('is_active', true)
+      .single();
+
+    if (keyError || !keyData) {
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401, headers: corsHeaders }
+      );
     }
-  }
 
-  // Fetch enquiry by ID - select all fields except migration fields
-  const selectFields = `
-    id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
-    gender, religion, community, caste, father_name, father_occupation, father_mobile,
-    mother_name, mother_occupation, mother_mobile, annual_income, last_school,
-    board_of_study, tenth_marks, twelfth_marks, medical_cutoff_marks,
-    engineering_cutoff_marks, neet_roll_number, neet_score, counseling_applied,
-    counseling_number, scholarship_type, quota, category, entry_type, student_mobile,
-    student_email, permanent_address_street, permanent_address_taluk,
-    permanent_address_district, permanent_address_pin_code, permanent_address_state,
-    accommodation_type, hostel_type, food_type, reference_type, reference_name, reference_contact,
-    institution_id, degree_id, department_id, program_id, semester_id, section_id,
-    academic_year_id, regulation_id, batch_id, roll_number, register_number,
-    college_email, student_photo_url, is_profile_complete, created_at, updated_at,
-    created_by, updated_by, aadhar_number, enquiry_date, blood_group, admission_year
-  `.trim()
+    // Check if key has expired
+    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
+      return NextResponse.json(
+        { error: 'API key has expired' },
+        { status: 401, headers: corsHeaders }
+      );
+    }
 
-  let query = auth.supabase
-    .from('learners_profiles')
-    .select(selectFields)
-    .eq('id', id)
-    .eq('lifecycle_status', 'enquiry')
+    // Check read permission
+    if (!keyData.permissions?.read) {
+      return NextResponse.json(
+        { error: 'API key does not have read permission' },
+        { status: 403, headers: corsHeaders }
+      );
+    }
 
-  // Enforce institution scoping on single-resource fetch
-  if (institutionId) {
-    query = query.eq('institution_id', institutionId)
-  }
+    const { id } = await params;
+    const url = new URL(request.url);
+    const expand = url.searchParams.get('expand');
 
-  const { data: enquiry, error } = await query.single()
+    // Fetch enquiry by ID - select all fields except migration fields
+    const selectFields = `
+      id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
+      gender, religion, community, caste, father_name, father_occupation, father_mobile,
+      mother_name, mother_occupation, mother_mobile, annual_income, last_school,
+      board_of_study, tenth_marks, twelfth_marks, medical_cutoff_marks,
+      engineering_cutoff_marks, neet_roll_number, neet_score, counseling_applied,
+      counseling_number, scholarship_type, quota, category, entry_type, student_mobile,
+      student_email, permanent_address_street, permanent_address_taluk,
+      permanent_address_district, permanent_address_pin_code, permanent_address_state,
+      accommodation_type, hostel_type, food_type, reference_type, reference_name, reference_contact,
+      institution_id, degree_id, department_id, program_id, semester_id, section_id,
+      academic_year_id, regulation_id, batch_id, roll_number, register_number,
+      college_email, student_photo_url, is_profile_complete, created_at, updated_at,
+      created_by, updated_by, aadhar_number, enquiry_date, blood_group, admission_year
+    `.trim();
 
-  if (error || !enquiry) {
+    const { data: enquiry, error } = await supabase
+      .from('learners_profiles')
+      .select(selectFields)
+      .eq('id', id)
+      .eq('lifecycle_status', 'enquiry')
+      .single();
+
+    if (error || !enquiry) {
+      return NextResponse.json(
+        { error: 'Enquiry not found' },
+        { status: 404, headers: corsHeaders }
+      );
+    }
+
+    // Expand related data if requested
+    let expandedData: any = enquiry;
+    if (expand && expand.includes('program') && (enquiry as any).program_id) {
+      const { data: program } = await supabase
+        .from('programs')
+        .select('id, program_name, program_code, degree_id')
+        .eq('id', (enquiry as any).program_id)
+        .single();
+      expandedData = { ...expandedData, program };
+    }
+
+    // Update last used timestamp
+    await supabase
+      .from('api_keys')
+      .update({ last_used_at: new Date().toISOString() })
+      .eq('id', keyData.id);
+
+    return NextResponse.json({ data: expandedData }, { headers: corsHeaders });
+  } catch (error) {
+    console.error('Error fetching enquiry:', error);
     return NextResponse.json(
-      { error: 'Enquiry not found' },
-      { status: 404, headers: corsHeaders }
-    )
+      { error: 'Internal server error' },
+      { status: 500, headers: corsHeaders }
+    );
   }
-
-  // Expand related data if requested
-  let expandedData: any = enquiry
-  if (expand && expand.includes('program') && (enquiry as any).program_id) {
-    const { data: program } = await auth.supabase
-      .from('programs')
-      .select('id, program_name, program_code, degree_id')
-      .eq('id', (enquiry as any).program_id)
-      .single()
-    expandedData = { ...expandedData, program }
-  }
-
-  return NextResponse.json({ data: expandedData }, { headers: corsHeaders })
-}, { allowApiKey: true, requiredPermission: 'read' })
+}

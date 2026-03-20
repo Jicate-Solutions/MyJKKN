@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createClient as createServerClient } from '@/lib/supabase/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 
 // ============================================
@@ -51,26 +50,6 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Authentication check
-    const supabase = await createServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Get user profile for institution scoping
-    const { data: callerProfile } = await supabase
-      .from('profiles')
-      .select('role, institution_id, is_super_admin')
-      .eq('id', user.id)
-      .single();
-
-    if (!callerProfile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
-    }
-
-    const isSuperAdmin = callerProfile.is_super_admin || callerProfile.role === 'super_admin';
     // 1. Fetch learner profile
     const { data: learner, error: learnerError } = await supabaseAdmin
       .from('learners_profiles')
@@ -82,14 +61,6 @@ export async function POST(request: NextRequest) {
 
     if (learnerError || !learner) {
       return NextResponse.json({ error: 'Learner not found' }, { status: 404 });
-    }
-
-    // Institution scoping: non-super-admins can only onboard learners in their institution
-    if (!isSuperAdmin && learner.institution_id !== callerProfile.institution_id) {
-      return NextResponse.json(
-        { error: 'You can only onboard learners in your institution' },
-        { status: 403 }
-      );
     }
 
     // 2. Validate profile is complete and active

@@ -13,20 +13,12 @@ import {
   UserCheck,
   GraduationCap,
   Phone,
+  MapPin,
   School,
   Home,
   BookText,
-  Sparkles,
-  Briefcase,
-  Globe,
-  ExternalLink,
-  Target,
-  TrendingUp,
-  CreditCard,
+  FileText,
   IndianRupee,
-  AlertTriangle,
-  CheckCircle2,
-  Receipt,
 } from 'lucide-react';
 import {
   Card,
@@ -38,29 +30,32 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { Progress } from '@/components/ui/progress';
 import { usePermissions } from '@/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 import type { LearnerProfile } from '@/types/learner-profile';
-import type { LearnerBillingSummary } from '../_data/get-learner-billing';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 
 interface LearnerDetailProps {
   learner: LearnerProfile;
-  billing?: LearnerBillingSummary | null;
 }
 
-export function LearnerDetail({ learner, billing }: LearnerDetailProps) {
+export function LearnerDetail({ learner }: LearnerDetailProps) {
   const [activeSection, setActiveSection] = useState('personal');
   const {
     canAccess,
     isSuperAdmin,
+    isLoading: permissionsLoading,
   } = usePermissions();
 
   const isProfileComplete =
     !!learner.roll_number &&
     !!learner.college_email &&
     !!learner.student_photo_url;
+
+  // Only access permissions after they've loaded
+  const hasEditPermission =
+    !permissionsLoading && (isSuperAdmin || canAccess('learners', 'edit'));
+  const canViewFinance = isSuperAdmin || canAccess('learners', 'finance.view');
 
   const sections = [
     {
@@ -88,20 +83,15 @@ export function LearnerDetail({ learner, billing }: LearnerDetailProps) {
       label: 'Accommodation',
       icon: Home,
     },
+    ...(canViewFinance ? [{
+      id: 'finance',
+      label: 'Finance Details',
+      icon: IndianRupee
+    }] : []),
     {
       id: 'admission',
       label: 'Admission Details',
       icon: BookText,
-    },
-    {
-      id: 'billing',
-      label: 'Billing & Fees',
-      icon: CreditCard,
-    },
-    {
-      id: 'capabilities',
-      label: 'Capabilities & Career',
-      icon: Sparkles,
     },
   ];
 
@@ -741,390 +731,116 @@ export function LearnerDetail({ learner, billing }: LearnerDetailProps) {
             </>
           )}
 
-          {/* Billing & Fees Section */}
-          {activeSection === 'billing' && (
+          {/* Finance Details Section */}
+          {activeSection === 'finance' && canViewFinance && (
             <>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CreditCard className="h-5 w-5" />
-                  Billing & Fees
-                </CardTitle>
-                <CardDescription>Fee summary, payment status, and outstanding balances</CardDescription>
+                <CardTitle>Finance Details</CardTitle>
+                <CardDescription>Fee structure and payment details</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                {billing ? (
-                  <>
-                    {/* Financial Overview Cards */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="rounded-lg border p-3 text-center">
-                        <div className="flex items-center justify-center gap-1 mb-1">
-                          <IndianRupee className="h-3.5 w-3.5 text-muted-foreground" />
-                        </div>
-                        <p className="text-xl font-bold">
-                          {Number(billing.total_bill_amount).toLocaleString('en-IN')}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Total Billed</p>
-                      </div>
-                      <div className="rounded-lg border p-3 text-center">
-                        <div className="flex items-center justify-center gap-1 mb-1">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                        </div>
-                        <p className="text-xl font-bold text-green-600">
-                          {Number(Number(billing.total_bill_amount) - Number(billing.total_outstanding)).toLocaleString('en-IN')}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Total Paid</p>
-                      </div>
-                      <div className={cn(
-                        "rounded-lg border p-3 text-center",
-                        Number(billing.total_outstanding) > 0 && "border-orange-200 bg-orange-50"
-                      )}>
-                        <div className="flex items-center justify-center gap-1 mb-1">
-                          <AlertTriangle className={cn(
-                            "h-3.5 w-3.5",
-                            Number(billing.total_outstanding) > 0 ? "text-orange-500" : "text-muted-foreground"
-                          )} />
-                        </div>
-                        <p className={cn(
-                          "text-xl font-bold",
-                          Number(billing.total_outstanding) > 0 ? "text-orange-600" : ""
-                        )}>
-                          {Number(billing.total_outstanding).toLocaleString('en-IN')}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Outstanding</p>
-                      </div>
-                      <div className="rounded-lg border p-3 text-center">
-                        <div className="flex items-center justify-center gap-1 mb-1">
-                          <Receipt className="h-3.5 w-3.5 text-blue-500" />
-                        </div>
-                        <p className="text-xl font-bold">
-                          {billing.total_receipts}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Receipts</p>
-                      </div>
+              <CardContent className='space-y-6'>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Common Fees</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Application Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.application_fee != null ? `₹${Number(learner.application_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                      </p>
                     </div>
-
-                    {/* Collection Progress Bar */}
-                    {Number(billing.total_bill_amount) > 0 && (
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Collection Progress</span>
-                          <span className="font-medium">
-                            {Math.round(
-                              ((Number(billing.total_bill_amount) - Number(billing.total_outstanding)) /
-                                Number(billing.total_bill_amount)) *
-                                100
-                            )}
-                            %
-                          </span>
-                        </div>
-                        <Progress
-                          value={Math.round(
-                            ((Number(billing.total_bill_amount) - Number(billing.total_outstanding)) /
-                              Number(billing.total_bill_amount)) *
-                              100
-                          )}
-                          className="h-2"
-                        />
-                      </div>
-                    )}
-
-                    <Separator />
-
-                    {/* Bill Breakdown */}
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium">Bill Status Breakdown</h3>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Total Bills</h4>
-                          <p className="text-sm font-semibold">{billing.total_bills}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-green-600">Paid</h4>
-                          <p className="text-sm font-semibold">{billing.paid_bills}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-orange-600">Unpaid</h4>
-                          <p className="text-sm font-semibold">{billing.unpaid_bills}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-yellow-600">Partially Paid</h4>
-                          <p className="text-sm font-semibold">{billing.partially_paid_bills}</p>
-                        </div>
-                      </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        University Registration Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.university_reg_fee != null ? `₹${Number(learner.university_reg_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                      </p>
                     </div>
-
-                    {/* Overdue Warning */}
-                    {Number(billing.overdue_bills) > 0 && (
-                      <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3">
-                        <AlertTriangle className="h-4 w-4 text-red-500" />
-                        <span className="text-sm text-red-700">
-                          {billing.overdue_bills} overdue bill{Number(billing.overdue_bills) !== 1 ? 's' : ''} require attention
-                        </span>
-                      </div>
-                    )}
-
-                    <Separator />
-
-                    {/* Payment & Refund Info */}
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-medium">Payment & Refund Details</h3>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Total Receipt Amount</h4>
-                          <p className="text-sm">
-                            {Number(billing.total_receipt_amount).toLocaleString('en-IN')}
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Last Payment</h4>
-                          <p className="text-sm">
-                            {billing.last_payment_date
-                              ? formatDate(billing.last_payment_date)
-                              : 'No payments recorded'}
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Total Refunds</h4>
-                          <p className="text-sm">{billing.total_refunds}</p>
-                        </div>
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Refund Amount</h4>
-                          <p className="text-sm">
-                            {Number(billing.total_processed_refunds).toLocaleString('en-IN')}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <CreditCard className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                    <p className="text-sm font-medium">No Billing Data</p>
-                    <p className="text-xs mt-1">
-                      No bills have been generated for this learner yet.
-                      Bills will appear here once they are created in the Billing module.
-                    </p>
                   </div>
-                )}
-              </CardContent>
-            </>
-          )}
-
-          {/* Capabilities & Career Section */}
-          {activeSection === 'capabilities' && (
-            <>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5" />
-                  Capabilities & Career
-                </CardTitle>
-                <CardDescription>Competency tracking, career aspirations, and industry readiness</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Industry Readiness Score */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-medium flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-blue-500" />
-                    Industry Readiness
-                  </h3>
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1">
-                      <Progress
-                        value={learner.industry_readiness_score ?? 0}
-                        className="h-3"
-                      />
-                    </div>
-                    <span className="text-2xl font-bold min-w-[60px] text-right">
-                      {learner.industry_readiness_score != null
-                        ? `${learner.industry_readiness_score}%`
-                        : '—'}
-                    </span>
-                  </div>
-                  {learner.portfolio_url && (
-                    <div className="flex items-center gap-2">
-                      <Globe className="h-4 w-4 text-muted-foreground" />
-                      <a
-                        href={learner.portfolio_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-primary hover:underline flex items-center gap-1"
-                      >
-                        Portfolio
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    </div>
-                  )}
-                  {!learner.industry_readiness_score && !learner.portfolio_url && (
-                    <p className="text-sm text-muted-foreground">
-                      No industry readiness data available yet. This will be populated as the learner acquires competencies and completes industry engagements.
-                    </p>
-                  )}
                 </div>
 
                 <Separator />
 
-                {/* Competencies */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-medium flex items-center gap-2">
-                    <Target className="h-4 w-4 text-green-500" />
-                    Competencies
-                  </h3>
-                  {learner.capabilities?.competencies && learner.capabilities.competencies.length > 0 ? (
-                    <div className="space-y-3">
-                      {learner.capabilities.competencies.map((comp, idx) => (
-                        <div key={idx} className="flex items-center justify-between rounded-lg border p-3">
-                          <div>
-                            <p className="text-sm font-medium">{comp.competency_name || comp.competency_id}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <Badge variant="outline" className="capitalize text-xs">
-                                {comp.current_level}
-                              </Badge>
-                              {comp.evidence && comp.evidence.length > 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  {comp.evidence.length} evidence item{comp.evidence.length !== 1 ? 's' : ''}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          {comp.verified_at && (
-                            <Badge variant="default" className="text-xs">Verified</Badge>
-                          )}
-                        </div>
-                      ))}
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Fee Structure</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Fee Structure Type
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.fee_structure_type === 'tuition_hostel'
+                          ? 'Tuition + Hostel Fee'
+                          : learner.fee_structure_type === 'dayscholar'
+                            ? 'Day Scholar Fee'
+                            : 'Not specified'}
+                      </p>
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No competencies tracked yet. Competencies will appear here as the learner progresses through courses and assessments.
-                    </p>
-                  )}
+                    {learner.fee_structure_type === 'tuition_hostel' && (
+                      <>
+                        <div className='space-y-1'>
+                          <h4 className='text-sm font-medium text-muted-foreground'>
+                            Tuition Fee
+                          </h4>
+                          <p className='text-sm'>
+                            {learner.tuition_fee != null ? `₹${Number(learner.tuition_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                          </p>
+                        </div>
+                        <div className='space-y-1'>
+                          <h4 className='text-sm font-medium text-muted-foreground'>
+                            Hostel Fee
+                          </h4>
+                          <p className='text-sm'>
+                            {learner.hostel_fee != null ? `₹${Number(learner.hostel_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                    {learner.fee_structure_type === 'dayscholar' && (
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Day Scholar Fee
+                        </h4>
+                        <p className='text-sm'>
+                          {learner.dayscholar_fee != null ? `₹${Number(learner.dayscholar_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-
-                {/* Capability Summary */}
-                {learner.capabilities?.summary && (
-                  <>
-                    <Separator />
-                    <div className="space-y-3">
-                      <h3 className="text-sm font-medium">Capability Summary</h3>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="rounded-lg border p-3 text-center">
-                          <p className="text-xl font-bold">{learner.capabilities.summary.technical_skills}</p>
-                          <p className="text-xs text-muted-foreground">Technical</p>
-                        </div>
-                        <div className="rounded-lg border p-3 text-center">
-                          <p className="text-xl font-bold">{learner.capabilities.summary.behavioral_skills}</p>
-                          <p className="text-xs text-muted-foreground">Behavioral</p>
-                        </div>
-                        <div className="rounded-lg border p-3 text-center">
-                          <p className="text-xl font-bold">{learner.capabilities.summary.domain_knowledge}</p>
-                          <p className="text-xs text-muted-foreground">Domain</p>
-                        </div>
-                        <div className="rounded-lg border p-3 text-center">
-                          <p className="text-xl font-bold">{learner.capabilities.summary.soft_skills}</p>
-                          <p className="text-xs text-muted-foreground">Soft Skills</p>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* Fink's Learning Profile */}
-                {learner.capabilities?.overall_finks_profile && (
-                  <>
-                    <Separator />
-                    <div className="space-y-3">
-                      <h3 className="text-sm font-medium">Fink&apos;s Learning Profile</h3>
-                      <div className="space-y-2">
-                        {[
-                          { key: 'foundational_knowledge', label: 'Foundational Knowledge', color: 'bg-blue-500' },
-                          { key: 'application', label: 'Application', color: 'bg-green-500' },
-                          { key: 'integration', label: 'Integration', color: 'bg-purple-500' },
-                          { key: 'human_dimension', label: 'Human Dimension', color: 'bg-orange-500' },
-                          { key: 'caring', label: 'Caring', color: 'bg-pink-500' },
-                          { key: 'learning_how_to_learn', label: 'Learning How to Learn', color: 'bg-teal-500' },
-                        ].map(({ key, label }) => {
-                          const score = (learner.capabilities?.overall_finks_profile as any)?.[key] ?? 0;
-                          return (
-                            <div key={key} className="space-y-1">
-                              <div className="flex justify-between text-sm">
-                                <span className="text-muted-foreground">{label}</span>
-                                <span className="font-medium">{score}%</span>
-                              </div>
-                              <Progress value={score} className="h-2" />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </>
-                )}
 
                 <Separator />
 
-                {/* Career Aspirations */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-medium flex items-center gap-2">
-                    <Briefcase className="h-4 w-4 text-purple-500" />
-                    Career Aspirations
-                  </h3>
-                  {learner.career_aspirations &&
-                   (learner.career_aspirations.target_roles?.length ||
-                    learner.career_aspirations.preferred_industries?.length ||
-                    learner.career_aspirations.further_studies !== undefined) ? (
-                    <div className="space-y-4">
-                      {learner.career_aspirations.target_roles && learner.career_aspirations.target_roles.length > 0 && (
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Target Roles</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {learner.career_aspirations.target_roles.map((role, idx) => (
-                              <Badge key={idx} variant="secondary">{role}</Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {learner.career_aspirations.preferred_industries && learner.career_aspirations.preferred_industries.length > 0 && (
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Preferred Industries</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {learner.career_aspirations.preferred_industries.map((ind, idx) => (
-                              <Badge key={idx} variant="outline">{ind}</Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {learner.career_aspirations.location_preferences && learner.career_aspirations.location_preferences.length > 0 && (
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Location Preferences</h4>
-                          <p className="text-sm">{learner.career_aspirations.location_preferences.join(', ')}</p>
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-4">
-                        {learner.career_aspirations.salary_expectations && (
-                          <div className="space-y-1">
-                            <h4 className="text-sm font-medium text-muted-foreground">Salary Expectations</h4>
-                            <p className="text-sm">{learner.career_aspirations.salary_expectations}</p>
-                          </div>
-                        )}
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Further Studies</h4>
-                          <p className="text-sm">
-                            {learner.career_aspirations.further_studies === true ? 'Interested' :
-                             learner.career_aspirations.further_studies === false ? 'Not interested' : 'Not specified'}
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <h4 className="text-sm font-medium text-muted-foreground">Entrepreneurship</h4>
-                          <p className="text-sm">
-                            {learner.career_aspirations.entrepreneurship_interest === true ? 'Interested' :
-                             learner.career_aspirations.entrepreneurship_interest === false ? 'Not interested' : 'Not specified'}
-                          </p>
-                        </div>
-                      </div>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Optional Fees</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Uniform Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.uniform_fee != null ? `₹${Number(learner.uniform_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
+                      </p>
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      No career aspirations recorded yet. This section will be populated during career counseling sessions.
-                    </p>
-                  )}
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Hospital Training Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.hospital_training_fee != null ? `₹${Number(learner.hospital_training_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Placement Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.placement_fee != null ? `₹${Number(learner.placement_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </>

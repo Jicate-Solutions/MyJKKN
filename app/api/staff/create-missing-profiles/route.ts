@@ -74,7 +74,7 @@ export async function POST(request: Request) {
 
     const { data: currentUser, error: userError } = await supabase
       .from('profiles')
-      .select('role, institution_id, is_super_admin')
+      .select('role')
       .eq('id', session.user.id)
       .single();
 
@@ -92,14 +92,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const isSuperAdmin = currentUser.is_super_admin || currentUser.role === 'super_admin';
-
     // Get selected staff IDs from request body (optional - if not provided, sync all)
     const body = await request.json().catch(() => ({}));
     const selectedStaffIds: string[] | undefined = body.staff_ids;
 
-    // Get staff with institution emails - scoped to user's institution (super_admin sees all)
-    let staffQuery = supabaseAdmin
+    // Get all staff with institution emails
+    const { data: allStaff, error: staffError } = await supabaseAdmin
       .from('staff')
       .select(
         `
@@ -116,13 +114,6 @@ export async function POST(request: Request) {
       )
       .not('institution_email', 'is', null)
       .not('institution_email', 'eq', '');
-
-    // Institution scoping for non-super-admins
-    if (!isSuperAdmin && currentUser.institution_id) {
-      staffQuery = staffQuery.eq('institution_id', currentUser.institution_id);
-    }
-
-    const { data: allStaff, error: staffError } = await staffQuery;
 
     if (staffError) {
       throw staffError;

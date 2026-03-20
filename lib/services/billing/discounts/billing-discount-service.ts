@@ -5,8 +5,7 @@ import type {
   DiscountListResponse,
   CreateDiscountDto,
   UpdateDiscountDto,
-  BulkOperationResult,
-  OutcomeVerification
+  BulkOperationResult
 } from '@/types/billing-schedule';
 
 export class BillingDiscountService {
@@ -16,24 +15,6 @@ export class BillingDiscountService {
     discountData: CreateDiscountDto
   ): Promise<BillingDiscount> {
     try {
-      // Validate discount value
-      if (discountData.discount_value <= 0) {
-        throw new Error('Discount value must be greater than 0');
-      }
-
-      if (discountData.discount_type === 'percentage' && discountData.discount_value > 100) {
-        throw new Error('Percentage discount cannot exceed 100%');
-      }
-
-      // Validate dates
-      if (discountData.expiry_date) {
-        const effectiveDate = new Date(discountData.effective_date);
-        const expiryDate = new Date(discountData.expiry_date);
-        if (expiryDate <= effectiveDate) {
-          throw new Error('Expiry date must be after effective date');
-        }
-      }
-
       // Calculate discount amount based on type and value
       const billQuery = await this.supabase
         .from('billing_student_bills')
@@ -52,41 +33,26 @@ export class BillingDiscountService {
         discountAmount = discountData.discount_value;
       }
 
-      // Validate discount doesn't exceed bill amount
-      if (discountAmount > billAmount) {
-        throw new Error('Discount amount cannot exceed bill amount');
-      }
-
       // Get current user for created_by field
       const {
         data: { user }
       } = await this.supabase.auth.getUser();
 
-      // Build insert object conditionally to avoid empty JSONB objects
-      const insertData: any = {
-        bill_id: discountData.bill_id,
-        discount_category: discountData.discount_category,
-        discount_type: discountData.discount_type,
-        discount_value: discountData.discount_value,
-        discount_amount: discountAmount,
-        discount_reason: discountData.discount_reason,
-        supporting_documents: discountData.supporting_documents,
-        effective_date: discountData.effective_date,
-        expiry_date: discountData.expiry_date,
-        approval_status: 'pending',
-        created_by: user?.id,
-        is_outcome_based: discountData.is_outcome_based || false
-      };
-
-      // Only add outcome fields if actually outcome-based
-      if (discountData.is_outcome_based && discountData.outcome_criteria) {
-        insertData.outcome_criteria = discountData.outcome_criteria;
-        insertData.outcome_verification = { verified: false, status: 'pending' };
-      }
-
       const { data, error } = await this.supabase
         .from('billing_discounts')
-        .insert(insertData)
+        .insert({
+          bill_id: discountData.bill_id,
+          discount_category: discountData.discount_category,
+          discount_type: discountData.discount_type,
+          discount_value: discountData.discount_value,
+          discount_amount: discountAmount,
+          discount_reason: discountData.discount_reason,
+          supporting_documents: discountData.supporting_documents,
+          effective_date: discountData.effective_date,
+          expiry_date: discountData.expiry_date,
+          approval_status: 'pending',
+          created_by: user?.id
+        } as any)
         .select(
           `
           *,
@@ -98,8 +64,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              student_id,
-              email
+              roll_number,
+              student_email
             )
           ),
           authorizer:profiles (
@@ -140,8 +106,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              student_id,
-              email
+              roll_number,
+              student_email
             )
           ),
           authorizer:profiles (
@@ -193,8 +159,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              student_id,
-              email
+              roll_number,
+              student_email
             )
           ),
           authorizer:profiles (
@@ -207,9 +173,9 @@ export class BillingDiscountService {
 
       // Apply filters
       if (filters.search) {
-        // Search only in discount_reason as nested relation search doesn't work in or() clause
-        const safeSearch = filters.search.replace(/[%_\\]/g, '\\$&');
-        query = query.ilike('discount_reason', `%${safeSearch}%`);
+        query = query.or(
+          `discount_reason.ilike.%${filters.search}%,bill.student.first_name.ilike.%${filters.search}%,bill.student.last_name.ilike.%${filters.search}%`
+        );
       }
 
       if (filters.bill_id) {
@@ -279,8 +245,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              student_id,
-              email
+              roll_number,
+              student_email
             )
           ),
           authorizer:profiles (
@@ -306,15 +272,6 @@ export class BillingDiscountService {
     try {
       // First get the discount details to access bill_id and discount_amount
       const discountData = await this.getBillingDiscount(id);
-
-      // Validate discount hasn't expired
-      if (discountData.expiry_date) {
-        const expiryDate = new Date(discountData.expiry_date);
-        const today = new Date();
-        if (expiryDate < today) {
-          throw new Error('Cannot approve an expired discount');
-        }
-      }
 
       // Get current user
       const {
@@ -380,8 +337,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              student_id,
-              email
+              roll_number,
+              student_email
             )
           ),
           authorizer:profiles (
@@ -461,8 +418,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              student_id,
-              email
+              roll_number,
+              student_email
             )
           ),
           authorizer:profiles (
@@ -542,8 +499,8 @@ export class BillingDiscountService {
               id,
               first_name,
               last_name,
-              student_id,
-              email
+              roll_number,
+              student_email
             )
           ),
           authorizer:profiles (
@@ -664,204 +621,6 @@ export class BillingDiscountService {
         error instanceof Error
           ? error.message
           : 'Failed to get bill discount summary'
-      );
-    }
-  }
-
-  // ============================================
-  // OUTCOME-BASED DISCOUNT METHODS
-  // ============================================
-
-  static async createOutcomeDiscount(
-    discountData: CreateDiscountDto
-  ): Promise<BillingDiscount> {
-    try {
-      // Ensure outcome fields are set
-      const outcomeData: CreateDiscountDto = {
-        ...discountData,
-        is_outcome_based: true,
-        outcome_criteria: discountData.outcome_criteria || {
-          type: 'competency_achievement',
-          competency_ids: [],
-          minimum_level: 'intermediate',
-          min_score: 0,
-          evaluation_period_days: 90
-        }
-      };
-
-      // Calculate discount amount based on type and value
-      const billQuery = await this.supabase
-        .from('billing_student_bills')
-        .select('total_amount')
-        .eq('id', outcomeData.bill_id)
-        .single();
-
-      if (billQuery.error) throw billQuery.error;
-
-      const billAmount = (billQuery.data as { total_amount: number }).total_amount;
-      let discountAmount = 0;
-
-      if (outcomeData.discount_type === 'percentage') {
-        discountAmount = (billAmount * outcomeData.discount_value) / 100;
-      } else {
-        discountAmount = outcomeData.discount_value;
-      }
-
-      // Get current user for created_by field
-      const {
-        data: { user }
-      } = await this.supabase.auth.getUser();
-
-      const { data, error } = await this.supabase
-        .from('billing_discounts')
-        .insert({
-          bill_id: outcomeData.bill_id,
-          discount_category: outcomeData.discount_category,
-          discount_type: outcomeData.discount_type,
-          discount_value: outcomeData.discount_value,
-          discount_amount: discountAmount,
-          discount_reason: outcomeData.discount_reason,
-          supporting_documents: outcomeData.supporting_documents,
-          effective_date: outcomeData.effective_date,
-          expiry_date: outcomeData.expiry_date,
-          approval_status: 'pending',
-          created_by: user?.id,
-          is_outcome_based: true,
-          outcome_criteria: outcomeData.outcome_criteria,
-          outcome_verification: {
-            verified: false,
-            status: 'pending'
-          }
-        } as any)
-        .select(
-          `
-          *,
-          bill:billing_student_bills (
-            id,
-            bill_description,
-            total_amount,
-            student:students (
-              id,
-              first_name,
-              last_name,
-              student_id,
-              email
-            )
-          ),
-          authorizer:profiles (
-            id,
-            full_name
-          )
-        `
-        )
-        .single();
-
-      if (error) throw error;
-      return data as unknown as BillingDiscount;
-    } catch (error) {
-      console.error('Error creating outcome discount:', error);
-      throw new Error(
-        error instanceof Error ? error.message : 'Failed to create outcome discount'
-      );
-    }
-  }
-
-  static async verifyOutcomeDiscount(
-    discountId: string,
-    verifiedBy: string,
-    evidence: string[]
-  ): Promise<BillingDiscount> {
-    try {
-      const verification: OutcomeVerification = {
-        verified: true,
-        verified_at: new Date().toISOString(),
-        verified_by: verifiedBy,
-        evidence_urls: evidence,
-        status: 'verified'
-      };
-
-      const { data, error } = await (this.supabase as any)
-        .from('billing_discounts')
-        .update({
-          outcome_verification: verification
-        })
-        .eq('id', discountId)
-        .eq('is_outcome_based', true)
-        .select(
-          `
-          *,
-          bill:billing_student_bills (
-            id,
-            bill_description,
-            total_amount,
-            student:students (
-              id,
-              first_name,
-              last_name,
-              student_id,
-              email
-            )
-          ),
-          authorizer:profiles (
-            id,
-            full_name
-          )
-        `
-        )
-        .single();
-
-      if (error) throw error;
-      return data as unknown as BillingDiscount;
-    } catch (error) {
-      console.error('Error verifying outcome discount:', error);
-      throw new Error(
-        error instanceof Error
-          ? error.message
-          : 'Failed to verify outcome discount'
-      );
-    }
-  }
-
-  static async getOutcomeDiscounts(
-    institutionId: string
-  ): Promise<BillingDiscount[]> {
-    try {
-      const { data, error } = await (this.supabase as any)
-        .from('billing_discounts')
-        .select(
-          `
-          *,
-          bill:billing_student_bills (
-            id,
-            bill_description,
-            total_amount,
-            institution_id,
-            student:students (
-              id,
-              first_name,
-              last_name,
-              student_id,
-              email
-            )
-          ),
-          authorizer:profiles (
-            id,
-            full_name
-          )
-        `
-        )
-        .eq('is_outcome_based', true)
-        .eq('bill.institution_id', institutionId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return (data || []) as unknown as BillingDiscount[];
-    } catch (error) {
-      console.error('Error fetching outcome discounts:', error);
-      throw new Error(
-        error instanceof Error
-          ? error.message
-          : 'Failed to fetch outcome discounts'
       );
     }
   }

@@ -36,7 +36,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowUpDown, Download, Search } from 'lucide-react';
 import { format } from 'date-fns';
-import { exportToCSV } from '@/lib/utils/export-utils';
 
 interface Grade {
   id: string;
@@ -44,7 +43,7 @@ interface Grade {
   resource_link_title: string | null;
   score: number;
   score_maximum: number;
-  score_percentage: number;
+  score_percentage: number | null;
   activity_progress: string | null;
   grading_progress: string | null;
   graded_at: string | null;
@@ -52,7 +51,7 @@ interface Grade {
     id: string;
     name: string;
     tool_type: string;
-  };
+  } | null;
   learners_profiles: {
     id: string;
     first_name: string;
@@ -61,7 +60,7 @@ interface Grade {
     programs: { name: string } | null;
     semesters: { name: string } | null;
     sections: { name: string } | null;
-  };
+  } | null;
 }
 
 interface CourseGradesTableProps {
@@ -113,9 +112,9 @@ export function CourseGradesTable({ grades }: CourseGradesTableProps) {
           return (
             <div>
               <div className="font-medium">
-                {profile.first_name} {profile.last_name}
+                {profile?.first_name ?? 'Unknown'} {profile?.last_name ?? ''}
               </div>
-              {profile.roll_number && (
+              {profile?.roll_number && (
                 <div className="text-xs text-muted-foreground">
                   {profile.roll_number}
                 </div>
@@ -131,9 +130,9 @@ export function CourseGradesTable({ grades }: CourseGradesTableProps) {
           const profile = row.original.learners_profiles;
           return (
             <div className="text-sm">
-              <div>{profile.programs?.name || '-'}</div>
+              <div>{profile?.programs?.name || '-'}</div>
               <div className="text-xs text-muted-foreground">
-                {profile.semesters?.name} - {profile.sections?.name}
+                {profile?.semesters?.name} - {profile?.sections?.name}
               </div>
             </div>
           );
@@ -149,7 +148,7 @@ export function CourseGradesTable({ grades }: CourseGradesTableProps) {
                 {row.original.resource_link_title || 'Untitled'}
               </div>
               <Badge variant="outline" className="text-xs mt-1">
-                {row.original.lti_tools.name}
+                {row.original.lti_tools?.name ?? 'Unknown Tool'}
               </Badge>
             </div>
           );
@@ -176,7 +175,7 @@ export function CourseGradesTable({ grades }: CourseGradesTableProps) {
               <div className="font-medium">
                 {row.original.score}/{row.original.score_maximum}
               </div>
-              <ScoreBadge percentage={row.original.score_percentage} />
+              <ScoreBadge percentage={row.original.score_percentage ?? 0} />
             </div>
           );
         }
@@ -249,23 +248,8 @@ export function CourseGradesTable({ grades }: CourseGradesTableProps) {
   });
 
   const handleExport = () => {
-    const filteredRows = table.getRowModel().rows.map((row) => row.original);
-    if (filteredRows.length === 0) return;
-    exportToCSV(filteredRows, 'course-grades', [
-      { key: 'learners_profiles.first_name', label: 'First Name' },
-      { key: 'learners_profiles.last_name', label: 'Last Name' },
-      { key: 'learners_profiles.roll_number', label: 'Roll Number' },
-      { key: 'learners_profiles.programs.name', label: 'Program' },
-      { key: 'learners_profiles.semesters.name', label: 'Semester' },
-      { key: 'learners_profiles.sections.name', label: 'Section' },
-      { key: 'resource_link_title', label: 'Assignment' },
-      { key: 'lti_tools.name', label: 'Tool' },
-      { key: 'score', label: 'Score' },
-      { key: 'score_maximum', label: 'Max Score' },
-      { key: 'score_percentage', label: 'Percentage', formatter: (v: number) => v != null ? v.toFixed(1) + '%' : '' },
-      { key: 'grading_progress', label: 'Status' },
-      { key: 'graded_at', label: 'Graded Date', formatter: (v: string) => v ? format(new Date(v), 'yyyy-MM-dd') : '' },
-    ]);
+    // TODO: Implement Excel export
+    alert('Export functionality coming soon!');
   };
 
   if (grades.length === 0) {

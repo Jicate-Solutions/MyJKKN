@@ -6,7 +6,6 @@ import {
   useRef,
   useCallback,
   Suspense,
-  use,
   useMemo
 } from 'react';
 import { useRouter } from 'next/navigation';
@@ -84,7 +83,8 @@ import {
   useTimetableDetail,
   useTimetablePeriods,
   useStaffPlanningData,
-  useTimetableDialogs
+  useTimetableDialogs,
+  useResolvedRouteId
 } from './_hooks';
 
 // Import utilities (Phase 2)
@@ -92,7 +92,6 @@ import {
   sortPeriodsByName,
   generateDateRange,
   validateDateRange,
-  checkDatesWithSlots,
   calculateDaysInRange,
   exportTimetableToPDF,
   createRangeMarker,
@@ -137,15 +136,20 @@ const ALL_DAYS_OF_WEEK: DayOfWeek[] = [
   'SATURDAY'
 ];
 
-export default function TimetableDetailPage({
-  params
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function TimetableDetailPage() {
   const router = useRouter();
-  const unwrappedParams = use(params);
-  const timetableId = unwrappedParams.id;
+
+  // Fix: 2026-02-25 - Use useResolvedRouteId instead of use(params) to avoid
+  // Next.js DRP (Dynamic Route Parameter) placeholder issue.
+  // Next.js generates %%drp:id:xxxx%% placeholders during client-side navigation
+  // with cacheComponents enabled. use(params) can resolve to these placeholders,
+  // causing "Invalid timetable ID" errors. useResolvedRouteId falls back to
+  // useParams() and pathname extraction to always get the real URL param.
+  const { id: timetableId, isResolving, isInvalid } = useResolvedRouteId();
   const { saveTimetableAsTemplate } = useTimetables();
+
+  // IMPORTANT: All hooks must be called unconditionally (React Rules of Hooks).
+  // The DRP/invalid checks happen AFTER all hooks, in the render section below.
 
   // Get permissions for role-based access control
   const { canAccess, isSuperAdmin } = usePermissions();
@@ -183,6 +187,20 @@ export default function TimetableDetailPage({
     setSelectedDates,
     fetchTimetableData
   } = useTimetableDetail(timetableId);
+
+  // FIX: 2026-02-05 - Use refs to prevent stale closure issues when saving configuration
+  // This ensures we always read the current state values, not captured closure values
+  const selectedDaysRef = useRef(selectedDays);
+  const selectedDatesRef = useRef(selectedDates);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    selectedDaysRef.current = selectedDays;
+  }, [selectedDays]);
+
+  useEffect(() => {
+    selectedDatesRef.current = selectedDates;
+  }, [selectedDates]);
 
   // Period selection and persistence
   const {
@@ -279,12 +297,16 @@ export default function TimetableDetailPage({
 
   // Wrapper for save periods that includes all parameters
   // Updated: 2025-10-27 - Added modal close after successful save
+  // Updated: 2026-02-05 - Use refs to prevent stale closure issues
   const savePeriodSelections = useCallback(async () => {
     if (!timetable) return;
+
+    // FIX: 2026-02-05 - Read current values from refs to avoid stale closure
+    // This ensures removed date ranges are actually saved to the database
     await savePeriods(
       timetable.id,
-      selectedDays,
-      selectedDates,
+      selectedDaysRef.current,
+      selectedDatesRef.current,
       timetableFormat
     );
     setHasUnsavedChanges(false);
@@ -293,8 +315,6 @@ export default function TimetableDetailPage({
   }, [
     timetable,
     savePeriods,
-    selectedDays,
-    selectedDates,
     timetableFormat,
     fetchTimetableData,
     periodSelectorDialog
@@ -336,37 +356,34 @@ export default function TimetableDetailPage({
   const courseMappings = courseMappingsQuery.data?.data || [];
 
   // Computed values for courses and staff to use in slot creation
-  // Use staff planning data if available, otherwise fall back to filtered courses based on mappings
+  // Fixed: 2026-01-30 - ONLY use staff planning data, no fallback to all courses
+  // This ensures timetables only use courses/staff that have been properly planned
   const courses = useMemo(() => {
-    // If staff planning courses are available, use them
+    // Only return staff planning courses - no fallback
+    // If no staff planning exists for this semester/academic year, return empty
     if (staffPlanningCourses.length > 0) {
       return staffPlanningCourses;
     }
 
-    // Fixed: 2025-12-31 - Filter allCourses by course mappings to show only relevant courses
-    // Extract course IDs from course mappings for this timetable's program/department/semester
-    const mappedCourseIds = new Set(courseMappings.map(mapping => mapping.course_id));
-
-    // Filter allCourses to only include courses with valid mappings
-    const filteredCourses = allCourses.filter(course => mappedCourseIds.has(course.id));
-
-    logger.info('academic/timetables', 'Filtering courses by mappings', {
-      totalCourses: allCourses.length,
-      mappedCourses: mappedCourseIds.size,
-      filteredCourses: filteredCourses.length,
+    // No staff planning found - return empty array (user must create staff plan first)
+    logger.warn('academic/timetables', 'No staff planning courses found - returning empty', {
       timetableProgram: timetable?.program_id,
       timetableDepartment: timetable?.department_id,
-      timetableSemester: timetable?.semester_id
+      timetableSemester: timetable?.semester_id,
+      timetableAcademicYear: timetable?.academic_year_id
     });
 
-    return filteredCourses;
-  }, [staffPlanningCourses, allCourses, courseMappings, timetable]);
+    return [];
+  }, [staffPlanningCourses, timetable]);
 
-  // Fixed: 2025-11-07 - Merge staff from existing slot when editing
+  // Fixed: 2026-01-30 - ONLY use staff planning data, no fallback to all staff
+  // This ensures timetables only use staff that have been properly planned
   const staff = useMemo(() => {
-    const baseStaff = staffPlanningStaff.length > 0 ? staffPlanningStaff : allStaff;
+    // Only use staff planning staff - no fallback to allStaff
+    const baseStaff = staffPlanningStaff.length > 0 ? staffPlanningStaff : [];
 
     // If editing an existing slot, merge in any staff that are assigned but not in staff planning
+    // This allows viewing/editing existing slots even if staff planning was removed
     if (slotDialog.isOpen && slotDialog.data.selectedSlot) {
       const existingSlot = slotDialog.data.selectedSlot;
 
@@ -384,7 +401,7 @@ export default function TimetableDetailPage({
     }
 
     return baseStaff;
-  }, [staffPlanningStaff, allStaff, slotDialog.isOpen, slotDialog.data.selectedSlot]);
+  }, [staffPlanningStaff, slotDialog.isOpen, slotDialog.data.selectedSlot]);
 
   // ===================================
   // Filter sections by semester for slot dialog
@@ -930,12 +947,13 @@ export default function TimetableDetailPage({
         return;
       }
 
-      // Check for dates with slots (only if not editing, or if dates changed)
-      const slotCheck = checkDatesWithSlots(startDateStr, endDateStr, slots);
-      if (slotCheck.hasSlots) {
-        toast.error(slotCheck.message || 'Some dates already have slots');
-        return;
-      }
+      // FIX: 2026-02-10 - Removed checkDatesWithSlots validation here.
+      // Previously this blocked adding date ranges when timetable_data had individual date slots.
+      // This caused a bug: date ranges saved to timetable_data (via slot creation) but not to
+      // selected_dates would be invisible yet block new range creation.
+      // The validateDateRange check above is sufficient — it detects overlaps with existing
+      // tracked ranges in selectedDates. Individual date slots in timetable_data are the
+      // timetable's own data and should not block range management.
 
       // If editing, remove the old range first
       let newSelectedDates = [...selectedDates];
@@ -974,7 +992,6 @@ export default function TimetableDetailPage({
     },
     [
       selectedDates,
-      slots,
       addDateRangeDialog,
       setSelectedDates,
       setHasUnsavedChanges,
@@ -983,6 +1000,10 @@ export default function TimetableDetailPage({
     ]
   );
 
+  // FIX: 2026-02-05 - Fixed date range removal not persisting to database
+  // Issue: When user removed a date range and clicked save, the range reappeared after page reload
+  // Cause: Stale closure - savePeriodSelections captured old selectedDates value
+  // Solution: Use refs (selectedDatesRef) in savePeriodSelections to always read current state
   const removeDateRange = useCallback(
     (rangeMarker: string) => {
       const newSelectedDates = selectedDates.filter(
@@ -1111,6 +1132,31 @@ export default function TimetableDetailPage({
   // ===================================
   // Render
   // ===================================
+
+  // DRP placeholder still resolving — show loading (not error)
+  if (isResolving) {
+    return <Loading title='Loading timetable...' />;
+  }
+
+  // Invalid ID (not a DRP placeholder, just genuinely invalid)
+  if (isInvalid || !timetableId) {
+    return (
+      <ContentLayout title='Invalid Timetable'>
+        <div className='text-center py-8'>
+          <p className='text-destructive mb-4'>
+            Invalid timetable ID. Please navigate from the timetables list.
+          </p>
+          <Button
+            variant='outline'
+            onClick={() => router.push('/academic/timetables')}
+          >
+            <ArrowLeft className='mr-2 h-4 w-4' />
+            Back to Timetables
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (loading) {
     return <Loading title='Loading Timetable' />;

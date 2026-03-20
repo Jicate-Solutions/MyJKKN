@@ -19,7 +19,12 @@ interface FollowupListProps {
   onAdvanceStage: (leadId: string, newStage: string) => void;
   onReschedule: (leadId: string, newDate: string) => void;
   onAddNote: (leadId: string, note: string) => void;
-  isActioning?: boolean;
+  /**
+   * The leadId whose mutation is currently in-flight.
+   * Each card independently checks `lead.id === actioningLeadId`
+   * so only the card being actioned is disabled — not all cards.
+   */
+  actioningLeadId?: string;
 }
 
 export function FollowupList({
@@ -28,7 +33,7 @@ export function FollowupList({
   onAdvanceStage,
   onReschedule,
   onAddNote,
-  isActioning,
+  actioningLeadId,
 }: FollowupListProps) {
   const [sortMode, setSortMode] = useState<SortMode>('urgency');
 
@@ -45,14 +50,12 @@ export function FollowupList({
     }
   });
 
-  if (leads.length === 0) {
-    return null;
-  }
+  if (leads.length === 0) return null;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-muted-foreground">{leads.length} leads</span>
+        <span className="text-xs text-muted-foreground">{leads.length} lead{leads.length !== 1 ? 's' : ''}</span>
         <div className="flex items-center gap-1">
           {(['urgency', 'name', 'score'] as SortMode[]).map((mode) => (
             <Button
@@ -62,7 +65,7 @@ export function FollowupList({
               className="h-6 text-[10px] px-2"
               onClick={() => setSortMode(mode)}
             >
-              {mode === 'urgency' ? 'Urgent' : mode === 'name' ? 'A-Z' : 'Score'}
+              {mode === 'urgency' ? 'Urgent' : mode === 'name' ? 'A–Z' : 'Score'}
             </Button>
           ))}
         </div>
@@ -76,7 +79,7 @@ export function FollowupList({
             onAdvanceStage={onAdvanceStage}
             onReschedule={onReschedule}
             onAddNote={onAddNote}
-            isActioning={isActioning}
+            isActioning={lead.id === actioningLeadId}
           />
         ))}
       </div>

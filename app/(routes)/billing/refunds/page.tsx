@@ -61,21 +61,7 @@ export default async function BillingRefundsPage({
   };
 
   // Fetch data server-side with caching
-  let refunds: Awaited<ReturnType<typeof getRefunds>>['data'] = [];
-  let metadata: Awaited<ReturnType<typeof getRefunds>>['metadata'] = {
-    page: 1,
-    totalPages: 0,
-    total: 0,
-    limit: 20
-  };
-
-  try {
-    const result = await getRefunds(filters);
-    refunds = result.data;
-    metadata = result.metadata;
-  } catch (error) {
-    console.error('[billing/refunds] Error fetching refunds:', error);
-  }
+  const { data: refunds, metadata } = await getRefunds(filters);
 
   // Calculate summary statistics from metadata or current page data
   const totalRefunds = metadata?.total || refunds.length;

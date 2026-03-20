@@ -63,12 +63,7 @@ export function InvoiceActionsClient({
       setSendLoading(false);
 
       if (result.success) {
-        const responseData = result.data as { action?: string; message?: string } | undefined;
-        if (responseData?.action === 'email_unavailable') {
-          toast.error('Email delivery is not yet configured. Use the Print option to save as PDF.', { duration: 4000 });
-        } else {
-          toast.success('Invoice sent successfully');
-        }
+        toast.success('Invoice sent successfully');
       } else {
         toast.error(result.error || 'Failed to send invoice');
       }
@@ -82,8 +77,7 @@ export function InvoiceActionsClient({
       setDownloadLoading(false);
 
       if (result.success) {
-        toast.success('Opening print dialog - select "Save as PDF" to download.');
-        window.print();
+        toast.success('PDF download started');
       } else {
         toast.error(result.error || 'Failed to download PDF');
       }

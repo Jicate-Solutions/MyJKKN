@@ -1,40 +1,147 @@
-import { NextResponse } from 'next/server'
-import { corsHeaders } from '@/lib/api-keys/cors'
-import { withAuth } from '@/lib/auth/with-auth'
-import { errorResponse } from '@/lib/api-keys/response-helpers'
+import { createServerClient } from '@supabase/ssr';
+import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'crypto';
+import { corsHeaders } from '@/lib/api-keys/cors';
 
-export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders })
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    // Add CORS headers to response
+    const response = NextResponse.next();
+    Object.entries(corsHeaders).forEach(([key, value]) => {
+      response.headers.set(key, value);
+    });
 
-export const GET = withAuth(async (request, auth, context) => {
-  const { id } = await context!.params!
-  const institutionId = auth.institutionId
+    // Use service role key for API key authentication to bypass RLS
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        cookies: {
+          get() {
+            return undefined;
+          },
+          set() {},
+          remove() {}
+        }
+      }
+    );
 
-  if (auth.authMethod === 'api_key' && !institutionId) {
-    return errorResponse('API key must be associated with an organization', 400)
-  }
+    // Get API key from Authorization header
+    const authHeader = request.headers.get('authorization');
+    console.log('1. Auth header:', authHeader);
 
-  // For institutions table: verify the requested id matches the scoped institution
-  if (institutionId && id !== institutionId) {
-    return errorResponse('Institution not found', 404)
-  }
-
-  const { data, error } = await (auth.supabase as any)
-    .from('institutions')
-    .select(`
-      *,
-      departments:departments(*)
-    `)
-    .eq('id', id)
-    .single()
-
-  if (error) {
-    if (error.code === 'PGRST116') {
-      return errorResponse('Institution not found', 404)
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'API key is required in Authorization header' },
+        { status: 401, headers: corsHeaders }
+      );
     }
-    throw error
+
+    const apiKey = authHeader.substring(7);
+    const hashedKey = createHash('sha256').update(apiKey).digest('hex');
+    console.log('2. Hashed key:', hashedKey);
+
+    // Verify API key
+    const { data: keyData, error: keyError } = await supabase
+      .from('api_keys')
+      .select('*')
+      .eq('key_value', hashedKey)
+      .eq('is_active', true)
+      .single();
+
+    console.log('3. Key verification:', {
+      found: !!keyData,
+      error: keyError?.message,
+      keyData: keyData
+        ? {
+            id: keyData.id,
+            name: keyData.name,
+            is_active: keyData.is_active,
+            permissions: keyData.permissions
+          }
+        : null
+    });
+
+    if (keyError || !keyData) {
+      return NextResponse.json(
+        { error: 'Invalid API key' },
+        { status: 401, headers: corsHeaders }
+      );
+    }
+
+    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
+      return NextResponse.json(
+        { error: 'API key has expired' },
+        { status: 401, headers: corsHeaders }
+      );
+    }
+
+    if (!keyData.permissions?.read) {
+      return NextResponse.json(
+        { error: 'API key does not have read permission' },
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
+    console.log('4. Fetching institution:', id);
+
+    // Get institution with departments
+    const { data: institution, error: institutionError } = await supabase
+      .from('institutions')
+      .select(
+        `
+        *,
+        departments:departments(*)
+      `
+      )
+      .eq('id', id)
+      .single();
+
+    console.log('5. Query result:', {
+      found: !!institution,
+      error: institutionError?.message,
+      departmentsCount: institution?.departments?.length || 0,
+      institutionData: institution
+        ? {
+            id: institution.id,
+            name: institution.name,
+            code: institution.code
+          }
+        : null
+    });
+
+    if (institutionError) {
+      if (institutionError.code === 'PGRST116') {
+        return NextResponse.json(
+          { error: 'Institution not found' },
+          { status: 404, headers: corsHeaders }
+        );
+      }
+      throw institutionError;
+    }
+
+    console.log('6. Updating last used timestamp');
+
+    // Update last used timestamp
+    const { error: updateError } = await supabase
+      .from('api_keys')
+      .update({ last_used_at: new Date().toISOString() })
+      .eq('id', keyData.id);
+
+    if (updateError) {
+      console.error('Error updating last used timestamp:', updateError);
+    }
+
+    return NextResponse.json(institution);
+  } catch (error) {
+    console.error('Error fetching institution:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500, headers: corsHeaders }
+    );
   }
-
-  if (!data) return errorResponse('Institution not found', 404)
-
-  return NextResponse.json({ data }, { headers: corsHeaders })
-}, { allowApiKey: true, requiredPermission: 'read' })
+}

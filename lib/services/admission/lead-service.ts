@@ -2,6 +2,7 @@
 // Admission CRM Lead Service - Supabase interactions
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { User } from '@supabase/supabase-js';
 import type {
   AdmissionLead,
   CreateLeadInput,
@@ -12,6 +13,42 @@ import type {
   LeadPriority
 } from '@/types/admission';
 import { sanitizeSearch } from '@/lib/config/pagination';
+import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
+
+// ────────────────────────────────────────────────────────────────────────────
+// Allowed stage transitions — defines the valid moves for each funnel stage.
+// 'lost' and 'dormant' are always allowed as exits from any active stage.
+// Terminated stages (declined, withdrew, expired, lost, dormant) allow
+// re-engagement back to 'new' or 'contacted'.
+// ────────────────────────────────────────────────────────────────────────────
+export const ALLOWED_STAGE_TRANSITIONS: Record<FunnelStage, FunnelStage[]> = {
+  new:                    ['contacted', 'not_reachable', 'lost', 'dormant'],
+  contacted:              ['interested', 'not_reachable', 'follow_up_scheduled', 'lost', 'dormant'],
+  not_reachable:          ['contacted', 'follow_up_scheduled', 'lost', 'dormant'],
+  interested:             ['engaged', 'qualified', 'follow_up_scheduled', 'not_reachable', 'lost', 'dormant'],
+  follow_up_scheduled:    ['contacted', 'not_reachable', 'interested', 'lost', 'dormant'],
+  engaged:                ['qualified', 'interested', 'follow_up_scheduled', 'lost', 'dormant'],
+  qualified:              ['application_started', 'applied', 'follow_up_scheduled', 'lost', 'dormant'],
+  application_started:    ['application_submitted', 'documents_pending', 'lost', 'dormant'],
+  application_submitted:  ['documents_pending', 'documents_verified', 'lost', 'dormant'],
+  documents_pending:      ['documents_verified', 'application_submitted', 'lost', 'dormant'],
+  documents_verified:     ['interview_scheduled', 'offer_sent', 'documents_pending', 'lost', 'dormant'],
+  interview_scheduled:    ['interview_completed', 'documents_pending', 'lost', 'dormant'],
+  interview_completed:    ['offer_sent', 'interviewed', 'lost', 'dormant'],
+  offer_sent:             ['offer_accepted', 'declined', 'lost', 'dormant'],
+  offer_accepted:         ['token_paid', 'confirmed', 'offer_sent', 'declined', 'lost', 'dormant'],
+  token_paid:             ['confirmed', 'enrolled', 'lost', 'dormant'],
+  applied:                ['interviewed', 'documents_pending', 'lost', 'dormant'],
+  interviewed:            ['offered', 'declined', 'lost', 'dormant'],
+  offered:                ['confirmed', 'declined', 'withdrew', 'lost', 'dormant'],
+  confirmed:              ['enrolled', 'withdrew', 'lost', 'dormant'],
+  enrolled:               ['lost', 'dormant'],
+  declined:               ['new', 'lost', 'dormant'],
+  withdrew:               ['new', 'lost', 'dormant'],
+  expired:                ['new', 'lost', 'dormant'],
+  lost:                   ['new', 'contacted', 'dormant'],
+  dormant:                ['new', 'contacted', 'lost'],
+};
 
 export class LeadService {
   private static supabase = createClientSupabaseClient();
@@ -207,31 +244,62 @@ export class LeadService {
 
   /**
    * Create a new lead
+   *
+   * @param supabaseOverride - Optional Supabase client to use instead of the
+   *   shared static client. Pass a service-role client from server-side routes
+   *   (e.g. the inbound webhook) to bypass RLS without mutating shared state.
+   *   Each call receives its own scope — safe for concurrent serverless requests.
    */
-  static async createLead(leadData: CreateLeadInput): Promise<AdmissionLead> {
+  static async createLead(leadData: CreateLeadInput, user?: User, supabaseOverride?: any): Promise<AdmissionLead> {
+    // Use the injected client when provided; fall back to the shared static client.
+    const db = (supabaseOverride ?? LeadService.supabase) as any;
+
     // SECURITY: Validate required fields
     if (!leadData.institution_id) {
       throw new Error('Institution ID is required');
     }
-    if (!leadData.full_name?.trim()) {
-      throw new Error('Full name is required');
+    if (!leadData.first_name?.trim()) {
+      throw new Error('First name is required');
     }
     if (!leadData.phone?.trim()) {
       throw new Error('Phone number is required');
+    }
+    // Validate Indian mobile number format (10 digits, first digit 6–9, optional +91/0 prefix)
+    const cleanPhone = leadData.phone.trim().replace(/[\s\-()]/g, '');
+    const phoneRegex = /^(\+91|0)?[6-9]\d{9}$/;
+    if (!phoneRegex.test(cleanPhone)) {
+      throw new Error('Invalid phone number. Must be a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
+    }
+    // Validate optional phone fields if provided
+    const cleanAlt = leadData.alternate_phone
+      ? leadData.alternate_phone.trim().replace(/[\s\-()]/g, '')
+      : undefined;
+    if (cleanAlt && !phoneRegex.test(cleanAlt)) {
+      throw new Error('Invalid alternate phone number. Must be a valid 10-digit Indian mobile number.');
+    }
+    const cleanParent = leadData.parent_phone
+      ? leadData.parent_phone.trim().replace(/[\s\-()]/g, '')
+      : undefined;
+    if (cleanParent && !phoneRegex.test(cleanParent)) {
+      throw new Error('Invalid parent phone number. Must be a valid 10-digit Indian mobile number.');
     }
     if (!leadData.source) {
       throw new Error('Lead source is required');
     }
 
-    // Get current user for created_by
-    const { data: { user } } = await (this.supabase as any).auth.getUser();
+    // Get current user for created_by (skip auth call when user is passed in directly)
+    if (!user) {
+      const { data: { user: authUser } } = await db.auth.getUser();
+      user = authUser ?? undefined;
+    }
 
     // Only include columns that exist in admission_leads table
     const insertData: any = {
       institution_id: leadData.institution_id,
-      full_name: leadData.full_name?.trim(),
+      first_name: leadData.first_name?.trim() ?? '',
+      last_name: leadData.last_name?.trim() || null,
       email: leadData.email || null,
-      phone: leadData.phone?.trim(),
+      phone: cleanPhone,
       source: leadData.source,
       funnel_stage: 'new' as FunnelStage,
       is_hot_lead: false,
@@ -249,12 +317,12 @@ export class LeadService {
       insertData.interested_programs = leadData.interested_programs;
     }
     if (leadData.parent_name) insertData.parent_name = leadData.parent_name;
-    if (leadData.parent_phone) insertData.parent_phone = leadData.parent_phone;
+    if (cleanParent) insertData.parent_phone = cleanParent;
     if (leadData.parent_email) insertData.parent_email = leadData.parent_email;
     if (leadData.entry_date) insertData.entry_date = leadData.entry_date;
     if (leadData.notes) insertData.notes = leadData.notes;
     // Address fields
-    if (leadData.alternate_phone) insertData.alternate_phone = leadData.alternate_phone;
+    if (cleanAlt) insertData.alternate_phone = cleanAlt;
     if (leadData.date_of_birth) insertData.date_of_birth = leadData.date_of_birth;
     if (leadData.gender) insertData.gender = leadData.gender;
     if (leadData.address_line1) insertData.address_line1 = leadData.address_line1;
@@ -267,7 +335,32 @@ export class LeadService {
     if (leadData.parent_decision_status) insertData.parent_decision_status = leadData.parent_decision_status;
     if (leadData.academic_year) insertData.academic_year = leadData.academic_year;
 
-    const { data, error } = await (this.supabase as any).from('admission_leads')
+    // Check for duplicate: same phone in same institution (re-engagement exception: lost/dormant allowed)
+    const { data: existing, error: dupError } = await db
+      .from('admission_leads')
+      .select('id, full_name, funnel_stage')
+      .eq('institution_id', leadData.institution_id)
+      .eq('phone', cleanPhone)
+      .not('funnel_stage', 'in', '(lost,dormant)')
+      .limit(1);
+
+    if (dupError) {
+      console.warn('[admission/leads] Duplicate check query failed (proceeding with insert):', dupError);
+    }
+
+    if (!dupError && existing && existing.length > 0) {
+      console.warn('[admission/leads] Duplicate lead rejected:', {
+        phone: cleanPhone,
+        existingId: existing[0].id,
+        existingStage: existing[0].funnel_stage,
+      });
+      throw new Error(
+        'Duplicate lead: A lead with this phone number already exists for this institution. ' +
+        'Update the existing lead or mark it as lost before creating a new one.'
+      );
+    }
+
+    const { data, error } = await db.from('admission_leads')
       .insert(insertData)
       .select('*')
       .single();
@@ -278,7 +371,67 @@ export class LeadService {
     }
 
     // Log stage history
-    await this.logStageHistory(data.id, null, 'new', user?.id);
+    await this.logStageHistory(data.id, null, 'new', user?.id, undefined, db);
+
+    // Auto-assign via rules — best-effort, never blocks lead creation
+    try {
+      const assignInput: LeadDataForAssignment = {
+        institution_id: data.institution_id,
+        source: data.source,
+        interested_programs: data.interested_programs ?? [],
+        city: data.city ?? undefined,
+        state: data.state ?? undefined,
+        score: data.score ?? 0,
+      };
+      const counselorId = !data.counselor_id
+        ? await AssignmentRulesService.executeRulesForLead(assignInput)
+        : null;
+      if (counselorId) {
+        await db
+          .from('admission_leads')
+          .update({ counselor_id: counselorId, assigned_at: new Date().toISOString() })
+          .eq('id', data.id);
+        const { error: rpcError } = await db.rpc('admission_increment_counselor_leads', { p_counselor_id: counselorId });
+        if (rpcError) {
+          console.warn('[LeadService] Failed to increment counselor lead count:', { counselorId, error: rpcError });
+        }
+        data.counselor_id = counselorId;
+        data.assigned_at = new Date().toISOString();
+
+        // Notify the auto-assigned counselor (best-effort)
+        try {
+          const { data: counselorProfile } = await db
+            .from('admission_counselors')
+            .select('user_id')
+            .eq('id', counselorId)
+            .maybeSingle();
+
+          if (counselorProfile?.user_id) {
+            await db
+              .from('notifications')
+              .insert({
+                user_id: counselorProfile.user_id,
+                type: 'info',
+                category: 'admission',
+                priority: 'normal',
+                title: 'New Lead Assigned to You',
+                message: `Lead "${data.full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
+                metadata: {
+                  event_type: 'lead_assigned',
+                  lead_id: data.id,
+                },
+                action_url: `/admission/leads/${data.id}`,
+                action_label: 'View Lead',
+                channels: ['PUSH', 'IN_APP'],
+              });
+          }
+        } catch (notifErr) {
+          console.warn('[LeadService] Could not notify auto-assigned counselor:', notifErr);
+        }
+      }
+    } catch (assignErr) {
+      console.warn('[LeadService] Auto-assignment skipped (lead created successfully):', assignErr);
+    }
 
     return this.normalizeLead(data);
   }
@@ -367,11 +520,24 @@ export class LeadService {
   /**
    * Update lead funnel stage
    */
-  static async updateStage(leadId: string, newStage: FunnelStage, notes?: string): Promise<AdmissionLead> {
+  static async updateStage(leadId: string, newStage: FunnelStage, notes?: string, force = false): Promise<AdmissionLead> {
     const { data: current } = await (this.supabase as any).from('admission_leads')
       .select('funnel_stage')
       .eq('id', leadId)
       .single();
+
+    // Validate transition (skip if force=true — for super-admin overrides)
+    // currentStage is undefined for legacy rows with no funnel_stage — skip validation
+    const currentStage = current?.funnel_stage as FunnelStage | undefined;
+    if (!force && currentStage && currentStage !== newStage) {
+      const allowed = ALLOWED_STAGE_TRANSITIONS[currentStage] ?? [];
+      if (!allowed.includes(newStage)) {
+        throw new Error(
+          `Invalid stage transition: "${currentStage}" -> "${newStage}" is not allowed. ` +
+          `Allowed next stages: ${allowed.join(', ')}.`
+        );
+      }
+    }
 
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
@@ -409,15 +575,20 @@ export class LeadService {
 
   /**
    * Log stage change history
+   *
+   * @param dbOverride - Optional Supabase client override; used when called
+   *   from within `createLead()` so the same injected client is propagated.
    */
   private static async logStageHistory(
     leadId: string,
     fromStage: FunnelStage | null,
     toStage: FunnelStage,
     changedBy?: string,
-    notes?: string
+    notes?: string,
+    dbOverride?: any
   ): Promise<void> {
-    const { error } = await (this.supabase as any).from('admission_lead_stage_history')
+    const db = (dbOverride ?? LeadService.supabase) as any;
+    const { error } = await db.from('admission_lead_stage_history')
       .insert({
         lead_id: leadId,
         from_stage: fromStage,
@@ -577,6 +748,14 @@ export class LeadService {
   static async assignCounselor(leadId: string, counselorId: string, profileId?: string): Promise<AdmissionLead> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
+    // Read current counselor_id to detect reassignment
+    const { data: currentLead } = await (this.supabase as any)
+      .from('admission_leads')
+      .select('counselor_id')
+      .eq('id', leadId)
+      .maybeSingle();
+    const isNewAssignment = !currentLead?.counselor_id || currentLead.counselor_id !== counselorId;
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
         counselor_id: counselorId,
@@ -604,16 +783,48 @@ export class LeadService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: (data as any).institution_id || null,
         activity_type: 'note',
-        title: 'Counselor Assigned',
+        subject: 'Counselor Assigned',
         description: `Counselor "${counselorName}" assigned to this lead`,
-        metadata: { counselor_id: counselorId, ...(profileId ? { profile_id: profileId } : {}) },
-        performed_by: user?.id || null,
+        created_by: user?.id || null,
       });
 
     if (activityError) {
       console.warn('[LeadService] Could not log counselor assignment activity:', activityError);
+    }
+
+    // Only notify for new assignments, not reassignments to the same counselor
+    if (isNewAssignment) {
+      // Notify the assigned counselor via the notifications table (best-effort)
+      try {
+        const { data: counselorProfile } = await (this.supabase as any)
+          .from('admission_counselors')
+          .select('user_id, name')
+          .eq('id', counselorId)
+          .maybeSingle();
+
+        if (counselorProfile?.user_id) {
+          await (this.supabase as any)
+            .from('notifications')
+            .insert({
+              user_id: counselorProfile.user_id,
+              type: 'info',
+              category: 'admission',
+              priority: 'normal',
+              title: 'New Lead Assigned to You',
+              message: `Lead "${(data as any).full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
+              metadata: {
+                event_type: 'lead_assigned',
+                lead_id: leadId,
+              },
+              action_url: `/admission/leads/${leadId}`,
+              action_label: 'View Lead',
+              channels: ['PUSH', 'IN_APP'],
+            });
+        }
+      } catch (notifErr) {
+        console.warn('[LeadService] Could not send counselor assignment notification:', notifErr);
+      }
     }
 
     return this.normalizeLead(data);
@@ -631,24 +842,16 @@ export class LeadService {
   static async scheduleFollowup(leadId: string, followupDate: string, notes?: string): Promise<AdmissionLead> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
-    // 1. Fetch institution_id from the lead (required NOT NULL column in activities table)
-    const { data: leadRow } = await (this.supabase as any)
-      .from('admission_leads')
-      .select('institution_id')
-      .eq('id', leadId)
-      .single();
-
-    // 2. Create a follow-up activity record (use actual DB columns: title, performed_by)
+    // 1. Create a follow-up activity record
     const { error: activityError } = await (this.supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: leadRow?.institution_id,
         activity_type: 'task',
-        title: 'Follow-up Scheduled',
+        subject: 'Follow-up Scheduled',
         description: notes || `Follow-up scheduled for ${new Date(followupDate).toLocaleDateString()}`,
-        metadata: { scheduled_at: followupDate },
-        performed_by: user?.id || null,
+        scheduled_at: followupDate,
+        created_by: user?.id || null,
       });
 
     if (activityError) {

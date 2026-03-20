@@ -2,7 +2,13 @@
  * Server-side data fetching for Regulations List
  */
 
-
+/**
+ * SERVER-SIDE DATA FETCHER — runs in React Server Components using server Supabase client.
+ * Client-side mirror: {@link RegulationService#getRegulations} in lib/services/academic/regulation-service.ts
+ *
+ * Do not replace with service call — server vs client Supabase boundary.
+ * Keep query shapes in sync when modifying either side.
+ */
 
 import { createClient } from '@/lib/supabase/server';
 

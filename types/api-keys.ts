@@ -21,8 +21,8 @@ export interface ApiKey {
   is_active: boolean;
   permissions: ApiKeyPermissions;
   metadata?: ApiKeyMetadata;
-  /** Institution scope — when set, api-management routes restrict data to this institution */
-  organization_id: string | null;
+  institution_id: string | null;
+  organization_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -32,8 +32,6 @@ export interface CreateApiKeyInput {
   expires_at?: string | null;
   permissions?: ApiKeyPermissions;
   metadata?: ApiKeyMetadata;
-  /** Institution to scope this key to (required for campus-living and other scoped modules) */
-  organization_id?: string | null;
 }
 
 export interface UpdateApiKeyInput {

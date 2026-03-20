@@ -625,9 +625,9 @@ export class SMSCampaignService {
   static async getSMSLogs(filters: SMSLogFilters): Promise<{ logs: SMSLog[]; total: number }> {
     let query = this.supabase
       .from('admission_sms_logs')
-      .select('*', { count: 'exact' });
-    if (filters.institutionId) query = query.eq('institution_id', filters.institutionId);
-    query = query.order('created_at', { ascending: false });
+      .select('*', { count: 'exact' })
+      .eq('institution_id', filters.institutionId)
+      .order('created_at', { ascending: false });
 
     if (filters.leadId) {
       query = query.eq('lead_id', filters.leadId);
@@ -682,14 +682,14 @@ export class SMSCampaignService {
    * Get SMS campaign statistics
    */
   static async getCampaignStats(
-    institutionId: string | undefined,
+    institutionId: string,
     fromDate?: string,
     toDate?: string
   ): Promise<SMSCampaignStats> {
     let query = this.supabase
       .from('admission_sms_logs')
-      .select('status, cost, created_at');
-    if (institutionId) query = query.eq('institution_id', institutionId);
+      .select('status, cost, created_at')
+      .eq('institution_id', institutionId);
 
     if (fromDate) {
       query = query.gte('created_at', fromDate);

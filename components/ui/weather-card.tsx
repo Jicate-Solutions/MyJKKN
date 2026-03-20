@@ -104,6 +104,7 @@ const WeatherCard: React.FC<WeatherCardProps> = ({
         timeOfDay
       });
     } catch (err) {
+      console.log('Using demo weather data:', err);
       // Enhanced demo data with multiple scenarios
       const demoScenarios = [
         {

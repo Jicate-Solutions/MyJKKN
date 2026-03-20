@@ -1851,8 +1851,234 @@ END;
 $$;
 
 -- ================================================================================
+-- SECTION 7.5: LEARNER PROFILE SYNC FUNCTIONS
+-- Created: 2026-01-28 - Auto-sync learner college_email changes to profiles table
+-- ================================================================================
+
+-- Sync learner college_email changes to profiles table
+-- This ensures when admin updates college_email in learners_profiles,
+-- the corresponding profiles.email is automatically updated
+-- Handles: Email changes, orphaned profiles, proper role assignment
+CREATE OR REPLACE FUNCTION public.sync_learner_email_to_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+  existing_profile_id UUID;
+  old_email TEXT;
+  new_email TEXT;
+BEGIN
+  -- Handle both INSERT and UPDATE cases
+  IF TG_OP = 'INSERT' THEN
+    old_email := NULL;
+    new_email := NEW.college_email;
+  ELSE
+    old_email := OLD.college_email;
+    new_email := NEW.college_email;
+  END IF;
+
+  -- Only sync if college_email exists and changed
+  IF new_email IS NOT NULL AND new_email != '' THEN
+    IF TG_OP = 'INSERT' OR (old_email IS DISTINCT FROM new_email) THEN
+
+      -- Find profile by learner_id (more reliable than email for updates)
+      SELECT id INTO existing_profile_id
+      FROM profiles
+      WHERE learner_id = NEW.id
+      LIMIT 1;
+
+      IF existing_profile_id IS NOT NULL THEN
+        -- Profile found by learner_id - update it
+        -- But first check if another profile already has the new email (e.g., guest login)
+        -- to avoid unique constraint violation (idx_profiles_email_unique_active)
+        DECLARE
+          conflicting_profile_id UUID;
+        BEGIN
+          SELECT id INTO conflicting_profile_id
+          FROM profiles
+          WHERE email = new_email
+            AND id != existing_profile_id
+            AND learner_id IS NULL
+          LIMIT 1;
+
+          IF conflicting_profile_id IS NOT NULL THEN
+            -- Guest/unlinked profile has the new email - deactivate old linked profile,
+            -- transfer learner link to the profile that already has the correct email
+            UPDATE profiles
+            SET
+              learner_id = NULL,
+              is_active = false,
+              updated_at = NOW()
+            WHERE id = existing_profile_id;
+
+            UPDATE profiles
+            SET
+              learner_id = NEW.id,
+              role = 'student',
+              institution_id = COALESCE(NEW.institution_id, institution_id),
+              department_id = COALESCE(NEW.department_id, department_id),
+              updated_at = NOW()
+            WHERE id = conflicting_profile_id;
+
+            RAISE NOTICE 'Transferred learner % from old profile % to guest profile % (email: %)',
+              NEW.id, existing_profile_id, conflicting_profile_id, new_email;
+          ELSE
+            -- No conflict - safe to update the linked profile's email directly
+            UPDATE profiles
+            SET
+              email = new_email,
+              role = 'student',
+              institution_id = COALESCE(NEW.institution_id, institution_id),
+              department_id = COALESCE(NEW.department_id, department_id),
+              updated_at = NOW()
+            WHERE id = existing_profile_id;
+
+            IF TG_OP = 'UPDATE' THEN
+              RAISE NOTICE 'Synced profile % email from % to % for learner %',
+                existing_profile_id, old_email, new_email, NEW.id;
+            ELSE
+              RAISE NOTICE 'Synced profile % for new learner % with email %',
+                existing_profile_id, NEW.id, new_email;
+            END IF;
+          END IF;
+        END;
+      ELSE
+        -- No profile found by learner_id
+        -- Try to find orphaned/guest profile by email and link it
+        -- Updated: 2026-02-10 - Also match guest roles (not just student)
+        -- because users who log in via OAuth get role='guest' before being linked
+        SELECT id INTO existing_profile_id
+        FROM profiles
+        WHERE email = new_email
+          AND learner_id IS NULL
+        LIMIT 1;
+
+        IF existing_profile_id IS NOT NULL THEN
+          -- Found orphaned/guest profile - link it to this learner
+          UPDATE profiles
+          SET
+            learner_id = NEW.id,
+            role = 'student',
+            institution_id = COALESCE(NEW.institution_id, institution_id),
+            department_id = COALESCE(NEW.department_id, department_id),
+            updated_at = NOW()
+          WHERE id = existing_profile_id;
+
+          RAISE NOTICE 'Linked orphaned/guest profile % to learner % (email: %)',
+            existing_profile_id, NEW.id, new_email;
+        ELSE
+          -- No existing profile - will be created when user is activated
+          RAISE NOTICE 'No existing profile for learner % (email: %), will be created on activation',
+            NEW.id, new_email;
+        END IF;
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION sync_learner_email_to_profile IS
+'Auto-syncs learner college_email changes to profiles table. Handles email updates, orphaned profiles, and ensures role is student.';
+
+-- Sync learner lifecycle_status changes to profile is_active
+-- This ensures user can only log in when learner is active
+CREATE OR REPLACE FUNCTION public.sync_learner_status_to_profile()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+  existing_profile_id UUID;
+  should_be_active BOOLEAN;
+BEGIN
+  -- Only sync if lifecycle_status changed
+  IF OLD.lifecycle_status IS DISTINCT FROM NEW.lifecycle_status THEN
+
+    -- Only 'active' learners should have active profiles
+    should_be_active := (NEW.lifecycle_status = 'active');
+
+    -- Find profile by learner_id
+    SELECT id INTO existing_profile_id
+    FROM profiles
+    WHERE learner_id = NEW.id
+    LIMIT 1;
+
+    IF existing_profile_id IS NOT NULL THEN
+      -- Update is_active status
+      UPDATE profiles
+      SET
+        is_active = should_be_active,
+        updated_at = NOW()
+      WHERE id = existing_profile_id;
+
+      RAISE NOTICE 'Synced profile % is_active to % for learner % (lifecycle_status: % -> %)',
+        existing_profile_id, should_be_active, NEW.id, OLD.lifecycle_status, NEW.lifecycle_status;
+    ELSE
+      RAISE NOTICE 'No profile found for learner % to sync lifecycle_status change', NEW.id;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION sync_learner_status_to_profile IS
+'Auto-syncs learner lifecycle_status changes to profiles.is_active. Only active learners can log in.';
+
+-- ================================================================================
 -- SECTION 8: ADMISSION MODULE FUNCTIONS
 -- ================================================================================
+
+-- Get counselor profiles for an institution (bypasses user_roles RLS)
+-- Created: 2026-03-02 — Fixes empty counselor dropdown in lead creation form.
+-- SECURITY DEFINER is required: user_roles RLS only allows users to read their
+-- own role assignments, so a client-side query silently returns an empty list for
+-- multi-role counselors. This function runs as the owner to see all assignments.
+-- p_institution_id DEFAULT NULL:
+--   UUID  → counselors for that institution only
+--   NULL  → counselors from all institutions (super admin use case)
+CREATE OR REPLACE FUNCTION public.get_counselor_profiles_for_institution(
+  p_institution_id uuid DEFAULT NULL
+)
+RETURNS TABLE (
+  profile_id   uuid,
+  full_name    text,
+  email        text,
+  phone_number text,
+  designation  text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT DISTINCT
+    p.id          AS profile_id,
+    p.full_name,
+    p.email,
+    p.phone_number,
+    p.designation
+  FROM profiles p
+  WHERE
+    (p_institution_id IS NULL OR p.institution_id = p_institution_id)
+    AND p.is_active = true
+    AND (
+      p.role = 'counselor'
+      OR p.id IN (
+        SELECT ur.user_id
+        FROM user_roles ur
+        JOIN custom_roles cr ON ur.role_id = cr.id
+        WHERE cr.role_key = 'counselor'
+      )
+    )
+  ORDER BY p.full_name;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_counselor_profiles_for_institution(uuid)
+  TO authenticated;
 
 -- Generate institution application ID
 CREATE OR REPLACE FUNCTION public.generate_institution_application_id(institution_id_param uuid)
@@ -2877,10 +3103,12 @@ $$;
 
 -- Get user merged permissions (Multi-role support)
 -- Created: 2025-12-27 - Returns merged permissions from all assigned roles
+-- Updated: 2026-02-06 - Fixed null handling: use ->> with COALESCE for null-safe boolean extraction
+-- Updated: 2026-02-06 - Changed to SECURITY DEFINER to bypass RLS (user_roles table has RLS that blocks reads for non-admin users)
 CREATE OR REPLACE FUNCTION public.get_user_merged_permissions(p_user_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 AS $$
 DECLARE
     merged_permissions jsonb := '{}'::jsonb;
@@ -2894,20 +3122,23 @@ BEGIN
         INNER JOIN custom_roles cr ON ur.role_id = cr.id
         WHERE ur.user_id = p_user_id
     LOOP
-        -- Merge each role's permissions using OR logic
-        merged_permissions := jsonb_object_agg(
-            COALESCE(key, ''),
-            CASE
-                WHEN (merged_permissions->key)::boolean = true OR (role_permissions->key)::boolean = true
-                THEN true
-                ELSE false
-            END
-        )
+        -- Merge each role's permissions using OR logic with null-safe extraction
+        SELECT COALESCE(
+            jsonb_object_agg(
+                key,
+                COALESCE((merged_permissions->>key)::boolean, false)
+                OR
+                COALESCE((role_permissions->>key)::boolean, false)
+            ),
+            '{}'::jsonb
+        ) INTO merged_permissions
         FROM (
-            SELECT key FROM jsonb_object_keys(merged_permissions) AS key
-            UNION
-            SELECT key FROM jsonb_object_keys(role_permissions) AS key
-        ) AS all_keys;
+            SELECT DISTINCT key FROM (
+                SELECT jsonb_object_keys(merged_permissions) AS key
+                UNION
+                SELECT jsonb_object_keys(role_permissions) AS key
+            ) combined_keys
+        ) all_keys;
     END LOOP;
 
     RETURN merged_permissions;
@@ -3637,1019 +3868,1352 @@ COMMENT ON FUNCTION link_existing_profiles_to_approved_learners IS
 'Manually links existing profiles to approved learners with matching emails. Includes institution_id and department_id from learner. Run after migration or periodically to sync existing data.';
 
 -- ================================================================================
--- SECTION 21: SOLUTIONS HUB MODULE FUNCTIONS
--- Created: 2026-02-03
--- Purpose: Helper functions for Solutions Hub tables
--- Merged from JKKN-Solutions-Hub standalone project
+-- LIFECYCLE ANALYTICS FUNCTIONS
+-- Updated: 2026-02-06
 -- ================================================================================
 
--- ============================================
--- Code Generation Functions
--- ============================================
-
--- Generate Solution Code: JKKN-SOL-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_solution_code()
-RETURNS TRIGGER AS $$
+-- compute_module_usage_daily: Roll up usage_events into module_usage_daily
+-- Called daily via pg_cron (e.g., at 2 AM)
+-- Updated: 2026-02-06 - Rewritten to FOR LOOP to avoid PostgreSQL error 42803
+-- (correlated subqueries referencing ungrouped outer columns in GROUP BY)
+CREATE OR REPLACE FUNCTION compute_module_usage_daily(target_date DATE DEFAULT CURRENT_DATE - INTERVAL '1 day')
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
+    rec RECORD;
+    v_by_role JSONB;
+    v_by_event_type JSONB;
+    rows_upserted INTEGER := 0;
 BEGIN
-    IF NEW.solution_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(solution_code FROM 'JKKN-SOL-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_solutions
-    WHERE solution_code LIKE 'JKKN-SOL-' || year_part || '-%';
-
-    NEW.solution_code := 'JKKN-SOL-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_solution_code IS
-'Auto-generates solution code in format JKKN-SOL-YYYY-NNN. Called by trigger on sh_solutions.';
-
--- Generate Client Code: JKKN-CLI-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_client_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.company_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(company_code FROM 'JKKN-CLI-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_clients
-    WHERE company_code LIKE 'JKKN-CLI-' || year_part || '-%';
-
-    NEW.company_code := 'JKKN-CLI-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_client_code IS
-'Auto-generates client code in format JKKN-CLI-YYYY-NNN. Called by trigger on sh_clients.';
-
--- Generate Builder Code: JKKN-BLD-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_builder_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.builder_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(builder_code FROM 'JKKN-BLD-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_builders
-    WHERE builder_code LIKE 'JKKN-BLD-' || year_part || '-%';
-
-    NEW.builder_code := 'JKKN-BLD-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_builder_code IS
-'Auto-generates builder code in format JKKN-BLD-YYYY-NNN. Called by trigger on sh_builders.';
-
--- Generate Cohort Code: JKKN-COH-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_cohort_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.cohort_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(cohort_code FROM 'JKKN-COH-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_cohort_members
-    WHERE cohort_code LIKE 'JKKN-COH-' || year_part || '-%';
-
-    NEW.cohort_code := 'JKKN-COH-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_cohort_code IS
-'Auto-generates cohort member code in format JKKN-COH-YYYY-NNN. Called by trigger on sh_cohort_members.';
-
--- Generate Production Learner Code: JKKN-PRD-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_production_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.learner_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(learner_code FROM 'JKKN-PRD-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_production_learners
-    WHERE learner_code LIKE 'JKKN-PRD-' || year_part || '-%';
-
-    NEW.learner_code := 'JKKN-PRD-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_production_code IS
-'Auto-generates production learner code in format JKKN-PRD-YYYY-NNN. Called by trigger on sh_production_learners.';
-
--- Generate Training Program Code: JKKN-TRN-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_program_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.program_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(program_code FROM 'JKKN-TRN-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_training_programs
-    WHERE program_code LIKE 'JKKN-TRN-' || year_part || '-%';
-
-    NEW.program_code := 'JKKN-TRN-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_program_code IS
-'Auto-generates training program code in format JKKN-TRN-YYYY-NNN. Called by trigger on sh_training_programs.';
-
--- Generate Content Order Code: JKKN-CNT-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_content_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.order_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(order_code FROM 'JKKN-CNT-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_content_orders
-    WHERE order_code LIKE 'JKKN-CNT-' || year_part || '-%';
-
-    NEW.order_code := 'JKKN-CNT-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_content_code IS
-'Auto-generates content order code in format JKKN-CNT-YYYY-NNN. Called by trigger on sh_content_orders.';
-
--- Generate Payment Code: JKKN-PAY-YYYY-NNNNN
-CREATE OR REPLACE FUNCTION public.sh_generate_payment_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.payment_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(payment_code FROM 'JKKN-PAY-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_payments
-    WHERE payment_code LIKE 'JKKN-PAY-' || year_part || '-%';
-
-    NEW.payment_code := 'JKKN-PAY-' || year_part || '-' || LPAD(seq_num::TEXT, 5, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_payment_code IS
-'Auto-generates payment code in format JKKN-PAY-YYYY-NNNNN. Called by trigger on sh_payments.';
-
--- Generate Bug Code: JKKN-BUG-YYYY-NNNNN
-CREATE OR REPLACE FUNCTION public.sh_generate_bug_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.bug_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(bug_code FROM 'JKKN-BUG-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_bug_reports
-    WHERE bug_code LIKE 'JKKN-BUG-' || year_part || '-%';
-
-    NEW.bug_code := 'JKKN-BUG-' || year_part || '-' || LPAD(seq_num::TEXT, 5, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_bug_code IS
-'Auto-generates bug code in format JKKN-BUG-YYYY-NNNNN. Called by trigger on sh_bug_reports.';
-
--- Generate Visit Code: JKKN-VIS-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_visit_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.visit_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(visit_code FROM 'JKKN-VIS-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_discovery_visits
-    WHERE visit_code LIKE 'JKKN-VIS-' || year_part || '-%';
-
-    NEW.visit_code := 'JKKN-VIS-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_visit_code IS
-'Auto-generates discovery visit code in format JKKN-VIS-YYYY-NNN. Called by trigger on sh_discovery_visits.';
-
--- Generate MOU Number: JKKN-MOU-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_mou_number()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.mou_number IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(mou_number FROM 'JKKN-MOU-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_solution_mous
-    WHERE mou_number LIKE 'JKKN-MOU-' || year_part || '-%';
-
-    NEW.mou_number := 'JKKN-MOU-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_mou_number IS
-'Auto-generates MOU number in format JKKN-MOU-YYYY-NNN. Called by trigger on sh_solution_mous.';
-
--- Generate Earnings Ledger Code: JKKN-ERN-YYYY-NNNNN
-CREATE OR REPLACE FUNCTION public.sh_generate_earnings_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.ledger_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(ledger_code FROM 'JKKN-ERN-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_earnings_ledger
-    WHERE ledger_code LIKE 'JKKN-ERN-' || year_part || '-%';
-
-    NEW.ledger_code := 'JKKN-ERN-' || year_part || '-' || LPAD(seq_num::TEXT, 5, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_earnings_code IS
-'Auto-generates earnings ledger code in format JKKN-ERN-YYYY-NNNNN. Called by trigger on sh_earnings_ledger.';
-
--- Generate Publication Code: JKKN-PUB-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_publication_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.publication_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(publication_code FROM 'JKKN-PUB-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_publications
-    WHERE publication_code LIKE 'JKKN-PUB-' || year_part || '-%';
-
-    NEW.publication_code := 'JKKN-PUB-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_publication_code IS
-'Auto-generates publication code in format JKKN-PUB-YYYY-NNN. Called by trigger on sh_publications.';
-
--- Generate JICATE Session Code: JKKN-JIC-YYYY-NNN
-CREATE OR REPLACE FUNCTION public.sh_generate_jicate_code()
-RETURNS TRIGGER AS $$
-DECLARE
-    year_part TEXT;
-    seq_num INTEGER;
-BEGIN
-    IF NEW.session_code IS NOT NULL THEN
-        RETURN NEW;
-    END IF;
-
-    year_part := TO_CHAR(NOW(), 'YYYY');
-
-    SELECT COALESCE(MAX(
-        CAST(SUBSTRING(session_code FROM 'JKKN-JIC-\d{4}-(\d+)') AS INTEGER)
-    ), 0) + 1
-    INTO seq_num
-    FROM sh_jicate_sessions
-    WHERE session_code LIKE 'JKKN-JIC-' || year_part || '-%';
-
-    NEW.session_code := 'JKKN-JIC-' || year_part || '-' || LPAD(seq_num::TEXT, 3, '0');
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_generate_jicate_code IS
-'Auto-generates JICATE session code in format JKKN-JIC-YYYY-NNN. Called by trigger on sh_jicate_sessions.';
-
--- ============================================
--- Updated_at Trigger Function
--- ============================================
-
--- Generic updated_at function for Solutions Hub tables
-CREATE OR REPLACE FUNCTION public.sh_update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_update_updated_at IS
-'Updates the updated_at timestamp on row modification. Used by all sh_* tables.';
-
--- ============================================
--- Role Check Functions for RLS
--- ============================================
-
--- Check if user is Solutions Hub admin (super_admin, admin, jicate_staff)
-CREATE OR REPLACE FUNCTION public.sh_is_admin()
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM profiles
-        WHERE id = auth.uid()
-        AND (
-            is_super_admin = true
-            OR role IN ('super_admin', 'admin', 'jicate_staff')
-        )
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_is_admin IS
-'Checks if current user is a Solutions Hub admin (super_admin, admin, or jicate_staff).';
-
--- Check if user is HOD
-CREATE OR REPLACE FUNCTION public.sh_is_hod()
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM profiles
-        WHERE id = auth.uid()
-        AND role = 'hod'
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_is_hod IS
-'Checks if current user is an HOD (Head of Department).';
-
--- Get user's department ID
-CREATE OR REPLACE FUNCTION public.sh_user_department_id()
-RETURNS UUID AS $$
-BEGIN
-    RETURN (
-        SELECT department_id
-        FROM profiles
-        WHERE id = auth.uid()
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_user_department_id IS
-'Returns the department_id of the current authenticated user.';
-
--- Get user's institution ID
-CREATE OR REPLACE FUNCTION public.sh_user_institution_id()
-RETURNS UUID AS $$
-BEGIN
-    RETURN (
-        SELECT institution_id
-        FROM profiles
-        WHERE id = auth.uid()
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_user_institution_id IS
-'Returns the institution_id of the current authenticated user.';
-
--- Check if user is a staff member
-CREATE OR REPLACE FUNCTION public.sh_is_staff()
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM profiles
-        WHERE id = auth.uid()
-        AND role IN ('staff', 'faculty', 'teaching_staff', 'non_teaching_staff')
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_is_staff IS
-'Checks if current user is a staff member (any staff-related role).';
-
--- Check if user is a builder
-CREATE OR REPLACE FUNCTION public.sh_is_builder()
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM sh_builders
-        WHERE user_id = auth.uid()
-        AND is_active = true
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_is_builder IS
-'Checks if current user is an active builder.';
-
--- Get builder ID for current user
-CREATE OR REPLACE FUNCTION public.sh_get_builder_id()
-RETURNS UUID AS $$
-BEGIN
-    RETURN (
-        SELECT id
-        FROM sh_builders
-        WHERE user_id = auth.uid()
-        AND is_active = true
-        LIMIT 1
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_get_builder_id IS
-'Returns the builder_id for the current authenticated user.';
-
--- Check if user is a cohort member
-CREATE OR REPLACE FUNCTION public.sh_is_cohort_member()
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM sh_cohort_members
-        WHERE user_id = auth.uid()
-        AND is_active = true
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_is_cohort_member IS
-'Checks if current user is an active cohort member.';
-
--- Get cohort member ID for current user
-CREATE OR REPLACE FUNCTION public.sh_get_cohort_member_id()
-RETURNS UUID AS $$
-BEGIN
-    RETURN (
-        SELECT id
-        FROM sh_cohort_members
-        WHERE user_id = auth.uid()
-        AND is_active = true
-        LIMIT 1
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_get_cohort_member_id IS
-'Returns the cohort_member_id for the current authenticated user.';
-
--- Check if user is a production learner
-CREATE OR REPLACE FUNCTION public.sh_is_production_learner()
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM sh_production_learners
-        WHERE user_id = auth.uid()
-        AND is_active = true
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_is_production_learner IS
-'Checks if current user is an active production learner.';
-
--- Get production learner ID for current user
-CREATE OR REPLACE FUNCTION public.sh_get_production_learner_id()
-RETURNS UUID AS $$
-BEGIN
-    RETURN (
-        SELECT id
-        FROM sh_production_learners
-        WHERE user_id = auth.uid()
-        AND is_active = true
-        LIMIT 1
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_get_production_learner_id IS
-'Returns the production_learner_id for the current authenticated user.';
-
--- Check if user is a client
-CREATE OR REPLACE FUNCTION public.sh_is_client()
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM profiles
-        WHERE id = auth.uid()
-        AND role = 'client'
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_is_client IS
-'Checks if current user has client role.';
-
--- Get client ID for current user (matches by email)
-CREATE OR REPLACE FUNCTION public.sh_get_client_id()
-RETURNS UUID AS $$
-BEGIN
-    RETURN (
-        SELECT c.id
-        FROM sh_clients c
-        INNER JOIN profiles p ON LOWER(p.email) = LOWER(c.contact_email)
-        WHERE p.id = auth.uid()
-        AND c.is_active = true
-        LIMIT 1
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-COMMENT ON FUNCTION sh_get_client_id IS
-'Returns the client_id for the current authenticated user (matched by email).';
-
--- ============================================
--- Statistics Update Functions
--- ============================================
-
--- Update builder statistics after assignment completion
-CREATE OR REPLACE FUNCTION public.sh_update_builder_stats()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
-        UPDATE sh_builders
-        SET
-            projects_completed = projects_completed + 1,
-            total_earnings = total_earnings + COALESCE(NEW.total_earnings, 0),
-            updated_at = NOW()
-        WHERE id = NEW.builder_id;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_update_builder_stats IS
-'Updates builder statistics when an assignment is marked as completed.';
-
--- Update cohort member statistics after session completion
-CREATE OR REPLACE FUNCTION public.sh_update_cohort_stats()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
-        UPDATE sh_cohort_members
-        SET
-            sessions_observed = CASE WHEN NEW.role = 'observer' THEN sessions_observed + 1 ELSE sessions_observed END,
-            sessions_co_led = CASE WHEN NEW.role = 'co_lead' THEN sessions_co_led + 1 ELSE sessions_co_led END,
-            sessions_led = CASE WHEN NEW.role = 'lead' THEN sessions_led + 1 ELSE sessions_led END,
-            sessions_master = CASE WHEN NEW.role = 'master' THEN sessions_master + 1 ELSE sessions_master END,
-            total_earnings = total_earnings + COALESCE(NEW.earnings, 0),
-            updated_at = NOW()
-        WHERE id = NEW.cohort_member_id;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_update_cohort_stats IS
-'Updates cohort member statistics when a session assignment is marked as completed.';
-
--- Update production learner statistics after deliverable completion
-CREATE OR REPLACE FUNCTION public.sh_update_production_stats()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.status = 'completed' AND (OLD.status IS NULL OR OLD.status != 'completed') THEN
-        UPDATE sh_production_learners
-        SET
-            total_deliverables = total_deliverables + 1,
-            total_earnings = total_earnings + COALESCE(NEW.earnings, 0),
-            updated_at = NOW()
-        WHERE id = NEW.learner_id;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_update_production_stats IS
-'Updates production learner statistics when a production assignment is marked as completed.';
-
--- Update client referral count
-CREATE OR REPLACE FUNCTION public.sh_update_client_referral_count()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        UPDATE sh_clients
-        SET referral_count = referral_count + 1
-        WHERE id = NEW.client_id;
-    ELSIF TG_OP = 'DELETE' THEN
-        UPDATE sh_clients
-        SET referral_count = GREATEST(referral_count - 1, 0)
-        WHERE id = OLD.client_id;
-    END IF;
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
-
-COMMENT ON FUNCTION sh_update_client_referral_count IS
-'Updates client referral_count when referrals are added or removed.';
-
--- ============================================
--- Revenue Split Processing
--- ============================================
-
--- Process revenue split for a payment
-CREATE OR REPLACE FUNCTION public.sh_process_payment_split(
-    p_payment_id UUID
-)
-RETURNS INTEGER AS $$
-DECLARE
-    v_payment RECORD;
-    v_split_model RECORD;
-    v_split_config JSONB;
-    v_recipient_type TEXT;
-    v_percentage NUMERIC;
-    v_amount NUMERIC;
-    v_count INTEGER := 0;
-BEGIN
-    -- Get payment details
-    SELECT * INTO v_payment
-    FROM sh_payments
-    WHERE id = p_payment_id
-    AND status = 'completed'
-    AND split_processed = false;
-
-    IF v_payment IS NULL THEN
-        RETURN 0;
-    END IF;
-
-    -- Get split model
-    IF v_payment.split_model_id IS NOT NULL THEN
-        SELECT * INTO v_split_model
-        FROM sh_revenue_split_models
-        WHERE id = v_payment.split_model_id;
-    ELSE
-        -- Get default split model for solution type
-        SELECT * INTO v_split_model
-        FROM sh_revenue_split_models rsm
-        INNER JOIN sh_solutions s ON s.id = v_payment.solution_id
-        WHERE rsm.solution_type = s.solution_type
-        AND rsm.is_default = true
-        LIMIT 1;
-    END IF;
-
-    IF v_split_model IS NULL THEN
-        RETURN 0;
-    END IF;
-
-    v_split_config := v_split_model.split_config;
-
-    -- Process each split entry
-    FOR v_recipient_type, v_percentage IN
-        SELECT key, value::numeric
-        FROM jsonb_each_text(v_split_config)
+    FOR rec IN
+        SELECT
+            COALESCE(ue.institution_id, '00000000-0000-0000-0000-000000000000'::uuid) AS inst_id,
+            ue.module,
+            COUNT(*)::integer AS event_count,
+            COUNT(DISTINCT ue.user_id)::integer AS unique_users,
+            SUM(ue.weight)::bigint AS weighted_score
+        FROM usage_events ue
+        WHERE ue.created_at >= target_date::timestamptz
+          AND ue.created_at < (target_date + INTERVAL '1 day')::timestamptz
+        GROUP BY COALESCE(ue.institution_id, '00000000-0000-0000-0000-000000000000'::uuid), ue.module
     LOOP
-        v_amount := v_payment.amount * (v_percentage / 100);
+        -- Compute by_role JSONB separately
+        SELECT COALESCE(jsonb_object_agg(sub.r, sub.cnt), '{}'::jsonb)
+        INTO v_by_role
+        FROM (
+            SELECT ue2.role AS r, COUNT(*)::integer AS cnt
+            FROM usage_events ue2
+            WHERE ue2.module = rec.module
+              AND COALESCE(ue2.institution_id, '00000000-0000-0000-0000-000000000000'::uuid) = rec.inst_id
+              AND ue2.created_at >= target_date::timestamptz
+              AND ue2.created_at < (target_date + INTERVAL '1 day')::timestamptz
+              AND ue2.role IS NOT NULL
+            GROUP BY ue2.role
+        ) sub;
 
-        INSERT INTO sh_earnings_ledger (
-            payment_id,
-            recipient_type,
-            amount,
-            percentage,
-            status
-        ) VALUES (
-            p_payment_id,
-            v_recipient_type::sh_recipient_type,
-            v_amount,
-            v_percentage,
-            'pending'
-        );
+        -- Compute by_event_type JSONB separately
+        SELECT COALESCE(jsonb_object_agg(sub.et, sub.cnt), '{}'::jsonb)
+        INTO v_by_event_type
+        FROM (
+            SELECT ue3.event_type AS et, COUNT(*)::integer AS cnt
+            FROM usage_events ue3
+            WHERE ue3.module = rec.module
+              AND COALESCE(ue3.institution_id, '00000000-0000-0000-0000-000000000000'::uuid) = rec.inst_id
+              AND ue3.created_at >= target_date::timestamptz
+              AND ue3.created_at < (target_date + INTERVAL '1 day')::timestamptz
+            GROUP BY ue3.event_type
+        ) sub;
 
-        v_count := v_count + 1;
+        -- Upsert into module_usage_daily
+        INSERT INTO module_usage_daily (metric_date, institution_id, module, event_count, unique_users, weighted_score, by_role, by_event_type)
+        VALUES (target_date, rec.inst_id, rec.module, rec.event_count, rec.unique_users, rec.weighted_score, v_by_role, v_by_event_type)
+        ON CONFLICT (metric_date, institution_id, module)
+        DO UPDATE SET
+            event_count = EXCLUDED.event_count,
+            unique_users = EXCLUDED.unique_users,
+            weighted_score = EXCLUDED.weighted_score,
+            by_role = EXCLUDED.by_role,
+            by_event_type = EXCLUDED.by_event_type;
+
+        rows_upserted := rows_upserted + 1;
     END LOOP;
 
-    -- Mark payment as processed
-    UPDATE sh_payments
-    SET
-        split_processed = true,
-        split_processed_at = NOW()
-    WHERE id = p_payment_id;
+    RETURN rows_upserted;
+END;
+$$;
 
-    RETURN v_count;
+COMMENT ON FUNCTION compute_module_usage_daily IS
+'Rolls up usage_events for a given date into module_usage_daily. Run daily via pg_cron.';
+
+
+-- refresh_lifecycle_dashboard_view: Refresh the materialized view
+-- Called every 5 minutes via pg_cron
+CREATE OR REPLACE FUNCTION refresh_lifecycle_dashboard_view()
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY mv_lifecycle_dashboard;
+END;
+$$;
+
+COMMENT ON FUNCTION refresh_lifecycle_dashboard_view IS
+'Refreshes mv_lifecycle_dashboard materialized view. Called every 5 min via pg_cron.';
+
+
+-- compute_institution_health_scores: Calculate health scores for all institutions
+-- Called daily via pg_cron (Phase 2)
+CREATE OR REPLACE FUNCTION compute_institution_health_scores(target_date DATE DEFAULT CURRENT_DATE)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    rows_upserted INTEGER := 0;
+    total_modules CONSTANT INTEGER := 25;
+BEGIN
+    INSERT INTO institution_health_scores (
+        score_date, institution_id,
+        active_user_pct, module_breadth_score, action_depth_score,
+        consistency_score, feature_maturity_score, health_score, health_grade
+    )
+    SELECT
+        target_date,
+        inst.institution_id,
+        -- active_user_pct: % of total users who logged in within last 7 days
+        COALESCE(
+            (inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0
+        )::numeric(5,2),
+        -- module_breadth_score: % of modules accessed in last 30 days
+        COALESCE(
+            (inst.modules_used::numeric / total_modules) * 100, 0
+        )::numeric(5,2),
+        -- action_depth_score: weighted actions per active user (capped at 100)
+        LEAST(
+            COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10,
+            100
+        )::numeric(5,2),
+        -- consistency_score: based on daily active user coefficient of variation
+        GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))::numeric(5,2),
+        -- feature_maturity_score: CRUD actions as % of total (higher = more productive usage)
+        COALESCE(
+            (inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0
+        )::numeric(5,2),
+        -- composite health_score
+        (
+            0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+          + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+          + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+          + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+          + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+        )::numeric(5,2),
+        -- health_grade
+        CASE
+            WHEN (
+                0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+              + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+              + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+              + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+              + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+            ) >= 80 THEN 'A'
+            WHEN (
+                0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+              + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+              + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+              + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+              + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+            ) >= 60 THEN 'B'
+            WHEN (
+                0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+              + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+              + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+              + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+              + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+            ) >= 40 THEN 'C'
+            WHEN (
+                0.30 * COALESCE((inst.active_users_7d::numeric / NULLIF(inst.total_users, 0)) * 100, 0)
+              + 0.20 * COALESCE((inst.modules_used::numeric / total_modules) * 100, 0)
+              + 0.20 * LEAST(COALESCE(inst.weighted_score_30d::numeric / NULLIF(inst.active_users_7d, 0), 0) / 10, 100)
+              + 0.15 * GREATEST(0, LEAST(100, 100 - COALESCE(inst.daily_variance * 100, 0)))
+              + 0.15 * COALESCE((inst.crud_actions::numeric / NULLIF(inst.total_actions, 0)) * 100, 0)
+            ) >= 20 THEN 'D'
+            ELSE 'F'
+        END
+    FROM (
+        SELECT
+            mud.institution_id,
+            -- Active users in last 7 days
+            (SELECT COUNT(DISTINCT user_id) FROM usage_events
+             WHERE institution_id = mud.institution_id
+               AND created_at >= target_date - INTERVAL '7 days') AS active_users_7d,
+            -- Total users in institution
+            (SELECT COUNT(*) FROM profiles
+             WHERE institution_id = mud.institution_id AND is_active = true) AS total_users,
+            -- Modules used in last 30 days
+            (SELECT COUNT(DISTINCT module) FROM module_usage_daily
+             WHERE institution_id = mud.institution_id
+               AND metric_date >= target_date - 30) AS modules_used,
+            -- Weighted score in last 30 days
+            SUM(CASE WHEN mud.metric_date >= target_date - 30 THEN mud.weighted_score ELSE 0 END) AS weighted_score_30d,
+            -- Total actions in last 30 days
+            SUM(CASE WHEN mud.metric_date >= target_date - 30 THEN mud.event_count ELSE 0 END) AS total_actions,
+            -- CRUD actions in last 30 days
+            SUM(CASE WHEN mud.metric_date >= target_date - 30
+                THEN COALESCE((mud.by_event_type->>'create')::int, 0)
+                   + COALESCE((mud.by_event_type->>'update')::int, 0)
+                   + COALESCE((mud.by_event_type->>'delete')::int, 0)
+                ELSE 0 END) AS crud_actions,
+            -- Daily variance (stddev / avg of daily unique users)
+            COALESCE(
+                STDDEV(mud.unique_users) / NULLIF(AVG(mud.unique_users), 0), 0
+            ) AS daily_variance
+        FROM module_usage_daily mud
+        WHERE mud.metric_date >= target_date - 30
+        GROUP BY mud.institution_id
+    ) inst
+    ON CONFLICT (score_date, institution_id)
+    DO UPDATE SET
+        active_user_pct = EXCLUDED.active_user_pct,
+        module_breadth_score = EXCLUDED.module_breadth_score,
+        action_depth_score = EXCLUDED.action_depth_score,
+        consistency_score = EXCLUDED.consistency_score,
+        feature_maturity_score = EXCLUDED.feature_maturity_score,
+        health_score = EXCLUDED.health_score,
+        health_grade = EXCLUDED.health_grade;
+
+    GET DIAGNOSTICS rows_upserted = ROW_COUNT;
+    RETURN rows_upserted;
+END;
+$$;
+
+COMMENT ON FUNCTION compute_institution_health_scores IS
+'Computes health scores for all institutions based on usage data. Phase 2 feature.';
+
+
+-- backfill_usage_events: Process existing user_sessions into usage_events
+-- One-time run for historical data
+CREATE OR REPLACE FUNCTION backfill_usage_events()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    rows_inserted INTEGER := 0;
+    session_rec RECORD;
+    module_name TEXT;
+BEGIN
+    -- Insert login events from user_sessions
+    INSERT INTO usage_events (user_id, session_id, event_type, module, weight, institution_id, role, source, created_at)
+    SELECT
+        user_id,
+        session_id,
+        'login',
+        'dashboard',
+        1,
+        institution_id,
+        role,
+        'backfill',
+        login_at
+    FROM user_sessions
+    WHERE login_at IS NOT NULL
+    ON CONFLICT DO NOTHING;
+
+    GET DIAGNOSTICS rows_inserted = ROW_COUNT;
+
+    -- Insert module access events from user_sessions.modules_accessed array
+    FOR session_rec IN
+        SELECT session_id, user_id, institution_id, role, login_at, modules_accessed
+        FROM user_sessions
+        WHERE modules_accessed IS NOT NULL AND array_length(modules_accessed, 1) > 0
+    LOOP
+        FOREACH module_name IN ARRAY session_rec.modules_accessed
+        LOOP
+            INSERT INTO usage_events (user_id, session_id, event_type, module, weight, institution_id, role, source, created_at)
+            VALUES (
+                session_rec.user_id,
+                session_rec.session_id,
+                'page_visit',
+                module_name,
+                1,
+                session_rec.institution_id,
+                session_rec.role,
+                'backfill',
+                session_rec.login_at + INTERVAL '1 minute'
+            )
+            ON CONFLICT DO NOTHING;
+
+            rows_inserted := rows_inserted + 1;
+        END LOOP;
+    END LOOP;
+
+    -- Now compute module_usage_daily for all backfilled dates
+    PERFORM compute_module_usage_daily(d::date)
+    FROM generate_series(
+        (SELECT MIN(login_at)::date FROM user_sessions),
+        CURRENT_DATE,
+        '1 day'::interval
+    ) AS d;
+
+    RETURN rows_inserted;
+END;
+$$;
+
+COMMENT ON FUNCTION backfill_usage_events IS
+'One-time function to backfill usage_events from user_sessions. Run once after initial setup.';
+
+
+-- archive_old_usage_events: Move old events to archive table
+-- Called monthly via pg_cron (Phase 3)
+CREATE OR REPLACE FUNCTION archive_old_usage_events(months_to_keep INTEGER DEFAULT 12)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    cutoff_date TIMESTAMPTZ;
+    rows_archived INTEGER := 0;
+BEGIN
+    cutoff_date := CURRENT_DATE - (months_to_keep || ' months')::interval;
+
+    -- Copy to archive
+    INSERT INTO usage_events_archive (id, user_id, session_id, event_type, module, feature, resource_type, weight, institution_id, department_id, role, request_method, source, metadata, created_at)
+    SELECT id, user_id, session_id, event_type, module, feature, resource_type, weight, institution_id, department_id, role, request_method, source, metadata, created_at
+    FROM usage_events
+    WHERE created_at < cutoff_date;
+
+    GET DIAGNOSTICS rows_archived = ROW_COUNT;
+
+    -- Delete archived records from main table
+    DELETE FROM usage_events WHERE created_at < cutoff_date;
+
+    RETURN rows_archived;
+END;
+$$;
+
+COMMENT ON FUNCTION archive_old_usage_events IS
+'Archives usage_events older than N months to usage_events_archive. Phase 3 maintenance.';
+
+
+-- ensure_usage_events_partitions: Auto-create monthly partitions for usage_events
+-- Updated: 2026-02-06 - Phase 3
+-- Note: usage_events was created as a regular table (not partitioned).
+-- This function gracefully handles both cases. Archive strategy manages data lifecycle.
+CREATE OR REPLACE FUNCTION ensure_usage_events_partitions()
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    is_partitioned BOOLEAN;
+BEGIN
+    -- Check if usage_events is actually partitioned
+    SELECT (relkind = 'p') INTO is_partitioned
+    FROM pg_class WHERE relname = 'usage_events';
+
+    IF NOT is_partitioned THEN
+        RAISE NOTICE 'usage_events is not partitioned. Archive strategy handles data lifecycle instead.';
+        RETURN;
+    END IF;
+
+    -- If partitioned, create monthly partitions (future-proofing)
+    DECLARE
+        partition_start DATE;
+        partition_end DATE;
+        partition_name TEXT;
+        i INTEGER;
+    BEGIN
+        FOR i IN 0..3 LOOP
+            partition_start := DATE_TRUNC('month', CURRENT_DATE + (i || ' months')::interval);
+            partition_end := partition_start + INTERVAL '1 month';
+            partition_name := 'usage_events_' || TO_CHAR(partition_start, 'YYYY_MM');
+
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_class c
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                WHERE c.relname = partition_name AND n.nspname = 'public'
+            ) THEN
+                EXECUTE format(
+                    'CREATE TABLE IF NOT EXISTS %I PARTITION OF usage_events FOR VALUES FROM (%L) TO (%L)',
+                    partition_name, partition_start, partition_end
+                );
+            END IF;
+        END LOOP;
+    END;
+END;
+$$;
+
+COMMENT ON FUNCTION ensure_usage_events_partitions IS
+'Auto-creates monthly partitions for usage_events table. No-op if table is not partitioned.';
+
+
+-- compute_feature_usage_summary: Aggregate feature-level usage from usage_events
+-- Updated: 2026-02-06 - Phase 3
+CREATE OR REPLACE FUNCTION compute_feature_usage_summary(target_date DATE DEFAULT CURRENT_DATE - INTERVAL '1 day')
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    rows_upserted INTEGER := 0;
+    rec RECORD;
+BEGIN
+    FOR rec IN
+        SELECT
+            COALESCE(ue.institution_id, '00000000-0000-0000-0000-000000000000'::uuid) AS inst_id,
+            ue.module,
+            ue.feature,
+            COUNT(*)::integer AS usage_count,
+            COUNT(DISTINCT ue.user_id)::integer AS unique_users
+        FROM usage_events ue
+        WHERE ue.created_at >= target_date::timestamptz
+          AND ue.created_at < (target_date + INTERVAL '1 day')::timestamptz
+          AND ue.feature IS NOT NULL
+        GROUP BY COALESCE(ue.institution_id, '00000000-0000-0000-0000-000000000000'::uuid), ue.module, ue.feature
+    LOOP
+        INSERT INTO feature_usage_summary (summary_date, institution_id, module, feature, usage_count, unique_users)
+        VALUES (target_date, rec.inst_id, rec.module, rec.feature, rec.usage_count, rec.unique_users)
+        ON CONFLICT (summary_date, institution_id, module, feature)
+        DO UPDATE SET
+            usage_count = EXCLUDED.usage_count,
+            unique_users = EXCLUDED.unique_users;
+
+        rows_upserted := rows_upserted + 1;
+    END LOOP;
+
+    RETURN rows_upserted;
+END;
+$$;
+
+COMMENT ON FUNCTION compute_feature_usage_summary IS
+'Aggregates feature-level usage from usage_events into feature_usage_summary. Run daily via pg_cron.';
+
+-- ================================================================================
+-- SERVICE REQUEST MODULE FUNCTIONS
+-- Updated: 2026-02-09
+-- ================================================================================
+
+-- Generate service request number (SR-YYYY-####)
+CREATE OR REPLACE FUNCTION generate_service_request_number()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    current_year TEXT;
+    next_sequence INTEGER;
+    new_number TEXT;
+BEGIN
+    current_year := EXTRACT(YEAR FROM NOW())::TEXT;
+
+    SELECT COALESCE(MAX(
+        CAST(SUBSTRING(request_number FROM 9) AS INTEGER)
+    ), 0) + 1
+    INTO next_sequence
+    FROM service_requests
+    WHERE request_number LIKE 'SR-' || current_year || '-%';
+
+    new_number := 'SR-' || current_year || '-' || LPAD(next_sequence::TEXT, 4, '0');
+
+    RETURN new_number;
+END;
+$$;
+
+-- Count active (non-closed/cancelled/rejected) requests for max check
+CREATE OR REPLACE FUNCTION count_active_service_requests(
+    p_user_id UUID,
+    p_service_type_id UUID
+)
+RETURNS INTEGER
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT COUNT(*)::INTEGER
+    FROM service_requests
+    WHERE requester_id = p_user_id
+    AND service_type_id = p_service_type_id
+    AND status NOT IN ('closed', 'cancelled', 'rejected');
+$$;
+
+-- Updated: 2026-02-27 — Auto-assignment: atomic counselor lead count increment
+CREATE OR REPLACE FUNCTION admission_increment_counselor_leads(p_counselor_id uuid)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  UPDATE admission_counselors
+  SET current_leads = current_leads + 1,
+      updated_at = now()
+  WHERE id = p_counselor_id;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_my_pending_invitations
+-- Updated: 2026-03-08 — added email fallback for invitations where profile_id is null
+-- Updated: 2026-03-06
+-- SECURITY DEFINER: bypasses RLS on event_registrations/startup_events/profiles
+-- to avoid 42P17 mutual recursion between event_registrations_select and
+-- event_team_members_select. Matches by profile_id OR by email (fallback for students
+-- whose learner record was not linked to an auth profile when the invite was created).
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_my_pending_invitations(p_profile_id uuid)
+RETURNS TABLE (
+    member_id        uuid,
+    registration_id  uuid,
+    team_name        text,
+    team_code        text,
+    event_id         uuid,
+    event_name       text,
+    invited_at       timestamptz,
+    invited_by_name  text
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT
+        etm.id           AS member_id,
+        er.id            AS registration_id,
+        er.team_name,
+        er.team_code,
+        se.id            AS event_id,
+        se.name          AS event_name,
+        etm.added_at     AS invited_at,
+        p.full_name      AS invited_by_name
+    FROM event_team_members etm
+    JOIN event_registrations er ON er.id = etm.registration_id
+    JOIN startup_events      se ON se.id = er.event_id
+    LEFT JOIN profiles       p  ON p.id  = er.owner_id
+    WHERE (
+        etm.profile_id = p_profile_id
+        OR (
+            etm.profile_id IS NULL
+            AND etm.email = (SELECT email FROM profiles WHERE id = p_profile_id LIMIT 1)
+        )
+    )
+      AND etm.status = 'pending'
+    ORDER BY etm.added_at DESC;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: respond_to_invitation
+-- Updated: 2026-03-08
+-- SECURITY DEFINER: bypasses RLS so invitations with profile_id = null (student had
+-- no linked auth account when invited) can still be accepted/declined.
+-- Validates ownership by profile_id match OR email match (same as get_my_pending_invitations).
+-- Backfills profile_id on the row when it was null so future queries work correctly.
+-- Enforces the one-team rule and status guard server-side.
+-- =====================================================
+CREATE OR REPLACE FUNCTION respond_to_invitation(
+    p_member_id  uuid,
+    p_profile_id uuid,
+    p_accept     boolean
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_member        RECORD;
+    v_profile_email text;
+    v_event_id      uuid;
+BEGIN
+    -- Fetch the invitation row (bypasses RLS)
+    SELECT id, status, profile_id, email, registration_id
+      INTO v_member
+      FROM event_team_members
+     WHERE id = p_member_id;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('error', 'Invitation not found');
+    END IF;
+
+    IF v_member.status != 'pending' THEN
+        RETURN jsonb_build_object('error', 'This invitation has already been responded to');
+    END IF;
+
+    -- Resolve caller email for ownership validation
+    SELECT email INTO v_profile_email FROM profiles WHERE id = p_profile_id LIMIT 1;
+
+    -- Verify ownership: profile_id match OR email match (handles null profile_id rows)
+    IF v_member.profile_id IS NOT NULL AND v_member.profile_id != p_profile_id THEN
+        RETURN jsonb_build_object('error', 'This invitation does not belong to you');
+    END IF;
+    IF v_member.profile_id IS NULL AND v_member.email != v_profile_email THEN
+        RETURN jsonb_build_object('error', 'This invitation does not belong to you');
+    END IF;
+
+    -- One-team rule (accept only)
+    IF p_accept THEN
+        SELECT er.event_id INTO v_event_id
+          FROM event_registrations er
+         WHERE er.id = v_member.registration_id;
+
+        -- Check: already a team owner for this event
+        IF EXISTS (
+            SELECT 1 FROM event_registrations
+             WHERE event_id = v_event_id AND owner_id = p_profile_id
+        ) THEN
+            RETURN jsonb_build_object('error', 'You are already a team leader for this event');
+        END IF;
+
+        -- Check: already accepted in another team for this event
+        IF EXISTS (
+            SELECT 1
+              FROM event_team_members etm
+              JOIN event_registrations er ON er.id = etm.registration_id
+             WHERE er.event_id = v_event_id
+               AND (etm.profile_id = p_profile_id OR etm.email = v_profile_email)
+               AND etm.status = 'accepted'
+               AND etm.id != p_member_id
+        ) THEN
+            RETURN jsonb_build_object('error', 'You are already part of another team for this event');
+        END IF;
+    END IF;
+
+    -- Update status and backfill profile_id if it was null
+    UPDATE event_team_members
+       SET status       = CASE WHEN p_accept THEN 'accepted' ELSE 'declined' END,
+           responded_at = now(),
+           profile_id   = COALESCE(v_member.profile_id, p_profile_id)
+     WHERE id = p_member_id;
+
+    RETURN jsonb_build_object('success', true);
+END;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_my_event_team
+-- Updated: 2026-03-06
+-- SECURITY DEFINER: allows checking accepted team membership for a student.
+-- Used to hide "Register Team" / show "View My Team" for non-owner accepted members.
+-- Direct query would require reading event_registrations (blocked by RLS for non-owners).
+-- =====================================================
+-- Updated: 2026-03-06 — extended with leader academic details + institution fallback
+-- When leader has no learner_id (staff/admin), falls back to event_registrations.institution_id
+DROP FUNCTION IF EXISTS get_my_event_team(uuid, uuid);
+CREATE FUNCTION get_my_event_team(p_profile_id uuid, p_event_id uuid)
+RETURNS TABLE (
+    registration_id     uuid,
+    team_name           text,
+    team_code           text,
+    is_leader           boolean,
+    leader_name         text,
+    leader_email        text,
+    leader_institution  text,
+    leader_degree       text,
+    leader_department   text,
+    leader_semester     text
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT
+        er.id                                              AS registration_id,
+        er.team_name,
+        er.team_code,
+        mem.is_leader,
+        p.full_name                                        AS leader_name,
+        p.email                                            AS leader_email,
+        COALESCE(lp_inst.name, reg_inst.name)              AS leader_institution,
+        d.degree_name                                      AS leader_degree,
+        dep.department_name                                AS leader_department,
+        s.semester_name                                    AS leader_semester
+    FROM event_team_members mem
+    JOIN event_registrations er       ON er.id   = mem.registration_id
+    JOIN profiles            p        ON p.id    = er.owner_id
+    LEFT JOIN institutions   reg_inst ON reg_inst.id = er.institution_id
+    LEFT JOIN event_team_members ldr  ON ldr.registration_id = er.id AND ldr.is_leader = true
+    LEFT JOIN learners_profiles  lp   ON lp.id   = ldr.learner_id
+    LEFT JOIN institutions  lp_inst   ON lp_inst.id = lp.institution_id
+    LEFT JOIN degrees        d        ON d.id    = lp.degree_id
+    LEFT JOIN departments    dep      ON dep.id  = lp.department_id
+    LEFT JOIN semesters      s        ON s.id    = lp.semester_id
+    WHERE mem.profile_id = p_profile_id
+      AND er.event_id    = p_event_id
+      AND mem.status     = 'accepted'
+    LIMIT 1;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_my_team_members
+-- Updated: 2026-03-08 — added profile_id column so Role Card overview
+--          can cross-reference submitted cards by profile_id.
+-- Returns all accepted/pending members of the team the caller belongs to.
+-- Security: caller must be an accepted member of the team.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_my_team_members(p_profile_id uuid, p_event_id uuid)
+RETURNS TABLE (
+    member_id   uuid,
+    profile_id  uuid,
+    full_name   text,
+    email       text,
+    student_id  text,
+    has_laptop  boolean,
+    is_leader   boolean,
+    status      text
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT
+        etm.id,
+        etm.profile_id,
+        etm.full_name,
+        etm.email,
+        etm.student_id,
+        etm.has_laptop,
+        etm.is_leader,
+        etm.status
+    FROM event_team_members etm
+    JOIN event_registrations er ON er.id = etm.registration_id
+    WHERE er.event_id = p_event_id
+      AND er.id IN (
+          SELECT registration_id FROM event_team_members
+          WHERE profile_id = p_profile_id AND status = 'accepted'
+      )
+      AND etm.status IN ('accepted', 'pending')
+    ORDER BY etm.is_leader DESC, etm.added_at ASC;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: generate_team_code
+-- Updated: 2026-03-07 - Fix duplicate key bug: use MAX-based sequence + retry loop
+-- Updated: 2026-03-07 - Add SECURITY DEFINER: without it, student callers see only
+--   their own registrations (RLS), MAX returns NULL, sequence resets to 1 every time
+--   → always collides with the existing -001 code. SECURITY DEFINER gives global view.
+-- Generates a unique team code like "JKKN-001" per event per institution
+-- =====================================================
+CREATE OR REPLACE FUNCTION generate_team_code(p_event_id UUID, p_institution_id UUID)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_inst_prefix TEXT;
+  v_seq         INT;
+  v_code        TEXT;
+  v_try         INT := 0;
+BEGIN
+  -- Use counselling_code if available, else first 4 chars of institution name
+  SELECT UPPER(COALESCE(
+    NULLIF(TRIM(counselling_code), ''),
+    SUBSTRING(name FROM 1 FOR 4)
+  ))
+  INTO v_inst_prefix
+  FROM institutions
+  WHERE id = p_institution_id;
+
+  IF v_inst_prefix IS NULL THEN
+    v_inst_prefix := 'TEAM';
+  END IF;
+
+  -- MAX-based sequence: extract numeric suffix from existing codes for this prefix
+  -- e.g. 'CET-003' with prefix 'CET' → SUBSTRING from pos 5 → '003' → 3
+  -- COALESCE to 0 when no registrations exist yet
+  SELECT COALESCE(
+    MAX(CAST(SUBSTRING(team_code FROM LENGTH(v_inst_prefix) + 2) AS INT)),
+    0
+  ) + 1
+  INTO v_seq
+  FROM event_registrations
+  WHERE event_id = p_event_id
+    AND institution_id = p_institution_id
+    AND team_code LIKE v_inst_prefix || '-%';
+
+  -- Retry loop: guards against concurrent registrations (race condition)
+  -- Both transactions may read the same MAX before either inserts
+  LOOP
+    v_code := v_inst_prefix || '-' || LPAD(v_seq::TEXT, 3, '0');
+
+    IF NOT EXISTS (
+      SELECT 1 FROM event_registrations
+      WHERE event_id = p_event_id AND team_code = v_code
+    ) THEN
+      RETURN v_code;
+    END IF;
+
+    v_seq := v_seq + 1;
+    v_try := v_try + 1;
+
+    IF v_try >= 10 THEN
+      RAISE EXCEPTION 'Could not generate unique team code after % attempts for prefix %', v_try, v_inst_prefix;
+    END IF;
+  END LOOP;
+END;
+
+-- ============================================================
+-- Updated: 2026-03-06 - Add facilitator attendance stats RPC
+-- Updated: 2026-03-06 - Add assigned_periods CTE; periods_assigned, periods_pending, marking_rate
+-- Purpose: Aggregates periods marked/assigned per facilitator for live dashboard
+-- ============================================================
+CREATE OR REPLACE FUNCTION get_facilitator_attendance_stats(
+  p_institution_id  UUID,
+  p_date_from       DATE,
+  p_date_to         DATE,
+  p_department_id   UUID DEFAULT NULL,
+  p_facilitator_id  UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_result JSONB;
+BEGIN
+  WITH attendance_counts AS (
+    -- marked_by = staff.profile_id (auth user UUID stored in marked_by_details.marker_id)
+    SELECT
+      (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID AS marked_by,
+      COUNT(*)                                               AS periods_marked,
+      MAX(sa.attendance_date)                                AS last_marked_at
+    FROM student_attendance sa,
+         jsonb_each(sa.attendance_data) AS pe(period_key, val)
+    WHERE sa.institution_id = p_institution_id
+      AND sa.attendance_date BETWEEN p_date_from AND p_date_to
+      AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
+    GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID
+  ),
+  assigned_periods AS (
+    -- Count periods each staff member is scheduled to teach in the date range.
+    -- timetable_data keys are uppercase day names ("MONDAY", "TUESDAY", ...).
+    -- staff_ids contains staff.id values (UUID).
+    -- Skips break slots (is_break_slot = true).
+    SELECT
+      (sid.value #>> '{}')::UUID AS staff_id,
+      COUNT(*)::INT               AS assigned_count
+    FROM timetables t,
+         generate_series(p_date_from::TIMESTAMP, p_date_to::TIMESTAMP, '1 day'::INTERVAL) gs(d),
+         jsonb_each(t.timetable_data -> UPPER(to_char(gs.d, 'fmDay'))) day_slot(period_key, slot_val),
+         jsonb_array_elements(slot_val -> 'staff_ids') sid
+    WHERE t.institution_id = p_institution_id
+      AND t.is_active = true
+      AND COALESCE((slot_val ->> 'is_break_slot')::BOOLEAN, false) = false
+    GROUP BY (sid.value #>> '{}')::UUID
+  ),
+  staff_stats AS (
+    -- Join via profile_id (not id) since marker_id = staff.profile_id
+    SELECT
+      s.id                                    AS staff_id,
+      s.profile_id,
+      s.first_name,
+      s.last_name,
+      COALESCE(s.designation, '')             AS designation,
+      COALESCE(d.department_name, 'Unknown')  AS department_name,
+      s.department_id,
+      COALESCE(ac.periods_marked, 0)                                    AS periods_marked,
+      COALESCE(ap.assigned_count, 0)                                    AS periods_assigned,
+      GREATEST(COALESCE(ap.assigned_count, 0) - COALESCE(ac.periods_marked, 0), 0) AS periods_pending,
+      CASE
+        WHEN COALESCE(ap.assigned_count, 0) = 0 THEN 0.0
+        ELSE ROUND((COALESCE(ac.periods_marked, 0)::NUMERIC / ap.assigned_count) * 100, 1)
+      END                                                               AS marking_rate,
+      ac.last_marked_at
+    FROM staff s
+    LEFT JOIN departments d ON s.department_id = d.id
+    INNER JOIN attendance_counts ac ON s.profile_id = ac.marked_by
+    LEFT JOIN assigned_periods ap ON s.id = ap.staff_id
+    WHERE s.institution_id = p_institution_id
+      AND s.is_active = true
+      AND (p_department_id IS NULL OR s.department_id = p_department_id)
+      AND (p_facilitator_id IS NULL OR s.id = p_facilitator_id)
+  ),
+  weekly_counts AS (
+    -- Weekly aggregates per staff (for line trend chart)
+    SELECT
+      (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID AS marked_by,
+      date_trunc('week', sa.attendance_date)::DATE           AS week_start,
+      COUNT(*)                                               AS week_count
+    FROM student_attendance sa,
+         jsonb_each(sa.attendance_data) AS pe(period_key, val)
+    WHERE sa.institution_id = p_institution_id
+      AND sa.attendance_date BETWEEN p_date_from AND p_date_to
+      AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
+    GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID,
+             date_trunc('week', sa.attendance_date)
+  ),
+  daily_counts AS (
+    -- Daily aggregates per staff (for calendar heatmap)
+    SELECT
+      (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID AS marked_by,
+      sa.attendance_date,
+      COUNT(*) AS day_count
+    FROM student_attendance sa,
+         jsonb_each(sa.attendance_data) AS pe(period_key, val)
+    WHERE sa.institution_id = p_institution_id
+      AND sa.attendance_date BETWEEN p_date_from AND p_date_to
+      AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
+    GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID,
+             sa.attendance_date
+  ),
+  aggregated AS (
+    SELECT
+      jsonb_build_object(
+        'summary', jsonb_build_object(
+          'total_facilitators',          COUNT(*)::INT,
+          'total_periods_marked',        SUM(ss.periods_marked)::INT,
+          'total_periods_assigned',      SUM(ss.periods_assigned)::INT,
+          'total_periods_pending',       SUM(ss.periods_pending)::INT,
+          'avg_periods_per_facilitator', ROUND(AVG(ss.periods_marked), 1),
+          'overall_marking_rate',        CASE
+            WHEN SUM(ss.periods_assigned) = 0 THEN 0.0
+            ELSE ROUND((SUM(ss.periods_marked)::NUMERIC / SUM(ss.periods_assigned)) * 100, 1)
+          END
+        ),
+        'facilitators', jsonb_agg(
+          jsonb_build_object(
+            'staff_id',         ss.staff_id,
+            'first_name',       ss.first_name,
+            'last_name',        ss.last_name,
+            'designation',      ss.designation,
+            'department_name',  ss.department_name,
+            'department_id',    ss.department_id,
+            'periods_marked',   ss.periods_marked,
+            'periods_assigned', ss.periods_assigned,
+            'periods_pending',  ss.periods_pending,
+            'marking_rate',     ss.marking_rate,
+            'last_marked_at',   ss.last_marked_at,
+            'trend_data', COALESCE((
+              SELECT jsonb_agg(
+                jsonb_build_object('week', wc.week_start, 'count', wc.week_count)
+                ORDER BY wc.week_start
+              )
+              FROM weekly_counts wc
+              WHERE wc.marked_by = ss.profile_id
+            ), '[]'::JSONB),
+            'daily_data', COALESCE((
+              SELECT jsonb_agg(
+                jsonb_build_object('date', dc.attendance_date, 'count', dc.day_count)
+                ORDER BY dc.attendance_date
+              )
+              FROM daily_counts dc
+              WHERE dc.marked_by = ss.profile_id
+            ), '[]'::JSONB)
+          )
+          ORDER BY ss.periods_marked DESC
+        ),
+        'department_breakdown', (
+          SELECT COALESCE(jsonb_agg(
+            jsonb_build_object(
+              'department_id',     dept_grp.department_id,
+              'department_name',   dept_grp.department_name,
+              'facilitator_count', dept_grp.fac_count,
+              'total_marked',      dept_grp.total_marked,
+              'total_assigned',    dept_grp.total_assigned,
+              'total_pending',     dept_grp.total_pending,
+              'avg_rate',          dept_grp.avg_rate
+            )
+            ORDER BY dept_grp.total_marked DESC
+          ), '[]'::JSONB)
+          FROM (
+            SELECT
+              ss2.department_id,
+              ss2.department_name,
+              COUNT(*)::INT                      AS fac_count,
+              SUM(ss2.periods_marked)::INT       AS total_marked,
+              SUM(ss2.periods_assigned)::INT     AS total_assigned,
+              SUM(ss2.periods_pending)::INT      AS total_pending,
+              ROUND(AVG(ss2.marking_rate), 1)    AS avg_rate
+            FROM staff_stats ss2
+            GROUP BY ss2.department_id, ss2.department_name
+          ) dept_grp
+        )
+      ) AS result
+    FROM staff_stats ss
+  )
+  SELECT result INTO v_result FROM aggregated;
+
+  RETURN COALESCE(v_result, jsonb_build_object(
+    'summary', jsonb_build_object(
+      'total_facilitators',          0,
+      'total_periods_marked',        0,
+      'total_periods_assigned',      0,
+      'total_periods_pending',       0,
+      'avg_periods_per_facilitator', 0,
+      'overall_marking_rate',        0.0
+    ),
+    'facilitators',          '[]'::JSONB,
+    'department_breakdown',  '[]'::JSONB
+  ));
+END;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_event_stats
+-- Added: 2026-03-07
+-- Returns aggregate team/member stats for a single event.
+-- Used by the registrations page global stats cards (no filter active).
+-- SECURITY DEFINER: bypasses RLS on event_registrations/event_team_members
+-- so any authenticated role can read event stats.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_event_stats(p_event_id UUID)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT jsonb_build_object(
+        'total_teams',            COUNT(DISTINCT er.id) FILTER (WHERE er.status != 'disqualified'),
+        'checked_in_teams',       COUNT(DISTINCT er.id) FILTER (WHERE er.checked_in = true AND er.status != 'disqualified'),
+        'total_members',          COUNT(etm.id) FILTER (WHERE etm.status = 'accepted'),
+        'members_with_laptops',   COUNT(etm.id) FILTER (WHERE etm.status = 'accepted' AND etm.has_laptop = true),
+        'institutions',           COUNT(DISTINCT er.institution_id) FILTER (WHERE er.status != 'disqualified')
+    )
+    FROM event_registrations er
+    LEFT JOIN event_team_members etm ON etm.registration_id = er.id
+    WHERE er.event_id = p_event_id;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_learner_participation_stats
+-- Added: 2026-03-07
+-- Returns total learners / participated / not_participated for a given event.
+-- Counts only lifecycle_status = 'active' learners from learners_profiles.
+-- Participation = learner_id appears in event_team_members for this event
+--   with status 'accepted' or 'pending'.
+-- All filter params are optional (NULL = no filter applied).
+-- SECURITY DEFINER: bypasses RLS so admin can count all institution learners.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_learner_participation_stats(
+    p_event_id        UUID,
+    p_institution_id  UUID DEFAULT NULL,
+    p_degree_id       UUID DEFAULT NULL,
+    p_department_id   UUID DEFAULT NULL,
+    p_program_id      UUID DEFAULT NULL,
+    p_semester_id     UUID DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    WITH eligible_learners AS (
+        SELECT id
+        FROM learners_profiles
+        WHERE lifecycle_status = 'active'
+          AND (p_institution_id IS NULL OR institution_id = p_institution_id)
+          AND (p_degree_id      IS NULL OR degree_id      = p_degree_id)
+          AND (p_department_id  IS NULL OR department_id  = p_department_id)
+          AND (p_program_id     IS NULL OR program_id     = p_program_id)
+          AND (p_semester_id    IS NULL OR semester_id    = p_semester_id)
+    ),
+    participated AS (
+        SELECT DISTINCT etm.learner_id
+        FROM event_team_members etm
+        JOIN event_registrations er ON er.id = etm.registration_id
+        WHERE er.event_id  = p_event_id
+          AND etm.learner_id IS NOT NULL
+          AND etm.status = 'accepted'
+          AND etm.learner_id IN (SELECT id FROM eligible_learners)
+    )
+    SELECT jsonb_build_object(
+        'total_learners',   (SELECT COUNT(*) FROM eligible_learners),
+        'participated',     (SELECT COUNT(*) FROM participated),
+        'not_participated', (SELECT COUNT(*) FROM eligible_learners) - (SELECT COUNT(*) FROM participated)
+    );
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_not_participated_learners
+-- Added: 2026-03-08
+-- Updated: 2026-03-09 - Added section_id, section_name, class_incharge_names,
+--                       class_incharge_count to show staff class incharge per student
+-- Returns paginated list of active learners who have NOT participated
+-- (i.e. not accepted into any team) for the given event.
+-- Mirrors the CTEs in get_learner_participation_stats but returns rows.
+-- Supports optional class hierarchy filters and text search.
+-- SECURITY DEFINER: bypasses RLS so admin can read all institution learners.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_not_participated_learners(
+    p_event_id        UUID,
+    p_institution_id  UUID    DEFAULT NULL,
+    p_degree_id       UUID    DEFAULT NULL,
+    p_department_id   UUID    DEFAULT NULL,
+    p_program_id      UUID    DEFAULT NULL,
+    p_semester_id     UUID    DEFAULT NULL,
+    p_search          TEXT    DEFAULT NULL,
+    p_limit           INT     DEFAULT 50,
+    p_offset          INT     DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    WITH eligible_learners AS (
+        SELECT
+            lp.id,
+            lp.first_name,
+            lp.last_name,
+            lp.roll_number,
+            lp.college_email,
+            lp.student_email,
+            lp.institution_id,
+            lp.degree_id,
+            lp.department_id,
+            lp.program_id,
+            lp.semester_id,
+            lp.section_id,
+            i.name                   AS institution_name,
+            deg.degree_name,
+            dept.department_name,
+            prog.program_name,
+            sem.semester_name,
+            sec.section_name,
+            (
+                SELECT STRING_AGG(st.first_name || ' ' || st.last_name, ', ' ORDER BY st.first_name)
+                FROM   class_incharges ci
+                JOIN   staff st ON st.id = ci.staff_id
+                WHERE  ci.section_id = lp.section_id
+                  AND  ci.is_active  = true
+            ) AS class_incharge_names,
+            (
+                SELECT COUNT(*)::int
+                FROM   class_incharges ci
+                WHERE  ci.section_id = lp.section_id
+                  AND  ci.is_active  = true
+            ) AS class_incharge_count
+        FROM   learners_profiles lp
+        LEFT JOIN institutions  i    ON i.id    = lp.institution_id
+        LEFT JOIN degrees       deg  ON deg.id  = lp.degree_id
+        LEFT JOIN departments   dept ON dept.id = lp.department_id
+        LEFT JOIN programs      prog ON prog.id = lp.program_id
+        LEFT JOIN semesters     sem  ON sem.id  = lp.semester_id
+        LEFT JOIN sections      sec  ON sec.id  = lp.section_id
+        WHERE  lp.lifecycle_status = 'active'
+          AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+          AND (p_degree_id      IS NULL OR lp.degree_id      = p_degree_id)
+          AND (p_department_id  IS NULL OR lp.department_id  = p_department_id)
+          AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
+          AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
+    ),
+    participated AS (
+        SELECT DISTINCT etm.learner_id
+        FROM   event_team_members etm
+        JOIN   event_registrations er ON er.id = etm.registration_id
+        WHERE  er.event_id      = p_event_id
+          AND  etm.learner_id   IS NOT NULL
+          AND  etm.status       = 'accepted'
+          AND  etm.learner_id   IN (SELECT id FROM eligible_learners)
+    ),
+    not_participated AS (
+        SELECT el.*
+        FROM   eligible_learners el
+        WHERE  el.id NOT IN (SELECT learner_id FROM participated)
+          AND  (
+                p_search IS NULL
+                OR el.first_name   ILIKE '%' || p_search || '%'
+                OR el.last_name    ILIKE '%' || p_search || '%'
+                OR (el.first_name || ' ' || el.last_name) ILIKE '%' || p_search || '%'
+                OR el.roll_number  ILIKE '%' || p_search || '%'
+                OR el.college_email ILIKE '%' || p_search || '%'
+               )
+    )
+    SELECT jsonb_build_object(
+        'total', (SELECT COUNT(*) FROM not_participated),
+        'data',  COALESCE(
+            (
+                SELECT jsonb_agg(row_to_json(np))
+                FROM (
+                    SELECT *
+                    FROM   not_participated
+                    ORDER  BY institution_name, semester_name, last_name, first_name
+                    LIMIT  p_limit
+                    OFFSET p_offset
+                ) np
+            ),
+            '[]'::jsonb
+        )
+    );
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_not_participated_by_institution
+-- Added: 2026-03-08
+-- Returns institution-wise breakdown of not-participated learner counts
+-- for a given event. Applies the same eligibility + participation logic
+-- as get_not_participated_learners. No pagination — always returns all rows.
+-- SECURITY DEFINER: bypasses RLS so admin can count across institutions.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_not_participated_by_institution(
+    p_event_id        UUID,
+    p_institution_id  UUID DEFAULT NULL,
+    p_degree_id       UUID DEFAULT NULL,
+    p_department_id   UUID DEFAULT NULL,
+    p_program_id      UUID DEFAULT NULL,
+    p_semester_id     UUID DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    WITH eligible_learners AS (
+        SELECT lp.id, lp.institution_id, i.name AS institution_name
+        FROM   learners_profiles lp
+        LEFT JOIN institutions i ON i.id = lp.institution_id
+        WHERE  lp.lifecycle_status = 'active'
+          AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+          AND (p_degree_id      IS NULL OR lp.degree_id      = p_degree_id)
+          AND (p_department_id  IS NULL OR lp.department_id  = p_department_id)
+          AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
+          AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
+    ),
+    participated AS (
+        SELECT DISTINCT etm.learner_id
+        FROM   event_team_members etm
+        JOIN   event_registrations er ON er.id = etm.registration_id
+        WHERE  er.event_id    = p_event_id
+          AND  etm.learner_id IS NOT NULL
+          AND  etm.status     = 'accepted'
+          AND  etm.learner_id IN (SELECT id FROM eligible_learners)
+    ),
+    not_participated AS (
+        SELECT el.institution_id, el.institution_name
+        FROM   eligible_learners el
+        WHERE  el.id NOT IN (SELECT learner_id FROM participated)
+    ),
+    by_institution AS (
+        SELECT
+            institution_id,
+            institution_name,
+            COUNT(*) AS not_participated_count
+        FROM   not_participated
+        GROUP  BY institution_id, institution_name
+        ORDER  BY not_participated_count DESC
+    )
+    SELECT COALESCE(
+        jsonb_agg(row_to_json(bi)),
+        '[]'::jsonb
+    )
+    FROM by_institution bi;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: prevent_duplicate_event_member
+-- Added: 2026-03-07
+-- Updated: 2026-03-08 — SECURITY DEFINER so trigger can read event_registrations
+--   even when invoked by an invited member (student) who doesn't own the registration.
+--   Without this, RLS blocks the SELECT and raises 'Registration not found'.
+-- Trigger function: prevents the same learner_id from
+-- being accepted in more than one team per event.
+-- Called by: trg_prevent_duplicate_event_member (04_triggers.sql)
+-- =====================================================
+CREATE OR REPLACE FUNCTION prevent_duplicate_event_member()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_event_id UUID;
+  v_duplicate_count INT;
+BEGIN
+  IF NEW.status != 'accepted' OR NEW.learner_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT event_id INTO v_event_id
+  FROM event_registrations
+  WHERE id = NEW.registration_id;
+
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Registration not found for id %', NEW.registration_id;
+  END IF;
+
+  SELECT COUNT(*) INTO v_duplicate_count
+  FROM event_team_members etm
+  JOIN event_registrations er ON er.id = etm.registration_id
+  WHERE er.event_id = v_event_id
+    AND etm.learner_id = NEW.learner_id
+    AND etm.status = 'accepted'
+    AND etm.id != COALESCE(NEW.id, '00000000-0000-0000-0000-000000000000'::UUID);
+
+  IF v_duplicate_count > 0 THEN
+    RAISE EXCEPTION 'Learner is already accepted in another team for this event';
+  END IF;
+
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION sh_process_payment_split IS
-'Processes revenue split for a completed payment and creates earnings ledger entries.';
+-- ══════════════════════════════════════════════════════════════
+-- submit_role_card RPC (Added: 2026-03-08)
+-- Atomic insert of role card + peer tags in one transaction.
+-- SECURITY DEFINER: bypasses RLS but validates caller = p_profile_id.
+-- ══════════════════════════════════════════════════════════════
 
--- ============================================
--- Dashboard & Analytics Functions
--- ============================================
-
--- Get Solutions Hub dashboard summary
-CREATE OR REPLACE FUNCTION public.sh_get_dashboard_summary(
-    p_institution_id UUID DEFAULT NULL,
-    p_department_id UUID DEFAULT NULL
-)
-RETURNS JSONB AS $$
+CREATE OR REPLACE FUNCTION submit_role_card(
+  p_submission_id    UUID,
+  p_team_id          UUID,
+  p_profile_id       UUID,
+  p_learner_id       UUID,
+  p_self_roles       TEXT[],
+  p_proud_of         TEXT,
+  p_peer_tags        JSONB
+) RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
-    v_result JSONB;
+  v_role_card_id UUID;
+  v_peer        JSONB;
 BEGIN
-    SELECT jsonb_build_object(
-        'total_clients', (
-            SELECT COUNT(*) FROM sh_clients
-            WHERE is_active = true
-            AND (p_department_id IS NULL OR source_department_id = p_department_id)
-        ),
-        'active_solutions', (
-            SELECT COUNT(*) FROM sh_solutions
-            WHERE status = 'active'
-            AND (p_institution_id IS NULL OR institution_id = p_institution_id)
-            AND (p_department_id IS NULL OR lead_department_id = p_department_id)
-        ),
-        'solutions_by_type', (
-            SELECT jsonb_object_agg(solution_type, cnt)
-            FROM (
-                SELECT solution_type, COUNT(*) as cnt
-                FROM sh_solutions
-                WHERE status = 'active'
-                AND (p_institution_id IS NULL OR institution_id = p_institution_id)
-                AND (p_department_id IS NULL OR lead_department_id = p_department_id)
-                GROUP BY solution_type
-            ) t
-        ),
-        'total_revenue', (
-            SELECT COALESCE(SUM(amount), 0) FROM sh_payments
-            WHERE status = 'completed'
-            AND (p_institution_id IS NULL OR EXISTS (
-                SELECT 1 FROM sh_solutions s
-                WHERE s.id = sh_payments.solution_id
-                AND s.institution_id = p_institution_id
-            ))
-        ),
-        'pending_payments', (
-            SELECT COALESCE(SUM(amount), 0) FROM sh_payments
-            WHERE status = 'pending'
-        ),
-        'active_builders', (
-            SELECT COUNT(*) FROM sh_builders
-            WHERE is_active = true
-            AND (p_institution_id IS NULL OR institution_id = p_institution_id)
-            AND (p_department_id IS NULL OR department_id = p_department_id)
-        ),
-        'active_cohort_members', (
-            SELECT COUNT(*) FROM sh_cohort_members
-            WHERE is_active = true
-            AND (p_institution_id IS NULL OR institution_id = p_institution_id)
-            AND (p_department_id IS NULL OR department_id = p_department_id)
-        ),
-        'active_production_learners', (
-            SELECT COUNT(*) FROM sh_production_learners
-            WHERE is_active = true
-            AND (p_institution_id IS NULL OR institution_id = p_institution_id)
-            AND (p_department_id IS NULL OR department_id = p_department_id)
-        ),
-        'phases_by_status', (
-            SELECT jsonb_object_agg(status, cnt)
-            FROM (
-                SELECT status, COUNT(*) as cnt
-                FROM sh_solution_phases sp
-                INNER JOIN sh_solutions s ON s.id = sp.solution_id
-                WHERE s.status = 'active'
-                AND (p_institution_id IS NULL OR s.institution_id = p_institution_id)
-                AND (p_department_id IS NULL OR s.lead_department_id = p_department_id)
-                GROUP BY status
-            ) t
-        )
-    ) INTO v_result;
+  IF auth.uid() IS DISTINCT FROM p_profile_id THEN
+    RAISE EXCEPTION 'Unauthorized: caller does not match profile_id';
+  END IF;
 
-    RETURN v_result;
+  IF array_length(p_self_roles, 1) IS NULL
+     OR array_length(p_self_roles, 1) < 1
+     OR array_length(p_self_roles, 1) > 2 THEN
+    RAISE EXCEPTION 'Must select 1–2 roles';
+  END IF;
+
+  IF length(trim(p_proud_of)) < 10 OR length(trim(p_proud_of)) > 150 THEN
+    RAISE EXCEPTION 'proud_of must be 10–150 characters';
+  END IF;
+
+  INSERT INTO appathon_role_cards
+    (submission_id, team_id, profile_id, learner_id, self_roles, proud_of)
+  VALUES
+    (p_submission_id, p_team_id, p_profile_id, p_learner_id, p_self_roles, trim(p_proud_of))
+  RETURNING id INTO v_role_card_id;
+
+  FOR v_peer IN SELECT * FROM jsonb_array_elements(p_peer_tags)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM event_team_members
+      WHERE registration_id = p_team_id
+        AND profile_id = (v_peer->>'tagged_profile_id')::UUID
+        AND status = 'accepted'
+    ) THEN
+      RAISE EXCEPTION 'tagged_profile_id % is not an accepted member of this team',
+        v_peer->>'tagged_profile_id';
+    END IF;
+
+    INSERT INTO appathon_peer_tags
+      (role_card_id, tagger_profile_id, tagged_profile_id, tagged_role)
+    VALUES (
+      v_role_card_id,
+      p_profile_id,
+      (v_peer->>'tagged_profile_id')::UUID,
+      v_peer->>'tagged_role'
+    );
+  END LOOP;
+
+  RETURN v_role_card_id;
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER;
+$$;
 
-COMMENT ON FUNCTION sh_get_dashboard_summary IS
-'Returns Solutions Hub dashboard summary statistics filtered by institution or department.';
-
--- Get builder earnings summary
-CREATE OR REPLACE FUNCTION public.sh_get_builder_earnings_summary(
-    p_builder_id UUID,
-    p_start_date DATE DEFAULT NULL,
-    p_end_date DATE DEFAULT NULL
-)
-RETURNS JSONB AS $$
-DECLARE
-    v_result JSONB;
-BEGIN
-    SELECT jsonb_build_object(
-        'total_earnings', (
-            SELECT COALESCE(SUM(amount), 0)
-            FROM sh_earnings_ledger
-            WHERE builder_id = p_builder_id
-            AND status IN ('processed', 'paid')
-            AND (p_start_date IS NULL OR created_at >= p_start_date)
-            AND (p_end_date IS NULL OR created_at <= p_end_date)
-        ),
-        'pending_earnings', (
-            SELECT COALESCE(SUM(amount), 0)
-            FROM sh_earnings_ledger
-            WHERE builder_id = p_builder_id
-            AND status = 'pending'
-        ),
-        'projects_completed', (
-            SELECT COUNT(*)
-            FROM sh_builder_assignments
-            WHERE builder_id = p_builder_id
-            AND status = 'completed'
-            AND (p_start_date IS NULL OR completed_at >= p_start_date)
-            AND (p_end_date IS NULL OR completed_at <= p_end_date)
-        ),
-        'active_assignments', (
-            SELECT COUNT(*)
-            FROM sh_builder_assignments
-            WHERE builder_id = p_builder_id
-            AND status = 'active'
-        ),
-        'monthly_earnings', (
-            SELECT jsonb_agg(jsonb_build_object(
-                'month', month,
-                'amount', amount
-            ) ORDER BY month DESC)
-            FROM (
-                SELECT
-                    DATE_TRUNC('month', created_at)::date as month,
-                    SUM(amount) as amount
-                FROM sh_earnings_ledger
-                WHERE builder_id = p_builder_id
-                AND status IN ('processed', 'paid')
-                GROUP BY DATE_TRUNC('month', created_at)
-                LIMIT 12
-            ) t
-        )
-    ) INTO v_result;
-
-    RETURN v_result;
-END;
-$$ LANGUAGE plpgsql SECURITY INVOKER;
-
-COMMENT ON FUNCTION sh_get_builder_earnings_summary IS
-'Returns earnings summary for a specific builder with optional date range filter.';
-
--- ============================================
--- Audit Logging Function
--- ============================================
-
--- Create audit log entry
-CREATE OR REPLACE FUNCTION public.sh_create_audit_log(
-    p_action TEXT,
-    p_entity_type TEXT,
-    p_entity_id UUID DEFAULT NULL,
-    p_entity_code TEXT DEFAULT NULL,
-    p_old_values JSONB DEFAULT NULL,
-    p_new_values JSONB DEFAULT NULL,
-    p_changed_fields TEXT[] DEFAULT NULL,
-    p_details JSONB DEFAULT NULL
-)
-RETURNS UUID AS $$
-DECLARE
-    v_user_id UUID;
-    v_user_email TEXT;
-    v_user_role TEXT;
-    v_log_id UUID;
-BEGIN
-    -- Get current user info
-    SELECT id, email, role INTO v_user_id, v_user_email, v_user_role
-    FROM profiles
-    WHERE id = auth.uid();
-
-    INSERT INTO sh_audit_logs (
-        user_id,
-        user_email,
-        user_role,
-        action,
-        entity_type,
-        entity_id,
-        entity_code,
-        old_values,
-        new_values,
-        changed_fields,
-        details
-    ) VALUES (
-        v_user_id,
-        v_user_email,
-        v_user_role,
-        p_action,
-        p_entity_type,
-        p_entity_id,
-        p_entity_code,
-        p_old_values,
-        p_new_values,
-        p_changed_fields,
-        p_details
-    ) RETURNING id INTO v_log_id;
-
-    RETURN v_log_id;
-END;
-$$ LANGUAGE plpgsql SECURITY INVOKER;
-
-COMMENT ON FUNCTION sh_create_audit_log IS
-'Creates an audit log entry for Solutions Hub actions.';
-
--- ================================================================================
--- End of Solutions Hub Functions
--- ================================================================================
+GRANT EXECUTE ON FUNCTION submit_role_card TO authenticated;

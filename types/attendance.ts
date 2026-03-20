@@ -23,44 +23,13 @@ export interface AttendanceStudent {
   status: string;
 }
 
-// Predefined learning behaviors for attendance engagement tracking
-// Updated: 2026-02-07 - P1.5.4 Attendance Learning Engagement
-export type LearningBehavior =
-  | 'active_participation'
-  | 'asking_questions'
-  | 'peer_collaboration'
-  | 'problem_solving'
-  | 'critical_thinking'
-  | 'hands_on_practice'
-  | 'presentation'
-  | 'independent_work'
-  | 'mentoring_peers'
-  | 'creative_application';
-
-export const LEARNING_BEHAVIOR_LABELS: Record<LearningBehavior, string> = {
-  active_participation: 'Active Participation',
-  asking_questions: 'Asking Questions',
-  peer_collaboration: 'Peer Collaboration',
-  problem_solving: 'Problem Solving',
-  critical_thinking: 'Critical Thinking',
-  hands_on_practice: 'Hands-on Practice',
-  presentation: 'Presentation',
-  independent_work: 'Independent Work',
-  mentoring_peers: 'Mentoring Peers',
-  creative_application: 'Creative Application',
-};
-
 // New consolidated attendance types for JSONB structure
-// Updated: 2026-02-07 - P1.5.4 Added engagement_score, learning_behaviors, notes
+// Updated: 2025-10-08 - Added section_id for historical accuracy
 export interface ConsolidatedAttendanceStudent {
   student_id: string;
   section_id: string; // Stores section at time of marking - preserves history
   status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
   marked_at: string;
-  // P1.5.4 - Learning Engagement fields
-  engagement_score?: number; // 1-5 scale. Required for practical/lab, optional for lectures
-  learning_behaviors?: LearningBehavior[]; // Selected from predefined list
-  engagement_notes?: string; // Free-text notes on student engagement
 }
 
 export interface ConsolidatedAttendancePeriod {
@@ -71,9 +40,6 @@ export interface ConsolidatedAttendancePeriod {
   course_id: string;
   course_name: string;
   students: ConsolidatedAttendanceStudent[];
-  // P1.5.4 - Period-level engagement metadata
-  engagement_required?: boolean; // true for practical/lab periods
-  average_engagement_score?: number; // Auto-computed average of student scores
   // Faculty information - can be single or multiple
   assigned_faculty?: {
     faculty_id: string;
@@ -340,6 +306,10 @@ export interface AttendancePeriodOption {
   institution_id?: string;
   department_id?: string;
   semester_id?: string;
+
+  // Updated: 2026-02-06 - Added for dual-mode period system (practical periods support)
+  period_mode?: 'standard' | 'practical';
+  practical_config?: any; // PracticalConfig from academics.ts - available courses/batches for runtime selection
 }
 
 // =====================================================
@@ -551,7 +521,7 @@ export function calculateAttendanceStatistics(
 
   if (stats.total_periods > 0) {
     stats.attendance_percentage =
-      stats.total_periods > 0 ? (stats.total_present_including_onduty / stats.total_periods) * 100 : 0;
+      (stats.total_present_including_onduty / stats.total_periods) * 100;
   }
 
   return stats;
@@ -562,4 +532,103 @@ export function calculateAttendanceStatistics(
  */
 export function countsAsPresent(status: AttendanceStatus): boolean {
   return status === 'Present' || status === 'OnDuty';
+}
+
+// ============================================================
+// Facilitator Attendance Report Types
+// Added: 2026-03-06
+// ============================================================
+
+export interface FacilitatorTrendPoint {
+  week: string; // ISO date string (week start)
+  count: number;
+}
+
+export interface FacilitatorDailyPoint {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
+export interface FacilitatorAttendanceStat {
+  staffId: string;
+  firstName: string;
+  lastName: string;
+  designation: string;
+  departmentName: string;
+  departmentId: string;
+  periodsMarked: number;
+  periodsAssigned: number;
+  periodsPending: number;
+  markingRate: number;
+  lastMarkedAt: string | null;
+  trendData: FacilitatorTrendPoint[];
+  dailyData: FacilitatorDailyPoint[];
+}
+
+export interface FacilitatorReportSummary {
+  totalFacilitators: number;
+  totalPeriodsMarked: number;
+  totalPeriodsAssigned: number;
+  totalPeriodsPending: number;
+  avgPeriodsPerFacilitator: number;
+  overallMarkingRate: number;
+}
+
+export interface FacilitatorDepartmentBreakdown {
+  departmentId: string;
+  departmentName: string;
+  facilitatorCount: number;
+  totalMarked: number;
+  totalAssigned: number;
+  totalPending: number;
+  avgRate: number;
+}
+
+export interface FacilitatorReportFilters {
+  dateFrom: string; // YYYY-MM-DD
+  dateTo: string;   // YYYY-MM-DD
+  departmentId?: string;
+  facilitatorId?: string;
+}
+
+export interface FacilitatorReportData {
+  summary: FacilitatorReportSummary;
+  facilitators: FacilitatorAttendanceStat[];
+  departmentBreakdown: FacilitatorDepartmentBreakdown[];
+}
+
+// Raw RPC response shape (snake_case) — mapped in service layer
+export interface FacilitatorReportRaw {
+  summary: {
+    total_facilitators: number;
+    total_periods_marked: number;
+    total_periods_assigned: number;
+    total_periods_pending: number;
+    avg_periods_per_facilitator: number;
+    overall_marking_rate: number;
+  };
+  facilitators: Array<{
+    staff_id: string;
+    first_name: string;
+    last_name: string;
+    designation: string;
+    department_name: string;
+    department_id: string;
+    periods_marked: number;
+    periods_assigned: number;
+    periods_pending: number;
+    marking_rate: number;
+    last_marked_at: string | null;
+    trend_data: Array<{ week: string; count: number }>;
+    daily_data: Array<{ date: string; count: number }>;
+  }>;
+  department_breakdown: Array<{
+    department_id: string;
+    department_name: string;
+    facilitator_count: number;
+    total_marked: number;
+    total_assigned: number;
+    total_pending: number;
+    avg_rate: number;
+  }>;
 }

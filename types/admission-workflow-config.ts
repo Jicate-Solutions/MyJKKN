@@ -61,19 +61,6 @@ export interface SLAConfig {
   token_payment_days?: number;
 }
 
-export interface InstitutionSeatConfig {
-  id: string;
-  institution_id: string;
-  academic_year: string;
-  program_name: string | null;
-  total_seats: number;
-  government_quota_seats: number;
-  management_quota_seats: number;
-  nri_quota_seats: number;
-  created_at: string;
-  updated_at: string;
-}
-
 // Group dashboard types
 export interface InstitutionAdmissionSummary {
   institution_id: string;
@@ -117,9 +104,6 @@ export const ALL_ADMISSION_STAGES: { id: string; label: string }[] = [
   { id: 'application_submitted', label: 'Application Submitted' },
   { id: 'documents_pending', label: 'Documents Pending' },
   { id: 'documents_verified', label: 'Documents Verified' },
-  { id: 'interview_scheduled', label: 'Interview Scheduled' },
-  { id: 'interview_completed', label: 'Interview Completed' },
-  { id: 'merit_list', label: 'Merit List' },
   { id: 'offer_sent', label: 'Offer Sent' },
   { id: 'offer_accepted', label: 'Offer Accepted' },
   { id: 'token_paid', label: 'Token Paid' },

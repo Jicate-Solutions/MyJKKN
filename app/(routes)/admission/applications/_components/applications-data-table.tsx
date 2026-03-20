@@ -1,12 +1,12 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns, APPLICATION_STATUSES } from './columns';
+import { columns, APPLICATION_STAGES } from './columns';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ApplicationService } from '@/lib/services/admission/application-service';
-import type { AdmissionApplication } from '@/types/admission';
+import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useApplicationMutations } from '@/hooks/admission';
@@ -37,14 +37,14 @@ export function ApplicationsDataTable() {
   const { profile } = useAuth();
   const { updateApplicationStatus } = useApplicationMutations();
   const [showBulkDialog, setShowBulkDialog] = useState(false);
-  const [selectedForAction, setSelectedForAction] = useState<AdmissionApplication[]>([]);
+  const [selectedForAction, setSelectedForAction] = useState<AdmissionLead[]>([]);
   const [bulkResetFn, setBulkResetFn] = useState<(() => void) | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
 
-  // Status filter from URL
-  const [statusFilter, setStatusFilter] = useState<string>(
-    searchParams.get('status') || '_all'
+  // Stage filter from URL
+  const [stageFilter, setStageFilter] = useState<string>(
+    searchParams.get('stage') || '_all'
   );
 
   const institutionId = profile?.institution_id;
@@ -69,8 +69,8 @@ export function ApplicationsDataTable() {
         date_from: params.from_date || undefined,
         date_to: params.to_date || undefined,
         status:
-          statusFilter && statusFilter !== '_all'
-            ? statusFilter
+          stageFilter && stageFilter !== '_all'
+            ? stageFilter
             : undefined
       });
 
@@ -91,7 +91,7 @@ export function ApplicationsDataTable() {
   };
 
   const handleBulkWithdraw = async (
-    selectedRows: AdmissionApplication[],
+    selectedRows: AdmissionLead[],
     resetSelection: () => void
   ) => {
     if (selectedRows.length === 0) return;
@@ -106,8 +106,8 @@ export function ApplicationsDataTable() {
     setIsProcessing(true);
     try {
       const results = await Promise.allSettled(
-        selectedForAction.map((app) =>
-          ApplicationService.updateStatus(app.id, 'withdrawn')
+        selectedForAction.map((lead) =>
+          ApplicationService.updateStatus(lead.id, 'withdrew' as any)
         )
       );
 
@@ -146,20 +146,20 @@ export function ApplicationsDataTable() {
   }) => (
     <div className="flex items-center gap-2 flex-wrap">
       <Select
-        value={statusFilter}
+        value={stageFilter}
         onValueChange={(value) => {
-          setStatusFilter(value);
+          setStageFilter(value);
           setRefetchKey((prev) => prev + 1);
         }}
       >
-        <SelectTrigger className="w-[180px] h-8">
-          <SelectValue placeholder="All Statuses" />
+        <SelectTrigger className="w-[200px] h-8">
+          <SelectValue placeholder="All Stages" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="_all">All Statuses</SelectItem>
-          {APPLICATION_STATUSES.map((status) => (
-            <SelectItem key={status.value} value={status.value}>
-              {status.label}
+          <SelectItem value="_all">All Stages</SelectItem>
+          {APPLICATION_STAGES.map((stage) => (
+            <SelectItem key={stage.value} value={stage.value}>
+              {stage.label}
             </SelectItem>
           ))}
         </SelectContent>
@@ -169,7 +169,7 @@ export function ApplicationsDataTable() {
         <Button
           onClick={() =>
             handleBulkWithdraw(
-              props.selectedRows as AdmissionApplication[],
+              props.selectedRows as AdmissionLead[],
               props.resetSelection
             )
           }
@@ -226,10 +226,10 @@ export function ApplicationsDataTable() {
                 withdraw:
               </div>
               <div className="space-y-1 max-h-32 overflow-y-auto">
-                {selectedForAction.map((app) => (
-                  <div key={app.id} className="text-sm">
-                    &bull; {app.application_number || app.id.slice(0, 8)} -{' '}
-                    {app.full_name || (app as any).form_data?.full_name || 'Unknown'}
+                {selectedForAction.map((lead) => (
+                  <div key={lead.id} className="text-sm">
+                    &bull; {lead.application_number || lead.id.slice(0, 8)} -{' '}
+                    {lead.full_name || 'Unknown'}
                   </div>
                 ))}
               </div>

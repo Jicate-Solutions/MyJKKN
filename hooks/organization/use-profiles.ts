@@ -3,7 +3,6 @@
 import { useQuery, UseQueryResult } from '@tanstack/react-query';
 import { useMemo, useCallback } from 'react';
 import { useAuth } from '../use-auth';
-import { usePermissions } from '../use-permissions';
 import {
   ProfileService,
   ProfileFilters,
@@ -48,13 +47,12 @@ export function useProfilesForSelection(
   filters: ProfileFilters = {}
 ): UseQueryResult<ProfileForSelection[], Error> {
   const { profile, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin } = usePermissions();
 
   // Create stable query key
   const queryKey = useMemo(() => {
     return [
       'profiles-selection',
-      filters.institution_id || 'all',
+      filters.institution_id || '',
       filters.department_id || '',
       filters.roles?.sort().join(',') || '',
       filters.is_active,
@@ -82,8 +80,8 @@ export function useProfilesForSelection(
     queryFn,
     // Only run query when:
     // 1. User is authenticated
-    // 2. institution_id is provided (required for multi-tenant) OR super_admin
-    enabled: !authLoading && !!profile && (isSuperAdmin || !!filters.institution_id),
+    // 2. institution_id is provided (required for multi-tenant)
+    enabled: !authLoading && !!profile && !!filters.institution_id,
     staleTime: 60000, // 1 minute - profiles don't change frequently
     gcTime: 600000 // 10 minutes
   });

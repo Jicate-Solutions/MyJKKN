@@ -108,7 +108,7 @@ export class DailyBriefingService {
         institution_id: institutionId,
         user_id: userId,
         role,
-        date: briefingDate,
+        briefing_date: briefingDate,
         content,
         is_read: false
       })
@@ -133,7 +133,7 @@ export class DailyBriefingService {
       .from('admission_daily_briefings')
       .select('*')
       .eq('user_id', userId)
-      .eq('date', briefingDate)
+      .eq('briefing_date', briefingDate)
       .single();
 
     if (error) {
@@ -155,7 +155,7 @@ export class DailyBriefingService {
       .from('admission_daily_briefings')
       .select('*')
       .eq('user_id', userId)
-      .order('date', { ascending: false })
+      .order('briefing_date', { ascending: false })
       .limit(1)
       .single();
 
@@ -179,7 +179,7 @@ export class DailyBriefingService {
       .select('*')
       .eq('user_id', userId)
       .eq('is_read', false)
-      .order('date', { ascending: false });
+      .order('briefing_date', { ascending: false });
 
     if (error) {
       console.error('[DailyBriefingService] Error fetching unread briefings:', error);
@@ -200,7 +200,7 @@ export class DailyBriefingService {
       .from('admission_daily_briefings')
       .select('*')
       .eq('user_id', userId)
-      .order('date', { ascending: false })
+      .order('briefing_date', { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -538,16 +538,17 @@ export class DailyBriefingService {
     const startOfYesterday = `${yesterdayStr}T00:00:00`;
     const endOfYesterday = `${yesterdayStr}T23:59:59`;
 
-    // Get activities from yesterday
+    // Get activities from yesterday — filter by institution through admission_leads join
+    // (admission_lead_activities has no institution_id column; it relates via lead_id)
     let activityQuery = (this.supabase as any)
       .from('admission_lead_activities')
-      .select('id, activity_type')
-      .eq('institution_id', institutionId)
+      .select('id, activity_type, lead:admission_leads!inner(institution_id)')
+      .eq('lead.institution_id', institutionId)
       .gte('created_at', startOfYesterday)
       .lte('created_at', endOfYesterday);
 
     if (role === 'counselor') {
-      activityQuery = activityQuery.eq('performed_by', userId);
+      activityQuery = activityQuery.eq('created_by', userId);
     }
 
     const { data: activities, error: activitiesError } = await activityQuery;

@@ -1,78 +1,55 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/types/database.types';
+import type { Database } from '@/types/supabase';
 
 // Define a type alias for the browser client
 export type TypedSupabaseClient = SupabaseClient<Database>;
 
-// Browser client singleton instance with proper database typing
-// This ensures only ONE auth state listener is active across the entire app
-let browserInstance: TypedSupabaseClient | null = null;
+// Client-side singleton instance with proper database typing
+let clientInstance: SupabaseClient<Database>;
 
 // Admin singleton instance with proper database typing
 let adminInstance: SupabaseClient<Database>;
 
 export function createClientSupabaseClient(): TypedSupabaseClient {
-  // Return existing singleton if available
-  // This prevents multiple auth state subscriptions and memory leaks
-  if (browserInstance) {
-    return browserInstance;
+  if (!clientInstance) {
+    // Type assertion needed: createBrowserClient returns a compatible but slightly different type
+    clientInstance = createBrowserClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          // Increase session refresh threshold to prevent frequent auth checks
+          flowType: 'pkce'
+        },
+        db: {
+          schema: 'public'
+        },
+        global: {
+          headers: {
+            'Prefer': 'count=exact'
+          }
+        }
+      }
+    ) as unknown as SupabaseClient<Database>;
   }
-
-  // Validate environment variables with clear error messages
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error(
-      'Missing Supabase environment variables. ' +
-      'Ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set.'
-    );
-  }
-
-  // Create singleton instance
-  // Let @supabase/ssr v0.6.1 handle cookies internally with its built-in
-  // browser cookie adapter. No custom cookie handlers needed.
-  // The createBrowserClient<Database> return type is compatible with
-  // SupabaseClient<Database> - both implement the same interface.
-  browserInstance = createBrowserClient<Database>(
-    supabaseUrl,
-    supabaseKey
-  ) as unknown as TypedSupabaseClient;
-
-  return browserInstance;
+  return clientInstance as TypedSupabaseClient;
 }
 
 export function createAdminClient() {
   if (!adminInstance) {
-    // SECURITY FIX: More reliable runtime detection
-    // typeof window check can be bypassed by webpack polyfills/plugins
-    // Check for Node.js-specific properties instead
-    const isServerRuntime = typeof process.env.SUPABASE_SERVICE_ROLE_KEY !== 'undefined';
-
-    // Additional safety: verify we're in Node.js environment (not browser/edge)
-    const isNodeEnvironment = typeof process !== 'undefined' &&
-                              process.versions != null &&
-                              process.versions.node != null;
-
-    // Only use service role key if:
-    // 1. Service role key exists (server environment)
-    // 2. We're in Node.js runtime (not edge/browser)
-    // 3. Window is NOT defined (extra safety check)
-    const canUseServiceKey = isServerRuntime &&
-                             isNodeEnvironment &&
-                             typeof window === 'undefined';
-
-    const authKey = canUseServiceKey
-      ? process.env.SUPABASE_SERVICE_ROLE_KEY!
-      : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    // For client-side components, fall back to anon key
+    const isClient = typeof window !== 'undefined';
+    const authKey = isClient
+      ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      : process.env.SUPABASE_SERVICE_ROLE_KEY ||
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !authKey) {
       throw new Error('Missing Supabase credentials');
-    }
-
-    // Log which key is being used (redacted) for debugging
-    if (process.env.NODE_ENV === 'development') {
     }
 
     adminInstance = createClient<Database>(

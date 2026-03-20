@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, Save, Percent, AlertCircle, Award } from 'lucide-react';
+import { ArrowLeft, Save, Percent, AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { usePermissions } from '@/hooks/use-permissions';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { BeatLoader } from 'react-spinners';
@@ -28,9 +27,7 @@ import {
 import type {
   DiscountCategory,
   DiscountType,
-  UpdateDiscountDto,
-  OutcomeCriteria,
-  OutcomeCriteriaType
+  UpdateDiscountDto
 } from '@/types/billing-schedule';
 
 export default function EditDiscountPage() {
@@ -40,13 +37,6 @@ export default function EditDiscountPage() {
 
   const [formData, setFormData] = useState<Partial<UpdateDiscountDto>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isOutcomeBased, setIsOutcomeBased] = useState(false);
-  const [outcomeCriteria, setOutcomeCriteria] = useState<Partial<OutcomeCriteria>>({
-    type: 'competency_achievement',
-    minimum_level: 'intermediate',
-    min_score: 0,
-    evaluation_period_days: 90
-  });
 
   const {
     canAccess,
@@ -71,13 +61,8 @@ export default function EditDiscountPage() {
         effective_date: discount.effective_date,
         expiry_date: discount.expiry_date
       });
-      // Initialize outcome-based fields
-      setIsOutcomeBased(discount.is_outcome_based || false);
-      if (discount.outcome_criteria) {
-        setOutcomeCriteria(discount.outcome_criteria);
-      }
     }
-  }, [discount?.id, discount?.discount_category, discount?.discount_type, discount?.discount_value, discount?.discount_reason, discount?.effective_date, discount?.expiry_date, discount?.is_outcome_based, discount?.outcome_criteria]);
+  }, [discount]);
 
   // Show loading state while permissions are loading
   if (permissionsLoading || isLoading) {
@@ -167,11 +152,10 @@ export default function EditDiscountPage() {
   };
 
   const calculateDiscountAmount = () => {
-    const billAmount = discount?.bill?.total_amount || 0;
-    if (!billAmount || billAmount === 0 || !formData.discount_value) return 0;
+    if (!discount?.bill?.total_amount || !formData.discount_value) return 0;
 
     if (formData.discount_type === 'percentage') {
-      return (billAmount * formData.discount_value) / 100;
+      return (discount.bill.total_amount * formData.discount_value) / 100;
     } else {
       return formData.discount_value;
     }
@@ -213,10 +197,7 @@ export default function EditDiscountPage() {
 
       const updateData: UpdateDiscountDto = {
         ...formData,
-        discount_amount: discountAmount,
-        // Outcome-based discount fields
-        is_outcome_based: isOutcomeBased,
-        outcome_criteria: isOutcomeBased ? outcomeCriteria as OutcomeCriteria : undefined
+        discount_amount: discountAmount
       };
 
       await updateDiscountMutation.mutateAsync({
@@ -496,184 +477,6 @@ export default function EditDiscountPage() {
                   </div>
                 </div>
               )}
-
-              {/* Outcome-Based Discount Toggle */}
-              <div className='space-y-4'>
-                <div className='flex items-center justify-between p-4 border rounded-lg bg-muted/30'>
-                  <div className='space-y-0.5'>
-                    <Label htmlFor='outcome-toggle' className='text-base font-medium flex items-center gap-2'>
-                      <Award className='h-4 w-4 text-amber-600' />
-                      Outcome-Based Discount
-                    </Label>
-                    <p className='text-sm text-muted-foreground'>
-                      Link this discount to student learning outcomes or competency achievements
-                    </p>
-                  </div>
-                  <Switch
-                    id='outcome-toggle'
-                    checked={isOutcomeBased}
-                    onCheckedChange={setIsOutcomeBased}
-                  />
-                </div>
-
-                {/* Outcome Criteria Fields (shown when toggle is on) */}
-                {isOutcomeBased && (
-                  <Card className='border-amber-200 bg-amber-50/50'>
-                    <CardHeader className='pb-3'>
-                      <CardTitle className='text-base flex items-center gap-2'>
-                        <Award className='h-4 w-4 text-amber-600' />
-                        Outcome Criteria
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-                        {/* Criteria Type */}
-                        <div className='space-y-2'>
-                          <Label htmlFor='outcome_type'>Achievement Type *</Label>
-                          <Select
-                            value={outcomeCriteria.type || 'competency_achievement'}
-                            onValueChange={(value) =>
-                              setOutcomeCriteria((prev) => ({
-                                ...prev,
-                                type: value as OutcomeCriteriaType
-                              }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder='Select achievement type' />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='competency_achievement'>Competency Achieved</SelectItem>
-                              <SelectItem value='attendance'>Attendance Target Met</SelectItem>
-                              <SelectItem value='cgpa'>CGPA Threshold Met</SelectItem>
-                              <SelectItem value='industry_readiness'>Industry Readiness Score</SelectItem>
-                              <SelectItem value='placement'>Placement Secured</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Min Proficiency Level */}
-                        <div className='space-y-2'>
-                          <Label htmlFor='minimum_level'>Min Proficiency Level</Label>
-                          <Select
-                            value={outcomeCriteria.minimum_level || 'intermediate'}
-                            onValueChange={(value) =>
-                              setOutcomeCriteria((prev) => ({
-                                ...prev,
-                                minimum_level: value as 'novice' | 'beginner' | 'intermediate' | 'advanced' | 'expert'
-                              }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder='Select proficiency level' />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='novice'>Novice</SelectItem>
-                              <SelectItem value='beginner'>Beginner</SelectItem>
-                              <SelectItem value='intermediate'>Intermediate</SelectItem>
-                              <SelectItem value='advanced'>Advanced</SelectItem>
-                              <SelectItem value='expert'>Expert</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Min Score (0-100) */}
-                        <div className='space-y-2'>
-                          <Label htmlFor='min_score'>Min Score (0-100)</Label>
-                          <Input
-                            id='min_score'
-                            type='number'
-                            step='1'
-                            min='0'
-                            max='100'
-                            placeholder='70'
-                            value={outcomeCriteria.min_score ?? ''}
-                            onChange={(e) =>
-                              setOutcomeCriteria((prev) => ({
-                                ...prev,
-                                min_score: parseInt(e.target.value) || 0
-                              }))
-                            }
-                          />
-                        </div>
-
-                        {/* Evaluation Period (Days) */}
-                        <div className='space-y-2'>
-                          <Label htmlFor='evaluation_period_days'>Evaluation Period (days)</Label>
-                          <Input
-                            id='evaluation_period_days'
-                            type='number'
-                            step='1'
-                            min='1'
-                            max='365'
-                            placeholder='90'
-                            value={outcomeCriteria.evaluation_period_days ?? ''}
-                            onChange={(e) =>
-                              setOutcomeCriteria((prev) => ({
-                                ...prev,
-                                evaluation_period_days: parseInt(e.target.value) || 90
-                              }))
-                            }
-                          />
-                          <p className='text-xs text-muted-foreground'>
-                            Number of days over which the outcome is evaluated
-                          </p>
-                        </div>
-
-                        {/* Industry Readiness Threshold */}
-                        {outcomeCriteria.type === 'industry_readiness' && (
-                          <div className='space-y-2'>
-                            <Label htmlFor='readiness_threshold'>Industry Readiness Threshold (0-100)</Label>
-                            <Input
-                              id='readiness_threshold'
-                              type='number'
-                              step='1'
-                              min='0'
-                              max='100'
-                              placeholder='70'
-                              value={outcomeCriteria.industry_readiness_threshold || ''}
-                              onChange={(e) =>
-                                setOutcomeCriteria((prev) => ({
-                                  ...prev,
-                                  industry_readiness_threshold: parseInt(e.target.value)
-                                }))
-                              }
-                            />
-                          </div>
-                        )}
-
-                        {/* Competency IDs (multi-select via text input) */}
-                        {(outcomeCriteria.type === 'competency_achievement') && (
-                          <div className='space-y-2 md:col-span-2'>
-                            <Label htmlFor='competency_ids'>
-                              Competency IDs (comma-separated)
-                            </Label>
-                            <Input
-                              id='competency_ids'
-                              type='text'
-                              placeholder='e.g., comp-001, comp-002'
-                              value={(outcomeCriteria.competency_ids || []).join(', ')}
-                              onChange={(e) => {
-                                const ids = e.target.value
-                                  .split(',')
-                                  .map((s) => s.trim())
-                                  .filter(Boolean);
-                                setOutcomeCriteria((prev) => ({
-                                  ...prev,
-                                  competency_ids: ids
-                                }));
-                              }}
-                            />
-                            <p className='text-xs text-muted-foreground'>
-                              Enter competency IDs from the competency catalog
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
 
               {/* Validation Warning */}
               {discountAmount > billAmount && (

@@ -225,6 +225,8 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    console.log('[template] Institution → Degrees mapping:', Array.from(degsByInst.entries()).slice(0, 3));
+
     // Map: Institution name → Academic Year names
     const acadYearsByInst = new Map<string, string[]>();
     academicYears?.forEach((ay: any) => {
@@ -240,6 +242,8 @@ export async function GET(request: NextRequest) {
         }
       }
     });
+
+    console.log('[template] Institution → Academic Years mapping:', Array.from(acadYearsByInst.entries()).slice(0, 3));
 
     // Map: Institution|Degree → Department names (composite key)
     const deptsByDeg = new Map<string, string[]>();
@@ -258,6 +262,8 @@ export async function GET(request: NextRequest) {
         }
       }
     });
+
+    console.log('[template] Institution|Degree → Departments mapping:', Array.from(deptsByDeg.entries()).slice(0, 3));
 
     // Map: Institution|Degree|Department → Program names (composite key)
     const progsByDept = new Map<string, string[]>();
@@ -430,12 +436,7 @@ export async function GET(request: NextRequest) {
       { header: 'Quota', key: 'quota', width: 18 },
       { header: 'Category', key: 'category', width: 15 },
 
-      // SECTION 11: Transport
-      { header: 'Bus Required', key: 'bus_required', width: 15 },
-      { header: 'Bus Route', key: 'bus_route', width: 20 },
-      { header: 'Bus Pickup Location', key: 'bus_pickup_location', width: 25 },
-
-      // SECTION 12: Reference
+      // SECTION 11: Reference
       { header: 'Reference Type', key: 'reference_type', width: 15 },
       { header: 'Reference Name', key: 'reference_name', width: 20 },
       { header: 'Reference Contact', key: 'reference_contact', width: 15 }
@@ -482,6 +483,16 @@ export async function GET(request: NextRequest) {
     const sampleDistrict = sampleDists.find(d => d === 'Namakkal') || sampleDists[0] || 'Namakkal';
     const sampleTaluks = taluksByDist.get(`${sampleState}|${sampleDistrict}`) || [];
     const sampleTaluk = sampleTaluks.find(t => t === 'Namakkal') || sampleTaluks[0] || 'Namakkal';
+
+    console.log('[template] Sample 6-Level Cascade Chain:', {
+      institution: sampleInst,
+      degree: sampleDeg,
+      department: sampleDept,
+      program: sampleProg,
+      semester: sampleSem,
+      section: sampleSect,
+      valid: !!(sampleDeg && sampleDept && sampleProg && sampleSem && sampleSect)
+    });
 
     worksheet.addRow({
       first_name: 'JOHN',
@@ -539,9 +550,6 @@ export async function GET(request: NextRequest) {
       counseling_applied: EXCEL_BOOLEAN[0],
       quota: EXCEL_QUOTA[0],
       category: 'General',
-      bus_required: EXCEL_BOOLEAN[0],
-      bus_route: 'Route 5',
-      bus_pickup_location: 'Central Bus Stand',
       reference_type: EXCEL_REFERENCE_TYPE[0], // Use first reference type from list
       reference_name: 'Dr. Kumar',
       reference_contact: '9999999999'
@@ -638,6 +646,28 @@ export async function GET(request: NextRequest) {
     const sec8End = sec8Start + distsWithTaluks.length - 1;
     const refStart = sec8End + 2;  // +1 for separator, +1 to start reference columns
 
+    console.log('[template] 6-Level Cascade + Academic Years + Address Section Boundaries:', {
+      'Section 1 (Inst→Deg)': `Cols 1-${sec1End}`,
+      'Section 2 (Inst|Deg→Dept)': `Cols ${sec2Start}-${sec2End}`,
+      'Section 3 (Inst|Deg|Dept→Prog)': `Cols ${sec3Start}-${sec3End}`,
+      'Section 4 (Inst|Deg|Dept|Prog→Sem)': `Cols ${sec4Start}-${sec4End}`,
+      'Section 5 (Inst|Deg|Dept|Prog|Sem→Sect)': `Cols ${sec5Start}-${sec5End}`,
+      'Section 6 (Inst→AcadYear)': `Cols ${sec6Start}-${sec6End}`,
+      'Section 7 (State→District)': `Cols ${sec7Start}-${sec7End}`,
+      'Section 8 (State|District→Taluk)': `Cols ${sec8Start}-${sec8End}`,
+      'Reference Columns': `Start at Col ${refStart}`,
+      'Counts': {
+        institutions: instsWithDegs.length,
+        degrees: degsWithDepts.length,
+        departments: deptsWithProgs.length,
+        programs: progsWithSems.length,
+        semesters: semsWithSects.length,
+        acadYears: instsWithAcadYears.length,
+        states: statesWithDists.length,
+        districts: distsWithTaluks.length
+      }
+    });
+
     // Build header row (6-level cascade + academic years + address cascading structure)
     const headerRow: string[] = [
       ...instsWithDegs,   // Section 1: Institution headers
@@ -681,6 +711,8 @@ export async function GET(request: NextRequest) {
       pattern: 'solid',
       fgColor: { argb: 'FFE5E7EB' }
     };
+
+    console.log('[template] Lists Sheet Header Row (first 12 cols):', headerRow.slice(0, 12));
 
     // Calculate max data rows needed (for 6-level cascade + academic years + address cascading)
     const maxDegPerInst = Math.max(...Array.from(degsByInst.values()).map(arr => arr.length), 1);
@@ -732,6 +764,7 @@ export async function GET(request: NextRequest) {
 
       // Debug first 3 rows of Section 1 data
       if (i < 3) {
+        console.log(`[template] Lists Row ${i + 2} Section 1 (Inst→Deg):`, rowData.slice(0, 9));
       }
 
       // Separator
@@ -1162,19 +1195,8 @@ export async function GET(request: NextRequest) {
         error: 'Please select from dropdown'
       };
 
-      // Column 57 (BE): Bus Required (Boolean)
+      // Column 57 (BE): Reference Type dropdown
       worksheet.getCell(row, 57).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [`Lists!$${getColLetter(booleanCol)}$2:$${getColLetter(booleanCol)}$${EXCEL_BOOLEAN.length + 1}`],
-        showErrorMessage: true,
-        errorStyle: 'warning',
-        errorTitle: 'Invalid Input',
-        error: `Please select: ${EXCEL_BOOLEAN.join(', ')}`
-      };
-
-      // Column 60 (BH): Reference Type dropdown
-      worksheet.getCell(row, 60).dataValidation = {
         type: 'list',
         allowBlank: true,
         formulae: [`Lists!$${getColLetter(referenceTypeCol)}$2:$${getColLetter(referenceTypeCol)}$${EXCEL_REFERENCE_TYPE.length + 1}`],

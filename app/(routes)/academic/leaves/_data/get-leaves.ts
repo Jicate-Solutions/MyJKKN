@@ -2,7 +2,15 @@
  * Server-side data fetching for Institution Leaves List
  */
 
-
+/**
+ * SERVER-SIDE DATA FETCHER — runs in React Server Components using server Supabase client.
+ * Client-side mirror: {@link LeaveService#getLeaves} in lib/services/academic/leave-service.ts
+ *
+ * Table: `institution_leaves` (NOT `leaves` — that table does not exist in this project).
+ *
+ * Do not replace with service call — server vs client Supabase boundary.
+ * Keep query shapes in sync when modifying either side.
+ */
 
 import { createClient } from '@/lib/supabase/server';
 

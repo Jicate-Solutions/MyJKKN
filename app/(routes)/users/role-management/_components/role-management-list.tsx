@@ -88,6 +88,7 @@ export function RoleManagementList({
 
   // Log roles whenever the prop changes
   useEffect(() => {
+    console.log('RoleManagementList received roles:', roles);
   }, [roles]);
 
   const handleDeleteClick = (role: CustomRole) => {

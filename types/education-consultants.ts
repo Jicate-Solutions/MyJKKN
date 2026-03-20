@@ -1,5 +1,5 @@
 // types/education-consultants.ts
-// Comprehensive types for the Education Consultants / Referral Partners module
+// Types for the Education Consultants module within Admission Management
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ENUMS & UNION TYPES
@@ -11,188 +11,239 @@ export type ConsultantStatus = 'active' | 'inactive' | 'suspended' | 'pending_ve
 
 export type ConsultantTier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond';
 
-export type CommissionCalculationMethod = 'percentage' | 'flat' | 'tiered' | 'milestone';
-
 export type CommissionStatus = 'pending' | 'earned' | 'approved' | 'paid' | 'cancelled' | 'clawed_back';
-
-export type PayoutStatus = 'draft' | 'pending_approval' | 'approved' | 'processing' | 'completed' | 'failed';
 
 export type AttributionType = 'primary' | 'secondary' | 'assist';
 
-export type CommunicationType = 'email' | 'phone' | 'meeting' | 'whatsapp' | 'note';
+export type RateType = 'percentage' | 'flat' | 'tiered' | 'milestone';
 
-export type QueryStatus = 'open' | 'in_progress' | 'resolved' | 'closed' | 'escalated';
+export type PayoutBatchStatus = 'draft' | 'prepared' | 'approved' | 'processing' | 'completed' | 'failed';
 
-export type QueryPriority = 'low' | 'medium' | 'high' | 'urgent';
-
-export type DocumentType = 'contract' | 'agreement' | 'pan_card' | 'gst_certificate' | 'bank_proof' | 'identity' | 'other';
-
-export type RewardType = 'discount' | 'fee_discount' | 'cashback' | 'cash' | 'credit' | 'credits' | 'voucher' | 'merchandise';
+export type RewardType = 'cash' | 'voucher' | 'discount' | 'scholarship' | 'gift' | 'points' | 'fee_discount' | 'cashback' | 'credit' | 'credits' | 'merchandise';
 
 export type RewardStatus = 'pending' | 'earned' | 'approved' | 'redeemed' | 'expired' | 'cancelled';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// EDUCATION CONSULTANTS (Main CRM Table)
+// JUNCTION: CONSULTANT ↔ INSTITUTION LINK
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A row from consultant_institutions — the per-institution relationship. */
+export interface ConsultantInstitution {
+  id: string;
+  consultant_id: string;
+  institution_id: string;
+  status: ConsultantStatus;
+  tier: ConsultantTier;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
+  contract_document_url: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  // Populated when joined
+  institution?: { id: string; name: string };
+}
+
+export interface CreateConsultantInstitutionInput {
+  consultant_id: string;
+  institution_id: string;
+  status?: ConsultantStatus;
+  tier?: ConsultantTier;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
+  contract_document_url?: string | null;
+}
+
+export interface UpdateConsultantInstitutionInput {
+  id: string;
+  status?: ConsultantStatus;
+  tier?: ConsultantTier;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
+  contract_document_url?: string | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CORE ENTITY: EDUCATION CONSULTANT
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface EducationConsultant {
   id: string;
-  institution_id: string;
+  user_id?: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  alternate_phone: string | null;
   consultant_type: ConsultantType;
   code: string | null;
-
-  // Basic Info
-  name: string;
   contact_person: string | null;
-  email: string | null;
-  phone: string;
-  alternate_phone: string | null;
+  website: string | null;
 
-  // Company
-  company_name: string | null;
-  company_registration_no: string | null;
+  // Tax & identity
+  gst_number: string | null;
+  pan_number: string | null;
 
-  // Address (DB columns)
+  // Address
   address_line1: string | null;
-  address_line2: string | null;
   city: string | null;
   state: string | null;
   country: string | null;
   pincode: string | null;
 
-  // Banking Details (DB columns)
+  // Banking
   bank_name: string | null;
-  bank_account_number: string | null;
-  bank_ifsc: string | null;
   bank_branch: string | null;
-  upi_id: string | null;
-  payment_preference: string | null;
-  pan_number: string | null;
-  gst_number: string | null;
+  bank_account_number: string | null;
+  bank_account_holder: string | null;
+  bank_ifsc: string | null;
 
-  // Coverage & Specializations (DB columns)
-  covered_states: any;
-  covered_cities: any;
-  covered_regions: any;
-  specialized_degrees: string[] | null;
-  specialized_departments: string[] | null;
-  specialized_programs: string[] | null;
+  // Profile
+  profile_photo_url: string | null;
+  internal_notes: string | null;
+  tags: string[];
 
-  // Scoring & Performance
-  relationship_score: number;
+  // Coverage & specialization
+  covered_states: string[];
+  specialized_degrees: string[];
+  specialized_programs: string[];
+
+  // Performance (computed/aggregated)
+  relationship_score: number | null;
   performance_rating: number | null;
-  tier: ConsultantTier;
   total_leads_referred: number;
   total_conversions: number;
   conversion_rate: number;
   total_commission_earned: number;
-  total_commission_paid: number;
   pending_commission: number;
 
-  // Contract Info
-  contract_start_date: string | null;
-  contract_end_date: string | null;
-  contract_status: string | null;
-  contract_document_url: string | null;
-  contract_terms: any;
-
-  // Profile
-  profile_photo_url: string | null;
-  learner_profile_id: string | null;
-  website: string | null;
-
-  // Banking
-  bank_account_holder: string | null;
-
-  // Status
-  status: ConsultantStatus;
+  // Timestamps
   onboarded_at: string | null;
-  onboarded_by: string | null;
-
-  // For internal referrers (students/alumni)
-  referrer_user_id: string | null;
-
-  // Metadata
-  internal_notes: string | null;
-  tags: any;
   created_at: string;
   updated_at: string;
-  created_by: string | null;
-  updated_by: string | null;
 
-  // Relationships (optional populated)
-  institution?: { id: string; name: string } | null;
-  commission_structures?: ConsultantCommissionStructure[];
-  communications?: ConsultantCommunication[];
-  documents?: ConsultantDocument[];
+  // ── Fields populated from junction context ─────────────────────────────
+  // When querying with institution_id filter, the service merges these from
+  // the matching consultant_institutions row so UI components still work.
+  institution_id?: string;
+  status?: ConsultantStatus;
+  tier?: ConsultantTier;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
+  contract_document_url?: string | null;
 
-  // Allow dynamic DB fields
-  [key: string]: any;
+  // ── Relationships (optional populated) ────────────────────────────────
+  institution?: { id: string; name: string };
+  /** All institution links — populated on detail page. */
+  institutions?: ConsultantInstitution[];
 }
 
-// CreateConsultantInput accepts both form field names and DB column names
-// The form pages transform form names → DB names in their onSubmit handlers
+// ═══════════════════════════════════════════════════════════════════════════
+// CONSULTANT INPUT & FILTER TYPES
+// ═══════════════════════════════════════════════════════════════════════════
+
 export interface CreateConsultantInput {
-  institution_id: string;
-  consultant_type: ConsultantType;
+  /** Institution IDs to link this consultant to. Optional — consultant is a global entity; institution assignment is done separately. */
+  institution_ids?: string[]; // optional — ignored at creation (global entity)
   name: string;
-  phone: string;
   email?: string | null;
-  contact_person?: string | null;
+  phone?: string | null;
   alternate_phone?: string | null;
-  // DB columns for address
+  consultant_type: ConsultantType;
+  contact_person?: string | null;
+  website?: string | null;
+  gst_number?: string | null;
+  pan_number?: string | null;
   address_line1?: string | null;
-  address_line2?: string | null;
   city?: string | null;
   state?: string | null;
   country?: string | null;
   pincode?: string | null;
-  // Banking (DB columns)
   bank_name?: string | null;
-  bank_account_number?: string | null;
-  bank_ifsc?: string | null;
   bank_branch?: string | null;
-  pan_number?: string | null;
-  gst_number?: string | null;
-  // Coverage (DB columns)
-  covered_states?: any;
-  covered_cities?: any;
-  covered_regions?: any;
-  specialized_degrees?: string[] | null;
-  specialized_departments?: string[] | null;
-  specialized_programs?: string[] | null;
-  // Contract
-  contract_start_date?: string | null;
-  contract_end_date?: string | null;
-  // Metadata (DB columns)
+  bank_account_number?: string | null;
+  bank_account_holder?: string | null;
+  bank_ifsc?: string | null;
+  covered_states?: string[];
+  specialized_degrees?: string[];
+  specialized_programs?: string[];
   internal_notes?: string | null;
-  tags?: any;
-  // For internal referrers
-  referrer_user_id?: string | null;
-  learner_profile_id?: string | null;
-  // Allow additional DB fields
-  [key: string]: any;
+  tags?: string[];
+  profile_photo_url?: string | null;
+
+  /** @deprecated Lives on consultant_institutions junction — not used at creation */
+  status?: ConsultantStatus;
+  /** @deprecated Lives on consultant_institutions junction — not used at creation */
+  tier?: ConsultantTier;
+  /** @deprecated Lives on consultant_institutions junction — not used at creation */
+  contract_start_date?: string | null;
+  /** @deprecated Lives on consultant_institutions junction — not used at creation */
+  contract_end_date?: string | null;
+
+  // Form aliases (remapped to DB columns in submit handler)
+  address?: string | null;
+  notes?: string | null;
+  geographic_coverage?: string[];
+  specializations?: string[];
+  programs_handled?: string[];
 }
 
-export interface UpdateConsultantInput extends Partial<CreateConsultantInput> {
+export interface UpdateConsultantInput {
   id: string;
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  alternate_phone?: string | null;
+  consultant_type?: ConsultantType;
+  /** Kept for form binding only — stripped before calling updateConsultant (lives on junction table) */
   status?: ConsultantStatus;
+  /** Kept for form binding only — stripped before calling updateConsultant (lives on junction table) */
   tier?: ConsultantTier;
-  relationship_score?: number;
+  /** Kept for form binding only — stripped before calling updateConsultant (lives on junction table) */
+  contract_start_date?: string | null;
+  /** Kept for form binding only — stripped before calling updateConsultant (lives on junction table) */
+  contract_end_date?: string | null;
+  contact_person?: string | null;
+  website?: string | null;
+  gst_number?: string | null;
+  pan_number?: string | null;
+  address_line1?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  pincode?: string | null;
+  bank_name?: string | null;
+  bank_branch?: string | null;
+  bank_account_number?: string | null;
+  bank_account_holder?: string | null;
+  bank_ifsc?: string | null;
+  covered_states?: string[];
+  specialized_degrees?: string[];
+  specialized_programs?: string[];
+  internal_notes?: string | null;
+  tags?: string[];
+  profile_photo_url?: string | null;
+  relationship_score?: number | null;
+
+  // Form aliases
+  address?: string | null;
+  notes?: string | null;
+  geographic_coverage?: string[];
+  specializations?: string[];
+  programs_handled?: string[];
 }
 
 export interface ConsultantFilters {
-  search?: string;
   institution_id?: string;
+  search?: string;
   consultant_type?: ConsultantType | ConsultantType[];
   status?: ConsultantStatus | ConsultantStatus[];
   tier?: ConsultantTier | ConsultantTier[];
-  city?: string;
   state?: string;
-  min_conversion_rate?: number;
-  max_conversion_rate?: number;
-  min_total_leads?: number;
   has_active_contract?: boolean;
+  min_total_leads?: number;
+  max_conversion_rate?: number;
+  min_conversion_rate?: number;
+  city?: string;
   page?: number;
   limit?: number;
   sort_by?: string;
@@ -210,98 +261,50 @@ export interface ConsultantListResponse {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// COMMISSION STRUCTURES
+// COMMISSION STRUCTURE
 // ═══════════════════════════════════════════════════════════════════════════
-
-export interface MilestoneConfig {
-  stage: string;
-  percentage: number;
-  description?: string;
-}
-
-export interface VolumeTier {
-  min_count: number;
-  max_count: number | null;
-  rate: number;
-  rate_type: 'percentage' | 'flat';
-}
 
 export interface ConsultantCommissionStructure {
   id: string;
   institution_id: string;
   consultant_id: string;
   program_id: string | null;
-  degree_id: string | null;
-  department_id: string | null;
-
-  // Structure identity
-  name: string;
-  description: string | null;
-  priority: number | null;
-
-  // Commission Settings — uses DB column names
-  commission_type: string;  // 'percentage' | 'flat' | 'tiered' | 'milestone'
-  commission_basis: string | null;
-  base_rate: number | null;
-  base_amount: number | null;
-  applies_to_all_programs: boolean | null;
-
-  // Milestone Configuration (for milestone method)
-  milestones: any;  // Json array []
-
-  // Volume Tiers
-  volume_tiers: any | null;
-  volume_tiers_enabled: boolean | null;
-
-  // Clawback Rules
-  clawback_enabled: boolean | null;
-  clawback_period_days: number | null;
-  clawback_percentage: number | null;
-  clawback_conditions: Record<string, unknown> | null;
-
-  // Validity
+  rate_type: RateType;
+  rate_value: number;
+  min_threshold: number | null;
+  max_threshold: number | null;
   effective_from: string;
   effective_to: string | null;
-  is_active: boolean | null;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 
-  // Metadata
-  created_at: string | null;
-  updated_at: string | null;
-  created_by: string | null;
-  updated_by: string | null;
-
-  // Relationships (optional populated)
-  consultant?: EducationConsultant;
-
-  // Allow dynamic DB fields
-  [key: string]: any;
+  // Extended commission calculation fields
+  base_rate: number;
+  calculation_method: 'percentage' | 'flat' | 'milestone' | string;
+  milestone_config: { stage: string; percentage: number }[] | null;
+  volume_tiers: {
+    min_count: number;
+    max_count: number | null;
+    rate: number;
+    rate_type: 'percentage' | 'flat';
+  }[] | null;
+  max_commission_per_student: number | null;
 }
 
 export interface CreateCommissionStructureInput {
   institution_id: string;
   consultant_id: string;
-  name: string;
-  commission_type: string;
-  base_rate?: number | null;
-  base_amount?: number | null;
   program_id?: string | null;
-  degree_id?: string | null;
-  department_id?: string | null;
-  description?: string | null;
-  applies_to_all_programs?: boolean | null;
-  milestones?: any;
-  volume_tiers?: any | null;
-  volume_tiers_enabled?: boolean | null;
-  clawback_enabled?: boolean | null;
-  clawback_period_days?: number | null;
-  clawback_percentage?: number | null;
-  clawback_conditions?: Record<string, unknown> | null;
-  effective_from?: string;
+  rate_type: RateType;
+  rate_value: number;
+  min_threshold?: number | null;
+  max_threshold?: number | null;
+  effective_from: string;
   effective_to?: string | null;
-  is_active?: boolean | null;
-  priority?: number | null;
-  commission_basis?: string | null;
-  created_by?: string | null;
+  is_active?: boolean;
+  notes?: string | null;
 }
 
 export interface UpdateCommissionStructureInput extends Partial<CreateCommissionStructureInput> {
@@ -309,61 +312,36 @@ export interface UpdateCommissionStructureInput extends Partial<CreateCommission
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LEAD ATTRIBUTIONS (Split Credit)
+// LEAD ATTRIBUTION
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface ConsultantLeadAttribution {
   id: string;
   institution_id: string;
-  lead_id: string;
   consultant_id: string;
-
-  // Attribution Details
+  lead_id: string;
   attribution_type: AttributionType;
   attribution_percentage: number;
   referral_code_used: string | null;
-  referral_link_used: string | null;
-
-  // Source Tracking
-  utm_source: string | null;
-  utm_medium: string | null;
-  utm_campaign: string | null;
-
-  // Commission Tracking
-  commission_structure_id: string | null;
-  estimated_commission: number | null;
-  actual_commission: number | null;
-
-  // Status
   is_verified: boolean;
   verified_at: string | null;
   verified_by: string | null;
   verification_notes: string | null;
-
-  // Metadata
-  notes: string | null;
+  estimated_commission: number | null;
   created_at: string;
-  updated_at: string;
 
-  // Relationships
-  consultant?: EducationConsultant;
+  // Relationships (optional populated)
+  consultant?: { id: string; name: string; code: string | null };
   lead?: { id: string; full_name: string; phone: string; email: string | null };
 }
 
 export interface CreateLeadAttributionInput {
   institution_id: string;
-  lead_id: string;
   consultant_id: string;
-  attribution_type: AttributionType;
-  attribution_percentage: number;
+  lead_id: string;
+  attribution_type?: AttributionType;
+  attribution_percentage?: number;
   referral_code_used?: string | null;
-  referral_link_used?: string | null;
-  utm_source?: string | null;
-  utm_medium?: string | null;
-  utm_campaign?: string | null;
-  commission_structure_id?: string | null;
-  estimated_commission?: number | null;
-  notes?: string | null;
 }
 
 export interface LeadAttributionFilters {
@@ -372,10 +350,13 @@ export interface LeadAttributionFilters {
   lead_id?: string;
   attribution_type?: AttributionType;
   is_verified?: boolean;
+  search?: string;
   date_from?: string;
   date_to?: string;
   page?: number;
   limit?: number;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -385,94 +366,55 @@ export interface LeadAttributionFilters {
 export interface ConsultantCommissionTransaction {
   id: string;
   institution_id: string;
-  transaction_code: string | null;
   consultant_id: string;
-  lead_id: string;
-  attribution_id: string | null;
-  commission_structure_id: string | null;
-
-  // Commission Details
-  milestone_stage: string | null;
-  base_amount: number;
+  lead_id: string | null;
+  status: CommissionStatus;
   fee_amount: number;
   commission_rate: number;
-  rate_type: 'percentage' | 'flat';
+  rate_type: RateType;
   calculated_amount: number;
-
-  // Adjustments
-  volume_bonus: number;
-  adjustment_amount: number;
-  adjustment_reason: string | null;
   final_amount: number;
-
-  // Tax
-  tds_rate: number | null;
-  tds_amount: number | null;
+  tds_amount: number;
   net_amount: number;
-
-  // Status
-  status: CommissionStatus;
+  milestone_stage: string | null;
+  payout_batch_id: string | null;
+  transaction_code: string | null;
+  notes: string | null;
   status_changed_at: string | null;
   status_changed_by: string | null;
-
-  // Clawback
-  clawback_eligible_until: string | null;
-  clawback_amount: number | null;
   clawback_reason: string | null;
   clawback_at: string | null;
-
-  // Payment
-  payout_batch_id: string | null;
-  paid_at: string | null;
-  payment_reference: string | null;
-
-  // Metadata
-  notes: string | null;
   created_at: string;
   updated_at: string;
-  created_by: string | null;
 
-  // Relationships
-  consultant?: EducationConsultant;
+  // Relationships (optional populated)
+  consultant?: { id: string; name: string; code: string | null };
   lead?: { id: string; full_name: string };
-  payout_batch?: ConsultantPayoutBatch;
 }
 
 export interface CreateCommissionTransactionInput {
   institution_id: string;
   consultant_id: string;
-  lead_id: string;
-  attribution_id?: string | null;
-  commission_structure_id?: string | null;
-  milestone_stage?: string | null;
-  base_amount: number;
+  lead_id?: string | null;
   fee_amount: number;
   commission_rate: number;
-  rate_type: 'percentage' | 'flat';
-  calculated_amount: number;
-  volume_bonus?: number;
-  adjustment_amount?: number;
-  adjustment_reason?: string | null;
-  final_amount: number;
-  tds_rate?: number | null;
-  tds_amount?: number | null;
-  net_amount: number;
-  status?: CommissionStatus;
-  clawback_eligible_until?: string | null;
+  rate_type?: RateType;
+  milestone_stage?: string | null;
   notes?: string | null;
 }
 
 export interface CommissionTransactionFilters {
   institution_id?: string;
   consultant_id?: string;
-  lead_id?: string;
   status?: CommissionStatus | CommissionStatus[];
-  milestone_stage?: string;
+  search?: string;
   date_from?: string;
   date_to?: string;
+  lead_id?: string;
+  milestone_stage?: string;
   min_amount?: number;
   max_amount?: number;
-  payout_batch_id?: string | null;
+  payout_batch_id?: string;
   unpaid_only?: boolean;
   page?: number;
   limit?: number;
@@ -487,43 +429,21 @@ export interface CommissionTransactionFilters {
 export interface ConsultantPayoutBatch {
   id: string;
   institution_id: string;
-  batch_code: string | null;
-
-  // Batch Details
   batch_name: string;
   payout_period_start: string;
   payout_period_end: string;
-
-  // Amounts
   total_gross_amount: number;
   total_tds_amount: number;
   total_net_amount: number;
   total_transactions: number;
-
-  // Status
-  status: PayoutStatus;
-
-  // Approval Workflow
+  status: PayoutBatchStatus;
   generated_at: string | null;
   generated_by: string | null;
-  approved_at: string | null;
-  approved_by: string | null;
-  rejection_reason: string | null;
-
-  // Processing
   processed_at: string | null;
   processed_by: string | null;
-  payment_mode: string | null;
-  payment_reference: string | null;
-  payment_file_url: string | null;
-
-  // Metadata
   notes: string | null;
   created_at: string;
   updated_at: string;
-
-  // Relationships
-  transactions?: ConsultantCommissionTransaction[];
 }
 
 export interface CreatePayoutBatchInput {
@@ -531,163 +451,59 @@ export interface CreatePayoutBatchInput {
   batch_name: string;
   payout_period_start: string;
   payout_period_end: string;
-  consultant_ids?: string[]; // Optional filter
-  min_amount?: number; // Minimum payout threshold
+  consultant_ids?: string[];
+  min_amount?: number;
   notes?: string | null;
 }
 
 export interface ProcessPayoutBatchInput {
   batch_id: string;
-  payment_mode: string;
-  payment_reference: string;
-  payment_file_url?: string | null;
+  payment_reference?: string;
+  payment_mode?: string;
+  payment_file_url?: string;
+  notes?: string;
 }
 
 export interface PayoutBatchFilters {
   institution_id?: string;
-  status?: PayoutStatus | PayoutStatus[];
+  status?: PayoutBatchStatus | PayoutBatchStatus[];
+  search?: string;
   date_from?: string;
   date_to?: string;
   page?: number;
   limit?: number;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// COMMUNICATIONS
-// ═══════════════════════════════════════════════════════════════════════════
-
-export interface ConsultantCommunication {
-  id: string;
-  institution_id: string;
-  consultant_id: string;
-
-  // Communication Details
-  communication_type: CommunicationType;
-  subject: string | null;
-  content: string;
-
-  // Direction
-  direction: 'inbound' | 'outbound';
-
-  // Metadata
-  contact_person: string | null;
-  phone_number: string | null;
-  email_address: string | null;
-
-  // Attachments
-  attachments: string[];
-
-  // Timestamps
-  communicated_at: string;
-  created_at: string;
-  created_by: string | null;
-
-  // Relationships
-  consultant?: EducationConsultant;
-}
-
-export interface CreateCommunicationInput {
-  institution_id: string;
-  consultant_id: string;
-  communication_type: CommunicationType;
-  subject?: string | null;
-  content: string;
-  direction: 'inbound' | 'outbound';
-  contact_person?: string | null;
-  phone_number?: string | null;
-  email_address?: string | null;
-  attachments?: string[];
-  communicated_at?: string;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// DOCUMENTS
-// ═══════════════════════════════════════════════════════════════════════════
-
-export interface ConsultantDocument {
-  id: string;
-  institution_id: string;
-  consultant_id: string;
-
-  // Document Details
-  document_type: DocumentType;
-  document_name: string;
-  file_url: string;
-  file_size: number | null;
-  mime_type: string | null;
-
-  // Validity
-  valid_from: string | null;
-  valid_to: string | null;
-  is_verified: boolean;
-  verified_at: string | null;
-  verified_by: string | null;
-
-  // Metadata
-  notes: string | null;
-  created_at: string;
-  created_by: string | null;
-}
-
-export interface UploadConsultantDocumentInput {
-  institution_id: string;
-  consultant_id: string;
-  document_type: DocumentType;
-  document_name: string;
-  file: File;
-  valid_from?: string | null;
-  valid_to?: string | null;
-  notes?: string | null;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// REFERRAL REWARDS (For Students/Alumni)
+// REWARDS
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface ReferralRewardConfig {
   id: string;
   institution_id: string;
-
-  // Config Details
   name: string;
   description: string | null;
   reward_type: RewardType;
   reward_value: number;
-  reward_value_type: 'percentage' | 'flat';
-
-  // Eligibility
-  referrer_type: string;
-  min_referrals_required: number;
-
-  // Triggers
-  trigger_stage: string;
-  trigger_conditions: Record<string, unknown> | null;
-
-  // Limits
-  max_referrals_per_year: number | null;
-  max_reward_amount: number | null;
-  min_reward_amount: number | null;
-
-  // Programs
-  applicable_programs: string[] | null;
-  applicable_degrees: string[] | null;
-
-  // Stacking
-  stackable: boolean;
-  max_stacking_count: number | null;
-
-  // Validity
+  currency: string;
+  min_referrals: number;
+  max_rewards: number | null;
   valid_from: string;
   valid_to: string | null;
   is_active: boolean;
-
-  // Metadata
+  terms_conditions: string | null;
+  eligible_consultant_types: ConsultantType[];
+  eligible_tiers: ConsultantTier[];
   created_at: string;
   updated_at: string;
-  created_by: string | null;
-  updated_by: string | null;
 
-  [key: string]: any;
+  // Extended reward config fields
+  reward_value_type: 'percentage' | 'flat';
+  max_rewards_per_referrer: number | null;
+  referrer_types: string[] | null;
+  trigger_conditions: Record<string, unknown> | null;
 }
 
 export interface CreateRewardConfigInput {
@@ -696,276 +512,220 @@ export interface CreateRewardConfigInput {
   description?: string | null;
   reward_type: RewardType;
   reward_value: number;
-  reward_value_type: 'percentage' | 'flat';
-  referrer_type: string;
-  min_referrals_required?: number;
-  trigger_stage: string;
-  trigger_conditions?: Record<string, unknown> | null;
-  max_referrals_per_year?: number | null;
-  max_reward_amount?: number | null;
-  min_reward_amount?: number | null;
-  valid_from?: string;
+  currency?: string;
+  min_referrals?: number;
+  max_rewards?: number | null;
+  valid_from: string;
   valid_to?: string | null;
   is_active?: boolean;
+  terms_conditions?: string | null;
+  eligible_consultant_types?: ConsultantType[];
+  eligible_tiers?: ConsultantTier[];
 }
 
 export interface ReferralReward {
   id: string;
   institution_id: string;
+  consultant_id: string;
   reward_config_id: string;
-  referrer_consultant_id: string;
-  referred_lead_id: string;
-
-  // Reward Details
-  reward_type: RewardType;
-  reward_value: number;
-  reward_description: string | null;
-
-  // Status
   status: RewardStatus;
-  status_changed_at: string | null;
-  status_changed_by: string | null;
-
-  // Redemption
+  reward_value: number;
+  referral_count: number;
+  earned_at: string | null;
   redeemed_at: string | null;
-  redemption_reference: string | null;
-  redemption_notes: string | null;
-
-  // Expiry
   expires_at: string | null;
-
-  // Metadata
   notes: string | null;
   created_at: string;
+  updated_at: string;
+
+  // Extended reward fields
+  reward_description: string | null;
+  reward_type: RewardType;
 
   // Relationships
-  referrer?: EducationConsultant;
-  config?: ReferralRewardConfig;
+  consultant?: { id: string; name: string };
+  reward_config?: { id: string; name: string; reward_type: RewardType };
+  referrer?: { id: string; name: string; code?: string | null; type?: string };
+  config?: { id: string; name: string; reward_type?: RewardType; reward_value_type?: string; description?: string | null };
 }
 
 export interface RewardFilters {
   institution_id?: string;
+  consultant_id?: string;
   referrer_consultant_id?: string;
-  reward_type?: RewardType;
   status?: RewardStatus | RewardStatus[];
+  reward_type?: RewardType;
+  search?: string;
   date_from?: string;
   date_to?: string;
   page?: number;
   limit?: number;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PAYMENT QUERIES (Support)
+// COMMUNICATION & DOCUMENTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface ConsultantCommunication {
+  id: string;
+  institution_id: string;
+  consultant_id: string;
+  channel: 'email' | 'sms' | 'whatsapp' | 'phone' | 'in_person';
+  subject: string | null;
+  content: string;
+  sent_at: string;
+  sent_by: string | null;
+  created_at: string;
+}
+
+export interface CreateCommunicationInput {
+  institution_id: string;
+  consultant_id: string;
+  channel: 'email' | 'sms' | 'whatsapp' | 'phone' | 'in_person';
+  subject?: string | null;
+  content: string;
+  communicated_at?: string | null;
+}
+
+export interface ConsultantDocument {
+  id: string;
+  consultant_id: string;
+  document_type: string;
+  file_name: string;
+  file_url: string;
+  file_size: number;
+  uploaded_at: string;
+  uploaded_by: string | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAYMENT QUERIES
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface ConsultantPaymentQuery {
   id: string;
   institution_id: string;
-  query_code: string | null;
   consultant_id: string;
-
-  // Query Details
+  query_type: 'payment_delay' | 'amount_dispute' | 'missing_commission' | 'other';
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
   subject: string;
   description: string;
-  related_transaction_id: string | null;
-  related_payout_batch_id: string | null;
-
-  // Status
-  status: QueryStatus;
-  priority: QueryPriority;
-
-  // Assignment
-  assigned_to: string | null;
-  assigned_at: string | null;
-
-  // Resolution
+  priority: 'low' | 'medium' | 'high';
   resolution: string | null;
   resolved_at: string | null;
   resolved_by: string | null;
-
-  // Metadata
   created_at: string;
   updated_at: string;
 
   // Relationships
-  consultant?: EducationConsultant;
-  transaction?: ConsultantCommissionTransaction;
+  consultant?: { id: string; name: string };
 }
 
 export interface CreatePaymentQueryInput {
   institution_id: string;
   consultant_id: string;
+  query_type: 'payment_delay' | 'amount_dispute' | 'missing_commission' | 'other';
   subject: string;
   description: string;
-  related_transaction_id?: string | null;
-  related_payout_batch_id?: string | null;
-  priority?: QueryPriority;
+  priority?: 'low' | 'medium' | 'high';
 }
 
 export interface UpdatePaymentQueryInput {
   id: string;
-  status?: QueryStatus;
-  priority?: QueryPriority;
-  assigned_to?: string | null;
-  resolution?: string | null;
+  status?: 'open' | 'in_progress' | 'resolved' | 'closed';
+  resolution?: string;
+  priority?: 'low' | 'medium' | 'high';
 }
 
 export interface PaymentQueryFilters {
   institution_id?: string;
   consultant_id?: string;
-  status?: QueryStatus | QueryStatus[];
-  priority?: QueryPriority | QueryPriority[];
-  assigned_to?: string | null;
+  status?: string;
+  query_type?: string;
+  priority?: string;
+  search?: string;
+  assigned_to?: string;
   date_from?: string;
   date_to?: string;
   page?: number;
   limit?: number;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ANALYTICS & DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════════
 
+export interface ConsultantDashboardStats {
+  total_consultants: number;
+  active_consultants: number;
+  total_leads_referred: number;
+  total_conversions: number;
+  overall_conversion_rate: number;
+  total_commission_earned?: number;
+  pending_commission: number;
+  top_performers?: {
+    id: string;
+    name: string;
+    leads_referred: number;
+    conversions: number;
+    commission_earned: number;
+  }[];
+  by_type?: Record<ConsultantType, number>;
+  by_tier?: Record<ConsultantTier, number>;
+
+  // Extended dashboard fields
+  consultants_by_tier: Record<ConsultantTier | string, number>;
+  consultants_by_type: Record<ConsultantType | string, number>;
+  leads_this_month: number;
+  total_commission_paid: number;
+  commission_paid_this_month: number;
+  average_commission_per_conversion: number;
+  conversions_this_month: number;
+  top_consultants: ConsultantPerformanceMetrics[];
+  leads_by_stage: Record<string, number>;
+  commission_by_status: Record<string, number>;
+}
+
 export interface ConsultantPerformanceMetrics {
   consultant_id: string;
+  period?: string;
+  leads_referred?: number;
+  conversions?: number;
+  conversion_rate: number;
+  commission_earned?: number;
+  avg_deal_size?: number;
+  response_time_hours?: number;
+  active_leads?: number;
+
+  // Extended performance fields
   consultant_name: string;
   consultant_code: string | null;
   tier: ConsultantTier;
-
-  // Lead Metrics
   total_leads: number;
   leads_this_month: number;
   leads_this_quarter: number;
-
-  // Conversion Metrics
   total_conversions: number;
   conversions_this_month: number;
-  conversion_rate: number;
-
-  // Financial Metrics
   total_commission_earned: number;
   commission_this_month: number;
   pending_commission: number;
   average_commission_per_lead: number;
-
-  // Performance Trends
-  performance_trend: 'up' | 'down' | 'stable';
+  performance_trend: 'up' | 'down' | 'stable' | string;
   trend_percentage: number;
 }
 
-export interface ConsultantDashboardStats {
-  // Overview
-  total_consultants: number;
-  active_consultants: number;
-  consultants_by_tier: Record<ConsultantTier, number>;
-  consultants_by_type: Record<ConsultantType, number>;
-
-  // Lead Metrics
-  total_leads_referred: number;
-  leads_this_month: number;
-  total_conversions: number;
-  conversions_this_month: number;
-  overall_conversion_rate: number;
-
-  // Financial Metrics
-  total_commission_paid: number;
-  commission_paid_this_month: number;
-  pending_commission: number;
-  average_commission_per_conversion: number;
-
-  // Top Performers
-  top_consultants: ConsultantPerformanceMetrics[];
-
-  // Pipeline
-  leads_by_stage: Record<string, number>;
-  commission_by_status: Record<CommissionStatus, number>;
-}
-
-export interface ConsultantAnalytics {
-  institution_id: string;
-  period: {
-    start: string;
-    end: string;
-  };
-
-  // Trends
-  lead_trends: {
-    date: string;
-    leads: number;
-    conversions: number;
-    commission: number;
-  }[];
-
-  // By Consultant Type
-  metrics_by_type: {
-    type: ConsultantType;
-    leads: number;
-    conversions: number;
-    conversion_rate: number;
-    commission: number;
-  }[];
-
-  // By Program
-  metrics_by_program: {
-    program_id: string;
-    program_name: string;
-    leads: number;
-    conversions: number;
-    commission: number;
-  }[];
-
-  // Geographic Distribution
-  metrics_by_region: {
-    state: string;
-    city: string | null;
-    leads: number;
-    conversions: number;
-  }[];
-
-  // ROI Analysis
-  roi_metrics: {
-    total_commission_paid: number;
-    total_revenue_generated: number;
-    roi_percentage: number;
-    cost_per_acquisition: number;
-  };
-}
-
-export interface CommissionLiabilityReport {
-  institution_id: string;
-  as_of_date: string;
-
-  // Summary
-  total_pending: number;
-  total_earned: number;
-  total_approved: number;
-  grand_total_liability: number;
-
-  // By Consultant
-  liability_by_consultant: {
-    consultant_id: string;
-    consultant_name: string;
-    pending_amount: number;
-    earned_amount: number;
-    approved_amount: number;
-    total_liability: number;
-  }[];
-
-  // By Month
-  liability_by_month: {
-    month: string;
-    amount: number;
-  }[];
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CONSULTANT PORTAL TYPES
-// ═══════════════════════════════════════════════════════════════════════════
-
 export interface ConsultantPortalDashboard {
   consultant: EducationConsultant;
+  recent_referrals?: ConsultantLeadAttribution[] | { id: string; name: string; stage: string; submitted_at: string }[];
+  pending_commissions?: ConsultantCommissionTransaction[];
+  performance?: ConsultantPerformanceMetrics;
+  rewards?: ReferralReward[];
 
-  // Stats
+  // Extended portal dashboard fields
   stats: {
     total_leads: number;
     leads_this_month: number;
@@ -977,97 +737,64 @@ export interface ConsultantPortalDashboard {
     next_tier_threshold: number | null;
     leads_to_next_tier: number | null;
   };
-
-  // Recent Activity
-  recent_leads: {
-    id: string;
-    name: string;
-    stage: string;
-    submitted_at: string;
-  }[];
-
-  recent_transactions: {
-    id: string;
-    lead_name: string;
-    amount: number;
-    status: CommissionStatus;
-    date: string;
-  }[];
-
-  // Notifications
-  notifications: {
-    id: string;
-    type: string;
-    message: string;
-    created_at: string;
-    is_read: boolean;
-  }[];
+  recent_leads: { id: string; name: string; stage: string; submitted_at: string }[];
+  recent_transactions: { id: string; lead_name: string; amount: number; status: string; date: string }[];
+  notifications: unknown[];
 }
 
 export interface ConsultantLeadSubmission {
-  institution_id: string;
   consultant_id: string;
+  institution_id: string;
+  lead_name?: string;
+  lead_phone?: string;
+  lead_email?: string | null;
+  interested_programs?: string[];
+  notes?: string | null;
+  referral_code?: string | null;
 
-  // Lead Details
+  // Extended submission fields (used by service for DB insert)
   full_name: string;
   phone: string;
   email?: string | null;
-  alternate_phone?: string | null;
-
-  // Academic Interest
   program_interest?: string | null;
-  preferred_batch?: string | null;
-
-  // Location
-  city?: string | null;
-  state?: string | null;
-
-  // Additional
-  notes?: string | null;
-  referral_code?: string | null;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// IMPORT/EXPORT TYPES
-// ═══════════════════════════════════════════════════════════════════════════
-
-export interface ConsultantImportRow {
-  name: string;
-  consultant_type: string;
-  phone: string;
-  email?: string;
-  contact_person?: string;
-  city?: string;
-  state?: string;
-  bank_name?: string;
-  bank_account_number?: string;
-  bank_ifsc?: string;
-  pan_number?: string;
-  gst_number?: string;
-  contract_start_date?: string;
-  contract_end_date?: string;
-  base_commission_rate?: number;
-  commission_type?: string;
-  notes?: string;
-}
-
-export interface ConsultantImportResult {
-  success_count: number;
-  error_count: number;
-  errors: {
-    row: number;
-    field: string;
-    message: string;
-    data: ConsultantImportRow;
+export interface CommissionLiabilityReport {
+  total_liability?: number;
+  pending_amount?: number;
+  earned_amount?: number;
+  approved_amount?: number;
+  by_consultant?: {
+    consultant_id: string;
+    consultant_name: string;
+    pending: number;
+    earned: number;
+    approved: number;
+    total: number;
   }[];
-  imported_consultants: EducationConsultant[];
-}
+  by_period?: {
+    period: string;
+    amount: number;
+    count: number;
+  }[];
 
-export interface ConsultantExportOptions {
-  institution_id: string;
-  format: 'excel' | 'csv' | 'json';
-  include_fields: string[];
-  filters?: ConsultantFilters;
-  include_commission_summary?: boolean;
-  include_lead_summary?: boolean;
+  // Extended liability report fields
+  institution_id: string | undefined;
+  as_of_date: string;
+  total_pending: number;
+  total_earned: number;
+  total_approved: number;
+  grand_total_liability: number;
+  liability_by_consultant: {
+    consultant_id: string;
+    consultant_name: string;
+    pending_amount: number;
+    earned_amount: number;
+    approved_amount: number;
+    total_liability: number;
+  }[];
+  liability_by_month: {
+    month: string;
+    amount: number;
+  }[];
 }

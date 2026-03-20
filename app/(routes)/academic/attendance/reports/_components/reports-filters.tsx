@@ -88,7 +88,8 @@ export function ReportsFilters({
     degree_id: searchParams.degree_id || undefined,
     department_id: searchParams.department_id || undefined,
     program_id: searchParams.program_id || undefined,
-    semester_id: searchParams.semester_id || undefined
+    semester_id: searchParams.semester_id || undefined,
+    limit: 1000 // Fixed: 2025-01-30 - Fetch all sections for attendance reports
   });
 
   // Load initial data

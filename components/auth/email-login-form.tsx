@@ -8,7 +8,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Loader2, Mail, Lock, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'react-hot-toast';
 
 interface EmailLoginFormProps {
   returnTo?: string;
@@ -54,17 +53,14 @@ export function EmailLoginForm({ returnTo }: EmailLoginFormProps) {
           if (profileData?.role === 'guest') {
             destination = '/guest';
           } else if (profileData?.role === 'student') {
-            if (process.env.NEXT_PUBLIC_ENABLE_STUDENT_PORTAL === 'true') {
-              destination = '/learners/my-gate-passes';
-            } else {
-              // Students are not allowed - sign out and stay on login page
-              await supabase.auth.signOut();
-              const newUrl = new URL(window.location.href);
-              newUrl.searchParams.set('reason', 'student_redirect');
-              window.history.replaceState({}, '', newUrl.toString());
-              window.location.reload();
-              return;
-            }
+            // Students are not allowed - sign out and stay on login page
+            await supabase.auth.signOut();
+            // Add reason to URL without redirecting
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.set('reason', 'student_redirect');
+            window.history.replaceState({}, '', newUrl.toString());
+            window.location.reload();
+            return;
           } else if (profileData?.role === 'driver') {
             destination = '/driver/dashboard';
           }
@@ -75,17 +71,11 @@ export function EmailLoginForm({ returnTo }: EmailLoginFormProps) {
     } catch (err: any) {
       console.error('Login error:', err);
       if (err.message?.includes('Invalid login credentials')) {
-        const msg = 'Invalid email or password. Please try again.';
-        setError(msg);
-        toast.error(msg);
+        setError('Invalid email or password. Please try again.');
       } else if (err.message?.includes('Email not confirmed')) {
-        const msg = 'Please confirm your email address before logging in.';
-        setError(msg);
-        toast.error(msg);
+        setError('Please confirm your email address before logging in.');
       } else {
-        const msg = err.message || 'An error occurred during login.';
-        setError(msg);
-        toast.error(msg);
+        setError(err.message || 'An error occurred during login.');
       }
     } finally {
       setLoading(false);

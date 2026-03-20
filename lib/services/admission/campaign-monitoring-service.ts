@@ -2,9 +2,8 @@
 // Campaign Monitoring Service - Real-time campaign stats and execution tracking
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { Database } from '@/types/supabase';
 
-type CampaignStatus = Database['public']['Enums']['campaign_status'];
+type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed' | 'cancelled';
 
 // Types
 export interface CampaignStats {
@@ -106,12 +105,11 @@ export class CampaignMonitoringService {
   /**
    * Get aggregate campaign statistics for an institution
    */
-  static async getCampaignStats(institutionId: string | undefined): Promise<CampaignStats> {
-    let query = getSupabase()
+  static async getCampaignStats(institutionId: string): Promise<CampaignStats> {
+    const { data: campaigns, error } = await getSupabase()
       .from('re_engagement_campaigns')
-      .select('status, total_leads_targeted, leads_re_engaged, leads_converted');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data: campaigns, error } = await query;
+      .select('status, total_leads_targeted, leads_re_engaged, leads_converted')
+      .eq('institution_id', institutionId);
 
     if (error) {
       console.error('[admission/campaign-monitoring] Failed to fetch campaign stats:', error);
@@ -166,14 +164,12 @@ export class CampaignMonitoringService {
    * Get delivery metrics (sent, delivered, read, failed)
    * Note: This aggregates from workflow executions as proxy for message delivery
    */
-  static async getDeliveryMetrics(institutionId: string | undefined): Promise<DeliveryMetrics> {
+  static async getDeliveryMetrics(institutionId: string): Promise<DeliveryMetrics> {
     // Get workflow executions as proxy for message delivery stats
-    let query = getSupabase()
+    const { data: executions, error } = await getSupabase()
       .from('admission_workflow_executions')
       .select('status, actions_executed')
-      .eq('status', 'completed');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data: executions, error } = await query
+      .eq('status', 'completed')
       .order('executed_at', { ascending: false })
       .limit(500);
 
@@ -245,9 +241,9 @@ export class CampaignMonitoringService {
   /**
    * Get active drip sequences currently running
    */
-  static async getActiveSequences(institutionId: string | undefined): Promise<ActiveSequence[]> {
+  static async getActiveSequences(institutionId: string): Promise<ActiveSequence[]> {
     // Get active campaigns with their sequences
-    let campaignsQuery = getSupabase()
+    const { data: campaigns, error: campaignsError } = await getSupabase()
       .from('re_engagement_campaigns')
       .select(`
         id,
@@ -256,9 +252,8 @@ export class CampaignMonitoringService {
         status,
         total_leads_targeted,
         created_at
-      `);
-    if (institutionId) campaignsQuery = campaignsQuery.eq('institution_id', institutionId);
-    const { data: campaigns, error: campaignsError } = await campaignsQuery
+      `)
+      .eq('institution_id', institutionId)
       .eq('status', 'active');
 
     if (campaignsError) {
@@ -276,15 +271,14 @@ export class CampaignMonitoringService {
 
       if (totalSteps > 0 && campaign.total_leads_targeted > 0) {
         // Get a few leads to show in the active sequences
-        let leadsQuery = getSupabase()
+        const { data: leads } = await getSupabase()
           .from('admission_leads')
           .select(`
             id,
             learner_profile_id,
             learners_profiles!inner (full_name)
-          `);
-        if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
-        const { data: leads } = await leadsQuery
+          `)
+          .eq('institution_id', institutionId)
           .eq('is_active', true)
           .limit(3);
 
@@ -320,9 +314,9 @@ export class CampaignMonitoringService {
   /**
    * Get recent execution logs for monitoring
    */
-  static async getExecutionLogs(institutionId: string | undefined, limit = 50): Promise<ExecutionLog[]> {
+  static async getExecutionLogs(institutionId: string, limit = 50): Promise<ExecutionLog[]> {
     // Get workflow executions
-    let execQuery = getSupabase()
+    const { data: executions, error } = await getSupabase()
       .from('admission_workflow_executions')
       .select(`
         id,
@@ -336,9 +330,8 @@ export class CampaignMonitoringService {
           name,
           institution_id
         )
-      `);
-    if (institutionId) execQuery = execQuery.eq('admission_workflows.institution_id', institutionId);
-    const { data: executions, error } = await execQuery
+      `)
+      .eq('admission_workflows.institution_id', institutionId)
       .order('executed_at', { ascending: false })
       .limit(limit);
 
@@ -590,12 +583,11 @@ export class CampaignMonitoringService {
   /**
    * Get all campaigns for listing
    */
-  static async getCampaigns(institutionId: string | undefined): Promise<CampaignDetail[]> {
-    let query = getSupabase()
+  static async getCampaigns(institutionId: string): Promise<CampaignDetail[]> {
+    const { data, error } = await getSupabase()
       .from('re_engagement_campaigns')
-      .select('*');
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    const { data, error } = await query
+      .select('*')
+      .eq('institution_id', institutionId)
       .order('created_at', { ascending: false });
 
     if (error) {

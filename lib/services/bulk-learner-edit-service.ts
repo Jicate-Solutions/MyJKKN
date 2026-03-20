@@ -125,9 +125,6 @@ const FIELD_LABELS: Record<string, string> = {
   accommodation_type: 'Accommodation Type',
   hostel_type: 'Hostel Type',
   food_type: 'Food Type',
-  bus_required: 'Bus Required',
-  bus_route: 'Bus Route',
-  bus_pickup_location: 'Bus Pickup Location',
   reference_type: 'Reference Type',
   reference_name: 'Reference Name',
   reference_contact: 'Reference Contact',
@@ -263,7 +260,8 @@ export class BulkLearnerEditService {
   static async processBulkEdit(
     rows: BulkEditRow[],
     userInstitutionId?: string,
-    isSuperAdmin: boolean = false
+    isSuperAdmin: boolean = false,
+    userId?: string
   ): Promise<BulkEditResult> {
     const result: BulkEditResult = {
       success: true,
@@ -390,6 +388,31 @@ export class BulkLearnerEditService {
     }
 
     result.success = result.failed === 0;
+
+    // Log bulk edit activity (summary)
+    try {
+      if (userId) {
+        const fieldsUpdated = [...new Set(result.updated_learners?.flatMap((l: any) => l.fields_updated || []) || [])];
+        await supabaseAdmin.from('user_activity_logs').insert({
+          user_id: userId,
+          action_type: 'update',
+          resource_type: 'learner',
+          description: `Bulk edited ${result.updated || 0} learner profiles (${fieldsUpdated.join(', ')})`,
+          institution_id: userInstitutionId || undefined,
+          metadata: {
+            sub_type: 'bulk_edit',
+            updated_count: result.updated,
+            failed_count: result.failed,
+            skipped_count: result.skipped,
+            fields_updated: fieldsUpdated,
+            total_rows: rows.length,
+          },
+        });
+      }
+    } catch (logError) {
+      console.error('[bulk-edit] Failed to log activity:', logError);
+    }
+
     return result;
   }
 
@@ -407,6 +430,15 @@ export class BulkLearnerEditService {
     semesterId?: string,
     sectionId?: string
   ): Promise<any[]> {
+    console.log('[bulk-edit] Export parameters:', {
+      institutionId,
+      includeComplete,
+      degreeId,
+      departmentId,
+      programId,
+      semesterId,
+      sectionId
+    });
 
     // Build base query
     const buildQuery = () => {
@@ -456,9 +488,9 @@ export class BulkLearnerEditService {
         query = query.eq('section_id', sectionId);
       }
 
-      // Filter by profile completeness if requested
+      // Filter by profile completeness if requested (include NULL as incomplete)
       if (!includeComplete) {
-        query = query.eq('is_profile_complete', false);
+        query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
       }
 
       return query;
@@ -469,6 +501,8 @@ export class BulkLearnerEditService {
     let allLearners: any[] = [];
     let offset = 0;
     let hasMore = true;
+
+    console.log('[bulk-edit] Starting paginated fetch with batch size:', BATCH_SIZE);
 
     while (hasMore) {
       const query = buildQuery()
@@ -484,6 +518,7 @@ export class BulkLearnerEditService {
 
       if (batch && batch.length > 0) {
         allLearners = allLearners.concat(batch);
+        console.log(`[bulk-edit] Fetched batch: ${batch.length} records (total so far: ${allLearners.length})`);
 
         // Check if there are more records
         if (batch.length < BATCH_SIZE) {
@@ -495,6 +530,8 @@ export class BulkLearnerEditService {
         hasMore = false;
       }
     }
+
+    console.log('[bulk-edit] Export complete. Total learners fetched:', allLearners.length);
 
     return allLearners;
   }

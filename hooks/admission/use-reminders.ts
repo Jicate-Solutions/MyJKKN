@@ -157,13 +157,10 @@ export function useCreateReminder() {
  * Search leads for creating a reminder.
  */
 export function useSearchLeadsForReminder(institutionId: string | null | undefined, search: string) {
-  const { isSuperAdmin } = usePermissions();
-
   return useQuery({
-    queryKey: ['reminder-lead-search', institutionId || 'all', search],
+    queryKey: ['reminder-lead-search', institutionId, search],
     queryFn: () => RemindersService.searchLeadsForReminder(institutionId!, search),
-    // super_admin can search without institution scope
-    enabled: (isSuperAdmin || !!institutionId) && search.length >= 2,
+    enabled: !!institutionId && search.length >= 2,
     staleTime: 30_000,
   });
 }

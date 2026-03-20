@@ -99,10 +99,13 @@ function hasNrpsScope(scopes: string[]): boolean {
  */
 export async function GET(request: NextRequest) {
   try {
+    console.log('[LTI Names & Roles] Received roster request');
 
     // 1. Verify OAuth token
     const authHeader = request.headers.get('Authorization');
     const { clientId, scope } = await verifyOAuthToken(authHeader);
+
+    console.log('[LTI Names & Roles] Token verified:', { clientId, scope });
 
     // 2. Check NRPS scope
     if (!hasNrpsScope(scope)) {
@@ -177,6 +180,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    console.log('[LTI Names & Roles] Fetching roster:', {
+      contextId,
+      institutionId,
+      programId,
+      semesterId,
+      sectionId
+    });
+
     // 5. Parse pagination parameters
     const limit = parseInt(searchParams.get('limit') || '100');
     const offset = parseInt(searchParams.get('offset') || '0');
@@ -189,6 +200,11 @@ export async function GET(request: NextRequest) {
       sectionId,
       limit,
       offset
+    });
+
+    console.log('[LTI Names & Roles] Roster fetched successfully:', {
+      contextId,
+      memberCount: roster.members.length
     });
 
     // 7. Return LTI NRPS format

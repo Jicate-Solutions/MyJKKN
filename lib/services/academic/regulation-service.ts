@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   Regulation,
   CreateRegulationDto,
@@ -31,6 +32,24 @@ export class RegulationService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.regulationCreated(regulation.regulation_code);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: regulation.id,
+            resourceName: regulation.regulation_code,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: regulation.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return regulation;
     } catch (error) {
       logger.error('academic/regulations', 'Error creating regulation', error);
@@ -63,6 +82,24 @@ export class RegulationService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.regulationUpdated(regulation.regulation_code, Object.keys(data));
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: regulation.regulation_code,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: regulation.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return regulation;
     } catch (error) {
       logger.error('academic/regulations', 'Error updating regulation', error);
@@ -74,6 +111,18 @@ export class RegulationService {
     id: string,
     options: { showToast?: boolean } = { showToast: true }
   ): Promise<void> {
+    let nameForLog = id;
+    let institutionIdForLog: string | undefined;
+    try {
+      const { data: existing } = await RegulationService.supabase
+        .from('regulations')
+        .select('regulation_code, institution_id')
+        .eq('id', id)
+        .single();
+      nameForLog = existing?.regulation_code || id;
+      institutionIdForLog = existing?.institution_id;
+    } catch { /* ignore */ }
+
     try {
       const { error } = await this.supabase
         .from('regulations')
@@ -85,6 +134,24 @@ export class RegulationService {
       if (options.showToast) {
         toast.success('Regulation deleted successfully');
       }
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.regulationDeleted(nameForLog);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: nameForLog,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: institutionIdForLog,
+          });
+        } catch { /* never block */ }
+      })();
     } catch (error) {
       logger.error('academic/regulations', 'Error deleting regulation', error);
       throw error;

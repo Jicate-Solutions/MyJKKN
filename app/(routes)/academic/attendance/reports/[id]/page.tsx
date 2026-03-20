@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -39,12 +38,8 @@ import {
   ChevronRight,
   Search,
   ArrowUpDown,
-  Shield,
-  Sparkles,
-  Star
+  Shield
 } from 'lucide-react';
-import { LEARNING_BEHAVIOR_LABELS } from '@/types/attendance';
-import type { LearningBehavior } from '@/types/attendance';
 import {
   Table,
   TableBody,
@@ -57,6 +52,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AttendanceReportService } from '@/lib/services/academic/attendance-report-service';
 import { AttendanceExportService } from '@/lib/services/academic/attendance-export-service';
+import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import type { DetailedAttendanceReport } from '@/types/attendance-reports';
@@ -108,17 +104,10 @@ export default function AttendanceReportDetailPage() {
   // Fetch staff ID for faculty users
   useEffect(() => {
     const fetchStaffId = async () => {
-      if (profile?.role === 'faculty' && profile?.id) {
+      if (profile?.role === 'faculty' && profile?.id && profile?.institution_id) {
         setRoleLoading(true);
-        const supabase = createClientSupabaseClient();
-        const { data, error } = await supabase
-          .from('staff')
-          .select('id')
-          .eq('profile_id', profile.id)
-          .single();
-
-        if (data && !error) {
-          const staffData = data as { id: string };
+        const staffData = await AttendanceService.getStaffByProfileId(profile.id, profile.institution_id);
+        if (staffData) {
           setFacultyStaffId(staffData.id);
         }
         setRoleLoading(false);
@@ -126,7 +115,7 @@ export default function AttendanceReportDetailPage() {
     };
 
     fetchStaffId();
-  }, [profile]);
+  }, [profile?.role, profile?.id, profile?.institution_id]);
 
   // Determine if we should delay showing data for faculty users
   const isRegularFaculty =
@@ -770,85 +759,6 @@ export default function AttendanceReportDetailPage() {
                               </div>
                             </div>
                           </div>
-
-                          {/* P1.5.4 - Engagement Stats (shown when engagement data exists) */}
-                          {(() => {
-                            const engagedStudents = period.students?.filter(
-                              (s: any) => s.engagement_score && s.engagement_score > 0
-                            ) || [];
-                            if (engagedStudents.length === 0) return null;
-
-                            const avgScore = Math.round(
-                              (engagedStudents.reduce((sum: number, s: any) => sum + s.engagement_score, 0) / engagedStudents.length) * 10
-                            ) / 10;
-
-                            const allBehaviors: string[] = [];
-                            engagedStudents.forEach((s: any) => {
-                              if (s.learning_behaviors && Array.isArray(s.learning_behaviors)) {
-                                allBehaviors.push(...s.learning_behaviors);
-                              }
-                            });
-                            const behaviorCounts: Record<string, number> = {};
-                            allBehaviors.forEach(b => {
-                              behaviorCounts[b] = (behaviorCounts[b] || 0) + 1;
-                            });
-
-                            return (
-                              <div className='bg-white p-4 rounded-xl shadow-sm border border-amber-200'>
-                                <div className='flex items-center gap-2 mb-3'>
-                                  <Sparkles className='h-4 w-4 text-amber-600' />
-                                  <span className='text-sm font-semibold text-gray-700'>
-                                    Learning Engagement
-                                  </span>
-                                  {(period as any).engagement_required && (
-                                    <Badge className='bg-amber-100 text-amber-700 border-0 text-xs'>
-                                      Required
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className='grid grid-cols-2 gap-3 mb-3'>
-                                  <div className='text-center'>
-                                    <div className='flex items-center justify-center gap-0.5 mb-1'>
-                                      {[1, 2, 3, 4, 5].map(star => (
-                                        <Star
-                                          key={star}
-                                          className={`h-3.5 w-3.5 ${
-                                            star <= Math.round(avgScore)
-                                              ? 'text-amber-400 fill-amber-400'
-                                              : 'text-gray-300'
-                                          }`}
-                                        />
-                                      ))}
-                                    </div>
-                                    <p className='text-lg font-bold text-gray-900'>{avgScore}/5</p>
-                                    <p className='text-xs text-gray-500'>Avg. Score</p>
-                                  </div>
-                                  <div className='text-center'>
-                                    <p className='text-lg font-bold text-gray-900 mt-3'>
-                                      {engagedStudents.length}/{period.total_count}
-                                    </p>
-                                    <p className='text-xs text-gray-500'>Students Scored</p>
-                                  </div>
-                                </div>
-                                {Object.keys(behaviorCounts).length > 0 && (
-                                  <div className='flex flex-wrap gap-1'>
-                                    {Object.entries(behaviorCounts)
-                                      .sort(([, a], [, b]) => b - a)
-                                      .slice(0, 6)
-                                      .map(([behavior, count]) => (
-                                        <Badge
-                                          key={behavior}
-                                          variant='secondary'
-                                          className='text-[10px] bg-amber-50 text-amber-700 border-amber-200'
-                                        >
-                                          {LEARNING_BEHAVIOR_LABELS[behavior as LearningBehavior] || behavior} ({count})
-                                        </Badge>
-                                      ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
                         </div>
                       </CardContent>
                     </Card>
@@ -903,9 +813,6 @@ export default function AttendanceReportDetailPage() {
                                 <TableHead>Section</TableHead>
                                 <TableHead className='text-center'>
                                   Status
-                                </TableHead>
-                                <TableHead className='text-center'>
-                                  Engagement
                                 </TableHead>
                               </TableRow>
                             </TableHeader>
@@ -1010,50 +917,12 @@ export default function AttendanceReportDetailPage() {
                                               : 'Absent'}
                                           </Badge>
                                         </TableCell>
-                                        <TableCell className='text-center'>
-                                          {(student as any).engagement_score ? (
-                                            <div className='flex flex-col items-center gap-1'>
-                                              <div className='flex items-center gap-0.5'>
-                                                {[1, 2, 3, 4, 5].map(star => (
-                                                  <Star
-                                                    key={star}
-                                                    className={`h-3 w-3 ${
-                                                      star <= (student as any).engagement_score
-                                                        ? 'text-amber-400 fill-amber-400'
-                                                        : 'text-gray-300'
-                                                    }`}
-                                                  />
-                                                ))}
-                                              </div>
-                                              {(student as any).learning_behaviors &&
-                                                (student as any).learning_behaviors.length > 0 && (
-                                                  <div className='flex flex-wrap justify-center gap-0.5'>
-                                                    {(student as any).learning_behaviors.slice(0, 2).map((b: string) => (
-                                                      <span
-                                                        key={b}
-                                                        className='text-[9px] px-1 py-0.5 bg-amber-50 text-amber-700 rounded'
-                                                      >
-                                                        {LEARNING_BEHAVIOR_LABELS[b as LearningBehavior] || b}
-                                                      </span>
-                                                    ))}
-                                                    {(student as any).learning_behaviors.length > 2 && (
-                                                      <span className='text-[9px] text-gray-400'>
-                                                        +{(student as any).learning_behaviors.length - 2}
-                                                      </span>
-                                                    )}
-                                                  </div>
-                                                )}
-                                            </div>
-                                          ) : (
-                                            <span className='text-xs text-gray-400'>-</span>
-                                          )}
-                                        </TableCell>
                                       </TableRow>
                                     ))
                                   ) : (
                                     <TableRow>
                                       <TableCell
-                                        colSpan={6}
+                                        colSpan={5}
                                         className='text-center py-8 text-gray-500'
                                       >
                                         No students found matching &quot;
@@ -1065,7 +934,7 @@ export default function AttendanceReportDetailPage() {
                               ) : (
                                 <TableRow>
                                   <TableCell
-                                    colSpan={6}
+                                    colSpan={5}
                                     className='text-center py-8 text-gray-500'
                                   >
                                     No student data available for this period

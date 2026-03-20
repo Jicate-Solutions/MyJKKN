@@ -93,15 +93,32 @@ export async function GET(request: NextRequest) {
     });
 
     // Get accessible institution IDs (skip if super admin)
-    // Uses profiles.institution_id only (NOT user_institution_access which is billing-only)
     let accessibleInstitutionIds: string[] = [];
 
     if (!isSuperAdmin) {
+      // Primary access: User's own institution (from profiles.institution_id)
       if (userProfile?.institution_id) {
         accessibleInstitutionIds.push(userProfile.institution_id);
-        console.log('[/api/staff] User institution:', userProfile.institution_id);
+        console.log('[/api/staff] Added primary institution:', userProfile.institution_id);
       }
 
+      // Additional access: Institutions granted via user_institution_access (for billing module)
+      const { data: additionalAccess } = await supabaseAdmin
+        .from('user_institution_access')
+        .select('institution_id')
+        .eq('user_id', session.user.id)
+        .eq('is_active', true);
+
+      if (additionalAccess && additionalAccess.length > 0) {
+        // Add additional institutions (avoiding duplicates)
+        const additionalIds = additionalAccess.map((a) => a.institution_id);
+        accessibleInstitutionIds = [...new Set([...accessibleInstitutionIds, ...additionalIds])];
+        console.log('[/api/staff] Added additional institutions from user_institution_access:', additionalIds.length);
+      }
+
+      console.log('[/api/staff] Total accessible institutions:', accessibleInstitutionIds.length);
+
+      // User must have at least their primary institution
       if (accessibleInstitutionIds.length === 0) {
         console.warn('[/api/staff] User has no institution access');
         return NextResponse.json(

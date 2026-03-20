@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     // Check permissions
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role, institution_id, is_super_admin')
+      .select('role, institution_id')
       .eq('id', user.id)
       .single();
 
@@ -91,8 +91,6 @@ export async function GET(request: NextRequest) {
         { status: 404 }
       );
     }
-
-    const isSuperAdmin = profile.is_super_admin || profile.role === 'super_admin';
 
     const searchParams = request.nextUrl.searchParams;
 
@@ -133,12 +131,11 @@ export async function GET(request: NextRequest) {
       )
       .order('created_at', { ascending: false });
 
-    // Apply institution scoping
-    // Super admins see all; others are scoped to their institution
+    // Apply filters
     const institutionId = searchParams.get('institutionId');
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
-    } else if (!isSuperAdmin && profile.institution_id) {
+    } else if (profile.institution_id) {
       query = query.eq('institution_id', profile.institution_id);
     }
 

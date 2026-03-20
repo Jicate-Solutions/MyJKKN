@@ -57,7 +57,7 @@ export class NAACReportService {
 
     // Deduplicate year names (multiple institutions may share the same year label)
     const years: string[] = [
-      ...new Set(
+      ...new Set<string>(
         (academicYearsData || []).map(
           (y: { academic_year_name: string }) => y.academic_year_name
         )

@@ -85,8 +85,13 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
     setIsSearching(true);
 
     try {
-      // Build new params from localFilters
-      const params = new URLSearchParams();
+      // Start from current URL params to preserve text search and other state
+      const params = new URLSearchParams(currentSearchParams.toString());
+
+      // Clear all filter-specific params first, then re-set active ones
+      const filterKeys = ['institution_id', 'degree_id', 'department_id', 'program_id',
+        'semester_id', 'section_id', 'academic_year_id', 'gender', 'is_profile_complete'];
+      filterKeys.forEach(key => params.delete(key));
 
       // Add all local filters to params
       Object.entries(localFilters).forEach(([key, value]) => {
@@ -95,20 +100,14 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
         }
       });
 
-      // Preserve current tab/status filter
-      const currentTab = currentSearchParams.get('lifecycle_status') || statusFilter;
-      if (currentTab) {
-        params.set('lifecycle_status', currentTab);
-      }
-
-      // Preserve page size if it exists
-      const currentPageSize = currentSearchParams.get('pageSize');
-      if (currentPageSize) {
-        params.set('pageSize', currentPageSize);
-      }
-
       // Reset to page 1
       params.set('page', '1');
+
+      // Debug: Log the URL being navigated to
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[ProfilesFilters] Search URL:', `/learners/profiles?${params.toString()}`);
+        console.log('[ProfilesFilters] localFilters:', JSON.stringify(localFilters));
+      }
 
       // Navigate with new params
       router.push(`/learners/profiles?${params.toString()}`);
@@ -133,21 +132,15 @@ export function ProfilesFilters({ searchParams, statusFilter }: ProfilesFiltersP
       is_profile_complete: undefined
     });
 
-    // Navigate to clean URL preserving tab
-    const params = new URLSearchParams();
+    // Start from current URL to preserve text search params
+    const params = new URLSearchParams(currentSearchParams.toString());
+
+    // Remove only filter-specific params
+    const filterKeys = ['institution_id', 'degree_id', 'department_id', 'program_id',
+      'semester_id', 'section_id', 'academic_year_id', 'gender', 'is_profile_complete'];
+    filterKeys.forEach(key => params.delete(key));
+
     params.set('page', '1');
-
-    // Preserve current tab/status filter
-    const currentTab = currentSearchParams.get('lifecycle_status') || statusFilter;
-    if (currentTab) {
-      params.set('lifecycle_status', currentTab);
-    }
-
-    // Preserve page size if it exists
-    const currentPageSize = currentSearchParams.get('pageSize');
-    if (currentPageSize) {
-      params.set('pageSize', currentPageSize);
-    }
 
     router.push(`/learners/profiles?${params.toString()}`);
     setIsSearching(false);

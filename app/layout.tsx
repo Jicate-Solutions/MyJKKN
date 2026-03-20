@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import { Poppins } from 'next/font/google';
-import { Suspense } from 'react';
 import './globals.css';
 import { PushNotificationProvider } from '@/components/notifications/push-notification-provider';
 import { PWAProvider } from '@/components/pwa/pwa-provider';
@@ -163,6 +162,22 @@ export default function RootLayout({
 }>) {
   return (
     <html lang='en' suppressHydrationWarning>
+      <head>
+        {/* Preconnect to critical third-party origins — shaves ~200-400ms off first request */}
+        <link
+          rel='preconnect'
+          href='https://kvizhngldtiuufknvehv.supabase.co'
+          crossOrigin='anonymous'
+        />
+        <link
+          rel='preconnect'
+          href='https://accounts.google.com'
+        />
+        <link
+          rel='dns-prefetch'
+          href='https://apis.google.com'
+        />
+      </head>
       <body className={`${poppins.variable} font-sans antialiased`} suppressHydrationWarning>
         <ThemeProvider
           attribute='class'
@@ -171,20 +186,17 @@ export default function RootLayout({
           disableTransitionOnChange
           storageKey='theme-preference'
         >
-          <Suspense>
-            <AuthProvider>
-              <PWAProvider>
-                <PushNotificationProvider>{children}</PushNotificationProvider>
-                <SpeedInsights />
-              </PWAProvider>
-            </AuthProvider>
-          </Suspense>
+          <AuthProvider>
+            <PWAProvider>
+              <PushNotificationProvider>{children}</PushNotificationProvider>
+              <SpeedInsights />
+            </PWAProvider>
+          </AuthProvider>
         </ThemeProvider>
         <Script
           src='https://accounts.google.com/gsi/client'
-          async
-          defer
-        ></Script>
+          strategy='lazyOnload'
+        />
       </body>
     </html>
   );

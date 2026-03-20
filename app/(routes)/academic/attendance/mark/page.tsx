@@ -52,12 +52,11 @@ import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
 import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
 import type { SubdivisionGroup, PeriodMode, PracticalConfig } from '@/types/academics';
-import type { LearningBehavior } from '@/types/attendance';
-import { LEARNING_BEHAVIOR_LABELS } from '@/types/attendance';
-import { Textarea } from '@/components/ui/textarea';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Sparkles, MessageSquare, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+// Updated: 2026-01-29 - Leave/OnDuty attendance integration
+import { LeaveOndutyAttendanceCheckService } from '@/lib/services/academic/leave-onduty-attendance-check-service';
+import { StudentLeaveIndicatorCompact } from './_components/student-leave-indicator';
+import type { ApprovedLeaveInfo } from '@/lib/services/academic/leave-onduty-attendance-check-service';
 
 export default function AttendanceMarkPage() {
   const router = useRouter();
@@ -100,11 +99,6 @@ export default function AttendanceMarkPage() {
   const [assignedStaff, setAssignedStaff] = useState<any[]>([]);
   const [loadingStaff, setLoadingStaff] = useState(false);
 
-  // P1.5.4 - Learning Engagement state
-  const [engagementData, setEngagementData] = useState<
-    Record<string, { score?: number; behaviors?: LearningBehavior[]; notes?: string }>
-  >({});
-
   // State for subdivided slot detection (Updated: 2025-10-11)
   const [isSubdividedSlot, setIsSubdividedSlot] = useState(false);
   const [subdivisionGroups, setSubdivisionGroups] = useState<
@@ -120,17 +114,20 @@ export default function AttendanceMarkPage() {
     batch_name: string;
     course_id: string;
     course_name: string;
+    course_code?: string;
     section_ids: string[];
+    staff?: { id: string; first_name: string; last_name: string; email?: string }[];
   } | null>(null);
 
   // Updated: 2025-01-16 - Leave block checking state
   const [leaveBlockInfo, setLeaveBlockInfo] = useState<LeaveBlockInfo | null>(null);
   const [checkingLeave, setCheckingLeave] = useState(false);
 
-  const { saveConsolidatedAttendance } = useConsolidatedAttendance();
+  // Updated: 2026-01-29 - Approved leave/onduty checking state
+  const [approvedLeaveMap, setApprovedLeaveMap] = useState<Map<string, ApprovedLeaveInfo>>(new Map());
+  const [loadingApprovedLeave, setLoadingApprovedLeave] = useState(false);
 
-  // P1.5.4 - Helper: is this a practical/lab period where engagement is required?
-  const isEngagementRequired = periodMode === 'practical' || isSubdividedSlot;
+  const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
   // Filter students based on search
   const filteredStudents = useMemo(() => {
@@ -198,10 +195,10 @@ export default function AttendanceMarkPage() {
             semester_id,
             section_id,
             timetable_data,
-            academic_years!timetables_academic_year_id_fkey(id, academic_year_name),
+            academic_years(id, academic_year_name),
             degrees(id, degree_name),
             programs(id, program_name),
-            departments!timetables_department_id_fkey(id, department_name)
+            departments(id, department_name)
           `
           )
           .eq('id', timetableId);
@@ -404,9 +401,48 @@ export default function AttendanceMarkPage() {
                   }
 
                   // NEW: Check if this is a practical period (Updated: 2025-10-25)
+                  // Updated: 2026-02-06 - Enrich practical_config with course details from DB
                   if (slot.period_mode === 'practical' && slot.practical_config) {
                     setPeriodMode('practical');
-                    setPracticalConfig(slot.practical_config);
+
+                    // Enrich available_courses with full course details (raw data may only have IDs)
+                    const config = { ...slot.practical_config };
+                    if (config.available_courses && Array.isArray(config.available_courses)) {
+                      const courseIds = config.available_courses
+                        .map((c: any) => typeof c === 'string' ? c : c.course_id)
+                        .filter(Boolean);
+
+                      if (courseIds.length > 0) {
+                        const needsEnrichment = config.available_courses.some(
+                          (c: any) => typeof c === 'string' || !c.course_name
+                        );
+
+                        if (needsEnrichment) {
+                          try {
+                            const { data: coursesData } = await supabase
+                              .from('courses')
+                              .select('id, course_name, course_code')
+                              .in('id', courseIds);
+
+                            if (coursesData && coursesData.length > 0) {
+                              const coursesMap = new Map(
+                                coursesData.map((c: any) => [c.id, c])
+                              );
+                              config.available_courses = courseIds.map((id: string) => {
+                                const course = coursesMap.get(id);
+                                return course
+                                  ? { course_id: id, course_name: course.course_name, course_code: course.course_code }
+                                  : { course_id: id, course_name: id, course_code: '' };
+                              });
+                            }
+                          } catch (enrichError) {
+                            logger.warn('academic/attendance/mark', 'Could not enrich practical courses', enrichError);
+                          }
+                        }
+                      }
+                    }
+
+                    setPracticalConfig(config);
                   } else {
                     setPeriodMode('standard');
                     setPracticalConfig(null);
@@ -673,6 +709,69 @@ export default function AttendanceMarkPage() {
     periodMode,
     practicalSelection
   ]);
+
+  // Updated: 2026-01-29 - Check for approved leave/onduty applications
+  useEffect(() => {
+    const loadApprovedLeave = async () => {
+      // Wait for required parameters
+      if (!sectionId || !date || !periodId || students.length === 0) {
+        return;
+      }
+
+      try {
+        setLoadingApprovedLeave(true);
+
+        logger.dev('academic/attendance/mark', 'Checking approved leave', {
+          sectionId,
+          date,
+          periodId
+        });
+
+        const approvedLeave = await LeaveOndutyAttendanceCheckService
+          .getApprovedLeaveForAttendance(
+            sectionId,
+            date,
+            [periodId]
+          );
+
+        // Create map for quick lookup
+        const leaveMap = new Map<string, ApprovedLeaveInfo>();
+        for (const leave of approvedLeave) {
+          leaveMap.set(leave.learner_id, leave);
+        }
+
+        setApprovedLeaveMap(leaveMap);
+
+        logger.info('academic/attendance/mark', 'Loaded approved leave', {
+          count: approvedLeave.length,
+          students: Array.from(leaveMap.keys())
+        });
+
+        // Pre-fill attendance status based on approved leave
+        if (leaveMap.size > 0 && !existingAttendance) {
+          setAttendanceData((prev) => {
+            const updated = { ...prev };
+            for (const [studentId, leaveInfo] of leaveMap.entries()) {
+              // Only update if student hasn't been manually marked yet
+              if (updated[studentId] === 'Present') {
+                updated[studentId] = leaveInfo.category === 'leave' ? 'Absent' : 'Present';
+              }
+            }
+            return updated;
+          });
+
+          toast.success(`Pre-filled attendance for ${leaveMap.size} student(s) with approved leave/onduty`);
+        }
+      } catch (error) {
+        logger.error('academic/attendance/mark', 'Error loading approved leave', error);
+        // Don't show error toast - this is optional functionality
+      } finally {
+        setLoadingApprovedLeave(false);
+      }
+    };
+
+    loadApprovedLeave();
+  }, [sectionId, date, periodId, students, existingAttendance]);
 
   // Check for existing attendance after context is loaded
   useEffect(() => {
@@ -1020,10 +1119,31 @@ export default function AttendanceMarkPage() {
   }
 
   // Toggle attendance status
+  // Updated: 2026-01-29 - Check approved leave before toggling
   const toggleAttendance = (studentId: string) => {
+    const newStatus = attendanceData[studentId] === 'Present' ? 'Absent' : 'Present';
+    const leaveInfo = approvedLeaveMap.get(studentId);
+
+    if (leaveInfo) {
+      const suggestedStatus = leaveInfo.category === 'leave' ? 'Absent' : 'Present';
+
+      if (newStatus !== suggestedStatus) {
+        const confirmed = window.confirm(
+          `⚠️ Warning: This student has approved ${leaveInfo.category} (${leaveInfo.subcategory}).\n\n` +
+          `Suggested status: ${suggestedStatus}\n` +
+          `You're trying to mark as: ${newStatus}\n\n` +
+          `Are you sure you want to override the approved ${leaveInfo.category}?`
+        );
+
+        if (!confirmed) {
+          return; // Don't change status
+        }
+      }
+    }
+
     setAttendanceData((prev) => ({
       ...prev,
-      [studentId]: prev[studentId] === 'Present' ? 'Absent' : 'Present'
+      [studentId]: newStatus
     }));
   };
 
@@ -1084,20 +1204,6 @@ export default function AttendanceMarkPage() {
     if (!institutionId) {
       toast.error('Missing institution information. Please try again.');
       return;
-    }
-
-    // P1.5.4 - Validate engagement scores for practical/lab periods
-    if (isEngagementRequired) {
-      const presentStudents = students.filter(s => attendanceData[s.id] === 'Present');
-      const missingEngagement = presentStudents.filter(
-        s => !engagementData[s.id]?.score || engagementData[s.id].score! < 1
-      );
-      if (missingEngagement.length > 0) {
-        toast.error(
-          `Engagement score is required for all present students in practical/lab periods. ${missingEngagement.length} student(s) missing scores.`
-        );
-        return;
-      }
     }
 
     // Show summary modal
@@ -1196,7 +1302,7 @@ export default function AttendanceMarkPage() {
         ? {
             course_id: practicalSelection.course_id || '',
             course_name: practicalSelection.course_name || 'Unknown Course',
-            course_code: 'N/A' // Course code may not be available from practical selection
+            course_code: practicalSelection.course_code || 'N/A'
           }
         : {
             course_id: courseDetails?.id || courseId || '',
@@ -1301,18 +1407,6 @@ export default function AttendanceMarkPage() {
             marker_email: markerEmail || profile?.email || '',
             marked_at: new Date().toISOString() // Add timestamp when period is marked
           },
-          // P1.5.4 - Period-level engagement metadata
-          engagement_required: isEngagementRequired,
-          ...(Object.keys(engagementData).length > 0 && {
-            average_engagement_score: (() => {
-              const scores = Object.values(engagementData)
-                .map(e => e.score)
-                .filter((s): s is number => s !== undefined && s > 0);
-              return scores.length > 0
-                ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
-                : undefined;
-            })()
-          }),
           // For non-subdivided or fallback, keep original structure
           students: isSubdividedSlot
             ? [] // Empty for subdivided (data is in groups)
@@ -1324,17 +1418,7 @@ export default function AttendanceMarkPage() {
                   effectiveSectionId ||
                   '', // Updated: 2025-10-09 - Ensure section_id is always provided
                 status: attendanceData[student.id] || 'Present',
-                marked_at: new Date().toISOString(),
-                // P1.5.4 - Learning engagement data per student
-                ...(engagementData[student.id]?.score && {
-                  engagement_score: engagementData[student.id].score
-                }),
-                ...(engagementData[student.id]?.behaviors && engagementData[student.id].behaviors!.length > 0 && {
-                  learning_behaviors: engagementData[student.id].behaviors
-                }),
-                ...(engagementData[student.id]?.notes && {
-                  engagement_notes: engagementData[student.id].notes
-                })
+                marked_at: new Date().toISOString()
               }))
         }
       };
@@ -1545,7 +1629,22 @@ export default function AttendanceMarkPage() {
           </Alert>
         )}
 
-        {/* Status Indicator */}
+        {/* Updated: 2026-02-06 - Practical Batch Selector moved to TOP for practical periods */}
+        {periodMode === 'practical' && practicalConfig && !practicalSelection && (
+          <PracticalAttendanceSelector
+            practicalConfig={practicalConfig}
+            periodId={periodId || ''}
+            date={date || ''}
+            timetableId={timetableId || ''}
+            onSelectionComplete={(selection) => {
+              setPracticalSelection(selection);
+            }}
+            onConflictCheck={(params) => AttendanceService.checkPracticalConflict(params)}
+          />
+        )}
+
+        {/* Status Indicator - hide for practical periods until batch is selected */}
+        {(periodMode !== 'practical' || practicalSelection) && (
         <div className='flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg dark:bg-blue-950 dark:border-blue-800/50'>
           <div className='flex-shrink-0'>
             {loadingStudents || loadingExistingAttendance ? (
@@ -1578,8 +1677,10 @@ export default function AttendanceMarkPage() {
               </div>
             )}
         </div>
+        )}
 
-        {/* Modern Header with Gradient Background */}
+        {/* Modern Header with Gradient Background - hide for practical periods until batch is selected */}
+        {(periodMode !== 'practical' || practicalSelection) && (<>
         <div className='relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-6 text-white shadow-lg'>
           <div className='absolute inset-0 bg-black/20'></div>
           <div className='relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4'>
@@ -1587,7 +1688,18 @@ export default function AttendanceMarkPage() {
               <Button
                 variant='secondary'
                 size='sm'
-                onClick={() => router.push('/academic/attendance')}
+                onClick={() => {
+                  if (practicalSelection) {
+                    // Go back to batch selection instead of leaving the page
+                    setPracticalSelection(null);
+                    setStudents([]);
+                    setAttendanceData({});
+                    setExistingAttendance(null);
+                    setAssignedStaff([]);
+                  } else {
+                    router.push('/academic/attendance');
+                  }
+                }}
                 className='bg-white/20 hover:bg-white/30 text-white border-white/30'
               >
                 <ArrowLeft className='h-4 w-4' />
@@ -1599,7 +1711,7 @@ export default function AttendanceMarkPage() {
                   Mark Attendance
                 </h1>
                 <p className='text-blue-100 text-sm'>
-                  {courseName || 'Unknown Course'} • {periodName}
+                  {practicalSelection?.course_name || courseName || 'Unknown Course'} • {periodName}
                 </p>
               </div>
             </div>
@@ -1613,8 +1725,13 @@ export default function AttendanceMarkPage() {
                 <Clock className='h-3 w-3 mr-1' />
                 {startTime} - {endTime}
               </Badge>
-              {/* Updated: 2025-10-08 - Support for multi-section display */}
-              {contextData?.slot_sections &&
+              {/* Updated: 2026-02-06 - Show batch name for practical periods */}
+              {practicalSelection ? (
+                <Badge className='bg-purple-500/30 text-white border-purple-300/50 hover:bg-purple-500/40'>
+                  <Users className='h-3 w-3 mr-1' />
+                  Batch: {practicalSelection.batch_name}
+                </Badge>
+              ) : contextData?.slot_sections &&
               contextData.slot_sections.length > 0 ? (
                 <Badge className='bg-green-500/30 text-white border-green-300/50 hover:bg-green-500/40'>
                   <Users className='h-3 w-3 mr-1' />
@@ -1688,8 +1805,17 @@ export default function AttendanceMarkPage() {
                         </div>
                       )}
 
-                      {/* Updated: 2025-10-08 - Support for multi-section display */}
-                      {(contextData?.slot_sections &&
+                      {/* Updated: 2026-02-06 - Show batch name for practical periods */}
+                      {practicalSelection ? (
+                        <div className='bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4 border border-purple-200 dark:border-purple-700'>
+                          <span className='text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider font-semibold'>
+                            Batch
+                          </span>
+                          <p className='text-sm font-bold text-purple-700 dark:text-purple-300 mt-1'>
+                            {practicalSelection.batch_name}
+                          </p>
+                        </div>
+                      ) : (contextData?.slot_sections &&
                         contextData.slot_sections.length > 0) ||
                       contextData?.section_name ? (
                         <div
@@ -1741,7 +1867,26 @@ export default function AttendanceMarkPage() {
                         </span>
                       </div>
 
-                      {loadingStaff ? (
+                      {/* Updated: 2026-02-06 - Show practical selection staff when available */}
+                      {practicalSelection?.staff && practicalSelection.staff.length > 0 ? (
+                        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
+                          {practicalSelection.staff.map((staff) => (
+                            <div
+                              key={staff.id}
+                              className='flex items-center gap-3 p-3 rounded-lg border-2 transition-all bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                            >
+                              <div className='p-2 rounded-full bg-purple-100 dark:bg-purple-800'>
+                                <User className='h-4 w-4 text-purple-600 dark:text-purple-400' />
+                              </div>
+                              <div className='flex-1 min-w-0'>
+                                <p className='text-sm font-semibold text-gray-900 dark:text-gray-100 truncate'>
+                                  {`${staff.first_name} ${staff.last_name}`.trim()}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : loadingStaff ? (
                         <div className='flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg'>
                           <div className='animate-spin h-5 w-5 border-3 border-blue-600 border-t-transparent rounded-full'></div>
                           <span className='text-gray-600 dark:text-gray-400 text-sm'>
@@ -1811,7 +1956,7 @@ export default function AttendanceMarkPage() {
                     Course:
                   </span>
                   <span className='text-gray-900 dark:text-gray-200 font-semibold'>
-                    {courseName || 'N/A'}
+                    {practicalSelection?.course_code ? `${practicalSelection.course_code} - ` : ''}{practicalSelection?.course_name || courseName || 'N/A'}
                   </span>
                 </div>
                 <div className='flex flex-col items-start gap-2'>
@@ -1872,10 +2017,10 @@ export default function AttendanceMarkPage() {
                 </div>
                 <div className='flex flex-col items-start gap-2'>
                   <span className='text-gray-600 dark:text-gray-400 font-medium'>
-                    Section:
+                    {practicalSelection ? 'Batch:' : 'Section:'}
                   </span>
                   <span className='text-gray-900 dark:text-gray-200 font-semibold'>
-                    {contextData.section_name || 'N/A'}
+                    {practicalSelection ? practicalSelection.batch_name : (contextData.section_name || 'N/A')}
                   </span>
                 </div>
                 <div className='flex flex-col items-start gap-2'>
@@ -2050,32 +2195,7 @@ export default function AttendanceMarkPage() {
             </CardContent>
           </Card>
         </div>
-
-        {/* P1.5.4 - Engagement Required Alert for Practical/Lab */}
-        {isEngagementRequired && (!existingAttendance || isEditMode) && (
-          <Alert className='border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700'>
-            <Sparkles className='h-4 w-4 text-amber-600 dark:text-amber-400' />
-            <AlertDescription className='text-amber-800 dark:text-amber-200'>
-              This is a practical/lab session. <strong>Engagement scores are required</strong> for all present students before saving.
-              Rate each student 1-5 stars, then optionally add learning behaviors and notes.
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* NEW: Practical Attendance Selector (Updated: 2025-10-25) */}
-        {periodMode === 'practical' && practicalConfig && !practicalSelection && (
-          <PracticalAttendanceSelector
-            practicalConfig={practicalConfig}
-            periodId={periodId || ''}
-            date={date || ''}
-            timetableId={timetableId || ''}
-            onSelectionComplete={(selection) => {
-              setPracticalSelection(selection);
-              // Students will be loaded in the existing useEffect when practicalSelection changes
-            }}
-            onConflictCheck={AttendanceService.checkPracticalConflict}
-          />
-        )}
+        </>)}
 
         {/* Show only after practical selection is made (if practical period) or always (if standard period) */}
         {(periodMode === 'standard' || practicalSelection) && (
@@ -2281,9 +2401,17 @@ export default function AttendanceMarkPage() {
 
                       {/* Student Info */}
                       <div className='w-full'>
-                        <h3 className='font-semibold text-gray-900 dark:text-gray-100 text-sm leading-tight'>
-                          {student.first_name} {student.last_name}
-                        </h3>
+                        <div className='flex items-center justify-center gap-2'>
+                          <h3 className='font-semibold text-gray-900 dark:text-gray-100 text-sm leading-tight'>
+                            {student.first_name} {student.last_name}
+                          </h3>
+                          {/* Updated: 2026-01-29 - Show leave indicator if student has approved leave */}
+                          {approvedLeaveMap.has(student.id) && (
+                            <StudentLeaveIndicatorCompact
+                              leaveInfo={approvedLeaveMap.get(student.id)!}
+                            />
+                          )}
+                        </div>
                         <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 font-medium'>
                           Roll: {student.roll_number || 'N/A'}
                         </p>
@@ -2337,133 +2465,6 @@ export default function AttendanceMarkPage() {
                           </>
                         )}
                       </Button>
-
-                      {/* P1.5.4 - Engagement Score (only for present students) */}
-                      {attendanceData[student.id] === 'Present' && (
-                        <div className='w-full space-y-1.5 pt-1 border-t border-gray-200 dark:border-gray-700'>
-                          <div className='flex items-center justify-between'>
-                            <span className='text-[10px] font-medium text-gray-500 dark:text-gray-400 flex items-center gap-1'>
-                              <Sparkles className='h-3 w-3' />
-                              Engagement
-                              {isEngagementRequired && <span className='text-red-500'>*</span>}
-                            </span>
-                            <div className='flex items-center gap-1'>
-                              {[1, 2, 3, 4, 5].map((star) => (
-                                <button
-                                  key={star}
-                                  type='button'
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (!existingAttendance || isEditMode) {
-                                      setEngagementData(prev => ({
-                                        ...prev,
-                                        [student.id]: {
-                                          ...prev[student.id],
-                                          score: prev[student.id]?.score === star ? undefined : star
-                                        }
-                                      }));
-                                    }
-                                  }}
-                                  disabled={existingAttendance && !isEditMode}
-                                  className={cn(
-                                    'transition-colors',
-                                    (engagementData[student.id]?.score || 0) >= star
-                                      ? 'text-amber-400'
-                                      : 'text-gray-300 dark:text-gray-600',
-                                    !(existingAttendance && !isEditMode) && 'hover:text-amber-300'
-                                  )}
-                                >
-                                  <Star className='h-3.5 w-3.5 fill-current' />
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          {/* Behaviors & Notes Popover */}
-                          {attendanceData[student.id] === 'Present' && engagementData[student.id]?.score && (
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <button
-                                  type='button'
-                                  onClick={(e) => e.stopPropagation()}
-                                  className='w-full text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center justify-center gap-1'
-                                >
-                                  <MessageSquare className='h-3 w-3' />
-                                  {engagementData[student.id]?.behaviors?.length
-                                    ? `${engagementData[student.id].behaviors!.length} behaviors`
-                                    : 'Add behaviors'}
-                                </button>
-                              </PopoverTrigger>
-                              <PopoverContent
-                                className='w-72 p-3'
-                                align='center'
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <div className='space-y-3'>
-                                  <p className='text-xs font-semibold text-gray-700 dark:text-gray-300'>
-                                    Learning Behaviors
-                                  </p>
-                                  <div className='flex flex-wrap gap-1.5'>
-                                    {(Object.keys(LEARNING_BEHAVIOR_LABELS) as LearningBehavior[]).map((behavior) => {
-                                      const isSelected = engagementData[student.id]?.behaviors?.includes(behavior);
-                                      return (
-                                        <button
-                                          key={behavior}
-                                          type='button'
-                                          onClick={() => {
-                                            if (existingAttendance && !isEditMode) return;
-                                            setEngagementData(prev => {
-                                              const current = prev[student.id]?.behaviors || [];
-                                              const updated = isSelected
-                                                ? current.filter(b => b !== behavior)
-                                                : [...current, behavior];
-                                              return {
-                                                ...prev,
-                                                [student.id]: {
-                                                  ...prev[student.id],
-                                                  behaviors: updated
-                                                }
-                                              };
-                                            });
-                                          }}
-                                          disabled={existingAttendance && !isEditMode}
-                                          className={cn(
-                                            'px-2 py-1 rounded-full text-[10px] font-medium border transition-colors',
-                                            isSelected
-                                              ? 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-600'
-                                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700'
-                                          )}
-                                        >
-                                          {LEARNING_BEHAVIOR_LABELS[behavior]}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                  <div>
-                                    <p className='text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1'>
-                                      Notes
-                                    </p>
-                                    <Textarea
-                                      placeholder='Optional engagement notes...'
-                                      value={engagementData[student.id]?.notes || ''}
-                                      onChange={(e) => {
-                                        setEngagementData(prev => ({
-                                          ...prev,
-                                          [student.id]: {
-                                            ...prev[student.id],
-                                            notes: e.target.value
-                                          }
-                                        }));
-                                      }}
-                                      disabled={existingAttendance && !isEditMode}
-                                      className='h-16 text-xs resize-none'
-                                    />
-                                  </div>
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -2583,8 +2584,6 @@ export default function AttendanceMarkPage() {
           startTime={startTime || undefined}
           endTime={endTime || undefined}
           existingAttendance={existingAttendance}
-          engagementData={engagementData}
-          isEngagementRequired={isEngagementRequired}
         />
       </div>
     </ContentLayout>

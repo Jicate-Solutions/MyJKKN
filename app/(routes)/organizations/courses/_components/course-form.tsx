@@ -29,8 +29,7 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { BookOpen, Clock, FlaskConical, GraduationCap } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 
 const courseSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
@@ -40,11 +39,7 @@ const courseSchema = z.object({
     .max(20, 'Course code must be at most 20 characters')
     .transform((val) => val.toUpperCase()),
   course_name: z.string().min(2, 'Course name must be at least 2 characters'),
-  is_active: z.boolean().default(true),
-  theory_hours: z.coerce.number().int().min(0).optional().nullable(),
-  practical_hours: z.coerce.number().int().min(0).optional().nullable(),
-  self_study_hours: z.coerce.number().int().min(0).optional().nullable(),
-  learning_hours_target: z.coerce.number().int().min(0).optional().nullable()
+  is_active: z.boolean().default(true)
 });
 
 type FormValues = z.infer<typeof courseSchema>;
@@ -68,23 +63,11 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
       institution_id: course?.institution_id || '',
       course_code: course?.course_code || '',
       course_name: course?.course_name || '',
-      is_active: course?.is_active ?? true,
-      theory_hours: course?.theory_hours ?? null,
-      practical_hours: course?.practical_hours ?? null,
-      self_study_hours: course?.self_study_hours ?? null,
-      learning_hours_target: course?.learning_hours_target ?? null
+      is_active: course?.is_active ?? true
     }
   });
 
   const watchedInstitutionId = form.watch('institution_id');
-  const watchedTheory = form.watch('theory_hours');
-  const watchedPractical = form.watch('practical_hours');
-  const watchedSelfStudy = form.watch('self_study_hours');
-
-  const calculatedTotal =
-    (Number(watchedTheory) || 0) +
-    (Number(watchedPractical) || 0) +
-    (Number(watchedSelfStudy) || 0);
 
   useEffect(() => {
     async function loadInstitutions() {
@@ -102,24 +85,10 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
     try {
       setIsSubmitting(true);
 
-      // Auto-calculate total learning hours from components
-      const total =
-        (Number(values.theory_hours) || 0) +
-        (Number(values.practical_hours) || 0) +
-        (Number(values.self_study_hours) || 0);
-      const submitData = {
-        ...values,
-        learning_hours_target: total > 0 ? total : null,
-        // Convert empty/0 values to null for clean storage
-        theory_hours: values.theory_hours || null,
-        practical_hours: values.practical_hours || null,
-        self_study_hours: values.self_study_hours || null
-      };
-
       if (isEditing && course) {
-        await CourseService.updateCourse(course.id, submitData as any);
+        await CourseService.updateCourse(course.id, values as any);
       } else {
-        await CourseService.createCourse(submitData as any);
+        await CourseService.createCourse(values as any);
       }
 
       // Invalidate and refetch course queries
@@ -230,125 +199,6 @@ export function CourseForm({ course, isEditing }: CourseFormProps) {
                 )}
               />
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className='flex items-center gap-2'>
-              <Clock className='h-5 w-5' />
-              Learning Hours
-            </CardTitle>
-            <CardDescription>
-              Break down total learning hours by category. These inform competency coverage and timetable planning.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className='space-y-6'>
-            <div className='grid gap-6 md:grid-cols-3'>
-              <FormField
-                control={form.control}
-                name='theory_hours'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className='flex items-center gap-1.5'>
-                      <GraduationCap className='h-4 w-4 text-blue-500' />
-                      Theory / Lecture Hours
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={0}
-                        placeholder='e.g., 45'
-                        {...field}
-                        value={field.value ?? ''}
-                        onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormDescription>Classroom lectures and tutorials</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='practical_hours'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className='flex items-center gap-1.5'>
-                      <FlaskConical className='h-4 w-4 text-green-500' />
-                      Practical / Lab Hours
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={0}
-                        placeholder='e.g., 30'
-                        {...field}
-                        value={field.value ?? ''}
-                        onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormDescription>Lab sessions, workshops, projects</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name='self_study_hours'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className='flex items-center gap-1.5'>
-                      <BookOpen className='h-4 w-4 text-purple-500' />
-                      Self-Study Hours
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type='number'
-                        min={0}
-                        placeholder='e.g., 25'
-                        {...field}
-                        value={field.value ?? ''}
-                        onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
-                      />
-                    </FormControl>
-                    <FormDescription>Independent study and assignments</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className='flex items-center justify-between rounded-lg border p-4 bg-muted/50'>
-              <div className='space-y-1'>
-                <p className='text-sm font-medium'>Total Learning Hours</p>
-                <p className='text-xs text-muted-foreground'>
-                  Sum of theory + practical + self-study
-                </p>
-              </div>
-              <div className='text-right'>
-                <p className='text-2xl font-bold'>
-                  {calculatedTotal > 0 ? calculatedTotal : '—'}
-                </p>
-                {calculatedTotal > 0 && (
-                  <p className='text-xs text-muted-foreground'>hours</p>
-                )}
-              </div>
-            </div>
-
-            <FormField
-              control={form.control}
-              name='learning_hours_target'
-              render={({ field }) => (
-                <FormItem className='hidden'>
-                  <FormControl>
-                    <Input type='hidden' {...field} value={calculatedTotal || ''} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
           </CardContent>
         </Card>
 

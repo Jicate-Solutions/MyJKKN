@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Calendar,
@@ -22,12 +23,10 @@ import {
   RefreshCw,
   BarChart3,
   Clock,
-  AlertTriangle,
-  Search
+  AlertTriangle
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useFacultyCalendar } from '@/hooks/academic/use-faculty-calendar';
 import type { FacultyCalendarFilters } from '@/types/faculty-calendar';
 import { FacultyCalendarFilters as FiltersComponent } from '../_components/faculty-calendar-filters';
 import { FacultyCalendar } from '../_components/faculty-calendar';
@@ -49,71 +48,7 @@ export default function AdminFacultyCalendarPage() {
   const [showFilters, setShowFilters] = useState(true);
   const [showCalendar, setShowCalendar] = useState(false);
 
-  // Use the hook to get stats data when calendar is active
-  const { slots, events, courses, totalCount, isLoading, hasData, refresh } =
-    useFacultyCalendar({
-      viewMode: 'admin',
-      filters,
-      enabled: showCalendar
-    });
-
-  // Compute stats from loaded data
-  const stats = useMemo(() => {
-    if (!hasData || !slots.length) {
-      return {
-        totalFaculty: 0,
-        activeClasses: 0,
-        avgWorkloadHrs: 0,
-        conflicts: 0
-      };
-    }
-
-    // Unique faculty count
-    const facultySet = new Set<string>();
-    slots.forEach((slot) => {
-      if (slot.staff_members) {
-        slot.staff_members.forEach((staff) => facultySet.add(staff.id));
-      }
-    });
-
-    // Active classes (non-break slots)
-    const activeClasses = slots.filter((s) => !s.is_break_slot).length;
-
-    // Avg workload (total hours / unique faculty)
-    const totalHours = slots.reduce((acc, slot) => {
-      const startTime = new Date(`2000-01-01T${slot.start_time}`);
-      const endTime = new Date(`2000-01-01T${slot.end_time}`);
-      const hours =
-        (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
-      return acc + (isNaN(hours) ? 0 : hours);
-    }, 0);
-    const avgHours =
-      facultySet.size > 0
-        ? Math.round((totalHours / facultySet.size) * 10) / 10
-        : 0;
-
-    // Conflicts: count slots where a faculty member appears in overlapping time
-    // Simple heuristic: count duplicate staff+time combinations
-    const slotMap = new Map<string, number>();
-    let conflictCount = 0;
-    slots.forEach((slot) => {
-      if (slot.staff_members) {
-        slot.staff_members.forEach((staff) => {
-          const key = `${staff.id}-${slot.day_of_week || slot.slot_date}-${slot.start_time}`;
-          const count = (slotMap.get(key) || 0) + 1;
-          slotMap.set(key, count);
-          if (count === 2) conflictCount++;
-        });
-      }
-    });
-
-    return {
-      totalFaculty: facultySet.size,
-      activeClasses,
-      avgWorkloadHrs: avgHours,
-      conflicts: conflictCount
-    };
-  }, [hasData, slots]);
+  // We don't need to use the hook here as the FacultyCalendar component handles its own data fetching
 
   // Handle filter changes
   const handleFiltersChange = (newFilters: FacultyCalendarFilters) => {
@@ -186,15 +121,8 @@ export default function AdminFacultyCalendarPage() {
                 Export
               </Button>
 
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => refresh()}
-                disabled={isLoading}
-              >
-                <RefreshCw
-                  className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`}
-                />
+              <Button variant='outline' size='sm'>
+                <RefreshCw className='h-4 w-4 mr-2' />
                 Refresh
               </Button>
             </div>
@@ -209,9 +137,7 @@ export default function AdminFacultyCalendarPage() {
                     <p className='text-sm font-medium text-muted-foreground'>
                       Total Faculty
                     </p>
-                    <p className='text-2xl font-bold'>
-                      {showCalendar ? stats.totalFaculty : 0}
-                    </p>
+                    <p className='text-2xl font-bold'>--</p>
                   </div>
                   <Users className='h-8 w-8 text-blue-600' />
                 </div>
@@ -225,9 +151,7 @@ export default function AdminFacultyCalendarPage() {
                     <p className='text-sm font-medium text-muted-foreground'>
                       Active Classes
                     </p>
-                    <p className='text-2xl font-bold'>
-                      {showCalendar ? stats.activeClasses : 0}
-                    </p>
+                    <p className='text-2xl font-bold'>--</p>
                   </div>
                   <Calendar className='h-8 w-8 text-green-600' />
                 </div>
@@ -241,9 +165,7 @@ export default function AdminFacultyCalendarPage() {
                     <p className='text-sm font-medium text-muted-foreground'>
                       Avg. Workload
                     </p>
-                    <p className='text-2xl font-bold'>
-                      {showCalendar ? `${stats.avgWorkloadHrs}hrs` : '0hrs'}
-                    </p>
+                    <p className='text-2xl font-bold'>--hrs</p>
                   </div>
                   <Clock className='h-8 w-8 text-purple-600' />
                 </div>
@@ -257,9 +179,7 @@ export default function AdminFacultyCalendarPage() {
                     <p className='text-sm font-medium text-muted-foreground'>
                       Conflicts
                     </p>
-                    <p className='text-2xl font-bold'>
-                      {showCalendar ? stats.conflicts : 0}
-                    </p>
+                    <p className='text-2xl font-bold'>--</p>
                   </div>
                   <AlertTriangle className='h-8 w-8 text-red-600' />
                 </div>
@@ -359,13 +279,7 @@ export default function AdminFacultyCalendarPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <AvailabilityEmptyState
-                    hasFilters={showCalendar}
-                    onShowFilters={() => {
-                      setActiveTab('calendar');
-                      setShowFilters(true);
-                    }}
-                  />
+                  <AvailabilityMatrixPlaceholder />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -379,13 +293,7 @@ export default function AdminFacultyCalendarPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <WorkloadEmptyState
-                    hasFilters={showCalendar}
-                    onShowFilters={() => {
-                      setActiveTab('calendar');
-                      setShowFilters(true);
-                    }}
-                  />
+                  <WorkloadAnalysisPlaceholder />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -399,14 +307,7 @@ export default function AdminFacultyCalendarPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ConflictsEmptyState
-                    hasFilters={showCalendar}
-                    conflictCount={stats.conflicts}
-                    onShowFilters={() => {
-                      setActiveTab('calendar');
-                      setShowFilters(true);
-                    }}
-                  />
+                  <ConflictsPlaceholder />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -417,141 +318,55 @@ export default function AdminFacultyCalendarPage() {
   );
 }
 
-// Empty state components for tabs that require filters
+// Placeholder components for other tabs
 
-function AvailabilityEmptyState({
-  hasFilters,
-  onShowFilters
-}: {
-  hasFilters: boolean;
-  onShowFilters: () => void;
-}) {
-  if (!hasFilters) {
-    return (
-      <div className='flex flex-col items-center justify-center py-10 text-center'>
-        <Search className='h-10 w-10 text-muted-foreground/50 mb-3' />
-        <h3 className='font-medium text-foreground'>
-          No Filters Applied
-        </h3>
-        <p className='text-sm text-muted-foreground mt-1 max-w-sm'>
-          Apply filters in the Calendar View tab to select an institution and
-          department, then check faculty availability here.
-        </p>
-        <Button variant='outline' className='mt-4' onClick={onShowFilters}>
-          <Filter className='h-4 w-4 mr-2' />
-          Go to Filters
-        </Button>
-      </div>
-    );
-  }
-
+function AvailabilityMatrixPlaceholder() {
   return (
-    <div className='flex flex-col items-center justify-center py-10 text-center'>
-      <Users className='h-10 w-10 text-muted-foreground/50 mb-3' />
-      <h3 className='font-medium text-foreground'>
-        No Availability Data Found
-      </h3>
-      <p className='text-sm text-muted-foreground mt-1 max-w-sm'>
-        No faculty availability data was found for the selected filters. Try
-        adjusting your institution, department, or date range selection.
-      </p>
+    <div className='flex items-center justify-center h-64 border-2 border-dashed border-gray-300 rounded-lg'>
+      <div className='text-center'>
+        <Users className='h-12 w-12 text-gray-400 mx-auto mb-4' />
+        <h3 className='text-lg font-semibold text-gray-900 mb-2'>
+          Availability Matrix
+        </h3>
+        <p className='text-gray-600 mb-4'>
+          Real-time faculty availability for scheduling
+        </p>
+        <Badge variant='secondary'>Coming Soon</Badge>
+      </div>
     </div>
   );
 }
 
-function WorkloadEmptyState({
-  hasFilters,
-  onShowFilters
-}: {
-  hasFilters: boolean;
-  onShowFilters: () => void;
-}) {
-  if (!hasFilters) {
-    return (
-      <div className='flex flex-col items-center justify-center py-10 text-center'>
-        <Search className='h-10 w-10 text-muted-foreground/50 mb-3' />
-        <h3 className='font-medium text-foreground'>
-          No Filters Applied
-        </h3>
-        <p className='text-sm text-muted-foreground mt-1 max-w-sm'>
-          Apply filters in the Calendar View tab to select an institution and
-          department, then view workload analysis here.
-        </p>
-        <Button variant='outline' className='mt-4' onClick={onShowFilters}>
-          <Filter className='h-4 w-4 mr-2' />
-          Go to Filters
-        </Button>
-      </div>
-    );
-  }
-
+function WorkloadAnalysisPlaceholder() {
   return (
-    <div className='flex flex-col items-center justify-center py-10 text-center'>
-      <BarChart3 className='h-10 w-10 text-muted-foreground/50 mb-3' />
-      <h3 className='font-medium text-foreground'>
-        No Workload Data Found
-      </h3>
-      <p className='text-sm text-muted-foreground mt-1 max-w-sm'>
-        No workload data was found for the selected filters. Try adjusting your
-        institution, department, or date range selection.
-      </p>
+    <div className='flex items-center justify-center h-64 border-2 border-dashed border-gray-300 rounded-lg'>
+      <div className='text-center'>
+        <BarChart3 className='h-12 w-12 text-gray-400 mx-auto mb-4' />
+        <h3 className='text-lg font-semibold text-gray-900 mb-2'>
+          Workload Distribution
+        </h3>
+        <p className='text-gray-600 mb-4'>
+          Faculty workload analytics and utilization charts
+        </p>
+        <Badge variant='secondary'>Coming Soon</Badge>
+      </div>
     </div>
   );
 }
 
-function ConflictsEmptyState({
-  hasFilters,
-  conflictCount,
-  onShowFilters
-}: {
-  hasFilters: boolean;
-  conflictCount: number;
-  onShowFilters: () => void;
-}) {
-  if (!hasFilters) {
-    return (
-      <div className='flex flex-col items-center justify-center py-10 text-center'>
-        <Search className='h-10 w-10 text-muted-foreground/50 mb-3' />
-        <h3 className='font-medium text-foreground'>
-          No Filters Applied
-        </h3>
-        <p className='text-sm text-muted-foreground mt-1 max-w-sm'>
-          Apply filters in the Calendar View tab to select an institution and
-          department, then check for scheduling conflicts here.
-        </p>
-        <Button variant='outline' className='mt-4' onClick={onShowFilters}>
-          <Filter className='h-4 w-4 mr-2' />
-          Go to Filters
-        </Button>
-      </div>
-    );
-  }
-
-  if (conflictCount === 0) {
-    return (
-      <div className='flex flex-col items-center justify-center py-10 text-center'>
-        <AlertTriangle className='h-10 w-10 text-green-500/50 mb-3' />
-        <h3 className='font-medium text-foreground'>
-          No Scheduling Conflicts
-        </h3>
-        <p className='text-sm text-muted-foreground mt-1 max-w-sm'>
-          No scheduling overlaps or double-bookings were detected for the
-          selected filters. All faculty assignments appear conflict-free.
-        </p>
-      </div>
-    );
-  }
-
+function ConflictsPlaceholder() {
   return (
-    <div className='flex flex-col items-center justify-center py-10 text-center'>
-      <AlertTriangle className='h-10 w-10 text-red-500/50 mb-3' />
-      <h3 className='font-medium text-foreground'>
-        {conflictCount} Conflict{conflictCount !== 1 ? 's' : ''} Detected
-      </h3>
-      <p className='text-sm text-muted-foreground mt-1 max-w-sm'>
-        Scheduling overlaps were detected for the selected filters. Review the
-        calendar view for details on affected time slots and faculty members.
-      </p>
+    <div className='flex items-center justify-center h-64 border-2 border-dashed border-gray-300 rounded-lg'>
+      <div className='text-center'>
+        <AlertTriangle className='h-12 w-12 text-gray-400 mx-auto mb-4' />
+        <h3 className='text-lg font-semibold text-gray-900 mb-2'>
+          Conflict Detection
+        </h3>
+        <p className='text-gray-600 mb-4'>
+          Automatic detection and resolution of scheduling conflicts
+        </p>
+        <Badge variant='secondary'>Coming Soon</Badge>
+      </div>
     </div>
   );
 }

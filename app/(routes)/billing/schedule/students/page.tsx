@@ -129,6 +129,7 @@ function BillingStudentsContent() {
   };
 
   const handleExport = () => {
+    console.log('Export students list with filters:', filters);
   };
 
   if (permissionsLoading || authLoading) {

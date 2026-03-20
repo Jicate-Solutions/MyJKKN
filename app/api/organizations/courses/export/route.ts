@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connection } from 'next/server';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import ExcelJS from 'exceljs';
@@ -9,7 +8,6 @@ import { Database } from '@/types/supabase';
 
 
 export async function GET(request: NextRequest) {
-  await connection();
   try {
     // Get query parameters
     const { searchParams } = new URL(request.url);

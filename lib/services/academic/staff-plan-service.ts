@@ -5,6 +5,8 @@ import {
 } from '@/lib/auth/api-institution-filter';
 import { TimetableStaffSyncService } from './timetable-staff-sync-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { AcademicYearService } from './academic-year-service';
 import type {
   StaffPlan,
   CreateStaffPlanDto,
@@ -12,6 +14,21 @@ import type {
   StaffPlanListResponse,
   StaffPlanCourse
 } from '@/types/staff-planning';
+
+export interface CloneStaffPlanOptions {
+  adjustDates?: boolean;
+  preserveInactive?: boolean;
+  excludeInactiveAssignments?: boolean;
+}
+
+export interface CloneStaffPlanResult {
+  success: boolean;
+  newPlanId?: string;
+  message: string;
+  excludedStaffCount?: number;
+  excludedCourseCount?: number;
+  clonedCount?: number;
+}
 
 export class StaffPlanService {
   private static supabase = createClientSupabaseClient();
@@ -108,6 +125,27 @@ export class StaffPlanService {
 
         if (updateError) throw updateError;
         staffPlan = updatedPlan as StaffPlan;
+
+        // Activity log: updated existing plan (merge path)
+        (async () => {
+          try {
+            const supabase = createClientSupabaseClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user?.id) return;
+            const planName = `Staff Plan ${staffPlan.id}`;
+            const template = AcademicActivityTemplates.staffPlanUpdated(planName, ['courses']);
+            await logActivityClient({
+              userId: user.id,
+              actionType: template.actionType,
+              resourceType: template.resourceType,
+              resourceId: staffPlan.id,
+              resourceName: planName,
+              description: template.description,
+              metadata: { sub_type: template.sub_type, merged: true },
+              institutionId: staffPlan.institution_id,
+            });
+          } catch { /* never block */ }
+        })();
       } else {
         // Create new staff plan
         const query: any = this.supabase.from('staff_plans');
@@ -131,6 +169,27 @@ export class StaffPlanService {
 
         if (planError) throw planError;
         staffPlan = newPlan as StaffPlan;
+
+        // Activity log: created new plan
+        (async () => {
+          try {
+            const supabase = createClientSupabaseClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user?.id) return;
+            const planName = `Staff Plan ${staffPlan.id}`;
+            const template = AcademicActivityTemplates.staffPlanCreated(planName);
+            await logActivityClient({
+              userId: user.id,
+              actionType: template.actionType,
+              resourceType: template.resourceType,
+              resourceId: staffPlan.id,
+              resourceName: planName,
+              description: template.description,
+              metadata: { sub_type: template.sub_type },
+              institutionId: staffPlan.institution_id,
+            });
+          } catch { /* never block */ }
+        })();
       }
 
       // Insert course assignments if courses exist and is not empty
@@ -680,7 +739,30 @@ export class StaffPlanService {
         if (insertError) throw insertError;
       }
 
-      return staffPlan as StaffPlan;
+      const result = staffPlan as StaffPlan;
+
+      // Activity log: updated staff plan
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const planName = `Staff Plan ${id}`;
+          const template = AcademicActivityTemplates.staffPlanUpdated(planName, Object.keys(data));
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: planName,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, changed_fields: Object.keys(data) },
+            institutionId: result.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
+      return result;
     } catch (error) {
       logger.error('academic/staff-planning', 'Error updating staff plan', error);
       throw error;
@@ -688,6 +770,13 @@ export class StaffPlanService {
   }
 
   static async getStaffPlan(id: string): Promise<StaffPlan> {
+    // Validate id parameter
+    if (!id || id === 'undefined' || id === 'null') {
+      const error = new Error(`Invalid staff plan ID: ${id}`);
+      logger.error('academic/staff-planning', 'Invalid ID provided to getStaffPlan', { id });
+      throw error;
+    }
+
     try {
       interface StaffPlanWithRelations extends StaffPlan {
         institution?: { id: string; name: string } | null;
@@ -942,7 +1031,314 @@ export class StaffPlanService {
     }
   }
 
+  /**
+   * Clone a staff plan to a new academic year
+   * @param sourcePlanId ID of the staff plan to clone
+   * @param targetAcademicYearId ID of the target academic year
+   * @param options Clone options
+   * @returns Result object with success status and details
+   */
+  static async cloneStaffPlanToNewYear(
+    sourcePlanId: string,
+    targetAcademicYearId: string,
+    options: CloneStaffPlanOptions = {}
+  ): Promise<CloneStaffPlanResult> {
+    try {
+      // Default options
+      const {
+        adjustDates = true,
+        preserveInactive = false,
+        excludeInactiveAssignments = true
+      } = options;
+
+      // 1. Get the source staff plan with all details
+      const sourcePlan = await this.getStaffPlan(sourcePlanId);
+      if (!sourcePlan) {
+        return {
+          success: false,
+          message: 'Source staff plan not found'
+        };
+      }
+
+      // 2. Get target academic year details
+      const targetAcademicYear = await AcademicYearService.getAcademicYear(
+        targetAcademicYearId
+      );
+      if (!targetAcademicYear) {
+        return {
+          success: false,
+          message: 'Target academic year not found'
+        };
+      }
+
+      // 3. Check if a staff plan already exists for this hierarchy in target year
+      interface ExistingPlanCheck {
+        id: string;
+        is_active: boolean;
+      }
+
+      const { data: existingPlans, error: checkError } = (await this.supabase
+        .from('staff_plans')
+        .select('id, is_active')
+        .eq('institution_id', sourcePlan.institution_id)
+        .eq('program_id', sourcePlan.program_id)
+        .eq('semester_id', sourcePlan.semester_id)
+        .eq('academic_year_id', targetAcademicYearId)) as {
+          data: ExistingPlanCheck[] | null;
+          error: any;
+        };
+
+      if (checkError) throw checkError;
+
+      if (existingPlans && existingPlans.length > 0) {
+        return {
+          success: false,
+          message: 'A staff plan already exists for this semester in the target academic year'
+        };
+      }
+
+      // 4. Calculate new dates if adjustDates is enabled
+      let newStartDate = sourcePlan.start_date;
+      let newEndDate = sourcePlan.end_date;
+
+      if (adjustDates) {
+        newStartDate = targetAcademicYear.start_date;
+        newEndDate = targetAcademicYear.end_date;
+      }
+
+      // 5. Create new staff plan (courses are stored separately in staff_plan_courses table)
+      const newPlanData = {
+        institution_id: sourcePlan.institution_id,
+        degree_id: sourcePlan.degree_id,
+        department_id: sourcePlan.department_id,
+        program_id: sourcePlan.program_id,
+        semester_id: sourcePlan.semester_id,
+        academic_year_id: targetAcademicYearId,
+        start_date: newStartDate,
+        end_date: newEndDate,
+        is_active: sourcePlan.is_active
+        // Note: courses are not a column in staff_plans, they're in staff_plan_courses table
+      };
+
+      const query: any = this.supabase.from('staff_plans');
+      const { data: newPlan, error: createError } = await query
+        .insert([newPlanData])
+        .select()
+        .single();
+
+      if (createError) throw createError;
+
+      // 6. Clone course assignments
+      let clonedCount = 0;
+      const excludedStaffIds = new Set<string>();
+      const excludedCourseIds = new Set<string>();
+
+      if (sourcePlan.courses && sourcePlan.courses.length > 0) {
+        // Get all staff IDs to check if they're still active
+        const staffIds = [...new Set(sourcePlan.courses.map(c => c.staff_id))];
+        const courseIds = [...new Set(sourcePlan.courses.map(c => c.course_id))];
+
+        // Check active staff
+        const { data: activeStaff, error: staffError } = await this.supabase
+          .from('staff')
+          .select('id')
+          .in('id', staffIds)
+          .eq('is_active', true);
+
+        if (staffError) throw staffError;
+
+        const activeStaffIds = new Set(activeStaff?.map(s => s.id) || []);
+
+        // Check active courses
+        const { data: activeCourses, error: courseError } = await this.supabase
+          .from('courses')
+          .select('id')
+          .in('id', courseIds)
+          .eq('is_active', true);
+
+        if (courseError) throw courseError;
+
+        const activeCourseIds = new Set(activeCourses?.map(c => c.id) || []);
+
+        // Filter assignments based on options
+        const assignmentsToClone = sourcePlan.courses.filter(assignment => {
+          const staffActive = activeStaffIds.has(assignment.staff_id);
+          const courseActive = activeCourseIds.has(assignment.course_id);
+
+          // Track unique excluded staff and courses
+          if (!staffActive) excludedStaffIds.add(assignment.staff_id);
+          if (!courseActive) excludedCourseIds.add(assignment.course_id);
+
+          // Logic:
+          // - preserveInactive=true: Copy ALL assignments (active and inactive)
+          // - excludeInactiveAssignments=true: Copy ONLY assignments with active staff AND courses
+          // - Both false: Copy only active staff/courses (default behavior)
+          if (preserveInactive) {
+            return true; // Copy everything including inactive
+          }
+
+          if (excludeInactiveAssignments) {
+            return staffActive && courseActive; // Only copy if both are active
+          }
+
+          // Default: copy only if both are active
+          return staffActive && courseActive;
+        });
+
+        // Insert cloned assignments
+        if (assignmentsToClone.length > 0) {
+          const clonedAssignments = assignmentsToClone.map(assignment => ({
+            staff_plan_id: newPlan.id,
+            course_id: assignment.course_id,
+            staff_id: assignment.staff_id,
+            staff_type: assignment.staff_type
+          }));
+
+          const insertQuery: any = this.supabase.from('staff_plan_courses');
+          const { error: insertError } = await insertQuery.insert(clonedAssignments);
+
+          if (insertError) throw insertError;
+
+          clonedCount = clonedAssignments.length;
+        }
+      }
+
+      logger.info('academic/staff-planning', 'Staff plan cloned successfully', {
+        sourceId: sourcePlanId,
+        newId: newPlan.id,
+        targetYear: targetAcademicYearId,
+        clonedAssignments: clonedCount
+      });
+
+      // Activity log: cloned staff plan to new year
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const sourceName = `Staff Plan ${sourcePlanId}`;
+          const targetYearName = targetAcademicYear.academic_year_name || targetAcademicYearId;
+          const template = AcademicActivityTemplates.staffPlanCloned(sourceName, targetYearName);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: newPlan.id,
+            resourceName: sourceName,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              source_plan_id: sourcePlanId,
+              target_year_id: targetAcademicYearId,
+            },
+            institutionId: sourcePlan.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
+      return {
+        success: true,
+        newPlanId: newPlan.id,
+        message: `Staff plan cloned successfully. ${clonedCount} course assignments copied.`,
+        excludedStaffCount: excludedStaffIds.size,
+        excludedCourseCount: excludedCourseIds.size,
+        clonedCount
+      };
+    } catch (error) {
+      logger.error('academic/staff-planning', 'Error cloning staff plan to new year', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
+  }
+
+  /**
+   * Clone all staff plans for a semester to a new academic year
+   * @param institutionId Institution ID
+   * @param programId Program ID
+   * @param semesterId Semester ID
+   * @param sourceAcademicYearId Source academic year ID
+   * @param targetAcademicYearId Target academic year ID
+   * @param options Clone options
+   * @returns Array of results for each cloned plan
+   */
+  static async cloneSemesterToNewYear(
+    institutionId: string,
+    programId: string,
+    semesterId: string,
+    sourceAcademicYearId: string,
+    targetAcademicYearId: string,
+    options: CloneStaffPlanOptions = {}
+  ): Promise<CloneStaffPlanResult[]> {
+    try {
+      // Get all staff plans for the source semester
+      const { data: sourcePlans, error } = await this.supabase
+        .from('staff_plans')
+        .select('id')
+        .eq('institution_id', institutionId)
+        .eq('program_id', programId)
+        .eq('semester_id', semesterId)
+        .eq('academic_year_id', sourceAcademicYearId);
+
+      if (error) throw error;
+
+      if (!sourcePlans || sourcePlans.length === 0) {
+        return [
+          {
+            success: false,
+            message: 'No staff plans found for the source semester'
+          }
+        ];
+      }
+
+      // Clone each plan
+      const results: CloneStaffPlanResult[] = [];
+      for (const plan of sourcePlans) {
+        const result = await this.cloneStaffPlanToNewYear(
+          plan.id,
+          targetAcademicYearId,
+          options
+        );
+        results.push(result);
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      logger.info('academic/staff-planning', 'Semester cloning completed', {
+        institution: institutionId,
+        program: programId,
+        semester: semesterId,
+        sourceYear: sourceAcademicYearId,
+        targetYear: targetAcademicYearId,
+        total: sourcePlans.length,
+        successful: successCount
+      });
+
+      return results;
+    } catch (error) {
+      logger.error('academic/staff-planning', 'Error cloning semester to new year', error);
+      return [
+        {
+          success: false,
+          message: error instanceof Error ? error.message : 'Unknown error occurred'
+        }
+      ];
+    }
+  }
+
   static async deleteStaffPlan(id: string): Promise<void> {
+    // Pre-fetch name for activity log before deletion
+    let planNameForLog = `Staff Plan ${id}`;
+    let planInstitutionId: string | undefined;
+    try {
+      const { data: existing } = await this.supabase
+        .from('staff_plans')
+        .select('institution_id')
+        .eq('id', id)
+        .single();
+      planInstitutionId = existing?.institution_id;
+    } catch { /* ignore */ }
+
     try {
       // Delete the staff plan (courses will be deleted automatically due to CASCADE)
       const { error: deleteError, count } = await this.supabase
@@ -956,6 +1352,26 @@ export class StaffPlanService {
       if (count === 0) {
         throw new Error('Staff plan not found or has already been deleted');
       }
+
+      // Activity log: deleted staff plan
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.staffPlanDeleted(planNameForLog);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: planNameForLog,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: planInstitutionId,
+          });
+        } catch { /* never block */ }
+      })();
     } catch (error) {
       logger.error('academic/staff-planning', 'Error deleting staff plan', error);
       throw error;
@@ -1000,6 +1416,7 @@ export class StaffPlanService {
       semester_id?: string;
       department_id?: string;
       program_id?: string;
+      academic_year_id?: string; // Added: 2026-01-30 - Filter by academic year
       is_active?: boolean;
     }
   ): Promise<
@@ -1035,6 +1452,7 @@ export class StaffPlanService {
             semester_id,
             department_id,
             program_id,
+            academic_year_id,
             is_active
           )
         `
@@ -1092,6 +1510,13 @@ export class StaffPlanService {
           if (
             filters?.program_id &&
             assignment.staff_plan.program_id !== filters.program_id
+          ) {
+            return;
+          }
+          // Added: 2026-01-30 - Filter by academic year
+          if (
+            filters?.academic_year_id &&
+            assignment.staff_plan.academic_year_id !== filters.academic_year_id
           ) {
             return;
           }

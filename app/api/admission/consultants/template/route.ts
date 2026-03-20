@@ -2,17 +2,11 @@
 // Template download API for consultant import
 
 import { NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase/server';
 import ExcelJS from 'exceljs';
 import { CONSULTANT_TEMPLATE_COLUMNS } from '@/lib/utils/mappings/consultant-excel-mappings';
 
 export async function GET() {
   try {
-    const { user, error: authError } = await getAuthUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'MyJKKN';
     workbook.created = new Date();

@@ -93,8 +93,6 @@ export async function POST(request: NextRequest) {
 
     const input: CreateApiKeyInput = await request.json();
 
-    // Add these debug logs
-
     // Check authentication
     const {
       data: { user },
@@ -132,8 +130,6 @@ export async function POST(request: NextRequest) {
       .update(plainTextKey)
       .digest('hex');
 
-    // Log the insert attempt
-
     // Create API key record
     const { data: key, error } = await supabase
       .from('api_keys')
@@ -144,7 +140,6 @@ export async function POST(request: NextRequest) {
           created_by: user.id,
           expires_at: input.expires_at || null,
           permissions: input.permissions || { read: true, write: false },
-          organization_id: input.organization_id || null,
           is_active: true
         }
       ])

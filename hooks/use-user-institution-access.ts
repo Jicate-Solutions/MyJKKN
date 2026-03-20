@@ -8,6 +8,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 
 export interface InstitutionAccessHook {
   institutions: AccessibleInstitution[];
+  /** The first accessible institution's ID, or the user's profile institution_id. Convenience for single-institution contexts. */
+  selectedInstitutionId: string | undefined;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -19,8 +21,6 @@ export interface InstitutionAccessHook {
   ) => T[];
   getInstitutionFilterClause: () => string;
   isUserRestrictedToInstitutions: boolean;
-  /** The first accessible institution ID, or undefined if none */
-  selectedInstitutionId: string | undefined;
 }
 
 export function useUserInstitutionAccess(): InstitutionAccessHook {
@@ -29,7 +29,7 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
   const [error, setError] = useState<string | null>(null);
 
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
 
   const fetchAccessibleInstitutions = useCallback(async () => {
     if (!profile?.id) {
@@ -76,9 +76,9 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
   }, [institutions]);
 
   const canAccessAllInstitutions = useCallback((): boolean => {
-    // Super admins and users with no primary institution (like accounts with null institution_id) can access all
-    return isSuperAdmin || profile?.institution_id === null;
-  }, [isSuperAdmin, profile?.institution_id]);
+    // Super admins, admission global users, and users with no primary institution can access all
+    return isSuperAdmin || isAdmissionGlobalUser || profile?.institution_id === null;
+  }, [isSuperAdmin, isAdmissionGlobalUser, profile?.institution_id]);
 
   const isUserRestrictedToInstitutions = useCallback((): boolean => {
     return !canAccessAllInstitutions();
@@ -115,6 +115,7 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
 
   return {
     institutions,
+    selectedInstitutionId: institutions[0]?.institution_id ?? profile?.institution_id ?? undefined,
     loading,
     error,
     refresh: fetchAccessibleInstitutions,
@@ -123,7 +124,6 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
     canAccessAllInstitutions: canAccessAllInstitutions(),
     createInstitutionFilter,
     getInstitutionFilterClause,
-    isUserRestrictedToInstitutions: isUserRestrictedToInstitutions(),
-    selectedInstitutionId: institutions[0]?.institution_id
+    isUserRestrictedToInstitutions: isUserRestrictedToInstitutions()
   };
 }
