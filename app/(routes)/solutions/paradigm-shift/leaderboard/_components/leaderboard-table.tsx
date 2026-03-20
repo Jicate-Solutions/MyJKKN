@@ -20,7 +20,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Trophy, Medal, Award, ArrowLeft } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Trophy, Medal, Award, ArrowLeft, TrendingUp, Building2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParadigmShiftLeaderboard } from '@/hooks/solutions/use-paradigm-shift';
 import { TierBadge } from '../../_components/tier-badge';
