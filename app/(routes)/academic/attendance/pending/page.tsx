@@ -37,7 +37,7 @@ export default async function PendingAttendancePage() {
   }
 
   // ── Profile (with department join for department_name) ──────────────────────
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select(
       `
@@ -54,6 +54,10 @@ export default async function PendingAttendancePage() {
     )
     .eq('id', user.id)
     .single();
+
+  if (profileError || !profile) {
+    redirect('/auth/login');
+  }
 
   // ── Role flags ──────────────────────────────────────────────────────────────
   const isSuperAdmin =
