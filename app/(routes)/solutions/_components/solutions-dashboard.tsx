@@ -76,7 +76,11 @@ export function SolutionsDashboard() {
             <Sparkles className="h-6 w-6 text-green-600" />
             <div>
               <p className="font-semibold text-green-900">Research Paradigm Shift</p>
-              <p className="text-sm text-green-700">Every department becomes a Solutions Department from April 1, 2026</p>
+              <p className="text-sm text-green-700">
+                {new Date() >= new Date('2026-04-01')
+                  ? 'All departments are now Solutions Departments'
+                  : 'Every department becomes a Solutions Department from April 1, 2026'}
+              </p>
             </div>
           </div>
           <Button variant="outline" size="sm" asChild className="border-green-300 text-green-700 hover:bg-green-100">
