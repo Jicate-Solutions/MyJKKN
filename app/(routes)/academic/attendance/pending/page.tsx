@@ -99,12 +99,6 @@ export default async function PendingAttendancePage() {
             <BreadcrumbList>
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                  <Link href="/">Home</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
                   <Link href="/academic">Academic</Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
