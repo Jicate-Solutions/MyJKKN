@@ -69,6 +69,25 @@ export function SolutionsDashboard() {
       {/* Department Tracker Summary */}
       <DepartmentTrackerSummary />
 
+      {/* Paradigm Shift Banner */}
+      <Card className="border-green-200 bg-gradient-to-r from-green-50 to-emerald-50">
+        <CardContent className="flex items-center justify-between py-4">
+          <div className="flex items-center gap-3">
+            <Sparkles className="h-6 w-6 text-green-600" />
+            <div>
+              <p className="font-semibold text-green-900">Research Paradigm Shift</p>
+              <p className="text-sm text-green-700">Every department becomes a Solutions Department from April 1, 2026</p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" asChild className="border-green-300 text-green-700 hover:bg-green-100">
+            <Link href="/solutions/paradigm-shift">
+              View Dashboard
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Quick Actions */}
       <div className="flex flex-wrap gap-2">
         <Button asChild>
