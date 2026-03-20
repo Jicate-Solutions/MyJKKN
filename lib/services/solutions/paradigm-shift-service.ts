@@ -262,7 +262,8 @@ export class ParadigmShiftService extends BaseService {
     const publicationsData = { data: extractData(results[3]) };
     const iterationsData = { data: extractData(results[4]) };
     const productsData = { data: extractData(results[5]) };
-    const trainingData = { data: extractData(results[6]) };
+    const ipRetainedData = { data: extractData(results[6]) };
+    const trainingData = { data: extractData(results[7]) };
 
     // 3. Build per-department metric maps
     const metricsMap: Record<string, DepartmentMetrics> = {};
