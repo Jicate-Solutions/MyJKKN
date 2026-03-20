@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Bell } from 'lucide-react';
@@ -71,6 +71,9 @@ export function PendingAttendanceClient({
 
   // ─── fetchDataFn ─────────────────────────────────────────────────────────────
 
+  // NOTE: This fetchData callback calls the same service as usePendingAttendanceDateRange.
+  // The hook drives the stats metadata cards; the DataTable drives paginated rows separately.
+  // This is a conscious trade-off matching the dashboard pattern — two fetches are intentional.
   const fetchData = useCallback(
     async (params: DataFetchParams): Promise<DataFetchResult<PendingAttendancePeriod>> => {
       const serviceFilters: DashboardFilters = {
@@ -131,17 +134,15 @@ export function PendingAttendanceClient({
   );
 
   const handleSendReminder = useCallback(
-    (period: PendingAttendancePeriod) => {
-      toast.success(
-        `Reminder sent for ${period.course_name} on ${period.attendance_date}`
-      );
+    (_period: PendingAttendancePeriod) => {
+      toast.error('Reminder feature coming soon');
     },
     []
   );
 
   const handleBulkSendReminder = useCallback(
-    (selectedRows: PendingAttendancePeriod[]) => {
-      toast.success(`Reminders sent for ${selectedRows.length} period(s)`);
+    (_selectedRows: PendingAttendancePeriod[]) => {
+      toast.error('Reminder feature coming soon');
     },
     []
   );
@@ -149,9 +150,9 @@ export function PendingAttendanceClient({
   // ─── Columns ──────────────────────────────────────────────────────────────────
 
   // Stable getter passed to DataTable — avoids re-creating column defs on every render.
-  // Memoised so the function reference only changes when the handlers change.
-  const getColumns = useMemo(
-    () => () =>
+  // useCallback (not useMemo) is correct here: DataTable expects a function, not a value.
+  const getColumns = useCallback(
+    () =>
       createColumns(
         canViewAllInstitutions,
         handleSendReminder,
