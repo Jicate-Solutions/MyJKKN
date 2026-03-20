@@ -9,7 +9,7 @@ import {
   Hammer,
   BookOpen,
   Video,
-  DollarSign,
+  IndianRupee,
   TrendingUp,
   Building2,
   FileText,
