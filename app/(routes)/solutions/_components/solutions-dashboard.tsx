@@ -527,6 +527,18 @@ export function SolutionsDashboard() {
             </CardContent>
           </Link>
         </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/paradigm-shift">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Sparkles className="h-8 w-8 text-green-600" />
+              <div>
+                <p className="font-medium">Paradigm Shift</p>
+                <p className="text-sm text-muted-foreground">Department readiness scores</p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
       </div>
     </div>
   );
