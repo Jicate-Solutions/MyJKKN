@@ -482,6 +482,12 @@ export class AttendanceDashboardService {
         dates.push(d.toISOString().split('T')[0]);
       }
 
+      // Change 1: Exclude weekends (Saturday = 6, Sunday = 0)
+      const workingDates = dates.filter(date => {
+        const day = new Date(date + 'T00:00:00').getDay()
+        return day !== 0 && day !== 6
+      })
+
       const offset = (page - 1) * limit;
 
       // Step 1: Build comprehensive timetable query with all hierarchy joins
@@ -520,6 +526,19 @@ export class AttendanceDashboardService {
           'institution_id',
           effectiveInstitutionId
         );
+      }
+
+      // Change 2: Exclude institution off days
+      let filteredWorkingDates = workingDates
+      if (effectiveInstitutionId) {
+        const { data: offDays } = await (this.supabase as any)
+          .from('institution_off_days')
+          .select('off_date')
+          .eq('institution_id', effectiveInstitutionId)
+          .gte('off_date', queryStartDate)
+          .lte('off_date', queryEndDate)
+        const offDaySet = new Set(offDays?.map((d: any) => d.off_date) ?? [])
+        filteredWorkingDates = workingDates.filter(d => !offDaySet.has(d))
       }
       if (academicYearId) {
         timetableQuery = timetableQuery.eq('academic_year_id', academicYearId);
@@ -614,7 +633,7 @@ export class AttendanceDashboardService {
       // Step 3: Extract scheduled periods for each date in range
       const allScheduledPeriods = new Map<string, PendingAttendancePeriod>();
 
-      dates.forEach((date) => {
+      filteredWorkingDates.forEach((date) => {
         const dateObj = new Date(date);
         const dayOfWeek = dateObj
           .toLocaleDateString('en-US', { weekday: 'long' })
