@@ -141,7 +141,7 @@ export function OverviewGrid() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
         <Select value={institutionFilter} onValueChange={setInstitutionFilter}>
-          <SelectTrigger className="w-[220px]">
+          <SelectTrigger className="w-full sm:w-[280px]">
             <SelectValue placeholder="All Institutions" />
           </SelectTrigger>
           <SelectContent>
