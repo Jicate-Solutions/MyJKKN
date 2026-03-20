@@ -380,21 +380,58 @@ export class ParadigmShiftService extends BaseService {
   }
 
   /**
-   * Get detailed view for a single department
+   * Get detailed view for a single department.
+   * Fetches metrics scoped to the department's institution for comparison.
    */
   static async getDepartmentDetail(departmentId: string): Promise<DepartmentDetail | null> {
     const fy = getCurrentFiscalYear();
 
-    // Get overview first (contains metrics)
-    const overview = await this.getOverview();
+    // First, look up the department to get its institution_id
+    const { data: deptRow, error: deptErr } = await this.supabase
+      .from('departments')
+      .select(`
+        id, department_name, department_code, institution_id,
+        institution:institutions!institution_id(id, name)
+      `)
+      .eq('id', departmentId)
+      .eq('is_active', true)
+      .single();
+
+    if (deptErr || !deptRow) return null;
+
+    // Get overview scoped to this department's institution (much fewer queries)
+    const overview = await this.getOverview({ institution_id: deptRow.institution_id });
     const dept = overview.departments.find(d => d.department_id === departmentId);
     if (!dept) return null;
 
-    // Get monthly timeline (last 12 months)
-    const timeline = await this.getMonthlyTimeline(departmentId);
+    // Get monthly timeline and recent data in parallel
+    const [timeline, recentSolutionsRes, recentPubsRes] = await Promise.all([
+      this.getMonthlyTimeline(departmentId),
 
-    // Get institutional average
-    const sameInst = overview.departments.filter(d => d.institution_id === dept.institution_id);
+      // Recent solutions
+      this.supabase
+        .from('sh_solutions')
+        .select(`
+          id, title, solution_code, status, solution_type,
+          client:sh_clients!client_id(name)
+        `)
+        .eq('lead_department_id', departmentId)
+        .in('status', ['active', 'completed'])
+        .order('created_at', { ascending: false })
+        .limit(5),
+
+      // Recent publications
+      this.supabase
+        .from('sh_publications')
+        .select('id, title, paper_type, publication_code')
+        .eq('department_id', departmentId)
+        .gte('created_at', fy.start + 'T00:00:00')
+        .order('created_at', { ascending: false })
+        .limit(5),
+    ]);
+
+    // Compute institutional average from the institution-scoped overview
+    const sameInst = overview.departments;
     const avg = emptyMetrics();
     if (sameInst.length > 0) {
       const keys = Object.keys(avg) as (keyof DepartmentMetrics)[];
@@ -405,36 +442,17 @@ export class ParadigmShiftService extends BaseService {
       });
     }
 
-    // Get recent solutions
-    const { data: recentSolutions } = await this.supabase
-      .from('sh_solutions')
-      .select(`
-        id, title, solution_code, status, solution_type,
-        client:sh_clients!client_id(name)
-      `)
-      .eq('lead_department_id', departmentId)
-      .in('status', ['active', 'completed'])
-      .order('created_at', { ascending: false })
-      .limit(5);
-
-    // Get recent publications
-    const { data: recentPubs } = await this.supabase
-      .from('sh_publications')
-      .select('id, title, paper_type, publication_code')
-      .eq('department_id', departmentId)
-      .gte('created_at', fy.start + 'T00:00:00')
-      .order('created_at', { ascending: false })
-      .limit(5);
-
     // Generate recommendations based on missing metrics
     const recs = this.generateRecommendations(dept.metrics);
+    const recentSolutions = recentSolutionsRes.data || [];
+    const recentPubs = recentPubsRes.data || [];
 
     return {
       ...dept,
       monthly_timeline: timeline,
       institutional_average: avg,
       recommendations: recs,
-      recent_solutions: (recentSolutions || []).map((s: Record<string, unknown>) => ({
+      recent_solutions: recentSolutions.map((s: Record<string, unknown>) => ({
         id: s.id as string,
         title: s.title as string,
         solution_code: s.solution_code as string | null,
@@ -442,7 +460,7 @@ export class ParadigmShiftService extends BaseService {
         solution_type: s.solution_type as string | null,
         client_name: (s.client as { name: string } | null)?.name || null,
       })),
-      recent_publications: (recentPubs || []).map((p: Record<string, unknown>) => ({
+      recent_publications: recentPubs.map((p: Record<string, unknown>) => ({
         id: p.id as string,
         title: p.title as string,
         paper_type: p.paper_type as string,
