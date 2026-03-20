@@ -598,7 +598,7 @@ export class ParadigmShiftService extends BaseService {
       recs.push('Build prototypes for your software solutions to move through the TRL pipeline');
     }
     if (metrics.ip_retained === 0) {
-      recs.push('File provisional patents for innovative solutions to build your IP portfolio');
+      recs.push('Mark solutions with retained IP to track learnings your department keeps from client work');
     }
     if (metrics.trl4_products === 0) {
       recs.push('Advance at least one product to TRL 4+ (lab-validated) for RDIF eligibility');
