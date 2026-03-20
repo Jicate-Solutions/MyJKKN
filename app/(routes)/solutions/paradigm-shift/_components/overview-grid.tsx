@@ -55,6 +55,17 @@ export function OverviewGrid() {
 
   const tiers: ReadinessTier[] = ['traditional', 'emerging', 'solution_ready', 'pioneer'];
 
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>
+          Failed to load paradigm shift data. Please try refreshing the page.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
