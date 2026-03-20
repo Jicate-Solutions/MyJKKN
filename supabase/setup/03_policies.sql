@@ -3802,7 +3802,7 @@ CREATE POLICY "audit_log_insert_by_role"
 -- Updated: 2026-03-20 — RLS for institution_off_days (pending attendance filtering)
 
 -- Enable RLS
-ALTER TABLE institution_off_days ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.institution_off_days ENABLE ROW LEVEL SECURITY;
 
 -- SELECT: All authenticated users may read off days for their own institution
 -- (faculty need this to exclude off days from their pending periods view)
@@ -3823,6 +3823,18 @@ CREATE POLICY "institution_off_days_select"
 CREATE POLICY "institution_off_days_write"
   ON institution_off_days FOR ALL
   USING (
+    EXISTS (
+      SELECT 1 FROM user_institution_access
+      WHERE user_id = auth.uid()
+        AND institution_id = institution_off_days.institution_id
+        AND access_type = 'admin'
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles
+      WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  )
+  WITH CHECK (
     EXISTS (
       SELECT 1 FROM user_institution_access
       WHERE user_id = auth.uid()
