@@ -11,6 +11,7 @@ export function useTimetablesForPending(params: {
   departmentId?: string;
   semesterId?: string;
   isFaculty?: boolean;
+  /** Phase 2: will filter to timetables where staff appears as primary_staff_id or in staff_ids[]. Currently scoped by RLS. */
   staffId?: string;
   enabled?: boolean;
 }) {
@@ -20,6 +21,7 @@ export function useTimetablesForPending(params: {
     departmentId,
     semesterId,
     isFaculty,
+    staffId: _staffId,
     enabled,
   } = params;
 
@@ -33,6 +35,8 @@ export function useTimetablesForPending(params: {
     limit: 100,
   };
 
+  // Faculty are scoped by Supabase RLS on the timetables table via JWT claims —
+  // no explicit institution_id filter is required for faculty users.
   const isEnabled = (enabled !== false) && (!!institutionId || !!isFaculty);
 
   const query = useQuery({
