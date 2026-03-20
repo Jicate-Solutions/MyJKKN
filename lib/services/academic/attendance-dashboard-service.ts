@@ -676,6 +676,7 @@ export class AttendanceDashboardService {
                       end_time: periodInfo.end_time,
 
                       // Course info
+                      course_id: slot.course_id || '',
                       course_name: course?.course_name || 'Unknown Course',
                       course_code: course?.course_code,
 
@@ -877,13 +878,27 @@ export class AttendanceDashboardService {
       const totalCount = sortedPeriods.length;
       const paginatedPeriods = sortedPeriods.slice(offset, offset + limit);
 
+      // Compute enriched metadata from the full (pre-paginated) result set
+      const overdueCount = sortedPeriods.filter(p => p.attendance_date < today).length;
+      const todayCount = sortedPeriods.filter(p => p.attendance_date === today).length;
+      const sectionsCount = new Set(sortedPeriods.map(p => p.section_id)).size;
+      const subjectsCount = new Set(sortedPeriods.map(p => p.course_id).filter(Boolean)).size;
+      const staffCount = new Set(
+        sortedPeriods.flatMap(p => p.assigned_staff.map(s => s.staff_id))
+      ).size;
+
       return {
         data: paginatedPeriods,
         metadata: {
           total: totalCount,
           page,
           limit,
-          totalPages: Math.ceil(totalCount / limit)
+          totalPages: Math.ceil(totalCount / limit),
+          overdueCount,
+          todayCount,
+          sectionsCount,
+          subjectsCount,
+          staffCount
         }
       };
     } catch (error) {
