@@ -302,6 +302,19 @@ export type {
 } from './rdif-service';
 
 // ============================================
+// PARADIGM SHIFT DASHBOARD
+// ============================================
+export { ParadigmShiftService } from './paradigm-shift-service';
+export type {
+  ReadinessTier,
+  DepartmentMetrics,
+  DepartmentParadigmShift,
+  ParadigmShiftOverview,
+  DepartmentDetail as ParadigmShiftDepartmentDetail,
+  LeaderboardEntry,
+} from './paradigm-shift-service';
+
+// ============================================
 // COMPLIANCE / GRADUATION GATE
 // ============================================
 export { ComplianceService } from './compliance-service';
