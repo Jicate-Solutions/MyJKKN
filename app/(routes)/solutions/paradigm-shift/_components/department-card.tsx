@@ -30,7 +30,7 @@ export function DepartmentCard({ dept }: { dept: DepartmentParadigmShift }) {
           {/* Progress bar */}
           <div>
             <div className="flex justify-between text-xs text-muted-foreground mb-1">
-              <span>{dept.active_metrics_count}/9 metrics active</span>
+              <span>{dept.active_metrics_count}/{TOTAL_METRICS_COUNT} metrics active</span>
               <span>{progressPct}%</span>
             </div>
             <Progress value={progressPct} className="h-2" />
