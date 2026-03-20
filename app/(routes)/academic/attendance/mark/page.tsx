@@ -1429,7 +1429,7 @@ export default function AttendanceMarkPage() {
         institution_id: institutionId,
         // Audit trail fields (Added: 2026-03-20)
         is_edit_mode: isEditMode && !!existingAttendance,
-        period_id_being_edited: isEditMode ? periodId : undefined,
+        period_id_being_edited: isEditMode ? (periodId ?? undefined) : undefined,
         editor_profile:
           isEditMode && profile
             ? {
