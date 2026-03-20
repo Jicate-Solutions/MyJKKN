@@ -322,16 +322,21 @@ export class ParadigmShiftService extends BaseService {
       }
     });
 
-    // Products: IP retained + TRL 4+
-    (productsData.data || []).forEach((row: { lead_department_id: string | null; current_trl: number | null; patent_status: string | null }) => {
+    // Products: TRL 4+
+    (productsData.data || []).forEach((row: { lead_department_id: string | null; current_trl: number | null }) => {
       if (row.lead_department_id) {
         initMetrics(row.lead_department_id);
-        if (row.patent_status && row.patent_status !== 'none') {
-          metricsMap[row.lead_department_id].ip_retained++;
-        }
         if (row.current_trl && row.current_trl >= 4) {
           metricsMap[row.lead_department_id].trl4_products++;
         }
+      }
+    });
+
+    // IP Retained: solutions where JKKN retained IP/learnings from client work
+    (ipRetainedData.data || []).forEach((row: { lead_department_id: string | null }) => {
+      if (row.lead_department_id) {
+        initMetrics(row.lead_department_id);
+        metricsMap[row.lead_department_id].ip_retained++;
       }
     });
 
