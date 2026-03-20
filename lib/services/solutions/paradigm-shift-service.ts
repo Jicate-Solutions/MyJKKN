@@ -146,6 +146,8 @@ function emptyMetrics(): DepartmentMetrics {
 // SERVICE CLASS
 // ============================================
 
+export const TOTAL_METRICS_COUNT = 9;
+
 export class ParadigmShiftService extends BaseService {
 
   /**
@@ -158,7 +160,7 @@ export class ParadigmShiftService extends BaseService {
     const fy = getCurrentFiscalYear();
 
     // 1. Get all departments with institution info
-    const { data: departments, error: deptErr } = await this.supabase
+    let deptQuery = this.supabase
       .from('departments')
       .select(`
         id, department_name, department_code, institution_id,
@@ -166,6 +168,13 @@ export class ParadigmShiftService extends BaseService {
       `)
       .eq('is_active', true)
       .order('department_name');
+
+    // Scope to institution at the DB query level
+    if (filters?.institution_id) {
+      deptQuery = deptQuery.eq('institution_id', filters.institution_id);
+    }
+
+    const { data: departments, error: deptErr } = await deptQuery;
 
     if (deptErr) throw deptErr;
     if (!departments?.length) {
@@ -181,22 +190,10 @@ export class ParadigmShiftService extends BaseService {
       };
     }
 
-    // Filter by institution if provided
-    let filteredDepts = departments;
-    if (filters?.institution_id) {
-      filteredDepts = departments.filter((d: { institution_id: string }) => d.institution_id === filters.institution_id);
-    }
+    const filteredDepts = departments;
 
-    // 2. Run all metric queries in parallel
-    const [
-      discoveryData,
-      solutionsData,
-      paymentsData,
-      publicationsData,
-      iterationsData,
-      productsData,
-      trainingData,
-    ] = await Promise.all([
+    // 2. Run all metric queries in parallel using allSettled for graceful degradation
+    const results = await Promise.allSettled([
       // Discovery visits by department
       this.supabase
         .from('sh_discovery_visits')
@@ -209,28 +206,32 @@ export class ParadigmShiftService extends BaseService {
         .from('sh_solutions')
         .select('lead_department_id, client_id, status')
         .in('status', ['active', 'completed'])
-        .gte('created_at', fy.start + 'T00:00:00'),
+        .gte('created_at', fy.start + 'T00:00:00')
+        .lte('created_at', fy.end + 'T23:59:59'),
 
       // Payments via solutions
       this.supabase
         .from('sh_payments')
         .select('amount, solution:sh_solutions!solution_id(lead_department_id)')
         .eq('status', 'completed')
-        .gte('payment_date', fy.start),
+        .gte('payment_date', fy.start)
+        .lte('payment_date', fy.end),
 
       // Publications by department
       this.supabase
         .from('sh_publications')
         .select('department_id')
-        .gte('created_at', fy.start + 'T00:00:00'),
+        .gte('created_at', fy.start + 'T00:00:00')
+        .lte('created_at', fy.end + 'T23:59:59'),
 
       // Prototype iterations via phases → solutions
       this.supabase
         .from('sh_prototype_iterations')
         .select('phase:sh_solution_phases!phase_id(solution:sh_solutions!solution_id(lead_department_id))')
-        .gte('created_at', fy.start + 'T00:00:00'),
+        .gte('created_at', fy.start + 'T00:00:00')
+        .lte('created_at', fy.end + 'T23:59:59'),
 
-      // Products with TRL and patent data
+      // Products with TRL and patent data (cumulative — no FY filter, products are assets)
       this.supabase
         .from('sh_products')
         .select('lead_department_id, current_trl, patent_status'),
@@ -239,8 +240,23 @@ export class ParadigmShiftService extends BaseService {
       this.supabase
         .from('sh_training_programs')
         .select('solution:sh_solutions!solution_id(lead_department_id), participant_count')
-        .gte('created_at', fy.start + 'T00:00:00'),
+        .gte('created_at', fy.start + 'T00:00:00')
+        .lte('created_at', fy.end + 'T23:59:59'),
     ]);
+
+    // Extract data with graceful fallback for failed queries
+    const extractData = (result: PromiseSettledResult<{ data: unknown[] | null; error: unknown }>) => {
+      if (result.status === 'fulfilled' && result.value.data) return result.value.data;
+      return [];
+    };
+
+    const discoveryData = { data: extractData(results[0]) };
+    const solutionsData = { data: extractData(results[1]) };
+    const paymentsData = { data: extractData(results[2]) };
+    const publicationsData = { data: extractData(results[3]) };
+    const iterationsData = { data: extractData(results[4]) };
+    const productsData = { data: extractData(results[5]) };
+    const trainingData = { data: extractData(results[6]) };
 
     // 3. Build per-department metric maps
     const metricsMap: Record<string, DepartmentMetrics> = {};
