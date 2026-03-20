@@ -1028,8 +1028,8 @@ export default function AttendanceReportDetailPage() {
         {/* Audit History — super admin only */}
         {isSuperAdmin && (
           <div className='mt-8 space-y-3'>
-            <h3 className='text-base font-semibold flex items-center gap-2'>
-              📋 Edit History
+            <h3 className='text-base font-semibold'>
+              Edit History
             </h3>
 
             {auditLoading && (
@@ -1067,7 +1067,7 @@ export default function AttendanceReportDetailPage() {
                   <tbody>
                     {auditLog.map((entry: AttendanceAuditEntry) => {
                       const periodName =
-                        (report as any)?.attendance_data?.[entry.period_id]?.period_name
+                        report?.period_details?.find((p) => p.period_id === entry.period_id)?.period_name
                         ?? entry.period_id;
 
                       return (
