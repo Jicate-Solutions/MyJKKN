@@ -122,11 +122,15 @@ export function PendingAttendanceClient({
   const handleMarkAttendance = useCallback(
     (period: PendingAttendancePeriod) => {
       const params = new URLSearchParams({
-        periodId: period.period_id,
         timetableId: period.timetable_id,
+        periodId: period.period_id,
         date: period.attendance_date,
         ...(period.section_id && { sectionId: period.section_id }),
-        ...(period.course_id && { courseId: period.course_id }),
+        // Display strings — mark page reads these directly, it does not do DB lookups
+        ...(period.period_name && { periodName: period.period_name }),
+        ...(period.course_name && { courseName: period.course_name }),
+        ...(period.start_time && { startTime: period.start_time }),
+        ...(period.end_time && { endTime: period.end_time }),
       });
       router.push(`/academic/attendance/mark?${params.toString()}`);
     },
