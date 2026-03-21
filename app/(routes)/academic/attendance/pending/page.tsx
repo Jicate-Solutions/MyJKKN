@@ -95,7 +95,7 @@ export default async function PendingAttendancePage() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <PermissionGuard module="academic.attendance.dashboard" action="view">
+    <PermissionGuard module="academic.attendance" action="view">
       <ContentLayout title="Pending Attendance">
         <div className="space-y-6">
           {/* Breadcrumb */}

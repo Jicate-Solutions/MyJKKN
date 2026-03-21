@@ -219,7 +219,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/periods': 'academic.periods.view',
   '/academic/attendance': 'academic.attendance.view',
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
-  '/academic/attendance/pending': 'academic.attendance.dashboard.view',
+  '/academic/attendance/pending': 'academic.attendance.view',
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
@@ -732,7 +732,7 @@ export function GetPages(pathname: string): MenuGroup[] {
               label: 'Pending Attendance',
               active: pathname.startsWith('/academic/attendance/pending'),
               icon: CalendarX,
-              permission: 'academic.attendance.dashboard.view'
+              permission: 'academic.attendance.view'
             },
             {
               href: '/academic/attendance',
