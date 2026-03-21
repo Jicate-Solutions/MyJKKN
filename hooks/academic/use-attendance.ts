@@ -433,7 +433,6 @@ export function useConsolidatedAttendance() {
           data.section_id,
           data.attendance_date
         );
-        toast.success('Attendance saved successfully');
         return result;
       } catch (err) {
         console.error('Error saving consolidated attendance:', err);

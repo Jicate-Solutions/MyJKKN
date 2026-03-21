@@ -45,7 +45,6 @@ import {
   RefreshCw,
   Bug,
   CalendarX2,
-  CalendarX,
   UserCheck,
   Package,
   Bookmark,
@@ -730,9 +729,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             {
               href: '/academic/attendance/pending',
               label: 'Pending Attendance',
-              active: pathname.startsWith('/academic/attendance/pending'),
-              icon: CalendarX,
-              permission: 'academic.attendance.view'
+              active: pathname.startsWith('/academic/attendance/pending')
             },
             {
               href: '/academic/attendance',

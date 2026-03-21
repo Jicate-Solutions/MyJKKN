@@ -72,8 +72,8 @@ export default async function PendingAttendancePage() {
   const userInstitutionId = profile?.institution_id ?? undefined;
   const userDepartmentId = profile?.department_id ?? undefined;
 
-  // Department name from joined relation
-  const deptRelation = profile?.departments as
+  // Department name from joined relation (Supabase returns join as array)
+  const deptRelation = (profile?.departments as unknown) as
     | { id: string; department_name: string }
     | null
     | undefined;

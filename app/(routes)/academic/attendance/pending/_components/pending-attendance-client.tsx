@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Bell } from 'lucide-react';
@@ -59,6 +59,15 @@ export function PendingAttendanceClient({
     effectiveInstitutionId,
   } = usePendingAttendanceDateRange();
 
+  // Auto-apply faculty's staffId so faculty only see their own pending periods.
+  // isFaculty and staffId are stable server-derived props, so [] is intentional.
+  useEffect(() => {
+    if (isFaculty && staffId) {
+      updateFilters({ staffId });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Timetable options for filter dropdown
   const { timetables } = useTimetablesForPending({
     institutionId: effectiveInstitutionId,
@@ -95,7 +104,7 @@ export function PendingAttendanceClient({
         semesterId: filters.semesterId,
         sectionId: filters.sectionId,
         timetableId: filters.timetableId,
-        staffId: filters.staffId,
+        staffId: isFaculty && staffId ? staffId : filters.staffId,
       };
 
       const result =
@@ -114,7 +123,7 @@ export function PendingAttendanceClient({
         },
       };
     },
-    [filters, isSuperAdmin, userInstitutionId]
+    [filters, isSuperAdmin, userInstitutionId, isFaculty, staffId]
   );
 
   // ─── Action handlers ──────────────────────────────────────────────────────────

@@ -693,7 +693,9 @@ export class AttendanceReportService {
               const facultyMatch = Array.isArray(period.assigned_faculty)
                 ? period.assigned_faculty.some((f: any) => f.faculty_id === staffData.id)
                 : period.assigned_faculty?.faculty_id === staffData.id;
-              return facultyMatch;
+              // Also allow if this user was the one who marked the attendance
+              const isMarker = period.marked_by_details?.marker_id === userId;
+              return facultyMatch || isMarker;
             });
 
             if (!isAssigned) {
