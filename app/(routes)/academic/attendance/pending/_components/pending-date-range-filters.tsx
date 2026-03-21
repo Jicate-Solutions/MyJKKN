@@ -94,21 +94,22 @@ export function PendingDateRangeFilters({
     effectiveInstitutionId || undefined
   );
 
+  // Hierarchy data — only needed for non-faculty roles (Row 2 is hidden for faculty)
   const { data: degreesData } = useDegrees({
-    institution_id: effectiveInstitutionId || undefined
+    institution_id: !isFaculty ? (effectiveInstitutionId || undefined) : undefined
   });
   const degrees = degreesData?.data ?? [];
 
   const { data: departmentsData } = useDepartments({
-    institution_id: effectiveInstitutionId || undefined,
-    degree_id: filters.degreeId || undefined
+    institution_id: !isFaculty ? (effectiveInstitutionId || undefined) : undefined,
+    degree_id: !isFaculty ? (filters.degreeId || undefined) : undefined
   });
   const departments = departmentsData?.data ?? [];
 
   const { data: programsData } = usePrograms({
-    institution_id: effectiveInstitutionId || undefined,
-    degree_id: filters.degreeId || undefined,
-    department_id: filters.departmentId || undefined
+    institution_id: !isFaculty ? (effectiveInstitutionId || undefined) : undefined,
+    degree_id: !isFaculty ? (filters.degreeId || undefined) : undefined,
+    department_id: !isFaculty ? (filters.departmentId || undefined) : undefined
   });
   const programs = programsData?.data ?? [];
 
