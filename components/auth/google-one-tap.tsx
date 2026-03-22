@@ -276,21 +276,10 @@ export function GoogleOneTap() {
             use_fedcm_for_prompt: false
           });
 
-          window.google.accounts.id.prompt((notification: any) => {
-            if (notification.isNotDisplayed()) {
-              console.log(
-                'One Tap not displayed:',
-                notification.getNotDisplayedReason()
-              );
-            } else if (notification.isSkippedMoment()) {
-              console.log('One Tap skipped:', notification.getSkippedReason());
-            } else if (notification.isDismissedMoment()) {
-              console.log(
-                'One Tap dismissed:',
-                notification.getDismissedReason()
-              );
-            }
-          });
+          // No prompt callback — the UI status methods (isNotDisplayed, isSkippedMoment,
+          // isDismissedMoment) are deprecated in the FedCM migration path and cause
+          // GSI_LOGGER deprecation warnings. We don't need them for functionality.
+          window.google.accounts.id.prompt();
 
           initialized.current = true;
         } catch (error) {

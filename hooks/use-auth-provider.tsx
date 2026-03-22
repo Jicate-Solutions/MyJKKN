@@ -64,10 +64,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (e) {
         if (isMounted) {
-          console.error('AuthProvider Error:', e);
-          setError(
-            e instanceof Error ? e.message : 'Failed to load user data.'
-          );
+          // Suppress "refresh_token_not_found" noise — this is expected when a stored
+          // session is invalidated (e.g. password change, manual revoke). Supabase will
+          // emit SIGNED_OUT and the middleware will redirect to /auth/login.
+          const code = (e as any)?.code;
+          if (code !== 'refresh_token_not_found') {
+            console.error('AuthProvider Error:', e);
+            setError(e instanceof Error ? e.message : 'Failed to load user data.');
+          }
           setProfile(null);
         }
       } finally {
@@ -93,6 +97,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Skip redundant events — TOKEN_REFRESHED doesn't change the profile
       if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+        return;
+      }
+
+      // When Supabase can't refresh the token (expired/revoked), it emits SIGNED_OUT.
+      // Clear profile silently — middleware/proxy will redirect to /auth/login.
+      if (event === 'SIGNED_OUT' && !session) {
+        setProfile(null);
+        setIsLoading(false);
         return;
       }
 
