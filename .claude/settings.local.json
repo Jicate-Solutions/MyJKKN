@@ -239,7 +239,9 @@
       "Bash(MSYS_NO_PATHCONV=1 /usr/bin/sleep 20:*)",
       "Bash(tasklist:*)",
       "Bash(MSYS_NO_PATHCONV=1 /usr/bin/sleep 5:*)",
-      "WebFetch(domain:serwist.pages.dev)"
+      "WebFetch(domain:serwist.pages.dev)",
+      "mcp__plugin_supabase_supabase__apply_migration",
+      "mcp__plugin_supabase_supabase__execute_sql"
     ],
     "deny": [],
     "ask": []
