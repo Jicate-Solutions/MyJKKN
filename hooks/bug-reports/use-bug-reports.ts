@@ -289,6 +289,14 @@ export const useUpdateBugReportStatus = () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.bugReports.detail(variables.reportId)
       });
+
+      // Invalidate stats widget (total/resolved/in-progress counters)
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.stats() });
+
+      // Invalidate reporter analytics (resolved_count, resolution_rate, etc.)
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.bugReports.all, 'reporter-stats']
+      });
     }
   });
 };
@@ -346,6 +354,12 @@ export const useBulkUpdateBugReportsStatus = () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.bugReports.leaderboard()
       });
+
+      // Invalidate stats widget and reporter analytics
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.stats() });
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.bugReports.all, 'reporter-stats']
+      });
     }
   });
 };
@@ -374,6 +388,12 @@ export const useReopenBugReport = () => {
       // Invalidate leaderboard (status changed from resolved)
       queryClient.invalidateQueries({
         queryKey: queryKeys.bugReports.leaderboard()
+      });
+
+      // Invalidate stats widget and reporter analytics
+      queryClient.invalidateQueries({ queryKey: queryKeys.bugReports.stats() });
+      queryClient.invalidateQueries({
+        queryKey: [...queryKeys.bugReports.all, 'reporter-stats']
       });
     }
   });
@@ -514,6 +534,6 @@ export const useBugReporterStats = (
     queryFn: () => fetchBugReporterStats(filters),
     enabled,
     staleTime: 2 * 60 * 1000,    // 2 minutes — analytics don't need real-time precision
-    refetchOnWindowFocus: false
+    refetchOnWindowFocus: true
   });
 };

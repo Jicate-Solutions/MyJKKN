@@ -720,13 +720,16 @@ CREATE POLICY "learners_profiles_insert_policy" ON learners_profiles
         )
     );
 
--- UPDATE: Super admins or administrator/admission/faculty/hod with institution access
+-- UPDATE: Super admins, admission role (cross-institution), or administrator/faculty/hod with institution access
+-- Fixed: 2026-03-22 - Admission role users have NULL institution_id so user_has_institution_access() returned false,
+-- causing PGRST116 on status updates. Added same admission bypass as learners_profiles_select_admission_role (2026-03-14).
 CREATE POLICY "learners_profiles_update_policy" ON learners_profiles
     FOR UPDATE USING (
         is_super_admin()
+        OR get_current_user_role() = 'admission'
         OR (
             user_has_institution_access(auth.uid(), institution_id)
-            AND (get_my_role() = ANY (ARRAY['administrator', 'admission', 'faculty', 'hod']))
+            AND (get_my_role() = ANY (ARRAY['administrator', 'faculty', 'hod']))
         )
     );
 
