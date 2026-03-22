@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { CycleCalculationService } from './cycle-calculation-service';
 import type {
   FacultySlot,
   FacultyAvailability,
@@ -516,7 +517,24 @@ export class FacultyTimetableService {
         try {
           let slotsData;
 
-          if (timetable.timetable_format === 'batch') {
+          if (timetable.timetable_format === 'cycle') {
+            // For cycle mode, resolve which cycle is active on this date, then fetch by cycle key
+            const cycleNumber = await CycleCalculationService.getCycleForDate(timetable.id, date);
+            if (cycleNumber === null) {
+              // Holiday or Sunday — no classes for this timetable today
+              slotsData = [];
+            } else {
+              const cycleKey = CycleCalculationService.toCycleKey(cycleNumber);
+              const { data: cycleSlots, error: cycleError } =
+                await (this.supabase as any).rpc('get_timetable_slots_for_day_or_date', {
+                  p_timetable_id: timetable.id,
+                  p_day_of_week: cycleKey,
+                  p_slot_date: null
+                });
+              if (cycleError) throw cycleError;
+              slotsData = cycleSlots;
+            }
+          } else if (timetable.timetable_format === 'batch') {
             // For batch mode, check specific date
             const { data: batchSlots, error: batchError } =
               await (this.supabase as any).rpc('get_timetable_slots_for_day_or_date', {

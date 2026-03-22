@@ -15,6 +15,7 @@ interface TimetableHeaderProps {
   attendanceCount?: number;
   isSuperAdmin?: boolean;
   canEdit?: boolean; // New prop
+  todaysCycle?: number | null; // For cycle-format timetables: today's active cycle
 }
 
 /**
@@ -32,7 +33,8 @@ export function TimetableHeader({
   hasAttendance = false,
   attendanceCount = 0,
   isSuperAdmin = false,
-  canEdit = false
+  canEdit = false,
+  todaysCycle = null
 }: TimetableHeaderProps) {
   const router = useRouter();
 
@@ -61,6 +63,17 @@ export function TimetableHeader({
               {timetable.timetable_type === 'section' && timetable.sections?.section_name && (
                 <Badge variant='outline' className='text-sm'>
                   Section {timetable.sections.section_name}
+                </Badge>
+              )}
+
+              {timetable.timetable_format === 'cycle' && (
+                <Badge
+                  variant='outline'
+                  className='text-sm border-amber-500 text-amber-700 bg-amber-50'
+                >
+                  {todaysCycle != null
+                    ? `Today: Cycle ${todaysCycle}`
+                    : 'Cycle Format'}
                 </Badge>
               )}
 

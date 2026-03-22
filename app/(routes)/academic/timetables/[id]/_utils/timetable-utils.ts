@@ -144,7 +144,7 @@ export function calculateDaysInRange(startDate: string, endDate: string): number
  */
 export async function exportTimetableToPDF(
   timetable: any,
-  timetableFormat: 'regular' | 'batch',
+  timetableFormat: 'regular' | 'batch' | 'cycle',
   timetableGridRef: React.RefObject<HTMLDivElement | null>
 ): Promise<void> {
   if (!timetableGridRef.current) {
@@ -181,7 +181,7 @@ export async function exportTimetableToPDF(
     ['Semester', timetable.semester_name || 'N/A'],
     ['Section', timetable.section?.section_name || 'All Sections'],
     ['Academic Year', timetable.academic_year || 'N/A'],
-    ['Format', timetableFormat === 'batch' ? 'Batch Timetable' : 'Regular Timetable']
+    ['Format', timetableFormat === 'batch' ? 'Batch Timetable' : timetableFormat === 'cycle' ? 'Cycle Timetable' : 'Regular Timetable']
   ];
 
   autoTable(pdf, {

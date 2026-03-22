@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -15,10 +15,12 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { LeaveCalendar } from './_components/leave-calendar';
 import { CalendarLegend } from './_components/calendar-legend';
 import { CalendarFilters } from './_components/calendar-filters';
+import { ApplyLeaveDialog } from './_components/apply-leave-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 
 export default function LeaveCalendarPage() {
-  const { userProfile, isSuperAdmin } = usePermissions();
+  const { userProfile, isSuperAdmin, canAccess } = usePermissions();
+
   const [year, setYear] = useState(0);
   const [month, setMonth] = useState(0);
   const [selectedInstitution, setSelectedInstitution] = useState<string | undefined>(
@@ -27,6 +29,10 @@ export default function LeaveCalendarPage() {
   const [selectedDepartment, setSelectedDepartment] = useState<string | undefined>();
   const [selectedSemester, setSelectedSemester] = useState<string | undefined>();
   const [selectedSection, setSelectedSection] = useState<string | undefined>();
+
+  // Apply Leave dialog state
+  const [applyLeaveOpen, setApplyLeaveOpen] = useState(false);
+  const [applyLeaveDate, setApplyLeaveDate] = useState<string | undefined>();
 
   // Initialize current date on client side only
   useEffect(() => {
@@ -58,6 +64,14 @@ export default function LeaveCalendarPage() {
     setYear(newYear);
     setMonth(newMonth);
   };
+
+  // Check if current user can apply leaves
+  const canApplyLeave = canAccess('academic.leaves', 'create');
+
+  const handleOpenApplyLeave = useCallback((date: string) => {
+    setApplyLeaveDate(date);
+    setApplyLeaveOpen(true);
+  }, []);
 
   return (
     <PermissionGuard module='academic.leaves' action='view'>
@@ -113,6 +127,8 @@ export default function LeaveCalendarPage() {
                     semesterId={selectedSemester}
                     sectionId={selectedSection}
                     onMonthChange={handleMonthChange}
+                    canApplyLeave={canApplyLeave}
+                    onApplyLeave={handleOpenApplyLeave}
                   />
                 </CardContent>
               </Card>
@@ -124,6 +140,17 @@ export default function LeaveCalendarPage() {
             </div>
           </div>
         </div>
+
+        {/* Apply Leave Dialog — triggered from calendar day cell clicks */}
+        {effectiveInstitutionId && userProfile?.id && (
+          <ApplyLeaveDialog
+            isOpen={applyLeaveOpen}
+            onClose={() => setApplyLeaveOpen(false)}
+            institutionId={effectiveInstitutionId}
+            userId={userProfile.id}
+            prefilledDate={applyLeaveDate}
+          />
+        )}
       </ContentLayout>
     </PermissionGuard>
   );

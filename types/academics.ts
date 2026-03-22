@@ -272,7 +272,9 @@ export interface Timetable {
     section_name: string;
   }>;
   slots?: any[];
-  timetable_format: 'regular' | 'batch';
+  timetable_format: 'regular' | 'batch' | 'cycle';
+  // Updated: 2026-03-22 - Added cycle-based timetable support
+  num_cycles?: number | null; // Only set when timetable_format = 'cycle' (1-52)
   timetable_data?: any;
   periods?: any;
 }
@@ -297,7 +299,9 @@ export interface CreateTimetableDto {
   start_date?: string;
   end_date?: string;
   selected_dates?: string[] | any; // JSONB column for selected dates in batch format
-  timetable_format?: 'regular' | 'batch'; // New field for timetable format
+  timetable_format?: 'regular' | 'batch' | 'cycle';
+  // Updated: 2026-03-22 - Required when timetable_format='cycle', ignored otherwise
+  num_cycles?: number; // 1-52 cycles for cycle-format timetables
   timetable_data?: any;
   periods?: any;
 }
@@ -364,7 +368,8 @@ export interface CreateTemplateDto {
   department_id?: string;
   semester_id?: string;
   section_id?: string;
-  timetable_format?: 'regular' | 'batch';
+  timetable_format?: 'regular' | 'batch' | 'cycle';
+  num_cycles?: number;
   periods?: any;
   timetable_data?: any;
   selected_days?: DayOfWeek[];

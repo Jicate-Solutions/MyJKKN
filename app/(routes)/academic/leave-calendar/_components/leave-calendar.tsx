@@ -16,6 +16,8 @@ interface LeaveCalendarProps {
   semesterId?: string;
   sectionId?: string;
   onMonthChange: (year: number, month: number) => void;
+  canApplyLeave?: boolean;
+  onApplyLeave?: (date: string) => void;
 }
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -31,7 +33,9 @@ export function LeaveCalendar({
   departmentId,
   semesterId,
   sectionId,
-  onMonthChange
+  onMonthChange,
+  canApplyLeave,
+  onApplyLeave
 }: LeaveCalendarProps) {
   const { calendarData, loading, error } = useLeaveCalendar(
     institutionId,
@@ -210,6 +214,8 @@ export function LeaveCalendar({
                         isToday={
                           new Date().toISOString().split('T')[0] === dateStr
                         }
+                        canApplyLeave={canApplyLeave}
+                        onApplyLeave={onApplyLeave}
                       />
                     </div>
                   );

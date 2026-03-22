@@ -13,12 +13,12 @@ export interface UseTimetableDialogsResult {
   // Dialog Controls
   slotDialog: DialogControl & {
     data: {
-      selectedDay: DayOfWeek | null;
+      selectedDay: DayOfWeek | string | null;
       selectedPeriod: Period | null;
       selectedSlot: any | null;
       readOnly: boolean;
     };
-    openWith: (day: DayOfWeek, period: Period, existingSlot?: any, readOnly?: boolean) => void;
+    openWith: (day: DayOfWeek | string, period: Period, existingSlot?: any, readOnly?: boolean) => void;
   };
 
   subdivisionDialog: DialogControl & {
@@ -63,6 +63,7 @@ export interface UseTimetableDialogsResult {
   };
 
   dayConfigDialog: DialogControl;
+  cycleConfigDialog: DialogControl;
   addDateRangeDialog: DialogControl & {
     data: {
       startDate: Date | undefined;
@@ -89,7 +90,7 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
   // Slot Dialog State
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
   const [slotDialogReadOnly, setSlotDialogReadOnly] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<DayOfWeek | null>(null);
+  const [selectedDay, setSelectedDay] = useState<DayOfWeek | string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<Period | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
 
@@ -117,6 +118,9 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
   // Day Config Dialog State
   const [dayConfigOpen, setDayConfigOpen] = useState(false);
 
+  // Cycle Config Dialog State
+  const [cycleConfigOpen, setCycleConfigOpen] = useState(false);
+
   // Add Date Range Dialog State
   const [addDateRangeOpen, setAddDateRangeOpen] = useState(false);
   const [newStartDate, setNewStartDate] = useState<Date | undefined>();
@@ -128,7 +132,7 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
 
   // Slot Dialog Control
   const openSlotDialog = useCallback((
-    day: DayOfWeek,
+    day: DayOfWeek | string,
     period: Period,
     existingSlot?: any,
     readOnly = false
@@ -283,6 +287,13 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
       isOpen: dayConfigOpen,
       open: () => setDayConfigOpen(true),
       close: () => setDayConfigOpen(false)
+    },
+
+    // Cycle Config Dialog
+    cycleConfigDialog: {
+      isOpen: cycleConfigOpen,
+      open: () => setCycleConfigOpen(true),
+      close: () => setCycleConfigOpen(false)
     },
 
     // Add Date Range Dialog

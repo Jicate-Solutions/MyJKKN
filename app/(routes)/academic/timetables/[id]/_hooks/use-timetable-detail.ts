@@ -104,7 +104,7 @@ interface TimetableDetailState {
   error: string | null;
   hasAttendance: boolean;
   markedPeriods: string[];
-  timetableFormat: 'regular' | 'batch';
+  timetableFormat: 'regular' | 'batch' | 'cycle';
   selectedDays: DayOfWeek[];
   selectedDates: string[];
 }
@@ -148,13 +148,13 @@ interface UseTimetableDetailResult {
   markedPeriods: string[];
 
   // Format & Configuration
-  timetableFormat: 'regular' | 'batch';
+  timetableFormat: 'regular' | 'batch' | 'cycle';
   selectedDays: DayOfWeek[];
   selectedDates: string[];
 
   // Actions
   fetchTimetableData: (preserveUnsavedDates?: boolean) => Promise<void>;
-  setTimetableFormat: (format: 'regular' | 'batch') => void;
+  setTimetableFormat: (format: 'regular' | 'batch' | 'cycle') => void;
   setSelectedDays: (days: DayOfWeek[]) => void;
   setSelectedDates: (dates: string[]) => void;
   setSlots: (slots: any[]) => void;
@@ -222,7 +222,7 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
       });
 
       // Resolve format-dependent days/dates
-      const format: 'regular' | 'batch' = timetableData.timetable_format || 'regular';
+      const format: 'regular' | 'batch' | 'cycle' = timetableData.timetable_format || 'regular';
       let resolvedDays: DayOfWeek[] = stateRef.current.selectedDays;
       let resolvedDates: string[] = [];
 
@@ -287,7 +287,7 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
 
   // ── Stable individual setters (backward-compatible API) ──────────────────
 
-  const setTimetableFormat = useCallback((format: 'regular' | 'batch') => {
+  const setTimetableFormat = useCallback((format: 'regular' | 'batch' | 'cycle') => {
     setState(prev => ({ ...prev, timetableFormat: format }));
   }, []);
 

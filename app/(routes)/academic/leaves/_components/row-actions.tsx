@@ -33,7 +33,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { MoreHorizontal, Eye, Pencil, Trash2, Check, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { LeaveService } from '@/lib/services/academic/leave-service';
+import { LEAVE_KEYS } from '@/hooks/academic/use-leaves';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { InstitutionLeave } from '@/types/leaves';
 
@@ -43,6 +45,7 @@ interface LeaveRowActionsProps {
 
 export function LeaveRowActions({ leave }: LeaveRowActionsProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { userProfile, canAccess } = usePermissions();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showApproveDialog, setShowApproveDialog] = useState(false);
@@ -61,8 +64,8 @@ export function LeaveRowActions({ leave }: LeaveRowActionsProps) {
     try {
       setIsDeleting(true);
       await LeaveService.deleteLeave(leave.id);
+      queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
       toast.success('Leave deleted successfully');
-      router.refresh();
     } catch (error) {
       console.error('Error deleting leave:', error);
       toast.error('Failed to delete leave');
@@ -77,8 +80,8 @@ export function LeaveRowActions({ leave }: LeaveRowActionsProps) {
       setIsApproving(true);
       if (!userProfile?.id) throw new Error('User not authenticated');
       await LeaveService.approveLeave(leave.id, userProfile.id, approveComment);
+      queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
       toast.success('Leave approved successfully');
-      router.refresh();
     } catch (error) {
       console.error('Error approving leave:', error);
       toast.error('Failed to approve leave');
@@ -99,8 +102,8 @@ export function LeaveRowActions({ leave }: LeaveRowActionsProps) {
       setIsRejecting(true);
       if (!userProfile?.id) throw new Error('User not authenticated');
       await LeaveService.rejectLeave(leave.id, userProfile.id, rejectReason);
+      queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
       toast.success('Leave rejected');
-      router.refresh();
     } catch (error) {
       console.error('Error rejecting leave:', error);
       toast.error('Failed to reject leave');

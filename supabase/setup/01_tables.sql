@@ -749,7 +749,9 @@ CREATE TABLE IF NOT EXISTS public.timetables (
     template_category TEXT,
     template_tags JSONB DEFAULT '[]'::jsonb,
     usage_count INTEGER DEFAULT 0,
-    created_from_template_id UUID
+    created_from_template_id UUID,
+    -- Updated: 2026-03-22 - Added cycle-based timetable support
+    num_cycles INTEGER DEFAULT NULL CHECK (num_cycles IS NULL OR (num_cycles >= 1 AND num_cycles <= 52))
 );
 
 -- Timetable Slot Continuity

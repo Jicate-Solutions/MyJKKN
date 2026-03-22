@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useEffect, useCallback } from 'react';
 import { Period } from '@/types/academics';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
@@ -18,7 +20,7 @@ interface UseTimetablePeriodsResult {
     timetableId: string,
     selectedDays: any[],
     selectedDates: any[],
-    timetableFormat: 'regular' | 'batch'
+    timetableFormat: 'regular' | 'batch' | 'cycle'
   ) => Promise<void>;
 
   // State
@@ -191,7 +193,7 @@ export function useTimetablePeriods(
     timetableId: string,
     selectedDays: any[],
     selectedDates: any[],
-    timetableFormat: 'regular' | 'batch'
+    timetableFormat: 'regular' | 'batch' | 'cycle'
   ) => {
     try {
       setSavingPeriods(true);

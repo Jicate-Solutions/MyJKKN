@@ -20,15 +20,16 @@ import {
   Download,
   Lock,
   Loader2,
-  CalendarPlus
+  CalendarPlus,
+  RefreshCw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 interface TimetableActionsProps {
   // Format & Configuration
-  timetableFormat: 'regular' | 'batch';
-  onFormatChange: (format: 'regular' | 'batch') => void;
+  timetableFormat: 'regular' | 'batch' | 'cycle';
+  onFormatChange: (format: 'regular' | 'batch' | 'cycle') => void;
   selectedPeriods: any[];
   selectedDays: any[];
   selectedDates?: string[];
@@ -47,6 +48,8 @@ interface TimetableActionsProps {
   onConfigurePeriods: () => void;
   onConfigureDays: () => void;
   onAddDateRange?: () => void;
+  onConfigureCycles?: () => void;
+  numCycles?: number;
   onSaveConfiguration: () => void;
   onExportPDF: () => void;
 }
@@ -70,11 +73,13 @@ export function TimetableActions({
   onConfigurePeriods,
   onConfigureDays,
   onAddDateRange,
+  onConfigureCycles,
+  numCycles,
   onSaveConfiguration,
   onExportPDF
 }: TimetableActionsProps) {
   const handleFormatChange = (value: string) => {
-    const newFormat = value as 'regular' | 'batch';
+    const newFormat = value as 'regular' | 'batch' | 'cycle';
     if (newFormat !== timetableFormat) {
       onFormatChange(newFormat);
     }
@@ -132,6 +137,7 @@ export function TimetableActions({
                 <SelectContent>
                   <SelectItem value="regular">Regular (Day-wise)</SelectItem>
                   <SelectItem value="batch">Batch (Date-wise)</SelectItem>
+                  <SelectItem value="cycle">Cycle (Rolling cycles)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -165,6 +171,22 @@ export function TimetableActions({
           Add Date Range
           <Badge variant="secondary" className="ml-2">
             {selectedDates.length}
+          </Badge>
+        </Button>
+      )}
+
+      {/* Configure Cycles (Cycle Mode Only) */}
+      {timetableFormat === 'cycle' && canEdit && onConfigureCycles && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onConfigureCycles}
+          className="border-amber-300 text-amber-700 hover:bg-amber-50"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Configure Cycles
+          <Badge className="ml-2 bg-amber-600 text-white text-xs">
+            {numCycles ?? '?'}
           </Badge>
         </Button>
       )}

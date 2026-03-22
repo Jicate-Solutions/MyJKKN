@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   flexRender,
@@ -63,20 +62,6 @@ export function LeavesDataTable({ search }: LeavesDataTableProps) {
     manualPagination: true,
     pageCount: metadata.totalPages
   });
-
-  useEffect(() => {
-    fetchLeaves({
-      search: search.search,
-      status: search.status,
-      scope_level: search.scope_level,
-      leave_type_id: search.leave_type_id,
-      institution_id: effectiveInstitutionId,
-      start_date: search.start_date,
-      end_date: search.end_date,
-      page: search.page,
-      limit: search.pageSize
-    });
-  }, [search, effectiveInstitutionId, fetchLeaves]);
 
   const handlePageChange = (newPage: number) => {
     const params = new URLSearchParams();

@@ -67,6 +67,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import Loading from '@/components/Loading/Loading';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
+import { CycleCalculationService } from '@/lib/services/academic/cycle-calculation-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { useTimetables } from '@/hooks/academic/use-timetables';
 import { useCourses } from '@/hooks/organization/use-courses';
@@ -108,6 +109,7 @@ import {
 import { TimetableHeader } from './_components/timetable-header';
 import { TimetableGrid } from './_components/timetable-grid';
 import { BatchTimetableGrid } from './_components/batch-timetable-grid';
+import { CycleTimetableGrid } from './_components/cycle-timetable-grid';
 import { SortablePeriodItem } from './_components/sortable-period-item';
 
 // Import extracted components (Phase 3)
@@ -115,6 +117,7 @@ import { TimetableActions } from './_components/timetable-actions';
 import { TemplateDialog } from './_components/template-dialog';
 import { UnsavedChangesDialog } from './_components/unsaved-changes-dialog';
 import { DateRangeDialog } from './_components/date-range-dialog';
+import { CycleConfigDialog } from './_components/cycle-config-dialog';
 
 // Import lazy-loaded dialogs (Phase 3)
 import {
@@ -165,6 +168,9 @@ export default function TimetableDetailPage() {
   // Add ref for timetable grid capture
   const timetableGridRef = useRef<HTMLDivElement>(null);
 
+  // Today's cycle number for cycle-format timetables (null = holiday/Sunday or non-cycle)
+  const [todaysCycle, setTodaysCycle] = useState<number | null>(null);
+
   // ===================================
   // PHASE 1: Use Custom Hooks
   // ===================================
@@ -202,6 +208,12 @@ export default function TimetableDetailPage() {
     selectedDatesRef.current = selectedDates;
   }, [selectedDates]);
 
+  // Fetch today's cycle number for cycle-format timetables
+  useEffect(() => {
+    if (!timetable || timetableFormat !== 'cycle') return;
+    CycleCalculationService.getTodaysCycle(timetable.id).then(setTodaysCycle);
+  }, [timetable, timetableFormat]);
+
   // Period selection and persistence
   const {
     selectedPeriods,
@@ -231,7 +243,8 @@ export default function TimetableDetailPage() {
     addDateRangeDialog,
     unsavedChangesDialog,
     periodSelectorDialog,
-    dayConfigDialog
+    dayConfigDialog,
+    cycleConfigDialog
   } = useTimetableDialogs();
 
   // Add period dialog state (not in hook)
@@ -1110,7 +1123,7 @@ export default function TimetableDetailPage() {
   // Format Change
   // ===================================
 
-  const handleFormatChange = (newFormat: 'regular' | 'batch') => {
+  const handleFormatChange = (newFormat: 'regular' | 'batch' | 'cycle') => {
     if (hasAttendance && !isSuperAdmin) {
       toast.error(
         'Cannot change timetable format after attendance has been marked. Please contact an administrator.'
@@ -1131,9 +1144,24 @@ export default function TimetableDetailPage() {
     if (newFormat === 'batch') {
       setSelectedDates([]);
     } else {
+      // Both regular and cycle use day-based selection (not date ranges)
       setSelectedDays(ALL_DAYS_OF_WEEK);
     }
   };
+
+  // ===================================
+  // Cycle Config Save
+  // ===================================
+
+  const handleSaveCycleConfig = useCallback(async (numCycles: number) => {
+    if (!timetable) return;
+    await TimetableService.updateTimetable(timetable.id, { num_cycles: numCycles });
+    await fetchTimetableData(true);
+    // Refresh today's cycle since num_cycles change shifts the modulo calculation
+    const newCycle = await CycleCalculationService.getTodaysCycle(timetable.id);
+    setTodaysCycle(newCycle);
+    toast.success(`Cycle count updated to ${numCycles}`);
+  }, [timetable, fetchTimetableData]);
 
   // ===================================
   // Render
@@ -1219,6 +1247,7 @@ export default function TimetableDetailPage() {
           canEdit={canEditTimetable}
           isSuperAdmin={isSuperAdmin}
           hasAttendance={hasAttendance}
+          todaysCycle={todaysCycle}
         />
 
         {/* Action Buttons */}
@@ -1237,6 +1266,8 @@ export default function TimetableDetailPage() {
           onConfigurePeriods={periodSelectorDialog.open}
           onConfigureDays={dayConfigDialog.open}
           onAddDateRange={addDateRangeDialog.open}
+          onConfigureCycles={cycleConfigDialog.open}
+          numCycles={timetable?.num_cycles ?? undefined}
           onSaveConfiguration={savePeriodSelections}
           onExportPDF={handleExportPDF}
         />
@@ -1278,7 +1309,7 @@ export default function TimetableDetailPage() {
               isSuperAdmin={isSuperAdmin}
               canEdit={canEditTimetable}
             />
-          ) : (
+          ) : timetableFormat === 'batch' ? (
             <BatchTimetableGrid
               selectedDates={selectedDates}
               selectedPeriods={selectedPeriods}
@@ -1294,6 +1325,22 @@ export default function TimetableDetailPage() {
               lockedPeriods={markedPeriods}
               canEdit={canEditTimetable}
               isSuperAdmin={isSuperAdmin}
+            />
+          ) : (
+            <CycleTimetableGrid
+              numCycles={timetable?.num_cycles ?? 6}
+              selectedPeriods={selectedPeriods}
+              slots={slots}
+              onSlotClick={(cycleKey, period, existingSlot) => {
+                openSlotDialog(cycleKey, period, existingSlot);
+              }}
+              onSlotDelete={(cycleKey, period, existingSlot) => {
+                requestSlotDeletion(cycleKey, period, existingSlot);
+              }}
+              lockedPeriods={markedPeriods}
+              todaysCycle={todaysCycle ?? undefined}
+              isSuperAdmin={isSuperAdmin}
+              canEdit={canEditTimetable}
             />
           )}
         </div>
@@ -1459,6 +1506,16 @@ export default function TimetableDetailPage() {
           }}
           onDiscard={handleDiscardAndContinue}
           onSaveAndContinue={handleSaveAndContinue}
+        />
+
+        {/* Cycle Config Dialog */}
+        <CycleConfigDialog
+          isOpen={cycleConfigDialog.isOpen}
+          onClose={cycleConfigDialog.close}
+          currentNumCycles={timetable?.num_cycles ?? 6}
+          hasSlots={slots.length > 0}
+          isSuperAdmin={isSuperAdmin}
+          onSave={handleSaveCycleConfig}
         />
 
         {/* Date Range Dialog */}
@@ -1644,6 +1701,11 @@ export default function TimetableDetailPage() {
               {timetableFormat === 'batch' && deleteDialog.data.slotToDelete?.slot_date && (
                 <div className='text-sm'>
                   Date: {deleteDialog.data.slotToDelete.slot_date}
+                </div>
+              )}
+              {timetableFormat === 'cycle' && deleteDialog.data.slotToDelete?.day_of_week && (
+                <div className='text-sm'>
+                  Cycle: {deleteDialog.data.slotToDelete.day_of_week.replace('cycle-', 'Cycle ')}
                 </div>
               )}
               <div className='mt-3 text-sm text-amber-600 font-medium'>

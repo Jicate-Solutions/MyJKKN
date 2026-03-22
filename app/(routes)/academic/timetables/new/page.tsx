@@ -93,7 +93,9 @@ const timetableFormSchema = z
     is_template: z.boolean().default(false),
     template_name: z.string().optional(),
     selected_template_id: z.string().optional(),
-    timetable_format: z.enum(['regular', 'batch']).default('regular')
+    timetable_format: z.enum(['regular', 'batch', 'cycle']).default('regular'),
+    // Updated: 2026-03-22 - Required when timetable_format='cycle'
+    num_cycles: z.coerce.number().int().min(1).max(52).optional()
   })
   .refine(
     (data) => {
@@ -118,6 +120,18 @@ const timetableFormSchema = z
     {
       message: 'Please select a section for section-level timetables.',
       path: ['section_id']
+    }
+  )
+  .refine(
+    (data) => {
+      if (data.timetable_format === 'cycle' && !data.num_cycles) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Number of cycles is required for cycle-based timetables (1–52).',
+      path: ['num_cycles']
     }
   );
 
@@ -1020,17 +1034,56 @@ export default function NewTimetablePage() {
                             <SelectItem value='batch'>
                               Batch (Date-wise)
                             </SelectItem>
+                            <SelectItem value='cycle'>
+                              Cycle (Rolling cycles)
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          Regular: Create a weekly schedule with fixed days.
-                          Batch: Create a date-specific schedule for specific
-                          date ranges.
+                          Regular: Weekly schedule with fixed days. Batch:
+                          Date-specific schedule. Cycle: Rolling N-cycle
+                          schedule where each working day advances the cycle.
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+
+                  {/* Num Cycles — only visible when format = 'cycle' */}
+                  {form.watch('timetable_format') === 'cycle' && (
+                    <FormField
+                      control={form.control}
+                      name='num_cycles'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Number of Cycles</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={1}
+                              max={52}
+                              placeholder='e.g. 6'
+                              {...field}
+                              value={field.value ?? ''}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value === ''
+                                    ? undefined
+                                    : Number(e.target.value)
+                                )
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            How many cycles to rotate through (1–52). Each
+                            working day advances to the next cycle. After the
+                            last cycle, it wraps back to Cycle 1.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </div>
 
                 {/* Date Fields */}

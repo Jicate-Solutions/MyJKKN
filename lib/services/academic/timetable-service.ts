@@ -430,6 +430,7 @@ Please select a different date period that doesn't overlap.`
         'start_date',
         'end_date',
         'periods',
+        'num_cycles',
         'is_active',
         'is_template',
         'template_name',
@@ -554,6 +555,7 @@ Please select a different date period that doesn't overlap.`
       // Only include fields that are explicitly provided and not part of the unique constraint
       // Updated: 2025-10-08 - Added timetable_type to allowed fields
       // Updated: 2025-11-17 - Added periods to allowed fields to fix period configuration save issue
+      // Updated: 2026-03-22 - Added num_cycles for cycle-format timetable support
       const allowedFields = [
         'timetable_format',
         'timetable_type',
@@ -563,6 +565,7 @@ Please select a different date period that doesn't overlap.`
         'timetable_name',
         'selected_days',
         'periods',
+        'num_cycles',
         'institution_id',
         'academic_year_id',
         'degree_id',

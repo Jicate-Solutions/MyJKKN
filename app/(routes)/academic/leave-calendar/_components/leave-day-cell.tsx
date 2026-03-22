@@ -7,7 +7,8 @@ import {
   PopoverTrigger
 } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, CheckCircle2, Clock, Ban, Sparkles } from 'lucide-react';
+import { Calendar, CheckCircle2, Clock, Ban, Sparkles, CalendarPlus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { CalendarDayInfo } from '@/types/leaves';
 
 interface LeaveDayCellProps {
@@ -15,9 +16,11 @@ interface LeaveDayCellProps {
   date: string;
   dayInfo?: CalendarDayInfo;
   isToday?: boolean;
+  canApplyLeave?: boolean;
+  onApplyLeave?: (date: string) => void;
 }
 
-export function LeaveDayCell({ day, date, dayInfo, isToday }: LeaveDayCellProps) {
+export function LeaveDayCell({ day, date, dayInfo, isToday, canApplyLeave, onApplyLeave }: LeaveDayCellProps) {
   const isWeekend = dayInfo?.is_weekend || false;
   const isBlocked = dayInfo?.is_blocked || false;
   const leaves = dayInfo?.leaves || [];
@@ -224,6 +227,21 @@ export function LeaveDayCell({ day, date, dayInfo, isToday }: LeaveDayCellProps)
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Apply Leave action */}
+          {canApplyLeave && onApplyLeave && !isSunday && (
+            <div className='pt-2 border-t'>
+              <Button
+                size='sm'
+                variant='outline'
+                className='w-full gap-2'
+                onClick={() => onApplyLeave(date)}
+              >
+                <CalendarPlus className='h-4 w-4' />
+                Apply Leave for This Day
+              </Button>
             </div>
           )}
         </div>

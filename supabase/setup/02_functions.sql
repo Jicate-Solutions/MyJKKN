@@ -1506,6 +1506,142 @@ END;
 $$;
 
 -- ================================================================================
+-- SECTION 5.5: CYCLE-BASED TIMETABLE FUNCTIONS
+-- Added: 2026-03-22 - Cycle timetable format support
+-- Cycle timetables rotate through N user-defined cycles instead of fixed days.
+-- The cycle counter advances only on actual working days (holidays + Sundays are skipped).
+-- ================================================================================
+
+-- Helper: Check if a date is an institution-level approved holiday
+-- Used by cycle calculation to determine if a day should be skipped.
+-- Only institution-scoped, approved leaves count (department/section leaves are ignored).
+CREATE OR REPLACE FUNCTION public.is_institution_holiday(
+    p_institution_id UUID,
+    p_date           DATE
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.institution_leaves
+        WHERE institution_id = p_institution_id
+          AND scope_level    = 'institution'
+          AND status         = 'approved'
+          AND start_date    <= p_date
+          AND end_date      >= p_date
+    );
+$$;
+
+-- Core: Calculate which cycle number is active on a given date for a cycle-format timetable.
+-- Returns NULL if the date is a Sunday or institution holiday (no classes that day).
+-- Returns the cycle number (1-indexed) for working days.
+-- Algorithm: count working days from first_working_day up to (not including) target date,
+-- then: cycle = (working_day_count % num_cycles) + 1
+CREATE OR REPLACE FUNCTION public.get_cycle_for_date(
+    p_timetable_id UUID,
+    p_date         DATE
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+AS $$
+DECLARE
+    v_start_date        DATE;
+    v_num_cycles        INTEGER;
+    v_institution_id    UUID;
+    v_first_working_day DATE;
+    v_working_day_count INTEGER := 0;
+    v_d                 DATE;
+BEGIN
+    -- Load timetable metadata
+    SELECT start_date, num_cycles, institution_id
+      INTO v_start_date, v_num_cycles, v_institution_id
+      FROM public.timetables
+     WHERE id = p_timetable_id;
+
+    -- Timetable not found or not a cycle timetable
+    IF v_num_cycles IS NULL OR v_num_cycles < 1 THEN
+        RETURN NULL;
+    END IF;
+
+    -- Sunday check (DOW 0 = Sunday in PostgreSQL)
+    IF EXTRACT(DOW FROM p_date) = 0 THEN
+        RETURN NULL;
+    END IF;
+
+    -- Institution holiday check for the target date
+    IF public.is_institution_holiday(v_institution_id, p_date) THEN
+        RETURN NULL;
+    END IF;
+
+    -- Find first working day on or after start_date
+    -- (start_date may itself fall on a Sunday or holiday)
+    v_first_working_day := v_start_date;
+    WHILE EXTRACT(DOW FROM v_first_working_day) = 0
+       OR public.is_institution_holiday(v_institution_id, v_first_working_day)
+    LOOP
+        v_first_working_day := v_first_working_day + INTERVAL '1 day';
+    END LOOP;
+
+    -- If requested date is before the timetable even starts, no cycle
+    IF p_date < v_first_working_day THEN
+        RETURN NULL;
+    END IF;
+
+    -- Count working days from first_working_day UP TO (not including) p_date
+    -- Each working day increments the counter; Sundays and holidays are invisible.
+    v_d := v_first_working_day;
+    WHILE v_d < p_date LOOP
+        IF EXTRACT(DOW FROM v_d) != 0
+           AND NOT public.is_institution_holiday(v_institution_id, v_d)
+        THEN
+            v_working_day_count := v_working_day_count + 1;
+        END IF;
+        v_d := v_d + INTERVAL '1 day';
+    END LOOP;
+
+    -- Return 1-indexed cycle number (wraps after num_cycles)
+    RETURN (v_working_day_count % v_num_cycles) + 1;
+END;
+$$;
+
+-- Bulk: Return a map of { date_iso_string -> cycle_number } for a date range.
+-- Dates that are Sundays or holidays map to NULL.
+-- Used by the faculty calendar and attendance services to avoid N queries per date.
+CREATE OR REPLACE FUNCTION public.get_cycle_map_for_range(
+    p_timetable_id UUID,
+    p_start_date   DATE,
+    p_end_date     DATE
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+AS $$
+DECLARE
+    v_result     JSONB := '{}'::JSONB;
+    v_d          DATE;
+    v_cycle      INTEGER;
+BEGIN
+    v_d := p_start_date;
+    WHILE v_d <= p_end_date LOOP
+        v_cycle := public.get_cycle_for_date(p_timetable_id, v_d);
+        -- Store as { "2025-01-15": 3 } or { "2025-01-12": null } for holidays/Sundays
+        v_result := v_result || jsonb_build_object(
+            to_char(v_d, 'YYYY-MM-DD'),
+            v_cycle
+        );
+        v_d := v_d + INTERVAL '1 day';
+    END LOOP;
+    RETURN v_result;
+END;
+$$;
+
+-- ================================================================================
 -- SECTION 6: ACADEMIC MODULE FUNCTIONS
 -- ================================================================================
 

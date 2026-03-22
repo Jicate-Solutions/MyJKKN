@@ -11,7 +11,7 @@ import { AlertCircle, Save, Loader2 } from 'lucide-react';
 
 interface UnsavedChangesDialogProps {
   isOpen: boolean;
-  timetableFormat: 'regular' | 'batch';
+  timetableFormat: 'regular' | 'batch' | 'cycle';
   savingPeriods: boolean;
   onCancel: () => void;
   onDiscard: () => void;
