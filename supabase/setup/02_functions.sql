@@ -4957,6 +4957,7 @@ $$;
 -- =====================================================
 -- STARTUP STUDIO: get_event_stats
 -- Added: 2026-03-07
+-- Updated: 2026-03-22 — Fix total_members for Sarvam Galatta / individual events.
 -- Returns aggregate team/member stats for a single event.
 -- Used by the registrations page global stats cards (no filter active).
 -- SECURITY DEFINER: bypasses RLS on event_registrations/event_team_members
@@ -4968,16 +4969,28 @@ LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-    SELECT jsonb_build_object(
-        'total_teams',            COUNT(DISTINCT er.id) FILTER (WHERE er.status != 'disqualified'),
-        'checked_in_teams',       COUNT(DISTINCT er.id) FILTER (WHERE er.checked_in = true AND er.status != 'disqualified'),
-        'total_members',          COUNT(etm.id) FILTER (WHERE etm.status = 'accepted'),
-        'members_with_laptops',   COUNT(etm.id) FILTER (WHERE etm.status = 'accepted' AND etm.has_laptop = true),
-        'institutions',           COUNT(DISTINCT er.institution_id) FILTER (WHERE er.status != 'disqualified')
-    )
-    FROM event_registrations er
-    LEFT JOIN event_team_members etm ON etm.registration_id = er.id
-    WHERE er.event_id = p_event_id;
+  -- Individual-registration events (e.g. Sarvam Galatta) create rows in
+  -- sarvam_galatta_registrations but never in event_team_members.
+  -- Use a CTE to detect this and fall back to the sarvam count for total_members.
+  WITH sarvam_count AS (
+    SELECT COUNT(*) AS cnt
+    FROM sarvam_galatta_registrations
+    WHERE event_id = p_event_id
+  )
+  SELECT jsonb_build_object(
+      'total_teams',          COUNT(DISTINCT er.id) FILTER (WHERE er.status != 'disqualified'),
+      'checked_in_teams',     COUNT(DISTINCT er.id) FILTER (WHERE er.checked_in = true AND er.status != 'disqualified'),
+      'total_members',        CASE
+                                WHEN (SELECT cnt FROM sarvam_count) > 0
+                                THEN (SELECT cnt FROM sarvam_count)
+                                ELSE COUNT(etm.id) FILTER (WHERE etm.status = 'accepted')
+                              END,
+      'members_with_laptops', COUNT(etm.id) FILTER (WHERE etm.status = 'accepted' AND etm.has_laptop = true),
+      'institutions',         COUNT(DISTINCT er.institution_id) FILTER (WHERE er.status != 'disqualified')
+  )
+  FROM event_registrations er
+  LEFT JOIN event_team_members etm ON etm.registration_id = er.id
+  WHERE er.event_id = p_event_id;
 $$;
 
 -- =====================================================
