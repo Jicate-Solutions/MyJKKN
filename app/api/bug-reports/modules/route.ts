@@ -19,7 +19,8 @@ export async function GET() {
       );
     }
 
-    // Check admin role
+    // Admin-only: module breakdown is an internal analytics endpoint
+    // (unlike /stats which uses RLS to scope results per user)
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
@@ -39,6 +40,8 @@ export async function GET() {
 
     const adminSupabase = createAdminClient();
 
+    // adminSupabase is typed to the generated schema — tables not in generated
+    // types require an `as any` cast. This is the project-wide pattern.
     const { data, error } = await (adminSupabase as any)
       .from('bug_reports')
       .select('module_name')
