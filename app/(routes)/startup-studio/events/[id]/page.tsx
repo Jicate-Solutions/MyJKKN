@@ -189,7 +189,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                 {canRegister && isRegistrationOpen && !isInATeam && (
                   <Link href={`/startup-studio/events/${id}/register`} className="w-full">
                     <Button size="lg" className="w-full gap-2 shadow-md hover:shadow-lg transition-all bg-primary hover:bg-primary/90">
-                      <Rocket className="h-4 w-4" /> Register Team
+                      <Rocket className="h-4 w-4" /> {isIndividualEvent ? 'Register Project' : 'Register Team'}
                     </Button>
                   </Link>
                 )}
@@ -218,7 +218,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
           <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
             <StatCard
               icon={<Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />}
-              label="Registered Teams"
+              label={isIndividualEvent ? 'Registered Projects' : 'Registered Teams'}
               value={stats.total_teams}
               color="blue"
             />
@@ -331,10 +331,10 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                 <CardDescription>Rules and configuration for this event</CardDescription>
               </CardHeader>
               <CardContent className="p-6 space-y-6">
-                <DetailRow 
+                <DetailRow
                   icon={<Users className="h-4 w-4" />}
-                  label="Team Size" 
-                  value={`Max ${config?.team_max_size || 5} members`} 
+                  label={isIndividualEvent ? 'Participation' : 'Team Size'}
+                  value={isIndividualEvent ? 'Individual Registration' : `Max ${config?.team_max_size || 5} members`}
                 />
                 <Separator />
                 <DetailRow 

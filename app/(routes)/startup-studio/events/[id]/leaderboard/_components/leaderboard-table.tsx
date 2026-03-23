@@ -17,6 +17,7 @@ import { useLeaderboard } from '@/hooks/startup-studio/use-event-leaderboard';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { getLeaderboardColumns } from './leaderboard-columns';
 import { LeaderboardStats } from './leaderboard-stats';
+import { LeaderboardDetailSheet } from './leaderboard-detail-sheet';
 import type { VerifiedLeaderboardEntry, LeaderboardEntry } from '@/types/startup-studio';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -43,6 +44,9 @@ export function LeaderboardTable({
   const [pageSize, setPageSize] = useState(25);
   const [search, setSearch] = useState('');
   const [tierFilter, setTierFilter] = useState<string>('all');
+
+  // Detail sheet state
+  const [detailEntry, setDetailEntry] = useState<VerifiedLeaderboardEntry | null>(null);
 
   // Server-side paginated query
   const { data: paginatedResult, isLoading: verifiedLoading } = useVerifiedLeaderboardPaginated(
@@ -83,9 +87,9 @@ export function LeaderboardTable({
     return Math.max(...entries.map((e) => e.total_score), 60);
   }, [entries]);
 
-  // Column definitions
+  // Column definitions — include stable setDetailEntry as onViewDetails
   const columns = useMemo(
-    () => getLeaderboardColumns({ institutionView, topScore }),
+    () => getLeaderboardColumns({ institutionView, topScore, onViewDetails: setDetailEntry }),
     [institutionView, topScore]
   );
 
@@ -124,6 +128,13 @@ export function LeaderboardTable({
 
   return (
     <div className="space-y-4">
+      {/* Team detail sheet */}
+      <LeaderboardDetailSheet
+        entry={detailEntry}
+        open={!!detailEntry}
+        onOpenChange={(open) => { if (!open) setDetailEntry(null); }}
+      />
+
       {/* KPI Stats */}
       <LeaderboardStats entries={statsEntries} />
 

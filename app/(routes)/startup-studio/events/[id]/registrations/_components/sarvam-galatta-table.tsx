@@ -18,7 +18,6 @@ import {
   useSetApprovalStatus,
 } from '@/hooks/startup-studio/use-sarvam-galatta';
 import { SarvamGalattaRegistrationService } from '@/lib/services/startup-studio/sarvam-galatta-registration-service';
-import { exportSarvamGalattaPDF } from '@/lib/utils/pdf-export/sarvam-galatta-pdf';
 import type { SarvamGalattaRegistration } from '@/types/sarvam-galatta';
 import { getSarvamGalattaColumns } from './sarvam-galatta-columns';
 import { RegistrationDetailSheet } from './registration-detail-sheet';
@@ -168,6 +167,9 @@ export function SarvamGalattaTable({ eventId, eventName = 'Sarvam Galatta' }: Sa
         search: search || undefined,
         institution_id: institutionFilter || undefined,
       });
+      // Dynamic import — jsPDF accesses browser globals at module init,
+      // so it must be loaded client-side only (never during SSR).
+      const { exportSarvamGalattaPDF } = await import('@/lib/utils/pdf-export/sarvam-galatta-pdf');
       await exportSarvamGalattaPDF(allRows, eventName);
     } finally {
       setExportingPdf(false);

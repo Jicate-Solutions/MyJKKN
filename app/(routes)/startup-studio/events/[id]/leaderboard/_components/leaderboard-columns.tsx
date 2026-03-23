@@ -1,8 +1,9 @@
 'use client';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Medal } from 'lucide-react';
+import { Eye, Medal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { PermissionColumnDef } from '@/components/ui/data-table';
 import type { VerifiedLeaderboardEntry } from '@/types/startup-studio';
@@ -30,12 +31,13 @@ const VERIFIED_TIER_LABELS: Record<number, { label: string; className: string }>
 type LeaderboardColumnOptions = {
   institutionView?: boolean;
   topScore?: number;
+  onViewDetails?: (entry: VerifiedLeaderboardEntry) => void;
 };
 
 export function getLeaderboardColumns(
   options: LeaderboardColumnOptions = {}
 ): PermissionColumnDef<VerifiedLeaderboardEntry, unknown>[] {
-  const { institutionView = false, topScore = 60 } = options;
+  const { institutionView = false, topScore = 60, onViewDetails } = options;
 
   const columns: PermissionColumnDef<VerifiedLeaderboardEntry, unknown>[] = [
     // Rank
@@ -57,18 +59,23 @@ export function getLeaderboardColumns(
       },
       meta: { className: 'w-16 text-center' },
     },
-    // Team
+    // Team — clicking the name opens the detail sheet
     {
       accessorKey: 'team_name',
       header: 'Team',
       cell: ({ row }) => (
-        <div>
-          <span className="font-medium text-sm">{row.original.team_name}</span>
+        <div
+          className="flex items-center gap-1 cursor-pointer group"
+          onClick={() => onViewDetails?.(row.original)}
+        >
+          <span className="font-medium text-sm group-hover:text-primary group-hover:underline underline-offset-2 transition-colors">
+            {row.original.team_name}
+          </span>
           {row.original.verification_status === 'disqualified' && (
-            <Badge variant="destructive" className="text-xs ml-1">DQ</Badge>
+            <Badge variant="destructive" className="text-xs">DQ</Badge>
           )}
           {row.original.verification_status === 'flagged' && (
-            <Badge variant="outline" className="text-xs ml-1 border-amber-400 text-amber-600">Flagged</Badge>
+            <Badge variant="outline" className="text-xs border-amber-400 text-amber-600">Flagged</Badge>
           )}
         </div>
       ),
@@ -227,6 +234,24 @@ export function getLeaderboardColumns(
       );
     },
     meta: { className: 'text-center min-w-[100px]' },
+  });
+
+  // View Details action column
+  columns.push({
+    id: 'actions',
+    header: '',
+    cell: ({ row }) => (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+        onClick={() => onViewDetails?.(row.original)}
+        title="View Details"
+      >
+        <Eye className="h-3.5 w-3.5" />
+      </Button>
+    ),
+    meta: { className: 'w-10 text-center' },
   });
 
   return columns;
