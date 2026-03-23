@@ -122,6 +122,7 @@ ORDER BY COUNT(br.id) DESC;
 
 -- Bug reports with details view
 -- Updated: 2026-03-20 - Added category, attachment_urls columns required for filtering and BugReport type
+-- Updated: 2026-03-23 - Added module_name (appended at end per CREATE OR REPLACE VIEW column-order constraint)
 CREATE OR REPLACE VIEW bug_reports_with_details AS
 SELECT
     br.id,
@@ -144,7 +145,8 @@ SELECT
     p.role AS reporter_role,
     i.name AS institution_name,
     d.department_name,
-    d.department_code
+    d.department_code,
+    br.module_name
 FROM bug_reports br
 LEFT JOIN profiles p ON br.reporter_user_id = p.id
 LEFT JOIN institutions i ON br.institution_id = i.id
