@@ -1242,6 +1242,7 @@ CREATE TABLE IF NOT EXISTS public.resource_maintenance_schedules (
 -- =====================================================
 
 -- Bug Reports
+-- Updated: 2026-03-23 - Added module_name generated column for module-wise grouping
 CREATE TABLE IF NOT EXISTS public.bug_reports (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     title VARCHAR(255) NOT NULL,
@@ -1249,6 +1250,24 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
     status VARCHAR(50) DEFAULT 'open',
     priority VARCHAR(20) DEFAULT 'medium',
     category VARCHAR(50),
+    page_url TEXT,
+    -- Updated: 2026-03-23 - Added module_name generated column for module-wise grouping
+    module_name VARCHAR(100) GENERATED ALWAYS AS (
+      CASE
+        WHEN page_url IS NULL THEN 'unknown'
+        WHEN page_url ~ '/academic/' THEN 'academic'
+        WHEN page_url ~ '/billing/' THEN 'billing'
+        WHEN page_url ~ '/organization/' THEN 'organization'
+        WHEN page_url ~ '/learners/' THEN 'learners'
+        WHEN page_url ~ '/staff/' THEN 'staff'
+        WHEN page_url ~ '/admission/' THEN 'admission'
+        WHEN page_url ~ '/resource-management/' THEN 'resource-management'
+        WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
+        WHEN page_url ~ '/settings/' THEN 'settings'
+        WHEN page_url ~ '/admin/' THEN 'admin'
+        ELSE 'other'
+      END
+    ) STORED,
     created_by UUID NOT NULL,
     assigned_to UUID,
     resolved_by UUID,
@@ -1256,6 +1275,9 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Updated: 2026-03-23
+CREATE INDEX IF NOT EXISTS idx_bug_reports_module_name ON public.bug_reports(module_name);
 
 -- Bug Report Messages
 CREATE TABLE IF NOT EXISTS public.bug_report_messages (
@@ -1285,6 +1307,22 @@ CREATE TABLE IF NOT EXISTS public.bug_report_participants (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Bug Report Email Logs
+-- Added: 2026-03-23 - Track resolution email notifications sent to reporters
+CREATE TABLE IF NOT EXISTS public.bug_report_email_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    bug_report_id UUID NOT NULL REFERENCES public.bug_reports(id) ON DELETE CASCADE,
+    recipient_email TEXT NOT NULL,
+    email_type VARCHAR(50) NOT NULL DEFAULT 'resolved_notification',
+    status VARCHAR(20) NOT NULL DEFAULT 'sent',  -- 'sent', 'failed', 'skipped'
+    resend_id TEXT,          -- Resend message ID for delivery tracking
+    error_message TEXT,
+    sent_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_bug_report_email_logs_bug_report_id
+    ON public.bug_report_email_logs(bug_report_id);
 
 -- =====================================================
 -- SECTION 13: AUDIT AND LOGGING (Previously SECTION 14)
