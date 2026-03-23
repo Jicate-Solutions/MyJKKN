@@ -159,6 +159,18 @@ export default function VenueDetailPage({
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params
+  const isValidId = (v: string) => !!v && !v.includes('%%drp:') && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+  if (!isValidId(eventId) || !isValidId(venueId)) {
+    return (
+      <ContentLayout title="Venue Details">
+        <div className="flex items-center justify-center min-h-[40vh]">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
   const dayParam = searchParams.get('day') as DayType | null;
   const tabParam = searchParams.get('tab');
 

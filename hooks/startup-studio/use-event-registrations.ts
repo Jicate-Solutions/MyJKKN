@@ -155,6 +155,7 @@ export function useDeleteRegistration() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
       queryClient.invalidateQueries({ queryKey: ['startup-event-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['my-pending-invitations'] });
       toast.success('Team deleted');
     },
     onError: (error: any) => toast.error(error.message || 'Failed to delete team'),
@@ -175,6 +176,7 @@ export function useDeleteOwnTeam(eventId: string) {
       queryClient.removeQueries({ queryKey: ['my-accepted-membership', eventId, profile?.id] });
       queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
       queryClient.invalidateQueries({ queryKey: ['startup-event-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['my-pending-invitations'] });
       toast.success('Your team has been deleted');
       router.push('/startup-studio/events');
     },
@@ -331,7 +333,7 @@ export function useMyPendingInvitations() {
       return EventRegistrationService.getMyPendingInvitations(profile.id);
     },
     enabled: !!profile?.id,
-    staleTime: 15 * 1000,
+    staleTime: 5 * 1000, // Reduced from 15s to catch deleted teams faster
     retry: 2,
   });
 }

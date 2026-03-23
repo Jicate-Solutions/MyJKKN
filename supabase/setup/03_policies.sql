@@ -3141,16 +3141,31 @@ CREATE POLICY "event_checklist_items_delete_admin" ON event_checklist_items
         EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
     );
 
--- event_checklist_completions: own completions
+-- event_checklist_completions: own completions + admin/faculty can complete on behalf of teams
 CREATE POLICY "event_checklist_completions_select" ON event_checklist_completions
     FOR SELECT TO authenticated USING (true);
 
+-- Updated: 2026-03-23 - Allow admin/faculty/hod to complete checklist items (not just own user)
 CREATE POLICY "event_checklist_completions_insert" ON event_checklist_completions
-    FOR INSERT TO authenticated WITH CHECK (completed_by = auth.uid());
+    FOR INSERT TO authenticated WITH CHECK (
+        completed_by = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND (is_super_admin = true OR role IN ('admin', 'administrator', 'faculty', 'hod', 'principal'))
+        )
+    );
 
--- Updated: 2026-03-07 - Allow deleting own completions (for unchecking team checklist items)
+-- Updated: 2026-03-23 - Allow admin/faculty/hod to delete completions (for unchecking team checklist items)
 CREATE POLICY "event_checklist_completions_delete_own" ON event_checklist_completions
-    FOR DELETE TO authenticated USING (completed_by = auth.uid());
+    FOR DELETE TO authenticated USING (
+        completed_by = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND (is_super_admin = true OR role IN ('admin', 'administrator', 'faculty', 'hod', 'principal'))
+        )
+    );
 
 -- Updated: 2026-03-06 - Grant execute on facilitator attendance stats RPC
 GRANT EXECUTE ON FUNCTION get_facilitator_attendance_stats(UUID, DATE, DATE, UUID, UUID)

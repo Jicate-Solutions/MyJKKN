@@ -12,6 +12,12 @@ export class StudentSearchService {
    * Two-step: (1) fetch matching learners, (2) resolve profile_ids.
    */
   static async searchStudents(filters: StudentSearchFilters): Promise<StudentSearchResult[]> {
+    // Require at least one hierarchy filter or 3+ char search to avoid full-table scans
+    const hasHierarchyFilter = !!(filters.institution_id || filters.degree_id || filters.department_id || filters.program_id || filters.semester_id);
+    if (!hasHierarchyFilter && (!filters.search || filters.search.trim().length < 3)) {
+      return [];
+    }
+
     // Step 1: Build learners query with hierarchy filters
     let query = this.supabase
       .from('learners_profiles')
@@ -31,7 +37,7 @@ export class StudentSearchService {
       `)
       .eq('lifecycle_status', 'active')
       .order('first_name', { ascending: true })
-      .limit(100);
+      .limit(50);
 
     if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
     if (filters.degree_id)      query = query.eq('degree_id', filters.degree_id);

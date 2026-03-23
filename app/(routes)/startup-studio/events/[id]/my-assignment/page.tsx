@@ -110,6 +110,19 @@ const DAY_LABELS: Record<string, string> = {
 export default function MyAssignmentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+
+  // Guard against Next.js DRP placeholder tokens (%%drp:...) in route params
+  const isValidId = !!id && !id.includes('%%drp:') && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  if (!isValidId) {
+    return (
+      <ContentLayout title="My Assignment">
+        <div className="flex items-center justify-center min-h-[40vh]">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
   const { data: event } = useEvent(id);
   const { profile, isLoading: authLoading } = useAuth();
   const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator' || (profile as any)?.is_super_admin;
