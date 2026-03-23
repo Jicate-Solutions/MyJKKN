@@ -507,7 +507,7 @@ export class SarvamGalattaRegistrationService {
   // ---------------------------------------------------------------
   static async setApprovalStatus(
     sarvamGalattaId: string,
-    status: 'shortlisted' | 'rejected',
+    status: 'shortlisted' | 'rejected' | 'waitlisted',
     adminUserId: string
   ): Promise<SarvamGalattaRegistration> {
     const { data: profile } = await this.supabase

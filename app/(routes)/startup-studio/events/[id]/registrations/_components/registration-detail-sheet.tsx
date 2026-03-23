@@ -69,7 +69,7 @@ export function RegistrationDetailSheet({
   const approvalStatus = registration.approval_status ?? 'waitlisted';
   const fullName = `${registration.snap_first_name} ${registration.snap_last_name ?? ''}`.trim();
 
-  function handleApproval(status: 'shortlisted' | 'rejected') {
+  function handleApproval(status: 'shortlisted' | 'rejected' | 'waitlisted') {
     approvalMutation.mutate(
       { sarvamGalattaId: registration!.id, status },
       { onSuccess: () => onOpenChange(false) },
@@ -139,6 +139,20 @@ export function RegistrationDetailSheet({
                 Reject
               </Button>
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/20"
+              disabled={approvalStatus === 'waitlisted' || approvalMutation.isPending}
+              onClick={() => handleApproval('waitlisted')}
+            >
+              {approvalMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Clock className="h-3.5 w-3.5" />
+              )}
+              Move to Waitlist
+            </Button>
           </div>
 
           {/* Student profile */}

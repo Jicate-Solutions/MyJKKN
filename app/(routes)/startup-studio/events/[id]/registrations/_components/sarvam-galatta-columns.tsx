@@ -7,7 +7,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Database, ExternalLink,
+  Clock, Database, ExternalLink,
   Github, MoreHorizontal, Rocket, ShieldCheck, ShieldX,
 } from 'lucide-react';
 import type { PermissionColumnDef } from '@/components/ui/data-table';
@@ -57,7 +57,7 @@ function ApprovalBadge({ status }: { status: string }) {
 
 export interface SarvamGalattaColumnOptions {
   onViewDetails: (row: SarvamGalattaRegistration) => void;
-  onApprove: (id: string, status: 'shortlisted' | 'rejected') => void;
+  onApprove: (id: string, status: 'shortlisted' | 'rejected' | 'waitlisted') => void;
   approvePending: boolean;
 }
 
@@ -235,6 +235,15 @@ export function getSarvamGalattaColumns(
               >
                 <ShieldX className="h-4 w-4" />
                 Reject
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="gap-2 text-amber-700 dark:text-amber-400 focus:text-amber-700 dark:focus:text-amber-400"
+                disabled={status === 'waitlisted' || approvePending}
+                onClick={() => onApprove(r.id, 'waitlisted')}
+              >
+                <Clock className="h-4 w-4" />
+                Move to Waitlist
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -139,7 +139,7 @@ export function SarvamGalattaTable({ eventId, eventName = 'Sarvam Galatta' }: Sa
   }, []);
 
   const handleApprove = useCallback(
-    (id: string, status: 'shortlisted' | 'rejected') => {
+    (id: string, status: 'shortlisted' | 'rejected' | 'waitlisted') => {
       approvalMutation.mutate({ sarvamGalattaId: id, status });
     },
     [approvalMutation],

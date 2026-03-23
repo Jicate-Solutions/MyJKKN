@@ -112,12 +112,17 @@ export function useSetApprovalStatus() {
       status,
     }: {
       sarvamGalattaId: string;
-      status: 'shortlisted' | 'rejected';
+      status: 'shortlisted' | 'rejected' | 'waitlisted';
     }) => SarvamGalattaRegistrationService.setApprovalStatus(sarvamGalattaId, status, profile!.id),
     onSuccess: (_, { status }) => {
       queryClient.invalidateQueries({ queryKey: ['sarvam-galatta-all-registrations'] });
       queryClient.invalidateQueries({ queryKey: ['sarvam-galatta-my-registration'] });
-      toast.success(status === 'shortlisted' ? 'Registration shortlisted.' : 'Registration rejected.');
+      const messages = {
+        shortlisted: 'Registration shortlisted.',
+        rejected: 'Registration rejected.',
+        waitlisted: 'Registration moved back to waitlist.',
+      };
+      toast.success(messages[status]);
     },
     onError: (error: Error) => {
       toast.error(error.message ?? 'Failed to update approval status.');
