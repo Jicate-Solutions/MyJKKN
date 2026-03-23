@@ -227,7 +227,7 @@ export function SarvamGalattaTable({ eventId, eventName = 'Sarvam Galatta' }: Sa
 
       {/* KPI stats */}
       {!statsPending && stats && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <StatCard
             icon={<Users className="h-4 w-4" />}
             label="Total Registrations"
@@ -244,6 +244,12 @@ export function SarvamGalattaTable({ eventId, eventName = 'Sarvam Galatta' }: Sa
             label="Waitlisted"
             value={stats.waitlisted_count}
             sub={stats.total > 0 ? `${Math.round((stats.waitlisted_count / stats.total) * 100)}% of total` : undefined}
+          />
+          <StatCard
+            icon={<ShieldX className="h-4 w-4 text-red-500" />}
+            label="Rejected"
+            value={stats.rejected_count}
+            sub={stats.total > 0 ? `${Math.round((stats.rejected_count / stats.total) * 100)}% of total` : undefined}
           />
           <StatCard
             icon={<Building2 className="h-4 w-4" />}
