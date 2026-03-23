@@ -52,6 +52,7 @@ import { ColumnDef } from '@tanstack/react-table';
 import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ReporterAnalyticsTab } from './_components/reporter-analytics-tab';
+import { ExportBugsDialog } from './_components/export-bugs-dialog';
 import {
   Users,
   Bug,
@@ -570,6 +571,7 @@ export default function AdminBugReportsPage() {
                   )}
                 </>
               )}
+              <ExportBugsDialog modules={modulesData?.modules ?? []} />
               <Button asChild variant='outline'>
                 <Link href='/bug-leaderboard'>
                   <Trophy className='w-4 h-4 mr-2' />
