@@ -99,12 +99,11 @@ interface SarvamGalattaTableProps {
 }
 
 export function SarvamGalattaTable({ eventId, eventName = 'Sarvam Galatta' }: SarvamGalattaTableProps) {
-  const LIMIT = 25;
-
   // Filters & pagination state
   const [search, setSearch] = useState('');
   const [institutionFilter, setInstitutionFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   // Export loading state
   const [exportingExcel, setExportingExcel] = useState(false);
@@ -125,12 +124,12 @@ export function SarvamGalattaTable({ eventId, eventName = 'Sarvam Galatta' }: Sa
     search: search || undefined,
     institution_id: institutionFilter || undefined,
     page,
-    limit: LIMIT,
+    limit: pageSize,
   });
 
   const rows: SarvamGalattaRegistration[] = result?.data ?? [];
   const total = result?.total ?? 0;
-  const totalPages = Math.ceil(total / LIMIT);
+  const totalPages = Math.ceil(total / pageSize);
 
   // Stable search callback — prevents DataTable's useEffect resetting page
   const handleSearch = useCallback((query: string) => {
@@ -341,11 +340,12 @@ export function SarvamGalattaTable({ eventId, eventName = 'Sarvam Galatta' }: Sa
         serverSidePagination={{
           currentPage: page,
           totalPages,
-          pageSize: LIMIT,
+          pageSize,
           totalItems: total,
           hasNextPage: page < totalPages,
           hasPreviousPage: page > 1,
           onPageChange: setPage,
+          onPageSizeChange: (newSize) => { setPageSize(newSize); setPage(1); },
           isLoading: tablePending,
         }}
       />
