@@ -448,6 +448,7 @@ export async function GET(request: Request) {
     const category = searchParams.get('category') as any;
     const institution_id = searchParams.get('institution_id');
     const department_id = searchParams.get('department_id');
+    const module_name = searchParams.get('module_name');
     const reporter_user_id = searchParams.get('reporter_user_id');
     const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1');
@@ -471,6 +472,10 @@ export async function GET(request: Request) {
 
     if (department_id) {
       query = query.eq('department_id', department_id);
+    }
+
+    if (module_name) {
+      query = query.eq('module_name', module_name);
     }
 
     if (reporter_user_id) {
