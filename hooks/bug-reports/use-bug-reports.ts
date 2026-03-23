@@ -25,6 +25,7 @@ const fetchBugReports = async (filters: BugReportFilters) => {
   if (filters.reporter_user_id) params.append('reporter_user_id', filters.reporter_user_id);
   if (filters.search) params.append('search', filters.search);
   if (filters.module_name) params.append('module_name', filters.module_name);
+  if (filters.sub_module_name) params.append('sub_module_name', filters.sub_module_name);
   if (filters.page) params.append('page', filters.page.toString());
   if (filters.limit) params.append('limit', filters.limit.toString());
 
@@ -228,7 +229,9 @@ const fetchDepartments = async (institutionId?: string) => {
   return response.json();
 };
 
-const fetchBugModules = async (): Promise<{ modules: { name: string; count: number }[] }> => {
+const fetchBugModules = async (): Promise<{
+  modules: { name: string; count: number; subModules: { name: string; count: number }[] }[];
+}> => {
   const response = await fetch('/api/bug-reports/modules');
   if (!response.ok) throw new Error('Failed to fetch bug modules');
   return response.json();

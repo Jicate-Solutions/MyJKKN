@@ -110,6 +110,7 @@ export interface BugReportFilters {
   department_id?: string;
   reporter_user_id?: string;
   module_name?: string;
+  sub_module_name?: string;
   search?: string;
   page?: number;
   limit?: number;

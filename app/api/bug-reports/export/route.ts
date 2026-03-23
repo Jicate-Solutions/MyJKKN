@@ -6,6 +6,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 const exportSchema = z.object({
   module_name: z.string().optional(),
+  sub_module_name: z.string().optional(),
   status: z.string().optional(),
   include_console_logs: z.boolean().default(true)
 });
@@ -19,7 +20,7 @@ function buildBugMarkdown(bug: any, includeConsoleLogs: boolean): string {
   lines.push(`id: ${bug.id}`);
   lines.push(`display_id: ${bug.display_id}`);
   lines.push(`status: ${bug.status}`);
-  lines.push(`module: ${bug.module_name ?? 'other'}`);
+  lines.push(`module: ${bug.module_name ?? 'other'}${bug.sub_module_name ? ` / ${bug.sub_module_name}` : ''}`);
   lines.push(`category: ${bug.category ?? 'bug'}`);
   lines.push(`reported_at: ${bug.created_at}`);
   if (bug.resolved_at) lines.push(`resolved_at: ${bug.resolved_at}`);
@@ -128,7 +129,7 @@ export async function POST(request: Request) {
     }
 
     const json = await request.json();
-    const { module_name, status, include_console_logs } =
+    const { module_name, sub_module_name, status, include_console_logs } =
       exportSchema.parse(json);
 
     const adminSupabase = createAdminClient();
@@ -137,45 +138,54 @@ export async function POST(request: Request) {
     let query = (adminSupabase as any)
       .from('bug_reports_with_details')
       .select(
-        'id, display_id, status, module_name, category, created_at, resolved_at, page_url, description, console_logs, screenshot_url, metadata, reporter_name, reporter_email, reporter_role, institution_name'
+        'id, display_id, status, module_name, sub_module_name, category, created_at, resolved_at, page_url, description, console_logs, screenshot_url, metadata, reporter_name, reporter_email, reporter_role, institution_name'
       )
       .order('module_name', { ascending: true })
+      .order('sub_module_name', { ascending: true })
       .order('created_at', { ascending: false });
 
     if (module_name) query = query.eq('module_name', module_name);
+    if (sub_module_name) query = query.eq('sub_module_name', sub_module_name);
     if (status) query = query.eq('status', status);
 
     const { data: bugs, error } = await query;
     if (error) throw error;
 
-    // Group bugs by module
-    const byModule: Record<string, any[]> = {};
+    // Group bugs by module/sub-module key for ZIP file naming
+    // When sub_module_name filter is active, group by sub-module within the module.
+    // Otherwise group by top-level module only.
+    const byGroup: Record<string, { label: string; bugs: any[] }> = {};
     for (const bug of bugs ?? []) {
       const mod = bug.module_name ?? 'other';
-      (byModule[mod] ??= []).push(bug);
+      const sub = bug.sub_module_name as string | null;
+      const key = sub ? `${mod}/${sub}` : mod;
+      const label = sub ? `${mod} › ${sub}` : mod;
+      if (!byGroup[key]) byGroup[key] = { label, bugs: [] };
+      byGroup[key].bugs.push(bug);
     }
 
-    // Build ZIP with one markdown file per module
+    // Build ZIP with one markdown file per group
     const JSZip = (await import('jszip')).default;
     const zip = new JSZip();
     const exportDate = new Date().toISOString().split('T')[0];
 
-    for (const [mod, modBugs] of Object.entries(byModule)) {
-      let content = `# Bug Reports — ${mod} module\n\n`;
-      content += `> Exported: ${exportDate} | Total: ${modBugs.length} bug${modBugs.length !== 1 ? 's' : ''}\n\n`;
+    for (const [key, { label, bugs: groupBugs }] of Object.entries(byGroup)) {
+      const fileName = key.replace('/', '-');
+      let content = `# Bug Reports — ${label}\n\n`;
+      content += `> Exported: ${exportDate} | Total: ${groupBugs.length} bug${groupBugs.length !== 1 ? 's' : ''}\n\n`;
       content += `---\n\n`;
-      for (const bug of modBugs) {
+      for (const bug of groupBugs) {
         content += buildBugMarkdown(bug, include_console_logs);
       }
-      zip.file(`${mod}-bugs-${exportDate}.md`, content);
+      zip.file(`${fileName}-bugs-${exportDate}.md`, content);
     }
 
     // Index file
     const summaryLines = [`# Bug Export Summary — ${exportDate}\n\n`];
     summaryLines.push(`Total bugs: ${(bugs ?? []).length}\n\n`);
-    summaryLines.push(`## Modules\n\n`);
-    for (const [mod, modBugs] of Object.entries(byModule)) {
-      summaryLines.push(`- **${mod}**: ${modBugs.length} bugs\n`);
+    summaryLines.push(`## Groups\n\n`);
+    for (const [, { label, bugs: groupBugs }] of Object.entries(byGroup)) {
+      summaryLines.push(`- **${label}**: ${groupBugs.length} bugs\n`);
     }
     zip.file('_index.md', summaryLines.join(''));
 

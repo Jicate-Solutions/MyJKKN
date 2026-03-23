@@ -802,6 +802,7 @@ export default function AdminBugReportsPage() {
                       setFilters((prev) => ({
                         ...prev,
                         module_name: value === 'all' ? undefined : value,
+                        sub_module_name: undefined,
                         page: 1
                       }));
                       setSelectedReports([]);
@@ -820,6 +821,40 @@ export default function AdminBugReportsPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {filters.module_name && (() => {
+                  const subModules = modulesData?.modules.find(
+                    (m) => m.name === filters.module_name
+                  )?.subModules ?? [];
+                  if (subModules.length === 0) return null;
+                  return (
+                    <div className='w-full sm:w-auto md:w-52'>
+                      <Select
+                        value={filters.sub_module_name || 'all'}
+                        onValueChange={(value) => {
+                          setFilters((prev) => ({
+                            ...prev,
+                            sub_module_name: value === 'all' ? undefined : value,
+                            page: 1
+                          }));
+                          setSelectedReports([]);
+                        }}
+                      >
+                        <SelectTrigger className='w-full'>
+                          <SelectValue placeholder='All sub-modules' />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='all'>All Sub-modules</SelectItem>
+                          {subModules.map((sub) => (
+                            <SelectItem key={sub.name} value={sub.name}>
+                              {sub.name.split('-').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')} ({sub.count})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  );
+                })()}
               </div>
             </CardHeader>
             <CardContent>

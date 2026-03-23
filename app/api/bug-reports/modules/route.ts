@@ -40,24 +40,40 @@ export async function GET() {
 
     const adminSupabase = createAdminClient();
 
-    // adminSupabase is typed to the generated schema — tables not in generated
-    // types require an `as any` cast. This is the project-wide pattern.
+    // Fetch both module_name and sub_module_name to build nested counts
     const { data, error } = await (adminSupabase as any)
       .from('bug_reports')
-      .select('module_name')
+      .select('module_name, sub_module_name')
       .not('module_name', 'is', null);
 
     if (error) throw error;
 
-    // Count occurrences per module
-    const counts: Record<string, number> = {};
+    // Build nested structure: module → { count, subModules: { name → count } }
+    const moduleMap: Record<
+      string,
+      { count: number; subModules: Record<string, number> }
+    > = {};
+
     for (const row of data ?? []) {
       const m = (row.module_name as string) ?? 'other';
-      counts[m] = (counts[m] ?? 0) + 1;
+      const s = row.sub_module_name as string | null;
+
+      if (!moduleMap[m]) moduleMap[m] = { count: 0, subModules: {} };
+      moduleMap[m].count += 1;
+
+      if (s) {
+        moduleMap[m].subModules[s] = (moduleMap[m].subModules[s] ?? 0) + 1;
+      }
     }
 
-    const modules = Object.entries(counts)
-      .map(([name, count]) => ({ name, count }))
+    const modules = Object.entries(moduleMap)
+      .map(([name, { count, subModules }]) => ({
+        name,
+        count,
+        subModules: Object.entries(subModules)
+          .map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count)
+      }))
       .sort((a, b) => b.count - a.count);
 
     return NextResponse.json({ modules });

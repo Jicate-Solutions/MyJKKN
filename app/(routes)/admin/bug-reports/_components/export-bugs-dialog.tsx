@@ -23,16 +23,43 @@ import { Label } from '@/components/ui/label';
 import { Download, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+interface SubModule {
+  name: string;
+  count: number;
+}
+
+interface ModuleEntry {
+  name: string;
+  count: number;
+  subModules: SubModule[];
+}
+
 interface ExportBugsDialogProps {
-  modules: { name: string; count: number }[];
+  modules: ModuleEntry[];
+}
+
+function formatSlug(slug: string): string {
+  return slug
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
   const [open, setOpen] = useState(false);
   const [selectedModule, setSelectedModule] = useState<string>('all');
+  const [selectedSubModule, setSelectedSubModule] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [includeConsoleLogs, setIncludeConsoleLogs] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
+
+  const activeModule = modules.find((m) => m.name === selectedModule);
+  const subModules = activeModule?.subModules ?? [];
+
+  const handleModuleChange = (value: string) => {
+    setSelectedModule(value);
+    setSelectedSubModule('all'); // reset sub-module when module changes
+  };
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -41,6 +68,7 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
         include_console_logs: includeConsoleLogs
       };
       if (selectedModule !== 'all') payload.module_name = selectedModule;
+      if (selectedSubModule !== 'all') payload.sub_module_name = selectedSubModule;
       if (selectedStatus !== 'all') payload.status = selectedStatus;
 
       const response = await fetch('/api/bug-reports/export', {
@@ -73,10 +101,16 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
     }
   };
 
-  const totalCount =
-    selectedModule === 'all'
-      ? modules.reduce((sum, m) => sum + m.count, 0)
-      : (modules.find((m) => m.name === selectedModule)?.count ?? 0);
+  // Compute preview count based on selections
+  const totalCount = (() => {
+    if (selectedModule === 'all') {
+      return modules.reduce((sum, m) => sum + m.count, 0);
+    }
+    if (selectedSubModule === 'all') {
+      return activeModule?.count ?? 0;
+    }
+    return subModules.find((s) => s.name === selectedSubModule)?.count ?? 0;
+  })();
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -96,9 +130,10 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
         </DialogHeader>
 
         <div className='space-y-4 py-2'>
+          {/* Module selector */}
           <div className='space-y-2'>
             <Label>Module</Label>
-            <Select value={selectedModule} onValueChange={setSelectedModule}>
+            <Select value={selectedModule} onValueChange={handleModuleChange}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -108,13 +143,36 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
                 </SelectItem>
                 {modules.map((mod) => (
                   <SelectItem key={mod.name} value={mod.name}>
-                    {mod.name} ({mod.count} bugs)
+                    {formatSlug(mod.name)} ({mod.count} bugs)
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
+          {/* Sub-module selector — only shown when a module with sub-modules is selected */}
+          {selectedModule !== 'all' && subModules.length > 0 && (
+            <div className='space-y-2'>
+              <Label>Sub-module</Label>
+              <Select value={selectedSubModule} onValueChange={setSelectedSubModule}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>
+                    All Sub-modules ({activeModule?.count ?? 0} bugs)
+                  </SelectItem>
+                  {subModules.map((sub) => (
+                    <SelectItem key={sub.name} value={sub.name}>
+                      {formatSlug(sub.name)} ({sub.count} bugs)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Status filter */}
           <div className='space-y-2'>
             <Label>Status Filter</Label>
             <Select value={selectedStatus} onValueChange={setSelectedStatus}>
@@ -145,8 +203,7 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
 
           {totalCount > 0 && (
             <p className='text-sm text-muted-foreground'>
-              Will export{' '}
-              <strong>{totalCount}</strong> bug report
+              Will export <strong>{totalCount}</strong> bug report
               {totalCount !== 1 ? 's' : ''} as a ZIP of markdown files.
             </p>
           )}
