@@ -269,7 +269,8 @@ export class SarvamGalattaRegistrationService {
   }
 
   // ---------------------------------------------------------------
-  // Update registration — only allowed before deadline (student)
+  // Update registration — allowed even after deadline so students
+  // can keep their project links up-to-date
   // ---------------------------------------------------------------
   static async updateRegistration(
     sarvamGalattaId: string,
@@ -280,27 +281,6 @@ export class SarvamGalattaRegistrationService {
     const existing = await this.getMyRegistration(userId);
     if (!existing || existing.id !== sarvamGalattaId) {
       throw new Error('Registration not found or you do not have permission to edit it.');
-    }
-
-    // Check deadline (superadmin bypasses)
-    const { data: profile } = await this.supabase
-      .from('profiles')
-      .select('is_super_admin, role')
-      .eq('id', userId)
-      .single();
-
-    const isSuperAdmin = profile?.is_super_admin || profile?.role === 'super_admin';
-
-    if (!isSuperAdmin) {
-      const { data: event } = await this.supabase
-        .from('startup_events')
-        .select('registration_deadline')
-        .eq('id', existing.event_id)
-        .single();
-
-      if (event?.registration_deadline && new Date(event.registration_deadline) < new Date()) {
-        throw new Error('Registration deadline has passed. Edits are no longer allowed.');
-      }
     }
 
     // Build update payload for sarvam_galatta_registrations

@@ -83,7 +83,7 @@ export function EditRegistrationDialog({
         <DialogHeader>
           <DialogTitle>Edit Registration</DialogTitle>
           <DialogDescription>
-            Update your project details before the deadline (Sunday 11:59 PM).
+            Update your project details. You can edit your submission anytime.
           </DialogDescription>
         </DialogHeader>
 
