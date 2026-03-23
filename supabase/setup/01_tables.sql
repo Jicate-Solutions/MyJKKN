@@ -1252,19 +1252,20 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
     category VARCHAR(50),
     page_url TEXT,
     -- Updated: 2026-03-23 - Added module_name generated column for module-wise grouping
+    -- NULL page_url → 'unknown'; unrecognized path → 'other'
     module_name VARCHAR(100) GENERATED ALWAYS AS (
       CASE
         WHEN page_url IS NULL THEN 'unknown'
         WHEN page_url ~ '/academic/' THEN 'academic'
         WHEN page_url ~ '/billing/' THEN 'billing'
-        WHEN page_url ~ '/organization/' THEN 'organization'
+        WHEN page_url ~ '/organizations?/' THEN 'organization'
         WHEN page_url ~ '/learners/' THEN 'learners'
         WHEN page_url ~ '/staff/' THEN 'staff'
-        WHEN page_url ~ '/admission/' THEN 'admission'
+        WHEN page_url ~ '/admission/' THEN 'admission'   -- must come before /admin/
+        WHEN page_url ~ '/admin/'     THEN 'admin'
         WHEN page_url ~ '/resource-management/' THEN 'resource-management'
         WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
         WHEN page_url ~ '/settings/' THEN 'settings'
-        WHEN page_url ~ '/admin/' THEN 'admin'
         ELSE 'other'
       END
     ) STORED,
