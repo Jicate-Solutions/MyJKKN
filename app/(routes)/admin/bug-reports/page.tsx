@@ -423,8 +423,16 @@ export default function AdminBugReportsPage() {
         accessorKey: 'description',
         header: 'Description',
         cell: ({ row }) => (
-          <div className='max-w-[150px] sm:max-w-xs truncate text-xs sm:text-sm'>
-            {row.original.description}
+          <div className='max-w-[150px] sm:max-w-xs text-xs sm:text-sm'>
+            <div className='truncate'>{row.original.description}</div>
+            {(row.original.similar_count ?? 0) > 0 && (
+              <Badge
+                variant='outline'
+                className='mt-1 text-xs text-yellow-600 border-yellow-400 dark:text-yellow-400 dark:border-yellow-600'
+              >
+                {row.original.similar_count} similar
+              </Badge>
+            )}
           </div>
         )
       },

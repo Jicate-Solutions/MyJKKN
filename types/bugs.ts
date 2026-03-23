@@ -27,6 +27,7 @@ export interface BugReport {
   console_logs?: any[] | null;
   status: BugReportStatus;
   resolved_at?: string | null;
+  similar_count?: number;
   metadata?: {
     browser?: string;
     os?: string;

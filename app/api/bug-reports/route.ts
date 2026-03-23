@@ -6,6 +6,33 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 const BUG_REPORTS_BUCKET = 'bug-reports';
 
+// Extracts a normalized error signature from console_logs for deduplication.
+// Strips dynamic parts (UUIDs, line:col, hex addresses) so similar errors group together.
+function extractErrorSignature(consoleLogs: any[] | null): string | null {
+  if (!consoleLogs || consoleLogs.length === 0) return null;
+
+  for (const log of consoleLogs) {
+    const level = log.level ?? log.type ?? '';
+    if (!['error', 'Error'].includes(level)) continue;
+
+    const msg: string =
+      typeof log.message === 'string'
+        ? log.message
+        : JSON.stringify(log.message ?? '');
+
+    const normalized = msg
+      .split('\n')[0]
+      .replace(/\b[0-9a-f]{8}-[0-9a-f-]+\b/gi, 'UUID')
+      .replace(/:\d+:\d+/g, ':L:C')
+      .replace(/0x[0-9a-f]+/gi, '0xADDR')
+      .trim()
+      .slice(0, 200);
+
+    if (normalized.length > 10) return normalized;
+  }
+  return null;
+}
+
 const createReportSchema = z.object({
   page_url: z.string().url({ message: 'A valid page URL is required.' }),
   description: z
@@ -505,8 +532,22 @@ export async function GET(request: Request) {
         : null
     }));
 
+    // Compute similar_count: bugs sharing the same error signature are "similar"
+    const sigMap: Record<string, number> = {};
+    const bugsWithSig = (transformedData ?? []).map((bug: any) => ({
+      ...bug,
+      _sig: extractErrorSignature(bug.console_logs)
+    }));
+    for (const bug of bugsWithSig) {
+      if (bug._sig) sigMap[bug._sig] = (sigMap[bug._sig] ?? 0) + 1;
+    }
+    const processedBugs = bugsWithSig.map(({ _sig, ...bug }: any) => ({
+      ...bug,
+      similar_count: _sig ? Math.max(0, (sigMap[_sig] ?? 1) - 1) : 0
+    }));
+
     return NextResponse.json({
-      data: transformedData || [],
+      data: processedBugs,
       metadata: {
         total: count || 0,
         page,
