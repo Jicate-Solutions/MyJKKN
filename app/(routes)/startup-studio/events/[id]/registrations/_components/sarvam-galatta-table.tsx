@@ -1,12 +1,15 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import {
-  Building2, MapPin, RotateCw, ShieldCheck, ShieldX, Sparkles, Users,
+  Building2, FileSpreadsheet, FileText, Loader2,
+  MapPin, RotateCw, ShieldCheck, ShieldX, Sparkles, Users,
 } from 'lucide-react';
 import {
   useAllRegistrations,
@@ -14,6 +17,8 @@ import {
   useSarvamGalattaStats,
   useSetApprovalStatus,
 } from '@/hooks/startup-studio/use-sarvam-galatta';
+import { SarvamGalattaRegistrationService } from '@/lib/services/startup-studio/sarvam-galatta-registration-service';
+import { exportSarvamGalattaPDF } from '@/lib/utils/pdf-export/sarvam-galatta-pdf';
 import type { SarvamGalattaRegistration } from '@/types/sarvam-galatta';
 import { getSarvamGalattaColumns } from './sarvam-galatta-columns';
 import { RegistrationDetailSheet } from './registration-detail-sheet';
@@ -41,19 +46,70 @@ function StatCard({
   );
 }
 
+// ── Excel export ─────────────────────────────────────────────────
+
+async function exportExcel(
+  eventId: string,
+  activeFilters: { search?: string; institution_id?: string },
+  eventName: string
+): Promise<void> {
+  const rows = await SarvamGalattaRegistrationService.getAllForExport({
+    event_id: eventId,
+    ...activeFilters,
+  });
+
+  if (rows.length === 0) return;
+
+  const sheetData = rows.map((r: SarvamGalattaRegistration) => ({
+    'Name':                [r.snap_first_name, r.snap_last_name].filter(Boolean).join(' '),
+    'Email':               r.owner_email          ?? '',
+    'Team Name':           r.team_name            ?? '',
+    'Team Code':           r.team_code            ?? '',
+    'Institution':         r.institution_name     ?? '',
+    'Department':          r.department_name      ?? '',
+    'Program':             r.program_name         ?? '',
+    'Semester':            r.semester_name        ?? '',
+    'Project URL':         r.project_url          ?? '',
+    'GitHub URL':          r.github_url           ?? '',
+    'Supabase Project URL':r.supabase_project_url ?? '',
+    'Gemini Page URL':     r.gemini_page_url      ?? '',
+    'Maps Page URL':       r.maps_page_url        ?? '',
+    'Approval Status':     r.approval_status,
+    'Submitted At':        r.submitted_at ? format(new Date(r.submitted_at), 'dd MMM yyyy HH:mm') : '',
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(sheetData);
+  const workbook  = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Registrations');
+
+  // Auto-fit column widths
+  const colWidths = Object.keys(sheetData[0]).map((key) => ({
+    wch: Math.max(key.length, ...sheetData.map((row: any) => String(row[key] ?? '').length)) + 2,
+  }));
+  worksheet['!cols'] = colWidths;
+
+  const safe = eventName.replace(/[^a-z0-9_-]/gi, '_');
+  XLSX.writeFile(workbook, `sarvam_galatta_${safe}.xlsx`);
+}
+
 // ── main component ───────────────────────────────────────────────
 
 interface SarvamGalattaTableProps {
   eventId: string;
+  eventName?: string;
 }
 
-export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
+export function SarvamGalattaTable({ eventId, eventName = 'Sarvam Galatta' }: SarvamGalattaTableProps) {
   const LIMIT = 25;
 
   // Filters & pagination state
   const [search, setSearch] = useState('');
   const [institutionFilter, setInstitutionFilter] = useState('');
   const [page, setPage] = useState(1);
+
+  // Export loading state
+  const [exportingExcel, setExportingExcel] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   // Detail sheet
   const [detailRow, setDetailRow] = useState<SarvamGalattaRegistration | null>(null);
@@ -89,6 +145,34 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
     },
     [approvalMutation],
   );
+
+  // Export handlers — respects active filters so exported set matches what admin sees
+  const handleExportExcel = useCallback(async () => {
+    setExportingExcel(true);
+    try {
+      await exportExcel(
+        eventId,
+        { search: search || undefined, institution_id: institutionFilter || undefined },
+        eventName
+      );
+    } finally {
+      setExportingExcel(false);
+    }
+  }, [eventId, search, institutionFilter, eventName]);
+
+  const handleExportPdf = useCallback(async () => {
+    setExportingPdf(true);
+    try {
+      const allRows = await SarvamGalattaRegistrationService.getAllForExport({
+        event_id: eventId,
+        search: search || undefined,
+        institution_id: institutionFilter || undefined,
+      });
+      await exportSarvamGalattaPDF(allRows, eventName);
+    } finally {
+      setExportingPdf(false);
+    }
+  }, [eventId, search, institutionFilter, eventName]);
 
   // Columns — recreated only when callbacks change (which is never)
   const columns = useMemo(
@@ -188,15 +272,43 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
         onRefresh={() => refetch()}
         showRefresh
         tableTools={
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => refetch()}
-          >
-            <RotateCw className="h-3.5 w-3.5" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={handleExportExcel}
+              disabled={exportingExcel || exportingPdf}
+            >
+              {exportingExcel
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <FileSpreadsheet className="h-3.5 w-3.5 text-green-600" />
+              }
+              Excel
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={handleExportPdf}
+              disabled={exportingExcel || exportingPdf}
+            >
+              {exportingPdf
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <FileText className="h-3.5 w-3.5 text-red-500" />
+              }
+              PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => refetch()}
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+              Refresh
+            </Button>
+          </div>
         }
         // ── Bulk shortlist (primary) ──────────────────────────────
         onBulkAction={async (selectedRows) => {

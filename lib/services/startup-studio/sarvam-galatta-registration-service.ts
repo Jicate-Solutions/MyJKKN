@@ -492,6 +492,16 @@ export class SarvamGalattaRegistrationService {
   }
 
   // ---------------------------------------------------------------
+  // Admin: fetch all registrations for export (no pagination)
+  // ---------------------------------------------------------------
+  static async getAllForExport(
+    filters: Omit<SarvamGalattaRegistrationFilters, 'page' | 'limit'>
+  ): Promise<SarvamGalattaRegistration[]> {
+    const result = await this.getAllRegistrations({ ...filters, page: 1, limit: 99999 });
+    return result.data;
+  }
+
+  // ---------------------------------------------------------------
   // Admin: approve / reject a registration
   // Only super_admin / admin roles may call these.
   // ---------------------------------------------------------------
