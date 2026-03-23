@@ -9,7 +9,7 @@ const BUG_REPORTS_BUCKET = 'bug-reports';
 // Extracts a normalized error signature from console_logs for deduplication.
 // Strips dynamic parts (UUIDs, line:col, hex addresses) so similar errors group together.
 function extractErrorSignature(consoleLogs: any[] | null): string | null {
-  if (!consoleLogs || consoleLogs.length === 0) return null;
+  if (!consoleLogs || !Array.isArray(consoleLogs) || consoleLogs.length === 0) return null;
 
   for (const log of consoleLogs) {
     const level = log.level ?? log.type ?? '';
