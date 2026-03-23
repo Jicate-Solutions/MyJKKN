@@ -1269,6 +1269,38 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
         ELSE 'other'
       END
     ) STORED,
+    -- Updated: 2026-03-23 - Added sub_module_name generated column for sub-module grouping
+    -- Extracts the path segment immediately after the top-level module prefix.
+    -- e.g. /academic/leave-calendar → 'leave-calendar', /academic/attendance/mark → 'attendance'
+    -- NULL when no sub-path exists beyond the module root.
+    sub_module_name VARCHAR(100) GENERATED ALWAYS AS (
+      CASE
+        WHEN page_url IS NULL THEN NULL
+        WHEN page_url ~ '/academic/'
+          THEN substring(page_url FROM '/academic/([^/?#]+)')
+        WHEN page_url ~ '/billing/'
+          THEN substring(page_url FROM '/billing/([^/?#]+)')
+        WHEN page_url ~ '/organizations?/'
+          THEN substring(page_url FROM '/organizations?/([^/?#]+)')
+        WHEN page_url ~ '/learners/'
+          THEN substring(page_url FROM '/learners/([^/?#]+)')
+        WHEN page_url ~ '/staff/'
+          THEN substring(page_url FROM '/staff/([^/?#]+)')
+        WHEN page_url ~ '/admission/'
+          THEN substring(page_url FROM '/admission/([^/?#]+)')
+        WHEN page_url ~ '/admin/'
+          THEN substring(page_url FROM '/admin/([^/?#]+)')
+        WHEN page_url ~ '/resource-management/'
+          THEN substring(page_url FROM '/resource-management/([^/?#]+)')
+        WHEN page_url ~ '/startup-studio/'
+          THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
+        WHEN page_url ~ '/settings/'
+          THEN substring(page_url FROM '/settings/([^/?#]+)')
+        WHEN page_url ~ '/service-requests/'
+          THEN substring(page_url FROM '/service-requests/([^/?#]+)')
+        ELSE NULL
+      END
+    ) STORED,
     created_by UUID NOT NULL,
     assigned_to UUID,
     resolved_by UUID,
@@ -1279,6 +1311,8 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
 
 -- Updated: 2026-03-23
 CREATE INDEX IF NOT EXISTS idx_bug_reports_module_name ON public.bug_reports(module_name);
+-- Composite index for module + sub-module queries (added 2026-03-23)
+CREATE INDEX IF NOT EXISTS idx_bug_reports_sub_module_name ON public.bug_reports(module_name, sub_module_name);
 
 -- Bug Report Messages
 CREATE TABLE IF NOT EXISTS public.bug_report_messages (

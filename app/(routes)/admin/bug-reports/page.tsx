@@ -375,7 +375,11 @@ export default function AdminBugReportsPage() {
         accessorKey: 'module_name',
         header: 'Module',
         cell: ({ row }) => (
-          <BugModuleBadge module={row.original.module_name} size='sm' />
+          <BugModuleBadge
+            module={row.original.module_name}
+            subModule={row.original.sub_module_name}
+            size='sm'
+          />
         )
       },
       {

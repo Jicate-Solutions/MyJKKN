@@ -10,7 +10,8 @@ import {
   Rocket,
   Settings,
   ShieldCheck,
-  Globe
+  Globe,
+  ChevronRight
 } from 'lucide-react';
 
 type ModuleName =
@@ -28,6 +29,7 @@ type ModuleName =
 
 interface BugModuleBadgeProps {
   module?: string | null;
+  subModule?: string | null;
   size?: 'sm' | 'md' | 'lg';
 }
 
@@ -103,7 +105,15 @@ const moduleConfig: Record<
   }
 };
 
-export function BugModuleBadge({ module, size = 'md' }: BugModuleBadgeProps) {
+/** Convert a URL slug like "leave-calendar" → "Leave Calendar" */
+function formatSubModuleLabel(slug: string): string {
+  return slug
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+export function BugModuleBadge({ module, subModule, size = 'md' }: BugModuleBadgeProps) {
   const key = (module as ModuleName) in moduleConfig ? (module as ModuleName) : 'other';
   const config = moduleConfig[key];
   const Icon = config.icon;
@@ -120,10 +130,22 @@ export function BugModuleBadge({ module, size = 'md' }: BugModuleBadgeProps) {
     lg: 'w-4 h-4'
   };
 
+  const chevronSizes = {
+    sm: 'w-2.5 h-2.5',
+    md: 'w-3 h-3',
+    lg: 'w-3.5 h-3.5'
+  };
+
   return (
-    <Badge className={`${config.colorClass} ${sizeClasses[size]} gap-1`}>
+    <Badge className={`${config.colorClass} ${sizeClasses[size]} gap-1 items-center`}>
       <Icon className={iconSizes[size]} />
       {config.label}
+      {subModule && (
+        <>
+          <ChevronRight className={`${chevronSizes[size]} opacity-60`} />
+          <span className='opacity-90'>{formatSubModuleLabel(subModule)}</span>
+        </>
+      )}
     </Badge>
   );
 }

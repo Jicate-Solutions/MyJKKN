@@ -20,6 +20,7 @@ export interface BugReport {
   reporter_user_id: string;
   page_url: string;
   module_name?: string | null;
+  sub_module_name?: string | null;
   description: string;
   category?: BugReportCategory | null;
   screenshot_url?: string | null;
