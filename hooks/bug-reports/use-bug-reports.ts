@@ -534,7 +534,7 @@ export const useDepartments = (institutionId?: string) => {
 
 export const useBugModules = () => {
   return useQuery({
-    queryKey: ['bug-reports', 'modules'],
+    queryKey: [...queryKeys.bugReports.all, 'modules'],
     queryFn: fetchBugModules,
     staleTime: 5 * 60 * 1000
   });
