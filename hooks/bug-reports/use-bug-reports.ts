@@ -24,6 +24,7 @@ const fetchBugReports = async (filters: BugReportFilters) => {
   if (filters.department_id) params.append('department_id', filters.department_id);
   if (filters.reporter_user_id) params.append('reporter_user_id', filters.reporter_user_id);
   if (filters.search) params.append('search', filters.search);
+  if (filters.module_name) params.append('module_name', filters.module_name);
   if (filters.page) params.append('page', filters.page.toString());
   if (filters.limit) params.append('limit', filters.limit.toString());
 
@@ -224,6 +225,12 @@ const fetchDepartments = async (institutionId?: string) => {
   if (!response.ok) {
     throw new Error('Failed to fetch departments');
   }
+  return response.json();
+};
+
+const fetchBugModules = async (): Promise<{ modules: { name: string; count: number }[] }> => {
+  const response = await fetch('/api/bug-reports/modules');
+  if (!response.ok) throw new Error('Failed to fetch bug modules');
   return response.json();
 };
 
@@ -522,6 +529,14 @@ export const useDepartments = (institutionId?: string) => {
         name: d.department_name
       }));
     }
+  });
+};
+
+export const useBugModules = () => {
+  return useQuery({
+    queryKey: ['bug-reports', 'modules'],
+    queryFn: fetchBugModules,
+    staleTime: 5 * 60 * 1000
   });
 };
 

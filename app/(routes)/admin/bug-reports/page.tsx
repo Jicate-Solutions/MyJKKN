@@ -9,7 +9,8 @@ import {
   useBulkUpdateBugReportsStatus,
   useInstitutions,
   useDepartments,
-  useBugReportStats
+  useBugReportStats,
+  useBugModules
 } from '@/hooks/bug-reports/use-bug-reports';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AdminPermissionGuard } from '@/components/auth/admin-permission-guard';
@@ -202,6 +203,7 @@ export default function AdminBugReportsPage() {
   // Filter data
   const { data: institutions } = useInstitutions();
   const { data: departments } = useDepartments(filters.institution_id);
+  const { data: modulesData } = useBugModules();
 
   // Use dedicated stats endpoint for real-time accurate statistics
   const { data: statsData, refetch: refetchStats } = useBugReportStats();
@@ -365,6 +367,15 @@ export default function AdminBugReportsPage() {
         header: 'Category',
         cell: ({ row }) => (
           <BugCategoryBadge category={row.original.category} size='sm' />
+        )
+      },
+      {
+        accessorKey: 'module_name',
+        header: 'Module',
+        cell: ({ row }) => (
+          <Badge variant='outline' className='text-xs font-mono'>
+            {row.original.module_name || 'other'}
+          </Badge>
         )
       },
       {
@@ -766,6 +777,32 @@ export default function AdminBugReportsPage() {
                             {department.name}
                           </SelectItem>
                         ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className='w-full sm:w-auto md:w-48'>
+                  <Select
+                    value={filters.module_name || 'all'}
+                    onValueChange={(value) => {
+                      setFilters((prev) => ({
+                        ...prev,
+                        module_name: value === 'all' ? undefined : value,
+                        page: 1
+                      }));
+                      setSelectedReports([]);
+                    }}
+                  >
+                    <SelectTrigger className='w-full'>
+                      <SelectValue placeholder='Filter by module...' />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>All Modules</SelectItem>
+                      {modulesData?.modules.map((mod) => (
+                        <SelectItem key={mod.name} value={mod.name}>
+                          {mod.name} ({mod.count})
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
