@@ -379,6 +379,7 @@ export default function AdminBugReportsPage() {
             module={row.original.module_name}
             subModule={row.original.sub_module_name}
             size='sm'
+            stacked
           />
         )
       },
