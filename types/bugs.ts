@@ -19,6 +19,7 @@ export interface BugReport {
   created_at: string;
   reporter_user_id: string;
   page_url: string;
+  module_name?: string | null;
   description: string;
   category?: BugReportCategory | null;
   screenshot_url?: string | null;
@@ -106,6 +107,7 @@ export interface BugReportFilters {
   institution_id?: string;
   department_id?: string;
   reporter_user_id?: string;
+  module_name?: string;
   search?: string;
   page?: number;
   limit?: number;
