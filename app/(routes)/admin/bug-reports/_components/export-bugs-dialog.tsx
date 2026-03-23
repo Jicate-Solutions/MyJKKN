@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -56,6 +56,28 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
   const activeModule = modules.find((m) => m.name === selectedModule);
   const subModules = activeModule?.subModules ?? [];
 
+  // When status is filtered we can't rely on the module counts (those are totals).
+  // Fetch the real count from the list endpoint with limit=1 to get metadata.total.
+  const [statusFilteredCount, setStatusFilteredCount] = useState<number | null>(null);
+  const [isCountLoading, setIsCountLoading] = useState(false);
+
+  useEffect(() => {
+    if (selectedStatus === 'all') {
+      setStatusFilteredCount(null);
+      return;
+    }
+    setIsCountLoading(true);
+    const params = new URLSearchParams({ limit: '1', page: '1', status: selectedStatus });
+    if (selectedModule !== 'all') params.append('module_name', selectedModule);
+    if (selectedSubModule !== 'all') params.append('sub_module_name', selectedSubModule);
+
+    fetch(`/api/bug-reports?${params.toString()}`)
+      .then((r) => r.json())
+      .then((data) => setStatusFilteredCount(data.metadata?.total ?? 0))
+      .catch(() => setStatusFilteredCount(null))
+      .finally(() => setIsCountLoading(false));
+  }, [selectedModule, selectedSubModule, selectedStatus]);
+
   const handleModuleChange = (value: string) => {
     setSelectedModule(value);
     setSelectedSubModule('all'); // reset sub-module when module changes
@@ -101,16 +123,15 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
     }
   };
 
-  // Compute preview count based on selections
-  const totalCount = (() => {
-    if (selectedModule === 'all') {
-      return modules.reduce((sum, m) => sum + m.count, 0);
-    }
-    if (selectedSubModule === 'all') {
-      return activeModule?.count ?? 0;
-    }
+  // Compute preview count based on selections.
+  // When status is filtered, use the server-fetched count (statusFilteredCount).
+  // Otherwise derive from the modules data already in memory.
+  const moduleCount = (() => {
+    if (selectedModule === 'all') return modules.reduce((sum, m) => sum + m.count, 0);
+    if (selectedSubModule === 'all') return activeModule?.count ?? 0;
     return subModules.find((s) => s.name === selectedSubModule)?.count ?? 0;
   })();
+  const totalCount = selectedStatus !== 'all' ? (statusFilteredCount ?? moduleCount) : moduleCount;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -201,12 +222,16 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
             </Label>
           </div>
 
-          {totalCount > 0 && (
+          {isCountLoading ? (
+            <p className='text-sm text-muted-foreground'>Counting matching reports…</p>
+          ) : totalCount > 0 ? (
             <p className='text-sm text-muted-foreground'>
               Will export <strong>{totalCount}</strong> bug report
               {totalCount !== 1 ? 's' : ''} as a ZIP of markdown files.
             </p>
-          )}
+          ) : totalCount === 0 ? (
+            <p className='text-sm text-muted-foreground'>No bug reports match the selected filters.</p>
+          ) : null}
         </div>
 
         <DialogFooter>
@@ -215,7 +240,7 @@ export function ExportBugsDialog({ modules }: ExportBugsDialogProps) {
           </Button>
           <Button
             onClick={handleExport}
-            disabled={isExporting || totalCount === 0}
+            disabled={isExporting || isCountLoading || totalCount === 0}
           >
             {isExporting ? (
               <>
