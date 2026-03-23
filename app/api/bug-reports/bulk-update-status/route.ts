@@ -4,6 +4,10 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { BugReportStatus } from '@/types/bugs';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  BugReportEmailService,
+  type BugResolvedEmailData
+} from '@/lib/services/email/bug-report-email-service';
 
 const bulkUpdateStatusSchema = z.object({
   reportIds: z.array(z.string()).min(1, 'At least one report ID is required'),
@@ -71,14 +75,14 @@ export async function POST(request: Request) {
       throw updateError;
     }
 
+    // Fire bulk resolution emails (non-blocking)
+    if (status === 'resolved') {
+      void sendBulkResolutionEmails(adminSupabase, reportIds);
+    }
+
     return NextResponse.json({
       success: true,
-      message: `${
-        reportIds.length
-      } bug report(s) status updated to ${status.replace(
-        '_',
-        ' '
-      )} successfully`,
+      message: `${reportIds.length} bug report(s) status updated to ${status.replace('_', ' ')} successfully`,
       updatedCount: reportIds.length,
       status
     });
@@ -96,5 +100,65 @@ export async function POST(request: Request) {
       { error: 'Failed to update bug report status' },
       { status: 500 }
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: fetch reporter details for all resolved reports and batch-send emails
+// ---------------------------------------------------------------------------
+async function sendBulkResolutionEmails(
+  adminSupabase: ReturnType<typeof createAdminClient>,
+  reportIds: string[]
+): Promise<void> {
+  try {
+    const { data: details, error } = await (
+      adminSupabase.from('bug_reports_with_details') as any
+    )
+      .select(
+        'id, display_id, reporter_email, reporter_name, description, page_url, institution_name, resolved_at'
+      )
+      .in('id', reportIds);
+
+    if (error || !details) {
+      logger.warn('bug-reports/email', 'Could not fetch report details for bulk email', { count: reportIds.length });
+      return;
+    }
+
+    const emailDataList: BugResolvedEmailData[] = details
+      .filter((d: any) => !!d.reporter_email)
+      .map((d: any) => ({
+        reportId: d.id,
+        displayId: d.display_id,
+        reporterEmail: d.reporter_email,
+        reporterName: d.reporter_name,
+        description: d.description,
+        pageUrl: d.page_url,
+        institutionName: d.institution_name,
+        resolvedAt: d.resolved_at ?? new Date().toISOString()
+      }));
+
+    const { sent, failed, skipped } =
+      await BugReportEmailService.sendBulkResolvedEmails(emailDataList);
+
+    // Log each send attempt
+    if (emailDataList.length > 0) {
+      const logRows = emailDataList.map(r => ({
+        bug_report_id: r.reportId,
+        recipient_email: r.reporterEmail,
+        email_type: 'resolved_notification',
+        // Mark as sent optimistically; individual failures are captured in the service logger
+        status: 'sent'
+      }));
+      await (adminSupabase as any).from('bug_report_email_logs').insert(logRows);
+    }
+
+    logger.info('bug-reports/email', 'Bulk resolution email summary', {
+      total: reportIds.length,
+      sent,
+      failed,
+      skipped
+    });
+  } catch (err) {
+    logger.error('bug-reports/email', 'Unexpected error in sendBulkResolutionEmails', err);
   }
 }

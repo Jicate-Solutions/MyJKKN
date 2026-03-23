@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  BugReportEmailService,
+  type BugResolvedEmailData
+} from '@/lib/services/email/bug-report-email-service';
 
 const updateStatusSchema = z.object({
   status: z.enum(['new', 'seen', 'in_progress', 'resolved', 'wont_fix'])
@@ -135,6 +139,11 @@ export async function PATCH(
 
     if (error) throw error;
 
+    // Fire resolution email notification (non-blocking — does not affect response)
+    if (status === 'resolved') {
+      void sendResolutionEmailAndLog(adminSupabase, reportId, data);
+    }
+
     return NextResponse.json(data);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -145,6 +154,63 @@ export async function PATCH(
       { error: 'Failed to update bug report status.' },
       { status: 500 }
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: fetch reporter details, send email, log result
+// Runs after the response is returned — failures are logged, never thrown.
+// ---------------------------------------------------------------------------
+async function sendResolutionEmailAndLog(
+  adminSupabase: ReturnType<typeof createAdminClient>,
+  reportId: string,
+  updatedReport: any
+): Promise<void> {
+  try {
+    // Fetch enriched report data (reporter email, name, institution)
+    const { data: detail, error: detailError } = await (
+      adminSupabase.from('bug_reports_with_details') as any
+    )
+      .select(
+        'display_id, reporter_email, reporter_name, description, page_url, institution_name, resolved_at'
+      )
+      .eq('id', reportId)
+      .single();
+
+    if (detailError || !detail) {
+      logger.warn('bug-reports/email', 'Could not fetch report details for email', { reportId });
+      return;
+    }
+
+    if (!detail.reporter_email) {
+      logger.warn('bug-reports/email', 'Reporter has no email — skipping notification', { reportId });
+      return;
+    }
+
+    const emailData: BugResolvedEmailData = {
+      reportId,
+      displayId: detail.display_id,
+      reporterEmail: detail.reporter_email,
+      reporterName: detail.reporter_name,
+      description: detail.description,
+      pageUrl: detail.page_url,
+      institutionName: detail.institution_name,
+      resolvedAt: detail.resolved_at ?? updatedReport.resolved_at ?? new Date().toISOString()
+    };
+
+    const result = await BugReportEmailService.sendBugResolvedEmail(emailData);
+
+    // Log the email send attempt to bug_report_email_logs
+    await (adminSupabase as any).from('bug_report_email_logs').insert({
+      bug_report_id: reportId,
+      recipient_email: detail.reporter_email,
+      email_type: 'resolved_notification',
+      status: result.skipped ? 'skipped' : result.success ? 'sent' : 'failed',
+      resend_id: result.resendId ?? null,
+      error_message: result.error ?? result.skipReason ?? null
+    });
+  } catch (err) {
+    logger.error('bug-reports/email', 'Unexpected error in sendResolutionEmailAndLog', err);
   }
 }
 

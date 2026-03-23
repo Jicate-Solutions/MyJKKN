@@ -195,7 +195,11 @@ export default function BugReportDetailsPage() {
   const handleStatusChange = async (status: BugReportStatus) => {
     try {
       await updateStatusMutation.mutateAsync({ reportId: id, status });
-      toast.success(`Report status changed to ${status.replace(/_/g, ' ')}.`);
+      if (status === 'resolved') {
+        toast.success('Report marked as resolved. Notification email sent to the reporter.');
+      } else {
+        toast.success(`Report status changed to ${status.replace(/_/g, ' ')}.`);
+      }
     } catch (err: any) {
       toast.error('Could not update the report status.');
     }

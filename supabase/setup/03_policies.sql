@@ -1795,6 +1795,15 @@ CREATE POLICY "participants_insert_admin" ON bug_report_participants
         )
     );
 
+-- Bug Report Email Logs (1 policy)
+-- Added: 2026-03-23
+ALTER TABLE bug_report_email_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "email_logs_select_admin" ON bug_report_email_logs
+    FOR SELECT USING (
+        get_current_user_role() IN ('super_admin', 'administrator')
+    );
+
 -- ================================================================================
 -- SECTION 11: RESOURCE MANAGEMENT MODULE TABLES
 -- ================================================================================
