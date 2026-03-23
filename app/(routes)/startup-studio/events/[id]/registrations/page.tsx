@@ -64,7 +64,7 @@ export default function AdminRegistrationsPage({ params }: { params: Promise<{ i
 
         {/* Individual-registration events use the per-registrant admin view */}
         {(['individual', 'sarvam_galatta'] as string[]).includes((event.config as any)?.registration_type) ? (
-          <SarvamGalattaTable eventId={id} />
+          <SarvamGalattaTable eventId={id} eventName={event.name} />
         ) : (
           <Tabs defaultValue="teams">
             <TabsList className="mb-4">
