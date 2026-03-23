@@ -415,6 +415,7 @@ export class SarvamGalattaRegistrationService {
         snap_program_id,
         snap_semester_id,
         submitted_at,
+        approval_status,
         institutions:snap_institution_id ( name ),
         programs:snap_program_id ( program_name ),
         semesters:snap_semester_id ( semester_name )
@@ -468,8 +469,15 @@ export class SarvamGalattaRegistrationService {
       dayMap.set(day, (dayMap.get(day) ?? 0) + 1);
     }
 
+    const shortlisted_count = (rows ?? []).filter((r: any) => r.approval_status === 'shortlisted').length;
+    const waitlisted_count  = (rows ?? []).filter((r: any) => r.approval_status === 'waitlisted' || !r.approval_status).length;
+    const rejected_count    = (rows ?? []).filter((r: any) => r.approval_status === 'rejected').length;
+
     return {
       total,
+      shortlisted_count,
+      waitlisted_count,
+      rejected_count,
       by_institution: Array.from(instMap.entries()).map(([id, v]) => ({
         institution_id: id,
         institution_name: v.institution_name,

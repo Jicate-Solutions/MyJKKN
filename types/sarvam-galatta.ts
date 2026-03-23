@@ -154,6 +154,9 @@ export interface SarvamGalattaRegistration {
 
 export interface SarvamGalattaStats {
   total: number;
+  shortlisted_count: number;
+  waitlisted_count: number;
+  rejected_count: number;
   by_institution: {
     institution_id: string;
     institution_name: string;

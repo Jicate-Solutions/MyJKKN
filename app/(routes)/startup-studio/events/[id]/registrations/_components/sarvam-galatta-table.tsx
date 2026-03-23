@@ -8,8 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import {
-  Building2, FileSpreadsheet, FileText, Loader2,
-  MapPin, RotateCw, ShieldCheck, ShieldX, Sparkles, Users,
+  Building2, Clock, FileSpreadsheet, FileText, Loader2,
+  RotateCw, ShieldCheck, ShieldX, Users,
 } from 'lucide-react';
 import {
   useAllRegistrations,
@@ -234,16 +234,16 @@ export function SarvamGalattaTable({ eventId, eventName = 'Sarvam Galatta' }: Sa
             value={stats.total}
           />
           <StatCard
-            icon={<Sparkles className="h-4 w-4" />}
-            label="Programs"
-            value={stats.by_program.length}
-            sub="Unique programs"
+            icon={<ShieldCheck className="h-4 w-4 text-green-600" />}
+            label="Shortlisted"
+            value={stats.shortlisted_count}
+            sub={stats.total > 0 ? `${Math.round((stats.shortlisted_count / stats.total) * 100)}% of total` : undefined}
           />
           <StatCard
-            icon={<MapPin className="h-4 w-4" />}
-            label="Semesters"
-            value={stats.by_semester.length}
-            sub="Unique semesters"
+            icon={<Clock className="h-4 w-4 text-amber-600" />}
+            label="Waitlisted"
+            value={stats.waitlisted_count}
+            sub={stats.total > 0 ? `${Math.round((stats.waitlisted_count / stats.total) * 100)}% of total` : undefined}
           />
           <StatCard
             icon={<Building2 className="h-4 w-4" />}
