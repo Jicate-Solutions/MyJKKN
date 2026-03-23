@@ -18,6 +18,7 @@ import {
 import { PeriodForm } from '../../_components/period-form';
 import { PeriodService } from '@/lib/services/academic/period-service';
 import { Period, UpdatePeriodDto } from '@/types/academics';
+import { isValidUUID } from '@/lib/utils/uuid-validator';
 import Loading from '@/components/Loading/Loading';
 import { BeatLoader } from 'react-spinners';
 import { Card, CardContent } from '@/components/ui/card';
@@ -39,6 +40,13 @@ export default function EditPeriodPage({ params }: EditPeriodPageProps) {
 
   useEffect(() => {
     const fetchPeriod = async () => {
+      if (!isValidUUID(id)) {
+        logger.warn('academic/periods', 'Invalid period id in URL params', { id });
+        setError('Invalid period ID. Please navigate back and try again.');
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         const data = await PeriodService.getPeriod(id);
