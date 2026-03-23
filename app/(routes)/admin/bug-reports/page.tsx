@@ -50,6 +50,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable } from '@/components/ui/data-table';
 import { ColumnDef } from '@tanstack/react-table';
 import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
+import { BugModuleBadge } from '@/components/bug-reporter/bug-module-badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ReporterAnalyticsTab } from './_components/reporter-analytics-tab';
 import { ExportBugsDialog } from './_components/export-bugs-dialog';
@@ -374,9 +375,7 @@ export default function AdminBugReportsPage() {
         accessorKey: 'module_name',
         header: 'Module',
         cell: ({ row }) => (
-          <Badge variant='outline' className='text-xs font-mono'>
-            {row.original.module_name || 'other'}
-          </Badge>
+          <BugModuleBadge module={row.original.module_name} size='sm' />
         )
       },
       {
