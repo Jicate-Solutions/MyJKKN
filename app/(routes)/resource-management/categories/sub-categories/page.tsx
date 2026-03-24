@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { Plus, Edit, Trash2, Eye, ImageIcon, FolderOpen } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, ImageIcon, FolderOpen, MoreHorizontal } from 'lucide-react';
 import { format } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,24 @@ import type {
 } from '@/types/resource-management';
 import { CATEGORY_STATUS } from '@/types/resource-management';
 import Loading from '@/components/Loading/Loading';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from '@/components/ui/alert-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -55,7 +73,7 @@ export default function SubCategoriesPage() {
     fetchCategories
   } = useSubCategories(initialFilters);
 
-  const { bulkDeleteCategories } = useSubCategoryOperations();
+  const { deleteCategory, bulkDeleteCategories } = useSubCategoryOperations();
 
   const canViewCategories =
     isSuperAdmin || canAccess('resources.categories', 'view');
@@ -225,36 +243,79 @@ export default function SubCategoriesPage() {
     },
     {
       id: 'actions',
-      header: 'Actions',
+      header: '',
       cell: ({ row }: { row: any }) => {
         const category = row.original;
         return (
-          <div className='flex items-center space-x-2'>
-            <Button variant='ghost' size='icon' asChild>
-              <Link
-                href={`/resource-management/categories/sub-categories/${category.id}`}
-              >
-                <Eye className='h-4 w-4' />
-              </Link>
-            </Button>
-            {canEditCategories && (
-              <Button variant='ghost' size='icon' asChild>
-                <Link
-                  href={`/resource-management/categories/sub-categories/${category.id}/edit`}
-                >
-                  <Edit className='h-4 w-4' />
-                </Link>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant='ghost' size='icon' className='h-8 w-8'>
+                <MoreHorizontal className='h-4 w-4' />
+                <span className='sr-only'>Open menu</span>
               </Button>
-            )}
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end'>
+              <DropdownMenuItem asChild>
+                <Link href={`/resource-management/categories/sub-categories/${category.id}`}>
+                  <Eye className='mr-2 h-4 w-4' />
+                  View Details
+                </Link>
+              </DropdownMenuItem>
+              {canEditCategories && (
+                <DropdownMenuItem asChild>
+                  <Link href={`/resource-management/categories/sub-categories/${category.id}/edit`}>
+                    <Edit className='mr-2 h-4 w-4' />
+                    Edit Subcategory
+                  </Link>
+                </DropdownMenuItem>
+              )}
+              {canDeleteCategories && (
+                <>
+                  <DropdownMenuSeparator />
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <DropdownMenuItem
+                        className='text-destructive focus:text-destructive'
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        <Trash2 className='mr-2 h-4 w-4' />
+                        Delete Subcategory
+                      </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete &quot;{category.name}&quot;?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently delete this subcategory, its custom attributes,
+                          and any associated images. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                          onClick={async () => {
+                            try {
+                              await deleteCategory(category.id);
+                              fetchCategories();
+                            } catch {
+                              // toast already shown by hook
+                            }
+                          }}
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         );
       },
       enableSorting: false,
-      enableHiding: false,
-      permissions: {
-        view: canViewCategories,
-        edit: canEditCategories
-      }
+      enableHiding: false
     }
   ];
 

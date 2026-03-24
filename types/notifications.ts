@@ -50,6 +50,13 @@ export interface NotificationTargeting {
   target_roles?: string[];
 }
 
+export interface NotificationAttachment {
+  name: string;
+  url: string;
+  type: string;
+  size: number;
+}
+
 export interface CreateNotificationRequest {
   title: string;
   body: string;
@@ -58,6 +65,7 @@ export interface CreateNotificationRequest {
   priority?: 'low' | 'normal' | 'high' | 'urgent';
   category?: string;
   expires_at?: string;
+  metadata?: { attachments?: NotificationAttachment[] };
   targeting: NotificationTargeting;
 }
 

@@ -172,8 +172,9 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
   const customAttributes = form.watch('custom_attributes') || {};
   const imageUrls = form.watch('image_urls') || [];
 
-  // Caretaker search state (must be at component level, not inside render prop)
+  // Caretaker search & filter state (must be at component level, not inside render prop)
   const [caretakerSearch, setCaretakerSearch] = useState('');
+  const [caretakerRoleFilter, setCaretakerRoleFilter] = useState<string>('all');
 
   const { institutions: accessibleInstitutions } = useUserInstitutionAccess();
   const institutionId = accessibleInstitutions[0]?.institution_id;
@@ -868,38 +869,93 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
               control={form.control}
               name='caretaker_user_ids'
               render={({ field }) => {
-                const filteredProfiles = caretakerSearch
-                  ? profiles.filter((p) => {
-                      const query = caretakerSearch.toLowerCase();
-                      return (
-                        p.full_name?.toLowerCase().includes(query) ||
-                        p.email?.toLowerCase().includes(query) ||
-                        p.role?.toLowerCase().includes(query) ||
-                        p.designation?.toLowerCase().includes(query)
-                      );
-                    })
+                // Extract unique roles from profiles for the filter dropdown
+                const availableRoles = Array.from(
+                  new Set(profiles.map((p) => p.role).filter(Boolean))
+                ).sort() as string[];
+
+                // Apply role filter first, then text search
+                let filteredProfiles = caretakerRoleFilter !== 'all'
+                  ? profiles.filter((p) => p.role === caretakerRoleFilter)
                   : profiles;
+
+                if (caretakerSearch) {
+                  const query = caretakerSearch.toLowerCase();
+                  filteredProfiles = filteredProfiles.filter((p) =>
+                    p.full_name?.toLowerCase().includes(query) ||
+                    p.email?.toLowerCase().includes(query) ||
+                    p.role?.toLowerCase().includes(query) ||
+                    p.designation?.toLowerCase().includes(query)
+                  );
+                }
+
                 const selectedCount = field.value?.length || 0;
 
                 return (
                   <FormItem>
                     <FormLabel>Caretaker / Responsible Person(s)</FormLabel>
                     <div className='rounded-lg border p-4 space-y-3'>
-                      {/* Search input */}
+                      {/* Search & Role Filter */}
                       {selectedInstitutionId && profiles.length > 0 && (
-                        <div className='relative'>
-                          <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
-                          <Input
-                            placeholder='Search by name, email, role, or designation...'
-                            value={caretakerSearch}
-                            onChange={(e) => setCaretakerSearch(e.target.value)}
-                            className='pl-9 h-9'
-                          />
-                          {selectedCount > 0 && (
-                            <Badge variant='secondary' className='absolute right-2 top-1.5 text-xs'>
-                              {selectedCount} selected
-                            </Badge>
-                          )}
+                        <div className='space-y-2'>
+                          <div className='flex gap-2'>
+                            <div className='relative flex-1'>
+                              <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
+                              <Input
+                                placeholder='Search by name, email, or designation...'
+                                value={caretakerSearch}
+                                onChange={(e) => setCaretakerSearch(e.target.value)}
+                                className='pl-9 h-9'
+                              />
+                            </div>
+                            <Select
+                              value={caretakerRoleFilter}
+                              onValueChange={setCaretakerRoleFilter}
+                            >
+                              <SelectTrigger className='w-[180px] h-9'>
+                                <SelectValue placeholder='Filter by role' />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value='all'>All Roles</SelectItem>
+                                {availableRoles.map((role) => (
+                                  <SelectItem key={role} value={role}>
+                                    {role.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {/* Select All / Deselect All for visible filtered results */}
+                          <div className='flex items-center justify-between'>
+                            <div className='flex items-center space-x-2'>
+                              <Checkbox
+                                id='caretaker-select-all'
+                                checked={
+                                  filteredProfiles.length > 0 &&
+                                  filteredProfiles.every((p) => field.value?.includes(p.id))
+                                }
+                                onCheckedChange={(checked) => {
+                                  const currentValue = field.value || [];
+                                  if (checked) {
+                                    const newIds = filteredProfiles
+                                      .map((p) => p.id)
+                                      .filter((id): id is string => !!id && !currentValue.includes(id));
+                                    field.onChange([...currentValue, ...newIds]);
+                                  } else {
+                                    const filteredIds = new Set(filteredProfiles.map((p) => p.id));
+                                    field.onChange(currentValue.filter((id: string) => !filteredIds.has(id)));
+                                  }
+                                }}
+                              />
+                              <Label htmlFor='caretaker-select-all' className='text-xs font-medium cursor-pointer'>
+                                Select All
+                                {caretakerRoleFilter !== 'all' && ` (${caretakerRoleFilter.replace(/_/g, ' ')})`}
+                              </Label>
+                            </div>
+                            <span className='text-xs text-muted-foreground'>
+                              {selectedCount} selected · {filteredProfiles.length} shown
+                            </span>
+                          </div>
                         </div>
                       )}
 
@@ -2050,6 +2106,37 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                       </p>
                     ) : (
                       <div className='space-y-3 max-h-60 overflow-y-auto'>
+                        {/* Select All / Deselect All */}
+                        <div className='flex items-center space-x-3 pb-2 border-b'>
+                          <Checkbox
+                            id='role-select-all'
+                            checked={
+                              customRoles.length > 0 &&
+                              customRoles.every((role: any) =>
+                                selectedAccessRoles.includes(role.role_key)
+                              )
+                            }
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                form.setValue(
+                                  'access_roles',
+                                  customRoles.map((r: any) => r.role_key)
+                                );
+                              } else {
+                                form.setValue('access_roles', []);
+                              }
+                            }}
+                          />
+                          <Label
+                            htmlFor='role-select-all'
+                            className='text-sm font-medium cursor-pointer'
+                          >
+                            Select All Roles
+                            <span className='ml-2 text-xs text-muted-foreground'>
+                              ({selectedAccessRoles.length}/{customRoles.length} selected)
+                            </span>
+                          </Label>
+                        </div>
                         {customRoles.map((role: any) => (
                           <div
                             key={role.id}

@@ -76,7 +76,8 @@ export async function POST(request: NextRequest) {
         category: notificationData.category || 'general',
         expires_at: notificationData.expires_at,
         created_by: user.id,
-        targeting: notificationData.targeting
+        targeting: notificationData.targeting,
+        metadata: notificationData.metadata || {}
       })
       .select()
       .single();

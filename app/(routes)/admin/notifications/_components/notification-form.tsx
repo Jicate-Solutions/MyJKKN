@@ -34,7 +34,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Bell, Send, Users } from 'lucide-react';
+import { Bell, Send, Users, Paperclip, X, FileText, FileSpreadsheet, FileImage, Film, Music } from 'lucide-react';
 import {
   RichTextEditor,
   RichTextDisplay
@@ -47,6 +47,8 @@ import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { useRoles } from '@/hooks/organization/use-roles';
 import { usePermissions } from '@/hooks/use-permissions';
+import { StorageUtils } from '@/lib/supabase/storage-utils';
+import { Label } from '@/components/ui/label';
 
 // Define categories for the dropdown
 const notificationCategories = [
@@ -83,11 +85,54 @@ const notificationSchema = z.object({
 
 type NotificationFormData = z.infer<typeof notificationSchema>;
 
+// Allowed file types for notification attachments
+const ALLOWED_FILE_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'video/mp4',
+  'audio/mpeg',
+  'audio/mp3',
+];
+
+const ALLOWED_EXTENSIONS = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.mp4,.mp3';
+const MAX_FILE_SIZE_MB = 25;
+const MAX_ATTACHMENTS = 5;
+
+interface AttachmentFile {
+  file: File;
+  name: string;
+  size: number;
+  type: string;
+}
+
+function getFileIcon(type: string) {
+  if (type.includes('pdf')) return <FileText className='h-4 w-4 text-red-500' />;
+  if (type.includes('word') || type.includes('document')) return <FileText className='h-4 w-4 text-blue-500' />;
+  if (type.includes('excel') || type.includes('spreadsheet')) return <FileSpreadsheet className='h-4 w-4 text-green-500' />;
+  if (type.includes('powerpoint') || type.includes('presentation')) return <FileImage className='h-4 w-4 text-orange-500' />;
+  if (type.includes('video')) return <Film className='h-4 w-4 text-purple-500' />;
+  if (type.includes('audio') || type.includes('mp3')) return <Music className='h-4 w-4 text-pink-500' />;
+  return <FileText className='h-4 w-4' />;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function NotificationForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
 
   // Check if this is a reuse (pre-fill from query params)
   const isReuse = searchParams.get('reuse') === 'true';
@@ -258,6 +303,28 @@ export function NotificationForm() {
         return;
       }
 
+      // Upload attachments to Supabase storage if any
+      let attachmentUrls: Array<{ name: string; url: string; type: string; size: number }> = [];
+      if (attachments.length > 0) {
+        setUploadingFiles(true);
+        try {
+          const uploadPromises = attachments.map(async (att) => {
+            const url = await StorageUtils.uploadFile(
+              'notification-attachments',
+              att.file,
+              `notifications/${new Date().toISOString().slice(0, 10)}`
+            );
+            return { name: att.name, url, type: att.type, size: att.size };
+          });
+          attachmentUrls = await Promise.all(uploadPromises);
+        } catch (uploadError) {
+          toast.error('Failed to upload attachments. Please try again.');
+          setUploadingFiles(false);
+          return;
+        }
+        setUploadingFiles(false);
+      }
+
       // Prepare the notification data
       const notificationData = {
         title: data.title,
@@ -267,6 +334,7 @@ export function NotificationForm() {
         priority: data.priority,
         category: data.category,
         expires_at: data.expires_at || undefined,
+        metadata: attachmentUrls.length > 0 ? { attachments: attachmentUrls } : undefined,
         targeting: {
           institution_id: data.institution_id || undefined,
           department_id: data.department_id || undefined,
@@ -818,6 +886,32 @@ export function NotificationForm() {
                           </div>
                         </div>
                       ) : (
+                        <div className='space-y-3'>
+                          {/* Select All / Deselect All */}
+                          <div className='flex items-center justify-between px-2 pb-2 border-b'>
+                            <div className='flex items-center space-x-2'>
+                              <Checkbox
+                                id='role-select-all'
+                                checked={
+                                  availableRoles.length > 0 &&
+                                  availableRoles.every((r) => field.value?.includes(r.value))
+                                }
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    field.onChange(availableRoles.map((r) => r.value));
+                                  } else {
+                                    field.onChange([]);
+                                  }
+                                }}
+                              />
+                              <Label htmlFor='role-select-all' className='text-sm font-medium cursor-pointer'>
+                                Select All Roles
+                              </Label>
+                            </div>
+                            <span className='text-xs text-muted-foreground'>
+                              {field.value?.length || 0}/{availableRoles.length} selected
+                            </span>
+                          </div>
                         <div className='grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3'>
                           {availableRoles.map((role) => (
                             <div
@@ -856,6 +950,7 @@ export function NotificationForm() {
                               </div>
                             </div>
                           ))}
+                        </div>
                         </div>
                       )}
                       <FormMessage />
@@ -901,6 +996,109 @@ export function NotificationForm() {
                   </div>
                 </CardContent>
               </Card>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Attachments */}
+          <div>
+            <div className='mb-4'>
+              <h3 className='text-lg font-medium flex items-center gap-2'>
+                <Paperclip className='h-5 w-5' />
+                Attachments (Optional)
+              </h3>
+              <p className='text-sm text-muted-foreground mt-1'>
+                Attach files to send with this notification. Supported: PDF, Word, Excel, PowerPoint, MP4 video, MP3 audio (max {MAX_FILE_SIZE_MB}MB each, up to {MAX_ATTACHMENTS} files)
+              </p>
+            </div>
+
+            {/* File upload input */}
+            <div className='space-y-3'>
+              <div className='flex items-center gap-3'>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  disabled={attachments.length >= MAX_ATTACHMENTS || uploadingFiles}
+                  onClick={() => document.getElementById('notification-file-input')?.click()}
+                >
+                  <Paperclip className='mr-2 h-4 w-4' />
+                  Add Files
+                </Button>
+                <input
+                  id='notification-file-input'
+                  type='file'
+                  accept={ALLOWED_EXTENSIONS}
+                  multiple
+                  className='hidden'
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    const validFiles: AttachmentFile[] = [];
+
+                    for (const file of files) {
+                      if (attachments.length + validFiles.length >= MAX_ATTACHMENTS) {
+                        toast.error(`Maximum ${MAX_ATTACHMENTS} attachments allowed`);
+                        break;
+                      }
+                      if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+                        toast.error(`"${file.name}" exceeds ${MAX_FILE_SIZE_MB}MB limit`);
+                        continue;
+                      }
+                      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+                        toast.error(`"${file.name}" is not a supported file type`);
+                        continue;
+                      }
+                      validFiles.push({
+                        file,
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                      });
+                    }
+
+                    if (validFiles.length > 0) {
+                      setAttachments((prev) => [...prev, ...validFiles]);
+                    }
+                    // Reset input so the same file can be re-added if removed
+                    e.target.value = '';
+                  }}
+                />
+                {attachments.length > 0 && (
+                  <span className='text-xs text-muted-foreground'>
+                    {attachments.length}/{MAX_ATTACHMENTS} files attached
+                  </span>
+                )}
+              </div>
+
+              {/* Attached files list */}
+              {attachments.length > 0 && (
+                <div className='space-y-2'>
+                  {attachments.map((att, index) => (
+                    <div
+                      key={`${att.name}-${index}`}
+                      className='flex items-center justify-between p-2 rounded-lg border bg-muted/30'
+                    >
+                      <div className='flex items-center gap-2 min-w-0'>
+                        {getFileIcon(att.type)}
+                        <span className='text-sm truncate'>{att.name}</span>
+                        <span className='text-xs text-muted-foreground shrink-0'>
+                          ({formatFileSize(att.size)})
+                        </span>
+                      </div>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='icon'
+                        className='h-7 w-7 shrink-0'
+                        onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== index))}
+                      >
+                        <X className='h-3.5 w-3.5' />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -970,8 +1168,10 @@ export function NotificationForm() {
               >
                 Cancel
               </Button>
-              <Button type='submit' disabled={isSubmitting} className='flex-1 sm:flex-none'>
-                {isSubmitting ? (
+              <Button type='submit' disabled={isSubmitting || uploadingFiles} className='flex-1 sm:flex-none'>
+                {uploadingFiles ? (
+                  'Uploading files...'
+                ) : isSubmitting ? (
                   'Sending...'
                 ) : (
                   <>

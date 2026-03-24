@@ -32,7 +32,6 @@ import {
   Shield
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
-import { useRouter } from 'next/navigation';
 import {
   getLogManager,
   initializeLogCapture,
@@ -497,7 +496,6 @@ export function BugReporterWidget() {
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null); // File input ref for manual upload (single)
   const multipleFileInputRef = useRef<HTMLInputElement>(null); // File input ref for multiple uploads
-  const router = useRouter();
 
   useEffect(() => {
     setIsClient(true);
@@ -989,7 +987,7 @@ export function BugReporterWidget() {
         result.message || 'Thank you for reporting this issue!';
       const reportData = result.data || result;
 
-      toast.success(`${successMessage} Redirecting to your bug reports...`);
+      toast.success(successMessage);
 
       setDescription('');
       setCategory('bug');
@@ -999,18 +997,6 @@ export function BugReporterWidget() {
 
       // Clear logs from enhanced logger (reuse logManager from try block)
       logManager.clear();
-
-      // Auto-redirect to appropriate bug status page based on user module
-      setTimeout(() => {
-        const currentPath = window.location.pathname;
-
-        // Determine the appropriate redirect path based on current location
-        const redirectPath = '/my-bug-reports'; // Default admin path
-
-        // All users now go to admin bug reports since learner module is removed
-
-        router.push(redirectPath);
-      }, 1500); // Small delay to let the user see the success message
     } catch (error: any) {
       logger.error('bug-reports', 'Bug report submission failed', error);
       toast.error(
