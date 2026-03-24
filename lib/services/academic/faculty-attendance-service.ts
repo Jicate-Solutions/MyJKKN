@@ -335,6 +335,8 @@ export class FacultyAttendanceService {
           // Find period definition (handles both array and object format)
           const periodDef = findPeriodDef(periodId);
           if (!periodDef) continue;
+          // Skip break periods - they are not markable
+          if (periodDef.is_break) continue;
 
           // Collect course IDs for batch fetching
           if (slot.course_id) courseIds.add(slot.course_id);
@@ -370,6 +372,7 @@ export class FacultyAttendanceService {
                 id: timetableSlotId,
                 timetable_slot_id: timetableSlotId,
                 timetable_id: timetable.id,
+                institution_id: staffData.institution_id,
                 period_name: `${periodDef.period_name} - ${groupName}`,
                 start_time: this.formatTo12Hour(periodDef.start_time || ''),
                 end_time: this.formatTo12Hour(periodDef.end_time || ''),
@@ -404,6 +407,7 @@ export class FacultyAttendanceService {
               id: timetableSlotId,
               timetable_slot_id: timetableSlotId,
               timetable_id: timetable.id,
+              institution_id: staffData.institution_id,
               period_name: periodDef.period_name,
               start_time: this.formatTo12Hour(periodDef.start_time || ''),
               end_time: this.formatTo12Hour(periodDef.end_time || ''),
@@ -636,8 +640,10 @@ export class FacultyAttendanceService {
           id,
           periods,
           timetable_data,
-          section,
-          semester,
+          section_id,
+          semester_id,
+          sections(id, section_name),
+          semesters(id, semester_name),
           department_id,
           program_id,
           degree_id,
@@ -701,6 +707,8 @@ export class FacultyAttendanceService {
                 if (isAssignedToStaff) {
                   // Find period definition (handles both array and object format)
                   const periodDef = findPeriodDef(periodId);
+                  // Skip break periods - they are not markable
+                  if (periodDef?.is_break) continue;
 
                   const timetableSlotId =
                     slot.slot_id || `${timetable.id}_${day}_${periodId}`;
@@ -738,6 +746,7 @@ export class FacultyAttendanceService {
                     id: timetableSlotId,
                     timetable_slot_id: timetableSlotId,
                     timetable_id: timetable.id,
+                    institution_id: staffData.institution_id,
                     period_name: periodDef?.period_name || `Period ${periodId}`,
                     start_time: this.formatTo12Hour(
                       periodDef?.start_time || ''
@@ -753,17 +762,16 @@ export class FacultyAttendanceService {
                       : undefined,
                     sections: [
                       {
-                        id: timetable.section || '',
-                        name: timetable.section || ''
+                        id: timetable.section_id || '',
+                        name: (timetable.sections as any)?.section_name || ''
                       }
                     ],
-                    degree_name: (timetable.degrees as any)?.[0]?.degree_name,
-                    program_name: (timetable.programs as any)?.[0]
-                      ?.program_name,
-                    department_name: (timetable.departments as any)?.[0]
-                      ?.department_name,
-                    semester_name: timetable.semester || '',
-                    section_name: timetable.section || ''
+                    section_ids: slot.section_ids || (timetable.section_id ? [timetable.section_id] : []),
+                    degree_name: (timetable.degrees as any)?.degree_name,
+                    program_name: (timetable.programs as any)?.program_name,
+                    department_name: (timetable.departments as any)?.department_name,
+                    semester_name: (timetable.semesters as any)?.semester_name || '',
+                    section_name: (timetable.sections as any)?.section_name || ''
                   });
                 }
               }

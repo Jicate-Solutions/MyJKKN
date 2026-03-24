@@ -1702,6 +1702,12 @@ export class LeaveManagementService {
   static async getLeavesForMonth(
     filters: LeaveCalendarFilters
   ): Promise<CalendarLeave[]> {
+    // Validate date parameters to prevent invalid database queries (e.g., 0-00-01)
+    if (!filters.year || !filters.month || filters.year < 1970 || filters.month < 1 || filters.month > 12) {
+      logger.warn('academic/leaves', 'Invalid date parameters for leaves query', { year: filters.year, month: filters.month });
+      return [];
+    }
+
     try {
       const { data, error } = await (this.supabase as any).rpc('get_leaves_for_month', {
         p_institution_id: filters.institution_id,
@@ -1739,6 +1745,12 @@ export class LeaveManagementService {
   static async getMonthlyCalendarData(
     filters: LeaveCalendarFilters
   ): Promise<MonthlyCalendarData> {
+    // Validate date parameters to prevent invalid date calculations
+    if (!filters.year || !filters.month || filters.year < 1970 || filters.month < 1 || filters.month > 12) {
+      logger.warn('academic/leaves', 'Invalid date parameters for calendar data', { year: filters.year, month: filters.month });
+      return { year: filters.year || 0, month: filters.month || 0, days: [], total_working_days: 0, total_leave_days: 0 };
+    }
+
     try {
       const leaves = await this.getLeavesForMonth(filters);
 

@@ -513,8 +513,8 @@ export class AttendanceDashboardService {
           degree:degrees(id, degree_name),
           department:departments(id, department_name),
           program:programs(id, program_name),
-          semester:semesters(id, semester_name),
-          section:sections(id, section_name)
+          semesters(id, semester_name),
+          sections(id, section_name)
         `
         )
         .eq('is_active', true);
@@ -723,11 +723,11 @@ export class AttendanceDashboardService {
                         'Unknown Program',
                       semester_id: timetable.semester_id,
                       semester_name:
-                        (timetable.semester as any)?.semester_name ||
+                        (timetable.semesters as any)?.semester_name ||
                         'Unknown Semester',
                       section_id: timetable.section_id,
                       section_name:
-                        (timetable.section as any)?.section_name ||
+                        (timetable.sections as any)?.section_name ||
                         'Unknown Section',
 
                       // Academic year

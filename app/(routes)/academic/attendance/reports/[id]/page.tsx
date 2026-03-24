@@ -85,6 +85,7 @@ export default function AttendanceReportDetailPage() {
   const { isSuperAdmin } = usePermissions();
 
   const reportId = params.id as string;
+  const isValidReportId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(reportId);
 
   // State
   const [report, setReport] = useState<DetailedAttendanceReport | null>(null);
@@ -142,7 +143,7 @@ export default function AttendanceReportDetailPage() {
 
   // Fetch report details
   const fetchReportDetails = useCallback(async () => {
-    if (!reportId) return;
+    if (!reportId || !isValidReportId) return;
     if (shouldWaitForRole) return; // Wait for staff ID to be fetched for faculty users
 
     try {
@@ -177,7 +178,7 @@ export default function AttendanceReportDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [reportId, userRole, profile?.id, router, shouldWaitForRole]);
+  }, [reportId, isValidReportId, userRole, profile?.id, router, shouldWaitForRole]);
 
   useEffect(() => {
     fetchReportDetails();
@@ -185,7 +186,7 @@ export default function AttendanceReportDetailPage() {
 
   // Fetch audit log for super admins
   useEffect(() => {
-    if (!isSuperAdmin || !reportId) return;
+    if (!isSuperAdmin || !reportId || !isValidReportId) return;
     const controller = new AbortController();
     const fetchAuditLog = async () => {
       setAuditLoading(true);
@@ -207,7 +208,7 @@ export default function AttendanceReportDetailPage() {
     };
     fetchAuditLog();
     return () => controller.abort();
-  }, [isSuperAdmin, reportId]);
+  }, [isSuperAdmin, reportId, isValidReportId]);
 
   // Handle export
   const handleExport = async (format: 'pdf' | 'excel') => {
@@ -240,6 +241,20 @@ export default function AttendanceReportDetailPage() {
       toast.error('An error occurred during export');
     }
   };
+
+  if (!isValidReportId) {
+    return (
+      <ContentLayout title="Attendance Report">
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+          <AlertTriangle className="h-12 w-12 text-yellow-500" />
+          <p className="text-muted-foreground">Invalid report ID</p>
+          <Button variant="outline" asChild>
+            <Link href="/academic/attendance/reports">Back to Reports</Link>
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (loading || shouldWaitForRole) {
     return (

@@ -648,10 +648,10 @@ export class AttendanceRosterService {
         query = query.eq('section_id', filters.section_id);
       }
 
-      // Order by section_id first, then roll_number for better grouping
+      // Order alphabetically by name for easier attendance marking
       query = query
-        .order('section_id', { ascending: true })
-        .order('roll_number', { ascending: true });
+        .order('first_name', { ascending: true })
+        .order('last_name', { ascending: true });
 
       const { data, error } = await query;
 
