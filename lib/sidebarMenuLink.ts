@@ -743,6 +743,13 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname.startsWith('/academic/attendance/consolidation')
             }
           ]
+        },
+        {
+          href: '/academic/privileges',
+          label: 'Privileges',
+          active: pathname.startsWith('/academic/privileges'),
+          icon: Award,
+          submenus: []
         }
       ]
     },
