@@ -2588,7 +2588,8 @@ export default function AttendanceMarkPage() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
