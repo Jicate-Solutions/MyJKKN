@@ -71,10 +71,13 @@ export function usePrivilegeGroup(id: string | null) {
  */
 export function usePrivilegeTypes() {
   const { userProfile, isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? undefined : userProfile?.institution_id;
+  // For super_admin: pass their institution_id anyway (they have one in most cases)
+  // This avoids returning 40 types from all institutions
+  // If institution_id is null, pass undefined to get all
+  const institutionId = userProfile?.institution_id || undefined;
 
   return useQuery({
-    queryKey: QUERY_KEYS.types(),
+    queryKey: QUERY_KEYS.types(institutionId),
     queryFn: () => PrivilegeService.getPrivilegeTypes(institutionId),
     enabled: isSuperAdmin || !!institutionId,
     staleTime: 5 * 60 * 1000, // 5 minutes — types change rarely
