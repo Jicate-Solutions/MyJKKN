@@ -1215,10 +1215,16 @@ export default function AttendanceMarkPage() {
   };
 
   // Mark all as present/absent
+  // Updated: 2026-03-25 - Preserve privilege-locked students when marking all
   const markAll = (status: 'Present' | 'Absent') => {
     const newData: Record<string, 'Present' | 'Absent'> = {};
     students.forEach((student) => {
-      newData[student.id] = status;
+      // Keep privileged students as Present (On-Duty) regardless of bulk action
+      const studentPrivileges = privilegeOdMap.get(student.id);
+      const hasFullOd = studentPrivileges?.some(p =>
+        p.privilege_types.some(t => t.key === 'full_od')
+      );
+      newData[student.id] = hasFullOd ? 'Present' : status;
     });
     setAttendanceData(newData);
   };
