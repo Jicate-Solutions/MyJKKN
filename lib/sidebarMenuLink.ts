@@ -399,6 +399,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
 
+  // Exceptions & Privileges
+  '/academic/privileges': 'academic.privileges.view',
+  '/academic/privileges/new': 'academic.privileges.create',
+  '/academic/privileges/templates': 'academic.privileges.view',
+  '/academic/privileges/my': 'learners.privileges.view',
+  '/academic/privileges/my/report': 'learners.privileges.report',
+
   // Startup Studio
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
