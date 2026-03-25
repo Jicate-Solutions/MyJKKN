@@ -1,11 +1,61 @@
 # MyJKKN Workshop Alignment Transformation - Progress Tracker
 
-## Current Session: 2026-02-24
+## Current Session: 2026-03-25
 
 ### Working On
-- Solutions Hub B2A Migration — ALL PHASES COMPLETE (Build Verified)
+- Exceptions & Privileges Module — V1 COMPLETE (Build Verified)
 
-### Completed This Session (2026-02-24)
+### Completed This Session (2026-03-25)
+
+#### Exceptions & Privileges Module — Full V1 Implementation
+
+**Scope:** Complete module for managing blanket privilege exceptions for special learners (startup founders, council members, sports teams, NCC cadets). Auto-marks attendance as On-Duty, auto-fills internal marks, transparent to faculty, revocable by admin.
+
+**Spec:** `specs/exceptions-privileges-spec.md` (345 lines, 20 user stories, 12 P0 requirements)
+
+**Method:** 4 waves of parallel agents (7 agents total), phased by dependency.
+
+**Phase 1 — Foundation (3 files):**
+- Migration: `supabase/migrations/20260325000001_create_privilege_tables.sql` — 6 tables (privilege_types, privilege_groups, privilege_group_types, privilege_members, privilege_reviews, privilege_progress_reports), 27 RLS policies with super_admin bypass, 12 indexes, 2 updated_at triggers, 4 seed rows for core types
+- Types: `types/privileges.ts` — 18 exports (interfaces, DTOs, filters, ActivePrivilegeInfo)
+- Sidebar: `lib/sidebarMenuLink.ts` — 5 permission keys + "Privileges" menu item with Award icon
+
+**Phase 2 — Service + Hooks (2 files):**
+- Service: `lib/services/academic/privilege-service.ts` (982 lines) — 17 static methods covering group CRUD, member management (add/bulk/revoke), batch privilege queries for attendance integration, semester reviews, templates
+- Hooks: `hooks/academic/use-privileges.ts` (355 lines) — 7 query hooks + 9 mutation hooks with cache invalidation
+
+**Phase 3 — Pages (8 routes + 3 components):**
+- Admin pages: list dashboard, create group, group detail (3-tab), members management (add/CSV/revoke), semester review (keep/review/revoke per member), templates
+- Learner pages: "My Privileges" view (golden badge, 4 barriers card, attendance/marks tabs), progress report placeholder (V1.1)
+- Components: privilege-badge (3 sizes), privilege-groups-table, csv-import-dialog
+
+**Phase 4 — Integration (2 new components + 2 modified files):**
+- Attendance Auto-OD: Modified `attendance/mark/page.tsx` — adds privilege check via `getActivePrivilegesForLearners()`, pre-fills OD status, locks toggle, shows amber "Auto OD" indicator. Follows exact LeaveOnduty pattern. Graceful degradation on failure.
+- Dashboard Badge: New `privilege-badge-widget.tsx` — amber/gold card on student dashboard, shows group name + Director Order ref, links to privilege details. Returns null for non-privileged students.
+
+**File Inventory:**
+- 19 new files + 3 modified files
+- ~4,500+ lines of new code
+- Migration: 6 tables, 27 RLS policies, 12 indexes
+
+**Build Status:** Build fails on 54 PRE-EXISTING errors only (emoji-mart, MCP SDK, samlify, base-service). Zero errors from privilege module files.
+
+**Migration Status:** Not yet pushed to staging DB (ready to push)
+
+**Remaining (V1.1):**
+- S1: Templates UI (built but needs live testing)
+- S2: Monthly self-report form
+- S3: Auto-signals (GitHub/app checks)
+- S4: Review history with reviewer profiles
+- S5: HOD department view
+- S6: Parent badge visibility
+- S7: Scholarship/funding tracking
+
+---
+
+### Previous Session: 2026-02-24
+
+### Completed Previous Session (2026-02-24)
 
 #### Solutions Hub B2A Migration — Full Completion (Phases 4.2 + 5.2-5.4)
 
