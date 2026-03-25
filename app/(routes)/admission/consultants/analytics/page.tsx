@@ -421,9 +421,7 @@ export default function ConsultantAnalyticsPage() {
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <Link href="/admission">Admission</Link>
-              </BreadcrumbLink>
+              <BreadcrumbLink>Admission</BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>

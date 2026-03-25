@@ -299,7 +299,7 @@ function AdmissionDashboardPageContent() {
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem>
-                  <BreadcrumbLink href="/admission">Admission</BreadcrumbLink>
+                  <BreadcrumbLink>Admission</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem>

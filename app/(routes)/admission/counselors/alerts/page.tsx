@@ -78,7 +78,7 @@ function AlertsPageContent() {
               <BreadcrumbList>
                 <BreadcrumbItem><BreadcrumbLink href="/">Dashboard</BreadcrumbLink></BreadcrumbItem>
                 <BreadcrumbSeparator />
-                <BreadcrumbItem><BreadcrumbLink href="/admission">Admission</BreadcrumbLink></BreadcrumbItem>
+                <BreadcrumbItem><BreadcrumbLink>Admission</BreadcrumbLink></BreadcrumbItem>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem><BreadcrumbPage>Activity Alerts</BreadcrumbPage></BreadcrumbItem>
               </BreadcrumbList>
