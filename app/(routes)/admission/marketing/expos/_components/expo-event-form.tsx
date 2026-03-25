@@ -306,11 +306,17 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
     <form onSubmit={handleSubmit} className="space-y-6">
       {/* Back link */}
       <div>
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/admission/marketing/expos">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Expos
-          </Link>
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          onClick={() => {
+            clearDraft();
+            router.push('/admission/marketing/expos');
+          }}
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Expos
         </Button>
       </div>
 
