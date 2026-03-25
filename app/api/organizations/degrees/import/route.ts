@@ -1,6 +1,6 @@
 // app/api/organizations/degrees/import/route.ts
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import ExcelJS from 'exceljs';
 import { z } from 'zod';

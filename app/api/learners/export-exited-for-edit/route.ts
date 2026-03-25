@@ -9,7 +9,7 @@
 // Filters: Institution → Degree → Department → Program → Semester → Section
 // ============================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService } from '@/lib/services/bulk-learner-edit-service';
 import * as XLSX from 'xlsx';
@@ -20,6 +20,7 @@ import * as XLSX from 'xlsx';
  * Download exited learners with current data for bulk editing
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     // 1. Authenticate user
     const supabase = await createServerSupabaseClient();

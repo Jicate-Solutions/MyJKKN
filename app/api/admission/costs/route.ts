@@ -1,11 +1,12 @@
 // app/api/admission/costs/route.ts
 // GET communication cost data
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { CommunicationCostService } from '@/lib/services/admission/communication-cost-service';
 import type { CostChannel, CostEventType } from '@/lib/services/admission/communication-cost-service';
 
 export async function GET(req: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(req.url);
     const institutionId = searchParams.get('institution_id');
@@ -60,6 +61,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  await connection();
   try {
     const body = await req.json();
 

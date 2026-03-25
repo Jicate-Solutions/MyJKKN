@@ -2,7 +2,7 @@
 // POST endpoint to send a single email via template
 // Body: { to, template_id, variables, lead_id?, institution_id }
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { EmailService } from '@/lib/services/email/email-service';
 

@@ -6,7 +6,7 @@
 // and any third-party CRM integrations that push leads into MyJKKN.
 
 import { timingSafeEqual } from 'crypto';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import type { LeadSource } from '@/types/admission';

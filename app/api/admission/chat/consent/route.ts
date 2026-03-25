@@ -2,7 +2,7 @@
 // POST /api/admission/chat/consent — Grant or revoke consent
 // Gap 2 — Opt-in Consent Tracking
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppConsentService } from '@/lib/services/whatsapp/whatsapp-consent-service';
 

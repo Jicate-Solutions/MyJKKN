@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 
@@ -33,6 +33,7 @@ function generateTemporaryPassword(length = 12): string {
 }
 
 export async function POST(request: Request) {
+  await connection();
   try {
     // 1. Authenticate user
     const supabase = await createServerSupabaseClient();

@@ -1,11 +1,12 @@
 // app/api/admission/voice-agents/calls/route.ts
 // GET agent call logs
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { VoiceAgentService } from '@/lib/services/ai/voice-agent-service';
 import type { VoiceAgentType, CallStatus, CallOutcome } from '@/lib/services/ai/voice-agent-service';
 
 export async function GET(req: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(req.url);
     const institutionId = searchParams.get('institution_id');

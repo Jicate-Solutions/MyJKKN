@@ -1,7 +1,7 @@
 // app/api/admission/calls/initiate/route.ts
 // POST /api/admission/calls/initiate — Initiate a click-to-call via Exotel
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import { TelephonyService } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';

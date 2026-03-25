@@ -1,5 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createHash } from 'crypto';
 import { corsHeaders } from '@/lib/api-keys/cors';
 
@@ -7,6 +7,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     // Use service role key for API key authentication to bypass RLS

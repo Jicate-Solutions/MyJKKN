@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
@@ -15,6 +15,7 @@ const bulkUpdateStatusSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
 

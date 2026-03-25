@@ -6,7 +6,7 @@
  * Created: 2026-01-12
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { LtiToolService } from '@/lib/services/lti/lti-tool-service';
 import { LtiToolInsert, LtiError } from '@/types/lti';
@@ -16,6 +16,7 @@ import { LtiToolInsert, LtiError } from '@/types/lti';
  * List all LTI tools (admin only)
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createClient();
 
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
  * Create new LTI tool (admin only)
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createClient();
 

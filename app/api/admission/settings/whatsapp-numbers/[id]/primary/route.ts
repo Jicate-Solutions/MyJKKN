@@ -1,7 +1,7 @@
 // POST /api/admission/settings/whatsapp-numbers/[id]/primary
 // Set a WABA phone number as the primary number for the institution
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 

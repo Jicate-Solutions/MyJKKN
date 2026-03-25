@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import ExcelJS from 'exceljs';
 import { parse } from 'json2csv';
 import {
@@ -13,6 +13,7 @@ import {
 
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const cookieStore = await cookies();
     const supabase = createServerClient(

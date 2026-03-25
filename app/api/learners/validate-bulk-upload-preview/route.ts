@@ -9,7 +9,7 @@
 // Design: Service cascades validation (Institution→Department→Program→Semester→Section)
 // ============================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkValidationBatchService, type BatchValidationInput } from '@/lib/services/bulk-validation-batch-service';
 
@@ -18,6 +18,7 @@ import { BulkValidationBatchService, type BatchValidationInput } from '@/lib/ser
  * Validate all unique academic field values before bulk upload
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     // 1. Authenticate user
     const supabase = await createServerSupabaseClient();

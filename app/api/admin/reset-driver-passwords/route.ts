@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 
@@ -17,6 +17,7 @@ const supabaseAdmin = createClient(
 );
 
 export async function POST(request: Request) {
+  await connection();
   try {
     // Check if user is super_admin
     const cookieStore = await cookies();

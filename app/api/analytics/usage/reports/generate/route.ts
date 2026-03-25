@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { UsageReportService } from '@/lib/services/analytics/usage-report-service';
 import type { ReportConfig } from '@/types/usage-analytics';
@@ -16,6 +16,7 @@ import type { ReportConfig } from '@/types/usage-analytics';
  * - sections: Optional string[]
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const {

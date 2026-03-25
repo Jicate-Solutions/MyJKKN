@@ -1,12 +1,13 @@
 // CRUD /api/admission/chat/quick-replies
 // Manage quick reply templates for counselors
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppChatService } from '@/lib/services/whatsapp/whatsapp-chat-service';
 
 // GET: List quick replies
 export async function GET(_request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -37,6 +38,7 @@ export async function GET(_request: NextRequest) {
 
 // POST: Create quick reply
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -85,6 +87,7 @@ export async function POST(request: NextRequest) {
 
 // PUT: Update quick reply
 export async function PUT(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -118,6 +121,7 @@ export async function PUT(request: NextRequest) {
 
 // DELETE: Delete quick reply
 export async function DELETE(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();

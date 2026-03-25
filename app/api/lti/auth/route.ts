@@ -14,7 +14,7 @@
  * Created: 2026-01-12
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { LtiToolService } from '@/lib/services/lti/lti-tool-service';
 import { LtiError } from '@/types/lti';
@@ -176,9 +176,11 @@ async function handleOidcLogin(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  await connection();
   return handleOidcLogin(request);
 }
 
 export async function POST(request: NextRequest) {
+  await connection();
   return handleOidcLogin(request);
 }

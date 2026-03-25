@@ -1,9 +1,10 @@
 // Temporary endpoint to check Vercel's outgoing IP
 // DELETE THIS FILE AFTER GETTING THE IP!
 
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 
 export async function GET() {
+  await connection();
   try {
     // Call an IP checking service
     const response = await fetch('https://api.ipify.org?format=json');

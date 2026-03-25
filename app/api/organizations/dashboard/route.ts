@@ -1,10 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { DashboardService } from '@/lib/services/organization/dashboard-service';
 import { RoleService } from '@/lib/services/roles/role-service';
 import type { Profile } from '@/types/auth';
 
 export async function GET(request: Request) {
+  await connection();
   console.log('--- Inside /api/organizations/dashboard GET (Server) ---');
   const supabase = await createServerSupabaseClient();
   const { searchParams } = new URL(request.url);

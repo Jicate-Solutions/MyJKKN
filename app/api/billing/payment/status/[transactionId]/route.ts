@@ -2,7 +2,7 @@
 // GET /api/billing/payment/status/[transactionId]
 // Purpose: Check payment status from HDFC and database
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { PaymentGatewayService } from '@/lib/services/billing/payment-gateway-service';
 import { createClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -11,6 +11,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ transactionId: string }> }
 ) {
+  await connection();
   try {
     const { transactionId } = await params;
 

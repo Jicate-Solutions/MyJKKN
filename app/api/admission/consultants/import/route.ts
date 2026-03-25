@@ -1,7 +1,7 @@
 // app/api/admission/consultants/import/route.ts
 // Import API for bulk consultant upload
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { parseExcelFile } from '@/lib/utils/excel-parser';
 import {

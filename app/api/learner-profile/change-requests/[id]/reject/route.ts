@@ -1,5 +1,5 @@
 // app/api/learner-profile/change-requests/[id]/reject/route.ts
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { LearnerProfileChangeService } from '@/lib/services/learner-profile-change-service';
 import { createClient } from '@/lib/supabase/server';
 import { RejectRequestDto } from '@/types/learner-profile-change';
@@ -8,6 +8,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();

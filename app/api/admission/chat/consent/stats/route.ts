@@ -1,7 +1,7 @@
 // GET /api/admission/chat/consent/stats?institution_id={id}
 // Gap 2 — Consent Statistics
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppConsentService } from '@/lib/services/whatsapp/whatsapp-consent-service';
 

@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { ActivityService } from '@/lib/services/activity-service';
 import { ActivityLogFilters } from '@/types/activity';
 
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
 
@@ -123,6 +124,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const {

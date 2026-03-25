@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/client';
@@ -16,6 +16,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   const { id: reportId } = await params;
   try {
     const supabase = await createServerSupabaseClient();
@@ -83,6 +84,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   const { id: reportId } = await params;
 
   try {
@@ -218,6 +220,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   const { id: reportId } = await params;
 
   try {

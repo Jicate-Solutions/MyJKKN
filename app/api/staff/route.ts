@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
@@ -28,6 +28,7 @@ const supabaseAdmin = createClient(
 
 // GET endpoint for fetching staff (bypasses RLS for performance)
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const response = NextResponse.next();
 
@@ -219,6 +220,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: Request) {
+  await connection();
   try {
     const response = NextResponse.next();
 

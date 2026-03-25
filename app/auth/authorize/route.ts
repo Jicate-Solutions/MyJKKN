@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 
 export async function GET(request: NextRequest) {
+  await connection();
   // This route handles OAuth-style authorization requests from child apps
   // It redirects to the login page with the same parameters
   

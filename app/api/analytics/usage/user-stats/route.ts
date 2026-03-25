@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { LifecycleDashboardService } from '@/lib/services/analytics/lifecycle-dashboard-service';
 
@@ -13,6 +13,7 @@ import { LifecycleDashboardService } from '@/lib/services/analytics/lifecycle-da
  * - department_id: Optional UUID filter
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const {

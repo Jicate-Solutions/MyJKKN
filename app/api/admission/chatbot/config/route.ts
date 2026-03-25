@@ -1,7 +1,7 @@
 // app/api/admission/chatbot/config/route.ts
 // Authenticated endpoint — CRUD chatbot configuration
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient, getAuthUser } from '@/lib/supabase/server';
 
 /**
@@ -11,6 +11,7 @@ import { createServerSupabaseClient, getAuthUser } from '@/lib/supabase/server';
  * Returns: { config } (single config per institution)
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {
@@ -57,6 +58,7 @@ export async function GET(request: NextRequest) {
  * Creates or updates config
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {
@@ -153,6 +155,7 @@ export async function POST(request: NextRequest) {
  * Updates specific fields
  */
 export async function PUT(request: NextRequest) {
+  await connection();
   try {
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {

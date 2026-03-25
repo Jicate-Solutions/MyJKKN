@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { HealthScoreService } from '@/lib/services/analytics/health-score-service';
 
@@ -10,6 +10,7 @@ import { HealthScoreService } from '@/lib/services/analytics/health-score-servic
  * - days: Number of days to look back (default: 30)
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const {

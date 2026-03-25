@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { SYSTEM_ROLES } from '@/types/auth';
 import { Database } from '@/types/auth';
 
@@ -8,6 +8,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
+  await connection();
   const { key: roleKey } = await params;
 
   const cookieStore = await cookies();
@@ -76,6 +77,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
+  await connection();
   const { key: roleKey } = await params;
 
   const cookieStore = await cookies();
@@ -183,6 +185,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ key: string }> }
 ) {
+  await connection();
   const { key: roleKey } = await params;
 
   const cookieStore = await cookies();

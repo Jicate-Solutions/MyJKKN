@@ -6,11 +6,12 @@
  * Returns SAML IdP metadata XML for Service Providers to consume
  */
 
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { SamlIdpService } from '@/lib/services/saml/saml-idp-service';
 import { SamlError } from '@/types/saml';
 
 export async function GET() {
+  await connection();
   try {
     const metadataXml = SamlIdpService.generateMetadata();
 

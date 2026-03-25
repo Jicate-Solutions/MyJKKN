@@ -2,7 +2,7 @@
 // PUT /api/admission/campaigns/segments/[id] — update segment
 // DELETE /api/admission/campaigns/segments/[id] — delete segment
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppSegmentService } from '@/lib/services/whatsapp/whatsapp-segment-service';
 

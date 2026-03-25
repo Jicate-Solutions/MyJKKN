@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { Database } from '@/types/supabase';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
@@ -12,6 +12,7 @@ import { SessionTrackingService } from '@/lib/services/analytics/session-trackin
 
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const requestUrl = new URL(request.url);
     const code = requestUrl.searchParams.get('code');

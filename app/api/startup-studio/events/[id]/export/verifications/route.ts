@@ -1,11 +1,12 @@
 // app/api/startup-studio/events/[id]/export/verifications/route.ts
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, connection } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params
     const supabase = await createServerSupabaseClient()

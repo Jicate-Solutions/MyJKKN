@@ -2,7 +2,7 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import ExcelJS from 'exceljs';
 import {
   mapStatusToBoolean,
@@ -197,6 +197,7 @@ function validateRowData(
 // ============================================================================
 
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     // Initialize Supabase client
     const cookieStore = await cookies();

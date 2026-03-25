@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import {
   createServerSupabaseClient,
   createServiceRoleClient
@@ -6,6 +6,7 @@ import {
 import type { NotificationWithStats } from '@/types/notification';
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
 

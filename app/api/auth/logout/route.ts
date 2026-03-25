@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { ACTIVITY_TYPES, RESOURCE_TYPES } from '@/types/activity';
@@ -7,6 +7,7 @@ import { cookies } from 'next/headers';
 
 
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const {

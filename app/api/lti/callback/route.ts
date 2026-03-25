@@ -15,7 +15,7 @@
  * Created: 2026-01-12
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { LtiError } from '@/types/lti';
 
@@ -24,6 +24,7 @@ import { LtiError } from '@/types/lti';
  * Handle OIDC authentication response (form_post)
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     // Parse form data (response_mode=form_post)
     const formData = await request.formData();
@@ -278,6 +279,7 @@ export async function POST(request: NextRequest) {
  * Handle redirect with query parameters (alternative to form_post)
  */
 export async function GET(request: NextRequest) {
+  await connection();
   const { searchParams } = new URL(request.url);
 
   // Convert query parameters to FormData and use POST handler

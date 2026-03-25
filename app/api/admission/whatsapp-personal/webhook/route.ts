@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 // Service role client for webhook (no user auth — authenticated via API key)
@@ -17,6 +17,7 @@ function getServiceClient() {
  * Authenticated via X-API-Key header (same key as Railway).
  */
 export async function POST(request: NextRequest) {
+  await connection();
   // Verify API key (Railway sends the same API_KEY)
   const apiKey = request.headers.get('x-api-key');
   if (!apiKey || apiKey !== process.env.WHATSAPP_PERSONAL_API_KEY) {

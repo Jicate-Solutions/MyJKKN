@@ -4,7 +4,7 @@
  * Description: Generates Excel attendance report for a student
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { StudentAttendanceService } from '@/lib/services/learners/student-attendance-service';
 import * as XLSX from 'xlsx';
@@ -12,6 +12,7 @@ import { format, parseISO } from 'date-fns';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createClient();
 

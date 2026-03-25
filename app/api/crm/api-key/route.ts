@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 
 export async function GET() {
+  await connection();
   try {
     // Get API key from environment variable
     const apiKey = process.env.CRM_API_KEY;

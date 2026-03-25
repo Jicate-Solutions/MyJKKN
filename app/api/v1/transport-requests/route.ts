@@ -9,10 +9,11 @@
  *   Query params: status, institution_id, from_date, to_date, updated_since, page, limit
  */
 
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export async function GET(request: Request) {
+  await connection();
   try {
     // Validate Bearer token
     const authHeader = request.headers.get('authorization');

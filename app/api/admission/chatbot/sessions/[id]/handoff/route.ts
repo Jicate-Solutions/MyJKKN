@@ -1,7 +1,7 @@
 // app/api/admission/chatbot/sessions/[id]/handoff/route.ts
 // Authenticated endpoint — manual handoff to counselor
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { getAuthUser } from '@/lib/supabase/server';
 import { ChatbotService } from '@/lib/services/ai/chatbot-service';
 

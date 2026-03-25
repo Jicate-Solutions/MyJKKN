@@ -2,7 +2,7 @@
 // Generates AI-powered CRM insights using Claude claude-sonnet-4-5.
 // Uses server-side service role client to bypass RLS for read/write.
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
 import type { AdmissionLead, FunnelStage } from '@/types/admission';

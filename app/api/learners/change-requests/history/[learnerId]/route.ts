@@ -1,5 +1,5 @@
 // app/api/learners/change-requests/history/[learnerId]/route.ts
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { LearnerProfileChangeService } from '@/lib/services/learner-profile-change-service';
 
@@ -13,6 +13,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ learnerId: string }> }
 ) {
+  await connection();
   try {
     const supabase = await createClient();
     const { learnerId } = await params;

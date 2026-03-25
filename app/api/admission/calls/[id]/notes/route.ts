@@ -1,7 +1,7 @@
 // app/api/admission/calls/[id]/notes/route.ts
 // PUT /api/admission/calls/[id]/notes — Update post-call notes
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import { TelephonyService, type CallDisposition } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';

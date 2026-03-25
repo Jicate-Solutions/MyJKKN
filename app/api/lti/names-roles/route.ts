@@ -21,7 +21,7 @@
  * Created: 2026-01-12
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { jwtVerify, importSPKI } from 'jose';
 import {
   LtiRosterService,
@@ -98,6 +98,7 @@ function hasNrpsScope(scopes: string[]): boolean {
  * Provide roster for a context
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     console.log('[LTI Names & Roles] Received roster request');
 

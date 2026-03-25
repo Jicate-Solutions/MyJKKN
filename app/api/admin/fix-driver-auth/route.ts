@@ -1,11 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // This API endpoint helps fix driver authentication issues
 // where users were created with email provider instead of Google OAuth
 
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     // Check if user is authorized (you should add proper auth check here)
     const authHeader = request.headers.get('authorization');
@@ -89,6 +90,7 @@ export async function POST(request: NextRequest) {
 
 // GET endpoint to check user's current auth status
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const authHeader = request.headers.get('authorization');
     if (!authHeader || authHeader !== `Bearer ${process.env.ADMIN_SECRET_KEY}`) {

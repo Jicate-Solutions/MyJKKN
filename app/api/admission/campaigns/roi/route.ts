@@ -1,11 +1,12 @@
 // app/api/admission/campaigns/roi/route.ts
 // GET ROI data for campaigns
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { CampaignROIService } from '@/lib/services/admission/campaign-roi-service';
 import type { AttributionChannel } from '@/lib/services/admission/campaign-roi-service';
 
 export async function GET(req: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(req.url);
     const institutionId = searchParams.get('institution_id');

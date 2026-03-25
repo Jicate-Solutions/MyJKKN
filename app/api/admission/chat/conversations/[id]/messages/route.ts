@@ -1,7 +1,7 @@
 // GET /api/admission/chat/conversations/[id]/messages — List messages (cursor-based)
 // POST /api/admission/chat/conversations/[id]/messages — Send a message
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppChatService } from '@/lib/services/whatsapp/whatsapp-chat-service';
 
@@ -9,6 +9,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const supabase = await createServerSupabaseClient();
@@ -36,6 +37,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const supabase = await createServerSupabaseClient();

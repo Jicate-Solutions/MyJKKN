@@ -2,13 +2,14 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { Database, UpdateApiKeyInput } from '@/types/api-keys';
 
 export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await context.params;
     const cookieStore = await cookies();
@@ -88,6 +89,7 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await context.params;
     const cookieStore = await cookies();

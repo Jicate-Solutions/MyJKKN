@@ -1,10 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { z } from 'zod';
 import { getAuthSession, createServerSupabaseClient } from '@/lib/supabase/server';
 import { ServiceTypeService } from '@/lib/services/service-requests/service-type-service';
 import { createServiceTypeSchema, type CreateServiceTypeDto } from '@/types/service-request';
 
 export async function GET(request: Request) {
+  await connection();
   try {
     const { session, error: sessionError } = await getAuthSession();
     if (sessionError || !session) {
@@ -101,6 +102,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  await connection();
   try {
     const { session, error: sessionError } = await getAuthSession();
     if (sessionError || !session) {

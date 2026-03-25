@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { EngagementService } from '@/lib/services/analytics/engagement-service';
 import type { EngagementMetricsRequest } from '@/types/analytics';

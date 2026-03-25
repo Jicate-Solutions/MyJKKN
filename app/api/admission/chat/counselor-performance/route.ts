@@ -1,11 +1,12 @@
 // GET /api/admission/chat/counselor-performance
 // Counselor performance metrics and response time distribution
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppCounselorAnalyticsService } from '@/lib/services/whatsapp/whatsapp-counselor-analytics-service';
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();

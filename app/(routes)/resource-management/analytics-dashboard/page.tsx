@@ -1,7 +1,7 @@
 // app/(routes)/resource-management/analytics-dashboard/page.tsx
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -39,6 +39,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 export default function AnalyticsDashboardPage() {
+  return (
+    <Suspense>
+      <AnalyticsDashboardContent />
+    </Suspense>
+  );
+}
+
+function AnalyticsDashboardContent() {
   const { profile } = useAuth();
   const [period, setPeriod] = useState<AnalyticsPeriod>(
     AnalyticsPeriod.LAST_30_DAYS

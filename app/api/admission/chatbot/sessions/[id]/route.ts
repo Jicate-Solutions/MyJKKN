@@ -1,7 +1,7 @@
 // app/api/admission/chatbot/sessions/[id]/route.ts
 // Authenticated admin endpoint — get session detail with messages
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient, getAuthUser } from '@/lib/supabase/server';
 
 /**

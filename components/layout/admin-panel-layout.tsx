@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/hooks/use-store';
 import { useSidebarToggle } from '@/hooks/use-sidebar-toggle';
@@ -22,7 +23,9 @@ export default function AdminPanelLayout({
 
   return (
     <>
-      <Sidebar />
+      <Suspense>
+        <Sidebar />
+      </Suspense>
       <main
         className={cn(
           'min-h-[calc(100vh_-_56px)] bg-background transition-[margin-left] ease-in-out duration-300',
@@ -32,7 +35,9 @@ export default function AdminPanelLayout({
         )}
       >
         <PushNotificationBanner />
-        {children}
+        <Suspense>
+          {children}
+        </Suspense>
       </main>
       <footer
         className={cn(
@@ -45,7 +50,9 @@ export default function AdminPanelLayout({
         <Footer />
       </footer>
       {/* Bottom Navigation for mobile */}
-      <BottomNavbar />
+      <Suspense>
+        <BottomNavbar />
+      </Suspense>
     </>
   );
 }

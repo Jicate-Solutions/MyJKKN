@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { connection } from 'next/server';
 import { Profile } from '@/types/auth';
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
@@ -8,6 +9,7 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
 // Create server client for use in server components and API routes
 // Note: Database type removed to avoid type errors with incomplete type definitions
 export async function createClient() {
+  await connection();
   const cookieStore = await cookies();
 
   return createServerClient(
@@ -34,6 +36,7 @@ export async function createClient() {
 
 // Alias for backward compatibility
 export async function createServerSupabaseClient() {
+  await connection();
   const cookieStore = await cookies();
 
   return createServerClient(

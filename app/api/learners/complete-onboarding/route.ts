@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 
@@ -43,6 +43,7 @@ function generateTemporaryPassword(length = 12): string {
 }
 
 export async function POST(request: NextRequest) {
+  await connection();
   const { learner_id } = await request.json();
 
   if (!learner_id) {

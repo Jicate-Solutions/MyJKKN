@@ -1,5 +1,5 @@
 // app/api/learner-profile/change-requests/route.ts
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { LearnerProfileChangeService } from '@/lib/services/learner-profile-change-service';
 import { createClient } from '@/lib/supabase/server';
 import { CreateChangeRequestDto, ChangeRequestStatus } from '@/types/learner-profile-change';
@@ -9,6 +9,7 @@ import { CreateChangeRequestDto, ChangeRequestStatus } from '@/types/learner-pro
  * List change requests with filters
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
  * Create new change request
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();

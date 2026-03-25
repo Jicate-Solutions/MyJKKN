@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { dataURLtoFile } from '@/lib/utils/file-converters';
@@ -50,6 +50,7 @@ const createReportSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
 
@@ -468,6 +469,7 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { searchParams } = new URL(request.url);

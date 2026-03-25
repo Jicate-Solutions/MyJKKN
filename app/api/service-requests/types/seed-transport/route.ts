@@ -5,12 +5,13 @@
  * Super Admin only - seeds the default Transport Service Request type.
  */
 
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { getAuthSession } from '@/lib/supabase/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { seedTransportServiceType } from '@/lib/services/service-requests/transport-seed';
 
 export async function POST() {
+  await connection();
   try {
     const { session, error: sessionError } = await getAuthSession();
     if (sessionError || !session) {

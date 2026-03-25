@@ -1,10 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { StaffService } from '@/lib/services/staff/staff-service';
 
 
 export async function POST() {
+  await connection();
   try {
     const cookieStore = await cookies();
     const supabase = createServerClient(

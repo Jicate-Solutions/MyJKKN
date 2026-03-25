@@ -1,7 +1,7 @@
 // POST /api/admission/chat/templates/refresh-quality
 // Refresh quality ratings for all WhatsApp templates from Meta API
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppTemplateService } from '@/lib/services/whatsapp/whatsapp-template-service';
 

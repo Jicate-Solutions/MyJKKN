@@ -21,7 +21,7 @@
  * Created: 2026-01-12
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { jwtVerify, importSPKI } from 'jose';
 import {
   LtiGradeService,
@@ -118,6 +118,7 @@ function parseGradePayload(body: any): LtiGradePayload {
  * Receive grade from external tool (MATLAB)
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     console.log('[LTI Grades] Received grade passback request');
 
@@ -278,6 +279,7 @@ export async function POST(request: NextRequest) {
  * List grades (for debugging/admin only)
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId') || searchParams.get('user_id');

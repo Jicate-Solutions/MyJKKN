@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { BugReporterStatsSortField } from '@/types/bugs';
@@ -11,6 +11,7 @@ const VALID_SORT_FIELDS: BugReporterStatsSortField[] = [
 ];
 
 export async function GET(request: Request) {
+  await connection();
   try {
     const { searchParams } = new URL(request.url);
 

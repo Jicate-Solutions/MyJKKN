@@ -1,7 +1,7 @@
 // app/api/users/[id]/role/route.ts
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { Database, SYSTEM_ROLES } from '@/types/auth';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
@@ -12,6 +12,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   const { id: userId } = await params;
 
   const cookieStore = await cookies();

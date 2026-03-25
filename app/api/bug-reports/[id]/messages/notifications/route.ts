@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -7,6 +7,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { messageId, senderId } = await request.json();

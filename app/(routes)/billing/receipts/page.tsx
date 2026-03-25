@@ -39,6 +39,31 @@ interface BillingReceiptsPageProps {
 export default async function BillingReceiptsPage({
   searchParams
 }: BillingReceiptsPageProps) {
+  return (
+    <ContentLayout title='Receipt Management'>
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Billing', href: '/billing/schedule' },
+          { label: 'Receipts', href: '/billing/receipts' }
+        ]}
+      />
+      <Suspense fallback={
+        <div className='space-y-6 mt-4'>
+          <TableSkeleton rows={10} columns={6} />
+        </div>
+      }>
+        <ReceiptsContent searchParams={searchParams} />
+      </Suspense>
+    </ContentLayout>
+  );
+}
+
+async function ReceiptsContent({
+  searchParams
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   const params = await searchParams;
 
   // Get user profile to check role
@@ -65,55 +90,44 @@ export default async function BillingReceiptsPage({
     sortDirection: (params.sortDirection as 'asc' | 'desc') || 'desc'
   };
 
-  // Fetch data server-side with caching
+  // Fetch data server-side
   const { data: receipts, metadata } = await getReceipts(filters);
 
   return (
-    <ContentLayout title='Receipt Management'>
-      <PageBreadcrumb
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing/schedule' },
-          { label: 'Receipts', href: '/billing/receipts' }
-        ]}
-      />
-      <div className='space-y-6 mt-4'>
-        <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
-          <div>
-            <h1 className='text-2xl font-bold py-1'>Receipt Management</h1>
-            <p className='text-sm sm:text-base text-muted-foreground'>
-              View payment receipts and manage receipt templates. Generate receipts
-              from student billing details.
-            </p>
-          </div>
-          {/* Hide Create Receipt button for students */}
-          {!isStudent && (
-            <div className='flex flex-col sm:flex-row gap-2'>
-              <Button className='w-full sm:w-auto' asChild>
-                <Link href='/billing/receipts/new'>
-                  <Plus className='mr-2 h-4 w-4' />
-                  Create Receipt
-                </Link>
-              </Button>
-            </div>
-          )}
+    <div className='space-y-6 mt-4'>
+      <div className='flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start'>
+        <div>
+          <h1 className='text-2xl font-bold py-1'>Receipt Management</h1>
+          <p className='text-sm sm:text-base text-muted-foreground'>
+            View payment receipts and manage receipt templates. Generate receipts
+            from student billing details.
+          </p>
         </div>
-
-        {/* Filters (Client Component) */}
-        <ReceiptsFiltersClient />
-
-        {/* Data Table (Server Component with Suspense) */}
-        <Suspense fallback={<TableSkeleton rows={10} columns={6} />}>
-          <ReceiptsTableServer receipts={receipts} metadata={metadata} isStudentView={isStudent} />
-        </Suspense>
-
-        {/* Pagination (Client Component) */}
-        <ReceiptsPaginationClient
-          currentPage={metadata.page}
-          totalPages={metadata.totalPages}
-          totalItems={metadata.total}
-        />
+        {/* Hide Create Receipt button for students */}
+        {!isStudent && (
+          <div className='flex flex-col sm:flex-row gap-2'>
+            <Button className='w-full sm:w-auto' asChild>
+              <Link href='/billing/receipts/new'>
+                <Plus className='mr-2 h-4 w-4' />
+                Create Receipt
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
-    </ContentLayout>
+
+      {/* Filters (Client Component) */}
+      <ReceiptsFiltersClient />
+
+      {/* Data Table */}
+      <ReceiptsTableServer receipts={receipts} metadata={metadata} isStudentView={isStudent} />
+
+      {/* Pagination (Client Component) */}
+      <ReceiptsPaginationClient
+        currentPage={metadata.page}
+        totalPages={metadata.totalPages}
+        totalItems={metadata.total}
+      />
+    </div>
   );
 }

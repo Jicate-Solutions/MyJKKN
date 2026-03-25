@@ -3,7 +3,7 @@
 import { Database } from '@/types/supabase';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import toast from 'react-hot-toast';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -13,6 +13,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
 
@@ -207,6 +208,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const cookieStore = await cookies();
@@ -342,6 +344,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const cookieStore = await cookies();

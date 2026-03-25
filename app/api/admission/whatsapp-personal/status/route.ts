@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { WhatsAppPersonalConnectionService } from '@/lib/services/whatsapp/whatsapp-personal-connection-service';
 import { personalGetStatusAPI } from '@/lib/whatsapp/personal-api-client';
 
 export async function GET(request: NextRequest) {
+  await connection();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -11,16 +12,16 @@ export async function GET(request: NextRequest) {
   const departmentId = request.nextUrl.searchParams.get('department_id');
 
   // Support "any" mode for super admins who don't have a department
-  let connection: Awaited<ReturnType<typeof WhatsAppPersonalConnectionService.getConnection>> = null;
+  let whatsappConnection: Awaited<ReturnType<typeof WhatsAppPersonalConnectionService.getConnection>> = null;
 
   if (departmentId && departmentId !== 'any') {
-    connection = await WhatsAppPersonalConnectionService.getConnection(departmentId);
+    whatsappConnection = await WhatsAppPersonalConnectionService.getConnection(departmentId);
   }
-  if (!connection) {
-    connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
+  if (!whatsappConnection) {
+    whatsappConnection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
   }
 
-  if (!connection) {
+  if (!whatsappConnection) {
     return NextResponse.json({
       status: 'disconnected',
       phone_number: null,
@@ -28,32 +29,32 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  if (connection.status === 'disconnected' && !connection.service_url) {
+  if (whatsappConnection.status === 'disconnected' && !whatsappConnection.service_url) {
     return NextResponse.json({
-      ...connection,
+      ...whatsappConnection,
       connected: false,
     });
   }
 
-  const shouldPollLive = connection.service_url && (
-    connection.status === 'connecting' ||
-    connection.status === 'qr_ready' ||
-    connection.status === 'authenticated' ||
-    connection.status === 'ready'
+  const shouldPollLive = whatsappConnection.service_url && (
+    whatsappConnection.status === 'connecting' ||
+    whatsappConnection.status === 'qr_ready' ||
+    whatsappConnection.status === 'authenticated' ||
+    whatsappConnection.status === 'ready'
   );
 
   if (shouldPollLive) {
-    const clientId = connection.client_id || `dept-${connection.department_id}`;
+    const clientId = whatsappConnection.client_id || `dept-${whatsappConnection.department_id}`;
 
     try {
       const liveStatus = await personalGetStatusAPI({
-        serviceUrl: `${connection.service_url}/clients/${clientId}`,
+        serviceUrl: `${whatsappConnection.service_url}/clients/${clientId}`,
         apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
       });
 
-      if (liveStatus.status !== connection.status) {
+      if (liveStatus.status !== whatsappConnection.status) {
         await WhatsAppPersonalConnectionService.updateStatus(
-          connection.department_id,
+          whatsappConnection.department_id,
           liveStatus.status,
           {
             phone_number: liveStatus.clientInfo?.phoneNumber,
@@ -63,32 +64,32 @@ export async function GET(request: NextRequest) {
       }
 
       return NextResponse.json({
-        id: connection.id,
-        department_id: connection.department_id,
+        id: whatsappConnection.id,
+        department_id: whatsappConnection.department_id,
         status: liveStatus.status,
         qr_code: liveStatus.qrCode || null,
-        phone_number: liveStatus.clientInfo?.phoneNumber || connection.phone_number,
-        push_name: liveStatus.clientInfo?.pushName || connection.push_name,
-        connected_at: connection.connected_at,
+        phone_number: liveStatus.clientInfo?.phoneNumber || whatsappConnection.phone_number,
+        push_name: liveStatus.clientInfo?.pushName || whatsappConnection.push_name,
+        connected_at: whatsappConnection.connected_at,
         connected: liveStatus.status === 'ready',
       });
     } catch (err) {
       console.error('[whatsapp-personal/status] Railway poll failed:', err instanceof Error ? err.message : err);
       return NextResponse.json({
-        id: connection.id,
-        department_id: connection.department_id,
-        status: connection.status,
-        phone_number: connection.phone_number,
-        push_name: connection.push_name,
-        connected_at: connection.connected_at,
-        connected: connection.status === 'ready',
+        id: whatsappConnection.id,
+        department_id: whatsappConnection.department_id,
+        status: whatsappConnection.status,
+        phone_number: whatsappConnection.phone_number,
+        push_name: whatsappConnection.push_name,
+        connected_at: whatsappConnection.connected_at,
+        connected: whatsappConnection.status === 'ready',
         error: `Service poll failed: ${err instanceof Error ? err.message : 'unknown'}`,
       });
     }
   }
 
   return NextResponse.json({
-    ...connection,
-    connected: connection.status === 'ready',
+    ...whatsappConnection,
+    connected: whatsappConnection.status === 'ready',
   });
 }

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -16,6 +16,7 @@ const supabaseAdmin = createClient(
 );
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(request.url);
     const email = searchParams.get('email');

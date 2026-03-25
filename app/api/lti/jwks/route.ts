@@ -8,7 +8,7 @@
  * Created: 2026-01-12
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { LtiJwtService } from '@/lib/services/lti/lti-jwt-service';
 import { LtiError } from '@/types/lti';
 
@@ -31,6 +31,7 @@ import { LtiError } from '@/types/lti';
  * }
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     // Generate JWKS
     const jwks = await LtiJwtService.buildJWKS();

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import {
   createServerSupabaseClient,
   createServiceRoleClient
@@ -11,6 +11,7 @@ const bulkRoleUpdateSchema = z.object({
 });
 
 export async function PATCH(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
 

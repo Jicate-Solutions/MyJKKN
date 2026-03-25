@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { BillingParentCategoryService } from '@/lib/services/billing/categories/billing-parent-category-service';
 import { getAuthSession } from '@/lib/supabase/server';
 
@@ -21,6 +21,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const { session, error: sessionError } = await getAuthSession();
@@ -60,6 +61,7 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const { session, error: sessionError } = await getAuthSession();
@@ -120,6 +122,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const { session, error: sessionError } = await getAuthSession();

@@ -7,7 +7,7 @@
  * Created: 2026-01-12
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { LtiToolService } from '@/lib/services/lti/lti-tool-service';
 import { LtiToolUpdate, LtiError } from '@/types/lti';
@@ -20,6 +20,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     // Await params (Next.js 16 async params)
     const { id } = await params;
@@ -96,6 +97,7 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     // Await params (Next.js 16 async params)
     const { id } = await params;
@@ -206,6 +208,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     // Await params (Next.js 16 async params)
     const { id } = await params;

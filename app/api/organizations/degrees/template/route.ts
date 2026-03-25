@@ -1,6 +1,6 @@
 // app/api/organizations/degrees/template/route.ts
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import ExcelJS from 'exceljs';
@@ -24,6 +24,7 @@ import {
  * - Professional styling
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     // Initialize Supabase client
     const cookieStore = await cookies();

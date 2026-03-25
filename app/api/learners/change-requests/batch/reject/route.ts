@@ -6,11 +6,12 @@
 // Restricted to: super_admin, hod only
 // ============================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { LearnerProfileChangeService } from '@/lib/services/learner-profile-change-service';
 
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createClient();
 

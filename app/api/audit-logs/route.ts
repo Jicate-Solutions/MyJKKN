@@ -1,6 +1,6 @@
 // app/api/audit-logs/route.ts
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
   getAuditLogs,
@@ -9,6 +9,7 @@ import {
 import { createAuditLogSchema } from '@/types/audit-trail';
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createClient();
     const {
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createClient();
     const {

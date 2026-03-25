@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
 import { authenticateApiKey } from '@/lib/api-keys/authenticate';
 
@@ -10,6 +10,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     // Authenticate — requires 'academic' module access
     const authResult = await authenticateApiKey(request, { requiredModule: 'academic' });

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
@@ -16,6 +16,7 @@ const supabaseAdmin = createClient(
 );
 
 export async function GET() {
+  await connection();
   try {
     // 1. Authenticate user
     const supabase = await createServerSupabaseClient();

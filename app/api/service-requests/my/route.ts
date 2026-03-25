@@ -1,9 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { getAuthSession } from '@/lib/supabase/server';
 import { ServiceRequestService } from '@/lib/services/service-requests/service-request-service';
 import type { ServiceRequestFilters } from '@/types/service-request';
 
 export async function GET(request: Request) {
+  await connection();
   try {
     const { session, error: sessionError } = await getAuthSession();
     if (sessionError || !session) {

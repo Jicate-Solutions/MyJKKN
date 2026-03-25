@@ -1,11 +1,12 @@
 // GET /api/admission/campaigns/segments — list segments
 // POST /api/admission/campaigns/segments — create segment
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppSegmentService } from '@/lib/services/whatsapp/whatsapp-segment-service';
 
 export async function GET(req: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();

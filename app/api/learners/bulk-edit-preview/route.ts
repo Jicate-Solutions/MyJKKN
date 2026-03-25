@@ -6,7 +6,7 @@
 // Endpoint: POST /api/learners/bulk-edit-preview
 // ============================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
@@ -124,6 +124,7 @@ interface PreviewRow {
  * Preview changes before bulk update
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     // 1. Authenticate user
     console.log('[bulk-edit-preview] Starting authentication...');

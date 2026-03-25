@@ -1,13 +1,14 @@
 // app/api/admission/chat/forms/[id]/responses/route.ts
 // GET form responses for a specific form template
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { WhatsAppFormsService } from '@/lib/services/whatsapp/whatsapp-forms-service';
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const { searchParams } = new URL(req.url);

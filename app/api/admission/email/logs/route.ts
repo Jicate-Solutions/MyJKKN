@@ -2,10 +2,11 @@
 // GET endpoint for email log listing with pagination
 // Query: { institution_id, lead_id?, campaign_id?, status?, from?, to?, page?, limit? }
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     // Authenticate user
     const supabase = await createClient();

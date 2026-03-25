@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createHash } from 'crypto';
 import { corsHeaders } from '@/lib/api-keys/cors';
 
@@ -9,6 +9,7 @@ export async function OPTIONS() {
 }
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     // Add CORS headers to response
     const response = NextResponse.next();

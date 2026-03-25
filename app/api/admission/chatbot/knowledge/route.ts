@@ -1,7 +1,7 @@
 // app/api/admission/chatbot/knowledge/route.ts
 // Authenticated endpoint — CRUD knowledge base documents
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient, getAuthUser } from '@/lib/supabase/server';
 
 /**
@@ -11,6 +11,7 @@ import { createServerSupabaseClient, getAuthUser } from '@/lib/supabase/server';
  * Returns: { documents, total }
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {
@@ -63,6 +64,7 @@ export async function GET(request: NextRequest) {
  * Body: { chatbot_id, title, source_type, source_url?, content }
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {
@@ -120,6 +122,7 @@ export async function POST(request: NextRequest) {
  * Body: { id, ...fields }
  */
 export async function PUT(request: NextRequest) {
+  await connection();
   try {
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {
@@ -158,6 +161,7 @@ export async function PUT(request: NextRequest) {
  * Query: { id }
  */
 export async function DELETE(request: NextRequest) {
+  await connection();
   try {
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {

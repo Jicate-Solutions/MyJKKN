@@ -1,11 +1,12 @@
 // app/api/admission/voice-broadcast/route.ts
 // CRUD API for voice broadcast campaigns
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { VoiceBroadcastService } from '@/lib/services/telephony/voice-broadcast-service';
 import type { BroadcastStatus } from '@/lib/services/telephony/voice-broadcast-service';
 
 export async function GET(req: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(req.url);
     const institutionId = searchParams.get('institution_id');
@@ -61,6 +62,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  await connection();
   try {
     const body = await req.json();
 
@@ -100,6 +102,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  await connection();
   try {
     const body = await req.json();
     const { id, ...updateData } = body;
@@ -120,6 +123,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');

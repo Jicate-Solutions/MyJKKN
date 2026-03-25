@@ -1,7 +1,7 @@
 // POST /api/admission/chat/conversations/[id]/assign
 // Assign a conversation to a counselor
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppChatService } from '@/lib/services/whatsapp/whatsapp-chat-service';
 

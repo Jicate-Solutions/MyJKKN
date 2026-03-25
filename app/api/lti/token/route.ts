@@ -14,7 +14,7 @@
  * Created: 2026-01-12
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { SignJWT, importPKCS8 } from 'jose';
 import { LtiToolService } from '@/lib/services/lti/lti-tool-service';
 import { LtiError, LTI_ERROR_CODES } from '@/types/lti';
@@ -36,6 +36,7 @@ const VALID_SCOPES = [
  * OAuth 2.0 Client Credentials Grant
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     // Parse form data (OAuth 2.0 uses application/x-www-form-urlencoded)
     const formData = await request.formData();

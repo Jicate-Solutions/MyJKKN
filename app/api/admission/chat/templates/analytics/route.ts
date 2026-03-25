@@ -2,11 +2,12 @@
 // Template engagement analytics
 // If template_id provided: return timeline. Otherwise: return all analytics + top/worst
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppTemplateAnalyticsService } from '@/lib/services/whatsapp/whatsapp-template-analytics-service';
 
 export async function GET(req: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();

@@ -1,6 +1,6 @@
 // app/api/organizations/institutions/template/route.ts
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import ExcelJS from 'exceljs';
 import {
 
@@ -23,6 +23,7 @@ import {
  * - Bold header formatting
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     // Create Excel workbook
     const workbook = new ExcelJS.Workbook();

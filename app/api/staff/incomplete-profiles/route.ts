@@ -6,7 +6,7 @@
 // Used by: Staff Dashboard → Profiles Tab drill-down table
 // ============================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import type { IncompleteStaffDetail } from '@/types/staff';
 
@@ -67,6 +67,7 @@ const FIELD_LABELS: Record<string, string> = {
  * - limit: max results (default 50, max 100)
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();

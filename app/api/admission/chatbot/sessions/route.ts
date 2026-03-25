@@ -1,7 +1,7 @@
 // app/api/admission/chatbot/sessions/route.ts
 // Authenticated admin endpoint — view all chatbot sessions
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient, getAuthUser } from '@/lib/supabase/server';
 
 /**
@@ -11,6 +11,7 @@ import { createServerSupabaseClient, getAuthUser } from '@/lib/supabase/server';
  * Returns: { sessions, total, page, limit }
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     // Auth check
     const { user, error: authError } = await getAuthUser();

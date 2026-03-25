@@ -1,7 +1,7 @@
 // app/api/admission/chatbot/analytics/route.ts
 // Authenticated endpoint — chatbot analytics
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { getAuthUser } from '@/lib/supabase/server';
 import { ChatbotService } from '@/lib/services/ai/chatbot-service';
 
@@ -12,6 +12,7 @@ import { ChatbotService } from '@/lib/services/ai/chatbot-service';
  * Returns: ChatbotAnalytics
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {

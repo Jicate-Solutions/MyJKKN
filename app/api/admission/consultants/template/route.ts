@@ -1,7 +1,7 @@
 // app/api/admission/consultants/template/route.ts
 // Template download API for consultant import
 
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import ExcelJS from 'exceljs';
 import { CONSULTANT_TEMPLATE_COLUMNS } from '@/lib/utils/mappings/consultant-excel-mappings';
 

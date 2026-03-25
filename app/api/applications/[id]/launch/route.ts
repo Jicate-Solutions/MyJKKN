@@ -7,7 +7,7 @@
  * Created: 2026-01-12
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
 /**
@@ -18,6 +18,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     // Await params (Next.js 16 async params)
     const { id } = await params;

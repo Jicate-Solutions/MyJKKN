@@ -1,7 +1,7 @@
 // PUT/DELETE /api/admission/settings/whatsapp-numbers/[id]
 // Update or delete a specific WABA phone number
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 

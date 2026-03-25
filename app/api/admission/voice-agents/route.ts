@@ -1,10 +1,11 @@
 // app/api/admission/voice-agents/route.ts
 // CRUD API for AI voice agent configs
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { VoiceAgentService } from '@/lib/services/ai/voice-agent-service';
 
 export async function GET(req: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(req.url);
     const institutionId = searchParams.get('institution_id');
@@ -38,6 +39,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  await connection();
   try {
     const body = await req.json();
 
@@ -70,6 +72,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  await connection();
   try {
     const body = await req.json();
     const { id, ...updateData } = body;
@@ -90,6 +93,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  await connection();
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');

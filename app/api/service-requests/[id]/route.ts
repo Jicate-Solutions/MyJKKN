@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 import { getAuthSession } from '@/lib/supabase/server';
 import { ServiceRequestService } from '@/lib/services/service-requests/service-request-service';
 
@@ -6,6 +6,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const { session, error: sessionError } = await getAuthSession();
@@ -30,6 +31,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  await connection();
   try {
     const { id } = await params;
     const { session, error: sessionError } = await getAuthSession();

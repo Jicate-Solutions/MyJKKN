@@ -1,8 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function PATCH(request: NextRequest) {
+  await connection();
   try {
     console.log('=== User Auth Management API Called ===');
 

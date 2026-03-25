@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { WhatsAppPersonalConnectionService } from '@/lib/services/whatsapp/whatsapp-personal-connection-service';
 import { WhatsAppPersonalMessageService } from '@/lib/services/whatsapp/whatsapp-personal-message-service';
 
 export async function POST(request: NextRequest) {
+  await connection();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -15,19 +16,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'to and media_url required' }, { status: 400 });
   }
 
-  let connection = (department_id && department_id !== 'any')
+  let whatsappConnection = (department_id && department_id !== 'any')
     ? await WhatsAppPersonalConnectionService.getConnection(department_id)
     : null;
-  if (!connection || connection.status !== 'ready') {
-    connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
+  if (!whatsappConnection || whatsappConnection.status !== 'ready') {
+    whatsappConnection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
   }
-  if (!connection || connection.status !== 'ready') {
+  if (!whatsappConnection || whatsappConnection.status !== 'ready') {
     return NextResponse.json({ error: 'Personal WhatsApp not connected' }, { status: 503 });
   }
 
   const logEntry = await WhatsAppPersonalMessageService.logMessage({
-    department_id: connection.department_id,
-    connection_id: connection.id,
+    department_id: whatsappConnection.department_id,
+    connection_id: whatsappConnection.id,
     recipient_type: 'individual',
     recipient_phone: to,
     recipient_name: recipient_name || undefined,
@@ -37,8 +38,8 @@ export async function POST(request: NextRequest) {
     status: 'pending',
   });
 
-  const clientId = connection.client_id || `dept-${connection.department_id}`;
-  const serviceUrl = connection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
+  const clientId = whatsappConnection.client_id || `dept-${whatsappConnection.department_id}`;
+  const serviceUrl = whatsappConnection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
   const apiKey = process.env.WHATSAPP_PERSONAL_API_KEY || '';
 
   let result: { success: boolean; messageId?: string; error?: string };

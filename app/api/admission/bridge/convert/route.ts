@@ -2,7 +2,7 @@
 // Converts an admission application into a learners_profiles draft.
 // Atomically: INSERT learners_profiles → UPDATE admission_leads.learner_profile_id
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {

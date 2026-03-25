@@ -1,7 +1,7 @@
 // POST /api/admission/campaigns/segments/preview
 // Preview segment: returns count + sample leads
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { WhatsAppSegmentService } from '@/lib/services/whatsapp/whatsapp-segment-service';
 

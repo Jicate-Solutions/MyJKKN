@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 
@@ -42,6 +42,7 @@ function generateTemporaryPassword(): string {
 }
 
 export async function POST(request: Request) {
+  await connection();
   try {
     const cookieStore = await cookies();
     const supabase = createServerClient(

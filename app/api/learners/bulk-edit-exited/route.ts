@@ -8,7 +8,7 @@
 // Note: Despite endpoint name, this now works with ACTIVE learners
 // ============================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
@@ -121,6 +121,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
  * Upload Excel file with updated exited learner data
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     // 1. Authenticate user
     const supabase = await createServerSupabaseClient();

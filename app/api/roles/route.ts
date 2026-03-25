@@ -1,9 +1,10 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { SYSTEM_ROLES } from '@/types/auth';
 
 export async function GET(request: NextRequest) {
+  await connection();
   const supabase = createClientSupabaseClient();
 
   try {
@@ -52,6 +53,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  await connection();
   const supabase = createClientSupabaseClient();
 
   try {

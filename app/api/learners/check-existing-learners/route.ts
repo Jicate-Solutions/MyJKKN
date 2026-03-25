@@ -7,7 +7,7 @@
 // Security: Users can only check their own institution
 // ============================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export interface ExistingLearnerCheck {

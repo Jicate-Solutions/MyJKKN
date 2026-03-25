@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { LearnerAdvancedAnalyticsService } from '@/lib/services/learner-advanced-analytics-service';
 import type { LearnerDashboardFilters } from '@/types/learner-analytics';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -21,6 +21,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
  * - dateTo: End date filter
  */
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const searchParams = request.nextUrl.searchParams;
 

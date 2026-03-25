@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import {
   createServerSupabaseClient,
   createServiceRoleClient
 } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     // Authenticate via cookie-based client
     const supabase = await createServerSupabaseClient();
@@ -109,6 +110,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  await connection();
   try {
     // Authenticate via cookie-based client
     const supabase = await createServerSupabaseClient();

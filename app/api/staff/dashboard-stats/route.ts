@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { StaffDashboardFilters } from '@/types/staff';
 
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const filters: StaffDashboardFilters = await request.json();
 
@@ -24,6 +25,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
+  await connection();
   try {
     // Get default dashboard statistics (no filters)
     const stats = await StaffService.getDashboardStats();

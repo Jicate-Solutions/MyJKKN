@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { z } from 'zod';
 import { getAuthSession } from '@/lib/supabase/server';
 import { ServiceRequestService } from '@/lib/services/service-requests/service-request-service';
@@ -6,6 +6,7 @@ import { createServiceRequestSchema, type CreateServiceRequestDto } from '@/type
 import type { ServiceRequestFilters } from '@/types/service-request';
 
 export async function GET(request: Request) {
+  await connection();
   try {
     const { session, error: sessionError } = await getAuthSession();
     if (sessionError || !session) {
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  await connection();
   try {
     const { session, error: sessionError } = await getAuthSession();
     if (sessionError || !session) {

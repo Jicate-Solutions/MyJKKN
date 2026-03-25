@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -584,7 +584,9 @@ function CounselorPerformancePageContent() {
 export default function CounselorPerformancePage() {
   return (
     <AdmissionErrorBoundary>
-      <CounselorPerformancePageContent />
+      <Suspense>
+        <CounselorPerformancePageContent />
+      </Suspense>
     </AdmissionErrorBoundary>
   );
 }

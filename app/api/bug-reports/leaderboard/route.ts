@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse , connection } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -25,6 +25,7 @@ function getMonthStart(): string {
 }
 
 export async function GET(request: Request) {
+  await connection();
   const url = new URL(request.url);
   const period = url.searchParams.get('period') ?? 'overall'; // overall | week | month
   try {

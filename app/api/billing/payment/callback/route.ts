@@ -3,7 +3,7 @@
 // Security: Uses server-side verification - NEVER trusts client-provided status
 // Created: 2025-01-20 (Security Enhancement)
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { PaymentGatewayService } from '@/lib/services/billing/payment-gateway-service';
 import { PaymentAuditService } from '@/lib/services/billing/security/payment-audit-service';
@@ -25,6 +25,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
  * failed payment responses to successful ones.
  */
 export async function POST(request: NextRequest) {
+  await connection();
   const startTime = Date.now();
 
   try {
@@ -200,6 +201,7 @@ export async function POST(request: NextRequest) {
  * Also uses server-side verification for security
  */
 export async function GET(request: NextRequest) {
+  await connection();
   const searchParams = request.nextUrl.searchParams;
   const transactionId = searchParams.get('transaction_id');
   const clientClaimedStatus =

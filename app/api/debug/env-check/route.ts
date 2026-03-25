@@ -1,9 +1,10 @@
 // TEMPORARY: Debug endpoint to verify environment variables
 // DELETE THIS FILE AFTER TESTING!
 
-import { NextResponse } from 'next/server';
+import { NextResponse, connection } from 'next/server';
 
 export async function GET() {
+  await connection();
   // Temporarily allow in production for debugging
   // TODO: Remove this endpoint after verifying environment variables
 

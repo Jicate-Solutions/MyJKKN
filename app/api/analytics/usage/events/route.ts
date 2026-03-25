@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { UsageTrackingService } from '@/lib/services/analytics/usage-tracking-service';
 import type { UsageEventType } from '@/types/usage-analytics';
@@ -12,6 +12,7 @@ import type { UsageEventType } from '@/types/usage-analytics';
  * 2. Explicit feature tracking: { module: string, feature: string, event_type: string, metadata?: object }
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const {

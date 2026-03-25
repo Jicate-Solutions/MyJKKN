@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { corsHeaders } from '@/lib/cors';
 import { createHash } from 'crypto';
 
 
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     // Add CORS headers to response
     const response = NextResponse.next();

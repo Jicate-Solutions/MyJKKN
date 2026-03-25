@@ -4,7 +4,7 @@
 // Security: Proper signature verification, no auth bypass
 // Created: 2025-01-20 (Security Enhancement)
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { PaymentGatewayService } from '@/lib/services/billing/payment-gateway-service';
 import { PaymentAuditService } from '@/lib/services/billing/security/payment-audit-service';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -12,6 +12,7 @@ import type { HDFCWebhookPayload } from '@/types/payment-gateway';
 
 
 export async function POST(request: NextRequest) {
+  await connection();
   const startTime = Date.now();
 
   try {
@@ -166,6 +167,7 @@ export async function POST(request: NextRequest) {
 
 // Health check endpoint for webhook configuration
 export async function GET(request: NextRequest) {
+  await connection();
   const webhookConfigured =
     !!process.env.HDFC_WEBHOOK_USERNAME && !!process.env.HDFC_WEBHOOK_PASSWORD;
   const signatureRequired = process.env.HDFC_WEBHOOK_REQUIRE_SIGNATURE === 'true';

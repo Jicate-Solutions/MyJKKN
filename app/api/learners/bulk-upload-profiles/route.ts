@@ -6,7 +6,7 @@
 // Endpoint: POST /api/learners/bulk-upload-profiles
 // ============================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerUploadService, type BulkUploadRow } from '@/lib/services/bulk-learner-upload-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
@@ -143,6 +143,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
  * Upload Excel file with new learner profiles
  */
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     // 1. Authenticate user
     const supabase = await createServerSupabaseClient();

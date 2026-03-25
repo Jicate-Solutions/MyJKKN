@@ -3,7 +3,7 @@
  * Handles natural language queries using Claude with MCP tools
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { AIQueryService } from '@/lib/services/ai-query-service';
 import Anthropic from '@anthropic-ai/sdk';
@@ -939,6 +939,7 @@ function getContextAwareSuggestions(toolsCalled: string[]): string[] {
 }
 
 export async function POST(request: NextRequest) {
+  await connection();
   const startTime = Date.now();
   const toolsCalled: string[] = [];
 

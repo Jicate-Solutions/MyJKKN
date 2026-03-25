@@ -1,7 +1,7 @@
 // GET/POST /api/admission/settings/whatsapp-numbers
 // Manage WABA phone numbers per institution
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -16,6 +16,7 @@ function getServiceClient() {
 
 // GET: List all WABA numbers for user's institution
 export async function GET(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
 
 // POST: Add a new WABA phone number
 export async function POST(request: NextRequest) {
+  await connection();
   try {
     const supabase = await createServerSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();

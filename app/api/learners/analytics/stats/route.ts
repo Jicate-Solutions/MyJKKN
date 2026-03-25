@@ -9,7 +9,7 @@
 // Architecture: This route uses Supabase auth which requires cookies() - cannot use 'use cache'
 // ============================================
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
