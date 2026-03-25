@@ -84,6 +84,7 @@ export function useFormDraftObject<T extends Record<string, any>>(
 } {
   const storageKey = `${DRAFT_PREFIX}${formKey}`;
   const isInitialLoad = useRef(true);
+  const isCleared = useRef(false);
 
   const [values, setValuesInternal] = useState<T>(() => {
     if (typeof window === 'undefined') return defaultValues;
@@ -105,10 +106,14 @@ export function useFormDraftObject<T extends Record<string, any>>(
     return sessionStorage.getItem(storageKey) !== null;
   });
 
-  // Save to sessionStorage on change (skip initial load)
+  // Save to sessionStorage on change (skip initial load and post-clear)
   useEffect(() => {
     if (isInitialLoad.current) {
       isInitialLoad.current = false;
+      return;
+    }
+    if (isCleared.current) {
+      isCleared.current = false;
       return;
     }
     try {
@@ -134,6 +139,7 @@ export function useFormDraftObject<T extends Record<string, any>>(
   );
 
   const clearDraft = useCallback(() => {
+    isCleared.current = true;
     sessionStorage.removeItem(storageKey);
     setValuesInternal(defaultValues);
     setIsDraft(false);
