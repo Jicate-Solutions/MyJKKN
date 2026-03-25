@@ -25,7 +25,7 @@ const QUERY_KEYS = {
   list: (filters: PrivilegeGroupFilters) => [...QUERY_KEYS.lists(), filters] as const,
   details: () => [...QUERY_KEYS.all, 'detail'] as const,
   detail: (id: string) => [...QUERY_KEYS.details(), id] as const,
-  types: () => [...QUERY_KEYS.all, 'types'] as const,
+  types: (institutionId?: string) => [...QUERY_KEYS.all, 'types', institutionId] as const,
   members: (groupId: string) => [...QUERY_KEYS.all, 'members', groupId] as const,
   membersList: (groupId: string, filters: PrivilegeMemberFilters) =>
     [...QUERY_KEYS.members(groupId), filters] as const,
