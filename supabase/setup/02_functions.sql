@@ -5471,3 +5471,113 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION submit_role_card TO authenticated;
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Marketing Leads Database — Optimized RPC Functions
+-- Added: 2026-03-25 — Fix statement timeout on bulk upload & stats queries
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- Get aggregated stats in a single SQL query (bypasses per-row RLS overhead)
+CREATE OR REPLACE FUNCTION get_marketing_leads_stats(p_institution_id uuid)
+RETURNS json
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT json_build_object(
+    'totalLeads', COALESCE(count(*), 0),
+    'totalDistricts', COALESCE(count(DISTINCT district), 0),
+    'totalSchools', COALESCE(count(DISTINCT school_name), 0),
+    'genderBreakdown', json_build_object(
+      'male', count(*) FILTER (WHERE gender = 'Male'),
+      'female', count(*) FILTER (WHERE gender = 'Female'),
+      'other', count(*) FILTER (WHERE gender = 'Other')
+    ),
+    'totalUploads', COALESCE(count(DISTINCT upload_batch_id), 0)
+  )
+  FROM marketing_leads_database
+  WHERE institution_id = p_institution_id;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_marketing_leads_stats TO authenticated;
+
+-- Get distinct districts for filter dropdown
+CREATE OR REPLACE FUNCTION get_marketing_leads_districts(p_institution_id uuid)
+RETURNS SETOF text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT DISTINCT district
+  FROM marketing_leads_database
+  WHERE institution_id = p_institution_id
+    AND district IS NOT NULL
+  ORDER BY district;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_marketing_leads_districts TO authenticated;
+
+-- Bulk insert leads via JSONB (single auth check, no per-row RLS overhead)
+CREATE OR REPLACE FUNCTION bulk_insert_marketing_leads(
+  p_leads jsonb,
+  p_institution_id uuid,
+  p_batch_id text,
+  p_file_name text,
+  p_user_id uuid DEFAULT NULL
+)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_inserted int := 0;
+BEGIN
+  -- Security check: verify the caller has access
+  IF NOT (
+    p_institution_id = (SELECT institution_id FROM profiles WHERE id = auth.uid() LIMIT 1)
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+    OR EXISTS (
+      SELECT 1 FROM user_roles ur
+      JOIN custom_roles cr ON ur.role_id = cr.id
+      WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission'
+    )
+  ) THEN
+    RAISE EXCEPTION 'Access denied: insufficient permissions';
+  END IF;
+
+  -- Bulk insert all rows at once
+  INSERT INTO marketing_leads_database (
+    institution_id, district, sub_district, student_name, father_name,
+    gender, community, mobile_number, group_detail, address, pincode,
+    school_name, upload_batch_id, uploaded_by, upload_file_name, created_by
+  )
+  SELECT
+    p_institution_id,
+    (elem->>'district'),
+    (elem->>'sub_district'),
+    COALESCE(elem->>'student_name', ''),
+    (elem->>'father_name'),
+    (elem->>'gender'),
+    (elem->>'community'),
+    (elem->>'mobile_number'),
+    (elem->>'group_detail'),
+    (elem->>'address'),
+    (elem->>'pincode'),
+    (elem->>'school_name'),
+    p_batch_id,
+    p_user_id,
+    p_file_name,
+    p_user_id
+  FROM jsonb_array_elements(p_leads) AS elem;
+
+  GET DIAGNOSTICS v_inserted = ROW_COUNT;
+
+  RETURN json_build_object(
+    'inserted', v_inserted,
+    'failed', 0,
+    'errors', '[]'::json
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION bulk_insert_marketing_leads TO authenticated;

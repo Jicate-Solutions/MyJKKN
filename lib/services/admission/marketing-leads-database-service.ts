@@ -112,6 +112,7 @@ export class MarketingLeadsDatabaseService {
 
   /**
    * Bulk insert parsed lead data from Excel upload.
+   * Uses RPC to bypass per-row RLS overhead for large uploads.
    */
   static async bulkInsertLeads(
     leads: Array<Record<string, string>>,
@@ -127,9 +128,8 @@ export class MarketingLeadsDatabaseService {
       throw new Error('Institution ID is required for bulk upload');
     }
 
-    // Prepare rows with normalization
-    const rows = leads.map((lead, index) => ({
-      institution_id: institutionId,
+    // Prepare rows with normalization (strip institution_id — handled by RPC)
+    const rows = leads.map((lead) => ({
       district: lead.district?.trim() || null,
       sub_district: lead.sub_district?.trim() || null,
       student_name: lead.student_name?.trim() || '',
@@ -141,27 +141,27 @@ export class MarketingLeadsDatabaseService {
       address: lead.address?.trim() || null,
       pincode: cleanPincode(lead.pincode) || null,
       school_name: lead.school_name?.trim() || null,
-      upload_batch_id: batchId,
-      uploaded_by: userId && userId.length > 0 ? userId : null,
-      upload_file_name: fileName,
-      created_by: userId && userId.length > 0 ? userId : null,
     }));
 
-    // Insert in batches of 500 to avoid payload limits
-    const BATCH_SIZE = 500;
+    // Insert in batches of 1000 via RPC (no per-row RLS overhead)
+    const BATCH_SIZE = 1000;
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const batch = rows.slice(i, i + BATCH_SIZE);
+
       const { data, error } = await (supabase as any)
-        .from('marketing_leads_database')
-        .insert(batch)
-        .select('id');
+        .rpc('bulk_insert_marketing_leads', {
+          p_leads: JSON.stringify(batch),
+          p_institution_id: institutionId,
+          p_batch_id: batchId,
+          p_file_name: fileName,
+          p_user_id: userId && userId.length > 0 ? userId : null,
+        });
 
       if (error) {
         console.error(
           `[admission/marketing-leads-db] Batch insert error (rows ${i + 1}-${i + batch.length}):`,
           error
         );
-        // Track which rows failed
         for (let j = 0; j < batch.length; j++) {
           errors.push({
             row: i + j + 1,
@@ -169,7 +169,7 @@ export class MarketingLeadsDatabaseService {
           });
         }
       } else {
-        inserted += data?.length || batch.length;
+        inserted += data?.inserted || batch.length;
       }
     }
 
@@ -187,22 +187,18 @@ export class MarketingLeadsDatabaseService {
 
   /**
    * Get distinct districts for filter dropdown.
+   * Uses RPC to avoid per-row RLS overhead.
    */
   static async getDistinctDistricts(institutionId: string): Promise<string[]> {
     const { data, error } = await (supabase as any)
-      .from('marketing_leads_database')
-      .select('district')
-      .eq('institution_id', institutionId)
-      .not('district', 'is', null)
-      .order('district');
+      .rpc('get_marketing_leads_districts', { p_institution_id: institutionId });
 
     if (error) {
       console.error('[admission/marketing-leads-db] Error fetching districts:', error);
       return [];
     }
 
-    const unique = [...new Set((data || []).map((d: any) => d.district).filter(Boolean))];
-    return unique as string[];
+    return (data || []).filter(Boolean) as string[];
   }
 
   /**
@@ -281,6 +277,7 @@ export class MarketingLeadsDatabaseService {
 
   /**
    * Get statistics for the leads database dashboard.
+   * Uses a single RPC call that aggregates in SQL — no per-row RLS overhead.
    */
   static async getStats(institutionId: string): Promise<{
     totalLeads: number;
@@ -289,61 +286,28 @@ export class MarketingLeadsDatabaseService {
     genderBreakdown: { male: number; female: number; other: number };
     totalUploads: number;
   }> {
+    const empty = { totalLeads: 0, totalDistricts: 0, totalSchools: 0, genderBreakdown: { male: 0, female: 0, other: 0 }, totalUploads: 0 };
+
     if (!institutionId) {
-      return { totalLeads: 0, totalDistricts: 0, totalSchools: 0, genderBreakdown: { male: 0, female: 0, other: 0 }, totalUploads: 0 };
+      return empty;
     }
 
-    // Run queries in parallel
-    const [countRes, districtRes, schoolRes, genderRes, batchRes] = await Promise.all([
-      // Total leads
-      (supabase as any)
-        .from('marketing_leads_database')
-        .select('id', { count: 'exact', head: true })
-        .eq('institution_id', institutionId),
-      // Distinct districts
-      (supabase as any)
-        .from('marketing_leads_database')
-        .select('district')
-        .eq('institution_id', institutionId)
-        .not('district', 'is', null),
-      // Distinct schools
-      (supabase as any)
-        .from('marketing_leads_database')
-        .select('school_name')
-        .eq('institution_id', institutionId)
-        .not('school_name', 'is', null),
-      // Gender breakdown
-      (supabase as any)
-        .from('marketing_leads_database')
-        .select('gender')
-        .eq('institution_id', institutionId)
-        .not('gender', 'is', null),
-      // Distinct batches
-      (supabase as any)
-        .from('marketing_leads_database')
-        .select('upload_batch_id')
-        .eq('institution_id', institutionId),
-    ]);
+    const { data, error } = await (supabase as any)
+      .rpc('get_marketing_leads_stats', { p_institution_id: institutionId });
 
-    const totalLeads = countRes.count || 0;
+    if (error) {
+      console.error('[admission/marketing-leads-db] Error fetching stats:', error);
+      return empty;
+    }
 
-    const uniqueDistricts = new Set((districtRes.data || []).map((d: any) => d.district).filter(Boolean));
-    const uniqueSchools = new Set((schoolRes.data || []).map((d: any) => d.school_name).filter(Boolean));
-    const uniqueBatches = new Set((batchRes.data || []).map((d: any) => d.upload_batch_id).filter(Boolean));
-
-    const genderData = (genderRes.data || []) as Array<{ gender: string }>;
-    const genderBreakdown = {
-      male: genderData.filter((g) => g.gender === 'Male').length,
-      female: genderData.filter((g) => g.gender === 'Female').length,
-      other: genderData.filter((g) => g.gender === 'Other').length,
-    };
-
+    // RPC returns the json object directly
+    const stats = data || empty;
     return {
-      totalLeads,
-      totalDistricts: uniqueDistricts.size,
-      totalSchools: uniqueSchools.size,
-      genderBreakdown,
-      totalUploads: uniqueBatches.size,
+      totalLeads: stats.totalLeads || 0,
+      totalDistricts: stats.totalDistricts || 0,
+      totalSchools: stats.totalSchools || 0,
+      genderBreakdown: stats.genderBreakdown || { male: 0, female: 0, other: 0 },
+      totalUploads: stats.totalUploads || 0,
     };
   }
 }
