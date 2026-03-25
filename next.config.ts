@@ -1,9 +1,6 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Force webpack bundler for production builds (Turbopack has 54 pre-existing errors)
-  bundler: 'webpack',
-
   // Enable Cache Components for server-side caching (Next.js 16.1.1)
   cacheComponents: true,
 
