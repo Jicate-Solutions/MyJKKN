@@ -1,5 +1,6 @@
 'use client';
 
+import { PrivilegeBadgeWidget } from '../widgets/student/privilege-badge-widget';
 import { AttendanceWidget } from '../widgets/student/attendance-widget';
 import { TimetableTodayWidget } from '../widgets/student/timetable-today-widget';
 import { BillingWidget } from '../widgets/student/billing-widget';
