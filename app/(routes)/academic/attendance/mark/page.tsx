@@ -2511,42 +2511,66 @@ export default function AttendanceMarkPage() {
                       </div>
 
                       {/* Attendance Status */}
-                      <Button
-                        variant={
-                          attendanceData[student.id] === 'Present'
-                            ? 'default'
-                            : 'destructive'
+                      {/* Updated: 2026-03-25 - Show locked OD button for privileged students */}
+                      {(() => {
+                        const studentPrivileges = privilegeOdMap.get(student.id);
+                        const isPrivilegeLocked = studentPrivileges?.some(p =>
+                          p.privilege_types.some(t => t.key === 'full_od')
+                        );
+
+                        if (isPrivilegeLocked) {
+                          return (
+                            <Button
+                              variant='default'
+                              size='sm'
+                              className='w-full h-8 text-xs font-medium bg-amber-500 hover:bg-amber-500 cursor-not-allowed shadow-lg shadow-amber-200'
+                              disabled
+                            >
+                              <Shield className='h-3 w-3 mr-1' />
+                              On Duty (Locked)
+                            </Button>
+                          );
                         }
-                        size='sm'
-                        className={cn(
-                          'w-full h-8 text-xs font-medium transition-all duration-200',
-                          attendanceData[student.id] === 'Present'
-                            ? 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200'
-                            : 'bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200',
-                          existingAttendance &&
-                            !isEditMode &&
-                            'opacity-60 cursor-not-allowed'
-                        )}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!existingAttendance || isEditMode) {
-                            toggleAttendance(student.id);
-                          }
-                        }}
-                        disabled={existingAttendance && !isEditMode}
-                      >
-                        {attendanceData[student.id] === 'Present' ? (
-                          <>
-                            <UserCheck className='h-3 w-3 mr-1' />
-                            Present
-                          </>
-                        ) : (
-                          <>
-                            <UserX className='h-3 w-3 mr-1' />
-                            Absent
-                          </>
-                        )}
-                      </Button>
+
+                        return (
+                          <Button
+                            variant={
+                              attendanceData[student.id] === 'Present'
+                                ? 'default'
+                                : 'destructive'
+                            }
+                            size='sm'
+                            className={cn(
+                              'w-full h-8 text-xs font-medium transition-all duration-200',
+                              attendanceData[student.id] === 'Present'
+                                ? 'bg-green-600 hover:bg-green-700 shadow-lg shadow-green-200'
+                                : 'bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200',
+                              existingAttendance &&
+                                !isEditMode &&
+                                'opacity-60 cursor-not-allowed'
+                            )}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!existingAttendance || isEditMode) {
+                                toggleAttendance(student.id);
+                              }
+                            }}
+                            disabled={existingAttendance && !isEditMode}
+                          >
+                            {attendanceData[student.id] === 'Present' ? (
+                              <>
+                                <UserCheck className='h-3 w-3 mr-1' />
+                                Present
+                              </>
+                            ) : (
+                              <>
+                                <UserX className='h-3 w-3 mr-1' />
+                                Absent
+                              </>
+                            )}
+                          </Button>
+                        );
+                      })()}
                     </div>
                   </CardContent>
                 </Card>
