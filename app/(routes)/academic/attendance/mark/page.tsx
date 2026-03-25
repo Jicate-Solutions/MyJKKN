@@ -2478,6 +2478,15 @@ export default function AttendanceMarkPage() {
                           <h3 className='font-semibold text-gray-900 dark:text-gray-100 text-sm leading-tight'>
                             {student.first_name} {student.last_name}
                           </h3>
+                          {/* Updated: 2026-03-25 - Show privilege OD indicator if student has auto-OD */}
+                          {privilegeOdMap.has(student.id) &&
+                            privilegeOdMap.get(student.id)!.some(p =>
+                              p.privilege_types.some(t => t.key === 'full_od')
+                            ) && (
+                            <PrivilegeOdIndicator
+                              privileges={privilegeOdMap.get(student.id)!}
+                            />
+                          )}
                           {/* Updated: 2026-01-29 - Show leave indicator if student has approved leave */}
                           {approvedLeaveMap.has(student.id) && (
                             <StudentLeaveIndicatorCompact
