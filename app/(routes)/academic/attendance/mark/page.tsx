@@ -780,6 +780,48 @@ export default function AttendanceMarkPage() {
     loadApprovedLeave();
   }, [sectionId, date, periodId, students, existingAttendance]);
 
+  // Updated: 2026-03-25 - Check for privilege-based auto-OD (Exceptions & Privileges module)
+  useEffect(() => {
+    const loadPrivilegedStudents = async () => {
+      if (!students || students.length === 0) return;
+
+      try {
+        const studentIds = students.map((s: any) => s.id);
+        const privilegeMap = await PrivilegeService.getActivePrivilegesForLearners(studentIds);
+
+        if (privilegeMap.size > 0) {
+          setPrivilegeOdMap(privilegeMap);
+          logger.info('academic/attendance', `Found ${privilegeMap.size} privileged student(s) for auto-OD`);
+
+          // Pre-fill OD status: privileged students with full_od are marked Present (On-Duty)
+          // and their status is locked from faculty changes
+          if (!existingAttendance) {
+            setAttendanceData((prev) => {
+              const updated = { ...prev };
+              for (const [studentId, privileges] of privilegeMap.entries()) {
+                const hasFullOd = privileges.some(p =>
+                  p.privilege_types.some(t => t.key === 'full_od')
+                );
+                if (hasFullOd) {
+                  updated[studentId] = 'Present'; // On-Duty = Present
+                }
+              }
+              return updated;
+            });
+          }
+        } else {
+          setPrivilegeOdMap(new Map());
+        }
+      } catch (error) {
+        // Graceful degradation — don't block attendance if privilege check fails
+        logger.warn('academic/attendance', 'Failed to check privilege-based OD', error);
+        setPrivilegeOdMap(new Map());
+      }
+    };
+
+    loadPrivilegedStudents();
+  }, [students, existingAttendance]);
+
   // Check for existing attendance after context is loaded
   useEffect(() => {
     const checkExistingAttendance = async () => {
