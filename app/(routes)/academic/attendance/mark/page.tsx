@@ -131,6 +131,9 @@ export default function AttendanceMarkPage() {
   const [approvedLeaveMap, setApprovedLeaveMap] = useState<Map<string, ApprovedLeaveInfo>>(new Map());
   const [loadingApprovedLeave, setLoadingApprovedLeave] = useState(false);
 
+  // Updated: 2026-03-25 - Privilege-based auto-OD state (Exceptions & Privileges module)
+  const [privilegeOdMap, setPrivilegeOdMap] = useState<Map<string, ActivePrivilegeInfo[]>>(new Map());
+
   const { saveConsolidatedAttendance } = useConsolidatedAttendance();
 
   // Filter students based on search
