@@ -21,9 +21,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Save, Loader2, Filter, Search } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Filter, Search, FileWarning } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
+import { useFormDraftObject, clearFormDraft } from '@/hooks/use-form-draft';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { useDepartments } from '@/hooks/organization/use-departments';
@@ -75,40 +76,45 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
   // institution_id is optional — auto-set from profile for tracking, null for super_admin
   const institutionId = initialData?.institution_id ?? profile?.institution_id ?? null;
 
-  // ── Expo Master selection ─────────────────────────────────────────────────
-  const [selectedMasterId, setSelectedMasterId] = useState(
-    initialData?.expo_master_id ?? ''
-  );
+  // ── Form draft persistence (survives route navigation) ───────────────────
+  const draftKey = mode === 'edit' && initialData?.id
+    ? `expo-event-edit-${initialData.id}`
+    : 'expo-event-create';
+
+  const { values: draft, setValue: setDraft, setValues: setDraftValues, clearDraft, isDraft } =
+    useFormDraftObject(draftKey, {
+      selectedMasterId: initialData?.expo_master_id ?? '',
+      eventName: initialData?.event_name ?? '',
+      organizerName: initialData?.organizer_name ?? '',
+      city: initialData?.city ?? '',
+      venueName: initialData?.venue_name ?? '',
+      startDate: initialData?.start_date ?? '',
+      endDate: initialData?.end_date ?? '',
+      travelMode: (initialData?.travel_mode ?? '') as TravelMode | '',
+      accommodationDetails: initialData?.accommodation_details ?? '',
+      teamLeaderId: initialData?.team_leader_id ?? '',
+      approvedById: initialData?.approved_by_id ?? '',
+      eventStatus: initialData?.event_status ?? 'planned' as ExpoEventStatus,
+      notes: initialData?.notes ?? '',
+      teamMembers: [] as CreateExpoTeamMemberInput[],
+    });
+
+  // Convenience aliases for readability
+  const selectedMasterId = draft.selectedMasterId;
+  const eventName = draft.eventName;
+  const organizerName = draft.organizerName;
+  const city = draft.city;
+  const venueName = draft.venueName;
+  const startDate = draft.startDate;
+  const endDate = draft.endDate;
+  const travelMode = draft.travelMode;
+  const accommodationDetails = draft.accommodationDetails;
+  const teamLeaderId = draft.teamLeaderId;
+  const teamMembers = draft.teamMembers;
 
   const { data: masters, isLoading: mastersLoading } = useExpoMasters({
     is_active: true,
   });
-
-  // ── Event detail fields ───────────────────────────────────────────────────
-  const [eventName, setEventName] = useState(initialData?.event_name ?? '');
-  const [organizerName, setOrganizerName] = useState(
-    initialData?.organizer_name ?? ''
-  );
-  const [city, setCity] = useState(initialData?.city ?? '');
-  const [venueName, setVenueName] = useState(initialData?.venue_name ?? '');
-
-  // ── Schedule & Logistics ─────────────────────────────────────────────────
-  const [startDate, setStartDate] = useState(initialData?.start_date ?? '');
-  const [endDate, setEndDate] = useState(initialData?.end_date ?? '');
-  const [travelMode, setTravelMode] = useState<TravelMode | ''>(
-    initialData?.travel_mode ?? ''
-  );
-  const [accommodationDetails, setAccommodationDetails] = useState(
-    initialData?.accommodation_details ?? ''
-  );
-
-  // ── Team ─────────────────────────────────────────────────────────────────
-  const [teamLeaderId, setTeamLeaderId] = useState(
-    initialData?.team_leader_id ?? ''
-  );
-  const [teamMembers, setTeamMembers] = useState<CreateExpoTeamMemberInput[]>(
-    []
-  );
 
   // ── Team Leader hierarchy filter state ──────────────────────────────────
   const [leaderType, setLeaderType] = useState<'staff' | 'student'>('staff');
@@ -176,14 +182,10 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
   const leaderList = leaderType === 'staff' ? leaderStaffList : leaderStudentList;
   const leaderLoading = leaderType === 'staff' ? leaderStaffLoading : leaderStudentLoading;
 
-  // ── Approval & Notes ─────────────────────────────────────────────────────
-  const [approvedById, setApprovedById] = useState(
-    initialData?.approved_by_id ?? ''
-  );
-  const [eventStatus, setEventStatus] = useState<ExpoEventStatus>(
-    initialData?.event_status ?? 'planned'
-  );
-  const [notes, setNotes] = useState(initialData?.notes ?? '');
+  // ── Approval & Notes (from draft) ────────────────────────────────────────
+  const approvedById = draft.approvedById;
+  const eventStatus = draft.eventStatus;
+  const notes = draft.notes;
 
   // ── Approver: role filter + search ─────────────────────────────────────
   const [approverRole, setApproverRole] = useState('');
@@ -211,10 +213,12 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
     if (!selectedMasterId) return;
     const master = masters.find((m) => m.id === selectedMasterId);
     if (!master) return;
-    setEventName(master.event_name);
-    setOrganizerName(master.organizer_name ?? '');
-    setCity(master.city ?? '');
-    setVenueName(master.venue_name ?? '');
+    setDraftValues({
+      eventName: master.event_name,
+      organizerName: master.organizer_name ?? '',
+      city: master.city ?? '',
+      venueName: master.venue_name ?? '',
+    });
   }, [selectedMasterId, masters]);
 
   // ── Validation ────────────────────────────────────────────────────────────
@@ -262,6 +266,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
 
       createMutation.mutate(input, {
         onSuccess: () => {
+          clearDraft();
           router.push('/admission/marketing/expos');
         },
       });
@@ -290,6 +295,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
 
       updateMutation.mutate(input, {
         onSuccess: () => {
+          clearDraft();
           router.push(`/admission/marketing/expos/${initialData.id}`);
         },
       });
@@ -308,6 +314,25 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
         </Button>
       </div>
 
+      {/* Draft restoration banner */}
+      {isDraft && mode === 'create' && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
+          <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200">
+            <FileWarning className="h-4 w-4" />
+            <span>Unsaved draft restored. Your previously entered data has been preserved.</span>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-amber-800 hover:text-amber-900 dark:text-amber-200"
+            onClick={clearDraft}
+          >
+            Clear Draft
+          </Button>
+        </div>
+      )}
+
       {/* ── Section 1: Expo Master Selection ── */}
       <Card>
         <CardHeader>
@@ -323,7 +348,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             <Select
               value={selectedMasterId}
               onValueChange={(v) =>
-                setSelectedMasterId(v === '__none__' ? '' : v)
+                setDraft('selectedMasterId', v === '__none__' ? '' : v)
               }
               disabled={mastersLoading}
             >
@@ -363,7 +388,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             <Input
               id="event-name"
               value={eventName}
-              onChange={(e) => setEventName(e.target.value)}
+              onChange={(e) => setDraft('eventName', e.target.value)}
               placeholder="e.g. Engineering Expo 2026"
               required
             />
@@ -374,7 +399,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             <Input
               id="organizer-name"
               value={organizerName}
-              onChange={(e) => setOrganizerName(e.target.value)}
+              onChange={(e) => setDraft('organizerName', e.target.value)}
               placeholder="Organizing body or contact"
             />
           </div>
@@ -386,7 +411,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             <Input
               id="city"
               value={city}
-              onChange={(e) => setCity(e.target.value)}
+              onChange={(e) => setDraft('city', e.target.value)}
               placeholder="e.g. Chennai"
               required
             />
@@ -397,7 +422,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             <Input
               id="venue-name"
               value={venueName}
-              onChange={(e) => setVenueName(e.target.value)}
+              onChange={(e) => setDraft('venueName', e.target.value)}
               placeholder="e.g. Convention Centre Hall A"
             />
           </div>
@@ -418,7 +443,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
               id="start-date"
               type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => setDraft('startDate', e.target.value)}
               required
             />
           </div>
@@ -432,7 +457,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
               type="date"
               value={endDate}
               min={startDate || undefined}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => setDraft('endDate', e.target.value)}
               required
             />
           </div>
@@ -442,7 +467,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             <Select
               value={travelMode}
               onValueChange={(v) =>
-                setTravelMode(v === '__none__' ? '' : (v as TravelMode))
+                setDraft('travelMode', v === '__none__' ? '' : (v as TravelMode))
               }
             >
               <SelectTrigger id="travel-mode">
@@ -464,7 +489,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             <Textarea
               id="accommodation"
               value={accommodationDetails}
-              onChange={(e) => setAccommodationDetails(e.target.value)}
+              onChange={(e) => setDraft('accommodationDetails', e.target.value)}
               placeholder="Hotel name, address, booking reference…"
               rows={3}
             />
@@ -490,7 +515,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                   value={leaderType}
                   onValueChange={(v) => {
                     setLeaderType(v as 'staff' | 'student');
-                    setTeamLeaderId('');
+                    setDraft('teamLeaderId', '');
                     setLeaderSearch('');
                     setLeaderDegreeId('');
                     setLeaderDepartmentId('');
@@ -532,7 +557,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                       setLeaderProgramId('');
                       setLeaderSemesterId('');
                       setLeaderSectionId('');
-                      setTeamLeaderId('');
+                      setDraft('teamLeaderId', '');
                     }}
                   >
                     <SelectTrigger className="h-8 text-xs">
@@ -560,7 +585,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                         setLeaderProgramId('');
                         setLeaderSemesterId('');
                         setLeaderSectionId('');
-                        setTeamLeaderId('');
+                        setDraft('teamLeaderId', '');
                       }}
                       disabled={!leaderInstId}
                     >
@@ -588,7 +613,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                       setLeaderProgramId('');
                       setLeaderSemesterId('');
                       setLeaderSectionId('');
-                      setTeamLeaderId('');
+                      setDraft('teamLeaderId', '');
                     }}
                     disabled={!leaderInstId}
                   >
@@ -615,7 +640,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                         setLeaderProgramId(v);
                         setLeaderSemesterId('');
                         setLeaderSectionId('');
-                        setTeamLeaderId('');
+                        setDraft('teamLeaderId', '');
                       }}
                       disabled={!leaderDepartmentId}
                     >
@@ -642,7 +667,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                       onValueChange={(v) => {
                         setLeaderSemesterId(v);
                         setLeaderSectionId('');
-                        setTeamLeaderId('');
+                        setDraft('teamLeaderId', '');
                       }}
                       disabled={!leaderProgramId}
                     >
@@ -668,7 +693,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                       value={leaderSectionId}
                       onValueChange={(v) => {
                         setLeaderSectionId(v);
-                        setTeamLeaderId('');
+                        setDraft('teamLeaderId', '');
                       }}
                       disabled={!leaderSemesterId}
                     >
@@ -715,7 +740,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                 <Select
                   value={teamLeaderId}
                   onValueChange={(v) =>
-                    setTeamLeaderId(v === '__none__' ? '' : v)
+                    setDraft('teamLeaderId', v === '__none__' ? '' : v)
                   }
                   disabled={leaderLoading || !leaderInstId}
                 >
@@ -750,7 +775,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
           {mode === 'create' && (
             <TeamMemberPicker
               members={teamMembers}
-              onChange={setTeamMembers}
+              onChange={(members) => setDraft('teamMembers', members)}
             />
           )}
         </CardContent>
@@ -770,7 +795,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                 value={approverRole}
                 onValueChange={(v) => {
                   setApproverRole(v);
-                  setApprovedById('');
+                  setDraft('approvedById', '');
                   setApproverSearch('');
                 }}
               >
@@ -812,7 +837,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
               <Select
                 value={approvedById}
                 onValueChange={(v) =>
-                  setApprovedById(v === '__none__' ? '' : v)
+                  setDraft('approvedById', v === '__none__' ? '' : v)
                 }
                 disabled={approverLoading || !approverRole}
               >
@@ -846,7 +871,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
               <Label htmlFor="event-status">Event Status</Label>
               <Select
                 value={eventStatus}
-                onValueChange={(v) => setEventStatus(v as ExpoEventStatus)}
+                onValueChange={(v) => setDraft('eventStatus', v as ExpoEventStatus)}
               >
                 <SelectTrigger id="event-status">
                   <SelectValue placeholder="Select status" />
@@ -867,7 +892,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             <Textarea
               id="notes"
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => setDraft('notes', e.target.value)}
               placeholder="Additional notes or instructions…"
               rows={3}
             />
