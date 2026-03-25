@@ -29,16 +29,17 @@ export const metadata = {
 };
 
 interface PageProps {
-  searchParams: {
+  searchParams: Promise<{
     programId?: string;
     semesterId?: string;
     sectionId?: string;
     toolId?: string;
     resourceLinkId?: string;
-  };
+  }>;
 }
 
-export default async function CourseGradesPage({ searchParams }: PageProps) {
+export default async function CourseGradesPage({ searchParams: searchParamsPromise }: PageProps) {
+  const searchParams = await searchParamsPromise;
   const supabase = await createClient();
 
   // Check authentication
