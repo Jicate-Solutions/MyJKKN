@@ -2427,17 +2427,30 @@ export default function AttendanceMarkPage() {
             </Card>
           ) : (
             <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4'>
-              {filteredStudents.map((student) => (
+              {filteredStudents.map((student) => {
+                // Updated: 2026-03-25 - Check if student is privilege-locked
+                const _cardPrivileges = privilegeOdMap.get(student.id);
+                const _isPrivilegeLocked = _cardPrivileges?.some(p =>
+                  p.privilege_types.some(t => t.key === 'full_od')
+                );
+
+                return (
                 <Card
                   key={student.id}
                   className={cn(
-                    'border-0 shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1 cursor-pointer',
-                    attendanceData[student.id] === 'Present'
+                    'border-0 shadow-lg transition-all duration-200 hover:shadow-xl hover:-translate-y-1',
+                    _isPrivilegeLocked
+                      ? 'bg-gradient-to-br from-amber-50 to-yellow-50 border-l-4 border-l-amber-500 dark:from-amber-900/20 dark:to-yellow-900/20 cursor-default'
+                      : 'cursor-pointer',
+                    !_isPrivilegeLocked && attendanceData[student.id] === 'Present'
                       ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-l-4 border-l-green-500 dark:from-green-900/20 dark:to-emerald-900/20'
-                      : 'bg-gradient-to-br from-red-50 to-rose-50 border-l-4 border-l-red-500 dark:from-red-900/20 dark:to-rose-900/20'
+                      : '',
+                    !_isPrivilegeLocked && attendanceData[student.id] !== 'Present'
+                      ? 'bg-gradient-to-br from-red-50 to-rose-50 border-l-4 border-l-red-500 dark:from-red-900/20 dark:to-rose-900/20'
+                      : ''
                   )}
                   onClick={() =>
-                    !existingAttendance || isEditMode
+                    !_isPrivilegeLocked && (!existingAttendance || isEditMode)
                       ? toggleAttendance(student.id)
                       : null
                   }
