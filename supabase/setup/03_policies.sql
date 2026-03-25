@@ -351,6 +351,10 @@ CREATE POLICY "semesters_select_optimized" ON semesters
         institution_id = get_current_user_institution_id()
     );
 
+-- Updated: 2026-03-25 - Added admission role access for semesters (was missing, blocking enquiry form dropdowns)
+CREATE POLICY "semesters_select_admission_role" ON semesters
+    FOR SELECT USING (get_current_user_role() = 'admission');
+
 CREATE POLICY "semesters_insert_by_role" ON semesters
     FOR INSERT WITH CHECK (
         get_current_user_role() IN ('super_admin', 'admin')
@@ -380,6 +384,10 @@ CREATE POLICY "sections_select_optimized" ON sections
         OR
         institution_id = get_current_user_institution_id()
     );
+
+-- Updated: 2026-03-25 - Added admission role access for sections (was missing, blocking enquiry form dropdowns)
+CREATE POLICY "sections_select_admission_role" ON sections
+    FOR SELECT USING (get_current_user_role() = 'admission');
 
 CREATE POLICY "sections_insert_admin" ON sections
     FOR INSERT WITH CHECK (

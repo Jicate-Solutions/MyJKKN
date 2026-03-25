@@ -174,24 +174,24 @@ export class SectionService {
       let query = (this.supabase as any).from('sections').select(
         `
           *,
-          institution:institutions!institution_id(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          degree:degrees!degree_id(
+          degree:degrees(
             id,
             degree_name
           ),
-          department:departments!department_id(
+          department:departments(
             id,
             department_name
           ),
-          program:programs!program_id(
+          program:programs(
             id,
             program_name
           ),
-          semester:semesters!semester_id(
+          semester:semesters(
             id,
             semester_name,
             semester_code
@@ -283,24 +283,24 @@ export class SectionService {
         .select(
           `
           *,
-          institution:institutions!institution_id(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          degree:degrees!degree_id(
+          degree:degrees(
             id,
             degree_name
           ),
-          department:departments!department_id(
+          department:departments(
             id,
             department_name
           ),
-          program:programs!program_id(
+          program:programs(
             id,
             program_name
           ),
-          semester:semesters!semester_id(
+          semester:semesters(
             id,
             semester_name,
             semester_code
@@ -326,24 +326,24 @@ export class SectionService {
         .select(
           `
           *,
-          institution:institutions!institution_id(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          degree:degrees!degree_id(
+          degree:degrees(
             id,
             degree_name
           ),
-          department:departments!department_id(
+          department:departments(
             id,
             department_name
           ),
-          program:programs!program_id(
+          program:programs(
             id,
             program_name
           ),
-          semester:semesters!semester_id(
+          semester:semesters(
             id,
             semester_name,
             semester_code
@@ -373,24 +373,24 @@ export class SectionService {
         .select(
           `
           *,
-          institution:institutions!institution_id(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          degree:degrees!degree_id(
+          degree:degrees(
             id,
             degree_name
           ),
-          department:departments!department_id(
+          department:departments(
             id,
             department_name
           ),
-          program:programs!program_id(
+          program:programs(
             id,
             program_name
           ),
-          semester:semesters!semester_id(
+          semester:semesters(
             id,
             semester_name,
             semester_code
@@ -423,24 +423,24 @@ export class SectionService {
         .select(
           `
           *,
-          institution:institutions!institution_id(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          degree:degrees!degree_id(
+          degree:degrees(
             id,
             degree_name
           ),
-          department:departments!department_id(
+          department:departments(
             id,
             department_name
           ),
-          program:programs!program_id(
+          program:programs(
             id,
             program_name
           ),
-          semester:semesters!semester_id(
+          semester:semesters(
             id,
             semester_name,
             semester_code
@@ -468,24 +468,24 @@ export class SectionService {
         .select(
           `
           *,
-          institution:institutions!institution_id(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          degree:degrees!degree_id(
+          degree:degrees(
             id,
             degree_name
           ),
-          department:departments!department_id(
+          department:departments(
             id,
             department_name
           ),
-          program:programs!program_id(
+          program:programs(
             id,
             program_name
           ),
-          semester:semesters!semester_id(
+          semester:semesters(
             id,
             semester_name,
             semester_code
@@ -514,24 +514,24 @@ export class SectionService {
         .select(
           `
           *,
-          institution:institutions!institution_id(
+          institution:institutions(
             id,
             name,
             counselling_code
           ),
-          degree:degrees!degree_id(
+          degree:degrees(
             id,
             degree_name
           ),
-          department:departments!department_id(
+          department:departments(
             id,
             department_name
           ),
-          program:programs!program_id(
+          program:programs(
             id,
             program_name
           ),
-          semester:semesters!semester_id(
+          semester:semesters(
             id,
             semester_name,
             semester_code

@@ -40,9 +40,12 @@ import { useQuery } from '@tanstack/react-query';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
+import { ProgramService } from '@/lib/services/organization/program-service';
+import { SemesterService } from '@/lib/services/organization/semester-service';
+import { SectionService } from '@/lib/services/organization/section-service';
 import { useRegulations } from '@/hooks/academic/use-regulations';
 import { useBatches } from '@/hooks/academic/use-batches';
-import type { Degree, Department, Program, Semester } from '@/types/organizations';
+import type { Degree, Department, Program, Semester, Section } from '@/types/organizations';
 import type { AcademicYear, Regulation, Batch } from '@/types/academics';
 import { ENTRY_TYPE_OPTIONS, QUOTA_OPTIONS } from '@/lib/constants/learner-dropdown-values';
 
@@ -146,9 +149,51 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
     loadingDepartments
   });
 
-  const programs = programsData?.data || [];
-  const semesters = semestersData?.data || [];
-  const sections = sectionsData?.data || [];
+  // Programs - with fallback fetch for edit mode
+  const filteredPrograms = programsData?.data || [];
+  const currentProgramInFiltered = filteredPrograms.find((p: Program) => p.id === watchedProgramId);
+
+  const { data: specificProgram } = useQuery({
+    queryKey: ['program', watchedProgramId],
+    queryFn: () => ProgramService.getProgram(watchedProgramId),
+    enabled: !!watchedProgramId && !currentProgramInFiltered,
+  });
+
+  const currentProgramToUse = currentProgramInFiltered || specificProgram;
+  const programs = currentProgramToUse && !filteredPrograms.find((p: Program) => p.id === watchedProgramId)
+    ? [currentProgramToUse, ...filteredPrograms]
+    : filteredPrograms;
+
+  // Semesters - with fallback fetch for edit mode
+  const filteredSemesters = semestersData?.data || [];
+  const currentSemesterInFiltered = filteredSemesters.find((s: Semester) => s.id === watchedSemesterId);
+
+  const { data: specificSemester } = useQuery({
+    queryKey: ['semester', watchedSemesterId],
+    queryFn: () => SemesterService.getSemester(watchedSemesterId),
+    enabled: !!watchedSemesterId && !currentSemesterInFiltered,
+  });
+
+  const currentSemesterToUse = currentSemesterInFiltered || specificSemester;
+  const semesters = currentSemesterToUse && !filteredSemesters.find((s: Semester) => s.id === watchedSemesterId)
+    ? [currentSemesterToUse, ...filteredSemesters]
+    : filteredSemesters;
+
+  // Sections - with fallback fetch for edit mode
+  const watchedSectionId = form.watch('section_id');
+  const filteredSections = sectionsData?.data || [];
+  const currentSectionInFiltered = filteredSections.find((s: Section) => s.id === watchedSectionId);
+
+  const { data: specificSection } = useQuery({
+    queryKey: ['section', watchedSectionId],
+    queryFn: () => SectionService.getSection(watchedSectionId),
+    enabled: !!watchedSectionId && !currentSectionInFiltered,
+  });
+
+  const currentSectionToUse = currentSectionInFiltered || specificSection;
+  const sections = currentSectionToUse && !filteredSections.find((s: Section) => s.id === watchedSectionId)
+    ? [currentSectionToUse, ...filteredSections]
+    : filteredSections;
 
   // Filter active academic years and include current selection if not in filtered list
   const watchedAcademicYearId = form.watch('academic_year_id');
