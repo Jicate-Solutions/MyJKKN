@@ -21,15 +21,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Filter, Search } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useDegrees } from '@/hooks/organization/use-degrees';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { usePrograms } from '@/hooks/organization/use-programs';
+import { useSemesters } from '@/hooks/organization/use-semesters';
+import { useSections } from '@/hooks/organization/use-sections';
 import {
   useExpoMasters,
   useCreateExpoEvent,
   useUpdateExpoEvent,
 } from '@/hooks/admission/use-expos';
-import { useUsersByRolesForDropdown } from '@/hooks/admission/use-referral-dropdowns';
+import {
+  useUsersByRolesForDropdown,
+  useFilteredStaffForDropdown,
+  useFilteredStudentsForDropdown,
+} from '@/hooks/admission/use-referral-dropdowns';
 import { TeamMemberPicker } from './team-member-picker';
 import type {
   ExpoEvent,
@@ -100,6 +110,72 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
     []
   );
 
+  // ── Team Leader hierarchy filter state ──────────────────────────────────
+  const [leaderType, setLeaderType] = useState<'staff' | 'student'>('staff');
+  const [leaderSearch, setLeaderSearch] = useState('');
+  const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
+  const [leaderInstitutionId, setLeaderInstitutionId] = useState('');
+  const [leaderDegreeId, setLeaderDegreeId] = useState('');
+  const [leaderDepartmentId, setLeaderDepartmentId] = useState('');
+  const [leaderProgramId, setLeaderProgramId] = useState('');
+  const [leaderSemesterId, setLeaderSemesterId] = useState('');
+  const [leaderSectionId, setLeaderSectionId] = useState('');
+
+  const leaderInstId = leaderInstitutionId || selectedInstitutionId || '';
+
+  // Team leader hierarchy data
+  const { data: leaderDegreesData } = useDegrees({
+    institution_id: leaderInstId || undefined,
+  });
+  const leaderDegrees = leaderDegreesData?.data ?? [];
+
+  const { data: leaderDepartmentsData } = useDepartments({
+    institution_id: leaderInstId || undefined,
+    degree_id: leaderDegreeId || undefined,
+  });
+  const leaderDepartments = leaderDepartmentsData?.data ?? [];
+
+  const { data: leaderProgramsData } = usePrograms({
+    institution_id: leaderInstId || undefined,
+    degree_id: leaderDegreeId || undefined,
+    department_id: leaderDepartmentId || undefined,
+  });
+  const leaderPrograms = leaderProgramsData?.data ?? [];
+
+  const { data: leaderSemestersData } = useSemesters(
+    { program_id: leaderProgramId || undefined },
+    { enabled: !!leaderProgramId }
+  );
+  const leaderSemesters = leaderSemestersData?.data ?? [];
+
+  const { data: leaderSectionsData } = useSections(
+    { semester_id: leaderSemesterId || undefined },
+    { enabled: !!leaderSemesterId }
+  );
+  const leaderSections = leaderSectionsData?.data ?? [];
+
+  // Team leader filtered person lists
+  const { data: leaderStaffList = [], isLoading: leaderStaffLoading } =
+    useFilteredStaffForDropdown({
+      institution_id: leaderInstId || undefined,
+      department_id: leaderDepartmentId || undefined,
+      search: leaderSearch || undefined,
+    });
+
+  const { data: leaderStudentList = [], isLoading: leaderStudentLoading } =
+    useFilteredStudentsForDropdown({
+      institution_id: leaderInstId || undefined,
+      degree_id: leaderDegreeId || undefined,
+      department_id: leaderDepartmentId || undefined,
+      program_id: leaderProgramId || undefined,
+      semester_id: leaderSemesterId || undefined,
+      section_id: leaderSectionId || undefined,
+      search: leaderSearch || undefined,
+    });
+
+  const leaderList = leaderType === 'staff' ? leaderStaffList : leaderStudentList;
+  const leaderLoading = leaderType === 'staff' ? leaderStaffLoading : leaderStudentLoading;
+
   // ── Approval & Notes ─────────────────────────────────────────────────────
   const [approvedById, setApprovedById] = useState(
     initialData?.approved_by_id ?? ''
@@ -109,11 +185,20 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
   );
   const [notes, setNotes] = useState(initialData?.notes ?? '');
 
-  // ── Role-based user dropdowns (faculty + student for team, all staff roles for approver)
-  const { data: teamLeaderList = [], isLoading: teamLeaderLoading } =
-    useUsersByRolesForDropdown(['faculty', 'student']);
-  const { data: approverList = [], isLoading: approverLoading } =
-    useUsersByRolesForDropdown(['faculty', 'hod', 'principal', 'administrator', 'super_admin']);
+  // ── Approver: role filter + search ─────────────────────────────────────
+  const [approverRole, setApproverRole] = useState('');
+  const [approverSearch, setApproverSearch] = useState('');
+
+  const approverRoles = approverRole ? [approverRole] : [];
+  const { data: approverListRaw = [], isLoading: approverLoading } =
+    useUsersByRolesForDropdown(approverRoles);
+
+  // Client-side search filter on the approver list
+  const approverList = approverSearch
+    ? approverListRaw.filter((u) =>
+        u.name.toLowerCase().includes(approverSearch.toLowerCase())
+      )
+    : approverListRaw;
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const createMutation = useCreateExpoEvent();
@@ -393,29 +478,273 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
           <CardTitle>Team Assignment</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="max-w-sm space-y-1.5">
-            <Label htmlFor="team-leader">Team Leader</Label>
-            <Select
-              value={teamLeaderId}
-              onValueChange={(v) =>
-                setTeamLeaderId(v === '__none__' ? '' : v)
-              }
-              disabled={teamLeaderLoading}
-            >
-              <SelectTrigger id="team-leader">
-                <SelectValue
-                  placeholder={teamLeaderLoading ? 'Loading…' : 'Select team leader'}
-                />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">— None —</SelectItem>
-                {teamLeaderList.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.name} ({u.role})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {/* Team Leader with hierarchy filters */}
+          <div className="rounded-md border p-4 space-y-4">
+            <Label className="text-sm font-semibold">Team Leader</Label>
+
+            {/* Row 1: Member Type */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Member Type</Label>
+                <Select
+                  value={leaderType}
+                  onValueChange={(v) => {
+                    setLeaderType(v as 'staff' | 'student');
+                    setTeamLeaderId('');
+                    setLeaderSearch('');
+                    setLeaderDegreeId('');
+                    setLeaderDepartmentId('');
+                    setLeaderProgramId('');
+                    setLeaderSemesterId('');
+                    setLeaderSectionId('');
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="staff">Staff</SelectItem>
+                    <SelectItem value="student">Student</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Row 2: Hierarchy Filters */}
+            <div className="rounded-md border border-dashed p-3 space-y-3 bg-muted/30">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Filter className="h-3.5 w-3.5" />
+                {leaderType === 'staff'
+                  ? 'Filter by Institution & Department'
+                  : 'Filter by Academic Hierarchy'}
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {/* Institution */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Institution</Label>
+                  <Select
+                    value={leaderInstId}
+                    onValueChange={(v) => {
+                      setLeaderInstitutionId(v);
+                      setLeaderDegreeId('');
+                      setLeaderDepartmentId('');
+                      setLeaderProgramId('');
+                      setLeaderSemesterId('');
+                      setLeaderSectionId('');
+                      setTeamLeaderId('');
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select institution" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {institutions.map((inst) => (
+                        <SelectItem key={inst.institution_id} value={inst.institution_id}>
+                          {inst.institution_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Degree — student only */}
+                {leaderType === 'student' && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Degree</Label>
+                    <Select
+                      value={leaderDegreeId}
+                      onValueChange={(v) => {
+                        setLeaderDegreeId(v);
+                        setLeaderDepartmentId('');
+                        setLeaderProgramId('');
+                        setLeaderSemesterId('');
+                        setLeaderSectionId('');
+                        setTeamLeaderId('');
+                      }}
+                      disabled={!leaderInstId}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="All Degrees" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {leaderDegrees.map((d: any) => (
+                          <SelectItem key={d.id} value={d.id}>
+                            {d.degree_name || d.display_name || d.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Department */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Department</Label>
+                  <Select
+                    value={leaderDepartmentId}
+                    onValueChange={(v) => {
+                      setLeaderDepartmentId(v);
+                      setLeaderProgramId('');
+                      setLeaderSemesterId('');
+                      setLeaderSectionId('');
+                      setTeamLeaderId('');
+                    }}
+                    disabled={!leaderInstId}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="All Departments" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {leaderDepartments.map((d: any) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.department_name || d.display_name || d.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Program — student only */}
+                {leaderType === 'student' && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Program</Label>
+                    <Select
+                      value={leaderProgramId}
+                      onValueChange={(v) => {
+                        setLeaderProgramId(v);
+                        setLeaderSemesterId('');
+                        setLeaderSectionId('');
+                        setTeamLeaderId('');
+                      }}
+                      disabled={!leaderDepartmentId}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="All Programs" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {leaderPrograms.map((p: any) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.program_name || p.display_name || p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Semester — student only */}
+                {leaderType === 'student' && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Semester</Label>
+                    <Select
+                      value={leaderSemesterId}
+                      onValueChange={(v) => {
+                        setLeaderSemesterId(v);
+                        setLeaderSectionId('');
+                        setTeamLeaderId('');
+                      }}
+                      disabled={!leaderProgramId}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="All Semesters" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {leaderSemesters.map((s: any) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.semester_name || s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Section — student only */}
+                {leaderType === 'student' && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Section</Label>
+                    <Select
+                      value={leaderSectionId}
+                      onValueChange={(v) => {
+                        setLeaderSectionId(v);
+                        setTeamLeaderId('');
+                      }}
+                      disabled={!leaderSemesterId}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="All Sections" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {leaderSections.map((s: any) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.section_name || s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Row 3: Search + Person Select */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Search</Label>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={leaderSearch}
+                    onChange={(e) => setLeaderSearch(e.target.value)}
+                    placeholder="Search by name..."
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label className="text-xs">
+                  {leaderType === 'staff' ? 'Select Staff' : 'Select Student'}
+                  {leaderList.length > 0 && (
+                    <span className="text-muted-foreground font-normal ml-1">
+                      ({leaderList.length})
+                    </span>
+                  )}
+                </Label>
+                <Select
+                  value={teamLeaderId}
+                  onValueChange={(v) =>
+                    setTeamLeaderId(v === '__none__' ? '' : v)
+                  }
+                  disabled={leaderLoading || !leaderInstId}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        leaderLoading
+                          ? 'Loading…'
+                          : !leaderInstId
+                            ? 'Select institution first'
+                            : leaderList.length === 0
+                              ? 'No results'
+                              : 'Select team leader'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— None —</SelectItem>
+                    {leaderList.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {'role' in u && (u as any).role
+                          ? `${u.name} (${(u as any).role})`
+                          : u.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
 
           {mode === 'create' && (
@@ -432,30 +761,84 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
         <CardHeader>
           <CardTitle>Approval &amp; Notes</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="approved-by">Approved By</Label>
-            <Select
-              value={approvedById}
-              onValueChange={(v) =>
-                setApprovedById(v === '__none__' ? '' : v)
-              }
-              disabled={approverLoading}
-            >
-              <SelectTrigger id="approved-by">
-                <SelectValue
-                  placeholder={approverLoading ? 'Loading…' : 'Select approver'}
+        <CardContent className="space-y-4">
+          {/* Approved By — with role filter + search */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <Select
+                value={approverRole}
+                onValueChange={(v) => {
+                  setApproverRole(v);
+                  setApprovedById('');
+                  setApproverSearch('');
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="super_admin">Super Admin</SelectItem>
+                  <SelectItem value="administrator">Administrator</SelectItem>
+                  <SelectItem value="principal">Principal</SelectItem>
+                  <SelectItem value="hod">HOD</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Search</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={approverSearch}
+                  onChange={(e) => setApproverSearch(e.target.value)}
+                  placeholder="Search by name..."
+                  className="pl-9"
+                  disabled={!approverRole}
                 />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">— None —</SelectItem>
-                {approverList.map((u) => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.name} ({u.role})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>
+                Approved By
+                {approverList.length > 0 && (
+                  <span className="text-muted-foreground font-normal ml-1">
+                    ({approverList.length})
+                  </span>
+                )}
+              </Label>
+              <Select
+                value={approvedById}
+                onValueChange={(v) =>
+                  setApprovedById(v === '__none__' ? '' : v)
+                }
+                disabled={approverLoading || !approverRole}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      !approverRole
+                        ? 'Select role first'
+                        : approverLoading
+                          ? 'Loading…'
+                          : approverList.length === 0
+                            ? 'No results'
+                            : 'Select approver'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— None —</SelectItem>
+                  {approverList.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.name} ({u.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {mode === 'edit' && (
@@ -479,7 +862,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             </div>
           )}
 
-          <div className="space-y-1.5 sm:col-span-2">
+          <div className="space-y-1.5">
             <Label htmlFor="notes">Notes</Label>
             <Textarea
               id="notes"

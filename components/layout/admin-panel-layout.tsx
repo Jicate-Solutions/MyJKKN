@@ -17,7 +17,8 @@ export default function AdminPanelLayout({
   const sidebar = useStore(useSidebarToggle, (state) => state);
   const isMobile = useIsMobile();
 
-  if (!sidebar) return null;
+  // Use safe default — never return null to avoid unmounting children (destroys form state)
+  const isOpen = sidebar?.isOpen ?? true;
 
   return (
     <>
@@ -25,7 +26,7 @@ export default function AdminPanelLayout({
       <main
         className={cn(
           'min-h-[calc(100vh_-_56px)] bg-background transition-[margin-left] ease-in-out duration-300',
-          sidebar?.isOpen === false ? 'lg:ml-[90px]' : 'lg:ml-72',
+          isOpen === false ? 'lg:ml-[90px]' : 'lg:ml-72',
           // Add bottom padding on mobile to prevent content overlap with bottom nav
           isMobile && 'pb-20'
         )}
@@ -36,7 +37,7 @@ export default function AdminPanelLayout({
       <footer
         className={cn(
           'transition-[margin-left] ease-in-out duration-300',
-          sidebar?.isOpen === false ? 'lg:ml-[90px]' : 'lg:ml-72',
+          isOpen === false ? 'lg:ml-[90px]' : 'lg:ml-72',
           // Hide footer on mobile when bottom nav is present
           isMobile && 'hidden'
         )}
