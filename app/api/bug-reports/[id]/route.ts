@@ -1,0 +1,316 @@
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  BugReportEmailService,
+  type BugResolvedEmailData
+} from '@/lib/services/email/bug-report-email-service';
+
+const updateStatusSchema = z.object({
+  status: z.enum(['new', 'seen', 'in_progress', 'resolved', 'wont_fix'])
+});
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: reportId } = await params;
+  try {
+    const supabase = await createServerSupabaseClient();
+
+    // Check authentication first
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // Fetch from the detailed view using RLS-friendly approach
+    const { data: report, error: reportError } = await supabase
+      .from('bug_reports_with_details')
+      .select('*')
+      .eq('id', reportId)
+      .maybeSingle(); // Use maybeSingle to handle RLS filtering gracefully
+
+    if (reportError) {
+      logger.error('bug-reports', `Supabase error fetching report ${reportId}`, reportError);
+      return NextResponse.json(
+        { error: 'Database error while fetching report' },
+        { status: 500 }
+      );
+    }
+
+    if (!report) {
+      // Report doesn't exist or user doesn't have access (filtered by RLS)
+      return NextResponse.json(
+        { error: 'Bug report not found or access denied' },
+        { status: 404 }
+      );
+    }
+
+    // Transform the data to match the expected DetailedBugReport interface
+    const detailedReport = {
+      ...report,
+      reporter: report.reporter_name
+        ? {
+            id: report.reporter_user_id,
+            full_name: report.reporter_name,
+            email: report.reporter_email,
+            role: report.reporter_role
+          }
+        : null
+    };
+
+    return NextResponse.json(detailedReport);
+  } catch (error) {
+    logger.error('bug-reports', `Error fetching report ${reportId}`, error);
+    return NextResponse.json(
+      { error: 'Failed to fetch bug report.' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: reportId } = await params;
+
+  try {
+    const supabase = await createServerSupabaseClient();
+    const json = await request.json();
+    const { status } = updateStatusSchema.parse(json);
+
+    // Check if user is authenticated
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // Check if user is admin
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return NextResponse.json(
+        { error: 'Failed to verify user permissions' },
+        { status: 500 }
+      );
+    }
+
+    if (!['super_admin', 'administrator'].includes(profile.role)) {
+      return NextResponse.json(
+        { error: 'Only administrators can update bug report status' },
+        { status: 403 }
+      );
+    }
+
+    // Use admin client for the update
+    const adminSupabase = createAdminClient();
+
+    const updateData: { status: string; resolved_at?: string } = { status };
+    if (status === 'resolved') {
+      updateData.resolved_at = new Date().toISOString();
+    }
+
+    const { data, error } = await (adminSupabase.from('bug_reports') as any)
+      .update(updateData)
+      .eq('id', reportId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // Fire resolution email notification (non-blocking — does not affect response)
+    if (status === 'resolved') {
+      void sendResolutionEmailAndLog(adminSupabase, reportId, data);
+    }
+
+    return NextResponse.json(data);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.errors }, { status: 400 });
+    }
+    logger.error('bug-reports/api', `Error updating report ${reportId}`, error);
+    return NextResponse.json(
+      { error: 'Failed to update bug report status.' },
+      { status: 500 }
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: fetch reporter details, send email, log result
+// Runs after the response is returned — failures are logged, never thrown.
+// ---------------------------------------------------------------------------
+async function sendResolutionEmailAndLog(
+  adminSupabase: ReturnType<typeof createAdminClient>,
+  reportId: string,
+  updatedReport: any
+): Promise<void> {
+  try {
+    // Fetch enriched report data (reporter email, name, institution)
+    const { data: detail, error: detailError } = await (
+      adminSupabase.from('bug_reports_with_details') as any
+    )
+      .select(
+        'display_id, reporter_email, reporter_name, description, page_url, institution_name, resolved_at'
+      )
+      .eq('id', reportId)
+      .single();
+
+    if (detailError || !detail) {
+      logger.warn('bug-reports/email', 'Could not fetch report details for email', { reportId });
+      return;
+    }
+
+    if (!detail.reporter_email) {
+      logger.warn('bug-reports/email', 'Reporter has no email — skipping notification', { reportId });
+      return;
+    }
+
+    const emailData: BugResolvedEmailData = {
+      reportId,
+      displayId: detail.display_id,
+      reporterEmail: detail.reporter_email,
+      reporterName: detail.reporter_name,
+      description: detail.description,
+      pageUrl: detail.page_url,
+      institutionName: detail.institution_name,
+      resolvedAt: detail.resolved_at ?? updatedReport.resolved_at ?? new Date().toISOString()
+    };
+
+    const result = await BugReportEmailService.sendBugResolvedEmail(emailData);
+
+    // Log the email send attempt to bug_report_email_logs
+    await (adminSupabase as any).from('bug_report_email_logs').insert({
+      bug_report_id: reportId,
+      recipient_email: detail.reporter_email,
+      email_type: 'resolved_notification',
+      status: result.skipped ? 'skipped' : result.success ? 'sent' : 'failed',
+      resend_id: result.resendId ?? null,
+      error_message: result.error ?? result.skipReason ?? null
+    });
+  } catch (err) {
+    logger.error('bug-reports/email', 'Unexpected error in sendResolutionEmailAndLog', err);
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: reportId } = await params;
+
+  try {
+    const supabase = await createServerSupabaseClient();
+
+    // Check if user is authenticated
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
+    // Check if user is super admin
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile || profile.role !== 'super_admin') {
+      return NextResponse.json(
+        { error: 'Only super administrators can delete bug reports' },
+        { status: 403 }
+      );
+    }
+
+    // Use admin client for deletion operations
+    const adminSupabase = createAdminClient();
+
+    // First, get the bug report to find the screenshot URL
+    const { data: report, error: fetchError } = await (
+      adminSupabase.from('bug_reports') as any
+    )
+      .select('screenshot_url')
+      .eq('id', reportId)
+      .single();
+
+    if (fetchError || !report) {
+      return NextResponse.json(
+        { error: 'Bug report not found' },
+        { status: 404 }
+      );
+    }
+
+    // If there's a screenshot, delete it from storage
+    if (report?.screenshot_url) {
+      try {
+        // Extract the file path from the public URL
+        // The URL format is typically: https://...supabase.co/storage/v1/object/public/bug-reports/{reportId}/screenshot.png
+        const urlParts = report.screenshot_url.split('/bug-reports/');
+        if (urlParts.length > 1) {
+          const filePath = urlParts[1];
+
+          const { error: storageError } = await adminSupabase.storage
+            .from('bug-reports')
+            .remove([filePath]);
+
+          if (storageError) {
+            logger.error('bug-reports/api', 'Storage deletion error', storageError);
+            // Continue with database deletion even if storage deletion fails
+          }
+        }
+      } catch (error) {
+        logger.error('bug-reports/api', 'Error parsing screenshot URL', error);
+        // Continue with database deletion
+      }
+    }
+
+    // Delete the bug report from the database
+    const { error: deleteError } = await (
+      adminSupabase.from('bug_reports') as any
+    )
+      .delete()
+      .eq('id', reportId);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Bug report deleted successfully'
+    });
+  } catch (error) {
+    logger.error('bug-reports/api', 'Failed to delete bug report', error);
+    return NextResponse.json(
+      { error: 'Failed to delete bug report' },
+      { status: 500 }
+    );
+  }
+}

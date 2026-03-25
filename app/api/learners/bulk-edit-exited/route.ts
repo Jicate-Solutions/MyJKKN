@@ -1,0 +1,613 @@
+// ============================================
+// BULK EDIT ACTIVE LEARNERS API
+// ============================================
+// Created: 2025-01-22
+// Updated: 2025-01-22 - Changed to work with ACTIVE learners
+// Purpose: Update existing active learners from uploaded Excel
+// Endpoint: POST /api/learners/bulk-edit-exited
+// Note: Despite endpoint name, this now works with ACTIVE learners
+// ============================================
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
+import { LearnerValidationService } from '@/lib/services/learner-validation-service';
+import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import { NameToIdResolver } from '@/lib/services/name-to-id-resolver';
+
+
+/**
+ * Column mapping for bulk edit template - ALL FIELDS
+ */
+const COLUMN_MAPPING: Record<string, string[]> = {
+  // REQUIRED: ID for matching
+  'id': ['ID*', 'ID', 'id', 'learner_id'],
+
+  // SECTION 1: Basic Details
+  'first_name': ['First Name', 'first_name', 'firstname'],
+  'last_name': ['Last Name', 'last_name', 'lastname'],
+  'date_of_birth': ['Date of Birth', 'DOB', 'date_of_birth', 'dob'],
+  'gender': ['Gender', 'gender'],
+  'religion': ['Religion', 'religion'],
+  'community': ['Community', 'community'],
+  'caste': ['Caste', 'caste'],
+  'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
+  'blood_group': ['Blood Group', 'blood_group'],
+  'admission_year': ['Admission Year', 'admission_year'],
+
+  // SECTION 2: Parent/Guardian Information
+  'father_name': ['Father Name', 'father_name', 'fathername'],
+  'father_occupation': ['Father Occupation', 'father_occupation'],
+  'father_mobile': ['Father Mobile', 'father_mobile'],
+  'mother_name': ['Mother Name', 'mother_name', 'mothername'],
+  'mother_occupation': ['Mother Occupation', 'mother_occupation'],
+  'mother_mobile': ['Mother Mobile', 'mother_mobile'],
+  'annual_income': ['Annual Income', 'annual_income'],
+
+  // SECTION 3: Academic Assignment (accepts both names and IDs)
+  'institution_name': ['Institution', 'institution', 'institution_name'],
+  'degree_name': ['Degree', 'degree', 'degree_name'],
+  'department_name': ['Department', 'department', 'department_name'],
+  'program_name': ['Program', 'program', 'program_name'],
+  'semester_name': ['Semester', 'semester', 'semester_name'],
+  'section_name': ['Section', 'section', 'section_name'],
+  'academic_year_name': ['Academic Year', 'academic_year', 'academic_year_name'],
+  'regulation_name': ['Regulation', 'regulation', 'regulation_name'],
+  'batch_name': ['Batch', 'batch', 'batch_name'],
+  // Legacy support for ID-based columns
+  'degree_id': ['Degree ID', 'degree_id'],
+  'department_id': ['Department ID', 'department_id'],
+  'program_id': ['Program ID', 'program_id'],
+  'semester_id': ['Semester ID', 'semester_id'],
+  'section_id': ['Section ID', 'section_id'],
+  'academic_year_id': ['Academic Year ID', 'academic_year_id'],
+  'regulation_id': ['Regulation ID', 'regulation_id'],
+  'batch_id': ['Batch ID', 'batch_id'],
+
+  // SECTION 4: Contact Details
+  'mobile': ['Student Mobile', 'Mobile', 'mobile', 'student_mobile'],
+  'college_email': ['College Email', 'college_email', 'email'],
+  'student_email': ['Personal Email', 'Student Email', 'student_email', 'personal_email'],
+
+  // SECTION 5: Address Information
+  'permanent_address_street': ['Permanent Address Street', 'permanent_address_street', 'address_street'],
+  'permanent_address_taluk': ['Permanent Address Taluk', 'permanent_address_taluk', 'taluk'],
+  'permanent_address_district': ['Permanent Address District', 'permanent_address_district', 'district'],
+  'permanent_address_pin_code': ['Permanent Address Pin Code', 'permanent_address_pin_code', 'pincode', 'pin'],
+  'permanent_address_state': ['Permanent Address State', 'permanent_address_state', 'state'],
+
+  // SECTION 6: Entry Type
+  'entry_type': ['Entry Type', 'entry_type'],
+  'scholarship_type': ['Scholarship Type', 'scholarship_type'],
+
+  // SECTION 7: Previous Education
+  'last_school': ['Last School', 'last_school'],
+  'board_of_study': ['Board of Study', 'board_of_study'],
+  'tenth_max_marks': ['10th Max Marks', 'tenth_max_marks'],
+  'tenth_obtained_marks': ['10th Obtained Marks', 'tenth_obtained_marks'],
+  'tenth_percentage': ['10th Percentage', 'tenth_percentage'],
+  'twelfth_group': ['12th Group', 'twelfth_group'],
+  'twelfth_max_marks': ['12th Max Marks', 'twelfth_max_marks'],
+  'twelfth_obtained_marks': ['12th Obtained Marks', 'twelfth_obtained_marks'],
+  'twelfth_percentage': ['12th Percentage', 'twelfth_percentage'],
+
+  // SECTION 8: Entrance Exam Details
+  'medical_cutoff_marks': ['Medical Cutoff Marks', 'medical_cutoff_marks'],
+  'engineering_cutoff_marks': ['Engineering Cutoff Marks', 'engineering_cutoff_marks'],
+  'neet_roll_number': ['NEET Roll Number', 'neet_roll_number'],
+  'neet_score': ['NEET Score', 'neet_score'],
+  'counseling_applied': ['Counseling Applied', 'counseling_applied'],
+  'counseling_number': ['Counseling Number', 'counseling_number'],
+
+  // SECTION 9: Accommodation Details
+  'accommodation_type': ['Accommodation Type', 'accommodation_type'],
+  'hostel_type': ['Hostel Type', 'hostel_type'],
+  'food_type': ['Food Type', 'food_type'],
+  // SECTION 10: Reference Information
+  'reference_type': ['Reference Type', 'reference_type'],
+  'reference_name': ['Reference Name', 'reference_name'],
+  'reference_contact': ['Reference Contact', 'reference_contact'],
+
+  // SECTION 11: Student Specific
+  'roll_number': ['Roll Number', 'roll_number'],
+  'register_number': ['Register Number', 'register_number'],
+  'quota': ['Quota', 'quota'],
+  'category': ['Category', 'category'],
+  'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
+};
+
+/**
+ * POST /api/learners/bulk-edit-exited
+ * Upload Excel file with updated exited learner data
+ */
+export async function POST(request: NextRequest) {
+  try {
+    // 1. Authenticate user
+    const supabase = await createServerSupabaseClient();
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Unauthorized'
+        },
+        { status: 401 }
+      );
+    }
+
+    // 2. Check permissions
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, role, is_super_admin, institution_id')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profileData) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Failed to fetch user profile'
+        },
+        { status: 500 }
+      );
+    }
+
+    const profile = profileData as {
+      id: string;
+      role: string;
+      is_super_admin: boolean | null;
+      institution_id: string | null;
+    };
+
+    // Get user's role permissions
+    const { data: roleData, error: roleError } = await supabase
+      .from('custom_roles')
+      .select('permissions')
+      .eq('role_key', profile.role)
+      .single();
+
+    if (roleError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Failed to fetch role permissions'
+        },
+        { status: 500 }
+      );
+    }
+
+    const rolePermissions = roleData as {
+      permissions: Record<string, boolean>;
+    } | null;
+
+    // Check for bulk edit permission
+    const permissions = rolePermissions?.permissions || {};
+    const hasPermission =
+      permissions['all'] === true ||
+      permissions['learners.profiles.bulk_edit'] === true ||
+      permissions['learners.edit'] === true ||
+      profile.is_super_admin;
+
+    if (!hasPermission) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'You do not have permission to bulk edit active learners'
+        },
+        { status: 403 }
+      );
+    }
+
+    // 3. Parse file from form data
+    const formData = await request.formData();
+    const file = formData.get('file') as File;
+
+    if (!file) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'No file provided'
+        },
+        { status: 400 }
+      );
+    }
+
+    // 4. Parse Excel file
+    const parseResult = await parseExcelFile(file, 'Active Learners');
+
+    if (parseResult.errors.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: parseResult.errors.join(', ')
+        },
+        { status: 400 }
+      );
+    }
+
+    if (parseResult.totalRows === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'No data found in file'
+        },
+        { status: 400 }
+      );
+    }
+
+    // 5. Map and validate rows
+    const bulkEditRows: BulkEditRow[] = [];
+
+    for (const parsedRow of parseResult.rows) {
+      // Map columns
+      const mappedData = mapColumns(parsedRow.data, COLUMN_MAPPING);
+
+      // Sanitize values (only non-empty values)
+      const sanitizedData: any = {
+        id: mappedData.id, // Always required
+      };
+
+      // SECTION 1: Basic Details
+      if (mappedData.first_name) {
+        sanitizedData.first_name = sanitizeValue(mappedData.first_name, 'text');
+      }
+      if (mappedData.last_name) {
+        sanitizedData.last_name = sanitizeValue(mappedData.last_name, 'text');
+      }
+      if (mappedData.date_of_birth) {
+        sanitizedData.date_of_birth = sanitizeValue(mappedData.date_of_birth, 'date');
+      }
+      if (mappedData.gender) {
+        sanitizedData.gender = sanitizeValue(mappedData.gender, 'text');
+      }
+      if (mappedData.religion) {
+        sanitizedData.religion = sanitizeValue(mappedData.religion, 'text');
+      }
+      if (mappedData.community) {
+        sanitizedData.community = sanitizeValue(mappedData.community, 'text');
+      }
+      if (mappedData.caste) {
+        sanitizedData.caste = sanitizeValue(mappedData.caste, 'text');
+      }
+      if (mappedData.aadhar_number) {
+        sanitizedData.aadhar_number = sanitizeValue(mappedData.aadhar_number, 'mobile');
+      }
+      if (mappedData.blood_group) {
+        sanitizedData.blood_group = sanitizeValue(mappedData.blood_group, 'text');
+      }
+      if (mappedData.admission_year) {
+        sanitizedData.admission_year = mappedData.admission_year;
+      }
+
+      // SECTION 2: Parent/Guardian Information
+      if (mappedData.father_name) {
+        sanitizedData.father_name = sanitizeValue(mappedData.father_name, 'text');
+      }
+      if (mappedData.father_occupation) {
+        sanitizedData.father_occupation = sanitizeValue(mappedData.father_occupation, 'text');
+      }
+      if (mappedData.father_mobile) {
+        sanitizedData.father_mobile = sanitizeValue(mappedData.father_mobile, 'mobile');
+      }
+      if (mappedData.mother_name) {
+        sanitizedData.mother_name = sanitizeValue(mappedData.mother_name, 'text');
+      }
+      if (mappedData.mother_occupation) {
+        sanitizedData.mother_occupation = sanitizeValue(mappedData.mother_occupation, 'text');
+      }
+      if (mappedData.mother_mobile) {
+        sanitizedData.mother_mobile = sanitizeValue(mappedData.mother_mobile, 'mobile');
+      }
+      if (mappedData.annual_income) {
+        sanitizedData.annual_income = mappedData.annual_income;
+      }
+
+      // SECTION 3: Academic Assignment
+      // NOTE: We now support BOTH name-based and ID-based columns
+      // Priority: If ID is provided directly, use it. Otherwise, resolve name to ID.
+
+      // Institution (resolve name to ID if needed)
+      if (mappedData.institution_name && !mappedData.institution_id) {
+        const instResult = await NameToIdResolver.resolveInstitutionId(mappedData.institution_name);
+        if (instResult.found && instResult.id) {
+          // Note: Institution ID should not be changed via bulk edit for security
+          // This is just for reference/validation
+        }
+      }
+
+      // Degree (resolve name to ID if name provided)
+      if (mappedData.degree_name && !mappedData.degree_id) {
+        const degreeResult = await NameToIdResolver.resolveDegreeId(
+          mappedData.degree_name,
+          profile.institution_id || undefined
+        );
+        if (degreeResult.found && degreeResult.id) {
+          sanitizedData.degree_id = degreeResult.id;
+        } else if (degreeResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${degreeResult.error}`);
+        }
+      } else if (mappedData.degree_id) {
+        sanitizedData.degree_id = mappedData.degree_id;
+      }
+
+      // Department (resolve name to ID if name provided)
+      if (mappedData.department_name && !mappedData.department_id) {
+        const deptResult = await NameToIdResolver.resolveDepartmentId(
+          mappedData.department_name,
+          profile.institution_id || undefined
+        );
+        if (deptResult.found && deptResult.id) {
+          sanitizedData.department_id = deptResult.id;
+        } else if (deptResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${deptResult.error}`);
+        }
+      } else if (mappedData.department_id) {
+        sanitizedData.department_id = mappedData.department_id;
+      }
+
+      // Program (resolve name to ID if name provided)
+      if (mappedData.program_name && !mappedData.program_id) {
+        const progResult = await NameToIdResolver.resolveProgramId(
+          mappedData.program_name,
+          profile.institution_id || undefined,
+          sanitizedData.department_id
+        );
+        if (progResult.found && progResult.id) {
+          sanitizedData.program_id = progResult.id;
+        } else if (progResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${progResult.error}`);
+        }
+      } else if (mappedData.program_id) {
+        sanitizedData.program_id = mappedData.program_id;
+      }
+
+      // Semester (resolve name to ID if name provided)
+      if (mappedData.semester_name && !mappedData.semester_id) {
+        const semResult = await NameToIdResolver.resolveSemesterId(
+          mappedData.semester_name,
+          profile.institution_id || undefined,
+          sanitizedData.program_id
+        );
+        if (semResult.found && semResult.id) {
+          sanitizedData.semester_id = semResult.id;
+        } else if (semResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${semResult.error}`);
+        }
+      } else if (mappedData.semester_id) {
+        sanitizedData.semester_id = mappedData.semester_id;
+      }
+
+      // Section (resolve name to ID if name provided)
+      if (mappedData.section_name && !mappedData.section_id) {
+        const secResult = await NameToIdResolver.resolveSectionId(
+          mappedData.section_name,
+          profile.institution_id || undefined,
+          sanitizedData.semester_id
+        );
+        if (secResult.found && secResult.id) {
+          sanitizedData.section_id = secResult.id;
+        } else if (secResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${secResult.error}`);
+        }
+      } else if (mappedData.section_id) {
+        sanitizedData.section_id = mappedData.section_id;
+      }
+
+      // Academic Year (resolve name to ID if name provided)
+      if (mappedData.academic_year_name && !mappedData.academic_year_id) {
+        const yearResult = await NameToIdResolver.resolveAcademicYearId(
+          mappedData.academic_year_name,
+          profile.institution_id || undefined
+        );
+        if (yearResult.found && yearResult.id) {
+          sanitizedData.academic_year_id = yearResult.id;
+        } else if (yearResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${yearResult.error}`);
+        }
+      } else if (mappedData.academic_year_id) {
+        sanitizedData.academic_year_id = mappedData.academic_year_id;
+      }
+
+      // Regulation (resolve name to ID if name provided)
+      if (mappedData.regulation_name && !mappedData.regulation_id) {
+        const regResult = await NameToIdResolver.resolveRegulationId(
+          mappedData.regulation_name,
+          profile.institution_id || undefined
+        );
+        if (regResult.found && regResult.id) {
+          sanitizedData.regulation_id = regResult.id;
+        } else if (regResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${regResult.error}`);
+        }
+      } else if (mappedData.regulation_id) {
+        sanitizedData.regulation_id = mappedData.regulation_id;
+      }
+
+      // Batch (resolve name to ID if name provided)
+      if (mappedData.batch_name && !mappedData.batch_id) {
+        const batchResult = await NameToIdResolver.resolveBatchId(
+          mappedData.batch_name,
+          profile.institution_id || undefined
+        );
+        if (batchResult.found && batchResult.id) {
+          sanitizedData.batch_id = batchResult.id;
+        } else if (batchResult.error) {
+          console.warn(`[bulk-edit] Row ${parsedRow.rowNumber}: ${batchResult.error}`);
+        }
+      } else if (mappedData.batch_id) {
+        sanitizedData.batch_id = mappedData.batch_id;
+      }
+
+      // SECTION 4: Contact Details
+      if (mappedData.mobile) {
+        sanitizedData.mobile = sanitizeValue(mappedData.mobile, 'mobile');
+      }
+      if (mappedData.college_email) {
+        sanitizedData.college_email = sanitizeValue(mappedData.college_email, 'email');
+      }
+      if (mappedData.student_email) {
+        sanitizedData.student_email = sanitizeValue(mappedData.student_email, 'email');
+      }
+
+      // SECTION 5: Address Information
+      if (mappedData.permanent_address_street) {
+        sanitizedData.permanent_address_street = sanitizeValue(mappedData.permanent_address_street, 'text');
+      }
+      if (mappedData.permanent_address_taluk) {
+        sanitizedData.permanent_address_taluk = sanitizeValue(mappedData.permanent_address_taluk, 'text');
+      }
+      if (mappedData.permanent_address_district) {
+        sanitizedData.permanent_address_district = sanitizeValue(mappedData.permanent_address_district, 'text');
+      }
+      if (mappedData.permanent_address_pin_code) {
+        sanitizedData.permanent_address_pin_code = sanitizeValue(mappedData.permanent_address_pin_code, 'mobile');
+      }
+      if (mappedData.permanent_address_state) {
+        sanitizedData.permanent_address_state = sanitizeValue(mappedData.permanent_address_state, 'text');
+      }
+
+      // SECTION 6: Entry Type
+      if (mappedData.entry_type) {
+        sanitizedData.entry_type = sanitizeValue(mappedData.entry_type, 'text');
+      }
+      if (mappedData.scholarship_type) {
+        // Keep as string, validate against allowed values
+        const val = String(mappedData.scholarship_type).toUpperCase().trim();
+        const validTypes = ['FIRST GRADUATE', 'PMS SCHOLARSHIP', '7.5% SCHOLARSHIP', 'NOT APPLICABLE'];
+        sanitizedData.scholarship_type = validTypes.includes(val) ? val : null;
+      }
+
+      // SECTION 7: Previous Education
+      if (mappedData.last_school) {
+        sanitizedData.last_school = sanitizeValue(mappedData.last_school, 'text');
+      }
+      if (mappedData.board_of_study) {
+        sanitizedData.board_of_study = sanitizeValue(mappedData.board_of_study, 'text');
+      }
+
+      // 10th marks (nested object)
+      if (mappedData.tenth_max_marks || mappedData.tenth_obtained_marks || mappedData.tenth_percentage) {
+        sanitizedData.tenth_marks = sanitizedData.tenth_marks || {};
+        if (mappedData.tenth_max_marks) {
+          sanitizedData.tenth_marks.max_marks = Number(mappedData.tenth_max_marks);
+        }
+        if (mappedData.tenth_obtained_marks) {
+          sanitizedData.tenth_marks.obtained_marks = Number(mappedData.tenth_obtained_marks);
+        }
+        if (mappedData.tenth_percentage) {
+          sanitizedData.tenth_marks.percentage = Number(mappedData.tenth_percentage);
+        }
+      }
+
+      // 12th marks (nested object)
+      if (mappedData.twelfth_group || mappedData.twelfth_max_marks || mappedData.twelfth_obtained_marks || mappedData.twelfth_percentage) {
+        sanitizedData.twelfth_marks = sanitizedData.twelfth_marks || {};
+        if (mappedData.twelfth_group) {
+          sanitizedData.twelfth_marks.group = sanitizeValue(mappedData.twelfth_group, 'text');
+        }
+        if (mappedData.twelfth_max_marks) {
+          sanitizedData.twelfth_marks.max_marks = Number(mappedData.twelfth_max_marks);
+        }
+        if (mappedData.twelfth_obtained_marks) {
+          sanitizedData.twelfth_marks.obtained_marks = Number(mappedData.twelfth_obtained_marks);
+        }
+        if (mappedData.twelfth_percentage) {
+          sanitizedData.twelfth_marks.percentage = Number(mappedData.twelfth_percentage);
+        }
+      }
+
+      // SECTION 8: Entrance Exam Details
+      if (mappedData.medical_cutoff_marks) {
+        sanitizedData.medical_cutoff_marks = Number(mappedData.medical_cutoff_marks);
+      }
+      if (mappedData.engineering_cutoff_marks) {
+        sanitizedData.engineering_cutoff_marks = Number(mappedData.engineering_cutoff_marks);
+      }
+      if (mappedData.neet_roll_number) {
+        sanitizedData.neet_roll_number = sanitizeValue(mappedData.neet_roll_number, 'text');
+      }
+      if (mappedData.neet_score) {
+        sanitizedData.neet_score = Number(mappedData.neet_score);
+      }
+      if (mappedData.counseling_applied !== undefined) {
+        const val = String(mappedData.counseling_applied).toUpperCase();
+        sanitizedData.counseling_applied = val === 'TRUE' || val === '1' || val === 'YES';
+      }
+      if (mappedData.counseling_number) {
+        sanitizedData.counseling_number = sanitizeValue(mappedData.counseling_number, 'text');
+      }
+
+      // SECTION 9: Accommodation Details
+      if (mappedData.accommodation_type) {
+        sanitizedData.accommodation_type = sanitizeValue(mappedData.accommodation_type, 'text');
+      }
+      if (mappedData.hostel_type) {
+        sanitizedData.hostel_type = sanitizeValue(mappedData.hostel_type, 'text');
+      }
+      if (mappedData.food_type) {
+        sanitizedData.food_type = sanitizeValue(mappedData.food_type, 'text');
+      }
+      // SECTION 10: Reference Information
+      if (mappedData.reference_type) {
+        sanitizedData.reference_type = sanitizeValue(mappedData.reference_type, 'text');
+      }
+      if (mappedData.reference_name) {
+        sanitizedData.reference_name = sanitizeValue(mappedData.reference_name, 'text');
+      }
+      if (mappedData.reference_contact) {
+        sanitizedData.reference_contact = sanitizeValue(mappedData.reference_contact, 'mobile');
+      }
+
+      // SECTION 11: Student Specific
+      if (mappedData.roll_number) {
+        sanitizedData.roll_number = sanitizeValue(mappedData.roll_number, 'text');
+      }
+      if (mappedData.register_number) {
+        sanitizedData.register_number = sanitizeValue(mappedData.register_number, 'text');
+      }
+      if (mappedData.quota) {
+        sanitizedData.quota = sanitizeValue(mappedData.quota, 'text');
+      }
+      if (mappedData.category) {
+        sanitizedData.category = sanitizeValue(mappedData.category, 'text');
+      }
+      if (mappedData.student_photo_url) {
+        sanitizedData.student_photo_url = mappedData.student_photo_url;
+      }
+
+      // Validate row
+      const validation = LearnerValidationService.validateBulkEditExited(sanitizedData);
+
+      bulkEditRows.push({
+        rowNumber: parsedRow.rowNumber,
+        data: sanitizedData,
+        validation
+      });
+    }
+
+    // 6. Process bulk edit
+    const result = await BulkLearnerEditService.processBulkEdit(
+      bulkEditRows,
+      profile.institution_id || undefined,
+      !!profile.is_super_admin,
+      user.id
+    );
+
+    // 7. Return result
+    return NextResponse.json(result);
+
+  } catch (error) {
+    console.error('[api/learners/bulk-edit-exited] Error:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'An internal server error occurred.'
+      },
+      { status: 500 }
+    );
+  }
+}

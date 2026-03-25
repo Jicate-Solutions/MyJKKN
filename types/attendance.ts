@@ -1,0 +1,696 @@
+// types/attendance.ts
+
+// Authorization types for attendance marking
+export type AttendanceAuthorizationType =
+  | 'super_admin'
+  | 'admin'
+  | 'hod_department'
+  | 'assigned_faculty'
+  | 'permission_based';
+
+// Simplified student interface for attendance purposes
+export interface AttendanceStudent {
+  id: string;
+  student_name: string;
+  roll_number?: string;
+  student_photo_url?: string;
+  institution_id: string;
+  degree_id?: string;
+  program_id?: string;
+  department_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  status: string;
+}
+
+// New consolidated attendance types for JSONB structure
+// Updated: 2025-10-08 - Added section_id for historical accuracy
+export interface ConsolidatedAttendanceStudent {
+  student_id: string;
+  section_id: string; // Stores section at time of marking - preserves history
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
+  marked_at: string;
+}
+
+export interface ConsolidatedAttendancePeriod {
+  period_id: string;
+  period_name: string;
+  start_time: string;
+  end_time: string;
+  course_id: string;
+  course_name: string;
+  students: ConsolidatedAttendanceStudent[];
+  // Faculty information - can be single or multiple
+  assigned_faculty?: {
+    faculty_id: string;
+    faculty_name: string;
+    faculty_email: string;
+  } | Array<{
+    faculty_id: string;
+    faculty_name: string;
+    faculty_email: string;
+    is_primary?: boolean;
+  }>;
+  // Marker information
+  marked_by_details?: {
+    marker_id: string;
+    marker_name: string;
+    marker_role: string;
+    marker_email: string;
+    marked_at: string; // ISO timestamp when the period was marked
+    authorization_type?: AttendanceAuthorizationType; // How the marker was authorized
+  };
+}
+
+export interface ConsolidatedAttendanceData {
+  [timetable_slot_id: string]: ConsolidatedAttendancePeriod;
+}
+
+// Legacy individual student attendance record (kept for backward compatibility)
+export interface StudentAttendance {
+  id: string;
+  student_id: string;
+  timetable_slot_id: string;
+  attendance_date: string; // YYYY-MM-DD format
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
+  marked_by: string;
+  institution_id: string;
+  created_at: string;
+  updated_at: string;
+
+  // Relations
+  student?: {
+    id: string;
+    student_name: string;
+    roll_number?: string;
+  };
+  timetable_slot?: {
+    id: string;
+    day_of_week: string;
+    period?: {
+      id: string;
+      period_name: string;
+      start_time: string;
+      end_time: string;
+    };
+    course?: {
+      id: string;
+      course_name: string;
+      course_code: string;
+    };
+  };
+  marked_by_user?: {
+    id: string;
+    email: string;
+    full_name?: string;
+  };
+  institution?: {
+    id: string;
+    name: string;
+  };
+}
+
+// New consolidated attendance record structure
+export interface ConsolidatedStudentAttendance {
+  id: string;
+  timetable_id: string;
+  section_id: string;
+  attendance_date: string; // YYYY-MM-DD format
+  attendance_data: ConsolidatedAttendanceData;
+  marked_by: string;
+  institution_id: string;
+  created_at: string;
+  updated_at: string;
+
+  // Relations
+  timetable?: {
+    id: string;
+    timetable_name: string;
+    semester: string;
+    section?: string;
+  };
+  section?: {
+    id: string;
+    section_name: string;
+  };
+  marked_by_profile?: {
+    id: string;
+    email: string;
+    full_name?: string;
+  };
+  institution?: {
+    id: string;
+    name: string;
+  };
+}
+
+export interface CreateStudentAttendanceDto {
+  student_id: string;
+  timetable_slot_id: string;
+  attendance_date: string;
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
+  marked_by: string;
+  institution_id: string;
+}
+
+export interface UpdateStudentAttendanceDto {
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
+  marked_by: string;
+}
+
+export interface BatchUpdateAttendanceDto {
+  records: CreateStudentAttendanceDto[];
+}
+
+// New DTOs for consolidated attendance
+export interface CreateConsolidatedAttendanceDto {
+  timetable_id: string;
+  section_id: string;
+  attendance_date: string;
+  attendance_data: ConsolidatedAttendanceData;
+  marked_by: string;
+  institution_id: string;
+}
+
+export interface UpdateConsolidatedAttendanceDto {
+  attendance_data: ConsolidatedAttendanceData;
+  marked_by: string;
+}
+
+export interface UpsertConsolidatedAttendanceDto {
+  timetable_id: string;
+  section_id: string;
+  attendance_date: string;
+  attendance_data: ConsolidatedAttendanceData;
+  marked_by: string;
+  institution_id: string;
+  // Updated: 2025-10-09 - Added section_ids array for multi-section support
+  section_ids?: string[]; // Array of all section IDs for multi-section timetables
+  // Academic hierarchy fields
+  academic_year_id?: string;
+  degree_id?: string;
+  program_id?: string;
+  department_id?: string;
+  semester_id?: string;
+  // Optional fields for edit mode audit trail (added 2026-03-20)
+  is_edit_mode?: boolean;
+  period_id_being_edited?: string;
+  editor_profile?: {
+    id: string;
+    full_name: string;
+    role: string;
+  };
+}
+
+export interface AttendanceFilters {
+  institution_id?: string;
+  academic_year_id?: string;
+  degree_id?: string;
+  program_id?: string;
+  department_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  attendance_date?: string;
+  timetable_slot_id?: string;
+  status?: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
+  page?: number;
+  limit?: number;
+}
+
+export interface AttendanceListResponse {
+  data: StudentAttendance[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// For the attendance roster view
+export interface AttendanceRosterStudent {
+  id: string;
+  first_name: string;
+  last_name?: string;
+  roll_number?: string;
+  student_photo_url?: string;
+  status: 'Present' | 'Absent' | 'OnDuty'; // Updated: 2026-01-28 - Added OnDuty for leave/onduty integration
+  attendance_id?: string; // If attendance record exists
+  section?: {
+    id: string;
+    section_name: string;
+  };
+}
+
+export interface AttendanceRosterData {
+  students: AttendanceRosterStudent[];
+  timetable_slot: {
+    id: string;
+    day_of_week: string;
+    period: {
+      id: string;
+      period_name: string;
+      start_time: string;
+      end_time: string;
+    };
+    course?: {
+      id: string;
+      course_name: string;
+      course_code: string;
+    };
+  };
+  attendance_date: string;
+}
+
+// For the search context
+export interface AttendanceSearchContext {
+  institution_id: string | null;
+  academic_year_id: string | null;
+  degree_id: string | null;
+  program_id: string | null;
+  department_id: string | null;
+  semester_id: string | null;
+  section_id: string | null;
+  attendance_date: string | null;
+}
+
+// For period selection in attendance roster
+export interface StaffMember {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+export interface AttendancePeriodOption {
+  id: string;
+  period_name: string;
+  start_time: string;
+  end_time: string;
+  timetable_slot_id: string;
+  timetable_id: string; // Add timetable_id
+  period_type?: string;
+  course?: {
+    id: string;
+    course_name: string;
+    course_code: string;
+  };
+  sections?: {
+    id: string;
+    name?: string; // For compatibility with semester-level timetables (may use 'name')
+    section_name?: string; // For section-level timetables (actual database field)
+  }[];
+  section_ids?: string[]; // Add section_ids array from timetable data
+  staff?: StaffMember; // Legacy single staff member
+  staff_members?: StaffMember[]; // Array of assigned staff members
+
+  // Additional display fields (optional)
+  degree_name?: string;
+  program_name?: string;
+  department_name?: string;
+  semester_name?: string;
+  section_name?: string;
+
+  // Updated: 2025-12-17 - Added for leave-attendance integration
+  institution_id?: string;
+  department_id?: string;
+  semester_id?: string;
+
+  // Updated: 2026-02-06 - Added for dual-mode period system (practical periods support)
+  period_mode?: 'standard' | 'practical';
+  practical_config?: any; // PracticalConfig from academics.ts - available courses/batches for runtime selection
+}
+
+// =====================================================
+// ATTENDANCE CONSOLIDATION REPORT TYPES
+// =====================================================
+// Created: 2026-01-23
+// Purpose: Types for institution-wide attendance consolidation reports
+
+export type ReportStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type ReportFormat = 'pdf' | 'excel' | 'csv';
+export type GroupByType = 'program' | 'semester' | 'section' | 'student';
+
+// Report Parameters
+export interface ConsolidationReportParams {
+  dateFrom: string; // YYYY-MM-DD
+  dateTo: string; // YYYY-MM-DD
+  programs?: string[]; // Program IDs to include
+  semesters?: string[]; // Semester IDs to include
+  sections?: string[]; // Section IDs to include
+  students?: string[]; // Student IDs to include (for specific student reports)
+  groupBy: GroupByType; // How to group the data
+  includeAbsentDetails?: boolean; // Include detailed absent records
+  includePeriodBreakdown?: boolean; // Include period-wise breakdown
+  [key: string]: any; // Allow arbitrary keys for JSON compatibility
+}
+
+// Student Attendance Summary
+export interface StudentAttendanceSummary {
+  studentId: string;
+  studentName: string;
+  rollNumber?: string;
+  // Section info
+  sectionId?: string;
+  sectionName?: string;
+  // Hierarchy info for detailed reports
+  degreeName?: string;
+  degreeCode?: string;
+  departmentName?: string;
+  departmentCode?: string;
+  programName?: string;
+  programCode?: string;
+  semesterName?: string;
+  semesterNumber?: number;
+  // Attendance stats
+  totalWorkingDays: number;
+  totalPresent: number;
+  totalAbsent: number;
+  attendancePercentage: number;
+  absentDates?: string[]; // List of dates when absent (if includeAbsentDetails = true)
+  periodBreakdown?: {
+    // Period-wise attendance (if includePeriodBreakdown = true)
+    periodId: string;
+    periodName: string;
+    present: number;
+    absent: number;
+    percentage: number;
+  }[];
+}
+
+// Group Summary
+export interface GroupAttendanceSummary {
+  groupName: string; // Program name, Semester name, Section name, etc.
+  groupId: string;
+  groupType: GroupByType;
+  totalStudents: number;
+  totalWorkingDays: number;
+  averageAttendance: number;
+  totalPresent: number;
+  totalAbsent: number;
+  students: StudentAttendanceSummary[]; // Student-level details
+}
+
+// Overall Report Summary
+export interface ReportSummary {
+  totalStudents: number;
+  totalWorkingDays: number;
+  averageAttendance: number;
+  totalPresent: number;
+  totalAbsent: number;
+  dateRange: {
+    from: string;
+    to: string;
+  };
+}
+
+// Complete Report Data
+export interface ConsolidationReportData {
+  summary: ReportSummary;
+  groups: GroupAttendanceSummary[];
+}
+
+// Main Consolidation Report Model
+export interface AttendanceConsolidationReport {
+  id: string;
+  reportName: string;
+  reportDescription?: string;
+  institutionId: string;
+  generatedBy: string;
+  reportParams: ConsolidationReportParams;
+  reportData?: ConsolidationReportData;
+  status: ReportStatus;
+  format: ReportFormat;
+  fileUrl?: string;
+  fileSize?: number;
+  errorMessage?: string;
+  retryCount: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  isDeleted: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
+
+  // Relations (populated on demand)
+  institution?: {
+    id: string;
+    name: string;
+  };
+  generatedByProfile?: {
+    id: string;
+    email: string;
+    fullName?: string;
+  };
+}
+
+// DTOs for creating reports
+export interface CreateConsolidationReportDto {
+  reportName: string;
+  reportDescription?: string;
+  institutionId: string;
+  reportParams: ConsolidationReportParams;
+  format?: ReportFormat; // Defaults to 'pdf'
+}
+
+// DTOs for updating reports
+export interface UpdateConsolidationReportDto {
+  reportName?: string;
+  reportDescription?: string;
+  status?: ReportStatus;
+  reportData?: ConsolidationReportData;
+  fileUrl?: string;
+  fileSize?: number;
+  errorMessage?: string;
+  completedAt?: string;
+}
+
+// Filters for listing reports
+export interface ConsolidationReportFilters {
+  institutionId?: string;
+  generatedBy?: string;
+  status?: ReportStatus;
+  dateFrom?: string; // Filter by created_at
+  dateTo?: string;
+  page?: number;
+  limit?: number;
+}
+
+// List Response
+export interface ConsolidationReportListResponse {
+  data: AttendanceConsolidationReport[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// =====================================================
+// ONDUTY STATUS SUPPORT
+// =====================================================
+// Created: 2026-01-28
+// Purpose: Helper types and utilities for OnDuty attendance status
+
+/**
+ * Attendance status type with OnDuty support
+ */
+export type AttendanceStatus = 'Present' | 'Absent' | 'OnDuty';
+
+/**
+ * Attendance statistics with OnDuty breakdown
+ */
+export interface AttendanceStatistics {
+  total_periods: number;
+  present: number;
+  absent: number;
+  onduty: number;
+  total_present_including_onduty: number; // Present + OnDuty (counts as present)
+  attendance_percentage: number; // (Present + OnDuty) / Total * 100
+}
+
+/**
+ * Helper function to calculate attendance statistics
+ * OnDuty is counted as Present for percentage calculations
+ */
+export function calculateAttendanceStatistics(
+  attendance: ConsolidatedAttendanceStudent[]
+): AttendanceStatistics {
+  const stats = {
+    total_periods: attendance.length,
+    present: attendance.filter((a) => a.status === 'Present').length,
+    absent: attendance.filter((a) => a.status === 'Absent').length,
+    onduty: attendance.filter((a) => a.status === 'OnDuty').length,
+    total_present_including_onduty: 0,
+    attendance_percentage: 0,
+  };
+
+  stats.total_present_including_onduty = stats.present + stats.onduty;
+
+  if (stats.total_periods > 0) {
+    stats.attendance_percentage =
+      (stats.total_present_including_onduty / stats.total_periods) * 100;
+  }
+
+  return stats;
+}
+
+/**
+ * Helper to determine if a status counts as present
+ */
+export function countsAsPresent(status: AttendanceStatus): boolean {
+  return status === 'Present' || status === 'OnDuty';
+}
+
+// ============================================================
+// Facilitator Attendance Report Types
+// Added: 2026-03-06
+// ============================================================
+
+export interface FacilitatorTrendPoint {
+  week: string; // ISO date string (week start)
+  count: number;
+}
+
+export interface FacilitatorDailyPoint {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
+export interface FacilitatorTimetableAssignment {
+  timetableId: string;
+  timetableName: string;
+  assignedCount: number;
+  markedCount: number;
+  pendingCount: number;
+}
+
+export interface FacilitatorAttendanceStat {
+  staffId: string;
+  firstName: string;
+  lastName: string;
+  designation: string;
+  departmentName: string;
+  departmentId: string;
+  periodsMarked: number;
+  periodsAssigned: number;
+  periodsPending: number;
+  markingRate: number;
+  lastMarkedAt: string | null;
+  timetableAssignments: FacilitatorTimetableAssignment[];
+  trendData: FacilitatorTrendPoint[];
+  dailyData: FacilitatorDailyPoint[];
+}
+
+export interface FacilitatorReportSummary {
+  totalFacilitators: number;
+  totalPeriodsMarked: number;
+  totalPeriodsAssigned: number;
+  totalPeriodsPending: number;
+  avgPeriodsPerFacilitator: number;
+  overallMarkingRate: number;
+}
+
+export interface FacilitatorDepartmentBreakdown {
+  departmentId: string;
+  departmentName: string;
+  facilitatorCount: number;
+  totalMarked: number;
+  totalAssigned: number;
+  totalPending: number;
+  avgRate: number;
+}
+
+export interface FacilitatorReportFilters {
+  dateFrom: string; // YYYY-MM-DD
+  dateTo: string;   // YYYY-MM-DD
+  departmentId?: string;
+  facilitatorId?: string;
+}
+
+export interface FacilitatorReportData {
+  summary: FacilitatorReportSummary;
+  facilitators: FacilitatorAttendanceStat[];
+  departmentBreakdown: FacilitatorDepartmentBreakdown[];
+}
+
+// Raw RPC response shape (snake_case) — mapped in service layer
+export interface FacilitatorReportRaw {
+  summary: {
+    total_facilitators: number;
+    total_periods_marked: number;
+    total_periods_assigned: number;
+    total_periods_pending: number;
+    avg_periods_per_facilitator: number;
+    overall_marking_rate: number;
+  };
+  facilitators: Array<{
+    staff_id: string;
+    first_name: string;
+    last_name: string;
+    designation: string;
+    department_name: string;
+    department_id: string;
+    periods_marked: number;
+    periods_assigned: number;
+    periods_pending: number;
+    marking_rate: number;
+    last_marked_at: string | null;
+    timetable_assignments: Array<{
+      timetable_id: string;
+      timetable_name: string;
+      assigned_count: number;
+      marked_count: number;
+      pending_count: number;
+    }>;
+    trend_data: Array<{ week: string; count: number }>;
+    daily_data: Array<{ date: string; count: number }>;
+  }>;
+  department_breakdown: Array<{
+    department_id: string;
+    department_name: string;
+    facilitator_count: number;
+    total_marked: number;
+    total_assigned: number;
+    total_pending: number;
+    avg_rate: number;
+  }>;
+}
+
+// ─── Attendance Edit Audit Types ──────────────────────────────────────────────
+// Added: 2026-03-20 — Supports attendance edit feature + audit trail
+
+/**
+ * One row from attendance_audit_log, with student details joined from learners_profiles.
+ * old_status / new_status include 'OnDuty' for historical read completeness.
+ * The edit UI never produces OnDuty — use AttendanceEditDiff for UI-layer diffs.
+ * edited_by_role is INFORMATIONAL ONLY — never use for access-control logic.
+ */
+export interface AttendanceAuditEntry {
+  id: string
+  attendance_id: string
+  period_id: string
+  student_id: string
+  student_name?: string    // joined from learners_profiles.full_name
+  roll_number?: string     // joined from learners_profiles.roll_number
+  old_status: 'Present' | 'Absent' | 'OnDuty'
+  new_status: 'Present' | 'Absent' | 'OnDuty'
+  edited_by: string
+  edited_by_name: string
+  edited_by_role: string
+  edited_at: string
+  institution_id: string
+  attendance_date: string
+}
+
+/**
+ * Represents a single student's status change in the edit UI confirmation modal.
+ * Narrowed to Present | Absent only — OnDuty is leave-system controlled and
+ * is never togglable via the edit interface.
+ */
+export interface AttendanceEditDiff {
+  studentId: string
+  studentName: string
+  oldStatus: 'Present' | 'Absent'
+  newStatus: 'Present' | 'Absent'
+}

@@ -1,0 +1,408 @@
+// types/staff.ts
+
+export interface EmploymentCategory {
+  id: string;
+  category_name: string;
+  description?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+}
+
+export interface CreateEmploymentCategoryDto {
+  category_name: string;
+  description?: string;
+  is_active?: boolean;
+}
+
+export interface UpdateEmploymentCategoryDto
+  extends Partial<CreateEmploymentCategoryDto> {}
+
+export interface CategoryFilters {
+  search?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface CategoryListResponse {
+  data: EmploymentCategory[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// staff List
+
+export type Gender = 'male' | 'female' | 'bigender';
+export type MaritalStatus = 'single' | 'married' | 'divorced' | 'widow';
+export type BloodGroup =
+  | 'A+'
+  | 'A-'
+  | 'B+'
+  | 'B-'
+  | 'AB+'
+  | 'AB-'
+  | 'O+'
+  | 'O-'
+  | 'A1+'
+  | 'A1B';
+
+export interface Staff {
+  id: string;
+  first_name: string;
+  last_name: string;
+  gender: Gender;
+  date_of_birth: string;
+  marital_status: MaritalStatus;
+  blood_group?: BloodGroup;
+  email: string;
+  phone: string;
+  staff_id?: string;
+  profile_picture?: string;
+  address?: string;
+  state?: string;
+  district?: string;
+  pincode?: string;
+  date_of_joining: string;
+  designation: string;
+  institution_email: string;
+
+  // Foreign keys
+  category_id: string;
+  institution_id: string;
+  department_id: string;
+
+  // Related data
+  category?: EmploymentCategory;
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  department?: {
+    id: string;
+    department_name: string;
+  };
+
+  // Audit fields
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface CreateStaffDto {
+  first_name: string;
+  last_name: string;
+  gender: Gender;
+  date_of_birth: string;
+  marital_status: MaritalStatus;
+  blood_group?: BloodGroup;
+  email: string;
+  phone: string;
+  staff_id?: string;
+  profile_picture?: string;
+  address?: string;
+  state?: string;
+  district?: string;
+  pincode?: string;
+  date_of_joining: string;
+  designation: string;
+  category_id: string;
+  institution_id: string;
+  institution_email: string;
+  department_id: string;
+  is_active?: boolean;
+}
+
+export interface UpdateStaffDto extends Partial<CreateStaffDto> {}
+
+export interface StaffFilters {
+  search?: string;
+  search_case_sensitive?: boolean;
+  search_exact_match?: boolean;
+  search_fields?: string[];
+  category_id?: string;
+  institution_id?: string;
+  institution_email?: string;
+  department_id?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface StaffListResponse {
+  data: Staff[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// Staff Dashboard Analytics Types
+
+export interface StaffDashboardFilters {
+  dateRange?: {
+    from: Date | undefined;
+    to: Date | undefined;
+  };
+  institutionId?: string;
+  departmentId?: string;
+  categoryId?: string;
+  status?: string[];
+}
+
+export interface StaffOverviewStats {
+  totalStaff: number;
+  activeStaff: number;
+  inactiveStaff: number;
+  newHires: number; // Staff hired in the current month
+  profileCompletionRate: number;
+  averageTenure: number; // Average years of service
+  staffWithProfiles: number;
+  staffWithoutProfiles: number;
+}
+
+export interface StaffRegistrationTrend {
+  date: string;
+  count: number;
+  cumulative: number;
+}
+
+export interface StaffInstitutionStats {
+  id: string;
+  name: string;
+  staffCount: number;
+  percentage: number;
+  activeCount: number;
+  inactiveCount: number;
+}
+
+export interface StaffDepartmentStats {
+  id: string;
+  name: string;
+  institutionId: string;
+  institutionName: string;
+  staffCount: number;
+  percentage: number;
+  activeCount: number;
+  inactiveCount: number;
+}
+
+export interface StaffCategoryStats {
+  id: string;
+  name: string;
+  staffCount: number;
+  percentage: number;
+  activeCount: number;
+  inactiveCount: number;
+  averageTenure: number;
+}
+
+export interface StaffGeographicStats {
+  stateDistribution: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+  districtDistribution: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+}
+
+export interface StaffDemographicStats {
+  genderDistribution: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+  maritalStatusDistribution: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+  ageGroups: Array<{
+    name: string;
+    count: number;
+    percentage: number;
+  }>;
+}
+
+export interface StaffTenureAnalytics {
+  tenureDistribution: Array<{
+    range: string; // e.g., "0-1 years", "1-5 years", etc.
+    count: number;
+    percentage: number;
+  }>;
+  averageTenureByCategory: Array<{
+    categoryName: string;
+    averageTenure: number;
+  }>;
+  averageTenureByDepartment: Array<{
+    departmentName: string;
+    institutionName: string;
+    averageTenure: number;
+  }>;
+  newHiresTrend: Array<{
+    month: string;
+    count: number;
+  }>;
+}
+
+export interface StaffProfileAnalytics {
+  profileCompletionBreakdown: Array<{
+    field: string;
+    completedCount: number;
+    totalCount: number;
+    percentage: number;
+  }>;
+  profileCompletionByCategory: Array<{
+    categoryName: string;
+    completedCount: number;
+    totalCount: number;
+    percentage: number;
+  }>;
+  missingFields: Array<{
+    field: string;
+    missingCount: number;
+    percentage: number;
+  }>;
+}
+
+export interface StaffDashboardStats {
+  overview: StaffOverviewStats;
+  registrationTrends: StaffRegistrationTrend[];
+  institutionStats: StaffInstitutionStats[];
+  departmentStats: StaffDepartmentStats[];
+  categoryStats: StaffCategoryStats[];
+  geographicStats: StaffGeographicStats;
+  demographicStats: StaffDemographicStats;
+  tenureAnalytics: StaffTenureAnalytics;
+  profileAnalytics: StaffProfileAnalytics;
+}
+
+/**
+ * Incomplete Staff Profile Detail
+ * Individual staff member with missing field details for drill-down views
+ */
+export interface IncompleteStaffDetail {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  designation: string;
+  staff_id: string | null;
+  institution_email: string | null;
+  is_active: boolean;
+  created_at: string;
+  missingFields: string[];
+  institution_name: string | null;
+  department_name: string | null;
+  category_name: string | null;
+}
+
+/**
+ * Incomplete Staff Profiles Response
+ * Paginated response for incomplete staff profiles API
+ */
+export interface IncompleteStaffResponse {
+  profiles: IncompleteStaffDetail[];
+  total: number;
+  limit: number;
+}
+
+// =============================================
+// CLASS INCHARGES TYPES
+// Added: 2026-03-08
+// =============================================
+
+export interface ClassInchargeStaff {
+  id: string;
+  first_name: string;
+  last_name: string;
+  designation: string | null;
+  profile_picture: string | null;
+}
+
+export interface ClassIncharge {
+  id: string;
+  institution_id: string;
+  section_id: string;
+  staff_id: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  // Relations (populated via Supabase select joins)
+  staff?: ClassInchargeStaff;
+}
+
+export interface SectionWithIncharges {
+  id: string;
+  section_name: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  semester_id: string;
+  is_active: boolean;
+  // Joined relations
+  degree?: { id: string; degree_name: string };
+  department?: { id: string; department_name: string };
+  program?: { id: string; program_name: string };
+  semester?: { id: string; semester_name: string; semester_code: string };
+  // Embedded incharges
+  class_incharges?: ClassIncharge[];
+}
+
+export interface ClassInchargeFilters {
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  is_active?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface AssignInchargeDto {
+  institution_id: string;
+  section_id: string;
+  staff_id: string;
+}
+
+export interface BulkAssignInchargeDto {
+  institution_id: string;
+  section_ids: string[];
+  staff_id: string;
+}
+
+export interface BulkAssignResult {
+  assigned: number;
+  skipped: number;
+}
+
+export interface SectionWithInchargesResponse {
+  data: SectionWithIncharges[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<md:EntityDescriptor ID="https___login.mathworks.com_authngateway_saml_metadata" entityID="https://login.mathworks.com/authngateway/saml/metadata" xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"><ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><ds:SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/><ds:Reference URI="#https___login.mathworks.com_authngateway_saml_metadata"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><ds:DigestValue>hBJZ18dHnmX0HWwbSsVc+ZU4dow=</ds:DigestValue></ds:Reference></ds:SignedInfo><ds:SignatureValue>C4M2vN7KzBx6pjEgaQjsWLK4FA0ElZkOTlyNrdpOY9GSULGNN/xTWlSoQ46VbZfT2f3HuqZN24C5ztIV4h5CAssUM12piZNSqmAzARbSYveyZfSEICwEArXjyunMVdGjNg5UdDR7iUulYUsFlEJiQLB0B0pUH+7AnGu4r8yD+dr0uTVeXnxIhGDnZiiTOM2CN887BlHhWFdr3+UdvWzHUk9LMF+DnbHktQkvguKDwo+QSS0I5yQIh6GGm5UEx7bDcjDZgLnaapzej8cA7KGRCNm2bU5BT+VbTybD+rDojuKX8jyI5wKtMULzxtPw+y5i2B/xKVCiYGGAN3t71FPkWQ==</ds:SignatureValue><ds:KeyInfo><ds:X509Data><ds:X509Certificate>MIIDZTCCAk2gAwIBAgIEcjKzHTANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQGEwJVUzELMAkGA1UE
+CBMCTUExDzANBgNVBAcTBk5hdGljazESMBAGA1UEChMJTWF0aHdvcmtzMRAwDgYDVQQLEwdVbmtu
+b3duMRAwDgYDVQQDEwdVbmtub3duMB4XDTI0MDEyNTAzMjE0M1oXDTI2MTAyMTAzMjE0M1owYzEL
+MAkGA1UEBhMCVVMxCzAJBgNVBAgTAk1BMQ8wDQYDVQQHEwZOYXRpY2sxEjAQBgNVBAoTCU1hdGh3
+b3JrczEQMA4GA1UECxMHVW5rbm93bjEQMA4GA1UEAxMHVW5rbm93bjCCASIwDQYJKoZIhvcNAQEB
+BQADggEPADCCAQoCggEBALlvl+qwMEY2T5Qk3/E8ZMNUGy8SV1IZZSWcECKGUezFKO5sbSMcGyB1
+akkFUeMga6ToNuZn3p5B4P1g34bLVc7RaICgCBh9+w8TBcHtBVJxsAZyn2Nc0CFWB6mt8yvxUS7X
+AgS8sALgFYZHD5tF/187KXIZPuQryQTCOV0+FAIEw3Izq8qum9L0P8jN3KcpUj1bcIbwAJLqS8bx
+n0I/7ogryUzTUOhRsWFU+oR6FHohfN59lC/7W6YtVPE4BHUsIX7SsWktEb05CaMAJ08miNsa9kZW
+pLU+0Fo1eac0PbyIZPPENGXT2EhWkDaYpCiFplsm7dGNrZ+lvYdg+fgnHs8CAwEAAaMhMB8wHQYD
+VR0OBBYEFFzUWbPMLKPg/Oip0UjMtOifeJs4MA0GCSqGSIb3DQEBCwUAA4IBAQCPTb785X8ZpROD
+zByRidiaPyP+quS9Lb8tgkoyNAUtUBH9+6M/N9Bk0zghbCW2uFUVnrh/ZCdwrNo9v3MOnFQd/GOz
+5eAZpCzHdYvRPlPyOFRe/hNWtzmat9E9FeA1zx5gE9bxK1JorOc01A5txlf/LYUx68PWtyq7HH/6
+mCckJgwZjYaXxt8K1SobMjvizehUzqM7o9gQvxsgXV8P8IaV/cBj9R6Q8mSVgnvgP8Km3HMQf1xx
+i4iKFi3QaACFIuHGYJ6oN/cTtlcnhqam0cL2STHjW7JMhbs5dzVs7pc+VECQFGn/EGKIaFBuCmRE
+1rKSuEIOhTGlf3P3wp7Dsld5</ds:X509Certificate></ds:X509Data></ds:KeyInfo></ds:Signature><md:SPSSODescriptor AuthnRequestsSigned="true" WantAssertionsSigned="true" protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"><md:KeyDescriptor use="signing"><ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:X509Data><ds:X509Certificate>MIIDZTCCAk2gAwIBAgIEcjKzHTANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQGEwJVUzELMAkGA1UE
+CBMCTUExDzANBgNVBAcTBk5hdGljazESMBAGA1UEChMJTWF0aHdvcmtzMRAwDgYDVQQLEwdVbmtu
+b3duMRAwDgYDVQQDEwdVbmtub3duMB4XDTI0MDEyNTAzMjE0M1oXDTI2MTAyMTAzMjE0M1owYzEL
+MAkGA1UEBhMCVVMxCzAJBgNVBAgTAk1BMQ8wDQYDVQQHEwZOYXRpY2sxEjAQBgNVBAoTCU1hdGh3
+b3JrczEQMA4GA1UECxMHVW5rbm93bjEQMA4GA1UEAxMHVW5rbm93bjCCASIwDQYJKoZIhvcNAQEB
+BQADggEPADCCAQoCggEBALlvl+qwMEY2T5Qk3/E8ZMNUGy8SV1IZZSWcECKGUezFKO5sbSMcGyB1
+akkFUeMga6ToNuZn3p5B4P1g34bLVc7RaICgCBh9+w8TBcHtBVJxsAZyn2Nc0CFWB6mt8yvxUS7X
+AgS8sALgFYZHD5tF/187KXIZPuQryQTCOV0+FAIEw3Izq8qum9L0P8jN3KcpUj1bcIbwAJLqS8bx
+n0I/7ogryUzTUOhRsWFU+oR6FHohfN59lC/7W6YtVPE4BHUsIX7SsWktEb05CaMAJ08miNsa9kZW
+pLU+0Fo1eac0PbyIZPPENGXT2EhWkDaYpCiFplsm7dGNrZ+lvYdg+fgnHs8CAwEAAaMhMB8wHQYD
+VR0OBBYEFFzUWbPMLKPg/Oip0UjMtOifeJs4MA0GCSqGSIb3DQEBCwUAA4IBAQCPTb785X8ZpROD
+zByRidiaPyP+quS9Lb8tgkoyNAUtUBH9+6M/N9Bk0zghbCW2uFUVnrh/ZCdwrNo9v3MOnFQd/GOz
+5eAZpCzHdYvRPlPyOFRe/hNWtzmat9E9FeA1zx5gE9bxK1JorOc01A5txlf/LYUx68PWtyq7HH/6
+mCckJgwZjYaXxt8K1SobMjvizehUzqM7o9gQvxsgXV8P8IaV/cBj9R6Q8mSVgnvgP8Km3HMQf1xx
+i4iKFi3QaACFIuHGYJ6oN/cTtlcnhqam0cL2STHjW7JMhbs5dzVs7pc+VECQFGn/EGKIaFBuCmRE
+1rKSuEIOhTGlf3P3wp7Dsld5</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor><md:KeyDescriptor use="encryption"><ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:X509Data><ds:X509Certificate>MIIDZTCCAk2gAwIBAgIEcjKzHTANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQGEwJVUzELMAkGA1UE
+CBMCTUExDzANBgNVBAcTBk5hdGljazESMBAGA1UEChMJTWF0aHdvcmtzMRAwDgYDVQQLEwdVbmtu
+b3duMRAwDgYDVQQDEwdVbmtub3duMB4XDTI0MDEyNTAzMjE0M1oXDTI2MTAyMTAzMjE0M1owYzEL
+MAkGA1UEBhMCVVMxCzAJBgNVBAgTAk1BMQ8wDQYDVQQHEwZOYXRpY2sxEjAQBgNVBAoTCU1hdGh3
+b3JrczEQMA4GA1UECxMHVW5rbm93bjEQMA4GA1UEAxMHVW5rbm93bjCCASIwDQYJKoZIhvcNAQEB
+BQADggEPADCCAQoCggEBALlvl+qwMEY2T5Qk3/E8ZMNUGy8SV1IZZSWcECKGUezFKO5sbSMcGyB1
+akkFUeMga6ToNuZn3p5B4P1g34bLVc7RaICgCBh9+w8TBcHtBVJxsAZyn2Nc0CFWB6mt8yvxUS7X
+AgS8sALgFYZHD5tF/187KXIZPuQryQTCOV0+FAIEw3Izq8qum9L0P8jN3KcpUj1bcIbwAJLqS8bx
+n0I/7ogryUzTUOhRsWFU+oR6FHohfN59lC/7W6YtVPE4BHUsIX7SsWktEb05CaMAJ08miNsa9kZW
+pLU+0Fo1eac0PbyIZPPENGXT2EhWkDaYpCiFplsm7dGNrZ+lvYdg+fgnHs8CAwEAAaMhMB8wHQYD
+VR0OBBYEFFzUWbPMLKPg/Oip0UjMtOifeJs4MA0GCSqGSIb3DQEBCwUAA4IBAQCPTb785X8ZpROD
+zByRidiaPyP+quS9Lb8tgkoyNAUtUBH9+6M/N9Bk0zghbCW2uFUVnrh/ZCdwrNo9v3MOnFQd/GOz
+5eAZpCzHdYvRPlPyOFRe/hNWtzmat9E9FeA1zx5gE9bxK1JorOc01A5txlf/LYUx68PWtyq7HH/6
+mCckJgwZjYaXxt8K1SobMjvizehUzqM7o9gQvxsgXV8P8IaV/cBj9R6Q8mSVgnvgP8Km3HMQf1xx
+i4iKFi3QaACFIuHGYJ6oN/cTtlcnhqam0cL2STHjW7JMhbs5dzVs7pc+VECQFGn/EGKIaFBuCmRE
+1rKSuEIOhTGlf3P3wp7Dsld5</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor><md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://services.mathworks.com/authngateway/saml/SingleLogout"/><md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://services.mathworks.com/authngateway/saml/SingleLogout"/><md:NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</md:NameIDFormat><md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:transient</md:NameIDFormat><md:NameIDFormat>urn:oasis:names:tc:SAML:2.0:nameid-format:persistent</md:NameIDFormat><md:NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified</md:NameIDFormat><md:NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName</md:NameIDFormat><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://services.mathworks.com/authngateway/saml/SSO" index="0" isDefault="true"/><md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Artifact" Location="https://services.mathworks.com/authngateway/saml/SSO" index="1"/></md:SPSSODescriptor></md:EntityDescriptor>

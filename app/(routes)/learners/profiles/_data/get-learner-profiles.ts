@@ -1,0 +1,285 @@
+/**
+ * Server-side data fetching for Learner Profiles
+ *
+ * This is a cached server function that fetches learner profiles data.
+ * Used by the server component to pre-render data on the server.
+ */
+
+
+
+import { createClient } from '@/lib/supabase/server';
+import { buildLearnerSearchConditions } from '@/lib/utils/learner-search';
+
+
+import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
+
+interface GetLearnerProfilesParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  search_case_sensitive?: boolean;
+  search_exact_match?: boolean;
+  search_fields?: string[];
+  lifecycle_status?: LifecycleStatus;
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  academic_year_id?: string;
+  gender?: string;
+  is_profile_complete?: boolean;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  learner_id?: string; // Added: Filter by specific learner ID (for students viewing own profile)
+}
+
+interface GetLearnerProfilesResult {
+  data: LearnerProfile[];
+  metadata: {
+    total_items: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+/**
+ * Get learner profiles with server-side caching
+ *
+ * Cache Strategy: WARM (5 minutes TTL)
+ * - Student data changes moderately (several times per hour)
+ * - Balance between freshness and performance
+ * - Cache tags allow targeted invalidation when profiles are created/updated/deleted
+ */
+// Whitelist of valid sortable columns to prevent DB errors from URL tampering
+const VALID_SORT_COLUMNS = new Set([
+  'first_name', 'last_name', 'roll_number', 'register_number',
+  'college_email', 'student_email', 'created_at', 'updated_at',
+]);
+
+const EMPTY_RESULT: GetLearnerProfilesResult = {
+  data: [],
+  metadata: { total_items: 0, page: 1, limit: 10, total_pages: 0 },
+};
+
+export async function getLearnerProfiles(
+  params: GetLearnerProfilesParams = {}
+): Promise<GetLearnerProfilesResult> {
+  try {
+  // Debug: Log all filter params received
+  if (process.env.NODE_ENV === 'development') {
+    const activeFilters = Object.entries(params).filter(([_, v]) => v !== undefined && v !== null);
+    console.log('[getLearnerProfiles] Filters received:', Object.fromEntries(activeFilters));
+  }
+
+  const supabase = await createClient();
+
+  const {
+    page = 1,
+    limit = 10,
+    search,
+    search_case_sensitive,
+    search_exact_match,
+    search_fields,
+    lifecycle_status,
+    institution_id,
+    degree_id,
+    department_id,
+    program_id,
+    semester_id,
+    section_id,
+    academic_year_id,
+    gender,
+    is_profile_complete,
+    sortBy: rawSortBy = 'first_name',
+    sortOrder = 'asc',
+    learner_id // Added: For student self-view filtering
+  } = params;
+
+  // Validate sortBy against whitelist to prevent DB errors from URL tampering
+  const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
+
+  // Build query with relations
+  let query = supabase
+    .from('learners_profiles')
+    .select(
+      `
+      *,
+      institution:institutions(id, name, counselling_code),
+      degree:degrees(id, degree_name, degree_id),
+      department:departments(id, department_name),
+      program:programs(id, program_name),
+      semester:semesters(id, semester_name, semester_code),
+      section:sections(id, section_name),
+      academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
+      regulation:regulations(id, regulation_code, regulation_year),
+      batch:batches(id, batch_name, batch_code)
+    `,
+      { count: 'exact' }
+    );
+
+  // Apply filters - Parse advanced search format
+  if (search) {
+    const searchConditions = buildLearnerSearchConditions(search, {
+      caseSensitive: search_case_sensitive,
+      exactMatch: search_exact_match,
+      searchFields: search_fields
+    });
+
+    if (searchConditions.length > 0) {
+      query = query.or(searchConditions.join(','));
+    }
+  }
+
+  if (lifecycle_status) {
+    query = query.eq('lifecycle_status', lifecycle_status);
+  }
+
+  if (institution_id) {
+    query = query.eq('institution_id', institution_id);
+  }
+
+  // Student self-view filter (highest priority - students can only see own profile)
+  if (learner_id) {
+    query = query.eq('id', learner_id);
+  }
+
+  if (degree_id) {
+    query = query.eq('degree_id', degree_id);
+  }
+
+  if (department_id) {
+    query = query.eq('department_id', department_id);
+  }
+
+  if (program_id) {
+    query = query.eq('program_id', program_id);
+  }
+
+  if (semester_id) {
+    query = query.eq('semester_id', semester_id);
+  }
+
+  if (section_id) {
+    query = query.eq('section_id', section_id);
+  }
+
+  if (academic_year_id) {
+    query = query.eq('academic_year_id', academic_year_id);
+  }
+
+  if (gender) {
+    query = query.eq('gender', gender);
+  }
+
+  if (is_profile_complete !== undefined) {
+    if (is_profile_complete === false) {
+      // Include both explicit false AND null values (treat null as incomplete)
+      query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
+    } else {
+      query = query.eq('is_profile_complete', true);
+    }
+  }
+
+  // Apply sorting
+  query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+
+  // Apply pagination
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+
+  // Execute the main query
+  const { data, error } = await query.range(from, to);
+
+  // Handle pagination range error gracefully
+  // PGRST103: "Requested range not satisfiable" - happens when offset > total rows
+  // This can occur when user navigates to page 2 but filters reduce results to 1 row
+  if (error) {
+    if (error.code === 'PGRST103') {
+      // Range not satisfiable - return empty data instead of throwing
+      // The count query below will return the correct total
+      console.warn('[getLearnerProfiles] Pagination range exceeds available rows, returning empty result');
+    } else {
+      // Other errors should still throw
+      console.error('[getLearnerProfiles] Error fetching profiles:', error);
+      throw new Error(`Failed to fetch learner profiles: ${error.message}`);
+    }
+  }
+
+  // Get accurate count with a separate simplified query
+  let countQuery = supabase
+    .from('learners_profiles')
+    .select('*', { count: 'exact', head: true });
+
+  // Apply the same filters as the main query
+  if (search) {
+    const searchConditions = buildLearnerSearchConditions(search, {
+      caseSensitive: search_case_sensitive,
+      exactMatch: search_exact_match,
+      searchFields: search_fields
+    });
+
+    if (searchConditions.length > 0) {
+      countQuery = countQuery.or(searchConditions.join(','));
+    }
+  }
+  if (lifecycle_status) {
+    countQuery = countQuery.eq('lifecycle_status', lifecycle_status);
+  }
+  if (institution_id) {
+    countQuery = countQuery.eq('institution_id', institution_id);
+  }
+  if (degree_id) {
+    countQuery = countQuery.eq('degree_id', degree_id);
+  }
+  if (department_id) {
+    countQuery = countQuery.eq('department_id', department_id);
+  }
+  if (program_id) {
+    countQuery = countQuery.eq('program_id', program_id);
+  }
+  if (semester_id) {
+    countQuery = countQuery.eq('semester_id', semester_id);
+  }
+  if (section_id) {
+    countQuery = countQuery.eq('section_id', section_id);
+  }
+  if (academic_year_id) {
+    countQuery = countQuery.eq('academic_year_id', academic_year_id);
+  }
+  if (gender) {
+    countQuery = countQuery.eq('gender', gender);
+  }
+  if (is_profile_complete !== undefined) {
+    if (is_profile_complete === false) {
+      // Include both explicit false AND null values (treat null as incomplete)
+      countQuery = countQuery.or('is_profile_complete.eq.false,is_profile_complete.is.null');
+    } else {
+      countQuery = countQuery.eq('is_profile_complete', true);
+    }
+  }
+
+  const { count, error: countError } = await countQuery;
+
+  if (countError) {
+    console.error('[getLearnerProfiles] Error fetching count:', countError);
+  }
+
+  const totalPages = count ? Math.ceil(count / limit) : 0;
+
+  return {
+    data: (data as LearnerProfile[]) || [],
+    metadata: {
+      total_items: count || 0,
+      page,
+      limit,
+      total_pages: totalPages
+    }
+  };
+  } catch (error) {
+    console.error('[getLearnerProfiles] Unexpected error, returning empty result:', error);
+    return EMPTY_RESULT;
+  }
+}

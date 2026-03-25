@@ -1,0 +1,180 @@
+'use client';
+
+import { ColumnDef } from '@tanstack/react-table';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DataTableColumnHeader } from '@/components/data-table/column-header';
+import { Timetable } from '@/types/academics';
+import { Badge } from '@/components/ui/badge';
+import { format } from 'date-fns';
+import { DataTableRowActions } from './row-actions';
+import Link from 'next/link';
+
+export const columns: ColumnDef<Timetable>[] = [
+  {
+    id: 'select',
+    enableResizing: false,
+    header: ({ table }) => (
+      <Checkbox
+        checked={table.getIsAllPageRowsSelected()}
+        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+        aria-label='Select all'
+      />
+    ),
+    cell: ({ row }) => (
+      <Checkbox
+        checked={row.getIsSelected()}
+        onCheckedChange={(value) => row.toggleSelected(!!value)}
+        aria-label='Select row'
+      />
+    ),
+    enableSorting: false,
+    enableHiding: false
+  },
+  {
+    accessorKey: 'timetable_name',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Timetable Name' />
+    ),
+    cell: ({ row }) => {
+      const timetable = row.original;
+      // FIX: 2026-02-03 - Validate timetable ID before creating link
+      // Next.js DRP (Dynamic Route Parameter) placeholders (%%drp:id:xxxx%%) can appear
+      // during client-side navigation with cacheComponents enabled
+      const isValidId = timetable.id && !timetable.id.includes('%%drp:');
+
+      if (!isValidId) {
+        // If invalid ID, show name without link
+        return (
+          <div className='font-medium text-muted-foreground' title='Loading... Please refresh the page'>
+            {timetable.timetable_name}
+          </div>
+        );
+      }
+
+      return (
+        <Link href={`/academic/timetables/${timetable.id}`}>
+          <div className='font-medium hover:text-primary hover:underline'>
+            {timetable.timetable_name}
+          </div>
+        </Link>
+      );
+    }
+  },
+  {
+    accessorKey: 'academic_year.academic_year_name',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Academic Year' />
+    ),
+    cell: ({ row }) => {
+      const timetable = row.original;
+      return timetable.academic_year?.academic_year_name || '-';
+    }
+  },
+  {
+    accessorKey: 'program.program_name',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Program' />
+    ),
+    cell: ({ row }) => {
+      const timetable = row.original;
+      return timetable.program?.program_name || '-';
+    }
+  },
+  {
+    accessorKey: 'department.department_name',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Department' />
+    ),
+    cell: ({ row }) => {
+      const timetable = row.original;
+      return timetable.department?.department_name || '-';
+    }
+  },
+  {
+    accessorFn: (row) => row.semesters?.semester_name || 'Semester',
+    id: 'semester',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Semester / Section' />
+    ),
+    cell: ({ row }) => {
+      const timetable = row.original;
+      return `${timetable.semesters?.semester_name || ''}${
+        timetable.sections?.section_name
+          ? ` / ${timetable.sections.section_name}`
+          : ''
+      }`;
+    }
+  },
+  {
+    accessorKey: 'timetable_type',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Timetable Type' />
+    ),
+    cell: ({ row }) => {
+      const timetableType = row.getValue('timetable_type') as string;
+      return (
+        <Badge
+          variant={timetableType === 'semester' ? 'default' : 'secondary'}
+          className={
+            timetableType === 'semester'
+              ? 'bg-blue-50 text-blue-700 border-blue-200'
+              : 'bg-purple-50 text-purple-700 border-purple-200'
+          }
+        >
+          {timetableType === 'semester' ? 'Semester' : 'Section'}
+        </Badge>
+      );
+    }
+  },
+  {
+    accessorKey: 'is_active',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Status' />
+    ),
+    cell: ({ row }) => {
+      const isActive = row.getValue('is_active') as boolean;
+      return (
+        <Badge
+          variant={isActive ? 'default' : 'secondary'}
+          className={
+            isActive
+              ? 'bg-green-50 text-green-700 border-green-200'
+              : 'bg-gray-50 text-gray-700 border-gray-200'
+          }
+        >
+          {isActive ? 'Active' : 'Inactive'}
+        </Badge>
+      );
+    }
+  },
+  {
+    accessorKey: 'institution.name',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Institution' />
+    ),
+    cell: ({ row }) => {
+      const timetable = row.original;
+      return timetable.institution?.name || '-';
+    }
+  },
+  {
+    accessorKey: 'created_at',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Created At' />
+    ),
+    cell: ({ row }) => {
+      const date = row.getValue('created_at') as string;
+      return date ? format(new Date(date), 'MMM dd, yyyy') : '-';
+    }
+  },
+  {
+    id: 'actions',
+    header: 'Actions',
+    cell: ({ row }) => <DataTableRowActions row={row} />,
+    enableSorting: false,
+    enableHiding: false,
+    size: 60,
+    minSize: 60,
+    maxSize: 80
+  }
+];

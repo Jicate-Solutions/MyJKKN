@@ -1,0 +1,358 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2025-10-17T00:00:00Z",
+  "analysisComplete": true,
+  "techStack": {
+    "themeProvider": "next-themes",
+    "themeProviderVersion": "0.3.0",
+    "darkModeStrategy": "class",
+    "usesCSS Variables": true,
+    "tailwindConfig": "tailwind.config.ts",
+    "tailwindDarkMode": "class",
+    "globalStyles": "app/globals.css",
+    "hasThemeToggle": true
+  },
+  "overallProgress": {
+    "totalFilesAnalyzed": 533,
+    "totalModules": 14,
+    "completedModules": 0,
+    "filesWithDarkMode": 43,
+    "filesNeedingDarkMode": 90,
+    "cleanFiles": 400,
+    "overallCoverage": 8.1,
+    "priority": "HIGH"
+  },
+  "colorIssues": {
+    "totalIssues": 306,
+    "breakdown": {
+      "bg-white": 85,
+      "text-gray-900": 85,
+      "bg-gray-50": 64,
+      "bg-gray-100": 52,
+      "bg-gray-200": 13,
+      "text-black": 7
+    }
+  },
+  "modules": [
+    {
+      "name": "academic",
+      "path": "app/(routes)/academic",
+      "status": "pending",
+      "priority": "CRITICAL",
+      "darkModeScore": 22.4,
+      "totalFiles": 85,
+      "filesWithDarkMode": 19,
+      "filesNeedingDarkMode": 32,
+      "coverageGap": 62,
+      "estimatedHours": "8-12",
+      "submodules": [
+        {
+          "name": "attendance",
+          "filesNeedingDarkMode": 11,
+          "issues": ["bg-gray-50 without dark variant", "bg-green-600 hardcoded", "bg-blue-50 without dark variant", "text-blue-800 hardcoded"]
+        },
+        {
+          "name": "timetables",
+          "filesNeedingDarkMode": 18,
+          "issues": ["bg-white without dark variant", "text-gray-900 hardcoded", "calendar components with fixed light backgrounds"]
+        },
+        {
+          "name": "attendance-reports",
+          "filesNeedingDarkMode": 3,
+          "issues": ["table row colors", "status badge colors"]
+        }
+      ],
+      "filesNeedingWork": [
+        "app/(routes)/academic/attendance/_components/attendance-empty-state.tsx",
+        "app/(routes)/academic/attendance/_components/attendance-roster.tsx",
+        "app/(routes)/academic/attendance/_components/available-periods-cards.tsx",
+        "app/(routes)/academic/attendance/_components/faculty-quick-attendance.tsx",
+        "app/(routes)/academic/attendance/dashboard/_components/dashboard-filters.tsx",
+        "app/(routes)/academic/attendance/dashboard/_components/pending-attendance-filters.tsx",
+        "app/(routes)/academic/attendance/dashboard/page.tsx",
+        "app/(routes)/academic/attendance/mark/_components/subdivided-attendance-grid.tsx",
+        "app/(routes)/academic/attendance/mark/components/attendance-summary-modal.tsx",
+        "app/(routes)/academic/attendance/mark/page.tsx",
+        "app/(routes)/academic/attendance/reports/page.tsx",
+        "app/(routes)/academic/attendance/reports/[id]/page.tsx",
+        "app/(routes)/academic/attendance/reports/_components/columns.tsx",
+        "app/(routes)/academic/attendance/reports/_components/report-statistics.tsx",
+        "app/(routes)/academic/timetables/[id]/_components/batch-timetable-grid.tsx",
+        "app/(routes)/academic/timetables/[id]/_components/period-configuration.tsx",
+        "app/(routes)/academic/timetables/[id]/_components/slot-dialog.tsx",
+        "app/(routes)/academic/timetables/[id]/_components/sortable-period-item.tsx",
+        "app/(routes)/academic/timetables/[id]/_components/subdivision-group-card.tsx",
+        "app/(routes)/academic/timetables/[id]/_components/timetable-grid.tsx",
+        "app/(routes)/academic/timetables/[id]/_components/timetable-header.tsx",
+        "app/(routes)/academic/timetables/[id]/page.tsx",
+        "app/(routes)/academic/timetables/_components/columns.tsx",
+        "app/(routes)/academic/timetables/faculty-calendar/_components/faculty-calendar.tsx",
+        "app/(routes)/academic/timetables/faculty-calendar/_components/faculty-calendar-filters.tsx",
+        "app/(routes)/academic/timetables/faculty-calendar/admin/page.tsx",
+        "app/(routes)/academic/timetables/templates/[id]/page.tsx",
+        "app/(routes)/academic/timetables/templates/_components/template-library-data-table.tsx",
+        "app/(routes)/academic/timetables/templates/_components/template-preview-modal.tsx",
+        "app/(routes)/academic/timetables/templates/_components/template-stats-card.tsx",
+        "app/(routes)/academic/timetables/templates/analytics/page.tsx",
+        "app/(routes)/academic/timetables/templates/page.tsx"
+      ]
+    },
+    {
+      "name": "billing",
+      "path": "app/(routes)/billing",
+      "status": "pending",
+      "priority": "HIGH",
+      "darkModeScore": 5.5,
+      "totalFiles": 73,
+      "filesWithDarkMode": 4,
+      "filesNeedingDarkMode": 11,
+      "coverageGap": 85,
+      "estimatedHours": "4-6",
+      "commonIssues": [
+        "Status badge colors hardcoded (green-100, orange-100, red-100, yellow-100, purple-100)",
+        "Bill summary cards with fixed backgrounds",
+        "Table alternating row colors without dark variants"
+      ],
+      "filesNeedingWork": [
+        "app/(routes)/billing/discounts/_components/scholarship-permission-manager.tsx",
+        "app/(routes)/billing/invoices/[id]/page.tsx",
+        "app/(routes)/billing/refunds/[id]/page.tsx",
+        "app/(routes)/billing/reports/_components/collection-report-tab.tsx",
+        "app/(routes)/billing/reports/_components/discount-report-tab.tsx",
+        "app/(routes)/billing/reports/_components/refund-report-tab.tsx",
+        "app/(routes)/billing/schedule/[id]/page.tsx",
+        "app/(routes)/billing/schedule/_components/student-bill-form.tsx",
+        "app/(routes)/billing/schedule/students/[id]/_components/student-bills-table.tsx",
+        "app/(routes)/billing/schedule/students/[id]/_components/student-transaction-history.tsx",
+        "app/(routes)/billing/schedule/students/[id]/page.tsx"
+      ]
+    },
+    {
+      "name": "resource-management",
+      "path": "app/(routes)/resource-management",
+      "status": "pending",
+      "priority": "HIGH",
+      "darkModeScore": 1.4,
+      "totalFiles": 69,
+      "filesWithDarkMode": 1,
+      "filesNeedingDarkMode": 14,
+      "coverageGap": 97,
+      "estimatedHours": "6-8",
+      "commonIssues": [
+        "Form backgrounds fixed to white",
+        "Tab navigation styling without dark variants",
+        "Calendar components with light backgrounds",
+        "Table text colors hardcoded to gray-900"
+      ],
+      "filesNeedingWork": [
+        "app/(routes)/resource-management/categories/_components/parent-category-empty-state.tsx",
+        "app/(routes)/resource-management/categories/_components/parent-category-form.tsx",
+        "app/(routes)/resource-management/categories/sub-categories/_components/sub-category-form.tsx",
+        "app/(routes)/resource-management/maintenance/_components/columns.tsx",
+        "app/(routes)/resource-management/maintenance/_components/maintenance-log-card.tsx",
+        "app/(routes)/resource-management/reservations/_components/availability-calendar.tsx",
+        "app/(routes)/resource-management/resources/[id]/_components/booking-config-tab.tsx",
+        "app/(routes)/resource-management/resources/[id]/_components/images-tab.tsx",
+        "app/(routes)/resource-management/resources/[id]/_components/location-tab.tsx",
+        "app/(routes)/resource-management/resources/[id]/_components/overview-tab.tsx",
+        "app/(routes)/resource-management/resources/[id]/_components/usage-stats-tab.tsx",
+        "app/(routes)/resource-management/resources/[id]/page.tsx",
+        "app/(routes)/resource-management/resources/_components/resource-form.tsx",
+        "app/(routes)/resource-management/resources/page.tsx"
+      ]
+    },
+    {
+      "name": "organizations",
+      "path": "app/(routes)/organizations",
+      "status": "low-priority",
+      "priority": "MEDIUM",
+      "darkModeScore": 1,
+      "totalFiles": 102,
+      "filesWithDarkMode": 1,
+      "filesNeedingDarkMode": 1,
+      "coverageGap": 97,
+      "estimatedHours": "0.5-1",
+      "note": "Excellent coverage - most files use semantic theme colors",
+      "filesNeedingWork": [
+        "app/(routes)/organizations/institutions/[id]/page.tsx"
+      ]
+    },
+    {
+      "name": "admissions",
+      "path": "app/(routes)/admissions",
+      "status": "pending",
+      "priority": "MEDIUM",
+      "darkModeScore": 5.6,
+      "totalFiles": 18,
+      "filesWithDarkMode": 1,
+      "filesNeedingDarkMode": 5,
+      "coverageGap": 72,
+      "estimatedHours": "2-3",
+      "filesNeedingWork": [
+        "app/(routes)/admissions/[id]/page.tsx",
+        "app/(routes)/admissions/_components/admission-data-table.tsx",
+        "app/(routes)/admissions/crm/_components/forms-tab.tsx",
+        "app/(routes)/admissions/crm/_components/responses-tab.tsx",
+        "app/(routes)/admissions/crm/_components/sources-tab.tsx"
+      ]
+    },
+    {
+      "name": "admin",
+      "path": "app/(routes)/admin",
+      "status": "pending",
+      "priority": "MEDIUM",
+      "darkModeScore": 26.7,
+      "totalFiles": 15,
+      "filesWithDarkMode": 4,
+      "filesNeedingDarkMode": 4,
+      "coverageGap": 47,
+      "estimatedHours": "2-3",
+      "filesNeedingWork": [
+        "app/(routes)/admin/bug-reports/[id]/page.tsx",
+        "app/(routes)/admin/bug-reports/_components/bug-report-chat.tsx",
+        "app/(routes)/admin/bug-reports/_components/console-output.tsx",
+        "app/(routes)/admin/bug-reports/page.tsx"
+      ]
+    },
+    {
+      "name": "application-hub",
+      "path": "app/(routes)/application-hub",
+      "status": "pending",
+      "priority": "LOW",
+      "darkModeScore": 16.7,
+      "totalFiles": 18,
+      "filesWithDarkMode": 0,
+      "filesNeedingDarkMode": 3,
+      "coverageGap": 16.7,
+      "estimatedHours": "1-2",
+      "filesNeedingWork": [
+        "app/(routes)/application-hub/api-guidelines/_components/api-guidelines-content.tsx",
+        "app/(routes)/application-hub/api-guidelines/_components/child-app-integration-docs.tsx",
+        "app/(routes)/application-hub/api-guidelines/_components/staff-api-docs.tsx"
+      ]
+    },
+    {
+      "name": "audit-trail",
+      "path": "app/(routes)/audit-trail",
+      "status": "pending",
+      "priority": "LOW",
+      "darkModeScore": 0,
+      "totalFiles": 2,
+      "filesWithDarkMode": 0,
+      "filesNeedingDarkMode": 2,
+      "coverageGap": 100,
+      "estimatedHours": "1",
+      "filesNeedingWork": [
+        "app/(routes)/audit-trail/_components/activity-timeline.tsx",
+        "app/(routes)/audit-trail/_components/audit-log-item.tsx"
+      ]
+    },
+    {
+      "name": "dashboard",
+      "path": "app/(routes)/dashboard",
+      "status": "completed",
+      "priority": "LOW",
+      "darkModeScore": 100,
+      "totalFiles": 1,
+      "filesWithDarkMode": 1,
+      "filesNeedingDarkMode": 0,
+      "coverageGap": 0,
+      "estimatedHours": "0",
+      "note": "Uses semantic colors - no issues found"
+    },
+    {
+      "name": "other-routes",
+      "path": "app/(routes)/",
+      "status": "pending",
+      "priority": "LOW",
+      "darkModeScore": 50,
+      "totalFiles": 20,
+      "filesWithDarkMode": 10,
+      "filesNeedingDarkMode": 8,
+      "coverageGap": 40,
+      "estimatedHours": "2-4",
+      "filesNeedingWork": [
+        "app/(routes)/bug-leaderboard/page.tsx",
+        "app/(routes)/my-bug-reports/[id]/page.tsx",
+        "app/(routes)/notifications/page.tsx",
+        "app/(routes)/staff/dashboard/_components/overview-stats.tsx",
+        "app/(routes)/students/dashboard/page.tsx",
+        "app/(routes)/users/page.tsx",
+        "app/(routes)/system/api-management/_components/test-endpoint.tsx",
+        "app/not-found.tsx"
+      ]
+    }
+  ],
+  "sharedComponents": {
+    "ui": {
+      "path": "components/ui/",
+      "totalFiles": 62,
+      "filesWithDarkMode": 1,
+      "filesNeedingDarkMode": 3,
+      "darkModeScore": 1.6,
+      "note": "Most UI components inherit dark mode support through Radix UI themes and semantic CSS variables"
+    },
+    "layout": {
+      "path": "components/layout/",
+      "totalFiles": 5,
+      "filesWithDarkMode": 0,
+      "filesNeedingDarkMode": 2,
+      "darkModeScore": 0
+    },
+    "other": {
+      "path": "components/",
+      "totalFiles": 50,
+      "filesWithDarkMode": 5,
+      "filesNeedingDarkMode": 10,
+      "darkModeScore": 10
+    }
+  },
+  "recommendations": {
+    "immediate": [
+      "Start with Academic module (32 files) - highest user impact",
+      "Focus on Billing module (11 files) - critical for financial operations",
+      "Update Resource Management (14 files) - high visibility"
+    ],
+    "shortTerm": [
+      "Fix Admissions module (5 files)",
+      "Update Admin bug reports (4 files)",
+      "Review Application Hub (3 files)"
+    ],
+    "longTerm": [
+      "Audit Trail components (2 files)",
+      "Miscellaneous route files (8 files)",
+      "Shared UI components as needed"
+    ]
+  },
+  "implementationGuidelines": {
+    "standardPatterns": {
+      "backgrounds": "bg-white dark:bg-slate-900",
+      "text": "text-black dark:text-white",
+      "borders": "border-gray-200 dark:border-gray-700",
+      "semanticPreferred": "bg-background text-foreground"
+    },
+    "colorMapping": {
+      "bg-white": "dark:bg-slate-900",
+      "bg-gray-50": "dark:bg-slate-800",
+      "bg-gray-100": "dark:bg-slate-700",
+      "text-gray-900": "dark:text-gray-100",
+      "text-gray-600": "dark:text-gray-400",
+      "border-gray-200": "dark:border-gray-700"
+    },
+    "statusBadges": {
+      "success": "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300",
+      "warning": "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300",
+      "error": "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300",
+      "info": "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300"
+    }
+  },
+  "testingChecklist": [
+    "Toggle dark mode in browser DevTools",
+    "Check each updated component for contrast",
+    "Verify readability at all responsive breakpoints",
+    "Test with accessibility tools",
+    "Create visual regression tests",
+    "Add color contrast validators",
+    "User testing with dark mode users"
+  ]
+}

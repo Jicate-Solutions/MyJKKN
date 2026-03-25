@@ -1,0 +1,94 @@
+// hooks/use-session-sync.ts
+// DEPRECATED: This hook is not used anywhere in the codebase
+// Kept for reference but should be removed in future cleanup
+
+import { useEffect, useRef } from 'react';
+import { createBrowserClient } from '@supabase/ssr';
+import { useRouter } from 'next/navigation';
+import { Database } from '@/types/supabase';
+
+export function useSessionSync() {
+  // DEPRECATED - This entire hook is no longer used
+  // It was part of the old AuthProvider system
+  throw new Error('useSessionSync is deprecated and should not be used');
+
+  /* Original implementation commented out:
+  const supabase = createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  const router = useRouter();
+  const { refreshUser } = useAuth();
+  const lastRefreshTimestamp = useRef<number>(0);
+
+  // Use ref to store the latest refreshUser without triggering re-renders
+  const refreshUserRef = useRef(refreshUser);
+  refreshUserRef.current = refreshUser;
+
+  useEffect(() => {
+    const handleRefresh = async () => {
+      const now = Date.now();
+      if (now - lastRefreshTimestamp.current < 2000) {
+        // Debounce refresh calls to prevent loops
+        return;
+      }
+      lastRefreshTimestamp.current = now;
+      await refreshUserRef.current();
+    };
+    // Listen for auth state changes
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Add a small delay to prevent race conditions with permission loading
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      if (event === 'SIGNED_IN') {
+        await handleRefresh();
+        router.refresh();
+      } else if (event === 'SIGNED_OUT') {
+        router.push('/auth/login');
+      } else if (event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
+        // Handle role updates and token refresh
+        await handleRefresh();
+      }
+    });
+
+    // Set up realtime subscription for profile changes
+    const setupProfileSubscription = async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      return supabase
+        .channel('profile-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'profiles',
+            filter: `id=eq.${user.id}`
+          },
+          async () => {
+            await handleRefresh();
+          }
+        )
+        .subscribe();
+    };
+
+    let profileSubscription: any = null;
+    setupProfileSubscription().then((sub) => {
+      profileSubscription = sub;
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      if (profileSubscription) {
+        profileSubscription.unsubscribe();
+      }
+    };
+    // Only depend on stable references, not functions
+  }, [supabase, router]);
+  */
+}

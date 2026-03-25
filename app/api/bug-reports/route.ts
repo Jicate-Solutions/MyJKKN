@@ -1,0 +1,570 @@
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { dataURLtoFile } from '@/lib/utils/file-converters';
+import { logger } from '@/lib/utils/enhanced-logger';
+
+const BUG_REPORTS_BUCKET = 'bug-reports';
+
+// Extracts a normalized error signature from console_logs for deduplication.
+// Strips dynamic parts (UUIDs, line:col, hex addresses) so similar errors group together.
+function extractErrorSignature(consoleLogs: any[] | null): string | null {
+  if (!consoleLogs || !Array.isArray(consoleLogs) || consoleLogs.length === 0) return null;
+
+  for (const log of consoleLogs) {
+    const level = log.level ?? log.type ?? '';
+    if (!['error', 'Error'].includes(level)) continue;
+
+    const msg: string =
+      typeof log.message === 'string'
+        ? log.message
+        : JSON.stringify(log.message ?? '');
+
+    const normalized = msg
+      .split('\n')[0]
+      .replace(/\b[0-9a-f]{8}-[0-9a-f-]+\b/gi, 'UUID')
+      .replace(/:\d+:\d+/g, ':L:C')
+      .replace(/0x[0-9a-f]+/gi, '0xADDR')
+      .trim()
+      .slice(0, 200);
+
+    if (normalized.length > 10) return normalized;
+  }
+  return null;
+}
+
+const createReportSchema = z.object({
+  page_url: z.string().url({ message: 'A valid page URL is required.' }),
+  description: z
+    .string()
+    .min(10, { message: 'Description must be at least 10 characters long.' }),
+  category: z
+    .enum(['bug', 'feature_request', 'ui_design', 'performance', 'security', 'other'])
+    .optional()
+    .default('bug'),
+  screenshot_data_url: z.string().optional(),
+  additional_images_data_urls: z.array(z.string()).max(5, { message: 'Maximum 5 additional images allowed' }).optional(), // NEW: Multiple images
+  console_logs: z.array(z.any()).optional(),
+  metadata: z.record(z.any()).optional(),
+  log_summary: z.any().optional()
+});
+
+export async function POST(request: Request) {
+  try {
+    const supabase = await createServerSupabaseClient();
+
+    const {
+      data: { user },
+      error: authError
+    } = await supabase.auth.getUser();
+
+    if (authError) {
+      logger.error('bug-reports', 'Auth error', authError);
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentication failed',
+          details: authError.message,
+          errorCode: 'AUTH_ERROR'
+        },
+        { status: 401 }
+      );
+    }
+
+    if (!user) {
+      logger.error('bug-reports', 'No authenticated user found');
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Authentication failed',
+          details: 'Auth session missing! Please log in again.',
+          errorCode: 'NO_USER'
+        },
+        { status: 401 }
+      );
+    }
+
+    let json;
+    try {
+      json = await request.json();
+    } catch (parseError) {
+      logger.error('bug-reports/api', 'JSON parse error', parseError);
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Invalid request body',
+          details:
+            parseError instanceof Error
+              ? parseError.message
+              : 'Could not parse JSON',
+          errorCode: 'INVALID_JSON'
+        },
+        { status: 400 }
+      );
+    }
+
+    let validatedData;
+    try {
+      validatedData = createReportSchema.parse(json);
+    } catch (validationError) {
+      logger.error('bug-reports/api', 'Validation error', validationError);
+      if (validationError instanceof z.ZodError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Validation failed',
+            details: validationError.errors.map((e) => e.message).join(', '),
+            errorCode: 'VALIDATION_ERROR',
+            validationErrors: validationError.errors
+          },
+          { status: 400 }
+        );
+      }
+      throw validationError;
+    }
+
+    // Test database connection first
+    const { error: dbTestError } = await supabase
+      .from('bug_reports')
+      .select('id')
+      .limit(1);
+
+    if (dbTestError) {
+      logger.error('bug-reports/api', 'Database connection test failed', dbTestError);
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Database connection failed',
+          details: dbTestError.message,
+          errorCode: 'DB_CONNECTION_ERROR'
+        },
+        { status: 500 }
+      );
+    }
+
+    // Get user context for institution and department information
+    const userContextResult = await Promise.allSettled([
+      // Get user's institution and department information
+      supabase
+        .from('staff')
+        .select('institution_id, department_id')
+        .eq('email', user.email)
+        .single(),
+      supabase
+        .from('profiles')
+        .select('institution_id, department_id')
+        .eq('id', user.id)
+        .single()
+    ]);
+
+    // Process user context
+    let institutionId = null;
+    let departmentId = null;
+
+    const [staffResult, profileResult] = userContextResult;
+
+    if (staffResult.status === 'fulfilled' && staffResult.value.data) {
+      institutionId = staffResult.value.data.institution_id;
+      departmentId = staffResult.value.data.department_id;
+    } else if (profileResult.status === 'fulfilled' && profileResult.value.data) {
+      institutionId = profileResult.value.data.institution_id;
+      departmentId = profileResult.value.data.department_id;
+    }
+
+    // Create the bug report (display_id will be auto-generated by database)
+    const initialReport = {
+      reporter_user_id: user.id,
+      page_url: validatedData.page_url,
+      description: validatedData.description,
+      category: validatedData.category,
+      console_logs: validatedData.console_logs,
+      metadata: validatedData.metadata,
+      institution_id: institutionId,
+      department_id: departmentId
+    };
+
+    // Retry logic for handling potential race conditions
+    let insertAttempts = 0;
+    const maxAttempts = 3;
+    let newReport = null;
+    let insertError = null;
+
+    while (insertAttempts < maxAttempts && !newReport) {
+      insertAttempts++;
+
+      const result = await supabase
+        .from('bug_reports')
+        .insert(initialReport)
+        .select()
+        .single();
+
+      if (result.error) {
+        insertError = result.error;
+        logger.error('bug-reports/api', `Insert attempt ${insertAttempts} failed`, insertError);
+
+        // If it's a display_id constraint error, wait briefly and retry
+        if (insertError.message.includes('bug_reports_display_id_key') && insertAttempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 100 * insertAttempts)); // Exponential backoff
+          continue;
+        }
+
+        // For other errors or max attempts reached, break
+        break;
+      } else {
+        newReport = result.data;
+        insertError = null;
+        break;
+      }
+    }
+
+    if (insertError) {
+      logger.error('bug-reports/api', 'All insert attempts failed', insertError);
+
+      // Provide specific error messages based on error type
+      let errorCode = 'INSERT_ERROR';
+      let errorMessage = 'Failed to create bug report';
+
+      if (insertError.message.includes('bug_reports_display_id_key')) {
+        errorCode = 'DISPLAY_ID_GENERATION_FAILED';
+        errorMessage = 'Unable to generate unique report ID. Please try again.';
+      } else if (insertAttempts >= maxAttempts) {
+        errorCode = 'INSERT_RETRY_FAILED';
+        errorMessage = 'System is busy. Please try again in a moment.';
+      }
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: errorMessage,
+          details: insertError.message,
+          errorCode: errorCode,
+          hint: insertError.hint,
+          attempts: insertAttempts
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!newReport) {
+      logger.error('bug-reports/api', 'No report returned from insert', null);
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Failed to create bug report',
+          details: 'No data returned from database insert',
+          errorCode: 'NO_DATA_RETURNED'
+        },
+        { status: 500 }
+      );
+    }
+
+    // Optimize: Handle participant creation and screenshot upload in parallel
+    const tasks = [];
+
+    // Add participant creation task
+    tasks.push(
+      (async () => {
+        try {
+          const { error } = await supabase
+            .from('bug_report_participants')
+            .insert({
+              bug_report_id: newReport.id,
+              user_id: user.id,
+              role: 'reporter',
+              can_view_internal: false,
+              is_active: true,
+              joined_at: new Date().toISOString()
+            });
+
+          if (error && !error.message.includes('duplicate')) {
+            logger.warn('bug-reports/api', 'Could not add participant', error);
+          }
+          return null;
+        } catch (err) {
+          logger.warn('bug-reports/api', 'Participant creation failed', err);
+          return null;
+        }
+      })()
+    );
+
+    // Handle screenshot upload if provided
+    let screenshotUrl: string | null = null;
+    if (validatedData.screenshot_data_url) {
+      // Add screenshot upload task
+      tasks.push(
+        (async () => {
+          try {
+            // Determine file extension from data URL (supports both PNG and JPEG)
+            const isJpeg = validatedData.screenshot_data_url!.startsWith('data:image/jpeg');
+            const fileExtension = isJpeg ? 'jpg' : 'png';
+            const screenshotFile = dataURLtoFile(
+              validatedData.screenshot_data_url!,
+              `screenshot.${fileExtension}`
+            );
+            const filePath = `${newReport.id}/screenshot.${fileExtension}`;
+
+            const { error: uploadError } = await supabase.storage
+              .from(BUG_REPORTS_BUCKET)
+              .upload(filePath, screenshotFile, {
+                cacheControl: '3600',
+                upsert: false
+              });
+
+            if (uploadError) {
+              logger.error('bug-reports/api', 'Screenshot upload error', uploadError);
+              return null;
+            }
+
+            const { data: urlData } = supabase.storage
+              .from(BUG_REPORTS_BUCKET)
+              .getPublicUrl(filePath);
+
+            screenshotUrl = urlData.publicUrl;
+            return screenshotUrl;
+          } catch (error) {
+            logger.error('bug-reports/api', 'Screenshot processing error', error);
+            return null;
+          }
+        })()
+      );
+    }
+
+    // Handle additional images upload if provided
+    const attachmentUrls: string[] = [];
+    if (validatedData.additional_images_data_urls && validatedData.additional_images_data_urls.length > 0) {
+      // Add additional images upload task
+      tasks.push(
+        (async () => {
+          const uploadedUrls: string[] = [];
+
+          for (let i = 0; i < validatedData.additional_images_data_urls!.length; i++) {
+            try {
+              const imageDataUrl = validatedData.additional_images_data_urls![i];
+
+              // Determine file extension from data URL
+              const isJpeg = imageDataUrl.startsWith('data:image/jpeg');
+              const fileExtension = isJpeg ? 'jpg' : 'png';
+
+              const imageFile = dataURLtoFile(
+                imageDataUrl,
+                `additional-${i + 1}.${fileExtension}`
+              );
+              const filePath = `${newReport.id}/additional-${i + 1}.${fileExtension}`;
+
+              const { error: uploadError } = await supabase.storage
+                .from(BUG_REPORTS_BUCKET)
+                .upload(filePath, imageFile, {
+                  cacheControl: '3600',
+                  upsert: false
+                });
+
+              if (uploadError) {
+                logger.error('bug-reports/api', `Additional image ${i + 1} upload error`, uploadError);
+                continue; // Skip this image but continue with others
+              }
+
+              const { data: urlData } = supabase.storage
+                .from(BUG_REPORTS_BUCKET)
+                .getPublicUrl(filePath);
+
+              uploadedUrls.push(urlData.publicUrl);
+            } catch (error) {
+              logger.error('bug-reports/api', `Additional image ${i + 1} processing error`, error);
+              continue; // Skip this image but continue with others
+            }
+          }
+
+          return uploadedUrls;
+        })()
+      );
+    }
+
+    // Execute all tasks in parallel
+    const results = await Promise.allSettled(tasks);
+
+    // Process results and update bug report with all image URLs
+    let finalScreenshotUrl: string | null = null;
+    let finalAttachmentUrls: string[] = [];
+
+    // Extract screenshot URL from results (index 1 if screenshot was uploaded)
+    if (validatedData.screenshot_data_url && results.length > 1) {
+      const screenshotResult = results[1];
+      if (screenshotResult.status === 'fulfilled' && screenshotResult.value) {
+        finalScreenshotUrl = screenshotResult.value as string;
+      }
+    }
+
+    // Extract additional image URLs from results (index 2 if additional images were uploaded)
+    if (validatedData.additional_images_data_urls && validatedData.additional_images_data_urls.length > 0) {
+      const additionalImagesIndex = validatedData.screenshot_data_url ? 2 : 1;
+      if (results.length > additionalImagesIndex) {
+        const additionalImagesResult = results[additionalImagesIndex];
+        if (additionalImagesResult.status === 'fulfilled' && additionalImagesResult.value) {
+          finalAttachmentUrls = additionalImagesResult.value as string[];
+        }
+      }
+    }
+
+    // Update the bug report with all image URLs
+    if (finalScreenshotUrl || finalAttachmentUrls.length > 0) {
+      const updateData: any = {};
+      if (finalScreenshotUrl) updateData.screenshot_url = finalScreenshotUrl;
+      if (finalAttachmentUrls.length > 0) updateData.attachment_urls = finalAttachmentUrls;
+
+      const { data: updatedReport, error: updateError } = await supabase
+        .from('bug_reports')
+        .update(updateData)
+        .eq('id', newReport.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        logger.error('bug-reports/api', 'Failed to update report with image URLs', updateError);
+        // Return original report even if update failed
+        return NextResponse.json(
+          {
+            success: true,
+            data: newReport,
+            message: 'Bug report created successfully (images upload pending)'
+          },
+          { status: 201 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          data: updatedReport,
+          message: `Bug report created successfully with ${finalScreenshotUrl ? 'screenshot' : ''}${finalScreenshotUrl && finalAttachmentUrls.length > 0 ? ' and ' : ''}${finalAttachmentUrls.length > 0 ? `${finalAttachmentUrls.length} additional image(s)` : ''}`
+        },
+        { status: 201 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        data: newReport,
+        message: 'Bug report created successfully'
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    logger.error('bug-reports/api', 'Unexpected error occurred', error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Internal server error',
+        details:
+          error instanceof Error
+            ? error.message
+            : 'An unexpected error occurred',
+        errorCode: 'INTERNAL_ERROR'
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const supabase = await createServerSupabaseClient();
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status') as any;
+    const category = searchParams.get('category') as any;
+    const institution_id = searchParams.get('institution_id');
+    const department_id = searchParams.get('department_id');
+    const module_name = searchParams.get('module_name');
+    const sub_module_name = searchParams.get('sub_module_name');
+    const reporter_user_id = searchParams.get('reporter_user_id');
+    const search = searchParams.get('search');
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '10');
+
+    let query = supabase
+      .from('bug_reports_with_details')
+      .select('*', { count: 'exact' });
+
+    if (status) {
+      query = query.eq('status', status);
+    }
+
+    if (category) {
+      query = query.eq('category', category);
+    }
+
+    if (institution_id) {
+      query = query.eq('institution_id', institution_id);
+    }
+
+    if (department_id) {
+      query = query.eq('department_id', department_id);
+    }
+
+    if (module_name) {
+      query = query.eq('module_name', module_name);
+    }
+
+    if (sub_module_name) {
+      query = query.eq('sub_module_name', sub_module_name);
+    }
+
+    if (reporter_user_id) {
+      query = query.eq('reporter_user_id', reporter_user_id);
+    }
+
+    if (search) {
+      const term = `%${search.trim()}%`;
+      query = query.or(`reporter_name.ilike.${term},reporter_email.ilike.${term}`);
+    }
+
+    query = query.range((page - 1) * limit, page * limit - 1);
+    query = query.order('created_at', { ascending: false });
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    // Transform the data to match the expected BugReport interface
+    const transformedData = data?.map((report) => ({
+      ...report,
+      reporter: report.reporter_name
+        ? {
+            id: report.reporter_user_id,
+            full_name: report.reporter_name,
+            email: report.reporter_email
+          }
+        : null
+    }));
+
+    // Compute similar_count: bugs sharing the same error signature are "similar"
+    const sigMap: Record<string, number> = {};
+    const bugsWithSig = (transformedData ?? []).map((bug: any) => ({
+      ...bug,
+      _sig: extractErrorSignature(bug.console_logs)
+    }));
+    for (const bug of bugsWithSig) {
+      if (bug._sig) sigMap[bug._sig] = (sigMap[bug._sig] ?? 0) + 1;
+    }
+    const processedBugs = bugsWithSig.map(({ _sig, ...bug }: any) => ({
+      ...bug,
+      similar_count: _sig ? Math.max(0, (sigMap[_sig] ?? 1) - 1) : 0
+    }));
+
+    return NextResponse.json({
+      data: processedBugs,
+      metadata: {
+        total: count || 0,
+        page,
+        limit,
+        totalPages: count ? Math.ceil(count / limit) : 0
+      }
+    });
+  } catch (error) {
+    logger.error('bug-reports/api', 'Failed to fetch bug reports', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch bug reports.' },
+      { status: 500 }
+    );
+  }
+}

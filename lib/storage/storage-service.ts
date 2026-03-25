@@ -1,0 +1,1203 @@
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { Database } from '@/types/auth';
+import { createClient } from '@supabase/supabase-js';
+
+const BUCKETS = {
+  AVATARS: 'avatars',
+  LOGOS: 'institution-logos',
+  STUDENT_PHOTOS: 'student-photos',
+  STAFF_PHOTOS: 'staff-images', // Corrected to use the existing bucket
+  RESOURCES: 'resource-management', // New bucket for resource management assets
+  EXPO_PHOTOS: 'expo-photos'
+} as const;
+
+const ALLOWED_FILE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml'
+];
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+export class StorageService {
+  private static supabase = createClientSupabaseClient();
+
+  private static async validateFile(file: File): Promise<void> {
+    // Validate file type
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      throw new Error(
+        'Invalid file type. Please upload a JPEG, PNG or GIF image.'
+      );
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      throw new Error('File size must be less than 5MB');
+    }
+  }
+
+  // Avatar methods remain the same
+  static async uploadAvatar(file: File): Promise<{
+    publicUrl: string | null;
+    error: Error | null;
+  }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      await this.deleteOldAvatar(user.id);
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.AVATARS)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.AVATARS)
+        .getPublicUrl(filePath);
+
+      const { error: updateError } = await (this.supabase as any)
+        .from('profiles')
+        .update({
+          avatar_url: urlData.publicUrl,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  private static async deleteOldAvatar(userId: string): Promise<void> {
+    try {
+      const { data: existingFiles } = await this.supabase.storage
+        .from(BUCKETS.AVATARS)
+        .list(`${userId}`);
+
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map((f) => `${userId}/${f.name}`);
+        await this.supabase.storage.from(BUCKETS.AVATARS).remove(filesToRemove);
+      }
+    } catch (error) {
+      console.error('Error deleting old avatar:', error);
+    }
+  }
+
+  static async deleteAvatar(userId: string): Promise<{ error: Error | null }> {
+    try {
+      await this.deleteOldAvatar(userId);
+
+      const { error: updateError } = await (this.supabase as any)
+        .from('profiles')
+        .update({
+          avatar_url: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (updateError) throw updateError;
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting avatar:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  // New methods for institution logos
+  static async uploadInstitutionLogo(
+    file: File,
+    institutionId: string
+  ): Promise<{
+    publicUrl: string | null;
+    error: Error | null;
+  }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      await this.deleteOldInstitutionLogo(institutionId);
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${institutionId}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.LOGOS)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.LOGOS)
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading institution logo:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  private static async deleteOldInstitutionLogo(
+    institutionId: string
+  ): Promise<void> {
+    try {
+      const { data: existingFiles } = await this.supabase.storage
+        .from(BUCKETS.LOGOS)
+        .list(`${institutionId}`);
+
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map(
+          (f) => `${institutionId}/${f.name}`
+        );
+        await this.supabase.storage.from(BUCKETS.LOGOS).remove(filesToRemove);
+      }
+    } catch (error) {
+      console.error('Error deleting old institution logo:', error);
+    }
+  }
+
+  static async deleteInstitutionLogo(
+    institutionId: string
+  ): Promise<{ error: Error | null }> {
+    try {
+      await this.deleteOldInstitutionLogo(institutionId);
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting institution logo:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  // Student photo upload functionality with institution-based path structure
+  static async uploadStudentPhoto(
+    file: File,
+    studentId: string
+  ): Promise<{
+    publicUrl: string | null;
+    error: Error | null;
+  }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      // Get student details with institution name and roll number
+      const { data: student, error: studentError } = await this.supabase
+        .from('learners_profiles')
+        .select(
+          `
+          roll_number,
+          institutions(name)
+        `
+        )
+        .eq('id', studentId)
+        .single();
+
+      if (studentError || !student) {
+        throw new Error('Student not found or missing institution details');
+      }
+
+      if (!((student as any).roll_number)) {
+        throw new Error('Student roll number is required for photo upload');
+      }
+
+      // PostgREST institutions(name) returns: { institutions: { name: "..." } }
+      const institutionName = ((student as any).institutions as any)?.name;
+
+      if (!institutionName) {
+        throw new Error('Student institution is required for photo upload');
+      }
+
+      // Delete old photo using both old and new path structures
+      await this.deleteOldStudentPhoto(
+        studentId,
+        institutionName,
+        (student as any).roll_number
+      );
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      // Create institution-based path: institution-name/roll-number.extension
+      const sanitizedInstitutionName = this.sanitizePathName(institutionName);
+      const filePath = `${sanitizedInstitutionName}/((student as any).roll_number).${fileExt}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.STUDENT_PHOTOS)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.STUDENT_PHOTOS)
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading student photo:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  // Bulk upload student photos with institution-based paths
+  static async bulkUploadStudentPhotos(
+    files: File[],
+    onProgress?: (progress: {
+      completed: number;
+      total: number;
+      current?: string;
+    }) => void
+  ): Promise<{
+    success: Array<{
+      roll_number: string;
+      student_name: string;
+      image_url: string;
+    }>;
+    failed: Array<{ filename: string; roll_number?: string; error: string }>;
+  }> {
+    const results = {
+      success: [] as Array<{
+        roll_number: string;
+        student_name: string;
+        image_url: string;
+      }>,
+      failed: [] as Array<{
+        filename: string;
+        roll_number?: string;
+        error: string;
+      }>
+    };
+
+    try {
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      // Extract roll numbers from filenames and get student data
+      const rollNumbers = files.map((file) => {
+        const rollNumber = this.extractRollNumberFromFilename(file.name);
+        return { file, rollNumber };
+      });
+
+      // Get all students with their institution details
+      const validRollNumbers = rollNumbers
+        .filter((item) => item.rollNumber)
+        .map((item) => item.rollNumber!);
+
+      const { data: students, error: studentsError } = await this.supabase
+        .from('learners_profiles')
+        .select(
+          `
+          id,
+          first_name,
+          last_name,
+          roll_number,
+          institution_id,
+          institutions(name)
+        `
+        )
+        .in('roll_number', validRollNumbers);
+
+      if (studentsError) {
+        throw new Error(
+          `Failed to fetch student data: ${studentsError.message}`
+        );
+      }
+
+      // Create lookup map for students
+      const studentMap = new Map(
+        students?.map((s) => [(s as any).roll_number, s]) || []
+      );
+
+      // Process files in batches
+      const batchSize = 10;
+      for (let i = 0; i < files.length; i += batchSize) {
+        const batch = files.slice(i, i + batchSize);
+
+        await Promise.all(
+          batch.map(async (file, batchIndex) => {
+            const overallIndex = i + batchIndex;
+
+            try {
+              const rollNumber = this.extractRollNumberFromFilename(file.name);
+
+              if (!rollNumber) {
+                results.failed.push({
+                  filename: file.name,
+                  error:
+                    'Could not extract roll number from filename. Expected format: ROLLNUMBER.extension (e.g., 123654789.jpg, 24MBA60.jpg, DB22092.jpg)'
+                });
+                return;
+              }
+
+              const student = studentMap.get(rollNumber);
+              if (!student) {
+                results.failed.push({
+                  filename: file.name,
+                  roll_number: rollNumber,
+                  error: 'No student found with this roll number'
+                });
+                return;
+              }
+
+              // PostgREST institutions(name) returns: { institutions: { name: "..." } }
+              const studentInstitutionName = ((student as any).institutions as any)
+                ?.name;
+
+              if (!studentInstitutionName) {
+                results.failed.push({
+                  filename: file.name,
+                  roll_number: rollNumber,
+                  error: 'Student institution not found'
+                });
+                return;
+              }
+
+              // Validate file
+              await this.validateFile(file);
+
+              // Delete old photos
+              await this.deleteOldStudentPhoto(
+                (student as any).id,
+                studentInstitutionName,
+                rollNumber
+              );
+
+              // Upload new photo
+              const fileExt = file.name.split('.').pop()?.toLowerCase();
+              const sanitizedInstitutionName = this.sanitizePathName(
+                studentInstitutionName
+              );
+              const filePath = `${sanitizedInstitutionName}/${rollNumber}.${fileExt}`;
+
+              const { error: uploadError } = await this.supabase.storage
+                .from(BUCKETS.STUDENT_PHOTOS)
+                .upload(filePath, file, {
+                  cacheControl: '3600',
+                  upsert: true
+                });
+
+              if (uploadError) throw uploadError;
+
+              const { data: urlData } = this.supabase.storage
+                .from(BUCKETS.STUDENT_PHOTOS)
+                .getPublicUrl(filePath);
+
+              // Update student record with new photo URL
+              const { error: updateError } = await (this.supabase as any)
+                .from('learners_profiles')
+                .update({ student_photo_url: urlData.publicUrl })
+                .eq('id', (student as any).id);
+
+              if (updateError) {
+                console.warn(
+                  `Failed to update student photo URL: ${updateError.message}`
+                );
+              }
+
+              // Combine first_name and last_name to create student_name
+              const studentName = [
+                (student as any).first_name,
+                (student as any).last_name
+              ].filter(Boolean).join(' ');
+
+              results.success.push({
+                roll_number: rollNumber,
+                student_name: studentName,
+                image_url: urlData.publicUrl
+              });
+            } catch (error) {
+              const rollNumber = this.extractRollNumberFromFilename(file.name);
+              results.failed.push({
+                filename: file.name,
+                roll_number: rollNumber || undefined,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              });
+            }
+
+            // Update progress
+            if (onProgress) {
+              onProgress({
+                completed: overallIndex + 1,
+                total: files.length,
+                current: file.name
+              });
+            }
+          })
+        );
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error in bulk upload:', error);
+      // If there's a general error, mark all remaining files as failed
+      files.forEach((file) => {
+        const rollNumber = this.extractRollNumberFromFilename(file.name);
+        if (
+          !results.success.some((s) => s.roll_number === rollNumber) &&
+          !results.failed.some((f) => f.roll_number === rollNumber)
+        ) {
+          results.failed.push({
+            filename: file.name,
+            roll_number: rollNumber || undefined,
+            error: error instanceof Error ? error.message : 'Bulk upload failed'
+          });
+        }
+      });
+
+      return results;
+    }
+  }
+
+  // Helper method to sanitize institution names for file paths
+  private static sanitizePathName(name: string): string {
+    return name
+      .replace(/[^a-zA-Z0-9\s-]/g, '') // Remove special characters except spaces and hyphens
+      .replace(/\s+/g, '-') // Replace spaces with hyphens
+      .toLowerCase()
+      .trim();
+  }
+
+  // Helper method to extract staff ID from filename
+  private static extractStaffIdFromFilename(filename: string): string | null {
+    // Remove file extension
+    const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+    // For now, we assume the filename *is* the staff ID.
+    // This can be updated with a regex if a specific format is needed.
+    return nameWithoutExt || null;
+  }
+
+  // Bulk upload staff photos with institution-based paths
+  static async bulkUploadStaffPhotos(
+    files: File[],
+    onProgress?: (progress: {
+      completed: number;
+      total: number;
+      current?: string;
+    }) => void
+  ): Promise<{
+    success: Array<{
+      staff_id: string;
+      staff_name: string;
+      image_url: string;
+    }>;
+    failed: Array<{ filename: string; staff_id?: string; error: string }>;
+  }> {
+    const results = {
+      success: [] as Array<{
+        staff_id: string;
+        staff_name: string;
+        image_url: string;
+      }>,
+      failed: [] as Array<{
+        filename: string;
+        staff_id?: string;
+        error: string;
+      }>
+    };
+
+    try {
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      // Extract staff IDs from filenames
+      const staffIds = files.map((file) => {
+        const staffId = this.extractStaffIdFromFilename(file.name);
+        return { file, staffId };
+      });
+
+      // Get all staff with their institution details
+      const validStaffIds = staffIds
+        .filter((item) => item.staffId)
+        .map((item) => item.staffId!);
+
+      const { data: staff, error: staffError } = await this.supabase
+        .from('staff')
+        .select(
+          `
+          id,
+          staff_id,
+          first_name,
+          last_name,
+          institution:institutions(name)
+        `
+        )
+        .in('staff_id', validStaffIds);
+
+      if (staffError) {
+        throw new Error(`Failed to fetch staff data: ${staffError.message}`);
+      }
+
+      // Create lookup map for staff
+      const staffMap = new Map(staff?.map((s) => [(s as any).staff_id, s]) || []);
+
+      // Process files in batches
+      const batchSize = 10;
+      for (let i = 0; i < files.length; i += batchSize) {
+        const batch = files.slice(i, i + batchSize);
+
+        await Promise.all(
+          batch.map(async (file, batchIndex) => {
+            const overallIndex = i + batchIndex;
+            const staffId = this.extractStaffIdFromFilename(file.name);
+
+            try {
+              if (!staffId) {
+                results.failed.push({
+                  filename: file.name,
+                  error:
+                    'Could not extract Staff ID from filename. Expected format: STAFF_ID.extension'
+                });
+                return;
+              }
+
+              const staffMember = staffMap.get(staffId);
+              if (!staffMember) {
+                results.failed.push({
+                  filename: file.name,
+                  staff_id: staffId,
+                  error: 'No staff member found with this Staff ID'
+                });
+                return;
+              }
+
+              const institutionName = ((staffMember as any).institution as any)?.name;
+              if (!institutionName) {
+                results.failed.push({
+                  filename: file.name,
+                  staff_id: staffId,
+                  error: 'Staff institution not found'
+                });
+                return;
+              }
+
+              await this.validateFile(file);
+
+              const fileExt = file.name.split('.').pop()?.toLowerCase();
+              const sanitizedInstitutionName =
+                this.sanitizePathName(institutionName);
+              const filePath = `${sanitizedInstitutionName}/${staffId}.${fileExt}`;
+
+              const { error: uploadError } = await this.supabase.storage
+                .from(BUCKETS.STAFF_PHOTOS) // This now correctly points to 'staff-images'
+                .upload(filePath, file, {
+                  cacheControl: '3600',
+                  upsert: true
+                });
+
+              if (uploadError) throw uploadError;
+
+              const { data: urlData } = this.supabase.storage
+                .from(BUCKETS.STAFF_PHOTOS) // This now correctly points to 'staff-images'
+                .getPublicUrl(filePath);
+
+              await (this.supabase as any)
+                .from('staff')
+                .update({ profile_picture: urlData.publicUrl })
+                .eq('id', (staffMember as any).id);
+
+              results.success.push({
+                staff_id: staffId,
+                staff_name: `${(staffMember as any).first_name} ${(staffMember as any).last_name}`,
+                image_url: urlData.publicUrl
+              });
+            } catch (error) {
+              results.failed.push({
+                filename: file.name,
+                staff_id: staffId || undefined,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              });
+            }
+
+            if (onProgress) {
+              onProgress({
+                completed: overallIndex + 1,
+                total: files.length,
+                current: file.name
+              });
+            }
+          })
+        );
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error in bulk staff photo upload:', error);
+      throw error;
+    }
+  }
+
+  // Helper method to extract roll number from filename
+  private static extractRollNumberFromFilename(
+    filename: string
+  ): string | null {
+    // Remove file extension and extract roll number
+    const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+
+    // Try patterns in order of specificity (most specific first)
+    const patterns = [
+      // Pattern 1: Letters + digits + letters + digits (e.g., "APG24MA01", "ABC12XY34")
+      /([A-Z]{2,4}\d{2,4}[A-Z]{1,4}\d{1,4})/i,
+      // Pattern 2: Pure numeric: 6-10 digits (e.g., "123654789")
+      /(\d{6,10})/,
+      // Pattern 3: Optional leading digits + 2-4 letters + 2-6 digits (e.g., "24MBA60", "DB22092", "CS21001")
+      /(\d*[A-Z]{2,4}\d{2,6})/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = nameWithoutExt.match(pattern);
+      if (match) {
+        return match[1].toUpperCase();
+      }
+    }
+
+    return null;
+  }
+
+  // Updated delete method to handle both old and new path structures
+  private static async deleteOldStudentPhoto(
+    studentId: string,
+    institutionName?: string,
+    rollNumber?: string
+  ): Promise<void> {
+    try {
+      // Delete from old path structure (student-id based)
+      const { data: oldFiles } = await this.supabase.storage
+        .from(BUCKETS.STUDENT_PHOTOS)
+        .list(`${studentId}`);
+
+      if (oldFiles && oldFiles.length > 0) {
+        const oldFilesToRemove = oldFiles.map((f) => `${studentId}/${f.name}`);
+        await this.supabase.storage
+          .from(BUCKETS.STUDENT_PHOTOS)
+          .remove(oldFilesToRemove);
+      }
+
+      // Delete from new path structure (institution/roll-number based)
+      if (institutionName && rollNumber) {
+        const sanitizedInstitutionName = this.sanitizePathName(institutionName);
+
+        // List files that start with the roll number in the institution folder
+        const { data: newFiles } = await this.supabase.storage
+          .from(BUCKETS.STUDENT_PHOTOS)
+          .list(sanitizedInstitutionName);
+
+        if (newFiles && newFiles.length > 0) {
+          const rollNumberFiles = newFiles.filter((f) =>
+            f.name.startsWith(`${rollNumber}.`)
+          );
+
+          if (rollNumberFiles.length > 0) {
+            const newFilesToRemove = rollNumberFiles.map(
+              (f) => `${sanitizedInstitutionName}/${f.name}`
+            );
+            await this.supabase.storage
+              .from(BUCKETS.STUDENT_PHOTOS)
+              .remove(newFilesToRemove);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting old student photo:', error);
+    }
+  }
+
+  static async deleteStudentPhoto(
+    studentId: string
+  ): Promise<{ error: Error | null }> {
+    try {
+      // Get student details to delete from new path structure
+      const { data: student } = await (this.supabase as any)
+        .from('learners_profiles')
+        .select(
+          `
+          roll_number,
+          institutions!inner(name)
+        `
+        )
+        .eq('id', studentId)
+        .single();
+
+      await this.deleteOldStudentPhoto(
+        studentId,
+        (student as any)?.institutions?.[0]?.name,
+        student?.roll_number
+      );
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting student photo:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  static async uploadStaffImage(
+    file: File,
+    staffId: string
+  ): Promise<{ publicUrl: string | null; error: Error | null }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      // Remove existing staff image if any
+      await this.deleteExistingStaffImage(staffId);
+
+      // Create a unique filename
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${staffId}/${fileName}`;
+
+      // Upload the new file
+      const { error: uploadError } = await this.supabase.storage
+        .from('staff-images')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = this.supabase.storage
+        .from('staff-images')
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading staff image:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  private static async deleteExistingStaffImage(
+    staffId: string
+  ): Promise<void> {
+    try {
+      const { data: existingFiles } = await this.supabase.storage
+        .from('staff-images')
+        .list(staffId);
+
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map((f) => `${staffId}/${f.name}`);
+        await this.supabase.storage.from('staff-images').remove(filesToRemove);
+      }
+    } catch (error) {
+      console.error('Error deleting existing staff image:', error);
+    }
+  }
+
+  static async deleteStaffImage(
+    staffId: string
+  ): Promise<{ error: Error | null }> {
+    try {
+      await this.deleteExistingStaffImage(staffId);
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting staff image:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  static async deleteStaffImageByUrl(
+    imageUrl: string
+  ): Promise<{ error: Error | null }> {
+    if (!imageUrl) {
+      return { error: null }; // No image to delete
+    }
+
+    try {
+      // Extract the file path from the full URL
+      const url = new URL(imageUrl);
+      const path = url.pathname.split(
+        `/storage/v1/object/public/${BUCKETS.STAFF_PHOTOS}/`
+      )[1];
+
+      if (!path) {
+        throw new Error('Could not extract file path from URL');
+      }
+
+      const { error } = await this.supabase.storage
+        .from(BUCKETS.STAFF_PHOTOS)
+        .remove([path]);
+
+      if (error) throw error;
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting staff image by URL:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  // =============================================
+  // RESOURCE MANAGEMENT METHODS
+  // =============================================
+
+  /**
+   * Upload category image for resource management
+   */
+  static async uploadCategoryImage(
+    file: File,
+    categoryId: string
+  ): Promise<{
+    publicUrl: string | null;
+    error: Error | null;
+  }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      // Delete old category image if exists
+      await this.deleteOldCategoryImage(categoryId);
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `categories/${categoryId}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading category image:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  /**
+   * Delete old category images
+   */
+  private static async deleteOldCategoryImage(
+    categoryId: string
+  ): Promise<void> {
+    try {
+      const { data: existingFiles } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .list(`categories/${categoryId}`);
+
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToRemove = existingFiles.map(
+          (f) => `categories/${categoryId}/${f.name}`
+        );
+        await this.supabase.storage
+          .from(BUCKETS.RESOURCES)
+          .remove(filesToRemove);
+      }
+    } catch (error) {
+      console.error('Error deleting old category image:', error);
+    }
+  }
+
+  /**
+   * Delete category image by category ID
+   */
+  static async deleteCategoryImage(
+    categoryId: string
+  ): Promise<{ error: Error | null }> {
+    try {
+      await this.deleteOldCategoryImage(categoryId);
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting category image:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  /**
+   * Delete category image by URL
+   */
+  static async deleteCategoryImageByUrl(
+    imageUrl: string
+  ): Promise<{ error: Error | null }> {
+    if (!imageUrl) {
+      return { error: null }; // No image to delete
+    }
+
+    try {
+      // Extract the file path from the full URL
+      const url = new URL(imageUrl);
+      const path = url.pathname.split(
+        `/storage/v1/object/public/${BUCKETS.RESOURCES}/`
+      )[1];
+
+      if (!path) {
+        throw new Error('Could not extract file path from URL');
+      }
+
+      const { error } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .remove([path]);
+
+      if (error) throw error;
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting category image by URL:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  /**
+   * Upload resource image for resource management
+   */
+  static async uploadResourceImage(
+    file: File,
+    resourceId: string
+  ): Promise<{
+    publicUrl: string | null;
+    error: Error | null;
+  }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `resources/${resourceId}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .getPublicUrl(filePath);
+
+      return {
+        publicUrl: urlData.publicUrl,
+        error: null
+      };
+    } catch (error) {
+      console.error('Error uploading resource image:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed')
+      };
+    }
+  }
+
+  /**
+   * Delete resource image by URL
+   */
+  static async deleteResourceImageByUrl(
+    imageUrl: string
+  ): Promise<{ error: Error | null }> {
+    if (!imageUrl) {
+      return { error: null }; // No image to delete
+    }
+
+    try {
+      // Extract the file path from the full URL
+      const url = new URL(imageUrl);
+      const path = url.pathname.split(
+        `/storage/v1/object/public/${BUCKETS.RESOURCES}/`
+      )[1];
+
+      if (!path) {
+        throw new Error('Could not extract file path from URL');
+      }
+
+      const { error } = await this.supabase.storage
+        .from(BUCKETS.RESOURCES)
+        .remove([path]);
+
+      if (error) throw error;
+
+      return { error: null };
+    } catch (error) {
+      console.error('Error deleting resource image by URL:', error);
+      return {
+        error: error instanceof Error ? error : new Error('Delete failed')
+      };
+    }
+  }
+
+  // =============================================
+  // EXPO PHOTO METHODS
+  // =============================================
+
+  static async uploadExpoPhoto(
+    file: File,
+    institutionId: string,
+    eventId: string,
+    reportDate: string,
+    photoType: 'stall' | 'event' | 'visitor'
+  ): Promise<{ publicUrl: string | null; error: Error | null }> {
+    try {
+      await this.validateFile(file);
+
+      const { data: { user }, error: userError } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${photoType}_${Date.now()}.${fileExt}`;
+      const filePath = `${institutionId}/${eventId}/${reportDate}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.EXPO_PHOTOS)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.EXPO_PHOTOS)
+        .getPublicUrl(filePath);
+
+      return { publicUrl: urlData.publicUrl, error: null };
+    } catch (error) {
+      console.error('[admission/expos] Error uploading photo:', error);
+      return { publicUrl: null, error: error instanceof Error ? error : new Error('Upload failed') };
+    }
+  }
+
+  static async deleteExpoPhoto(url: string): Promise<void> {
+    try {
+      const bucketPath = url.split(`${BUCKETS.EXPO_PHOTOS}/`)[1];
+      if (bucketPath) {
+        await this.supabase.storage.from(BUCKETS.EXPO_PHOTOS).remove([bucketPath]);
+      }
+    } catch (error) {
+      console.error('[admission/expos] Error deleting photo:', error);
+    }
+  }
+}

@@ -1,0 +1,398 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --primary: 150 78% 26%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 47.9 95.8% 53.1%;
+    --secondary-foreground: 26 83.3% 14.1%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 150 78% 26%;
+
+    --radius: 0.5rem;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 150 78% 26%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 150 78% 26%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 150 70% 35%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 48 32.6% 17.5%;
+    --secondary-foreground: 48 50% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 150 70% 35%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 240 6% 10%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 150 70% 35%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4% 15%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 240 4% 15%;
+    --sidebar-ring: 150 70% 35%;
+  }
+  .theme {
+    --animate-aurora: aurora 8s ease-in-out infinite alternate;
+  }
+
+  /* Glassmorphism Design System */
+  :root {
+    /* Glass backgrounds - Light mode */
+    --glass-primary: hsla(150, 78%, 26%, 0.1);
+    --glass-secondary: hsla(47.9, 95.8%, 53.1%, 0.1);
+    --glass-card: hsla(0, 0%, 100%, 0.7);
+    --glass-card-hover: hsla(0, 0%, 100%, 0.85);
+
+    /* Glass borders */
+    --glass-border-light: hsla(0, 0%, 100%, 0.2);
+    --glass-border-strong: hsla(0, 0%, 100%, 0.3);
+
+    /* Multi-layer shadows for depth */
+    --glass-shadow-sm: 0 2px 8px -2px rgba(0, 0, 0, 0.1),
+                       0 4px 16px -4px rgba(0, 0, 0, 0.05);
+    --glass-shadow-md: 0 4px 16px -4px rgba(0, 0, 0, 0.12),
+                       0 8px 32px -8px rgba(0, 0, 0, 0.08);
+    --glass-shadow-lg: 0 8px 32px -8px rgba(0, 0, 0, 0.15),
+                       0 16px 64px -16px rgba(0, 0, 0, 0.1);
+    --glass-shadow-xl: 0 12px 48px -12px rgba(0, 0, 0, 0.2),
+                       0 24px 96px -24px rgba(0, 0, 0, 0.15);
+  }
+
+  .dark {
+    /* Glass backgrounds - Dark mode */
+    --glass-primary: hsla(150, 70%, 35%, 0.15);
+    --glass-secondary: hsla(48, 32.6%, 17.5%, 0.2);
+    --glass-card: hsla(222.2, 84%, 4.9%, 0.6);
+    --glass-card-hover: hsla(222.2, 84%, 4.9%, 0.75);
+
+    /* Glass borders */
+    --glass-border-light: hsla(255, 255%, 255%, 0.1);
+    --glass-border-strong: hsla(255, 255%, 255%, 0.2);
+
+    /* Enhanced shadows for dark mode */
+    --glass-shadow-sm: 0 2px 8px -2px rgba(0, 0, 0, 0.3),
+                       0 4px 16px -4px rgba(0, 0, 0, 0.2),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    --glass-shadow-md: 0 4px 16px -4px rgba(0, 0, 0, 0.4),
+                       0 8px 32px -8px rgba(0, 0, 0, 0.3),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+    --glass-shadow-lg: 0 8px 32px -8px rgba(0, 0, 0, 0.5),
+                       0 16px 64px -16px rgba(0, 0, 0, 0.4),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+    --glass-shadow-xl: 0 12px 48px -12px rgba(0, 0, 0, 0.6),
+                       0 24px 96px -24px rgba(0, 0, 0, 0.5),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom animations for unauthorized page */
+@keyframes gradient-x {
+  0%,
+  100% {
+    transform: translateX(0%);
+  }
+  50% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes gradient-y {
+  0%,
+  100% {
+    transform: translateY(0%);
+  }
+  50% {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+.animate-gradient-x {
+  animation: gradient-x 20s ease-in-out infinite;
+}
+
+.animate-gradient-y {
+  animation: gradient-y 25s ease-in-out infinite;
+}
+
+.animate-blob {
+  animation: blob 12s ease-in-out infinite;
+}
+
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+
+.animation-delay-6000 {
+  animation-delay: 6s;
+}
+
+/* Add Animations for Notification Bell */
+@layer components {
+  /* Animation for the main bell icon */
+  .notification-bell-trigger:hover .lucide-bell {
+    animation: ring 0.5s ease-in-out;
+  }
+
+  @keyframes ring {
+    0%,
+    100% {
+      transform: rotate(0);
+    }
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+      transform: rotate(-15deg);
+    }
+    20%,
+    40%,
+    60%,
+    80% {
+      transform: rotate(15deg);
+    }
+  }
+
+  /* Pulsing animation for default notification icons */
+  .default-notification-icon {
+    animation: pulse-bg 2s infinite;
+  }
+
+  @keyframes pulse-bg {
+    0% {
+      box-shadow: 0 0 0 0 rgba(107, 114, 128, 0.4);
+    }
+    70% {
+      box-shadow: 0 0 0 10px rgba(107, 114, 128, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(107, 114, 128, 0);
+    }
+  }
+}
+
+@layer utilities {
+  .animation-delay-2000 {
+    animation-delay: 2s;
+  }
+  .animation-delay-4000 {
+    animation-delay: 4s;
+  }
+}
+
+/* Custom Floating Animations for Login Page SVG */
+@keyframes float-a {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+@keyframes float-b {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(3deg);
+  }
+}
+@keyframes float-c {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(-2deg);
+  }
+}
+
+.animate-float-a {
+  animation: float-a 6s ease-in-out infinite;
+}
+.animate-float-b {
+  animation: float-b 8s ease-in-out infinite;
+  animation-delay: 1s;
+}
+.animate-float-c {
+  animation: float-c 7s ease-in-out infinite;
+  animation-delay: 0.5s;
+}
+
+@theme inline {
+  @keyframes aurora {
+  0% {
+    background-position: 0% 50%;
+    transform: rotate(-5deg) scale(0.9);
+    }
+  25% {
+    background-position: 50% 100%;
+    transform: rotate(5deg) scale(1.1);
+    }
+  50% {
+    background-position: 100% 50%;
+    transform: rotate(-3deg) scale(0.95);
+    }
+  75% {
+    background-position: 50% 0%;
+    transform: rotate(3deg) scale(1.05);
+    }
+  100% {
+    background-position: 0% 50%;
+    transform: rotate(-5deg) scale(0.9);
+    }
+  }
+}
+
+/* Glassmorphism utility classes */
+@layer utilities {
+  .glass-card {
+    @apply backdrop-blur-xl bg-white/70 dark:bg-black/40;
+    @apply border border-white/20 dark:border-white/10;
+    box-shadow: var(--glass-shadow-md);
+  }
+
+  .glass-card-hover {
+    @apply hover:bg-white/85 dark:hover:bg-black/50;
+    @apply hover:shadow-[var(--glass-shadow-lg)];
+    @apply transition-all duration-500;
+  }
+
+  .glass-button {
+    @apply backdrop-blur-sm bg-white/70 dark:bg-black/40;
+    @apply border-white/30 dark:border-white/20;
+    @apply hover:bg-white/90 dark:hover:bg-black/60;
+    box-shadow: var(--glass-shadow-sm);
+  }
+}
+
+/* Glassmorphism animations */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes glass-float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-10px) scale(1.05); }
+}
+
+.animate-shimmer { animation: shimmer 2s infinite; }
+.animate-glass-float { animation: glass-float 3s ease-in-out infinite; }
+
+/* Custom scrollbar — matches shadcn ScrollArea style */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar { width: 5px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
