@@ -19,7 +19,8 @@ import {
   UserX,
   GraduationCap,
   Building2,
-  MapPin
+  MapPin,
+  Shield
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
