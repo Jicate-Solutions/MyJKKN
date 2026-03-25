@@ -320,25 +320,6 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
         </Button>
       </div>
 
-      {/* Draft restoration banner */}
-      {isDraft && mode === 'create' && (
-        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
-          <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200">
-            <FileWarning className="h-4 w-4" />
-            <span>Unsaved draft restored. Your previously entered data has been preserved.</span>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-amber-800 hover:text-amber-900 dark:text-amber-200"
-            onClick={clearDraft}
-          >
-            Clear Draft
-          </Button>
-        </div>
-      )}
-
       {/* ── Section 1: Expo Master Selection ── */}
       <Card>
         <CardHeader>
