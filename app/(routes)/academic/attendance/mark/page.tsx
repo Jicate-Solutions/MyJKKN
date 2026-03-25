@@ -57,6 +57,10 @@ import { cn } from '@/lib/utils';
 import { LeaveOndutyAttendanceCheckService } from '@/lib/services/academic/leave-onduty-attendance-check-service';
 import { StudentLeaveIndicatorCompact } from './_components/student-leave-indicator';
 import type { ApprovedLeaveInfo } from '@/lib/services/academic/leave-onduty-attendance-check-service';
+// Updated: 2026-03-25 - Privilege-based auto-OD integration (Exceptions & Privileges module)
+import { PrivilegeService } from '@/lib/services/academic/privilege-service';
+import { PrivilegeOdIndicator } from './_components/privilege-od-indicator';
+import type { ActivePrivilegeInfo } from '@/types/privileges';
 
 export default function AttendanceMarkPage() {
   const router = useRouter();
