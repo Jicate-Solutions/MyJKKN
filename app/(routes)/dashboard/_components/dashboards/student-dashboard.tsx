@@ -35,6 +35,11 @@ export default function StudentDashboard({
 
       {/* Mobile: 1 column, Tablet: 2 columns, Desktop: 3 columns */}
       <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6'>
+        <PrivilegeBadgeWidget
+          studentId={studentId}
+          isVisible={visibilityMap.student_privilege_badge ?? true}
+        />
+
         <AttendanceWidget
           studentId={studentId}
           isVisible={visibilityMap.student_attendance ?? true}

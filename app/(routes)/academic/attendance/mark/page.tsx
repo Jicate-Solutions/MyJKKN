@@ -1168,8 +1168,26 @@ export default function AttendanceMarkPage() {
   }
 
   // Toggle attendance status
+  // Updated: 2026-03-25 - Check privilege-based auto-OD before toggling
   // Updated: 2026-01-29 - Check approved leave before toggling
   const toggleAttendance = (studentId: string) => {
+    // Block toggle for privilege-locked students (full_od)
+    const studentPrivileges = privilegeOdMap.get(studentId);
+    if (studentPrivileges) {
+      const hasFullOd = studentPrivileges.some(p =>
+        p.privilege_types.some(t => t.key === 'full_od')
+      );
+      if (hasFullOd) {
+        const odPrivilege = studentPrivileges.find(p =>
+          p.privilege_types.some(t => t.key === 'full_od')
+        );
+        toast.error(
+          `This student has Auto-OD via ${odPrivilege?.group_name || 'Privilege Group'} (Director Order #${odPrivilege?.reference_code || 'N/A'}). Status cannot be changed.`
+        );
+        return;
+      }
+    }
+
     const newStatus = attendanceData[studentId] === 'Present' ? 'Absent' : 'Present';
     const leaveInfo = approvedLeaveMap.get(studentId);
 
