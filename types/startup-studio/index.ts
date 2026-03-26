@@ -290,6 +290,19 @@ export interface SSProblemScore {
 // NIF PIPELINE
 // ============================================
 
+export type EnthusiasmCurve = 'uninformed_optimism' | 'informed_pessimism' | 'valley_of_despair' | 'informed_optimism' | 'success';
+export type LegalStructure = 'proprietorship' | 'partnership' | 'llp' | 'private_limited' | 'section_8' | 'opc';
+export type KycStatus = 'pending' | 'submitted' | 'verified' | 'rejected';
+export type IpStatus = 'none' | 'trade_secret' | 'patent_filed' | 'patent_granted';
+export type PrototypeMaturity = 'concept' | 'proof_of_concept' | 'alpha' | 'beta' | 'production';
+export type WillingnessToPay = 'unknown' | 'interested' | 'verbal_commit' | 'paid' | 'recurring';
+export type CompetitionLevel = 'blue_ocean' | 'few_competitors' | 'moderate' | 'crowded' | 'monopolized';
+export type Coachability = 'resistant' | 'passive' | 'receptive' | 'proactive';
+export type InvestorInterestLevel = 'none' | 'exploring' | 'in_discussion' | 'term_sheet' | 'committed';
+export type CompetitorType = 'direct' | 'indirect' | 'substitute';
+export type RiskDimension = 'magic' | 'market' | 'management' | 'money';
+export type RiskLevel = 'low' | 'moderate' | 'high' | 'critical';
+
 export interface SSNifCandidate {
   id: string;
   problem_id: string;
@@ -314,6 +327,34 @@ export interface SSNifCandidate {
   sh_solution_id: string | null;
   jobs_created: number;
   revenue_generated: number;
+  // Portfolio Intelligence fields (Phase 1 enrichment)
+  current_trl: number | null;
+  trl_assessed_at: string | null;
+  enthusiasm_curve: EnthusiasmCurve | null;
+  capital_assessment: Record<string, number>;
+  dipp_number: string | null;
+  incorporation_number: string | null;
+  incorporation_date: string | null;
+  legal_structure: LegalStructure | null;
+  gst_number: string | null;
+  pan_number: string | null;
+  pitch_deck_url: string | null;
+  elevator_pitch: string | null;
+  business_plan_url: string | null;
+  logo_url: string | null;
+  founder_profiles: Array<{ name: string; role: string; linkedin?: string; experience_years?: number; domain?: string }>;
+  customer_count: number;
+  market_sector: string | null;
+  target_geography: string | null;
+  patents_filed: number;
+  patents_granted: number;
+  trademarks: number;
+  incubation_agreement_signed: boolean;
+  incubation_agreement_date: string | null;
+  allocated_space: string | null;
+  equity_given_pct: number | null;
+  kyc_status: KycStatus;
+  kyc_documents: any[];
   created_at: string;
   updated_at: string;
 }
