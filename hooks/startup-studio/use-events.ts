@@ -120,3 +120,32 @@ export function useCreateEvent() {
     },
   });
 }
+
+/**
+ * Fetches only active (status = 'active') events.
+ * Used by the New Cycle form to pick an event for a cycle.
+ */
+export function useActiveEvents() {
+  const { isLoading: authLoading } = useAuth();
+  return useQuery({
+    queryKey: ['startup-events', { status: 'active' }],
+    queryFn: () => EventService.getEvents({ status: 'active' } as EventFilters),
+    enabled: !authLoading,
+    staleTime: 30 * 1000,
+    retry: 3,
+  });
+}
+
+/**
+ * Alias for useEvents — used by the Submissions list to populate the event filter dropdown.
+ */
+export function useSSEvents(filters?: EventFilters) {
+  const { isLoading: authLoading } = useAuth();
+  return useQuery({
+    queryKey: ['startup-events', filters ?? '__all__'],
+    queryFn: () => EventService.getEvents(filters),
+    enabled: !authLoading,
+    staleTime: 30 * 1000,
+    retry: 3,
+  });
+}
