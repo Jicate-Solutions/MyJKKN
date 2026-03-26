@@ -157,6 +157,17 @@ export {
   insightActionsKeys,
 } from './use-insight-actions';
 
+// Re-export scoring rules hooks
+export {
+  useScoringRules,
+  useActiveScoringRule,
+  useScoringRule,
+  useScoringRuleMutations,
+  useDefaultScoringConfig,
+  useCalculateScore,
+  scoringRulesKeys,
+} from './use-scoring-rules';
+
 // Re-export AI insights dashboard hooks
 export {
   useInsights,
