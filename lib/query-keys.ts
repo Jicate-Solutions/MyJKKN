@@ -658,6 +658,22 @@ export const startupStudioKeys = {
     detail: (id: string) =>
       [...startupStudioKeys.teams.all, 'detail', id] as const,
   },
+
+  mentors: {
+    all: ['startup-studio', 'mentors'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.mentors.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.mentors.all, 'detail', id] as const,
+    matches: (candidateId: string) =>
+      [...startupStudioKeys.mentors.all, 'matches', candidateId] as const,
+    sessions: (matchId: string) =>
+      [...startupStudioKeys.mentors.all, 'sessions', matchId] as const,
+    suggestions: (candidateId: string) =>
+      [...startupStudioKeys.mentors.all, 'suggestions', candidateId] as const,
+    dashboard: () =>
+      [...startupStudioKeys.mentors.all, 'dashboard'] as const,
+  },
 };
 
 // ============================================
