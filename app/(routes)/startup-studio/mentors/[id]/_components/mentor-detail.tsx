@@ -131,14 +131,15 @@ function LogSessionDialog({ matchId, mentorId }: LogSessionDialogProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await logSession.mutateAsync({
-      match_id: matchId,
-      mentor_id: mentorId,
-      ...form,
-      duration_minutes: form.duration_minutes ? Number(form.duration_minutes) : undefined,
-      mentor_rating: form.mentor_rating ? Number(form.mentor_rating) : undefined,
-      startup_rating: form.startup_rating ? Number(form.startup_rating) : undefined,
-      topics_discussed: topics,
-      action_items: actionItems,
+      matchId,
+      data: {
+        ...form,
+        duration_minutes: form.duration_minutes ? Number(form.duration_minutes) : 30,
+        mentor_rating_of_session: form.mentor_rating ? Number(form.mentor_rating) : undefined,
+        mentee_rating_of_session: form.startup_rating ? Number(form.startup_rating) : undefined,
+        topics_discussed: topics,
+        action_items: actionItems,
+      },
     });
     setOpen(false);
   };
