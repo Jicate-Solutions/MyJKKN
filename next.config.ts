@@ -9,11 +9,6 @@ const nextConfig: NextConfig = {
   // Enable Cache Components for server-side caching (Next.js 16.1.1)
   cacheComponents: true,
 
-  // Skip linting during build to save time
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-
   // Force SWC to re-compile Supabase packages as local source instead of
   // treating them as native ESM externals. This prevents the Turbopack
   // "module factory not available / deleted in HMR update" error on first
