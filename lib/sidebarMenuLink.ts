@@ -2197,6 +2197,20 @@ export function GetPages(pathname: string): MenuGroup[] {
             submenus: []
           },
           {
+            href: '/startup-studio/finance',
+            label: 'Finance',
+            active: pathname.startsWith('/startup-studio/finance'),
+            icon: Wallet,
+            submenus: []
+          },
+          {
+            href: '/startup-studio/governance',
+            label: 'Governance',
+            active: pathname.startsWith('/startup-studio/governance'),
+            icon: Scale,
+            submenus: []
+          },
+          {
             href: '/startup-studio/events',
             label: 'Events',
             active: pathname.startsWith('/startup-studio/events'),
