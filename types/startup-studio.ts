@@ -755,3 +755,29 @@ export interface TrackDeclarationSummary {
   count: number;
   percentage: number;
 }
+
+// Re-export Portfolio Intelligence types from index
+export type {
+  SSTrlAssessment,
+  CreateTrlAssessmentInput,
+  TrlDistribution,
+  SSRiskAssessment,
+  CreateRiskAssessmentInput,
+  RiskHeatmapEntry,
+  SSCompetitiveMatrix,
+  CreateCompetitorInput,
+  UpdateCompetitorInput,
+  PortfolioDashboardData,
+  EnthusiasmCurve,
+  LegalStructure,
+  KycStatus,
+  IpStatus,
+  PrototypeMaturity,
+  WillingnessToPay,
+  CompetitionLevel,
+  Coachability,
+  InvestorInterestLevel,
+  CompetitorType,
+  RiskDimension,
+  RiskLevel,
+} from './startup-studio/index';
