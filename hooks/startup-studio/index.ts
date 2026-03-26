@@ -8,3 +8,7 @@ export * from './use-teams';
 export * from './use-event-registration';
 export * from './use-venues';
 export * from './use-my-event';
+export * from './use-trl';
+export * from './use-risk';
+export * from './use-competitive';
+export * from './use-portfolio';
