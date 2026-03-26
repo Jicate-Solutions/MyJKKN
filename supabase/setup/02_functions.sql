@@ -5581,3 +5581,31 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION bulk_insert_marketing_leads TO authenticated;
+
+-- Get upload batch history grouped by batch_id
+-- Added: 2026-03-26 — Missing RPC that caused fallback full-table scan + timeout
+CREATE OR REPLACE FUNCTION get_marketing_lead_upload_batches(p_institution_id uuid)
+RETURNS TABLE (
+  upload_batch_id uuid,
+  upload_file_name text,
+  uploaded_by uuid,
+  created_at timestamptz,
+  total_records bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT
+    m.upload_batch_id,
+    (array_agg(m.upload_file_name ORDER BY m.created_at ASC))[1] AS upload_file_name,
+    (array_agg(m.uploaded_by ORDER BY m.created_at ASC))[1] AS uploaded_by,
+    MIN(m.created_at) AS created_at,
+    COUNT(*) AS total_records
+  FROM marketing_leads_database m
+  WHERE m.institution_id = p_institution_id
+  GROUP BY m.upload_batch_id
+  ORDER BY MIN(m.created_at) DESC;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_marketing_lead_upload_batches TO authenticated;
