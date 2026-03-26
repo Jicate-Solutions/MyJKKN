@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
 
+  // Standalone output for faster Vercel builds (skips some static generation overhead)
+  output: 'standalone',
+
   // Enable Cache Components for server-side caching (Next.js 16.1.1)
   cacheComponents: true,
 
