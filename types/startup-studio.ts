@@ -861,4 +861,10 @@ export type {
   ComplianceCategory,
   ComplianceFrequency,
   ComplianceStatus,
+  MarketingActivityType,
+  MarketingActivityStatus,
+  SSMarketingActivity,
+  CreateMarketingActivityInput,
+  UpdateMarketingActivityInput,
+  MarketingDashboard,
 } from './startup-studio/index';
