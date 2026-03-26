@@ -447,6 +447,133 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/vote': 'startup_studio.events.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
   '/startup-studio/events/[id]/dashboard': 'startup_studio.analytics.view',
+
+  // Solution Hub
+  '/solutions': 'solutions.dashboard.view',
+  '/solutions/list': 'solutions.dashboard.view',
+  '/solutions/pipeline': 'solutions.pipeline.view',
+  '/solutions/pipeline/list': 'solutions.pipeline.view',
+  '/solutions/pipeline/analytics': 'solutions.pipeline.analytics.view',
+  '/solutions/clients': 'solutions.clients.view',
+  '/solutions/builders': 'solutions.builders.view',
+  '/solutions/training': 'solutions.training.view',
+  '/solutions/training/programs': 'solutions.training.programs.view',
+  '/solutions/training/sessions': 'solutions.training.sessions.view',
+  '/solutions/training/cohort': 'solutions.training.cohort.view',
+  '/solutions/content': 'solutions.content.view',
+  '/solutions/content/deliverables': 'solutions.content.deliverables.view',
+  '/solutions/content/production': 'solutions.content.production.view',
+  '/solutions/content/queue': 'solutions.content.queue.view',
+  '/solutions/payments': 'solutions.payments.view',
+  '/solutions/earnings': 'solutions.earnings.view',
+  '/solutions/discovery': 'solutions.discovery.view',
+  '/solutions/publications': 'solutions.publications.view',
+  '/solutions/products': 'solutions.products.view',
+  '/solutions/software': 'solutions.software.view',
+  '/solutions/software/builders': 'solutions.software.builders.view',
+  '/solutions/software/phases': 'solutions.software.phases.view',
+  '/solutions/matlab': 'solutions.matlab.view',
+  '/solutions/paradigm-shift': 'solutions.paradigm_shift.view',
+  '/solutions/compliance': 'solutions.compliance.view',
+  '/solutions/departments': 'solutions.departments.view',
+
+  // Campus Living
+  '/campus-living': 'campus_living.dashboard.view',
+  '/campus-living/hostel': 'campus_living.hostel.view',
+  '/campus-living/hostel/rooms': 'campus_living.hostel.rooms.view',
+  '/campus-living/hostel/allocation': 'campus_living.hostel.allocation.view',
+  '/campus-living/hostel/residents': 'campus_living.hostel.residents.view',
+  '/campus-living/hostel/attendance': 'campus_living.hostel.attendance.view',
+  '/campus-living/hostel/complaints': 'campus_living.hostel.complaints.view',
+  '/campus-living/hostel/visitors': 'campus_living.hostel.visitors.view',
+  '/campus-living/mess': 'campus_living.mess.view',
+  '/campus-living/mess/menu': 'campus_living.mess.menu.view',
+  '/campus-living/mess/feedback': 'campus_living.mess.feedback.view',
+  '/campus-living/mess/billing': 'campus_living.mess.billing.view',
+  '/campus-living/maintenance': 'campus_living.maintenance.view',
+  '/campus-living/safety': 'campus_living.safety.view',
+  '/campus-living/health': 'campus_living.health.view',
+
+  // OKR & Performance
+  '/okr': 'okr.dashboard.view',
+  '/okr/objectives': 'okr.objectives.view',
+  '/okr/key-results': 'okr.key_results.view',
+  '/okr/check-ins': 'okr.check_ins.view',
+  '/okr/analytics': 'okr.analytics.view',
+  '/okr/settings': 'okr.settings.view',
+
+  // Learners Council
+  '/learners-council': 'learners_council.dashboard.view',
+  '/learners-council/structure': 'learners_council.structure.view',
+  '/learners-council/communication': 'learners_council.communication.view',
+  '/learners-council/events': 'learners_council.events.view',
+  '/learners-council/od': 'learners_council.od.view',
+  '/learners-council/selection': 'learners_council.selection.view',
+  '/learners-council/issues': 'learners_council.issues.view',
+  '/learners-council/settings': 'learners_council.settings.view',
+
+  // Industry & Partnerships
+  '/industry': 'industry.dashboard.view',
+  '/industry/partners': 'industry.partners.view',
+  '/industry/mentors': 'industry.mentors.view',
+  '/industry/projects': 'industry.projects.view',
+  '/industry/engagements': 'industry.engagements.view',
+
+  // Value Added Courses
+  '/vac': 'vac.dashboard.view',
+  '/vac/my-courses': 'vac.my_courses.view',
+  '/vac/admin': 'vac.admin.view',
+  '/vac/admin/courses': 'vac.admin.courses.view',
+  '/vac/admin/enrollments': 'vac.admin.enrollments.view',
+  '/vac/admin/analytics': 'vac.admin.analytics.view',
+  '/vac/admin/settings': 'vac.admin.settings.view',
+
+  // Talent Portals
+  '/talent/builder': 'talent.builder.view',
+  '/talent/builder/assignments': 'talent.builder.assignments.view',
+  '/talent/builder/available': 'talent.builder.available.view',
+  '/talent/builder/earnings': 'talent.builder.earnings.view',
+  '/talent/builder/skills': 'talent.builder.skills.view',
+  '/talent/cohort': 'talent.cohort.view',
+  '/talent/cohort/sessions': 'talent.cohort.sessions.view',
+  '/talent/cohort/earnings': 'talent.cohort.earnings.view',
+  '/talent/production': 'talent.production.view',
+  '/talent/production/queue': 'talent.production.queue.view',
+  '/talent/production/earnings': 'talent.production.earnings.view',
+  '/portal/client': 'portal.client.view',
+  '/portal/client/projects': 'portal.client.projects.view',
+  '/portal/client/deliverables': 'portal.client.deliverables.view',
+  '/portal/client/invoices': 'portal.client.invoices.view',
+  '/consultant-portal': 'consultant_portal.view',
+
+  // Parent Portal
+  '/parent-portal': 'parent_portal.dashboard.view',
+  '/parent-portal/access': 'parent_portal.access.view',
+  '/parent-portal/communications': 'parent_portal.communications.view',
+  '/parent-portal/reports': 'parent_portal.reports.view',
+
+  // Process Excellence
+  '/process-excellence': 'process_excellence.dashboard.view',
+  '/process-excellence/processes': 'process_excellence.processes.view',
+  '/process-excellence/audits': 'process_excellence.audits.view',
+  '/process-excellence/waste': 'process_excellence.waste.view',
+
+  // Quality & Compliance
+  '/maturity-assessment': 'quality.maturity_assessment.view',
+  '/stakeholder-nps': 'quality.stakeholder_nps.view',
+  '/grievance': 'quality.grievance.view',
+  '/regulatory': 'quality.regulatory.view',
+
+  // Learning & Development
+  '/competency-catalog': 'learning.competency_catalog.view',
+  '/learning-paths': 'learning.paths.view',
+  '/facilitator-development': 'learning.facilitator_development.view',
+  '/facilitator-impact': 'learning.facilitator_impact.view',
+
+  // Social & Community
+  '/social-media': 'social.media.view',
+  '/solve-for-100': 'social.solve_for_100.view',
+  '/alumni': 'social.alumni.view',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
