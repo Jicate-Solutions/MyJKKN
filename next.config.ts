@@ -6,8 +6,9 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
 
-  // Enable Cache Components for server-side caching (Next.js 16.1.1)
-  cacheComponents: true,
+  // cacheComponents disabled — conflicts with dynamic = 'force-dynamic' in layout
+  // Re-enable once Vercel build time limit is not an issue
+  // cacheComponents: true,
 
   // Force SWC to re-compile Supabase packages as local source instead of
   // treating them as native ESM externals. This prevents the Turbopack
