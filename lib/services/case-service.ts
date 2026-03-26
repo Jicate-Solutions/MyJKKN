@@ -3,7 +3,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   CaseTrack, CaseLearnerProgress, CaseTrackEnrollment,
   CaseBatch, CaseRiskCalculation, CaseGraduationReadiness,
-  CaseLearnerDashboard, CaseAtRiskLearner
+  CaseLearnerDashboard
 } from '@/types/case';
 
 // Helper to get untyped supabase client for CASE tables (not yet in generated types)
