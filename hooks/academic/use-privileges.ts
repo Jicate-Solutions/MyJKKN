@@ -70,17 +70,12 @@ export function usePrivilegeGroup(id: string | null) {
  * Fetch all privilege types for the current institution.
  */
 export function usePrivilegeTypes() {
-  const { userProfile, isSuperAdmin } = usePermissions();
+  const { userProfile } = usePermissions();
   const institutionId = userProfile?.institution_id || undefined;
 
   return useQuery({
     queryKey: QUERY_KEYS.types(institutionId),
-    queryFn: async () => {
-      // Pass institution_id if available, otherwise fetch all (super_admin with no institution)
-      const types = await PrivilegeService.getPrivilegeTypes(institutionId);
-      return types;
-    },
-    // Enable when we know the user is loaded (has profile)
+    queryFn: () => PrivilegeService.getPrivilegeTypes(institutionId),
     enabled: !!userProfile,
     staleTime: 5 * 60 * 1000,
   });
