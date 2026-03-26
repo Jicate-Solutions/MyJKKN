@@ -27,8 +27,8 @@ import {
 import {
   useMentorMatches,
   useSuggestedMentors,
-  useAssignMentor,
-  useLogMentorSession,
+  useCreateMatch,
+  useLogSession,
 } from '@/hooks/startup-studio';
 
 // ─── Badge configs ────────────────────────────────────────────────────────────
