@@ -1121,3 +1121,223 @@ export interface PortfolioDashboardData {
   attention_needed: Array<SSNifCandidate & { latest_risk_score?: number; risk_level?: RiskLevel }>;
   pipeline_funnel: Record<NifStage, number>;
 }
+
+// ============================================
+// PORTFOLIO INTELLIGENCE: MENTOR ECOSYSTEM
+// ============================================
+
+export type MentorType = 'resident' | 'visiting' | 'industry_expert' | 'academic' | 'investor' | 'alumni' | 'functional';
+export type MentorStatus = 'prospect' | 'screening' | 'onboarded' | 'inactive' | 'retired';
+export type MatchStatus = 'proposed' | 'active' | 'paused' | 'completed' | 'terminated';
+export type SessionMode = 'in_person' | 'virtual' | 'phone';
+export type MentorFocusArea =
+  | 'sales_marketing' | 'market_research' | 'financing' | 'business_law'
+  | 'tax_ip_law' | 'accounting' | 'product_development' | 'hr_recruiting'
+  | 'leadership' | 'communications' | 'networking' | 'technology'
+  | 'go_to_market' | 'fundraising' | 'governance' | 'other';
+export type EvaluationRecommendation = 'continue' | 'reduce_load' | 'retrain' | 'retire';
+
+export interface SSMentor {
+  id: string;
+  user_id: string | null;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  photo_url: string | null;
+  linkedin_url: string | null;
+  designation: string | null;
+  organization: string | null;
+  mentor_type: MentorType;
+  status: MentorStatus;
+  domain_expertise: string[];
+  functional_expertise: string[];
+  years_experience: number | null;
+  source: string | null;
+  referred_by: string | null;
+  max_mentees: number;
+  current_mentees: number;
+  preferred_session_frequency: string;
+  preferred_session_mode: string;
+  availability_notes: string | null;
+  screened_at: string | null;
+  screened_by: string | null;
+  screening_score: number | null;
+  screening_notes: string | null;
+  onboarded_at: string | null;
+  orientation_completed: boolean;
+  nda_signed: boolean;
+  agreement_signed: boolean;
+  total_sessions: number;
+  total_hours: number;
+  avg_mentee_rating: number | null;
+  startups_mentored: number;
+  successful_exits: number;
+  institution_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SSMentorMatch {
+  id: string;
+  mentor_id: string;
+  candidate_id: string;
+  status: MatchStatus;
+  match_reason: string | null;
+  matched_by: string | null;
+  matched_at: string;
+  primary_goal: string | null;
+  expected_duration_months: number | null;
+  session_frequency: string;
+  sessions_completed: number;
+  goals_met: string[];
+  goals_pending: string[];
+  started_at: string | null;
+  paused_at: string | null;
+  pause_reason: string | null;
+  completed_at: string | null;
+  completion_reason: string | null;
+  terminated_at: string | null;
+  termination_reason: string | null;
+  mentor_satisfaction: number | null;
+  mentee_satisfaction: number | null;
+  created_at: string;
+  updated_at: string;
+  mentor?: SSMentor;
+  candidate?: { id: string; startup_name: string | null; stage: string };
+}
+
+export interface SSMentorSession {
+  id: string;
+  match_id: string;
+  session_date: string;
+  duration_minutes: number;
+  mode: SessionMode;
+  location: string | null;
+  topics_discussed: string[];
+  key_takeaways: string | null;
+  action_items: string[];
+  blockers_identified: string[];
+  focus_area: MentorFocusArea | null;
+  mentee_progress_notes: string | null;
+  next_session_date: string | null;
+  mentor_rating_of_session: number | null;
+  mentee_rating_of_session: number | null;
+  recorded_by: string | null;
+  created_at: string;
+}
+
+export interface SSMentorEvaluation {
+  id: string;
+  mentor_id: string;
+  evaluation_period_start: string;
+  evaluation_period_end: string;
+  evaluated_by: string | null;
+  sessions_conducted: number;
+  total_hours: number;
+  mentees_served: number;
+  action_items_given: number;
+  action_items_completed: number;
+  avg_mentee_satisfaction: number | null;
+  domain_relevance_score: number | null;
+  communication_score: number | null;
+  availability_score: number | null;
+  impact_score: number | null;
+  overall_rating: number | null;
+  strengths: string | null;
+  areas_for_improvement: string | null;
+  recommendation: EvaluationRecommendation | null;
+  created_at: string;
+}
+
+export interface CreateMentorInput {
+  name: string;
+  email?: string;
+  phone?: string;
+  mentor_type: MentorType;
+  domain_expertise: string[];
+  user_id?: string;
+  designation?: string;
+  organization?: string;
+  functional_expertise?: string[];
+  years_experience?: number;
+  source?: string;
+  referred_by?: string;
+  max_mentees?: number;
+  preferred_session_frequency?: string;
+  preferred_session_mode?: string;
+  institution_id?: string;
+}
+
+export interface UpdateMentorInput {
+  name?: string;
+  email?: string;
+  phone?: string;
+  mentor_type?: MentorType;
+  status?: MentorStatus;
+  domain_expertise?: string[];
+  functional_expertise?: string[];
+  designation?: string;
+  organization?: string;
+  years_experience?: number;
+  max_mentees?: number;
+  preferred_session_frequency?: string;
+  preferred_session_mode?: string;
+  availability_notes?: string;
+  screening_score?: number;
+  screening_notes?: string;
+  linkedin_url?: string;
+  photo_url?: string;
+}
+
+export interface CreateMatchInput {
+  mentor_id: string;
+  candidate_id: string;
+  match_reason?: string;
+  matched_by?: string;
+  primary_goal?: string;
+  expected_duration_months?: number;
+  session_frequency?: string;
+}
+
+export interface LogSessionInput {
+  match_id: string;
+  session_date: string;
+  duration_minutes: number;
+  mode?: SessionMode;
+  location?: string;
+  topics_discussed: string[];
+  key_takeaways?: string;
+  action_items?: string[];
+  blockers_identified?: string[];
+  focus_area?: MentorFocusArea;
+  mentee_progress_notes?: string;
+  next_session_date?: string;
+  mentor_rating_of_session?: number;
+  mentee_rating_of_session?: number;
+  recorded_by?: string;
+}
+
+export interface MentorFilters {
+  status?: MentorStatus;
+  mentor_type?: MentorType;
+  domain?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface MentorDashboardData {
+  total_mentors: number;
+  active_mentors: number;
+  active_matches: number;
+  sessions_this_month: number;
+  avg_satisfaction: number | null;
+  top_domains: Array<{ domain: string; count: number }>;
+  utilization: Array<{
+    mentor_id: string;
+    name: string;
+    current_mentees: number;
+    max_mentees: number;
+    utilization_pct: number;
+  }>;
+}
