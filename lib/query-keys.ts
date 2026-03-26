@@ -688,6 +688,22 @@ export const startupStudioKeys = {
     alumniMetrics: (year?: number) =>
       [...startupStudioKeys.graduation.all, 'alumni-metrics', year] as const,
   },
+
+  kpi: {
+    all: ['startup-studio', 'kpi'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.kpi.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.kpi.all, 'detail', id] as const,
+    dashboard: (institutionId?: string) =>
+      [...startupStudioKeys.kpi.all, 'dashboard', institutionId] as const,
+    compliance: (framework: string, institutionId?: string) =>
+      [...startupStudioKeys.kpi.all, 'compliance', framework, institutionId] as const,
+    reports: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.kpi.all, 'reports', filters] as const,
+    reportDetail: (id: string) =>
+      [...startupStudioKeys.kpi.all, 'report-detail', id] as const,
+  },
 };
 
 // ============================================
