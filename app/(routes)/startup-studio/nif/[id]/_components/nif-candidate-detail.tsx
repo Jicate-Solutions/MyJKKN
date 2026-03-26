@@ -451,6 +451,31 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
           )}
         </CardContent>
       </Card>
+
+        {/* Close overview TabsContent */}
+        </TabsContent>
+
+        {/* ── TRL Tab ── */}
+        <TabsContent value="trl" className="mt-6">
+          <TrlTab candidateId={id} />
+        </TabsContent>
+
+        {/* ── Risk Tab ── */}
+        <TabsContent value="risk" className="mt-6">
+          <RiskTab candidateId={id} />
+        </TabsContent>
+
+        {/* ── Competitive Tab ── */}
+        <TabsContent value="competitive" className="mt-6">
+          <CompetitiveTab candidateId={id} />
+        </TabsContent>
+
+        {/* ── Details Tab (enriched candidate fields) ── */}
+        <TabsContent value="details" className="mt-6">
+          <EnrichedInfoSection candidate={candidate} />
+        </TabsContent>
+
+      </Tabs>
     </div>
   );
 }
