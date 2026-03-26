@@ -556,6 +556,111 @@ export const solutionsHubKeys = {
 };
 
 // ============================================
+// Startup Studio Keys
+// ============================================
+export const startupStudioKeys = {
+  all: ['startup-studio'] as const,
+
+  nif: {
+    all: ['startup-studio', 'nif'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.nif.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.nif.all, 'detail', id] as const,
+    stageCounts: () =>
+      [...startupStudioKeys.nif.all, 'stage-counts'] as const,
+    history: (candidateId: string) =>
+      [...startupStudioKeys.nif.all, 'history', candidateId] as const,
+  },
+
+  trl: {
+    all: ['startup-studio', 'trl'] as const,
+    list: (candidateId: string) =>
+      [...startupStudioKeys.trl.all, 'list', candidateId] as const,
+    distribution: () =>
+      [...startupStudioKeys.trl.all, 'distribution'] as const,
+    stalled: () =>
+      [...startupStudioKeys.trl.all, 'stalled'] as const,
+  },
+
+  risk: {
+    all: ['startup-studio', 'risk'] as const,
+    list: (candidateId: string) =>
+      [...startupStudioKeys.risk.all, 'list', candidateId] as const,
+    heatmap: () =>
+      [...startupStudioKeys.risk.all, 'heatmap'] as const,
+    highRisk: (threshold?: number) =>
+      [...startupStudioKeys.risk.all, 'high-risk', threshold] as const,
+  },
+
+  competitive: {
+    all: ['startup-studio', 'competitive'] as const,
+    list: (candidateId: string) =>
+      [...startupStudioKeys.competitive.all, 'list', candidateId] as const,
+  },
+
+  portfolio: {
+    all: ['startup-studio', 'portfolio'] as const,
+    dashboard: () =>
+      [...startupStudioKeys.portfolio.all, 'dashboard'] as const,
+  },
+
+  cycles: {
+    all: ['startup-studio', 'cycles'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.cycles.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.cycles.all, 'detail', id] as const,
+  },
+
+  problems: {
+    all: ['startup-studio', 'problems'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.problems.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.problems.all, 'detail', id] as const,
+    top: () =>
+      [...startupStudioKeys.problems.all, 'top'] as const,
+  },
+
+  submissions: {
+    all: ['startup-studio', 'submissions'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.submissions.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.submissions.all, 'detail', id] as const,
+    leaderboard: (eventId: string) =>
+      [...startupStudioKeys.submissions.all, 'leaderboard', eventId] as const,
+  },
+
+  events: {
+    all: ['startup-studio', 'events'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.events.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.events.all, 'detail', id] as const,
+    active: () =>
+      [...startupStudioKeys.events.all, 'active'] as const,
+  },
+
+  analytics: {
+    all: ['startup-studio', 'analytics'] as const,
+    dashboard: (eventId?: string) =>
+      [...startupStudioKeys.analytics.all, 'dashboard', eventId] as const,
+    nifStages: () =>
+      [...startupStudioKeys.analytics.all, 'nif-stages'] as const,
+  },
+
+  teams: {
+    all: ['startup-studio', 'teams'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.teams.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.teams.all, 'detail', id] as const,
+  },
+};
+
+// ============================================
 // Combined Export
 // ============================================
 export const queryKeys = {
@@ -565,7 +670,8 @@ export const queryKeys = {
   billing: billingKeys,
   academic: academicKeys,
   users: userKeys,
-  resources: resourceKeys
+  resources: resourceKeys,
+  startupStudio: startupStudioKeys,
 } as const;
 
 // ============================================
