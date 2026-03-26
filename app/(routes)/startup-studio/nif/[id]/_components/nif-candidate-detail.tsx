@@ -34,6 +34,7 @@ import { RiskTab } from './risk-tab';
 import { CompetitiveTab } from './competitive-tab';
 import { EnrichedInfoSection } from './enriched-info-section';
 import { MentorTab } from './mentor-tab';
+import { GraduationTab } from './graduation-tab';
 
 interface NifCandidateDetailProps {
   id: string;
