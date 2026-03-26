@@ -714,6 +714,38 @@ export const startupStudioKeys = {
     dashboard: (institutionId?: string) =>
       [...startupStudioKeys.marketing.all, 'dashboard', institutionId] as const,
   },
+
+  finance: {
+    all: ['startup-studio', 'finance'] as const,
+    grants: (institutionId?: string) =>
+      [...startupStudioKeys.finance.all, 'grants', institutionId] as const,
+    grant: (id: string) =>
+      [...startupStudioKeys.finance.all, 'grant', id] as const,
+    budgets: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.finance.all, 'budgets', filters] as const,
+    revenue: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.finance.all, 'revenue', filters] as const,
+    auditRecords: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.finance.all, 'audit-records', filters] as const,
+    sustainability: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.finance.all, 'sustainability', filters] as const,
+    grantUtilization: (institutionId?: string) =>
+      [...startupStudioKeys.finance.all, 'grant-utilization', institutionId] as const,
+  },
+
+  governance: {
+    all: ['startup-studio', 'governance'] as const,
+    members: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.governance.all, 'members', filters] as const,
+    compliance: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.governance.all, 'compliance', filters] as const,
+    complianceDashboard: (institutionId?: string) =>
+      [...startupStudioKeys.governance.all, 'compliance-dashboard', institutionId] as const,
+    readiness: (institutionId?: string) =>
+      [...startupStudioKeys.governance.all, 'readiness', institutionId] as const,
+    latestReadiness: (institutionId?: string) =>
+      [...startupStudioKeys.governance.all, 'latest-readiness', institutionId] as const,
+  },
 };
 
 // ============================================
