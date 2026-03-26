@@ -64,9 +64,39 @@ export function useUpdateGovernanceMember() {
   });
 }
 
+/**
+ * Remove (deactivate) a governance member
+ */
+export function useRemoveGovernanceMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (memberId: string) =>
+      apiClient.delete(`/api/startup-studio/governance/members/${memberId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: startupStudioKeys.governance.all });
+    },
+  });
+}
+
 // ============================================
 // COMPLIANCE HOOKS
 // ============================================
+
+/**
+ * Create a new compliance item
+ */
+export function useCreateComplianceItem() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: Record<string, any>) =>
+      apiClient.post('/api/startup-studio/governance/compliance', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: startupStudioKeys.governance.all });
+    },
+  });
+}
 
 /**
  * Fetch compliance items, optionally filtered
