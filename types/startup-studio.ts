@@ -780,4 +780,10 @@ export type {
   CompetitorType,
   RiskDimension,
   RiskLevel,
+  SSNifCandidate,
+  NifStage,
+  SSNifStageHistory,
+  NifCandidateFilters,
+  CreateNifCandidateInput,
+  UpdateNifCandidateInput,
 } from './startup-studio/index';
