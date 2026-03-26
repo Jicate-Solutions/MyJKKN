@@ -1492,3 +1492,183 @@ export interface AlumniMetrics {
   give_back_investors: number;
   avg_helpfulness_rating: number | null;
 }
+
+// ============================================
+// KPI & IMPACT FRAMEWORK (Phase 4)
+// ============================================
+
+export type KpiFramework = 'dst' | 'msh' | 'moe_innovation_cell' | 'nirf' | 'internal' | 'custom';
+export type KpiCategory = 'input' | 'output' | 'outcome' | 'impact';
+export type KpiDataType = 'integer' | 'decimal' | 'currency' | 'percentage' | 'boolean' | 'text';
+export type KpiCollectionFrequency = 'monthly' | 'quarterly' | 'annually' | 'real_time';
+export type ImpactReportType = 'annual_report' | 'quarterly_report' | 'funder_specific' | 'nirf_submission' | 'custom';
+export type ImpactReportAudience = 'funders' | 'board' | 'startups' | 'policymakers' | 'public' | 'custom';
+export type ImpactReportStatus = 'draft' | 'review' | 'approved' | 'published';
+
+export interface KpiDefinition {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+  framework: KpiFramework;
+  category: KpiCategory;
+  data_type: KpiDataType;
+  unit: string | null;
+  measurement_method: string | null;
+  target_value: number | null;
+  target_period: string | null;
+  collection_frequency: KpiCollectionFrequency;
+  source_table: string | null;
+  source_query: string | null;
+  is_auto_calculated: boolean;
+  relevant_to: string[];
+  is_active: boolean;
+  institution_id: string | null;
+  created_at: string;
+}
+
+export interface KpiMeasurement {
+  id: string;
+  kpi_id: string;
+  period_start: string;
+  period_end: string;
+  value: number;
+  previous_value: number | null;
+  notes: string | null;
+  data_source: string | null;
+  verified: boolean;
+  verified_by: string | null;
+  institution_id: string | null;
+  created_at: string;
+}
+
+export interface ImpactReport {
+  id: string;
+  report_title: string;
+  report_type: ImpactReportType;
+  target_audience: ImpactReportAudience;
+  period_start: string | null;
+  period_end: string | null;
+  executive_summary: string | null;
+  startup_highlights: any[];
+  kpi_snapshot: Record<string, any>;
+  report_url: string | null;
+  infographic_url: string | null;
+  status: ImpactReportStatus;
+  approved_by: string | null;
+  published_at: string | null;
+  institution_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KpiDashboardData {
+  kpis_by_framework: Record<string, Array<KpiDefinition & { latest_value?: number; latest_period_end?: string }>>;
+  overall_compliance: {
+    total: number;
+    measured: number;
+    unmeasured: number;
+    compliance_pct: number;
+  };
+}
+
+export interface FrameworkCompliance {
+  total: number;
+  measured: number;
+  unmeasured: number;
+  compliance_pct: number;
+}
+
+export interface KpiFilters {
+  framework?: KpiFramework;
+  category?: KpiCategory;
+  search?: string;
+  institutionId?: string;
+}
+
+export interface ImpactReportFilters {
+  status?: ImpactReportStatus;
+  report_type?: ImpactReportType;
+  institutionId?: string;
+}
+
+export interface CreateKpiDefinitionInput {
+  name: string;
+  code: string;
+  description?: string;
+  framework: KpiFramework;
+  category: KpiCategory;
+  data_type: KpiDataType;
+  unit?: string;
+  measurement_method?: string;
+  target_value?: number;
+  target_period?: string;
+  collection_frequency?: KpiCollectionFrequency;
+  source_table?: string;
+  source_query?: string;
+  is_auto_calculated?: boolean;
+  relevant_to?: string[];
+  is_active?: boolean;
+  institution_id?: string;
+}
+
+export interface UpdateKpiDefinitionInput {
+  name?: string;
+  code?: string;
+  description?: string;
+  framework?: KpiFramework;
+  category?: KpiCategory;
+  data_type?: KpiDataType;
+  unit?: string;
+  measurement_method?: string;
+  target_value?: number;
+  target_period?: string;
+  collection_frequency?: KpiCollectionFrequency;
+  source_table?: string;
+  source_query?: string;
+  is_auto_calculated?: boolean;
+  relevant_to?: string[];
+  is_active?: boolean;
+}
+
+export interface RecordMeasurementInput {
+  period_start: string;
+  period_end: string;
+  value: number;
+  notes?: string;
+  data_source?: string;
+  institution_id?: string;
+}
+
+export interface CreateImpactReportInput {
+  report_title: string;
+  report_type: ImpactReportType;
+  target_audience: ImpactReportAudience;
+  period_start?: string;
+  period_end?: string;
+  executive_summary?: string;
+  startup_highlights?: any[];
+  kpi_snapshot?: Record<string, any>;
+  report_url?: string;
+  infographic_url?: string;
+  status?: ImpactReportStatus;
+  approved_by?: string;
+  published_at?: string;
+  institution_id?: string;
+}
+
+export interface UpdateImpactReportInput {
+  report_title?: string;
+  report_type?: ImpactReportType;
+  target_audience?: ImpactReportAudience;
+  period_start?: string;
+  period_end?: string;
+  executive_summary?: string;
+  startup_highlights?: any[];
+  kpi_snapshot?: Record<string, any>;
+  report_url?: string;
+  infographic_url?: string;
+  status?: ImpactReportStatus;
+  approved_by?: string;
+  published_at?: string;
+}
