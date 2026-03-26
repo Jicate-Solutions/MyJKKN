@@ -1,5 +1,32 @@
 # Claude Code MCP Servers Usage Guide
 
+## CRITICAL: Supabase Database Targeting
+
+**The Supabase MCP tool defaults to PRODUCTION. MyJKKN uses STAGING.**
+
+| Context | Supabase Project | Ref | Use For |
+|---------|-----------------|-----|---------|
+| **MyJKKN (DEFAULT)** | MyJKKN-Staging | `hhprjbgknupaplivtoib` | All development, testing, migrations |
+| Production (only when explicitly asked) | MyJKKN-Production | `kvizhngldtiuufknvehv` | Only when user says "production database" |
+
+**Rules:**
+1. When working on MyJKKN, ALWAYS target **staging** (`hhprjbgknupaplivtoib`)
+2. The Supabase MCP `execute_sql` and `apply_migration` tools go to **production** by default — DO NOT use them for MyJKKN unless the user explicitly says "production"
+3. To run SQL on staging, use the **Management API**:
+   ```bash
+   ACCESS_TOKEN=$(cat ~/.supabase/access-token)
+   curl -s -X POST "https://api.supabase.com/v1/projects/hhprjbgknupaplivtoib/database/query" \
+     -H "Authorization: Bearer $ACCESS_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "YOUR SQL HERE"}'
+   ```
+4. The app's `.env.local` and Vercel `.env.production` both connect to staging: `https://hhprjbgknupaplivtoib.supabase.co`
+5. Test user on staging: `test-superadmin@jkkn.local` / `SuperAdmin@123` (institution: JKKN College of Pharmacy)
+
+**Why this matters:** Tables created via MCP `execute_sql` go to production. The Vercel app reads from staging. If you create tables on production but not staging, the app shows empty data.
+
+---
+
 ## Overview
 
 This guide explains how to effectively use the Memory and Sequential Thinking MCP servers in your MyJKKN development workflow.
