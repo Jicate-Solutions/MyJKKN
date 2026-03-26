@@ -407,6 +407,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/privileges/my/report': 'learners.privileges.report',
 
   // Startup Studio
+  '/startup-studio/portfolio': 'startup_studio.analytics.view',
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
