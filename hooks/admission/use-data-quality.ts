@@ -141,3 +141,83 @@ export function usePublishers() {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// HOSTEL HOOKS (stubs — full implementation in hooks/campus-living/)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function useHostels() {
+  const institutionId = useInstitutionId();
+  return useQuery({
+    queryKey: ['admission', 'hostels', institutionId],
+    queryFn: async () => [] as any[],
+    enabled: !!institutionId,
+  });
+}
+
+export function useHostelAllocations() {
+  const institutionId = useInstitutionId();
+  return useQuery({
+    queryKey: ['admission', 'hostel-allocations', institutionId],
+    queryFn: async () => [] as any[],
+    enabled: !!institutionId,
+  });
+}
+
+export function useHostelWaitlist() {
+  const institutionId = useInstitutionId();
+  return useQuery({
+    queryKey: ['admission', 'hostel-waitlist', institutionId],
+    queryFn: async () => [] as any[],
+    enabled: !!institutionId,
+  });
+}
+
+export function useAllocateHostelRoom() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (_data: { studentId: string; hostelId: string; room: string; bed: string }) => {
+      // Stub — to be wired to campus-living service
+      return {} as any;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission', 'hostel-allocations'] });
+      queryClient.invalidateQueries({ queryKey: ['admission', 'hostel-waitlist'] });
+    },
+  });
+}
+
+export function useUpdateWaitlistStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (_data: { id: string; status: string }) => {
+      // Stub — to be wired to campus-living service
+      return {} as any;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admission', 'hostel-waitlist'] });
+    },
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCHOLARSHIP HOOKS (stubs — to be connected to ScholarshipService)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function useScholarships() {
+  const institutionId = useInstitutionId();
+  return useQuery({
+    queryKey: ['admission', 'scholarships', institutionId],
+    queryFn: async () => [] as any[],
+    enabled: !!institutionId,
+  });
+}
+
+export function useScholarshipApplications() {
+  const institutionId = useInstitutionId();
+  return useQuery({
+    queryKey: ['admission', 'scholarship-applications', institutionId],
+    queryFn: async () => [] as any[],
+    enabled: !!institutionId,
+  });
+}
+
