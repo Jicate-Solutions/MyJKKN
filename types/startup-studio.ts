@@ -757,6 +757,350 @@ export interface TrackDeclarationSummary {
 }
 
 // Re-export Portfolio Intelligence types from index
+// ============================================================
+// Phase 4: KPI & Impact Framework
+// ============================================================
+
+export type KpiFramework = 'dst' | 'msh' | 'moe_innovation_cell' | 'nirf' | 'internal' | 'custom';
+export type KpiCategory = 'input' | 'output' | 'outcome' | 'impact';
+export type KpiDataType = 'integer' | 'decimal' | 'currency' | 'percentage' | 'boolean' | 'text';
+export type KpiCollectionFrequency = 'monthly' | 'quarterly' | 'annually' | 'real_time';
+export type ImpactReportType = 'annual_report' | 'quarterly_report' | 'funder_specific' | 'nirf_submission' | 'custom';
+export type ImpactReportAudience = 'funders' | 'board' | 'startups' | 'policymakers' | 'public' | 'custom';
+export type ImpactReportStatus = 'draft' | 'review' | 'approved' | 'published';
+
+export interface KpiDefinition {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+  framework: KpiFramework;
+  category: KpiCategory;
+  data_type: KpiDataType;
+  unit: string | null;
+  measurement_method: string | null;
+  target_value: number | null;
+  target_period: string | null;
+  collection_frequency: KpiCollectionFrequency;
+  source_table: string | null;
+  source_query: string | null;
+  is_auto_calculated: boolean;
+  relevant_to: string[];
+  is_active: boolean;
+  institution_id: string;
+  created_at: string;
+  latest_measurement?: KpiMeasurement;
+}
+
+export interface KpiMeasurement {
+  id: string;
+  kpi_id: string;
+  period_start: string;
+  period_end: string;
+  value: number;
+  previous_value: number | null;
+  notes: string | null;
+  data_source: string | null;
+  verified: boolean;
+  verified_by: string | null;
+  institution_id: string;
+  created_at: string;
+}
+
+export interface ImpactReport {
+  id: string;
+  report_title: string;
+  report_type: ImpactReportType;
+  target_audience: ImpactReportAudience;
+  period_start: string;
+  period_end: string;
+  executive_summary: string | null;
+  startup_highlights: Record<string, unknown>[];
+  kpi_snapshot: Record<string, unknown>;
+  report_url: string | null;
+  infographic_url: string | null;
+  status: ImpactReportStatus;
+  approved_by: string | null;
+  published_at: string | null;
+  institution_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KpiDashboardData {
+  kpis: (KpiDefinition & { latest_value?: number; trend?: 'up' | 'down' | 'stable' })[];
+  framework_compliance: Record<string, FrameworkCompliance>;
+  total_kpis: number;
+  measured_kpis: number;
+}
+
+export interface FrameworkCompliance {
+  total: number;
+  measured: number;
+  unmeasured: number;
+  compliance_pct: number;
+}
+
+export interface KpiFilters {
+  framework?: KpiFramework;
+  category?: KpiCategory;
+  search?: string;
+  institution_id?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ImpactReportFilters {
+  status?: ImpactReportStatus;
+  type?: ImpactReportType;
+  institution_id?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface CreateKpiDefinitionInput {
+  name: string;
+  code: string;
+  description?: string;
+  framework: KpiFramework;
+  category: KpiCategory;
+  data_type: KpiDataType;
+  unit?: string;
+  target_value?: number;
+  target_period?: string;
+  collection_frequency?: KpiCollectionFrequency;
+  is_auto_calculated?: boolean;
+  relevant_to?: string[];
+  institution_id: string;
+}
+
+export interface UpdateKpiDefinitionInput extends Partial<CreateKpiDefinitionInput> {}
+
+export interface RecordMeasurementInput {
+  kpi_id: string;
+  period_start: string;
+  period_end: string;
+  value: number;
+  notes?: string;
+  data_source?: string;
+  institution_id: string;
+}
+
+export interface CreateImpactReportInput {
+  report_title: string;
+  report_type: ImpactReportType;
+  target_audience: ImpactReportAudience;
+  period_start: string;
+  period_end: string;
+  executive_summary?: string;
+  institution_id: string;
+}
+
+export interface UpdateImpactReportInput extends Partial<CreateImpactReportInput> {
+  status?: ImpactReportStatus;
+  startup_highlights?: Record<string, unknown>[];
+  kpi_snapshot?: Record<string, unknown>;
+}
+
+// ============================================================
+// Phase 5: Finance, Governance & Compliance
+// ============================================================
+
+export interface SSGrant {
+  id: string;
+  name: string;
+  funder: string;
+  grant_number: string | null;
+  sanctioned_amount: number;
+  received_amount: number;
+  utilized_amount: number;
+  currency: string;
+  sanction_date: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  uc_submitted: boolean;
+  uc_submitted_at: string | null;
+  audit_status: string;
+  purpose: string | null;
+  allowed_heads: string[];
+  reporting_frequency: string;
+  last_report_date: string | null;
+  next_report_due: string | null;
+  institution_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGrantInput { name: string; funder: string; sanctioned_amount: number; institution_id: string; grant_number?: string; purpose?: string; start_date?: string; end_date?: string; }
+export interface UpdateGrantInput extends Partial<CreateGrantInput> { received_amount?: number; utilized_amount?: number; uc_submitted?: boolean; audit_status?: string; }
+
+export interface SSBudget {
+  id: string;
+  fiscal_year: string;
+  quarter: string | null;
+  category: string;
+  subcategory: string | null;
+  allocated_amount: number;
+  spent_amount: number;
+  committed_amount: number;
+  grant_id: string | null;
+  notes: string | null;
+  approved_by: string | null;
+  institution_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateBudgetInput { fiscal_year: string; category: string; allocated_amount: number; institution_id: string; quarter?: string; subcategory?: string; grant_id?: string; }
+export interface UpdateBudgetInput extends Partial<CreateBudgetInput> { spent_amount?: number; committed_amount?: number; }
+
+export interface SSRevenue {
+  id: string;
+  fiscal_year: string;
+  month: number | null;
+  source: string;
+  amount: number;
+  currency: string;
+  description: string | null;
+  is_self_generated: boolean;
+  institution_id: string;
+  created_at: string;
+}
+
+export interface RecordRevenueInput { fiscal_year: string; source: string; amount: number; institution_id: string; month?: number; description?: string; is_self_generated?: boolean; }
+
+export interface SSAuditRecord {
+  id: string;
+  audit_type: string;
+  audit_period_start: string;
+  audit_period_end: string;
+  auditor_name: string | null;
+  auditor_organization: string | null;
+  status: string;
+  findings_count: number;
+  critical_findings: number;
+  findings_details: Record<string, unknown>[];
+  management_response: string | null;
+  action_plan: Record<string, unknown>[];
+  all_findings_resolved: boolean;
+  report_url: string | null;
+  institution_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAuditRecordInput { audit_type: string; audit_period_start: string; audit_period_end: string; institution_id: string; auditor_name?: string; auditor_organization?: string; }
+export interface UpdateAuditRecordInput extends Partial<CreateAuditRecordInput> { status?: string; findings_count?: number; critical_findings?: number; management_response?: string; all_findings_resolved?: boolean; }
+
+export interface SSGovernanceMember {
+  id: string;
+  name: string;
+  designation: string | null;
+  organization: string | null;
+  email: string | null;
+  phone: string | null;
+  body: string;
+  role: string;
+  term_start: string | null;
+  term_end: string | null;
+  is_active: boolean;
+  coi_declaration_filed: boolean;
+  coi_details: string | null;
+  institution_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGovernanceMemberInput { name: string; body: string; role: string; institution_id: string; designation?: string; organization?: string; email?: string; }
+export interface UpdateGovernanceMemberInput extends Partial<CreateGovernanceMemberInput> { is_active?: boolean; term_start?: string; term_end?: string; }
+
+export interface SSComplianceItem {
+  id: string;
+  category: string;
+  requirement: string;
+  description: string | null;
+  frequency: string;
+  status: string;
+  due_date: string | null;
+  completed_date: string | null;
+  completed_by: string | null;
+  evidence_url: string | null;
+  notes: string | null;
+  reminder_days_before: number;
+  is_critical: boolean;
+  institution_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateComplianceItemInput { category: string; requirement: string; frequency: string; institution_id: string; description?: string; due_date?: string; is_critical?: boolean; }
+export interface UpdateComplianceStatusInput { status: string; completed_date?: string; completed_by?: string; evidence_url?: string; notes?: string; }
+
+export interface ComplianceDashboard {
+  total: number;
+  completed: number;
+  overdue: number;
+  in_progress: number;
+  completion_rate: number;
+  critical_overdue: number;
+}
+
+export interface SSReadinessAssessment {
+  id: string;
+  assessment_date: string;
+  assessed_by: string | null;
+  infra_score: number | null;
+  finance_score: number | null;
+  board_score: number | null;
+  hr_score: number | null;
+  legal_score: number | null;
+  overall_score: number | null;
+  overall_pct: number | null;
+  weakest_pillar: string | null;
+  improvement_plan: string | null;
+  institution_id: string;
+  created_at: string;
+}
+
+// ============================================================
+// Phase 6: Marketing & Outreach
+// ============================================================
+
+export interface SSMarketingActivity {
+  id: string;
+  activity_type: string;
+  title: string;
+  description: string | null;
+  target_audience: string | null;
+  date_start: string | null;
+  date_end: string | null;
+  budget: number | null;
+  actual_cost: number | null;
+  reach_count: number;
+  leads_generated: number;
+  applications_from_activity: number;
+  media_links: string[];
+  photos: string[];
+  roi_notes: string | null;
+  status: string;
+  conducted_by: string | null;
+  institution_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMarketingActivityInput { activity_type: string; title: string; institution_id: string; description?: string; target_audience?: string; date_start?: string; budget?: number; }
+export interface UpdateMarketingActivityInput extends Partial<CreateMarketingActivityInput> { status?: string; actual_cost?: number; reach_count?: number; leads_generated?: number; }
+
+export interface MarketingDashboard {
+  total_activities: number;
+  total_reach: number;
+  total_leads: number;
+  total_applications: number;
+  avg_roi: number | null;
+  by_type: Record<string, number>;
+}
+
 export type {
   SSTrlAssessment,
   CreateTrlAssessmentInput,
