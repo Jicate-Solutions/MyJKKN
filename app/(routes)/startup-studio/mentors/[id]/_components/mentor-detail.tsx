@@ -114,7 +114,7 @@ function LogSessionDialog({ matchId, mentorId }: LogSessionDialogProps) {
     startup_rating: '',
   });
 
-  const logSession = useLogMentorSession();
+  const logSession = useLogSession();
 
   const addTopic = () => {
     const val = topicInput.trim();
