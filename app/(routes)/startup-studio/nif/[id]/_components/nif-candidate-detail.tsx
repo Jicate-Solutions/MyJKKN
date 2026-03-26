@@ -182,6 +182,7 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
           <TabsTrigger value="risk">Risk</TabsTrigger>
           <TabsTrigger value="competitive">Competitive</TabsTrigger>
           <TabsTrigger value="mentors">Mentors</TabsTrigger>
+          <TabsTrigger value="graduation">Graduation</TabsTrigger>
           <TabsTrigger value="details">Details</TabsTrigger>
         </TabsList>
 
