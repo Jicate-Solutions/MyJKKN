@@ -479,6 +479,11 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
           <MentorTab candidateId={id} />
         </TabsContent>
 
+        {/* ── Graduation Tab ── */}
+        <TabsContent value="graduation" className="mt-6">
+          <GraduationTab candidateId={id} />
+        </TabsContent>
+
         {/* ── Details Tab (enriched candidate fields) ── */}
         <TabsContent value="details" className="mt-6">
           <EnrichedInfoSection candidate={candidate} />
