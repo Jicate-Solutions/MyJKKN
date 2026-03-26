@@ -6,10 +6,6 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
 
-  // Disable static page generation entirely — all pages are client-rendered
-  // This prevents the build from timing out on Vercel (1387 routes × prerender = 45+ min)
-  output: 'standalone',
-
   // Enable Cache Components for server-side caching (Next.js 16.1.1)
   cacheComponents: true,
 
