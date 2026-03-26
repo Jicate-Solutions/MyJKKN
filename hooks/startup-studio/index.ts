@@ -14,3 +14,4 @@ export * from './use-competitive';
 export * from './use-portfolio';
 export * from './use-mentors';
 export * from './use-graduation';
+export * from './use-ss-marketing';
