@@ -529,7 +529,7 @@ export function MentorDetail({ id }: MentorDetailProps) {
           </Button>
           {canOnboard && (
             <Button
-              onClick={() => onboardMentor.mutateAsync({ id })}
+              onClick={() => onboardMentor.mutateAsync(id)}
               disabled={onboardMentor.isPending}
             >
               <CheckCircle className="mr-2 h-4 w-4" />
