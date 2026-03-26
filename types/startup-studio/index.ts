@@ -1494,6 +1494,394 @@ export interface AlumniMetrics {
 }
 
 // ============================================
+// FINANCE, GOVERNANCE & COMPLIANCE (Phase 5)
+// ============================================
+
+export type GrantAuditStatus = 'pending' | 'in_progress' | 'completed' | 'flagged';
+
+export type RevenueSource =
+  | 'rental_income' | 'service_fees' | 'equity_returns' | 'licensing_ip'
+  | 'event_sponsorship' | 'corporate_partnership' | 'government_grant'
+  | 'consulting' | 'training_programs' | 'other';
+
+export type AuditType = 'internal_quarterly' | 'external_annual' | 'grant_specific' | 'special';
+
+export type AuditRecordStatus = 'scheduled' | 'in_progress' | 'completed' | 'findings_open';
+
+export type GovernanceBody =
+  | 'board_of_directors' | 'advisory_council' | 'finance_audit_committee'
+  | 'startup_selection_committee' | 'hr_compliance_committee' | 'internal_complaints_committee';
+
+export type GovernanceRole = 'chairperson' | 'member' | 'secretary' | 'ex_officio' | 'invitee';
+
+export type ComplianceCategory = 'legal' | 'financial' | 'hr' | 'startup' | 'reporting' | 'safety';
+
+export type ComplianceFrequency = 'one_time' | 'monthly' | 'quarterly' | 'annually' | 'as_needed';
+
+export type ComplianceStatus = 'pending' | 'in_progress' | 'completed' | 'overdue' | 'not_applicable';
+
+export interface SSGrant {
+  id: string;
+  name: string;
+  funder: string;
+  grant_number: string | null;
+  sanctioned_amount: number;
+  received_amount: number;
+  utilized_amount: number;
+  currency: string;
+  sanction_date: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  uc_submitted: boolean;
+  uc_submitted_at: string | null;
+  audit_status: GrantAuditStatus;
+  purpose: string | null;
+  allowed_heads: string[] | null;
+  reporting_frequency: string;
+  last_report_date: string | null;
+  next_report_due: string | null;
+  institution_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGrantInput {
+  name: string;
+  funder: string;
+  grant_number?: string;
+  sanctioned_amount: number;
+  received_amount?: number;
+  utilized_amount?: number;
+  currency?: string;
+  sanction_date?: string;
+  start_date?: string;
+  end_date?: string;
+  purpose?: string;
+  allowed_heads?: string[];
+  reporting_frequency?: string;
+  institution_id?: string;
+}
+
+export interface UpdateGrantInput {
+  name?: string;
+  funder?: string;
+  grant_number?: string;
+  sanctioned_amount?: number;
+  received_amount?: number;
+  utilized_amount?: number;
+  sanction_date?: string;
+  start_date?: string;
+  end_date?: string;
+  uc_submitted?: boolean;
+  uc_submitted_at?: string;
+  audit_status?: GrantAuditStatus;
+  purpose?: string;
+  allowed_heads?: string[];
+  reporting_frequency?: string;
+  last_report_date?: string;
+  next_report_due?: string;
+}
+
+export interface SSBudget {
+  id: string;
+  fiscal_year: string;
+  quarter: string | null;
+  category: string;
+  subcategory: string | null;
+  allocated_amount: number;
+  spent_amount: number;
+  committed_amount: number;
+  grant_id: string | null;
+  notes: string | null;
+  approved_by: string | null;
+  institution_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateBudgetInput {
+  fiscal_year: string;
+  quarter?: string;
+  category: string;
+  subcategory?: string;
+  allocated_amount: number;
+  spent_amount?: number;
+  committed_amount?: number;
+  grant_id?: string;
+  notes?: string;
+  approved_by?: string;
+  institution_id?: string;
+}
+
+export interface UpdateBudgetInput {
+  allocated_amount?: number;
+  spent_amount?: number;
+  committed_amount?: number;
+  notes?: string;
+  approved_by?: string;
+}
+
+export interface SSRevenue {
+  id: string;
+  fiscal_year: string;
+  month: number | null;
+  source: RevenueSource;
+  amount: number;
+  currency: string;
+  description: string | null;
+  is_self_generated: boolean;
+  institution_id: string | null;
+  created_at: string;
+}
+
+export interface RecordRevenueInput {
+  fiscal_year: string;
+  month?: number;
+  source: RevenueSource;
+  amount: number;
+  currency?: string;
+  description?: string;
+  is_self_generated?: boolean;
+  institution_id?: string;
+}
+
+export interface SSAuditRecord {
+  id: string;
+  audit_type: AuditType;
+  audit_period_start: string;
+  audit_period_end: string;
+  auditor_name: string | null;
+  auditor_organization: string | null;
+  status: AuditRecordStatus;
+  findings_count: number;
+  critical_findings: number;
+  findings_details: any[];
+  management_response: string | null;
+  action_plan: any[];
+  all_findings_resolved: boolean;
+  report_url: string | null;
+  institution_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAuditRecordInput {
+  audit_type: AuditType;
+  audit_period_start: string;
+  audit_period_end: string;
+  auditor_name?: string;
+  auditor_organization?: string;
+  institution_id?: string;
+}
+
+export interface UpdateAuditRecordInput {
+  status?: AuditRecordStatus;
+  auditor_name?: string;
+  auditor_organization?: string;
+  findings_count?: number;
+  critical_findings?: number;
+  findings_details?: any[];
+  management_response?: string;
+  action_plan?: any[];
+  all_findings_resolved?: boolean;
+  report_url?: string;
+}
+
+export interface SSGovernanceMember {
+  id: string;
+  name: string;
+  designation: string | null;
+  organization: string | null;
+  email: string | null;
+  phone: string | null;
+  body: GovernanceBody;
+  role: GovernanceRole;
+  term_start: string | null;
+  term_end: string | null;
+  is_active: boolean;
+  coi_declaration_filed: boolean;
+  coi_details: string | null;
+  institution_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGovernanceMemberInput {
+  name: string;
+  designation?: string;
+  organization?: string;
+  email?: string;
+  phone?: string;
+  body: GovernanceBody;
+  role: GovernanceRole;
+  term_start?: string;
+  term_end?: string;
+  is_active?: boolean;
+  coi_declaration_filed?: boolean;
+  coi_details?: string;
+  institution_id?: string;
+}
+
+export interface UpdateGovernanceMemberInput {
+  name?: string;
+  designation?: string;
+  organization?: string;
+  email?: string;
+  phone?: string;
+  body?: GovernanceBody;
+  role?: GovernanceRole;
+  term_start?: string;
+  term_end?: string;
+  is_active?: boolean;
+  coi_declaration_filed?: boolean;
+  coi_details?: string;
+}
+
+export interface SSComplianceItem {
+  id: string;
+  category: ComplianceCategory;
+  requirement: string;
+  description: string | null;
+  frequency: ComplianceFrequency;
+  status: ComplianceStatus;
+  due_date: string | null;
+  completed_date: string | null;
+  completed_by: string | null;
+  evidence_url: string | null;
+  notes: string | null;
+  reminder_days_before: number;
+  is_critical: boolean;
+  institution_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateComplianceItemInput {
+  category: ComplianceCategory;
+  requirement: string;
+  description?: string;
+  frequency: ComplianceFrequency;
+  due_date?: string;
+  is_critical?: boolean;
+  reminder_days_before?: number;
+  institution_id?: string;
+}
+
+export interface UpdateComplianceStatusInput {
+  status: ComplianceStatus;
+  completed_date?: string;
+  completed_by?: string;
+  evidence_url?: string;
+  notes?: string;
+}
+
+export interface ComplianceDashboard {
+  total: number;
+  completed: number;
+  overdue: number;
+  in_progress: number;
+  completion_rate: number;
+  critical_overdue: number;
+}
+
+export interface SSReadinessAssessment {
+  id: string;
+  assessment_date: string;
+  assessed_by: string | null;
+  // Infrastructure pillar
+  infra_score: number | null;
+  infra_physical_facilities: number | null;
+  infra_it_systems: number | null;
+  infra_lab_equipment: number | null;
+  infra_connectivity: number | null;
+  infra_co_working_space: number | null;
+  // Finance pillar
+  finance_score: number | null;
+  finance_budget_process: number | null;
+  finance_audit_compliance: number | null;
+  finance_grant_management: number | null;
+  finance_sustainability_plan: number | null;
+  // Board / Governance pillar
+  board_score: number | null;
+  board_governance_structure: number | null;
+  board_meeting_regularity: number | null;
+  board_committee_formation: number | null;
+  board_strategic_planning: number | null;
+  // HR pillar
+  hr_score: number | null;
+  hr_staff_capacity: number | null;
+  hr_training_programs: number | null;
+  hr_mentor_network: number | null;
+  hr_policies_in_place: number | null;
+  // Legal pillar
+  legal_score: number | null;
+  legal_registration_complete: number | null;
+  legal_ip_policy: number | null;
+  legal_incubation_policy: number | null;
+  legal_sop_documentation: number | null;
+  // Summary
+  weakest_pillar: string | null;
+  improvement_plan: string | null;
+  institution_id: string | null;
+  created_at: string;
+}
+
+export interface CreateReadinessAssessmentInput {
+  assessed_by?: string;
+  assessment_date?: string;
+  // Infrastructure
+  infra_physical_facilities?: number;
+  infra_it_systems?: number;
+  infra_lab_equipment?: number;
+  infra_connectivity?: number;
+  infra_co_working_space?: number;
+  // Finance
+  finance_budget_process?: number;
+  finance_audit_compliance?: number;
+  finance_grant_management?: number;
+  finance_sustainability_plan?: number;
+  // Board
+  board_governance_structure?: number;
+  board_meeting_regularity?: number;
+  board_committee_formation?: number;
+  board_strategic_planning?: number;
+  // HR
+  hr_staff_capacity?: number;
+  hr_training_programs?: number;
+  hr_mentor_network?: number;
+  hr_policies_in_place?: number;
+  // Legal
+  legal_registration_complete?: number;
+  legal_ip_policy?: number;
+  legal_incubation_policy?: number;
+  legal_sop_documentation?: number;
+  // Summary
+  improvement_plan?: string;
+  institution_id?: string;
+}
+
+export interface SustainabilityMetrics {
+  self_generated_ratio: number;
+  total_revenue: number;
+  grant_income: number;
+  self_income: number;
+}
+
+export interface GrantUtilization {
+  id: string;
+  name: string;
+  funder: string;
+  sanctioned_amount: number;
+  received_amount: number;
+  utilized_amount: number;
+  utilization_pct: number;
+  remaining: number;
+  end_date: string | null;
+  days_remaining: number | null;
+  audit_status: GrantAuditStatus;
+}
+
+// ============================================
 // KPI & IMPACT FRAMEWORK (Phase 4)
 // ============================================
 
