@@ -40,7 +40,6 @@ import { useBulkUploadLeads } from '@/hooks/admission/use-marketing-leads-databa
 import {
   MARKETING_LEADS_COLUMN_MAPPING,
   MARKETING_LEADS_TEMPLATE_COLUMNS,
-  validateLeadRow,
   normalizeGender,
   cleanMobileNumber,
   cleanPincode,
@@ -157,16 +156,17 @@ export function ImportLeadsDialog({
           const mapped: Record<string, string> = {};
 
           Object.entries(row).forEach(([key, value]) => {
-            const normalizedKey = key.trim().toUpperCase();
+            // Strip trailing annotation chars like * (required marker) before lookup
+            const normalizedKey = key.trim().replace(/[\s*#]+$/, '').toUpperCase();
             const mappedField = MARKETING_LEADS_COLUMN_MAPPING[normalizedKey] ||
-              MARKETING_LEADS_COLUMN_MAPPING[key.trim()];
+              MARKETING_LEADS_COLUMN_MAPPING[key.trim().replace(/[\s*#]+$/, '')];
 
             if (mappedField) {
               mapped[mappedField] = String(value ?? '').trim();
             }
           });
 
-          // Apply normalization
+          // Apply normalization (data cleanup only, no blocking validation)
           if (mapped.gender) {
             mapped.gender = normalizeGender(mapped.gender) || mapped.gender;
           }
@@ -177,10 +177,8 @@ export function ImportLeadsDialog({
             mapped.pincode = cleanPincode(mapped.pincode);
           }
 
-          const validated = validateLeadRow(mapped, index + 2); // +2 for header row + 0-index
-
           return {
-            rowNumber: validated.rowNumber,
+            rowNumber: index + 2,
             district: mapped.district || '',
             sub_district: mapped.sub_district || '',
             student_name: mapped.student_name || '',
@@ -192,16 +190,16 @@ export function ImportLeadsDialog({
             address: mapped.address || '',
             pincode: mapped.pincode || '',
             school_name: mapped.school_name || '',
-            errors: validated.errors,
-            isValid: validated.isValid,
+            errors: [] as string[],
+            isValid: true,
           };
         });
 
         setPreviewData(preview);
         setStep('preview');
 
-        const validCount = preview.filter((r) => r.isValid).length;
-        const invalidCount = preview.filter((r) => !r.isValid).length;
+        const validCount = preview.length;
+        const invalidCount = 0;
 
         if (invalidCount > 0) {
           toast.error(`${invalidCount} rows have validation errors`);
@@ -254,9 +252,8 @@ export function ImportLeadsDialog({
       return;
     }
 
-    const validRows = previewData.filter((r) => r.isValid);
-    if (validRows.length === 0) {
-      toast.error('No valid rows to upload');
+    if (previewData.length === 0) {
+      toast.error('No rows to upload');
       return;
     }
 
@@ -266,7 +263,7 @@ export function ImportLeadsDialog({
     const batchId = crypto.randomUUID();
 
     // Prepare leads data (strip preview-only fields)
-    const leads = validRows.map((row) => ({
+    const leads = previewData.map((row) => ({
       district: row.district,
       sub_district: row.sub_district,
       student_name: row.student_name,
@@ -379,8 +376,8 @@ export function ImportLeadsDialog({
 
   // ─── Computed ───────────────────────────────────────────────────────────
 
-  const validCount = previewData.filter((r) => r.isValid).length;
-  const invalidCount = previewData.filter((r) => !r.isValid).length;
+  const validCount = previewData.length;
+  const invalidCount = 0;
 
   // ─── Render ─────────────────────────────────────────────────────────────
 
@@ -550,7 +547,7 @@ export function ImportLeadsDialog({
                 disabled={validCount === 0}
               >
                 <Upload className="h-4 w-4 mr-1" />
-                Import {validCount} Valid Rows
+                Import {validCount} Rows
               </Button>
             </DialogFooter>
           </div>

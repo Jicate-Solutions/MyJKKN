@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react';
 import { Upload, X, Loader2 } from 'lucide-react';
 import { StorageService } from '@/lib/storage/storage-service';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 interface PhotoUploadGridProps {
   label: string;

@@ -12,19 +12,28 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Eye, Edit, ClipboardPlus, XCircle, Loader2 } from 'lucide-react';
+import { Eye, Edit, ClipboardPlus, XCircle, Trash2, Loader2 } from 'lucide-react';
 import type { ExpoEvent } from '@/types/admission';
-import { useUpdateExpoEventStatus } from '@/hooks/admission/use-expos';
+import { useUpdateExpoEventStatus, useDeleteExpoEvent } from '@/hooks/admission/use-expos';
+import { usePermissions } from '@/hooks/use-permissions';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
+  onRefresh?: () => void;
 }
 
-export function DataTableRowActions<TData>({ row }: DataTableRowActionsProps<TData>) {
+export function DataTableRowActions<TData>({ row, onRefresh }: DataTableRowActionsProps<TData>) {
   const expo = row.original as ExpoEvent;
   const router = useRouter();
   const updateStatus = useUpdateExpoEventStatus();
+  const deleteExpo = useDeleteExpoEvent();
+  const { canPerformAny } = usePermissions();
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  const canEdit = canPerformAny('admission.marketing.expos', ['edit']);
+  const canCreate = canPerformAny('admission.marketing.expos', ['create']);
+  const canDelete = canPerformAny('admission.marketing.expos', ['delete']);
 
   const handleView = () => router.push(`/admission/marketing/expos/${expo.id}`);
   const handleEdit = () => router.push(`/admission/marketing/expos/${expo.id}/edit`);
@@ -32,8 +41,13 @@ export function DataTableRowActions<TData>({ row }: DataTableRowActionsProps<TDa
   const handleCancel = () => {
     updateStatus.mutate(
       { id: expo.id, status: 'cancelled' },
-      { onSuccess: () => setShowCancelDialog(false) }
+      { onSuccess: () => { setShowCancelDialog(false); onRefresh?.(); } }
     );
+  };
+  const handleDelete = () => {
+    deleteExpo.mutate(expo.id, {
+      onSuccess: () => { setShowDeleteDialog(false); onRefresh?.(); },
+    });
   };
 
   return (
@@ -49,23 +63,36 @@ export function DataTableRowActions<TData>({ row }: DataTableRowActionsProps<TDa
           <DropdownMenuItem onSelect={handleView}>
             <Eye className="h-4 w-4 mr-2" /> View Details
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handleEdit}>
-            <Edit className="h-4 w-4 mr-2" /> Edit
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handleAddReport}>
-            <ClipboardPlus className="h-4 w-4 mr-2" /> Add Daily Report
-          </DropdownMenuItem>
-          {expo.event_status !== 'cancelled' && expo.event_status !== 'completed' && (
+          {canEdit && (
+            <DropdownMenuItem onSelect={handleEdit}>
+              <Edit className="h-4 w-4 mr-2" /> Edit
+            </DropdownMenuItem>
+          )}
+          {canCreate && (
+            <DropdownMenuItem onSelect={handleAddReport}>
+              <ClipboardPlus className="h-4 w-4 mr-2" /> Add Daily Report
+            </DropdownMenuItem>
+          )}
+          {canEdit && expo.event_status !== 'cancelled' && expo.event_status !== 'completed' && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setShowCancelDialog(true)} className="text-red-600">
+              <DropdownMenuItem onSelect={() => setShowCancelDialog(true)} className="text-orange-600">
                 <XCircle className="h-4 w-4 mr-2" /> Cancel Event
+              </DropdownMenuItem>
+            </>
+          )}
+          {canDelete && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setShowDeleteDialog(true)} className="text-red-600">
+                <Trash2 className="h-4 w-4 mr-2" /> Delete
               </DropdownMenuItem>
             </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* Cancel Confirmation */}
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -79,12 +106,38 @@ export function DataTableRowActions<TData>({ row }: DataTableRowActionsProps<TDa
             <AlertDialogAction
               onClick={handleCancel}
               disabled={updateStatus.isPending}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-orange-600 hover:bg-orange-700"
             >
               {updateStatus.isPending ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Cancelling...</>
               ) : (
                 'Yes, Cancel Event'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this expo event?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <strong>{expo.event_name}</strong> and all associated team members and daily reports. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteExpo.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleteExpo.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleteExpo.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Deleting...</>
+              ) : (
+                'Yes, Delete Event'
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import {
   Card,
   CardContent,
@@ -73,8 +73,8 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
   const router = useRouter();
   const { profile } = useAuth();
 
-  // institution_id is optional — auto-set from profile for tracking, null for super_admin
-  const institutionId = initialData?.institution_id ?? profile?.institution_id ?? null;
+  // institution_id resolved after useUserInstitutionAccess() hook below
+  let institutionId: string | null = null;
 
   // ── Form draft persistence (survives route navigation) ───────────────────
   const draftKey = mode === 'edit' && initialData?.id
@@ -120,6 +120,8 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
   const [leaderType, setLeaderType] = useState<'staff' | 'student'>('staff');
   const [leaderSearch, setLeaderSearch] = useState('');
   const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
+  // Resolve institution_id: use selectedInstitutionId for all roles (including super_admin)
+  institutionId = initialData?.institution_id ?? selectedInstitutionId ?? profile?.institution_id ?? null;
   const [leaderInstitutionId, setLeaderInstitutionId] = useState('');
   const [leaderDegreeId, setLeaderDegreeId] = useState('');
   const [leaderDepartmentId, setLeaderDepartmentId] = useState('');

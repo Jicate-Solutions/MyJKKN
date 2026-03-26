@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { RefreshCw, Plus } from 'lucide-react';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   Select,
   SelectContent,
@@ -13,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { columns } from './columns';
+import { getExpoColumns } from './columns';
 import { ExpoService } from '@/lib/services/admission/expo-service';
 import type { ExpoEventStatus } from '@/types/admission';
 
@@ -28,15 +29,19 @@ const STATUS_OPTIONS = [
 
 export function ExposDataTable() {
   const router = useRouter();
+  const { canPerformAny } = usePermissions();
+  const canCreate = canPerformAny('admission.marketing.expos', ['create']);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  const triggerRefresh = () => setRefreshKey((k) => k + 1);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
     toast.success('Expos data refreshed');
     setTimeout(() => {
-      setRefreshKey((k) => k + 1);
+      triggerRefresh();
       setIsRefreshing(false);
     }, 300);
   };
@@ -83,16 +88,18 @@ export function ExposDataTable() {
             <RefreshCw className={`h-4 w-4 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button size="sm" onClick={() => router.push('/admission/marketing/expos/new')}>
-            <Plus className="h-4 w-4 mr-1" />
-            New Expo
-          </Button>
+          {canCreate && (
+            <Button size="sm" onClick={() => router.push('/admission/marketing/expos/new')}>
+              <Plus className="h-4 w-4 mr-1" />
+              New Expo
+            </Button>
+          )}
         </div>
       </div>
       <DataTable
         key={refreshKey}
         fetchDataFn={fetchData as any}
-        getColumns={() => columns as any}
+        getColumns={() => getExpoColumns(triggerRefresh) as any}
         exportConfig={{ entityName: 'expos', columnMapping: {}, columnWidths: [], headers: [] }}
         idField="id"
         config={{ enableUrlState: false, enableDateFilter: false, enableExport: false }}

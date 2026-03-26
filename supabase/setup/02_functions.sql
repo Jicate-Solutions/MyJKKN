@@ -5521,7 +5521,7 @@ GRANT EXECUTE ON FUNCTION get_marketing_leads_districts TO authenticated;
 CREATE OR REPLACE FUNCTION bulk_insert_marketing_leads(
   p_leads jsonb,
   p_institution_id uuid,
-  p_batch_id text,
+  p_batch_id uuid,
   p_file_name text,
   p_user_id uuid DEFAULT NULL
 )

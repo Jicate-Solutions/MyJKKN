@@ -67,6 +67,9 @@ export function LeadsDatabaseDataTable() {
   // Data fetcher
   const fetchData = useCallback(
     async (params: DataFetchParams) => {
+      if (!institutionId) {
+        return { success: true, data: [], pagination: { page: 1, limit: params.limit, total_pages: 1, total_items: 0 } };
+      }
       const result = await MarketingLeadsDatabaseService.getLeads({
         institution_id: institutionId,
         search: params.search || undefined,

@@ -224,8 +224,8 @@ export class ExpoService {
       .select(
         `*,
         expo_master:expo_masters(id, event_name),
-        team_leader:staff!expo_events_team_leader_id_fkey(id, first_name, last_name),
-        approved_by:staff!expo_events_approved_by_id_fkey(id, first_name, last_name)`,
+        team_leader:profiles!expo_events_team_leader_id_fkey(id, full_name),
+        approved_by:profiles!expo_events_approved_by_id_fkey(id, full_name)`,
         { count: 'exact' }
       );
 
@@ -286,8 +286,8 @@ export class ExpoService {
       .select(
         `*,
         expo_master:expo_masters(id, event_name, organizer_name, city, venue_name),
-        team_leader:staff!expo_events_team_leader_id_fkey(id, first_name, last_name, phone),
-        approved_by:staff!expo_events_approved_by_id_fkey(id, first_name, last_name),
+        team_leader:profiles!expo_events_team_leader_id_fkey(id, full_name),
+        approved_by:profiles!expo_events_approved_by_id_fkey(id, full_name),
         team_members:expo_event_team_members(*),
         daily_reports:expo_daily_reports(*)`
       )

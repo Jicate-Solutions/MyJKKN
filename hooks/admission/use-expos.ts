@@ -2,7 +2,7 @@
 // React Query hooks for Education Expo / Fair Events module
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { ExpoService } from '@/lib/services/admission/expo-service';
 import type {
   ExpoMasterFilters,
@@ -396,6 +396,25 @@ export function useUpdateExpoEventStatus() {
       toast.success('Event status updated');
       queryClient.invalidateQueries({ queryKey: ['expo-events'] });
       queryClient.invalidateQueries({ queryKey: expoKeys.event(data.id) });
+      queryClient.invalidateQueries({ queryKey: ['expo-stats'] });
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+    },
+  });
+}
+
+/**
+ * Delete an expo event.
+ */
+export function useDeleteExpoEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => ExpoService.deleteExpoEvent(id),
+    onSuccess: () => {
+      toast.success('Expo event deleted');
+      queryClient.invalidateQueries({ queryKey: ['expo-events'] });
       queryClient.invalidateQueries({ queryKey: ['expo-stats'] });
     },
     onError: (err: Error) => {

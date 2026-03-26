@@ -31,7 +31,8 @@ export function getStatusLabel(status: string): string {
   return labels[status] || status;
 }
 
-export const columns: ColumnDef<ExpoEvent>[] = [
+export function getExpoColumns(onRefresh?: () => void): ColumnDef<ExpoEvent>[] {
+return [
   // Select checkbox
   {
     id: 'select',
@@ -150,9 +151,10 @@ export const columns: ColumnDef<ExpoEvent>[] = [
   // Row Actions
   {
     id: 'actions',
-    cell: ({ row }) => <DataTableRowActions row={row} />,
+    cell: ({ row }) => <DataTableRowActions row={row} onRefresh={onRefresh} />,
     enableSorting: false,
     enableHiding: false,
     size: 48,
   },
 ];
+}

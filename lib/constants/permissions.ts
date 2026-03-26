@@ -711,6 +711,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.marketing.chatbot.manage', label: 'Manage Chatbot & Knowledge Base' },
       { key: 'admission.marketing.voice.view', label: 'View Voice Agents & Broadcast' },
       { key: 'admission.marketing.voice.manage', label: 'Manage Voice Agents & Broadcast' },
+      { key: 'admission.marketing.expos.view', label: 'View Expos & Events' },
+      { key: 'admission.marketing.expos.create', label: 'Create Expos & Events' },
+      { key: 'admission.marketing.expos.edit', label: 'Edit Expos & Events' },
+      { key: 'admission.marketing.expos.delete', label: 'Delete Expos & Events' },
 
       // Data Quality
       { key: 'admission.data_quality.view', label: 'View Data Quality Reports' },

@@ -54,7 +54,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Plus, Edit, Trash2, Loader2, Search, BookOpen } from 'lucide-react';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { useAuth } from '@/hooks/use-auth';
 import {
   useExpoMasters,

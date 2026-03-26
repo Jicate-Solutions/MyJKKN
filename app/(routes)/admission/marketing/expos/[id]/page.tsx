@@ -434,13 +434,9 @@ function ExpoEventDetailContent() {
       ? event.total_expenses / event.total_leads_collected
       : 0;
 
-  const teamLeaderName = event.team_leader
-    ? `${event.team_leader.first_name} ${event.team_leader.last_name || ''}`.trim()
-    : null;
+  const teamLeaderName = event.team_leader?.full_name || null;
 
-  const approvedByName = event.approved_by
-    ? `${event.approved_by.first_name} ${event.approved_by.last_name || ''}`.trim()
-    : null;
+  const approvedByName = event.approved_by?.full_name || null;
 
   return (
     <div className="space-y-6">
