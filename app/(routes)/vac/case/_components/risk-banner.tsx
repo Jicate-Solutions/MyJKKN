@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Flame, Info, PartyPopper } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CaseRiskLevel, CaseRiskCalculation } from '@/types/case';
@@ -16,7 +17,7 @@ const CONFIG: Record<
     bg: string;
     border: string;
     text: string;
-    icon: React.ReactNode;
+    icon: ReactNode;
     title: string;
     getMessage: (risk: CaseRiskCalculation | null) => string;
   }
