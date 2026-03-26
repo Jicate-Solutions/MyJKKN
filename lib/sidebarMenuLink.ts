@@ -1440,9 +1440,16 @@ export function GetPages(pathname: string): MenuGroup[] {
 
         return [
           {
+            href: '/startup-studio/portfolio',
+            label: 'Portfolio Intelligence',
+            active: pathname === '/startup-studio/portfolio',
+            icon: Gauge,
+            submenus: []
+          },
+          {
             href: '/startup-studio/events',
             label: 'Events',
-            active: pathname.startsWith('/startup-studio'),
+            active: pathname.startsWith('/startup-studio/events'),
             icon: Rocket,
             submenus: activeId ? [
               {
