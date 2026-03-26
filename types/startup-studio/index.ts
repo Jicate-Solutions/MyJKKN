@@ -2060,3 +2060,89 @@ export interface UpdateImpactReportInput {
   approved_by?: string;
   published_at?: string;
 }
+
+// ============================================
+// MARKETING & OUTREACH (Phase 6)
+// ============================================
+
+export type MarketingActivityType =
+  | 'awareness_campaign'
+  | 'workshop'
+  | 'demo_day'
+  | 'media_coverage'
+  | 'social_media'
+  | 'website_update'
+  | 'brochure'
+  | 'newsletter'
+  | 'podcast'
+  | 'webinar'
+  | 'conference'
+  | 'stakeholder_visit'
+  | 'other';
+
+export type MarketingActivityStatus = 'planned' | 'in_progress' | 'completed' | 'cancelled';
+
+export interface SSMarketingActivity {
+  id: string;
+  activity_type: MarketingActivityType;
+  title: string;
+  description: string | null;
+  target_audience: string | null;
+  date_start: string | null;
+  date_end: string | null;
+  budget: number | null;
+  actual_cost: number | null;
+  reach_count: number;
+  leads_generated: number;
+  applications_from_activity: number;
+  media_links: string[];
+  photos: string[];
+  roi_notes: string | null;
+  status: MarketingActivityStatus;
+  conducted_by: string | null;
+  institution_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMarketingActivityInput {
+  activity_type: MarketingActivityType;
+  title: string;
+  description?: string;
+  target_audience?: string;
+  date_start?: string;
+  date_end?: string;
+  budget?: number;
+  actual_cost?: number;
+  reach_count?: number;
+  leads_generated?: number;
+  applications_from_activity?: number;
+  media_links?: string[];
+  photos?: string[];
+  roi_notes?: string;
+  status?: MarketingActivityStatus;
+  conducted_by?: string;
+  institution_id?: string;
+}
+
+export type UpdateMarketingActivityInput = Partial<CreateMarketingActivityInput>;
+
+export interface MarketingDashboard {
+  total_activities: number;
+  total_reach: number;
+  total_leads: number;
+  total_applications: number;
+  avg_roi: number;
+  by_type_breakdown: Array<{
+    activity_type: MarketingActivityType;
+    count: number;
+    reach: number;
+    leads: number;
+  }>;
+  monthly_trend: Array<{
+    month: string;
+    activities: number;
+    reach: number;
+    leads: number;
+  }>;
+}
