@@ -33,6 +33,7 @@ import { TrlTab } from './trl-tab';
 import { RiskTab } from './risk-tab';
 import { CompetitiveTab } from './competitive-tab';
 import { EnrichedInfoSection } from './enriched-info-section';
+import { MentorTab } from './mentor-tab';
 
 interface NifCandidateDetailProps {
   id: string;
