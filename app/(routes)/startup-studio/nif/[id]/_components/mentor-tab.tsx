@@ -157,7 +157,7 @@ function QuickLogButton({ matchId, mentorId }: { matchId: string; mentorId: stri
   const [open, setOpen]   = useState(false);
   const [date, setDate]   = useState(new Date().toISOString().slice(0, 10));
   const [duration, setDuration] = useState('');
-  const logSession = useLogMentorSession();
+  const logSession = useLogSession();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
