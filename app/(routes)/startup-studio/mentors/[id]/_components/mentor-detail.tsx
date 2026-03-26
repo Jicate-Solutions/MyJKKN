@@ -51,7 +51,7 @@ import {
 import {
   useMentor,
   useMentorMatches,
-  useLogMentorSession,
+  useLogSession,
   useOnboardMentor,
 } from '@/hooks/startup-studio';
 
