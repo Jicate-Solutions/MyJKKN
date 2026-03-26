@@ -757,19 +757,7 @@ export interface TrackDeclarationSummary {
 }
 
 // Re-export Portfolio Intelligence types from index
-// ============================================================
-// Phase 4: KPI & Impact Framework
-// ============================================================
-
-export type KpiFramework = 'dst' | 'msh' | 'moe_innovation_cell' | 'nirf' | 'internal' | 'custom';
-export type KpiCategory = 'input' | 'output' | 'outcome' | 'impact';
-export type KpiDataType = 'integer' | 'decimal' | 'currency' | 'percentage' | 'boolean' | 'text';
-export type KpiCollectionFrequency = 'monthly' | 'quarterly' | 'annually' | 'real_time';
-export type ImpactReportType = 'annual_report' | 'quarterly_report' | 'funder_specific' | 'nirf_submission' | 'custom';
-export type ImpactReportAudience = 'funders' | 'board' | 'startups' | 'policymakers' | 'public' | 'custom';
-export type ImpactReportStatus = 'draft' | 'review' | 'approved' | 'published';
-
-export interface KpiDefinition {
+export type {
   id: string;
   name: string;
   code: string;
