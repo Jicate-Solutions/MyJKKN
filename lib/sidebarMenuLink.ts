@@ -2180,6 +2180,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             submenus: []
           },
           {
+            href: '/startup-studio/kpi',
+            label: 'KPI Dashboard',
+            active: pathname.startsWith('/startup-studio/kpi'),
+            icon: PieChart,
+            submenus: []
+          },
+          {
             href: '/startup-studio/marketing',
             label: 'Marketing',
             active: pathname.startsWith('/startup-studio/marketing'),
