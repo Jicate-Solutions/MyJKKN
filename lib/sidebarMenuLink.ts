@@ -437,6 +437,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/alumni':    'startup_studio.analytics.view',
   '/startup-studio/kpi':       'startup_studio.analytics.view',
   '/startup-studio/marketing': 'startup_studio.analytics.view',
+  '/startup-studio/finance':   'startup_studio.analytics.view',
+  '/startup-studio/governance': 'startup_studio.analytics.view',
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
