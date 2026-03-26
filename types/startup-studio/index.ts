@@ -1341,3 +1341,154 @@ export interface MentorDashboardData {
     utilization_pct: number;
   }>;
 }
+
+// ============================================
+// GRADUATION & EXIT
+// ============================================
+
+export interface SSGraduationCriteria {
+  id: string;
+  name: string;
+  description: string | null;
+  criteria_type: string;
+  threshold_value: number | null;
+  threshold_unit: string | null;
+  is_active: boolean;
+  min_criteria_to_graduate: number;
+  institution_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SSGraduationEvaluation {
+  id: string;
+  candidate_id: string;
+  evaluation_date: string;
+  evaluated_by: string | null;
+  criteria_results: Array<{
+    criteria_id: string;
+    criteria_name: string;
+    met: boolean;
+    evidence?: string;
+    value?: number;
+  }>;
+  criteria_met_count: number;
+  is_graduation_ready: boolean;
+  decision: 'graduate' | 'extend' | 'exit_non_performance' | 'defer' | null;
+  decision_notes: string | null;
+  decision_by: string | null;
+  extension_months: number | null;
+  extension_conditions: string | null;
+  graduation_type: 'successful' | 'time_limit' | 'capacity' | 'acquisition' | null;
+  created_at: string;
+}
+
+export interface SSExitProcedure {
+  id: string;
+  candidate_id: string;
+  exit_type: 'graduation' | 'voluntary' | 'non_performance' | 'acquisition' | 'closure';
+  notice_given_at: string | null;
+  notice_period_days: number;
+  fees_outstanding: number;
+  fees_reconciled: boolean;
+  deposit_returned: boolean;
+  exit_interview_completed: boolean;
+  exit_interview_notes: string | null;
+  ip_agreements_settled: boolean;
+  nda_status: string;
+  equipment_returned: boolean;
+  access_revoked: boolean;
+  alumni_network_joined: boolean;
+  testimonial_provided: boolean;
+  exit_initiated_at: string;
+  exit_completed_at: string | null;
+  processed_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SSAlumniTracking {
+  id: string;
+  candidate_id: string;
+  tracking_year: number;
+  tracking_date: string;
+  is_operational: boolean;
+  pivot_description: string | null;
+  annual_revenue: number | null;
+  revenue_currency: string;
+  revenue_growth_pct: number | null;
+  total_funding_raised: number | null;
+  latest_funding_round: string | null;
+  latest_valuation: number | null;
+  employees_count: number;
+  jobs_created_this_year: number;
+  customers_count: number;
+  patents_filed: number;
+  patents_granted: number;
+  awards: string[];
+  media_mentions: number;
+  is_mentor_back: boolean;
+  is_investor_back: boolean;
+  referred_startups: number;
+  incubator_helpfulness_rating: number | null;
+  most_valuable_support: string | null;
+  improvement_suggestion: string | null;
+  recorded_by: string | null;
+  created_at: string;
+  candidate?: { id: string; startup_name: string | null; stage: string };
+}
+
+export interface CreateGraduationCriteriaInput {
+  name: string;
+  description?: string;
+  criteria_type: string;
+  threshold_value?: number;
+  threshold_unit?: string;
+  is_active?: boolean;
+  min_criteria_to_graduate?: number;
+  institution_id?: string;
+}
+
+export interface CreateExitProcedureInput {
+  candidate_id: string;
+  exit_type: string;
+  notice_period_days?: number;
+  fees_outstanding?: number;
+}
+
+export interface TrackAlumniInput {
+  candidate_id: string;
+  tracking_year: number;
+  is_operational?: boolean;
+  pivot_description?: string;
+  annual_revenue?: number;
+  revenue_growth_pct?: number;
+  total_funding_raised?: number;
+  latest_funding_round?: string;
+  latest_valuation?: number;
+  employees_count?: number;
+  jobs_created_this_year?: number;
+  customers_count?: number;
+  patents_filed?: number;
+  patents_granted?: number;
+  awards?: string[];
+  is_mentor_back?: boolean;
+  is_investor_back?: boolean;
+  referred_startups?: number;
+  incubator_helpfulness_rating?: number;
+  most_valuable_support?: string;
+  improvement_suggestion?: string;
+  recorded_by?: string;
+}
+
+export interface AlumniMetrics {
+  total_alumni: number;
+  operational_count: number;
+  operational_pct: number;
+  total_revenue: number;
+  total_jobs: number;
+  total_funding: number;
+  give_back_mentors: number;
+  give_back_investors: number;
+  avg_helpfulness_rating: number | null;
+}
