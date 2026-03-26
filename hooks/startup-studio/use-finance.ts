@@ -183,6 +183,21 @@ export function useCreateAuditRecord() {
   });
 }
 
+/**
+ * Update an existing audit record
+ */
+export function useUpdateAuditRecord() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ auditId, data }: { auditId: string; data: Record<string, any> }) =>
+      apiClient.patch(`/api/startup-studio/finance/audits/${auditId}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: startupStudioKeys.finance.all });
+    },
+  });
+}
+
 // ============================================
 // ANALYTICS HOOKS
 // ============================================
