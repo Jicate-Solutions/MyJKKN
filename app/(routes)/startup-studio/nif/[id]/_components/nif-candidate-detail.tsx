@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   AlertCircle,
   ArrowLeft,
@@ -28,6 +29,10 @@ import {
   useRejectNifCandidate,
 } from '@/hooks/startup-studio';
 import { DEPLOYMENT_PLATFORM_OPTIONS } from '@/lib/constants/startup-studio/matlab-toolbox-map';
+import { TrlTab } from './trl-tab';
+import { RiskTab } from './risk-tab';
+import { CompetitiveTab } from './competitive-tab';
+import { EnrichedInfoSection } from './enriched-info-section';
 
 interface NifCandidateDetailProps {
   id: string;
