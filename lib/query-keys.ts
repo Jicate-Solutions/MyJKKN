@@ -674,6 +674,20 @@ export const startupStudioKeys = {
     dashboard: () =>
       [...startupStudioKeys.mentors.all, 'dashboard'] as const,
   },
+
+  graduation: {
+    all: ['startup-studio', 'graduation'] as const,
+    criteria: (institutionId?: string) =>
+      [...startupStudioKeys.graduation.all, 'criteria', institutionId] as const,
+    readiness: (candidateId: string) =>
+      [...startupStudioKeys.graduation.all, 'readiness', candidateId] as const,
+    exit: (candidateId: string) =>
+      [...startupStudioKeys.graduation.all, 'exit', candidateId] as const,
+    alumni: () =>
+      [...startupStudioKeys.graduation.all, 'alumni'] as const,
+    alumniMetrics: (year?: number) =>
+      [...startupStudioKeys.graduation.all, 'alumni-metrics', year] as const,
+  },
 };
 
 // ============================================
