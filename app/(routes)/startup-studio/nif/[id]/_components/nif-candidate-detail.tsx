@@ -172,6 +172,19 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
         </div>
       </div>
 
+      {/* Tabbed content */}
+      <Tabs defaultValue="overview" className="w-full">
+        <TabsList className="flex-wrap h-auto gap-1">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="trl">TRL</TabsTrigger>
+          <TabsTrigger value="risk">Risk</TabsTrigger>
+          <TabsTrigger value="competitive">Competitive</TabsTrigger>
+          <TabsTrigger value="details">Details</TabsTrigger>
+        </TabsList>
+
+        {/* ── Overview Tab (existing content) ── */}
+        <TabsContent value="overview" className="space-y-6 mt-6">
+
       {/* Stage Progress */}
       <Card>
         <CardHeader>
