@@ -15,3 +15,5 @@ export * from './use-portfolio';
 export * from './use-mentors';
 export * from './use-graduation';
 export * from './use-ss-marketing';
+export * from './use-finance';
+export * from './use-governance';
