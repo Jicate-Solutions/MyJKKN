@@ -704,6 +704,16 @@ export const startupStudioKeys = {
     reportDetail: (id: string) =>
       [...startupStudioKeys.kpi.all, 'report-detail', id] as const,
   },
+
+  marketing: {
+    all: ['startup-studio', 'ss-marketing'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...startupStudioKeys.marketing.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.marketing.all, 'detail', id] as const,
+    dashboard: (institutionId?: string) =>
+      [...startupStudioKeys.marketing.all, 'dashboard', institutionId] as const,
+  },
 };
 
 // ============================================
