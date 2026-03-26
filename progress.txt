@@ -59,10 +59,27 @@
 - Hooks: use-ss-marketing.ts
 - NEEDS: API routes + UI pages
 
-## Remaining (Wave 3+4)
-- Phase 4/5/6: API routes + pages (Wave 3)
-- Phase 7: Incubation Command Center dashboard (Wave 4)
-- Build verify + deploy
+## Phase 4: KPI & Impact (COMPLETE)
+- API Routes: 7 (definitions CRUD, measurements, dashboard, compliance, impact reports)
+- Pages: 3 (KPI dashboard, KPI detail, impact reports)
+- Components: 3 (kpi-dashboard-view, kpi-detail-view, impact-reports-view)
+- Sidebar: Added with PieChart icon
+
+## Phase 5: Finance + Governance (COMPLETE)
+- API Routes: 13 (grants, budgets, revenue, audits, governance members, compliance, readiness)
+- Pages: 3 (finance dashboard, grant detail, governance)
+- Components: 3 (finance-dashboard, grant-detail, governance-dashboard)
+- Sidebar: Added Finance (Wallet) + Governance (Scale)
+
+## Phase 6: Marketing (COMPLETE)
+- API Routes: 3 (activities CRUD, dashboard)
+- Pages: 1 (marketing dashboard)
+- Components: 1 (marketing-dashboard)
+- Sidebar: Added with Megaphone icon
+
+## Remaining
+- Phase 7: Incubation Command Center dashboard (nice-to-have)
+- Build verify + deploy (in progress)
 
 ## Sidebar Update (COMPLETE - same session)
 - Added 11 new sidebar groups + expanded Solution Hub (2→14 entries)
