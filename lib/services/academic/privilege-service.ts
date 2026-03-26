@@ -49,13 +49,14 @@ export class PrivilegeService {
         query = query.eq('institution_id', institutionId);
       }
 
-      const { data, error } = await query;
+      const { data, error, status, statusText } = await query;
 
       if (error) {
-        logger.error('academic/privileges', 'Failed to fetch privilege types', error);
-        throw new Error('Failed to fetch privilege types');
+        logger.error('academic/privileges', 'Failed to fetch privilege types', { error, status, statusText });
+        throw new Error(`Failed to fetch privilege types: ${error.message}`);
       }
 
+      logger.info('academic/privileges', `getPrivilegeTypes returned ${data?.length ?? 0} types`, { institutionId, status });
       return (data ?? []) as PrivilegeType[];
     } catch (err) {
       logger.error('academic/privileges', 'getPrivilegeTypes error', err);
