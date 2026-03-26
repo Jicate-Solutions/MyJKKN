@@ -176,7 +176,7 @@ export function useCreateAuditRecord() {
 
   return useMutation({
     mutationFn: (data: Record<string, any>) =>
-      apiClient.post('/api/startup-studio/finance/audit-records', data),
+      apiClient.post('/api/startup-studio/finance/audits', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: startupStudioKeys.finance.all });
     },
