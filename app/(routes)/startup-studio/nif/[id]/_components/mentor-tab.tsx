@@ -162,10 +162,12 @@ function QuickLogButton({ matchId, mentorId }: { matchId: string; mentorId: stri
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await logSession.mutateAsync({
-      match_id: matchId,
-      mentor_id: mentorId,
-      date,
-      duration_minutes: duration ? Number(duration) : undefined,
+      matchId,
+      data: {
+        session_date: date,
+        duration_minutes: duration ? Number(duration) : 30,
+        topics_discussed: [],
+      },
     });
     setOpen(false);
   };
