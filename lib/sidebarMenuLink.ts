@@ -1449,6 +1449,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             submenus: []
           },
           {
+            href: '/startup-studio/mentors',
+            label: 'Mentor Network',
+            active: pathname.startsWith('/startup-studio/mentors'),
+            icon: Users,
+            submenus: []
+          },
+          {
             href: '/startup-studio/events',
             label: 'Events',
             active: pathname.startsWith('/startup-studio/events'),
