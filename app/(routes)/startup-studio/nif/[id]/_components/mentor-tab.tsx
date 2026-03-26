@@ -65,7 +65,7 @@ function AssignMentorDialog({ candidateId }: AssignMentorDialogProps) {
   const mentors: any[]   = Array.isArray(suggested) ? suggested : suggested?.data ?? [];
 
   const handleAssign = async (mentorId: string) => {
-    await assignMentor.mutateAsync({ candidate_id: candidateId, mentor_id: mentorId });
+    await assignMentor.mutateAsync({ candidateId, data: { mentor_id: mentorId } });
     setOpen(false);
   };
 
