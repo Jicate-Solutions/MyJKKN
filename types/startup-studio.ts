@@ -802,4 +802,12 @@ export type {
   SessionMode,
   MentorFocusArea,
   EvaluationRecommendation,
+  SSGraduationCriteria,
+  SSGraduationEvaluation,
+  SSExitProcedure,
+  SSAlumniTracking,
+  CreateGraduationCriteriaInput,
+  CreateExitProcedureInput,
+  TrackAlumniInput,
+  AlumniMetrics,
 } from './startup-studio/index';
