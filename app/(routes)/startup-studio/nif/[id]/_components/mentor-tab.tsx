@@ -59,7 +59,7 @@ interface AssignMentorDialogProps {
 function AssignMentorDialog({ candidateId }: AssignMentorDialogProps) {
   const [open, setOpen] = useState(false);
   const { data: suggestedRaw, isLoading } = useSuggestedMentors(candidateId);
-  const assignMentor = useAssignMentor();
+  const assignMentor = useCreateMatch();
 
   const suggested: any   = suggestedRaw;
   const mentors: any[]   = Array.isArray(suggested) ? suggested : suggested?.data ?? [];
