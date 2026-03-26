@@ -909,3 +909,215 @@ export interface VenueStats {
   teams_unallocated: number;
   staff_assigned: number;
 }
+
+// ============================================
+// PORTFOLIO INTELLIGENCE: TRL ASSESSMENTS
+// ============================================
+
+export interface SSTrlAssessment {
+  id: string;
+  candidate_id: string;
+  trl_level: number;
+  previous_trl: number | null;
+  assessment_date: string;
+  assessed_by: string | null;
+  evidence_description: string;
+  evidence_urls: string[];
+  lab_validated: boolean;
+  relevant_env_validated: boolean;
+  prototype_demonstrated: boolean;
+  system_qualified: boolean;
+  operational_proven: boolean;
+  blockers: string[];
+  next_steps: string | null;
+  estimated_months_to_next: number | null;
+  created_at: string;
+}
+
+export interface CreateTrlAssessmentInput {
+  candidate_id: string;
+  trl_level: number;
+  evidence_description: string;
+  evidence_urls?: string[];
+  lab_validated?: boolean;
+  relevant_env_validated?: boolean;
+  prototype_demonstrated?: boolean;
+  system_qualified?: boolean;
+  operational_proven?: boolean;
+  blockers?: string[];
+  next_steps?: string;
+  estimated_months_to_next?: number;
+  assessed_by?: string;
+}
+
+export interface TrlDistribution {
+  trl_level: number;
+  count: number;
+}
+
+// ============================================
+// PORTFOLIO INTELLIGENCE: RISK ASSESSMENTS (4M)
+// ============================================
+
+export interface SSRiskAssessment {
+  id: string;
+  candidate_id: string;
+  assessment_date: string;
+  assessed_by: string | null;
+  // Magic
+  magic_score: number;
+  magic_trl_level: number | null;
+  magic_ip_status: IpStatus | null;
+  magic_has_tech_advisory: boolean;
+  magic_prototype_maturity: PrototypeMaturity | null;
+  magic_notes: string | null;
+  magic_mitigation_plan: string | null;
+  // Market
+  market_score: number;
+  market_customers_validated: number;
+  market_willingness_to_pay: WillingnessToPay | null;
+  market_tam_estimate: number | null;
+  market_tam_currency: string;
+  market_competition_level: CompetitionLevel | null;
+  market_notes: string | null;
+  market_mitigation_plan: string | null;
+  // Management
+  management_score: number;
+  management_team_size: number;
+  management_has_domain_expert: boolean;
+  management_has_tech_lead: boolean;
+  management_has_business_lead: boolean;
+  management_coachability: Coachability | null;
+  management_has_advisory_board: boolean;
+  management_notes: string | null;
+  management_mitigation_plan: string | null;
+  // Money
+  money_score: number;
+  money_monthly_burn: number | null;
+  money_runway_months: number | null;
+  money_funding_raised: number;
+  money_funding_currency: string;
+  money_revenue_monthly: number;
+  money_has_financial_plan: boolean;
+  money_investor_interest_level: InvestorInterestLevel | null;
+  money_notes: string | null;
+  money_mitigation_plan: string | null;
+  // Computed
+  overall_risk_score: number;
+  overall_risk_level: RiskLevel;
+  // Action tracking
+  priority_risk: RiskDimension | null;
+  action_items: Array<{ action: string; owner?: string; due_date?: string; status?: string }>;
+  created_at: string;
+}
+
+export interface CreateRiskAssessmentInput {
+  candidate_id: string;
+  magic_score: number;
+  magic_trl_level?: number;
+  magic_ip_status?: IpStatus;
+  magic_has_tech_advisory?: boolean;
+  magic_prototype_maturity?: PrototypeMaturity;
+  magic_notes?: string;
+  magic_mitigation_plan?: string;
+  market_score: number;
+  market_customers_validated?: number;
+  market_willingness_to_pay?: WillingnessToPay;
+  market_tam_estimate?: number;
+  market_competition_level?: CompetitionLevel;
+  market_notes?: string;
+  market_mitigation_plan?: string;
+  management_score: number;
+  management_team_size?: number;
+  management_has_domain_expert?: boolean;
+  management_has_tech_lead?: boolean;
+  management_has_business_lead?: boolean;
+  management_coachability?: Coachability;
+  management_has_advisory_board?: boolean;
+  management_notes?: string;
+  management_mitigation_plan?: string;
+  money_score: number;
+  money_monthly_burn?: number;
+  money_runway_months?: number;
+  money_funding_raised?: number;
+  money_revenue_monthly?: number;
+  money_has_financial_plan?: boolean;
+  money_investor_interest_level?: InvestorInterestLevel;
+  money_notes?: string;
+  money_mitigation_plan?: string;
+  priority_risk?: RiskDimension;
+  action_items?: Array<{ action: string; owner?: string; due_date?: string; status?: string }>;
+  assessed_by?: string;
+}
+
+export interface RiskHeatmapEntry {
+  candidate_id: string;
+  startup_name: string | null;
+  stage: NifStage;
+  magic_score: number;
+  market_score: number;
+  management_score: number;
+  money_score: number;
+  overall_risk_score: number;
+  overall_risk_level: RiskLevel;
+}
+
+// ============================================
+// PORTFOLIO INTELLIGENCE: COMPETITIVE MATRIX
+// ============================================
+
+export interface SSCompetitiveMatrix {
+  id: string;
+  candidate_id: string;
+  competitor_name: string;
+  competitor_website: string | null;
+  competitor_type: CompetitorType;
+  attributes: Record<string, { us: number; them: number }>;
+  our_advantage: string | null;
+  their_advantage: string | null;
+  strategic_response: string | null;
+  last_updated: string;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateCompetitorInput {
+  candidate_id: string;
+  competitor_name: string;
+  competitor_website?: string;
+  competitor_type?: CompetitorType;
+  attributes?: Record<string, { us: number; them: number }>;
+  our_advantage?: string;
+  their_advantage?: string;
+  strategic_response?: string;
+  updated_by?: string;
+}
+
+export interface UpdateCompetitorInput {
+  competitor_name?: string;
+  competitor_website?: string;
+  competitor_type?: CompetitorType;
+  attributes?: Record<string, { us: number; them: number }>;
+  our_advantage?: string;
+  their_advantage?: string;
+  strategic_response?: string;
+  updated_by?: string;
+}
+
+// ============================================
+// PORTFOLIO INTELLIGENCE: DASHBOARD
+// ============================================
+
+export interface PortfolioDashboardData {
+  kpis: {
+    active_startups: number;
+    avg_trl: number | null;
+    avg_risk_score: number | null;
+    at_risk_count: number;
+  };
+  trl_distribution: TrlDistribution[];
+  risk_heatmap: RiskHeatmapEntry[];
+  attention_needed: Array<SSNifCandidate & { latest_risk_score?: number; risk_level?: RiskLevel }>;
+  pipeline_funnel: Record<NifStage, number>;
+}
