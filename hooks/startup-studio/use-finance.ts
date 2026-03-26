@@ -161,7 +161,7 @@ export function useAuditRecords(filters?: {
   return useQuery({
     queryKey: startupStudioKeys.finance.auditRecords(filters),
     queryFn: () =>
-      apiClient.get('/api/startup-studio/finance/audit-records', {
+      apiClient.get('/api/startup-studio/finance/audits', {
         params: filters,
       }),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
