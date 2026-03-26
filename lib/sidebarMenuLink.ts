@@ -71,7 +71,32 @@ import {
   Rocket,
   Vote,
   SearchCheck,
-  UserCog
+  UserCog,
+  Activity,
+  Bed,
+  BookMarked,
+  Compass,
+  Crown,
+  Factory,
+  FlaskConical,
+  Hammer,
+  Handshake,
+  HeartPulse,
+  Layers,
+  Lightbulb,
+  Microscope,
+  Network,
+  PieChart,
+  Presentation,
+  Puzzle,
+  Receipt,
+  Scale,
+  Share2,
+  ShieldCheck,
+  Star,
+  UtensilsCrossed,
+  Wallet,
+  Zap
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
