@@ -1457,6 +1457,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             submenus: []
           },
           {
+            href: '/startup-studio/alumni',
+            label: 'Alumni Network',
+            active: pathname.startsWith('/startup-studio/alumni'),
+            icon: Award,
+            submenus: []
+          },
+          {
             href: '/startup-studio/events',
             label: 'Events',
             active: pathname.startsWith('/startup-studio/events'),
