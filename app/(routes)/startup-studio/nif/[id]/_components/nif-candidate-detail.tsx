@@ -185,7 +185,7 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
         {/* ── Overview Tab (existing content) ── */}
         <TabsContent value="overview" className="space-y-6 mt-6">
 
-      {/* Stage Progress */}
+          {/* Stage Progress */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
