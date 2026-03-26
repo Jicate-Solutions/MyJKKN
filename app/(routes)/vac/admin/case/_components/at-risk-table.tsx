@@ -20,7 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, ArrowUpDown, ChevronUp, ChevronDown } from 'lucide-react';
-import type { CaseAtRiskLearner, CaseRiskLevel } from '@/types/case';
+import type { CaseRiskCalculation, CaseRiskLevel } from '@/types/case';
 
 const RISK_ORDER: Record<CaseRiskLevel, number> = {
   overdue: 0,
@@ -42,7 +42,7 @@ type SortKey = 'risk_level' | 'tracks_completed' | 'days_to_exam' | 'semesters_r
 type SortDir = 'asc' | 'desc';
 
 interface AtRiskTableProps {
-  learners: CaseAtRiskLearner[];
+  learners: CaseRiskCalculation[];
   isLoading: boolean;
 }
 
@@ -83,7 +83,7 @@ export function AtRiskTable({ learners, isLoading }: AtRiskTableProps) {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const institutions = useMemo(() => {
-    const set = new Set(learners.map((l) => l.institution_name));
+    const set = new Set(learners.map((l) => l.institution_id));
     return Array.from(set).sort();
   }, [learners]);
 
@@ -99,13 +99,13 @@ export function AtRiskTable({ learners, isLoading }: AtRiskTableProps) {
   const filtered = useMemo(() => {
     let list = institutionFilter === 'all'
       ? learners
-      : learners.filter((l) => l.institution_name === institutionFilter);
+      : learners.filter((l) => l.institution_id === institutionFilter);
 
     list = [...list].sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
         case 'risk_level':
-          cmp = RISK_ORDER[a.risk_level] - RISK_ORDER[b.risk_level];
+          cmp = RISK_ORDER[a.calculated_risk_level] - RISK_ORDER[b.calculated_risk_level];
           break;
         case 'tracks_completed':
           cmp = a.tracks_completed - b.tracks_completed;
@@ -174,9 +174,9 @@ export function AtRiskTable({ learners, isLoading }: AtRiskTableProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Programme</TableHead>
-              <TableHead>Institution</TableHead>
+              <TableHead>User ID</TableHead>
+              <TableHead>Programme ID</TableHead>
+              <TableHead>Institution ID</TableHead>
               <TableHead className="text-center">Semester</TableHead>
               <TableHead>
                 <SortButton label="Tracks Done" sortKey="tracks_completed" current={sortKey} dir={sortDir} onSort={handleSort} />
@@ -195,15 +195,14 @@ export function AtRiskTable({ learners, isLoading }: AtRiskTableProps) {
           </TableHeader>
           <TableBody>
             {filtered.map((learner) => {
-              const badge = RISK_BADGE[learner.risk_level];
+              const badge = RISK_BADGE[learner.calculated_risk_level];
               return (
                 <TableRow key={learner.user_id} className="hover:bg-muted/30">
                   <TableCell>
-                    <div className="font-medium text-sm">{learner.user_name}</div>
-                    <div className="text-xs text-muted-foreground">{learner.user_email}</div>
+                    <div className="font-medium text-sm font-mono text-xs">{learner.user_id.slice(0, 8)}...</div>
                   </TableCell>
-                  <TableCell className="text-sm">{learner.programme_name}</TableCell>
-                  <TableCell className="text-sm">{learner.institution_name}</TableCell>
+                  <TableCell className="text-sm font-mono text-xs">{learner.programme_id.slice(0, 8)}...</TableCell>
+                  <TableCell className="text-sm font-mono text-xs">{learner.institution_id.slice(0, 8)}...</TableCell>
                   <TableCell className="text-center text-sm">
                     Sem {learner.semesters_remaining} left
                   </TableCell>

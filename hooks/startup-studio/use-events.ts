@@ -129,7 +129,7 @@ export function useActiveEvents() {
   const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['startup-events', { status: 'active' }],
-    queryFn: () => EventService.getEvents({ status: 'active' } as EventFilters),
+    queryFn: () => EventService.getEvents({ status: 'active' as any }),
     enabled: !authLoading,
     staleTime: 30 * 1000,
     retry: 3,

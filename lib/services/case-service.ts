@@ -6,9 +6,13 @@ import type {
   CaseLearnerDashboard, CaseAtRiskLearner
 } from '@/types/case';
 
+// Helper to get untyped supabase client for CASE tables (not yet in generated types)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const getSupabase = (): any => createClientSupabaseClient();
+
 export class CaseService {
   private static getClient() {
-    return createClientSupabaseClient();
+    return getSupabase();
   }
 
   // ---- TRACKS ----

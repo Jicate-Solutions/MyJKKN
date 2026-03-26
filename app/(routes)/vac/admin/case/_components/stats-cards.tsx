@@ -3,10 +3,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Users, CheckCircle, AlertTriangle, XCircle, TrendingUp } from 'lucide-react';
-import type { CaseAtRiskLearner } from '@/types/case';
+import type { CaseRiskCalculation } from '@/types/case';
 
 interface StatsCardsProps {
-  learners: CaseAtRiskLearner[];
+  learners: CaseRiskCalculation[];
   isLoading: boolean;
 }
 
@@ -31,9 +31,9 @@ export function StatsCards({ learners, isLoading }: StatsCardsProps) {
   }
 
   const total = learners.length;
-  const onTrack = learners.filter((l) => l.risk_level === 'on_track' || l.risk_level === 'completed').length;
-  const atRisk = learners.filter((l) => l.risk_level === 'at_risk').length;
-  const critical = learners.filter((l) => l.risk_level === 'critical' || l.risk_level === 'overdue').length;
+  const onTrack = learners.filter((l) => l.calculated_risk_level === 'on_track' || l.calculated_risk_level === 'completed').length;
+  const atRisk = learners.filter((l) => l.calculated_risk_level === 'at_risk').length;
+  const critical = learners.filter((l) => l.calculated_risk_level === 'critical' || l.calculated_risk_level === 'overdue').length;
   const onTrackPct = total > 0 ? Math.round((onTrack / total) * 100) : 0;
 
   return (
