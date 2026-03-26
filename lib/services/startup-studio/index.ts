@@ -8,3 +8,7 @@ export { eventsService, EventsService } from './events-service';
 export { submissionsService, SubmissionsService } from './submissions-service';
 export { analyticsService, AnalyticsService } from './analytics-service';
 export { venuesService, VenuesService } from './venues-service';
+export { trlAssessmentService, TrlAssessmentService } from './trl-assessment-service';
+export { riskAssessmentService, RiskAssessmentService } from './risk-assessment-service';
+export { competitiveMatrixService, CompetitiveMatrixService } from './competitive-matrix-service';
+export { portfolioDashboardService, PortfolioDashboardService } from './portfolio-dashboard-service';
