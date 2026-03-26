@@ -511,6 +511,34 @@ export interface UpdateNifCandidateInput {
   funding_amount?: number;
   jobs_created?: number;
   revenue_generated?: number;
+  // Portfolio Intelligence enrichment fields
+  current_trl?: number;
+  trl_assessed_at?: string;
+  enthusiasm_curve?: EnthusiasmCurve;
+  capital_assessment?: Record<string, number>;
+  dipp_number?: string;
+  incorporation_number?: string;
+  incorporation_date?: string;
+  legal_structure?: LegalStructure;
+  gst_number?: string;
+  pan_number?: string;
+  pitch_deck_url?: string;
+  elevator_pitch?: string;
+  business_plan_url?: string;
+  logo_url?: string;
+  founder_profiles?: Array<{ name: string; role: string; linkedin?: string; experience_years?: number; domain?: string }>;
+  customer_count?: number;
+  market_sector?: string;
+  target_geography?: string;
+  patents_filed?: number;
+  patents_granted?: number;
+  trademarks?: number;
+  incubation_agreement_signed?: boolean;
+  incubation_agreement_date?: string;
+  allocated_space?: string;
+  equity_given_pct?: number;
+  kyc_status?: KycStatus;
+  kyc_documents?: any[];
 }
 
 export interface CreateSubmissionInput {
