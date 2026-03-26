@@ -1571,6 +1571,100 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Solution Hub',
       menus: [
         {
+          href: '/solutions',
+          label: 'Dashboard',
+          active: pathname === '/solutions' || pathname === '/solutions/list',
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
+          href: '/solutions/pipeline',
+          label: 'Pipeline',
+          active: pathname.startsWith('/solutions/pipeline'),
+          icon: Workflow,
+          submenus: [
+            { href: '/solutions/pipeline', label: 'Board View', active: pathname === '/solutions/pipeline' },
+            { href: '/solutions/pipeline/list', label: 'List View', active: pathname === '/solutions/pipeline/list' },
+            { href: '/solutions/pipeline/analytics', label: 'Analytics', active: pathname === '/solutions/pipeline/analytics' }
+          ]
+        },
+        {
+          href: '/solutions/clients',
+          label: 'Clients',
+          active: pathname.startsWith('/solutions/clients'),
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/solutions/builders',
+          label: 'Builders',
+          active: pathname.startsWith('/solutions/builders'),
+          icon: Hammer,
+          submenus: []
+        },
+        {
+          href: '/solutions/training',
+          label: 'Training',
+          active: pathname.startsWith('/solutions/training'),
+          icon: GraduationCap,
+          submenus: [
+            { href: '/solutions/training', label: 'Overview', active: pathname === '/solutions/training' },
+            { href: '/solutions/training/programs', label: 'Programs', active: pathname === '/solutions/training/programs' },
+            { href: '/solutions/training/sessions', label: 'Sessions', active: pathname === '/solutions/training/sessions' },
+            { href: '/solutions/training/cohort', label: 'Cohort', active: pathname.startsWith('/solutions/training/cohort') }
+          ]
+        },
+        {
+          href: '/solutions/content',
+          label: 'Content',
+          active: pathname.startsWith('/solutions/content'),
+          icon: FileText,
+          submenus: [
+            { href: '/solutions/content', label: 'Orders', active: pathname === '/solutions/content' },
+            { href: '/solutions/content/deliverables', label: 'Deliverables', active: pathname.startsWith('/solutions/content/deliverables') },
+            { href: '/solutions/content/production', label: 'Production', active: pathname.startsWith('/solutions/content/production') },
+            { href: '/solutions/content/queue', label: 'Queue', active: pathname === '/solutions/content/queue' }
+          ]
+        },
+        {
+          href: '/solutions/payments',
+          label: 'Payments',
+          active: pathname.startsWith('/solutions/payments') || pathname.startsWith('/solutions/earnings'),
+          icon: Wallet,
+          submenus: [
+            { href: '/solutions/payments', label: 'Payments', active: pathname === '/solutions/payments' },
+            { href: '/solutions/earnings', label: 'Earnings', active: pathname === '/solutions/earnings' }
+          ]
+        },
+        {
+          href: '/solutions/discovery',
+          label: 'Discovery',
+          active: pathname.startsWith('/solutions/discovery') || pathname.startsWith('/solutions/publications'),
+          icon: Compass,
+          submenus: [
+            { href: '/solutions/discovery', label: 'Visits', active: pathname === '/solutions/discovery' },
+            { href: '/solutions/publications', label: 'Publications', active: pathname.startsWith('/solutions/publications') }
+          ]
+        },
+        {
+          href: '/solutions/products',
+          label: 'Products',
+          active: pathname.startsWith('/solutions/products'),
+          icon: Package,
+          submenus: []
+        },
+        {
+          href: '/solutions/software',
+          label: 'Software',
+          active: pathname.startsWith('/solutions/software'),
+          icon: Cpu,
+          submenus: [
+            { href: '/solutions/software', label: 'Overview', active: pathname === '/solutions/software' },
+            { href: '/solutions/software/builders', label: 'Builders', active: pathname.startsWith('/solutions/software/builders') },
+            { href: '/solutions/software/phases', label: 'Phases', active: pathname.startsWith('/solutions/software/phases') }
+          ]
+        },
+        {
           href: '/solutions/matlab',
           label: 'MATLAB',
           active: pathname.startsWith('/solutions/matlab'),
@@ -1578,10 +1672,479 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          href: '/solutions/products',
-          label: 'Products',
-          active: pathname.startsWith('/solutions/products'),
-          icon: Package,
+          href: '/solutions/paradigm-shift',
+          label: 'Paradigm Shift',
+          active: pathname.startsWith('/solutions/paradigm-shift'),
+          icon: Lightbulb,
+          submenus: []
+        },
+        {
+          href: '/solutions/compliance',
+          label: 'Compliance',
+          active: pathname.startsWith('/solutions/compliance'),
+          icon: ShieldCheck,
+          submenus: []
+        },
+        {
+          href: '/solutions/departments',
+          label: 'Departments',
+          active: pathname.startsWith('/solutions/departments'),
+          icon: Building2,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Campus Living',
+      menus: [
+        {
+          href: '/campus-living',
+          label: 'Dashboard',
+          active: pathname === '/campus-living',
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
+          href: '/campus-living/hostel',
+          label: 'Hostel',
+          active: pathname.startsWith('/campus-living/hostel'),
+          icon: Bed,
+          submenus: [
+            { href: '/campus-living/hostel/rooms', label: 'Rooms', active: pathname.startsWith('/campus-living/hostel/rooms') },
+            { href: '/campus-living/hostel/allocation', label: 'Allocation', active: pathname.startsWith('/campus-living/hostel/allocation') },
+            { href: '/campus-living/hostel/residents', label: 'Residents', active: pathname.startsWith('/campus-living/hostel/residents') },
+            { href: '/campus-living/hostel/attendance', label: 'Attendance', active: pathname.startsWith('/campus-living/hostel/attendance') },
+            { href: '/campus-living/hostel/complaints', label: 'Complaints', active: pathname.startsWith('/campus-living/hostel/complaints') },
+            { href: '/campus-living/hostel/visitors', label: 'Visitors', active: pathname.startsWith('/campus-living/hostel/visitors') }
+          ]
+        },
+        {
+          href: '/campus-living/mess',
+          label: 'Mess',
+          active: pathname.startsWith('/campus-living/mess'),
+          icon: UtensilsCrossed,
+          submenus: [
+            { href: '/campus-living/mess/menu', label: 'Menu', active: pathname.startsWith('/campus-living/mess/menu') },
+            { href: '/campus-living/mess/feedback', label: 'Feedback', active: pathname.startsWith('/campus-living/mess/feedback') },
+            { href: '/campus-living/mess/billing', label: 'Billing', active: pathname.startsWith('/campus-living/mess/billing') }
+          ]
+        },
+        {
+          href: '/campus-living/maintenance',
+          label: 'Maintenance',
+          active: pathname.startsWith('/campus-living/maintenance'),
+          icon: Wrench,
+          submenus: []
+        },
+        {
+          href: '/campus-living/safety',
+          label: 'Safety',
+          active: pathname.startsWith('/campus-living/safety'),
+          icon: ShieldCheck,
+          submenus: []
+        },
+        {
+          href: '/campus-living/health',
+          label: 'Health',
+          active: pathname.startsWith('/campus-living/health'),
+          icon: HeartPulse,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'OKR & Performance',
+      menus: [
+        {
+          href: '/okr',
+          label: 'Dashboard',
+          active: pathname === '/okr',
+          icon: Target,
+          submenus: []
+        },
+        {
+          href: '/okr/objectives',
+          label: 'Objectives',
+          active: pathname.startsWith('/okr/objectives'),
+          icon: Target,
+          submenus: []
+        },
+        {
+          href: '/okr/key-results',
+          label: 'Key Results',
+          active: pathname.startsWith('/okr/key-results'),
+          icon: TrendingUp,
+          submenus: []
+        },
+        {
+          href: '/okr/check-ins',
+          label: 'Check-ins',
+          active: pathname.startsWith('/okr/check-ins'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          href: '/okr/analytics',
+          label: 'Analytics',
+          active: pathname.startsWith('/okr/analytics'),
+          icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/okr/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/okr/settings'),
+          icon: Settings,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Learners Council',
+      menus: [
+        {
+          href: '/learners-council',
+          label: 'Dashboard',
+          active: pathname === '/learners-council',
+          icon: Crown,
+          submenus: []
+        },
+        {
+          href: '/learners-council/structure',
+          label: 'Structure',
+          active: pathname.startsWith('/learners-council/structure'),
+          icon: Network,
+          submenus: []
+        },
+        {
+          href: '/learners-council/communication',
+          label: 'Communication',
+          active: pathname.startsWith('/learners-council/communication'),
+          icon: MessagesSquare,
+          submenus: []
+        },
+        {
+          href: '/learners-council/events',
+          label: 'Events',
+          active: pathname.startsWith('/learners-council/events'),
+          icon: CalendarDays,
+          submenus: []
+        },
+        {
+          href: '/learners-council/od',
+          label: 'OD Requests',
+          active: pathname.startsWith('/learners-council/od'),
+          icon: Briefcase,
+          submenus: []
+        },
+        {
+          href: '/learners-council/selection',
+          label: 'Selection',
+          active: pathname.startsWith('/learners-council/selection'),
+          icon: Vote,
+          submenus: []
+        },
+        {
+          href: '/learners-council/issues',
+          label: 'Issues',
+          active: pathname.startsWith('/learners-council/issues'),
+          icon: Bug,
+          submenus: []
+        },
+        {
+          href: '/learners-council/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/learners-council/settings'),
+          icon: Settings,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Industry & Partnerships',
+      menus: [
+        {
+          href: '/industry',
+          label: 'Dashboard',
+          active: pathname === '/industry',
+          icon: Factory,
+          submenus: []
+        },
+        {
+          href: '/industry/partners',
+          label: 'Partners',
+          active: pathname.startsWith('/industry/partners'),
+          icon: Handshake,
+          submenus: []
+        },
+        {
+          href: '/industry/mentors',
+          label: 'Mentors',
+          active: pathname.startsWith('/industry/mentors'),
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/industry/projects',
+          label: 'Projects',
+          active: pathname.startsWith('/industry/projects'),
+          icon: Briefcase,
+          submenus: []
+        },
+        {
+          href: '/industry/engagements',
+          label: 'Engagements',
+          active: pathname.startsWith('/industry/engagements'),
+          icon: Activity,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Value Added Courses',
+      menus: [
+        {
+          href: '/vac',
+          label: 'Dashboard',
+          active: pathname === '/vac',
+          icon: BookMarked,
+          submenus: []
+        },
+        {
+          href: '/vac/my-courses',
+          label: 'My Courses',
+          active: pathname === '/vac/my-courses',
+          icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/vac/admin',
+          label: 'Admin',
+          active: pathname.startsWith('/vac/admin'),
+          icon: Settings,
+          submenus: [
+            { href: '/vac/admin', label: 'Overview', active: pathname === '/vac/admin' },
+            { href: '/vac/admin/courses', label: 'Courses', active: pathname.startsWith('/vac/admin/courses') },
+            { href: '/vac/admin/enrollments', label: 'Enrollments', active: pathname === '/vac/admin/enrollments' },
+            { href: '/vac/admin/analytics', label: 'Analytics', active: pathname === '/vac/admin/analytics' },
+            { href: '/vac/admin/settings', label: 'Settings', active: pathname === '/vac/admin/settings' }
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Talent Portals',
+      menus: [
+        {
+          href: '/talent/builder',
+          label: 'Builder Portal',
+          active: pathname.startsWith('/talent/builder'),
+          icon: Hammer,
+          submenus: [
+            { href: '/talent/builder', label: 'Dashboard', active: pathname === '/talent/builder' },
+            { href: '/talent/builder/assignments', label: 'Assignments', active: pathname === '/talent/builder/assignments' },
+            { href: '/talent/builder/available', label: 'Available Work', active: pathname === '/talent/builder/available' },
+            { href: '/talent/builder/earnings', label: 'Earnings', active: pathname === '/talent/builder/earnings' },
+            { href: '/talent/builder/skills', label: 'Skills', active: pathname === '/talent/builder/skills' }
+          ]
+        },
+        {
+          href: '/talent/cohort',
+          label: 'Cohort Portal',
+          active: pathname.startsWith('/talent/cohort'),
+          icon: Users,
+          submenus: [
+            { href: '/talent/cohort', label: 'Dashboard', active: pathname === '/talent/cohort' },
+            { href: '/talent/cohort/sessions', label: 'Sessions', active: pathname === '/talent/cohort/sessions' },
+            { href: '/talent/cohort/earnings', label: 'Earnings', active: pathname === '/talent/cohort/earnings' }
+          ]
+        },
+        {
+          href: '/talent/production',
+          label: 'Production Portal',
+          active: pathname.startsWith('/talent/production'),
+          icon: Layers,
+          submenus: [
+            { href: '/talent/production', label: 'Dashboard', active: pathname === '/talent/production' },
+            { href: '/talent/production/queue', label: 'Queue', active: pathname === '/talent/production/queue' },
+            { href: '/talent/production/earnings', label: 'Earnings', active: pathname === '/talent/production/earnings' }
+          ]
+        },
+        {
+          href: '/portal/client',
+          label: 'Client Portal',
+          active: pathname.startsWith('/portal/client'),
+          icon: Globe,
+          submenus: [
+            { href: '/portal/client', label: 'Dashboard', active: pathname === '/portal/client' },
+            { href: '/portal/client/projects', label: 'Projects', active: pathname.startsWith('/portal/client/projects') },
+            { href: '/portal/client/deliverables', label: 'Deliverables', active: pathname === '/portal/client/deliverables' },
+            { href: '/portal/client/invoices', label: 'Invoices', active: pathname === '/portal/client/invoices' }
+          ]
+        },
+        {
+          href: '/consultant-portal',
+          label: 'Consultant Portal',
+          active: pathname.startsWith('/consultant-portal'),
+          icon: UserCog,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Parent Portal',
+      menus: [
+        {
+          href: '/parent-portal',
+          label: 'Dashboard',
+          active: pathname === '/parent-portal',
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/parent-portal/access',
+          label: 'Access Management',
+          active: pathname.startsWith('/parent-portal/access'),
+          icon: Lock,
+          submenus: []
+        },
+        {
+          href: '/parent-portal/communications',
+          label: 'Communications',
+          active: pathname.startsWith('/parent-portal/communications'),
+          icon: MessageSquare,
+          submenus: []
+        },
+        {
+          href: '/parent-portal/reports',
+          label: 'Reports',
+          active: pathname.startsWith('/parent-portal/reports'),
+          icon: FileBarChart,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Process Excellence',
+      menus: [
+        {
+          href: '/process-excellence',
+          label: 'Dashboard',
+          active: pathname === '/process-excellence',
+          icon: Gauge,
+          submenus: []
+        },
+        {
+          href: '/process-excellence/processes',
+          label: 'Processes',
+          active: pathname.startsWith('/process-excellence/processes'),
+          icon: Workflow,
+          submenus: []
+        },
+        {
+          href: '/process-excellence/audits',
+          label: 'Audits',
+          active: pathname.startsWith('/process-excellence/audits'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          href: '/process-excellence/waste',
+          label: 'Waste Tracking',
+          active: pathname.startsWith('/process-excellence/waste'),
+          icon: Activity,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Quality & Compliance',
+      menus: [
+        {
+          href: '/maturity-assessment',
+          label: 'Maturity Assessment',
+          active: pathname.startsWith('/maturity-assessment'),
+          icon: Layers,
+          submenus: []
+        },
+        {
+          href: '/stakeholder-nps',
+          label: 'Stakeholder NPS',
+          active: pathname.startsWith('/stakeholder-nps'),
+          icon: Star,
+          submenus: []
+        },
+        {
+          href: '/grievance',
+          label: 'Grievance',
+          active: pathname.startsWith('/grievance'),
+          icon: Scale,
+          submenus: []
+        },
+        {
+          href: '/regulatory',
+          label: 'Regulatory',
+          active: pathname.startsWith('/regulatory'),
+          icon: ShieldCheck,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Learning & Development',
+      menus: [
+        {
+          href: '/competency-catalog',
+          label: 'Competency Catalog',
+          active: pathname.startsWith('/competency-catalog'),
+          icon: Puzzle,
+          submenus: []
+        },
+        {
+          href: '/learning-paths',
+          label: 'Learning Paths',
+          active: pathname.startsWith('/learning-paths'),
+          icon: Compass,
+          submenus: []
+        },
+        {
+          href: '/facilitator-development',
+          label: 'Facilitator Development',
+          active: pathname.startsWith('/facilitator-development'),
+          icon: GraduationCap,
+          submenus: []
+        },
+        {
+          href: '/facilitator-impact',
+          label: 'Facilitator Impact',
+          active: pathname.startsWith('/facilitator-impact'),
+          icon: TrendingUp,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Social & Community',
+      menus: [
+        {
+          href: '/social-media',
+          label: 'Social Media',
+          active: pathname.startsWith('/social-media'),
+          icon: Share2,
+          submenus: []
+        },
+        {
+          href: '/solve-for-100',
+          label: 'Solve for 100',
+          active: pathname.startsWith('/solve-for-100'),
+          icon: Zap,
+          submenus: []
+        },
+        {
+          href: '/alumni',
+          label: 'Alumni Outcomes',
+          active: pathname.startsWith('/alumni'),
+          icon: Award,
           submenus: []
         }
       ]
