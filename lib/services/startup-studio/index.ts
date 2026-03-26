@@ -12,3 +12,4 @@ export { trlAssessmentService, TrlAssessmentService } from './trl-assessment-ser
 export { riskAssessmentService, RiskAssessmentService } from './risk-assessment-service';
 export { competitiveMatrixService, CompetitiveMatrixService } from './competitive-matrix-service';
 export { portfolioDashboardService, PortfolioDashboardService } from './portfolio-dashboard-service';
+export { marketingService, MarketingService } from './marketing-service';
