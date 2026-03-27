@@ -348,6 +348,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/applications': 'admission.applications.view',
   '/admission/applications/[id]': 'admission.applications.view',
 
+  // GD-PI (Group Discussion & Personal Interview)
+  '/admission/gd-pi': 'admission.applications.view',
+  '/admission/gd-pi/new': 'admission.applications.create',
+  '/admission/gd-pi/[id]': 'admission.applications.view',
+  '/admission/gd-pi/[id]/evaluate': 'admission.applications.edit',
+
   // Admission Counselors
   '/admission/counselors': 'admission.counselors.view',
   '/admission/counselors/alerts': 'admission.counselors.view',
@@ -798,6 +804,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/admission/applications'),
           icon: FileText,
           submenus: []
+        },
+        {
+          href: '/admission/gd-pi',
+          label: 'GD-PI',
+          active: pathname.startsWith('/admission/gd-pi'),
+          icon: Award,
+          submenus: [
+            {
+              href: '/admission/gd-pi',
+              label: 'All Sessions',
+              active: pathname === '/admission/gd-pi'
+            },
+            {
+              href: '/admission/gd-pi/new',
+              label: 'New Session',
+              active: pathname === '/admission/gd-pi/new'
+            }
+          ]
         },
         {
           href: '/admission/counselors',

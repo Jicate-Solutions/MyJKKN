@@ -880,3 +880,134 @@ export interface UploadBatch {
   created_at: string;
   total_records: number;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GD-PI (GROUP DISCUSSION & PERSONAL INTERVIEW)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type GDPISessionType = 'gd' | 'pi' | 'gd_pi';
+export type GDPISessionStatus = 'draft' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+export type GDPICandidateStatus = 'registered' | 'present' | 'absent' | 'evaluated' | 'disqualified';
+export type GDPIRecommendation = 'strongly_recommend' | 'recommend' | 'consider' | 'not_recommend';
+
+export interface GDPIScoringCriterion {
+  name: string;
+  max_score: number;
+  weight: number;
+  description?: string;
+}
+
+export interface GDPISession {
+  id: string;
+  institution_id: string;
+  session_name: string;
+  session_type: GDPISessionType;
+  status: GDPISessionStatus;
+  scheduled_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  venue: string | null;
+  program_ids: string[];
+  max_candidates: number;
+  scoring_criteria: GDPIScoringCriterion[];
+  notes: string | null;
+  academic_year: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  candidates_count?: number;
+  evaluators_count?: number;
+  evaluated_count?: number;
+}
+
+export interface GDPICandidate {
+  id: string;
+  session_id: string;
+  lead_id: string;
+  institution_id: string;
+  status: GDPICandidateStatus;
+  total_score: number;
+  max_possible_score: number;
+  percentage: number;
+  rank: number | null;
+  attendance_marked_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined lead fields
+  lead?: {
+    id: string;
+    full_name: string;
+    phone: string | null;
+    email: string | null;
+    funnel_stage: string;
+    score: number;
+    source: string | null;
+  };
+  // Joined scores
+  scores?: GDPIScore[];
+}
+
+export interface GDPIEvaluator {
+  id: string;
+  session_id: string;
+  evaluator_id: string;
+  institution_id: string;
+  is_lead_evaluator: boolean;
+  evaluation_count: number;
+  created_at: string;
+  // Joined profile
+  evaluator?: {
+    id: string;
+    full_name: string;
+    email: string | null;
+    role: string;
+  };
+}
+
+export interface GDPIScore {
+  id: string;
+  session_id: string;
+  candidate_id: string;
+  evaluator_id: string;
+  institution_id: string;
+  scores: Record<string, number>;
+  total_score: number;
+  max_possible_score: number;
+  recommendation: GDPIRecommendation | null;
+  feedback: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  evaluator?: {
+    id: string;
+    full_name: string;
+  };
+}
+
+export interface GDPISessionDetail extends GDPISession {
+  candidates: GDPICandidate[];
+  evaluators: GDPIEvaluator[];
+}
+
+export interface CreateGDPISessionInput {
+  session_name: string;
+  session_type: GDPISessionType;
+  scheduled_date: string;
+  start_time?: string;
+  end_time?: string;
+  venue?: string;
+  program_ids?: string[];
+  max_candidates?: number;
+  scoring_criteria: GDPIScoringCriterion[];
+  notes?: string;
+  academic_year?: string;
+}
+
+export interface SubmitGDPIScoreInput {
+  candidate_id: string;
+  scores: Record<string, number>;
+  recommendation?: GDPIRecommendation;
+  feedback?: string;
+}
