@@ -258,12 +258,12 @@ export function ImportLeadsDialog({
     }
 
     setStep('uploading');
-    setUploadProgress(10);
+    setUploadProgress(5);
 
     const batchId = crypto.randomUUID();
 
     // Prepare leads data (strip preview-only fields)
-    const leads = previewData.map((row) => ({
+    const allLeads = previewData.map((row) => ({
       district: row.district,
       sub_district: row.sub_district,
       student_name: row.student_name,
@@ -277,35 +277,81 @@ export function ImportLeadsDialog({
       school_name: row.school_name,
     }));
 
-    setUploadProgress(30);
+    // Split into chunks to avoid 413 Payload Too Large
+    // Each chunk ~2000 rows keeps the JSON payload well under limits
+    const CHUNK_SIZE = 2000;
+    const chunks = [];
+    for (let i = 0; i < allLeads.length; i += CHUNK_SIZE) {
+      chunks.push(allLeads.slice(i, i + CHUNK_SIZE));
+    }
+
+    let totalInserted = 0;
+    let totalFailed = 0;
+    const allErrors: Array<{ row: number; message: string }> = [];
 
     try {
-      const result = await bulkUpload.mutateAsync({
-        leads,
-        batchId,
-        institutionId,
-        fileName: file?.name || 'unknown',
-        userId: profile?.id,
-      });
+      for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+        const chunk = chunks[chunkIdx];
+        const chunkOffset = chunkIdx * CHUNK_SIZE;
+
+        // Update progress proportionally
+        const progressPercent = Math.round(((chunkIdx + 0.5) / chunks.length) * 90) + 5;
+        setUploadProgress(progressPercent);
+
+        const result = await bulkUpload.mutateAsync({
+          leads: chunk,
+          batchId,
+          institutionId,
+          fileName: file?.name || 'unknown',
+          userId: profile?.id,
+        });
+
+        totalInserted += result.inserted;
+        totalFailed += result.failed;
+
+        // Adjust error row numbers to reflect global position
+        if (result.errors?.length > 0) {
+          for (const err of result.errors) {
+            allErrors.push({
+              row: err.row + chunkOffset,
+              message: err.message,
+            });
+          }
+        }
+      }
 
       setUploadProgress(100);
       setUploadResult({
-        inserted: result.inserted,
-        failed: result.failed,
-        errors: result.errors,
+        inserted: totalInserted,
+        failed: totalFailed,
+        errors: allErrors.slice(0, 50),
       });
       setStep('result');
 
-      if (result.inserted > 0) {
-        toast.success(`Successfully imported ${result.inserted} leads`);
+      if (totalInserted > 0) {
+        toast.success(`Successfully imported ${totalInserted.toLocaleString()} leads`);
       }
-      if (result.failed > 0) {
-        toast.error(`${result.failed} rows failed to insert`);
+      if (totalFailed > 0) {
+        toast.error(`${totalFailed} rows failed to insert`);
       }
     } catch (error) {
       console.error('[admission/marketing-leads-db] Upload error:', error);
-      toast.error('Upload failed. Please try again.');
-      setStep('preview');
+      if (totalInserted > 0) {
+        // Partial success — show what was imported before the error
+        setUploadResult({
+          inserted: totalInserted,
+          failed: allLeads.length - totalInserted,
+          errors: [
+            ...allErrors,
+            { row: 0, message: `Upload interrupted: ${error instanceof Error ? error.message : 'Unknown error'}` },
+          ].slice(0, 50),
+        });
+        setStep('result');
+        toast.error(`Partial upload: ${totalInserted.toLocaleString()} of ${allLeads.length.toLocaleString()} imported`);
+      } else {
+        toast.error('Upload failed. Please try again.');
+        setStep('preview');
+      }
     }
   }, [previewData, file, institutionId, profile?.id, bulkUpload]);
 

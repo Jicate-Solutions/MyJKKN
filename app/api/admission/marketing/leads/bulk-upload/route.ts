@@ -11,6 +11,9 @@ import {
   cleanPincode,
 } from '@/lib/utils/mappings/marketing-leads-excel-mappings';
 
+// Increase body size limit for large Excel uploads (default is 1MB)
+export const maxDuration = 60;
+
 const BATCH_SIZE = 100;
 
 export async function POST(request: NextRequest) {
