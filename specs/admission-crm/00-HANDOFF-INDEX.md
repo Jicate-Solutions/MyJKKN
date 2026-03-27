@@ -13,15 +13,24 @@ npm run dev  # http://localhost:3000
 # Navigate: /admission/dashboard
 ```
 
+## START HERE
+
+**Read this file FIRST:** [`../admission-crm-b2a-migration-spec.md`](../admission-crm-b2a-migration-spec.md) — Complete spec with all decisions, blockers, and execution order.
+
 ## Handoff Files
 
 | File | What It Contains | Read When |
 |------|-----------------|-----------|
-| [01-ARCHITECTURE.md](./01-ARCHITECTURE.md) | Current vs Target architecture, auth patterns, file conventions | **First — understand the system** |
+| [../admission-crm-b2a-migration-spec.md](../admission-crm-b2a-migration-spec.md) | **MASTER SPEC** — decisions, 35 missing tables, execution phases, templates | **READ FIRST** |
+| [01-ARCHITECTURE.md](./01-ARCHITECTURE.md) | Current vs Target architecture, auth patterns, file conventions | **Understand the system** |
 | [02-SUBMODULE-SPECS.md](./02-SUBMODULE-SPECS.md) | All 42 sub-modules: flow, status, files, what to build | **Before working on any module** |
 | [03-DATABASE-SCHEMAS.md](./03-DATABASE-SCHEMAS.md) | Live schemas from staging DB (32 tables, 574 cols, 73 FKs) | **When writing services or API routes** |
 | [04-B2A-MIGRATION-GUIDE.md](./04-B2A-MIGRATION-GUIDE.md) | Step-by-step migration per module with code templates | **THE MAIN TASK — follow this** |
 | [05-MODULE-CONNECTIONS.md](./05-MODULE-CONNECTIONS.md) | Table relationships, shared services, cross-module deps | **When a change might affect other modules** |
+
+## CRITICAL BLOCKER: 35 Missing DB Tables
+
+Services reference 35 tables that DON'T EXIST in staging. **Create these BEFORE migrating the corresponding modules.** Full list in the master spec.
 
 ## Current State Summary
 
