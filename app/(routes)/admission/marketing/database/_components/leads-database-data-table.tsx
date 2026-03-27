@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { Database, Upload, RefreshCw, Users, MapPin, School, FileUp } from 'lucide-react';
+import { Database, Upload, RefreshCw, Users, MapPin, School, FileUp, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   DataTable,
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { getColumns } from './columns';
 import { ImportLeadsDialog } from './import-leads-dialog';
 import { LeadDetailDialog } from './lead-detail-dialog';
@@ -38,8 +39,11 @@ export function LeadsDatabaseDataTable() {
   const [genderFilter, setGenderFilter] = useState<string>('all');
 
   // Fetch distinct districts for filter + stats
-  const { data: districts = [] } = useMarketingLeadDistricts(institutionId);
-  const { data: stats } = useMarketingLeadStats(institutionId);
+  const { data: districts = [], isLoading: districtsLoading } = useMarketingLeadDistricts(institutionId);
+  const { data: stats, isLoading: statsLoading } = useMarketingLeadStats(institutionId);
+
+  // Show loading state until institution + stats are ready
+  const isInitialLoading = institutionLoading || statsLoading;
 
   // Handlers
   const handleRefresh = useCallback(() => {
@@ -94,6 +98,62 @@ export function LeadsDatabaseDataTable() {
     },
     [institutionId, districtFilter, genderFilter]
   );
+
+  if (isInitialLoading) {
+    return (
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+              <Database className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Leads Database</h2>
+              <p className="text-sm text-muted-foreground">
+                Bulk uploaded marketing leads data
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Skeleton */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {[...Array(5)].map((_, i) => (
+            <Card key={i}>
+              <CardContent className="py-3 px-4">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-5 w-12" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Filter Skeleton */}
+        <Card>
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-8 w-[180px]" />
+              <Skeleton className="h-8 w-[130px]" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Table Skeleton */}
+        <div className="flex items-center justify-center py-16">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">Loading leads database...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
