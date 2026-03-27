@@ -76,41 +76,82 @@ export async function GET(request: NextRequest) {
 
         if (error) throw error;
 
-        // Deduplicate
         const unique = [...new Set((data || []).map((r: any) => r.district).filter(Boolean))];
         return NextResponse.json(unique);
       }
 
       case 'stats': {
-        // Single query for all stats
-        const { data: allRows, error } = await supabase
+        // Use aggregate queries instead of fetching all rows
+        // (fetching all rows hits Supabase's default row limit and truncates results)
+
+        // 1. Total count via exact count
+        const { count: totalLeads, error: countError } = await supabase
           .from('marketing_leads_database')
-          .select('gender, district, school_name, upload_batch_id')
+          .select('id', { count: 'exact', head: true })
           .eq('institution_id', institutionId);
 
-        if (error) throw error;
+        if (countError) throw countError;
 
-        const rows = allRows || [];
-        const districts = new Set<string>();
-        const schools = new Set<string>();
-        const batches = new Set<string>();
-        let male = 0, female = 0, other = 0;
+        // 2. Distinct districts
+        const { data: districtRows, error: districtError } = await supabase
+          .from('marketing_leads_database')
+          .select('district')
+          .eq('institution_id', institutionId)
+          .not('district', 'is', null);
 
-        for (const row of rows) {
-          if (row.district) districts.add(row.district);
-          if (row.school_name) schools.add(row.school_name);
-          if (row.upload_batch_id) batches.add(row.upload_batch_id);
-          if (row.gender === 'Male') male++;
-          else if (row.gender === 'Female') female++;
-          else if (row.gender) other++;
-        }
+        if (districtError) throw districtError;
+        const totalDistricts = new Set((districtRows || []).map((r: any) => r.district)).size;
+
+        // 3. Distinct schools
+        const { data: schoolRows, error: schoolError } = await supabase
+          .from('marketing_leads_database')
+          .select('school_name')
+          .eq('institution_id', institutionId)
+          .not('school_name', 'is', null);
+
+        if (schoolError) throw schoolError;
+        const totalSchools = new Set((schoolRows || []).map((r: any) => r.school_name)).size;
+
+        // 4. Gender breakdown via individual counts
+        const [maleResult, femaleResult, otherResult] = await Promise.all([
+          supabase
+            .from('marketing_leads_database')
+            .select('id', { count: 'exact', head: true })
+            .eq('institution_id', institutionId)
+            .eq('gender', 'Male'),
+          supabase
+            .from('marketing_leads_database')
+            .select('id', { count: 'exact', head: true })
+            .eq('institution_id', institutionId)
+            .eq('gender', 'Female'),
+          supabase
+            .from('marketing_leads_database')
+            .select('id', { count: 'exact', head: true })
+            .eq('institution_id', institutionId)
+            .not('gender', 'in', '("Male","Female")')
+            .not('gender', 'is', null),
+        ]);
+
+        // 5. Distinct upload batches
+        const { data: batchRows, error: batchError } = await supabase
+          .from('marketing_leads_database')
+          .select('upload_batch_id')
+          .eq('institution_id', institutionId)
+          .not('upload_batch_id', 'is', null);
+
+        if (batchError) throw batchError;
+        const totalUploads = new Set((batchRows || []).map((r: any) => r.upload_batch_id)).size;
 
         return NextResponse.json({
-          totalLeads: rows.length,
-          totalDistricts: districts.size,
-          totalSchools: schools.size,
-          genderBreakdown: { male, female, other },
-          totalUploads: batches.size,
+          totalLeads: totalLeads || 0,
+          totalDistricts,
+          totalSchools,
+          genderBreakdown: {
+            male: maleResult.count || 0,
+            female: femaleResult.count || 0,
+            other: otherResult.count || 0,
+          },
+          totalUploads,
         });
       }
 
