@@ -1,9 +1,8 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useExpoEvent, useExpoTeamMembers } from '@/hooks/admission';
-import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useExpoEvent } from '@/hooks/admission';
+import { useExpoTeamAccess } from '@/hooks/admission/use-expo-capture';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -14,7 +13,6 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { AdmissionErrorBoundary } from '@/components/admission';
-import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
 import { AlertCircle, ArrowLeft } from 'lucide-react';
@@ -26,7 +24,7 @@ import { CaptureStatsBar } from './_components/capture-stats-bar';
 
 function ExpoCaptureSkeleton() {
   return (
-    <div className="w-full max-w-lg mx-auto space-y-4 mt-4">
+    <div className="w-full mx-auto space-y-4 mt-4">
       <Skeleton className="h-14 w-full" />
       <Skeleton className="h-14 w-full" />
       <Skeleton className="h-14 w-full" />
@@ -39,21 +37,16 @@ function ExpoCaptureSkeleton() {
 function ExpoCaptureContent() {
   const params = useParams();
   const eventId = params.id as string;
-  const { profile } = useAuth();
 
   const { event, isLoading: eventLoading } = useExpoEvent(eventId);
-  const { teamMembers, isLoading: teamLoading } = useExpoTeamMembers(eventId);
-  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const access = useExpoTeamAccess(eventId);
 
-  const isLoading = eventLoading || teamLoading;
-  const currentUserId = profile?.id;
+  const isLoading = eventLoading || access.isLoading;
 
-  // Loading state
   if (isLoading) {
     return <ExpoCaptureSkeleton />;
   }
 
-  // Event not found
   if (!event) {
     return (
       <Card className="mx-auto mt-8">
@@ -73,7 +66,6 @@ function ExpoCaptureContent() {
     );
   }
 
-  // Event expired
   if (event.event_status === 'completed' || event.event_status === 'cancelled') {
     return (
       <Card className="mx-auto mt-8">
@@ -93,13 +85,8 @@ function ExpoCaptureContent() {
     );
   }
 
-  // Check team membership
-  const isTeamMember = teamMembers?.some(
-    (m) => m.staff_id === currentUserId || m.student_id === currentUserId
-  );
-  const hasAccess = isTeamMember || isSuperAdmin || isAdmissionGlobalUser;
-
-  if (!hasAccess) {
+  // Team member / admin access check — no PermissionGuard needed
+  if (!access.canCapture) {
     return (
       <Card className="mx-auto mt-8">
         <CardContent className="flex flex-col items-center py-8">
@@ -120,7 +107,6 @@ function ExpoCaptureContent() {
 
   return (
     <div className="relative pb-20">
-      {/* Event context banner */}
       <div className="mb-4 flex items-center gap-3">
         <Link
           href={`/admission/marketing/expos/${eventId}`}
@@ -138,51 +124,49 @@ function ExpoCaptureContent() {
         </div>
       </div>
 
-      {/* Capture form */}
       <RapidCaptureForm
         eventId={eventId}
         institutionId={event.institution_id}
-        capturedBy={currentUserId || ''}
+        capturedBy={access.currentUserId || ''}
       />
 
-      {/* Sticky stats bar at bottom */}
       <CaptureStatsBar
         eventId={eventId}
-        currentUserId={currentUserId || ''}
+        currentUserId={access.currentUserId || ''}
       />
     </div>
   );
 }
 
+// No PermissionGuard — access is controlled by useExpoTeamAccess
+// Team members + team leaders + admins can access the capture form
 export default function ExpoCapturePage() {
   return (
-    <PermissionGuard module="admission.marketing.expos" action="view">
-      <ContentLayout title="Capture Leads">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/admission/marketing/expos">Expos</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>Capture Leads</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <div className="mt-6">
-          <AdmissionErrorBoundary>
-            <ExpoCaptureContent />
-          </AdmissionErrorBoundary>
-        </div>
-      </ContentLayout>
-    </PermissionGuard>
+    <ContentLayout title="Capture Leads">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/admission/marketing/expos">Expos</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Capture Leads</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      <div className="mt-6">
+        <AdmissionErrorBoundary>
+          <ExpoCaptureContent />
+        </AdmissionErrorBoundary>
+      </div>
+    </ContentLayout>
   );
 }

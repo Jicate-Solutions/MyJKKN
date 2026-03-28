@@ -1318,5 +1318,6 @@ export {
   useExpoCaptureStats,
   useExpoTopCapturers,
   useExpoActualLeadCount,
+  useExpoTeamAccess,
   expoCaptureKeys,
 } from './use-expo-capture';
