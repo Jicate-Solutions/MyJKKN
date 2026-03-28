@@ -853,4 +853,78 @@ export class ExpoService {
       counselling: r.counselling_done || 0,
     }));
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // EXPO BRIDGE — ANALYTICS ENHANCEMENTS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Get actual CRM lead count for an expo event (from admission_leads, not the manual counter).
+   */
+  static async getActualLeadCount(eventId: string): Promise<number> {
+    const supabase = createClientSupabaseClient();
+    const { count, error } = await (supabase as any)
+      .from('admission_leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('expo_event_id', eventId);
+
+    if (error) {
+      console.error('[admission/expos] Failed to get actual lead count:', error);
+      return 0;
+    }
+    return count ?? 0;
+  }
+
+  /**
+   * Get top lead capturers for an event — ranked by number of leads captured.
+   * Returns team member name + capture count.
+   */
+  static async getTopCapturers(eventId: string): Promise<{ userId: string; name: string; count: number }[]> {
+    const supabase = createClientSupabaseClient();
+
+    // Get all leads captured at this event with captured_by
+    const { data: leads, error } = await (supabase as any)
+      .from('admission_leads')
+      .select('captured_by')
+      .eq('expo_event_id', eventId)
+      .not('captured_by', 'is', null);
+
+    if (error || !leads) {
+      console.error('[admission/expos] Failed to fetch capturers:', error);
+      return [];
+    }
+
+    // Count per captured_by
+    const countMap = new Map<string, number>();
+    for (const lead of leads) {
+      countMap.set(lead.captured_by, (countMap.get(lead.captured_by) || 0) + 1);
+    }
+
+    if (countMap.size === 0) return [];
+
+    // Fetch profile names for the captured_by user IDs
+    const userIds = Array.from(countMap.keys());
+    const { data: profiles, error: profileError } = await (supabase as any)
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', userIds);
+
+    if (profileError) {
+      console.error('[admission/expos] Failed to fetch capturer profiles:', profileError);
+    }
+
+    const profileMap = new Map<string, string>();
+    for (const p of (profiles || [])) {
+      profileMap.set(p.id, p.full_name || 'Unknown');
+    }
+
+    // Build sorted result
+    return Array.from(countMap.entries())
+      .map(([userId, count]) => ({
+        userId,
+        name: profileMap.get(userId) || 'Unknown',
+        count,
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
 }

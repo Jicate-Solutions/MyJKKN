@@ -12,7 +12,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Eye, Edit, ClipboardPlus, XCircle, Trash2, Loader2 } from 'lucide-react';
+import { Eye, Edit, ClipboardPlus, XCircle, Trash2, Loader2, ScanLine } from 'lucide-react';
 import type { ExpoEvent } from '@/types/admission';
 import { useUpdateExpoEventStatus, useDeleteExpoEvent } from '@/hooks/admission/use-expos';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -38,6 +38,8 @@ export function DataTableRowActions<TData>({ row, onRefresh }: DataTableRowActio
   const handleView = () => router.push(`/admission/marketing/expos/${expo.id}`);
   const handleEdit = () => router.push(`/admission/marketing/expos/${expo.id}/edit`);
   const handleAddReport = () => router.push(`/admission/marketing/expos/${expo.id}/report/new`);
+  const handleCapture = () => router.push(`/admission/marketing/expos/${expo.id}/capture`);
+  const isActiveEvent = expo.event_status !== 'cancelled' && expo.event_status !== 'completed';
   const handleCancel = () => {
     updateStatus.mutate(
       { id: expo.id, status: 'cancelled' },
@@ -71,6 +73,11 @@ export function DataTableRowActions<TData>({ row, onRefresh }: DataTableRowActio
           {canCreate && (
             <DropdownMenuItem onSelect={handleAddReport}>
               <ClipboardPlus className="h-4 w-4 mr-2" /> Add Daily Report
+            </DropdownMenuItem>
+          )}
+          {isActiveEvent && (
+            <DropdownMenuItem onSelect={handleCapture} className="text-primary font-medium">
+              <ScanLine className="h-4 w-4 mr-2" /> Capture Leads
             </DropdownMenuItem>
           )}
           {canEdit && expo.event_status !== 'cancelled' && expo.event_status !== 'completed' && (

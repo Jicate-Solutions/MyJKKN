@@ -2510,6 +2510,11 @@ CREATE INDEX idx_expo_reports_institution ON expo_daily_reports(institution_id) 
 ALTER TABLE admission_leads ADD COLUMN IF NOT EXISTS expo_event_id UUID REFERENCES expo_events(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_admission_leads_expo ON admission_leads(expo_event_id) WHERE expo_event_id IS NOT NULL;
 
+-- Add captured_by to admission_leads for team member attribution at expos
+-- Updated: 2026-03-28 - Tracks which team member captured the lead at a booth
+ALTER TABLE admission_leads ADD COLUMN IF NOT EXISTS captured_by UUID REFERENCES profiles(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_admission_leads_captured_by ON admission_leads(captured_by) WHERE captured_by IS NOT NULL;
+
 -- Enable RLS on all expo tables
 ALTER TABLE expo_masters ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expo_events ENABLE ROW LEVEL SECURITY;

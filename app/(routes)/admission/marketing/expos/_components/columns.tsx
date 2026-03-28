@@ -4,8 +4,10 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Calendar, Users, IndianRupee, UserCheck } from 'lucide-react';
+import { MapPin, Calendar, Users, IndianRupee, UserCheck, ScanLine } from 'lucide-react';
 import type { ExpoEvent } from '@/types/admission';
+import Link from 'next/link';
+import { differenceInDays, isToday, isFuture, parseISO } from 'date-fns';
 import { DataTableRowActions } from './row-actions';
 import { format } from 'date-fns';
 
@@ -103,13 +105,33 @@ return [
       );
     },
   },
-  // Status Badge
+  // Status Badge + Active/Countdown
   {
     accessorKey: 'event_status',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
     cell: ({ row }) => {
-      const status = row.getValue('event_status') as string;
-      return <Badge className={getStatusBadgeClass(status)}>{getStatusLabel(status)}</Badge>;
+      const expo = row.original;
+      const status = expo.event_status;
+      const startDate = parseISO(expo.start_date);
+      const endDate = parseISO(expo.end_date);
+      const now = new Date();
+      const isActive = status === 'in_progress' || (status === 'confirmed' && isToday(startDate));
+      const daysUntil = isFuture(startDate) ? differenceInDays(startDate, now) : -1;
+      return (
+        <div className="flex flex-col gap-1">
+          <Badge className={getStatusBadgeClass(status)}>{getStatusLabel(status)}</Badge>
+          {isActive && (
+            <Badge className="bg-emerald-500 text-white text-[10px] px-1.5 py-0 w-fit animate-pulse">
+              Active Now
+            </Badge>
+          )}
+          {!isActive && daysUntil >= 0 && daysUntil <= 7 && status !== 'cancelled' && (
+            <span className="text-[10px] text-orange-600 font-medium">
+              Starts in {daysUntil === 0 ? 'today' : `${daysUntil}d`}
+            </span>
+          )}
+        </div>
+      );
     },
   },
   // Team Count
@@ -123,16 +145,28 @@ return [
       </div>
     ),
   },
-  // Leads Collected
+  // Leads Collected + Capture link
   {
     accessorKey: 'total_leads_collected',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Leads" />,
-    cell: ({ row }) => (
-      <div className="flex items-center gap-1">
-        <UserCheck className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="font-semibold text-green-600">{row.getValue('total_leads_collected') ?? 0}</span>
-      </div>
-    ),
+    cell: ({ row }) => {
+      const expo = row.original;
+      const count = expo.total_leads_collected ?? 0;
+      const isActive = expo.event_status !== 'cancelled' && expo.event_status !== 'completed';
+      return (
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <UserCheck className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="font-semibold text-green-600">{count}</span>
+          </div>
+          {isActive && (
+            <Link href={`/admission/marketing/expos/${expo.id}/capture`} className="text-primary hover:underline">
+              <ScanLine className="h-3.5 w-3.5" />
+            </Link>
+          )}
+        </div>
+      );
+    },
   },
   // Total Expenses
   {

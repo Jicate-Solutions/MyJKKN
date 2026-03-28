@@ -43,6 +43,7 @@ import { useDegrees } from '@/hooks/organization/use-degrees';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
+import { useExpoEvent } from '@/hooks/admission/use-expos';
 import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
 import { useStudentsForDropdown, useFacultyForDropdown } from '@/hooks/admission/use-referral-dropdowns';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
@@ -78,7 +79,8 @@ import {
   Paperclip,
   X,
   XCircle,
-  MessageCircle
+  MessageCircle,
+  ScanLine,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -413,6 +415,8 @@ function LeadDetailPageContent() {
   const { lead, isLoading: leadLoading, refetch } = useAdmissionLead(leadId);
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
+  // Expo attribution — only fetch if lead has expo_event_id
+  const { event: expoEvent } = useExpoEvent(lead?.expo_event_id || '');
   const queryClient = useQueryClient();
   const { selectedInstitutionId: userInstitutionId } = useUserInstitutionAccess();
   const { profile } = useAuth();
@@ -2041,6 +2045,44 @@ function LeadDetailPageContent() {
 
             {/* Right Column - Tags & Quick Info */}
             <div className="space-y-6">
+              {/* Expo Bridge — show exhibition attribution when lead came from an expo */}
+              {lead.expo_event_id && expoEvent && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <ScanLine className="h-4 w-4" />
+                      Exhibition Capture
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Event</p>
+                      <Link
+                        href={`/admission/marketing/expos/${lead.expo_event_id}`}
+                        className="font-medium text-primary hover:underline"
+                      >
+                        {expoEvent.event_name}
+                      </Link>
+                    </div>
+                    {expoEvent.city && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Location</p>
+                        <p className="font-medium">{expoEvent.city}{expoEvent.venue_name ? ` \u2022 ${expoEvent.venue_name}` : ''}</p>
+                      </div>
+                    )}
+                    {lead.captured_by && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Captured By</p>
+                        <p className="font-medium">{lead.referred_by_name || 'Team Member'}</p>
+                      </div>
+                    )}
+                    {lead.tags?.includes('ai-zone') && (
+                      <Badge variant="outline" className="text-xs">AI Experience Zone</Badge>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Source-based: show Consultant Attribution for referral leads, Counselor info for others */}
               {lead.source === 'referral' ? (
                 <ConsultantAttributionCard

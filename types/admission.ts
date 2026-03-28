@@ -47,7 +47,7 @@ export type FunnelStage =
   | 'lost'
   | 'dormant';
 
-export type ReferralType = 'consultant' | 'student' | 'faculty';
+export type ReferralType = 'consultant' | 'student' | 'faculty' | 'learner_ambassador';
 
 export type LeadPriority = 'hot' | 'warm' | 'cold';
 
@@ -125,6 +125,10 @@ export interface AdmissionLead {
   referral_type: ReferralType | null;
   referred_by_id: string | null;
   referred_by_name: string | null;
+
+  // Expo Bridge — links lead to exhibition event + team member who captured it
+  expo_event_id: string | null;
+  captured_by: string | null;
 
   // Status & Scoring
   funnel_stage: FunnelStage;
@@ -222,6 +226,9 @@ export interface CreateLeadInput {
   // JKKN Tier-1 fields
   student_interest_level?: string | null;
   parent_decision_status?: string | null;
+  // Expo Bridge — optional, set when lead is captured at an exhibition event
+  expo_event_id?: string | null;
+  captured_by?: string | null;
 }
 
 export interface UpdateLeadInput extends Partial<CreateLeadInput> {
@@ -246,6 +253,9 @@ export interface LeadFilters {
   source?: LeadSource | LeadSource[];
   counselor_id?: string;
   interested_programs?: string;
+  // Expo Bridge — filter leads by exhibition event
+  expo_event_id?: string;
+  captured_by?: string;
   date_from?: string;
   date_to?: string;
   is_hot_lead?: boolean;

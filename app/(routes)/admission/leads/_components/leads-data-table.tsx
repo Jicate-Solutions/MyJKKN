@@ -10,7 +10,7 @@ import { LeadService } from '@/lib/services/admission/lead-service';
 import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { useLeadMutations } from '@/hooks/admission';
+import { useLeadMutations, useExpoEvents } from '@/hooks/admission';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import {
   AlertDialog,
@@ -56,6 +56,11 @@ export function LeadsDataTable() {
   const [priorityFilter, setPriorityFilter] = useState<string>(
     searchParams.get('priority') || '_all'
   );
+  // Expo event filter
+  const [expoFilter, setExpoFilter] = useState<string>(
+    searchParams.get('expo_event_id') || '_all'
+  );
+  const { data: expoEvents = [] } = useExpoEvents();
 
   const canCreate = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.create');
 
@@ -68,6 +73,8 @@ export function LeadsDataTable() {
   stageFilterRef.current = stageFilter;
   const priorityFilterRef = useRef(priorityFilter);
   priorityFilterRef.current = priorityFilter;
+  const expoFilterRef = useRef(expoFilter);
+  expoFilterRef.current = expoFilter;
 
   const fetchData = useCallback(async (params: {
     page: number;
@@ -81,6 +88,7 @@ export function LeadsDataTable() {
     try {
       const currentStageFilter = stageFilterRef.current;
       const currentPriorityFilter = priorityFilterRef.current;
+      const currentExpoFilter = expoFilterRef.current;
 
       const result = await LeadService.getLeads({
         institution_id: institutionId || '',
@@ -98,7 +106,11 @@ export function LeadsDataTable() {
         priority:
           currentPriorityFilter && currentPriorityFilter !== '_all'
             ? (currentPriorityFilter as any)
-            : undefined
+            : undefined,
+        expo_event_id:
+          currentExpoFilter && currentExpoFilter !== '_all'
+            ? currentExpoFilter
+            : undefined,
       });
 
       const leads = result.data || [];
@@ -250,6 +262,28 @@ export function LeadsDataTable() {
         <Star className="h-4 w-4" />
         Warm
       </Button>
+
+      {expoEvents.length > 0 && (
+        <Select
+          value={expoFilter}
+          onValueChange={(value) => {
+            setExpoFilter(value);
+            setRefetchKey((prev) => prev + 1);
+          }}
+        >
+          <SelectTrigger className="w-[180px] h-8">
+            <SelectValue placeholder="All Events" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">All Sources</SelectItem>
+            {expoEvents.map((evt: any) => (
+              <SelectItem key={evt.id} value={evt.id}>
+                {evt.event_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       {props.selectedRows.length > 0 && (
         <Button

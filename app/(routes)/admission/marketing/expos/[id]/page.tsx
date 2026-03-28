@@ -68,9 +68,16 @@ import {
   XCircle,
   FileText,
   BarChart2,
+  QrCode,
+  Share2,
+  ScanLine,
+  Copy,
+  Check as CheckIcon,
+  Download,
 } from 'lucide-react';
 import Link from 'next/link';
 import { format } from 'date-fns';
+import QRCode from 'qrcode';
 import {
   useExpoEvent,
   useUpdateExpoEventStatus,
@@ -147,6 +154,96 @@ function getMemberRoleColor(role: string): string {
     support: 'bg-gray-100 text-gray-800',
   };
   return colors[role] || 'bg-gray-100 text-gray-800';
+}
+
+// ─── QR Code + Share Button ───────────────────────────────────────────────
+
+function QRShareButton({ eventId, eventName }: { eventId: string; eventName: string }) {
+  const [showQR, setShowQR] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const captureUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/admission/marketing/expos/${eventId}/capture`
+    : '';
+
+  const handleShowQR = async () => {
+    try {
+      const url = await QRCode.toDataURL(captureUrl, {
+        width: 400,
+        margin: 2,
+        color: { dark: '#000000', light: '#ffffff' },
+      });
+      setQrDataUrl(url);
+      setShowQR(true);
+    } catch (err) {
+      console.error('[expo] QR generation failed:', err);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(captureUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = captureUrl;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleDownloadQR = () => {
+    if (!qrDataUrl) return;
+    const link = document.createElement('a');
+    link.download = `QR-${eventName.replace(/[^a-zA-Z0-9]/g, '-')}.png`;
+    link.href = qrDataUrl;
+    link.click();
+  };
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={handleShowQR}>
+        <QrCode className="h-4 w-4 mr-2" />
+        QR Code
+      </Button>
+      <Button variant="outline" size="sm" onClick={handleCopyLink}>
+        {copied ? <CheckIcon className="h-4 w-4 mr-2" /> : <Share2 className="h-4 w-4 mr-2" />}
+        {copied ? 'Copied!' : 'Share Link'}
+      </Button>
+
+      <Dialog open={showQR} onOpenChange={setShowQR}>
+        <DialogContent className="sm:max-w-sm text-center">
+          <DialogHeader>
+            <DialogTitle>Capture Form QR Code</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-4">
+            <p className="text-sm text-muted-foreground">{eventName}</p>
+            {qrDataUrl && (
+              <img src={qrDataUrl} alt="QR Code for capture form" className="w-64 h-64 rounded-lg border" />
+            )}
+            <p className="text-xs text-muted-foreground break-all px-4">{captureUrl}</p>
+          </div>
+          <DialogFooter className="flex gap-2 sm:justify-center">
+            <Button variant="outline" size="sm" onClick={handleCopyLink}>
+              {copied ? <CheckIcon className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
+              {copied ? 'Copied!' : 'Copy Link'}
+            </Button>
+            <Button size="sm" onClick={handleDownloadQR}>
+              <Download className="h-4 w-4 mr-2" />
+              Download QR
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function formatCurrency(amount: number): string {
@@ -460,12 +557,23 @@ function ExpoEventDetailContent() {
             </Badge>
           </div>
         </div>
-        <Link href={`/admission/marketing/expos/${event.id}/edit`}>
-          <Button variant="outline">
-            <Edit className="h-4 w-4 mr-2" />
-            Edit
-          </Button>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          {event.event_status !== 'cancelled' && event.event_status !== 'completed' && (
+            <Link href={`/admission/marketing/expos/${event.id}/capture`}>
+              <Button variant="default" size="sm">
+                <ScanLine className="h-4 w-4 mr-2" />
+                Capture Leads
+              </Button>
+            </Link>
+          )}
+          <QRShareButton eventId={event.id} eventName={event.event_name} />
+          <Link href={`/admission/marketing/expos/${event.id}/edit`}>
+            <Button variant="outline" size="sm">
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* KPI strip */}

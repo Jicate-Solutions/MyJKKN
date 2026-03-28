@@ -182,6 +182,13 @@ export class LeadService {
     if (filters.date_to) {
       query = query.lte('created_at', filters.date_to);
     }
+    // Expo Bridge — filter by exhibition event or team member who captured
+    if (filters.expo_event_id) {
+      query = query.eq('expo_event_id', filters.expo_event_id);
+    }
+    if (filters.captured_by) {
+      query = query.eq('captured_by', filters.captured_by);
+    }
 
     // Apply sorting
     const sortBy = filters.sort_by || 'created_at';
@@ -334,6 +341,9 @@ export class LeadService {
     if (leadData.student_interest_level) insertData.student_interest_level = leadData.student_interest_level;
     if (leadData.parent_decision_status) insertData.parent_decision_status = leadData.parent_decision_status;
     if (leadData.academic_year) insertData.academic_year = leadData.academic_year;
+    // Expo Bridge — link lead to exhibition event and team member who captured it
+    if (leadData.expo_event_id) insertData.expo_event_id = leadData.expo_event_id;
+    if (leadData.captured_by) insertData.captured_by = leadData.captured_by;
 
     // Check for duplicate: same phone in same institution (re-engagement exception: lost/dormant allowed)
     const { data: existing, error: dupError } = await db
@@ -372,6 +382,66 @@ export class LeadService {
 
     // Log stage history
     await this.logStageHistory(data.id, null, 'new', user?.id, undefined, db);
+
+    // Expo Bridge — increment total_leads_collected on the linked expo event (best-effort)
+    if (data.expo_event_id) {
+      try {
+        const { data: expoEvent } = await db
+          .from('expo_events')
+          .select('total_leads_collected')
+          .eq('id', data.expo_event_id)
+          .single();
+        await db
+          .from('expo_events')
+          .update({ total_leads_collected: (expoEvent?.total_leads_collected ?? 0) + 1 })
+          .eq('id', data.expo_event_id);
+      } catch (expoErr) {
+        console.warn('[LeadService] Failed to increment expo lead count:', expoErr);
+      }
+
+      // Auto-schedule follow-up for next business day 10:00 AM IST (best-effort)
+      try {
+        const now = new Date();
+        const followup = new Date(now);
+        // Next day
+        followup.setDate(followup.getDate() + 1);
+        // Skip weekends (Saturday → Monday, Sunday → Monday)
+        const dayOfWeek = followup.getDay();
+        if (dayOfWeek === 0) followup.setDate(followup.getDate() + 1); // Sunday → Monday
+        if (dayOfWeek === 6) followup.setDate(followup.getDate() + 2); // Saturday → Monday
+        // Set to 10:00 AM IST (04:30 UTC)
+        followup.setUTCHours(4, 30, 0, 0);
+
+        await db.from('admission_leads')
+          .update({ next_followup_at: followup.toISOString() })
+          .eq('id', data.id);
+        data.next_followup_at = followup.toISOString();
+      } catch (followupErr) {
+        console.warn('[LeadService] Failed to schedule expo follow-up:', followupErr);
+      }
+
+      // Log expo capture activity (best-effort)
+      try {
+        const { data: expoDetail } = await db
+          .from('expo_events')
+          .select('event_name, city')
+          .eq('id', data.expo_event_id)
+          .single();
+
+        const eventLabel = expoDetail?.event_name || 'Exhibition';
+        const cityLabel = expoDetail?.city ? ` in ${expoDetail.city}` : '';
+
+        await db.from('admission_lead_activities').insert({
+          lead_id: data.id,
+          activity_type: 'note',
+          subject: 'Captured at Exhibition',
+          description: `Captured at ${eventLabel}${cityLabel}${data.captured_by ? ' by a team member' : ''}. Source: education_fair.`,
+          created_by: user?.id || null,
+        });
+      } catch (activityErr) {
+        console.warn('[LeadService] Failed to log expo capture activity:', activityErr);
+      }
+    }
 
     // Auto-assign via rules — best-effort, never blocks lead creation
     try {

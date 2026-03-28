@@ -1312,3 +1312,11 @@ export {
   useExpoComparison,
   useExpoDailyTrends,
 } from './use-expos';
+
+// Expo Capture Bridge
+export {
+  useExpoCaptureStats,
+  useExpoTopCapturers,
+  useExpoActualLeadCount,
+  expoCaptureKeys,
+} from './use-expo-capture';
