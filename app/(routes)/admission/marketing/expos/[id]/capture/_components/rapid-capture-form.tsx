@@ -6,10 +6,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { ChevronDown, ChevronUp, Loader2, Check, AlertTriangle } from 'lucide-react';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from '@/components/ui/card';
+import { ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { LeadService } from '@/lib/services/admission/lead-service';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ProgramChipPicker } from './program-chip-picker';
 import type { CreateLeadInput } from '@/types/admission';
 
@@ -67,7 +73,6 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
   }, []);
 
   const resetForm = useCallback(() => {
-    // Keep zone selection (rush mode — remembers last zone)
     setForm((prev) => ({ ...INITIAL_FORM, zone: prev.zone }));
     setSubmitState('idle');
     setDuplicateInfo(null);
@@ -78,7 +83,6 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
   const validate = (): string | null => {
     if (!form.name.trim()) return 'Learner name is required';
     if (!form.phone.trim()) return 'Phone number is required';
-    // Basic Indian phone validation (10 digits, starts with 6-9)
     const cleanPhone = form.phone.trim().replace(/[\s\-()]/g, '');
     const phoneRegex = /^(\+91|0)?[6-9]\d{9}$/;
     if (!phoneRegex.test(cleanPhone)) return 'Enter a valid 10-digit Indian mobile number';
@@ -101,7 +105,6 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
     setDuplicateInfo(null);
 
     try {
-      // Split name into first/last
       const nameParts = form.name.trim().split(/\s+/);
       const firstName = nameParts[0];
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
@@ -120,7 +123,6 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
         parent_phone: form.parentPhone.trim(),
         interested_programs: form.selectedPrograms,
         tags: form.zone === 'ai_zone' ? ['ai-zone'] : [],
-        // Optional expanded fields
         ...(form.email && { email: form.email.trim() }),
         ...(form.district && { district: form.district.trim() }),
         ...(form.notes && { notes: form.notes.trim() }),
@@ -131,13 +133,11 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
       setSubmitState('success');
       toast.success(`Lead #${captureCount + 1} saved!`, { duration: 2000 });
 
-      // Auto-reset after 1.5 seconds for next capture
       setTimeout(resetForm, 1500);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to save lead';
       if (message.includes('Duplicate lead')) {
         setSubmitState('duplicate');
-        // Try to extract existing lead info from the error
         setDuplicateInfo({ id: '', name: form.name });
         toast.error('This visitor was already captured');
       } else {
@@ -149,188 +149,208 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
   };
 
   return (
-    <div className="w-full max-w-md mx-auto space-y-4">
-      {/* Core Fields — 5 fields, large inputs for mobile */}
-      <div className="space-y-3">
-        {/* Learner Name */}
-        <div>
-          <Label htmlFor="name" className="text-sm font-medium">
-            Learner Name / மாணவர் பெயர் <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            ref={nameInputRef}
-            id="name"
-            value={form.name}
-            onChange={(e) => updateField('name', e.target.value)}
-            placeholder="Enter visitor's name"
-            className="h-14 text-base mt-1"
-            autoComplete="off"
-            disabled={isSubmitting}
-          />
-        </div>
+    <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-6">
+      {/* ── Learner Details ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Learner Details / மாணவர் விவரங்கள்</CardTitle>
+          <CardDescription>
+            Enter the visitor&apos;s basic contact information
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="name">
+              Learner Name / மாணவர் பெயர் <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              ref={nameInputRef}
+              id="name"
+              value={form.name}
+              onChange={(e) => updateField('name', e.target.value)}
+              placeholder="Enter visitor's name"
+              className="mt-1"
+              autoComplete="off"
+              disabled={isSubmitting}
+            />
+          </div>
+          <div>
+            <Label htmlFor="phone">
+              Phone / தொலைபேசி <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="phone"
+              type="tel"
+              inputMode="numeric"
+              value={form.phone}
+              onChange={(e) => updateField('phone', e.target.value)}
+              placeholder="98765 43210"
+              className="mt-1"
+              autoComplete="off"
+              disabled={isSubmitting}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Phone */}
-        <div>
-          <Label htmlFor="phone" className="text-sm font-medium">
-            Phone / தொலைபேசி <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            id="phone"
-            type="tel"
-            inputMode="numeric"
-            value={form.phone}
-            onChange={(e) => updateField('phone', e.target.value)}
-            placeholder="98765 43210"
-            className="h-14 text-base mt-1"
-            autoComplete="off"
-            disabled={isSubmitting}
-          />
-        </div>
+      {/* ── Parent / Guardian Details ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Parent / Guardian Details / பெற்றோர் விவரங்கள்</CardTitle>
+          <CardDescription>
+            Parent or guardian contact information
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="parentName">
+              Parent Name / பெற்றோர் பெயர் <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="parentName"
+              value={form.parentName}
+              onChange={(e) => updateField('parentName', e.target.value)}
+              placeholder="Parent or guardian name"
+              className="mt-1"
+              autoComplete="off"
+              disabled={isSubmitting}
+            />
+          </div>
+          <div>
+            <Label htmlFor="parentPhone">
+              Parent Phone / பெற்றோர் தொலைபேசி <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="parentPhone"
+              type="tel"
+              inputMode="numeric"
+              value={form.parentPhone}
+              onChange={(e) => updateField('parentPhone', e.target.value)}
+              placeholder="98765 43210"
+              className="mt-1"
+              autoComplete="off"
+              disabled={isSubmitting}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Parent Name */}
-        <div>
-          <Label htmlFor="parentName" className="text-sm font-medium">
-            Parent / Guardian Name / பெற்றோர் பெயர் <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            id="parentName"
-            value={form.parentName}
-            onChange={(e) => updateField('parentName', e.target.value)}
-            placeholder="Parent or guardian name"
-            className="h-14 text-base mt-1"
-            autoComplete="off"
-            disabled={isSubmitting}
-          />
-        </div>
-
-        {/* Parent Phone */}
-        <div>
-          <Label htmlFor="parentPhone" className="text-sm font-medium">
-            Parent Phone / பெற்றோர் தொலைபேசி <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            id="parentPhone"
-            type="tel"
-            inputMode="numeric"
-            value={form.parentPhone}
-            onChange={(e) => updateField('parentPhone', e.target.value)}
-            placeholder="98765 43210"
-            className="h-14 text-base mt-1"
-            autoComplete="off"
-            disabled={isSubmitting}
-          />
-        </div>
-
-        {/* Programs */}
-        <div>
-          <Label className="text-sm font-medium">
-            Programs Interested / ஆர்வமுள்ள படிப்புகள் <span className="text-destructive">*</span>
-          </Label>
+      {/* ── Program Interest ── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Programs Interested / ஆர்வமுள்ள படிப்புகள்</CardTitle>
+          <CardDescription>
+            Select up to 3 programs the visitor is interested in
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <ProgramChipPicker
             institutionId={institutionId}
             selectedIds={form.selectedPrograms}
             onChange={(ids) => updateField('selectedPrograms', ids)}
             disabled={isSubmitting}
           />
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      {/* Expandable "More details" section */}
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        disabled={isSubmitting}
-      >
-        {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        {expanded ? 'Less details' : 'More details (optional)'}
-      </button>
-
-      {expanded && (
-        <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
-          <div>
-            <Label htmlFor="email" className="text-sm">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={form.email}
-              onChange={(e) => updateField('email', e.target.value)}
-              placeholder="visitor@email.com"
-              className="h-12 text-base mt-1"
-              disabled={isSubmitting}
-            />
-          </div>
-          <div>
-            <Label htmlFor="district" className="text-sm">District / City</Label>
-            <Input
-              id="district"
-              value={form.district}
-              onChange={(e) => updateField('district', e.target.value)}
-              placeholder="e.g. Ramanathapuram, Pudukottai"
-              className="h-12 text-base mt-1"
-              disabled={isSubmitting}
-            />
-          </div>
-          <div>
-            <Label htmlFor="twelfthMarks" className="text-sm">12th Marks / Percentage</Label>
-            <Input
-              id="twelfthMarks"
-              value={form.twelfthMarks}
-              onChange={(e) => updateField('twelfthMarks', e.target.value)}
-              placeholder="e.g. 85%"
-              className="h-12 text-base mt-1"
-              disabled={isSubmitting}
-            />
-          </div>
-          <div>
-            <Label htmlFor="currentSchool" className="text-sm">Current School / College</Label>
-            <Input
-              id="currentSchool"
-              value={form.currentSchool}
-              onChange={(e) => updateField('currentSchool', e.target.value)}
-              placeholder="School or college name"
-              className="h-12 text-base mt-1"
-              disabled={isSubmitting}
-            />
-          </div>
-          {/* Zone Toggle */}
-          <div>
-            <Label className="text-sm">Capture Zone</Label>
-            <div className="flex gap-2 mt-1">
-              <Badge
-                variant={form.zone === 'regular' ? 'default' : 'outline'}
-                className="cursor-pointer px-4 py-2 text-sm"
-                onClick={() => updateField('zone', 'regular')}
-              >
-                Regular Stall
-              </Badge>
-              <Badge
-                variant={form.zone === 'ai_zone' ? 'default' : 'outline'}
-                className="cursor-pointer px-4 py-2 text-sm"
-                onClick={() => updateField('zone', 'ai_zone')}
-              >
-                AI Experience Zone
-              </Badge>
+      {/* ── Additional Details (Expandable) ── */}
+      <Card>
+        <CardHeader className="cursor-pointer" onClick={() => setExpanded(!expanded)}>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Additional Details (Optional)</CardTitle>
+              <CardDescription>
+                Extra information to improve lead quality
+              </CardDescription>
             </div>
+            {expanded ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
           </div>
-          <div>
-            <Label htmlFor="notes" className="text-sm">Notes</Label>
-            <Textarea
-              id="notes"
-              value={form.notes}
-              onChange={(e) => updateField('notes', e.target.value)}
-              placeholder="Any additional notes about the visitor..."
-              className="text-base mt-1"
-              rows={2}
-              disabled={isSubmitting}
-            />
-          </div>
-        </div>
-      )}
+        </CardHeader>
+        {expanded && (
+          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 animate-in slide-in-from-top-2 duration-200">
+            <div>
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={form.email}
+                onChange={(e) => updateField('email', e.target.value)}
+                placeholder="visitor@email.com"
+                className="mt-1"
+                disabled={isSubmitting}
+              />
+            </div>
+            <div>
+              <Label htmlFor="district">District / City</Label>
+              <Input
+                id="district"
+                value={form.district}
+                onChange={(e) => updateField('district', e.target.value)}
+                placeholder="e.g. Ramanathapuram, Pudukottai"
+                className="mt-1"
+                disabled={isSubmitting}
+              />
+            </div>
+            <div>
+              <Label htmlFor="twelfthMarks">12th Marks / Percentage</Label>
+              <Input
+                id="twelfthMarks"
+                value={form.twelfthMarks}
+                onChange={(e) => updateField('twelfthMarks', e.target.value)}
+                placeholder="e.g. 85%"
+                className="mt-1"
+                disabled={isSubmitting}
+              />
+            </div>
+            <div>
+              <Label htmlFor="currentSchool">Current School / College</Label>
+              <Input
+                id="currentSchool"
+                value={form.currentSchool}
+                onChange={(e) => updateField('currentSchool', e.target.value)}
+                placeholder="School or college name"
+                className="mt-1"
+                disabled={isSubmitting}
+              />
+            </div>
+            <div>
+              <Label>Capture Zone</Label>
+              <div className="flex gap-2 mt-1">
+                <Badge
+                  variant={form.zone === 'regular' ? 'default' : 'outline'}
+                  className="cursor-pointer px-4 py-2 text-sm"
+                  onClick={() => updateField('zone', 'regular')}
+                >
+                  Regular Stall
+                </Badge>
+                <Badge
+                  variant={form.zone === 'ai_zone' ? 'default' : 'outline'}
+                  className="cursor-pointer px-4 py-2 text-sm"
+                  onClick={() => updateField('zone', 'ai_zone')}
+                >
+                  AI Experience Zone
+                </Badge>
+              </div>
+            </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor="notes">Notes</Label>
+              <Textarea
+                id="notes"
+                value={form.notes}
+                onChange={(e) => updateField('notes', e.target.value)}
+                placeholder="Any additional notes about the visitor..."
+                className="mt-1"
+                rows={2}
+                disabled={isSubmitting}
+              />
+            </div>
+          </CardContent>
+        )}
+      </Card>
 
       {/* Duplicate handling */}
       {submitState === 'duplicate' && (
-        <div className="bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 flex items-start gap-2">
+        <div className="bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0 mt-0.5" />
           <div className="text-sm">
             <p className="font-medium text-yellow-800 dark:text-yellow-200">Already Captured</p>
@@ -338,7 +358,7 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
               A lead with this phone number already exists in the CRM.
             </p>
             <div className="flex gap-2 mt-2">
-              <Button size="sm" variant="outline" onClick={resetForm}>
+              <Button size="sm" variant="outline" type="button" onClick={resetForm}>
                 Skip &amp; Next
               </Button>
             </div>
@@ -346,32 +366,39 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
         </div>
       )}
 
-      {/* Sticky Submit Bar */}
-      <div className="fixed bottom-16 left-0 right-0 px-4 pb-4 bg-gradient-to-t from-background via-background to-transparent pt-6">
+      {/* ── Submit ── */}
+      <div className="flex justify-end gap-3">
         <Button
-          onClick={handleSubmit}
+          variant="outline"
+          type="button"
+          onClick={resetForm}
+          disabled={isSubmitting}
+        >
+          Clear
+        </Button>
+        <Button
+          type="submit"
           disabled={isSubmitting || submitState === 'success'}
-          className={`w-full h-14 text-lg font-semibold transition-all ${
-            submitState === 'success'
-              ? 'bg-green-600 hover:bg-green-600 text-white'
-              : ''
-          }`}
+          className={submitState === 'success' ? 'bg-green-600 hover:bg-green-600 text-white' : ''}
         >
           {isSubmitting ? (
             <>
-              <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Saving...
             </>
           ) : submitState === 'success' ? (
             <>
-              <Check className="h-5 w-5 mr-2" />
+              <Check className="mr-2 h-4 w-4" />
               Saved! Next visitor...
             </>
           ) : (
-            'Save & Next / சேமி & அடுத்தது'
+            <>
+              <Save className="mr-2 h-4 w-4" />
+              Save &amp; Next / சேமி &amp; அடுத்தது
+            </>
           )}
         </Button>
       </div>
-    </div>
+    </form>
   );
 }
