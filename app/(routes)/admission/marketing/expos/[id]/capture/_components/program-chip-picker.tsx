@@ -100,7 +100,7 @@ export function ProgramChipPicker({
               className={`
                 cursor-pointer px-3 py-2 text-sm transition-all select-none
                 ${isSelected && isFirst ? 'ring-2 ring-primary ring-offset-1' : ''}
-                ${atLimit ? 'opacity-40 cursor-not-allowed' : 'hover:bg-primary/10'}
+                ${atLimit ? 'opacity-40 cursor-not-allowed' : 'hover:bg-green-50 hover:text-green-700 hover:border-green-300 dark:hover:bg-green-950 dark:hover:text-green-400 dark:hover:border-green-700'}
                 ${disabled ? 'pointer-events-none opacity-50' : ''}
               `}
               onClick={() => !atLimit && toggleProgram(program.id)}

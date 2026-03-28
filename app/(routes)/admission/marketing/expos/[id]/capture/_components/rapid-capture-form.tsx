@@ -13,9 +13,17 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { LeadService } from '@/lib/services/admission/lead-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { ProgramChipPicker } from './program-chip-picker';
 import type { CreateLeadInput } from '@/types/admission';
 
@@ -56,7 +64,9 @@ const INITIAL_FORM: FormData = {
 
 export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCaptureFormProps) {
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
-  const [expanded, setExpanded] = useState(false);
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>(institutionId);
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  const [expanded, setExpanded] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitState, setSubmitState] = useState<'idle' | 'success' | 'duplicate'>('idle');
   const [duplicateInfo, setDuplicateInfo] = useState<{ id: string; name: string } | null>(null);
@@ -70,6 +80,12 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
 
   const updateField = useCallback(<K extends keyof FormData>(field: K, value: FormData[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  const handleInstitutionChange = useCallback((newInstId: string) => {
+    setSelectedInstitutionId(newInstId);
+    // Clear program selection when institution changes
+    setForm((prev) => ({ ...prev, selectedPrograms: [] }));
   }, []);
 
   const resetForm = useCallback(() => {
@@ -110,7 +126,7 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
 
       const leadInput: CreateLeadInput = {
-        institution_id: institutionId,
+        institution_id: selectedInstitutionId,
         first_name: firstName,
         last_name: lastName,
         phone: form.phone.trim(),
@@ -235,21 +251,50 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
         </CardContent>
       </Card>
 
-      {/* ── Program Interest ── */}
+      {/* ── Institution & Program Interest ── */}
       <Card>
         <CardHeader>
-          <CardTitle>Programs Interested / ஆர்வமுள்ள படிப்புகள்</CardTitle>
+          <CardTitle>Academic Interest / கல்வி ஆர்வம்</CardTitle>
           <CardDescription>
-            Select up to 3 programs the visitor is interested in
+            Select institution and programs the visitor is interested in
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Institution Selector */}
+          <div>
+            <Label htmlFor="institution">
+              Institution / கல்வி நிறுவனம் <span className="text-destructive">*</span>
+            </Label>
+            <Select
+              value={selectedInstitutionId}
+              onValueChange={handleInstitutionChange}
+              disabled={institutionsLoading || isSubmitting}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder={institutionsLoading ? 'Loading...' : 'Select institution'} />
+              </SelectTrigger>
+              <SelectContent>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Program Chips */}
+          <div>
+            <Label>
+              Programs Interested / ஆர்வமுள்ள படிப்புகள் <span className="text-destructive">*</span>
+            </Label>
           <ProgramChipPicker
-            institutionId={institutionId}
+            institutionId={selectedInstitutionId}
             selectedIds={form.selectedPrograms}
             onChange={(ids) => updateField('selectedPrograms', ids)}
             disabled={isSubmitting}
           />
+          </div>
         </CardContent>
       </Card>
 
