@@ -1,7 +1,8 @@
 // app/api/admission/calls/initiate/route.ts
 // POST /api/admission/calls/initiate — Initiate a click-to-call via Exotel
 
-import { NextRequest, NextResponse, connection } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { isValidIndianMobile, maskPhone, normalizeIndianPhone } from '@/lib/utils/phone-number';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import { TelephonyService } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -49,25 +50,70 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate phone number format
+    if (!isValidIndianMobile(prospect_phone)) {
+      return NextResponse.json(
+        { error: 'VALIDATION_ERROR', message: 'Invalid prospect phone number. Must be a valid Indian mobile number.' },
+        { status: 400 }
+      );
+    }
+
+    const supabase = createServiceRoleClient();
+
+    // Rate limiting: max 5 calls per counselor per minute
+    const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
+    const { count: recentCallCount } = await supabase
+      .from('admission_call_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('counselor_id', user.id)
+      .gte('created_at', oneMinuteAgo);
+
+    if ((recentCallCount ?? 0) >= 5) {
+      return NextResponse.json(
+        { error: 'RATE_LIMITED', message: 'Too many calls. Please wait a moment before trying again.' },
+        { status: 429 }
+      );
+    }
+
+    // Duplicate call check: prevent calling same prospect within 30 seconds
+    const thirtySecsAgo = new Date(Date.now() - 30_000).toISOString();
+    const normalizedProspect = normalizeIndianPhone(prospect_phone);
+    const { count: duplicateCount } = await supabase
+      .from('admission_call_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('counselor_id', user.id)
+      .eq('to_number', normalizedProspect)
+      .gte('created_at', thirtySecsAgo);
+
+    if ((duplicateCount ?? 0) > 0) {
+      return NextResponse.json(
+        { error: 'DUPLICATE_CALL', message: 'A call to this number was just initiated. Please wait.' },
+        { status: 429 }
+      );
+    }
+
     logger.info('admission/calls', 'Initiating call', {
       userId: user.id,
       leadId: lead_id,
-      to: prospect_phone,
+      to: maskPhone(prospect_phone),
     });
 
-    const supabase = createServiceRoleClient();
     const result = await TelephonyService.initiateCall({
       institution_id,
       counselor_id: user.id,
-      counselor_phone,
-      prospect_phone,
+      counselor_phone: normalizeIndianPhone(counselor_phone),
+      prospect_phone: normalizeIndianPhone(prospect_phone),
       lead_id,
       caller_id,
     }, supabase);
 
     if (!result.success) {
       return NextResponse.json(
-        { error: 'CALL_FAILED', message: result.error || 'Failed to initiate call' },
+        {
+          error: 'CALL_FAILED',
+          message: result.error || 'Failed to initiate call',
+          fallbackPhone: prospect_phone,
+        },
         { status: 500 }
       );
     }
@@ -83,7 +129,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     logger.error('admission/calls', 'Initiate call error', error);
     return NextResponse.json(
-      { error: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : 'Internal server error' },
+      { error: 'INTERNAL_ERROR', message: 'An unexpected error occurred. Please try again.' },
       { status: 500 }
     );
   }
