@@ -24,6 +24,7 @@ import { ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Save } from 'luc
 import toast from 'react-hot-toast';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useFormDraftObject } from '@/hooks/use-form-draft';
 import { ProgramChipPicker } from './program-chip-picker';
 import type { CreateLeadInput } from '@/types/admission';
 
@@ -63,7 +64,10 @@ const INITIAL_FORM: FormData = {
 };
 
 export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCaptureFormProps) {
-  const [form, setForm] = useState<FormData>(INITIAL_FORM);
+  // Persist form data across tab switches and navigation via sessionStorage
+  const draftKey = `expo-capture-${eventId}`;
+  const { values: form, setValue: setDraftField, setValues: setDraftValues, clearDraft } = useFormDraftObject<FormData>(draftKey, INITIAL_FORM);
+
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>(institutionId);
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
   const [expanded, setExpanded] = useState(true);
@@ -79,22 +83,23 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
   }, [captureCount]);
 
   const updateField = useCallback(<K extends keyof FormData>(field: K, value: FormData[K]) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  }, []);
+    setDraftField(field, value);
+  }, [setDraftField]);
 
   const handleInstitutionChange = useCallback((newInstId: string) => {
     setSelectedInstitutionId(newInstId);
-    // Clear program selection when institution changes
-    setForm((prev) => ({ ...prev, selectedPrograms: [] }));
-  }, []);
+    setDraftField('selectedPrograms', []);
+  }, [setDraftField]);
 
   const resetForm = useCallback(() => {
-    setForm((prev) => ({ ...INITIAL_FORM, zone: prev.zone }));
+    const currentZone = form.zone;
+    clearDraft();
+    // Re-set with just the zone preserved
+    setDraftValues({ ...INITIAL_FORM, zone: currentZone });
     setSubmitState('idle');
     setDuplicateInfo(null);
-    setExpanded(false);
     setCaptureCount((c) => c + 1);
-  }, []);
+  }, [form.zone, clearDraft, setDraftValues]);
 
   const validate = (): string | null => {
     if (!form.name.trim()) return 'Learner name is required';
