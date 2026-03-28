@@ -92,14 +92,11 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
   }, [setDraftField]);
 
   const resetForm = useCallback(() => {
-    const currentZone = form.zone;
     clearDraft();
-    // Re-set with just the zone preserved
-    setDraftValues({ ...INITIAL_FORM, zone: currentZone });
     setSubmitState('idle');
     setDuplicateInfo(null);
     setCaptureCount((c) => c + 1);
-  }, [form.zone, clearDraft, setDraftValues]);
+  }, [clearDraft]);
 
   const validate = (): string | null => {
     if (!form.name.trim()) return 'Learner name is required';

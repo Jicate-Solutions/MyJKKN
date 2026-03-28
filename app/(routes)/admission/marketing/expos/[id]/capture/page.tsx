@@ -20,6 +20,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { AlertCircle, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { clearFormDraft } from '@/hooks/use-form-draft';
 import { RapidCaptureForm } from './_components/rapid-capture-form';
 import { CaptureStatsBar } from './_components/capture-stats-bar';
 
@@ -121,7 +122,10 @@ function ExpoCaptureContent() {
     <div className="relative pb-20">
       {/* Event context banner */}
       <div className="mb-4 flex items-center gap-3">
-        <Link href={`/admission/marketing/expos/${eventId}`}>
+        <Link
+          href={`/admission/marketing/expos/${eventId}`}
+          onClick={() => clearFormDraft(`expo-capture-${eventId}`)}
+        >
           <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0">
             <ArrowLeft className="h-5 w-5" />
           </Button>
