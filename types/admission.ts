@@ -609,9 +609,9 @@ export interface ExpoEvent {
   travel_mode: TravelMode | null;
   accommodation_details: string | null;
   team_leader_id: string | null;
-  team_leader?: { id: string; first_name: string; last_name: string } | null;
+  team_leader?: { id: string; full_name: string } | null;
   approved_by_id: string | null;
-  approved_by?: { id: string; first_name: string; last_name: string } | null;
+  approved_by?: { id: string; full_name: string } | null;
   event_status: ExpoEventStatus;
   notes: string | null;
   total_team_members: number;

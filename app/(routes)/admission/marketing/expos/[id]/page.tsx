@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -78,6 +78,8 @@ import {
 import Link from 'next/link';
 import { format } from 'date-fns';
 import QRCode from 'qrcode';
+import { LeadService } from '@/lib/services/admission/lead-service';
+import type { AdmissionLead } from '@/types/admission';
 import {
   useExpoEvent,
   useUpdateExpoEventStatus,
@@ -243,6 +245,154 @@ function QRShareButton({ eventId, eventName }: { eventId: string; eventName: str
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+// ─── Expo Leads Tab ───────────────────────────────────────────────────────
+
+function getStageColor(stage: string): string {
+  const colors: Record<string, string> = {
+    new: 'bg-blue-100 text-blue-800',
+    contacted: 'bg-cyan-100 text-cyan-800',
+    interested: 'bg-emerald-100 text-emerald-800',
+    follow_up_scheduled: 'bg-yellow-100 text-yellow-800',
+    qualified: 'bg-purple-100 text-purple-800',
+    applied: 'bg-indigo-100 text-indigo-800',
+    enrolled: 'bg-green-100 text-green-800',
+    lost: 'bg-red-100 text-red-800',
+    dormant: 'bg-gray-100 text-gray-800',
+  };
+  return colors[stage] || 'bg-gray-100 text-gray-800';
+}
+
+function ExpoLeadsTab({ eventId }: { eventId: string }) {
+  const [leads, setLeads] = useState<AdmissionLead[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+
+  const fetchLeads = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const result = await LeadService.getLeads({
+        expo_event_id: eventId,
+        limit: 100,
+        sort_by: 'created_at',
+        sort_order: 'desc',
+      });
+      setLeads(result.data || []);
+      setTotal(result.metadata.total);
+    } catch (err) {
+      console.error('[expo/leads-tab] Failed to fetch leads:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [eventId]);
+
+  useEffect(() => {
+    fetchLeads();
+  }, [fetchLeads]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-12 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (leads.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center">
+          <UserCheck className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+          <p className="text-muted-foreground">No leads captured for this event yet.</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Leads will appear here when team members capture them via the capture form.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">
+            Captured Leads ({total})
+          </CardTitle>
+          <Link href={`/admission/leads?expo_event_id=${eventId}`}>
+            <Button variant="outline" size="sm">View in CRM</Button>
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Parent</TableHead>
+                <TableHead>Stage</TableHead>
+                <TableHead>Counselor</TableHead>
+                <TableHead>Captured</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {leads.map((lead) => (
+                <TableRow key={lead.id}>
+                  <TableCell>
+                    <Link
+                      href={`/admission/leads/${lead.id}`}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {lead.full_name || `${lead.first_name} ${lead.last_name || ''}`}
+                    </Link>
+                    {lead.email && (
+                      <p className="text-xs text-muted-foreground">{lead.email}</p>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">{lead.phone}</TableCell>
+                  <TableCell>
+                    <div className="text-sm">{lead.parent_name || '—'}</div>
+                    {lead.parent_phone && (
+                      <p className="text-xs text-muted-foreground">{lead.parent_phone}</p>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge className={`text-xs ${getStageColor(lead.funnel_stage)}`}>
+                      {(lead.funnel_stage || 'new').replace(/_/g, ' ')}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {lead.counselor?.name || <span className="text-muted-foreground">Unassigned</span>}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {new Date(lead.created_at).toLocaleDateString('en-IN', {
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        {total > 100 && (
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            Showing first 100 of {total} leads.{' '}
+            <Link href={`/admission/leads?expo_event_id=${eventId}`} className="text-primary hover:underline">
+              View all in CRM
+            </Link>
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -645,6 +795,14 @@ function ExpoEventDetailContent() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="leads">
+            Leads
+            {event.total_leads_collected > 0 && (
+              <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-xs">
+                {event.total_leads_collected}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
 
@@ -1008,7 +1166,12 @@ function ExpoEventDetailContent() {
           )}
         </TabsContent>
 
-        {/* ── Tab 4: Analytics ── */}
+        {/* ── Tab 4: Leads Captured ── */}
+        <TabsContent value="leads" className="mt-4">
+          <ExpoLeadsTab eventId={event.id} />
+        </TabsContent>
+
+        {/* ── Tab 5: Analytics ── */}
         <TabsContent value="analytics" className="space-y-4 mt-4">
           {trendsLoading ? (
             <Skeleton className="h-72 w-full" />
