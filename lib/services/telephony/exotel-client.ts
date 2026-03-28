@@ -369,11 +369,17 @@ let _client: ExotelClient | null = null;
 
 /**
  * Returns a lazily-initialized singleton ExotelClient.
- * Throws ExotelConfigError if required env vars are missing.
+ * When EXOTEL_MOCK=true, returns a MockExotelClient instead.
+ * Throws ExotelConfigError if required env vars are missing (non-mock mode).
  */
 export function getExotelClient(): ExotelClient {
   if (!_client) {
-    _client = new ExotelClient();
+    if (process.env.EXOTEL_MOCK === 'true') {
+      const { MockExotelClient } = require('./exotel-client-mock');
+      _client = new MockExotelClient() as unknown as ExotelClient;
+    } else {
+      _client = new ExotelClient();
+    }
   }
   return _client;
 }
