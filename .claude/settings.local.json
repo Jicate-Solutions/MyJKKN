@@ -241,7 +241,8 @@
       "Bash(MSYS_NO_PATHCONV=1 /usr/bin/sleep 5:*)",
       "WebFetch(domain:serwist.pages.dev)",
       "mcp__plugin_supabase_supabase__apply_migration",
-      "mcp__plugin_supabase_supabase__execute_sql"
+      "mcp__plugin_supabase_supabase__execute_sql",
+      "mcp__exotel__getNumberMetadata"
     ],
     "deny": [],
     "ask": []

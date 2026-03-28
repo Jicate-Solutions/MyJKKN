@@ -39,6 +39,18 @@
     "next-devtools": {
       "command": "cmd",
       "args": ["/c", "npx", "-y", "next-devtools-mcp@latest"]
+    },
+    "exotel": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://mcp.exotel.com/mcp", 
+        "--header",
+        "Authorization:${AUTH_HEADER}"
+      ],
+      "env": {
+        "AUTH_HEADER": "{'token':'7f5b6b75d0686b1197cc1dbaf9dd75ef8686c8c7a5876ceb','from_number':'04448134434','dlt_temp':'0','dlt_entity':'0','caller_id':'04448134434','api_domain':'https://api.in.exotel.com','account_sid':'jkkn1','exotel_portal_url':'https://my.exotel.com/'}"
+      }
     }
   }
 }
