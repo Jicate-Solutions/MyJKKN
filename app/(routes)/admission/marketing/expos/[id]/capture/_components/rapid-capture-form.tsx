@@ -91,33 +91,84 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
     setDraftField('selectedPrograms', []);
   }, [setDraftField]);
 
+  // Per-field error state for inline validation
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormData | 'institution', string>>>({});
+
   const resetForm = useCallback(() => {
     clearDraft();
     setSubmitState('idle');
     setDuplicateInfo(null);
+    setFieldErrors({});
     setCaptureCount((c) => c + 1);
   }, [clearDraft]);
 
-  const validate = (): string | null => {
-    if (!form.name.trim()) return 'Learner name is required';
-    if (!form.phone.trim()) return 'Phone number is required';
-    const cleanPhone = form.phone.trim().replace(/[\s\-()]/g, '');
-    const phoneRegex = /^(\+91|0)?[6-9]\d{9}$/;
-    if (!phoneRegex.test(cleanPhone)) return 'Enter a valid 10-digit Indian mobile number';
-    if (!form.parentName.trim()) return 'Parent/Guardian name is required';
-    if (!form.parentPhone.trim()) return 'Parent phone is required';
-    const cleanParentPhone = form.parentPhone.trim().replace(/[\s\-()]/g, '');
-    if (!phoneRegex.test(cleanParentPhone)) return 'Enter a valid parent phone number';
-    if (form.selectedPrograms.length === 0) return 'Select at least one program';
-    return null;
+  // Phone input handler — only allows digits, +, spaces
+  const handlePhoneChange = useCallback((field: 'phone' | 'parentPhone', value: string) => {
+    const cleaned = value.replace(/[^0-9+\s\-]/g, '');
+    setDraftField(field, cleaned);
+    // Clear error on edit
+    if (fieldErrors[field]) {
+      setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  }, [setDraftField, fieldErrors]);
+
+  // Clear field error on edit for text fields
+  const handleTextChange = useCallback((field: keyof FormData, value: string) => {
+    setDraftField(field, value);
+    if (fieldErrors[field]) {
+      setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  }, [setDraftField, fieldErrors]);
+
+  // Email validation on blur
+  const handleEmailBlur = useCallback(() => {
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      setFieldErrors((prev) => ({ ...prev, email: 'Enter a valid email address' }));
+    } else {
+      setFieldErrors((prev) => ({ ...prev, email: undefined }));
+    }
+  }, [form.email]);
+
+  // Phone validation helper
+  const isValidIndianPhone = (phone: string): boolean => {
+    const clean = phone.trim().replace(/[\s\-()]/g, '');
+    return /^(\+91|0)?[6-9]\d{9}$/.test(clean);
+  };
+
+  const validate = (): boolean => {
+    const errors: typeof fieldErrors = {};
+
+    if (!form.name.trim()) errors.name = 'Learner name is required';
+    if (!form.phone.trim()) {
+      errors.phone = 'Phone number is required';
+    } else if (!isValidIndianPhone(form.phone)) {
+      errors.phone = 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
+    }
+    if (!form.parentName.trim()) errors.parentName = 'Parent/Guardian name is required';
+    if (!form.parentPhone.trim()) {
+      errors.parentPhone = 'Parent phone is required';
+    } else if (!isValidIndianPhone(form.parentPhone)) {
+      errors.parentPhone = 'Enter a valid 10-digit parent phone number';
+    }
+    if (!selectedInstitutionId) errors.institution = 'Select an institution';
+    if (form.selectedPrograms.length === 0) errors.selectedPrograms = 'Select at least one program';
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      errors.email = 'Enter a valid email address';
+    }
+
+    setFieldErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      // Show first error as toast
+      const firstError = Object.values(errors)[0];
+      toast.error(firstError || 'Please fix the highlighted fields');
+      return false;
+    }
+    return true;
   };
 
   const handleSubmit = async () => {
-    const error = validate();
-    if (error) {
-      toast.error(error);
-      return;
-    }
+    if (!validate()) return;
 
     setIsSubmitting(true);
     setDuplicateInfo(null);
@@ -185,12 +236,13 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
               ref={nameInputRef}
               id="name"
               value={form.name}
-              onChange={(e) => updateField('name', e.target.value)}
+              onChange={(e) => handleTextChange('name', e.target.value)}
               placeholder="Enter visitor's name"
-              className="mt-1"
+              className={`mt-1 ${fieldErrors.name ? 'border-destructive' : ''}`}
               autoComplete="off"
               disabled={isSubmitting}
             />
+            {fieldErrors.name && <p className="text-xs text-destructive mt-1">{fieldErrors.name}</p>}
           </div>
           <div>
             <Label htmlFor="phone">
@@ -201,12 +253,14 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
               type="tel"
               inputMode="numeric"
               value={form.phone}
-              onChange={(e) => updateField('phone', e.target.value)}
+              onChange={(e) => handlePhoneChange('phone', e.target.value)}
               placeholder="98765 43210"
-              className="mt-1"
+              className={`mt-1 ${fieldErrors.phone ? 'border-destructive' : ''}`}
               autoComplete="off"
+              maxLength={15}
               disabled={isSubmitting}
             />
+            {fieldErrors.phone && <p className="text-xs text-destructive mt-1">{fieldErrors.phone}</p>}
           </div>
         </CardContent>
       </Card>
@@ -227,12 +281,13 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
             <Input
               id="parentName"
               value={form.parentName}
-              onChange={(e) => updateField('parentName', e.target.value)}
+              onChange={(e) => handleTextChange('parentName', e.target.value)}
               placeholder="Parent or guardian name"
-              className="mt-1"
+              className={`mt-1 ${fieldErrors.parentName ? 'border-destructive' : ''}`}
               autoComplete="off"
               disabled={isSubmitting}
             />
+            {fieldErrors.parentName && <p className="text-xs text-destructive mt-1">{fieldErrors.parentName}</p>}
           </div>
           <div>
             <Label htmlFor="parentPhone">
@@ -243,12 +298,14 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
               type="tel"
               inputMode="numeric"
               value={form.parentPhone}
-              onChange={(e) => updateField('parentPhone', e.target.value)}
+              onChange={(e) => handlePhoneChange('parentPhone', e.target.value)}
               placeholder="98765 43210"
-              className="mt-1"
+              className={`mt-1 ${fieldErrors.parentPhone ? 'border-destructive' : ''}`}
               autoComplete="off"
+              maxLength={15}
               disabled={isSubmitting}
             />
+            {fieldErrors.parentPhone && <p className="text-xs text-destructive mt-1">{fieldErrors.parentPhone}</p>}
           </div>
         </CardContent>
       </Card>
@@ -269,10 +326,10 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
             </Label>
             <Select
               value={selectedInstitutionId}
-              onValueChange={handleInstitutionChange}
+              onValueChange={(v) => { handleInstitutionChange(v); setFieldErrors((prev) => ({ ...prev, institution: undefined })); }}
               disabled={institutionsLoading || isSubmitting}
             >
-              <SelectTrigger className="mt-1">
+              <SelectTrigger className={`mt-1 ${fieldErrors.institution ? 'border-destructive' : ''}`}>
                 <SelectValue placeholder={institutionsLoading ? 'Loading...' : 'Select institution'} />
               </SelectTrigger>
               <SelectContent>
@@ -283,6 +340,7 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
                 ))}
               </SelectContent>
             </Select>
+            {fieldErrors.institution && <p className="text-xs text-destructive mt-1">{fieldErrors.institution}</p>}
           </div>
 
           {/* Program Chips */}
@@ -293,9 +351,10 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
           <ProgramChipPicker
             institutionId={selectedInstitutionId}
             selectedIds={form.selectedPrograms}
-            onChange={(ids) => updateField('selectedPrograms', ids)}
+            onChange={(ids) => { updateField('selectedPrograms', ids); setFieldErrors((prev) => ({ ...prev, selectedPrograms: undefined })); }}
             disabled={isSubmitting}
           />
+          {fieldErrors.selectedPrograms && <p className="text-xs text-destructive mt-1">{fieldErrors.selectedPrograms}</p>}
           </div>
         </CardContent>
       </Card>
@@ -321,11 +380,13 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
                 id="email"
                 type="email"
                 value={form.email}
-                onChange={(e) => updateField('email', e.target.value)}
+                onChange={(e) => handleTextChange('email', e.target.value)}
+                onBlur={handleEmailBlur}
                 placeholder="visitor@email.com"
-                className="mt-1"
+                className={`mt-1 ${fieldErrors.email ? 'border-destructive' : ''}`}
                 disabled={isSubmitting}
               />
+              {fieldErrors.email && <p className="text-xs text-destructive mt-1">{fieldErrors.email}</p>}
             </div>
             <div>
               <Label htmlFor="district">District / City</Label>
