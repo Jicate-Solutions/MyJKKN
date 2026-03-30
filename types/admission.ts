@@ -669,6 +669,8 @@ export interface ExpoEventFilters {
   limit?: number;
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
+  /** Filter to specific event IDs (used for team member scoped view) */
+  event_ids?: string[];
 }
 
 export interface ExpoEventListResponse {

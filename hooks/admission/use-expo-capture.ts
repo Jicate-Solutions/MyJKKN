@@ -99,6 +99,44 @@ export function useExpoActualLeadCount(eventId: string) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// EXPO TEAM MEMBERSHIP CHECK — For sidebar visibility
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Lightweight check: is the current user assigned to ANY expo event as a team member?
+ * Used by the sidebar (Menu + BottomNavbar) to dynamically show the Expos menu
+ * for faculty/students who are assigned as team members but don't have the
+ * `admission.marketing.expos.view` permission globally.
+ *
+ * Cached for 5 minutes to avoid repeated DB calls on navigation.
+ */
+export function useUserExpoTeamStatus() {
+  const { profile } = useAuth();
+  const userId = profile?.id;
+
+  return useQuery({
+    queryKey: [...expoCaptureKeys.all, 'team-status', userId],
+    queryFn: async (): Promise<boolean> => {
+      if (!userId) return false;
+      const supabase = createClientSupabaseClient();
+
+      // Use SECURITY DEFINER RPC to bypass RLS recursion issues.
+      // The function checks staff_id, student_id, AND learner_id internally.
+      const { data, error } = await supabase.rpc('check_expo_team_membership');
+
+      if (error) {
+        console.warn('[expo-team-status] RPC failed:', error.message);
+        return false;
+      }
+      return data === true;
+    },
+    enabled: !!userId,
+    staleTime: 5 * 60 * 1000,  // 5 minutes — team assignments change rarely
+    gcTime: 15 * 60 * 1000,
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPO TEAM ACCESS — Role-based access control for expo pages
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -129,6 +167,8 @@ export function useExpoTeamAccess(eventId: string): ExpoTeamAccess {
   const { teamMembers, isLoading } = useExpoTeamMembers(eventId);
 
   const currentUserId = profile?.id;
+  // Students are stored with learners_profiles.id, not profiles.id
+  const learnerId = profile?.learner_id ?? undefined;
   const isAdmin = isSuperAdmin || isAdmissionGlobalUser;
 
   const { isTeamMember, isTeamLeader } = useMemo(() => {
@@ -137,14 +177,17 @@ export function useExpoTeamAccess(eventId: string): ExpoTeamAccess {
     }
 
     const memberRecord = teamMembers.find(
-      (m) => m.staff_id === currentUserId || m.student_id === currentUserId
+      (m) =>
+        m.staff_id === currentUserId ||
+        m.student_id === currentUserId ||
+        (learnerId && m.student_id === learnerId)
     );
 
     return {
       isTeamMember: !!memberRecord,
       isTeamLeader: memberRecord?.role === 'team_leader',
     };
-  }, [currentUserId, teamMembers]);
+  }, [currentUserId, learnerId, teamMembers]);
 
   return {
     isLoading,

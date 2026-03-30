@@ -27,7 +27,12 @@ const STATUS_OPTIONS = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
-export function ExposDataTable() {
+interface ExposDataTableProps {
+  /** When true, shows only expos the user is assigned to as a team member */
+  isTeamMemberView?: boolean;
+}
+
+export function ExposDataTable({ isTeamMemberView = false }: ExposDataTableProps) {
   const router = useRouter();
   const { canPerformAny } = usePermissions();
   const canCreate = canPerformAny('admission.marketing.expos', ['create']);
@@ -47,6 +52,19 @@ export function ExposDataTable() {
   };
 
   const fetchData = async (params: DataFetchParams) => {
+    // For team member view, first get the event IDs the user is assigned to
+    let teamEventIds: string[] | undefined;
+    if (isTeamMemberView) {
+      teamEventIds = await ExpoService.getTeamMemberEventIds();
+      if (teamEventIds.length === 0) {
+        return {
+          success: true,
+          data: [],
+          pagination: { page: 1, limit: params.limit, total_pages: 1, total_items: 0 },
+        };
+      }
+    }
+
     const result = await ExpoService.getExpoEvents({
       search: params.search || undefined,
       status: statusFilter !== 'all' ? (statusFilter as ExpoEventStatus) : undefined,
@@ -54,6 +72,7 @@ export function ExposDataTable() {
       limit: params.limit,
       sort_by: params.sort_by || 'start_date',
       sort_order: (params.sort_order as 'asc' | 'desc') || 'desc',
+      event_ids: teamEventIds,
     });
 
     return {

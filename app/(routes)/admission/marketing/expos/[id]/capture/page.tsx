@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useExpoEvent } from '@/hooks/admission';
 import { useExpoTeamAccess } from '@/hooks/admission/use-expo-capture';
@@ -15,12 +16,13 @@ import {
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
-import { AlertCircle, ArrowLeft } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { clearFormDraft } from '@/hooks/use-form-draft';
 import { RapidCaptureForm } from './_components/rapid-capture-form';
 import { CaptureStatsBar } from './_components/capture-stats-bar';
+import { BulkCaptureDialog } from './_components/bulk-capture-dialog';
 
 function ExpoCaptureSkeleton() {
   return (
@@ -40,6 +42,7 @@ function ExpoCaptureContent() {
 
   const { event, isLoading: eventLoading } = useExpoEvent(eventId);
   const access = useExpoTeamAccess(eventId);
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
 
   const isLoading = eventLoading || access.isLoading;
 
@@ -116,13 +119,31 @@ function ExpoCaptureContent() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </Link>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold truncate">{event.event_name}</h2>
           <p className="text-sm text-muted-foreground truncate">
             {event.city} {event.venue_name ? `\u2022 ${event.venue_name}` : ''}
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setBulkDialogOpen(true)}
+          className="shrink-0"
+        >
+          <Upload className="h-4 w-4 mr-1.5" />
+          Bulk Upload
+        </Button>
       </div>
+
+      <BulkCaptureDialog
+        open={bulkDialogOpen}
+        onOpenChange={setBulkDialogOpen}
+        onSuccess={() => setBulkDialogOpen(false)}
+        eventId={eventId}
+        institutionId={event.institution_id}
+        capturedBy={access.currentUserId || ''}
+      />
 
       <RapidCaptureForm
         eventId={eventId}

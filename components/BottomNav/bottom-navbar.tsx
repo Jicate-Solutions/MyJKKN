@@ -25,6 +25,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu } from './bottom-nav-more-menu';
@@ -146,6 +147,9 @@ export function BottomNavbar() {
     setActivePage
   } = useBottomNav();
 
+  // Check if user is an expo team member (for dynamic sidebar visibility)
+  const { data: isExpoTeamMember } = useUserExpoTeamStatus();
+
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
     if (!userProfile) return null;
@@ -157,11 +161,16 @@ export function BottomNavbar() {
       };
     }
 
+    // Enrich permissions with dynamic expo access for assigned team members
+    const enrichedPermissions = isExpoTeamMember
+      ? { ...permissions, 'admission.marketing.expos.view': true }
+      : permissions;
+
     return {
       role_key: userProfile.role || '',
-      permissions
+      permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember]);
 
   // Get filtered pages based on merged permissions
   const filteredPages = useMemo(() => {

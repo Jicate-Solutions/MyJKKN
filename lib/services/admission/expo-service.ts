@@ -199,6 +199,24 @@ export class ExpoService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
+   * Get event IDs where the current user is assigned as a team member.
+   * Uses a SECURITY DEFINER RPC to bypass RLS restrictions on cross-institution access.
+   * The RPC checks staff_id, student_id, and learner_id internally.
+   */
+  static async getTeamMemberEventIds(): Promise<string[]> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await supabase.rpc('get_my_expo_event_ids');
+
+    if (error) {
+      console.error('[admission/expos] Failed to fetch team member event IDs:', error);
+      return [];
+    }
+
+    return data || [];
+  }
+
+  /**
    * Get paginated list of expo events with summary joins.
    */
   static async getExpoEvents(filters: ExpoEventFilters): Promise<ExpoEventListResponse> {
@@ -214,6 +232,7 @@ export class ExpoService {
       limit = 20,
       sort_by = 'start_date',
       sort_order = 'desc',
+      event_ids,
     } = filters;
 
     const safeSortBy = ExpoService.EVENT_SORTABLE_COLUMNS.has(sort_by ?? '') ? sort_by! : 'start_date';
@@ -232,6 +251,11 @@ export class ExpoService {
     if (search) {
       const safe = sanitizeSearch(search);
       query = query.or(`event_name.ilike.%${safe}%,city.ilike.%${safe}%,organizer_name.ilike.%${safe}%`);
+    }
+
+    // Scope to specific events (used for team member view)
+    if (event_ids && event_ids.length > 0) {
+      query = query.in('id', event_ids);
     }
 
     if (status) {

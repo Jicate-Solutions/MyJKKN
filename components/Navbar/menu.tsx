@@ -17,6 +17,7 @@ import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useMemo } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 
 interface MenuProps {
   isOpen: boolean | undefined;
@@ -32,6 +33,9 @@ export function Menu({ isOpen }: MenuProps) {
   } = usePermissions();
   const { isInstalled, canInstall, installApp } = usePWA();
 
+  // Check if user is an expo team member (for dynamic sidebar visibility)
+  const { data: isExpoTeamMember } = useUserExpoTeamStatus();
+
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
     if (!userProfile) return null;
@@ -44,11 +48,18 @@ export function Menu({ isOpen }: MenuProps) {
       };
     }
 
+    // Enrich permissions with dynamic expo access for assigned team members.
+    // Faculty/students assigned to expo events need to see the Expos menu
+    // even without a global `admission.marketing.expos.view` permission.
+    const enrichedPermissions = isExpoTeamMember
+      ? { ...permissions, 'admission.marketing.expos.view': true }
+      : permissions;
+
     return {
       role_key: userProfile.role || '',
-      permissions
+      permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember]);
 
   // Debug: Log permission state for troubleshooting
   if (process.env.NODE_ENV === 'development' && roleData && !permissionsLoading) {

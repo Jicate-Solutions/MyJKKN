@@ -52,6 +52,7 @@ import {
 } from '@/components/ui/select';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { useExpoTeamAccess } from '@/hooks/admission/use-expo-capture';
 import {
   ArrowLeft,
   Edit,
@@ -87,7 +88,16 @@ import {
   useRemoveExpoTeamMember,
   useExpoDailyTrends,
 } from '@/hooks/admission/use-expos';
-import { useFacultyForDropdown, useStudentsForDropdown } from '@/hooks/admission/use-referral-dropdowns';
+import {
+  useFilteredStaffForDropdown,
+  useFilteredStudentsForDropdown,
+} from '@/hooks/admission/use-referral-dropdowns';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { useDegrees } from '@/hooks/organization/use-degrees';
+import { usePrograms } from '@/hooks/organization/use-programs';
+import { useSemesters } from '@/hooks/organization/use-semesters';
+import { useSections } from '@/hooks/organization/use-sections';
 import { useAuth } from '@/hooks/use-auth';
 import type {
   ExpoEvent,
@@ -453,45 +463,125 @@ function AddMemberDialog({ open, onOpenChange, onAdd, isPending, institutionId }
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<ExpoTeamMemberRole>('counselor');
+  const [search, setSearch] = useState('');
 
-  const { data: faculty = [] } = useFacultyForDropdown(institutionId);
-  const { data: students = [] } = useStudentsForDropdown(institutionId);
+  // Institution & hierarchy filters — expos are managed centrally,
+  // but team members come from any JKKN college
+  const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
+  const [filterInstitutionId, setFilterInstitutionId] = useState('');
+  const [filterDegreeId, setFilterDegreeId] = useState('');
+  const [filterDepartmentId, setFilterDepartmentId] = useState('');
+  const [filterProgramId, setFilterProgramId] = useState('');
+  const [filterSemesterId, setFilterSemesterId] = useState('');
+  const [filterSectionId, setFilterSectionId] = useState('');
 
-  function handleSubmit() {
-    const payload: Parameters<typeof onAdd>[0] = {
-      member_type: memberType,
-      name: memberType === 'external' ? name : (
-        memberType === 'staff'
-          ? (faculty.find((f) => f.id === selectedId)?.name || name)
-          : (students.find((s) => s.id === selectedId)?.name || name)
-      ),
-      phone,
-      role,
-    };
-    if (memberType === 'staff' && selectedId) payload.staff_id = selectedId;
-    if (memberType === 'student' && selectedId) payload.student_id = selectedId;
-    onAdd(payload);
+  // Pick the first non-admin institution as default (skip "Jicate Solutions" which has no staff/students)
+  const effectiveInstitutionId = filterInstitutionId
+    || (institutions.length > 1
+      ? institutions.find((i) => i.institution_id !== institutionId)?.institution_id ?? institutions[0]?.institution_id
+      : selectedInstitutionId)
+    || '';
+
+  const isStaff = memberType === 'staff';
+  const isStudent = memberType === 'student';
+  const isExternal = memberType === 'external';
+
+  // Hierarchy data hooks
+  const { data: degreesData } = useDegrees({ institution_id: effectiveInstitutionId || undefined });
+  const degrees = degreesData?.data ?? [];
+
+  const { data: departmentsData } = useDepartments({
+    institution_id: effectiveInstitutionId || undefined,
+    degree_id: filterDegreeId || undefined,
+  });
+  const departments = departmentsData?.data ?? [];
+
+  const { data: programsData } = usePrograms({
+    institution_id: effectiveInstitutionId || undefined,
+    degree_id: filterDegreeId || undefined,
+    department_id: filterDepartmentId || undefined,
+  });
+  const programs = programsData?.data ?? [];
+
+  const { data: semestersData } = useSemesters(
+    { institution_id: effectiveInstitutionId || undefined, program_id: filterProgramId || undefined },
+    { enabled: !!filterProgramId }
+  );
+  const semesters = semestersData?.data ?? [];
+
+  const { data: sectionsData } = useSections(
+    { semester_id: filterSemesterId || undefined },
+    { enabled: !!filterSemesterId }
+  );
+  const sections = sectionsData?.data ?? [];
+
+  // Person list hooks filtered by hierarchy
+  const { data: staffList = [], isLoading: staffLoading } = useFilteredStaffForDropdown({
+    institution_id: effectiveInstitutionId || undefined,
+    department_id: filterDepartmentId || undefined,
+    search: search || undefined,
+  });
+
+  const { data: studentList = [], isLoading: studentLoading } = useFilteredStudentsForDropdown({
+    institution_id: effectiveInstitutionId || undefined,
+    degree_id: filterDegreeId || undefined,
+    department_id: filterDepartmentId || undefined,
+    program_id: filterProgramId || undefined,
+    semester_id: filterSemesterId || undefined,
+    section_id: filterSectionId || undefined,
+    search: search || undefined,
+  });
+
+  const personList = isStaff ? staffList : studentList;
+  const personLoading = isStaff ? staffLoading : studentLoading;
+
+  function resetHierarchy() {
+    setFilterDegreeId('');
+    setFilterDepartmentId('');
+    setFilterProgramId('');
+    setFilterSemesterId('');
+    setFilterSectionId('');
+    setSelectedId('');
+    setSearch('');
   }
 
   function handleTypeChange(type: ExpoTeamMemberType) {
     setMemberType(type);
     setSelectedId('');
     setName('');
+    setSearch('');
+    resetHierarchy();
+  }
+
+  function handlePersonSelect(personId: string) {
+    setSelectedId(personId);
+    const found = personList.find((p) => p.id === personId);
+    if (found) setName(found.name);
+  }
+
+  function handleSubmit() {
+    const payload: Parameters<typeof onAdd>[0] = {
+      member_type: memberType,
+      name: isExternal ? name : (personList.find((p) => p.id === selectedId)?.name || name),
+      phone,
+      role,
+    };
+    if (isStaff && selectedId) payload.staff_id = selectedId;
+    if (isStudent && selectedId) payload.student_id = selectedId;
+    onAdd(payload);
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add Team Member</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-2">
+          {/* Member Type */}
           <div className="space-y-2">
             <Label>Member Type</Label>
-            <Select
-              value={memberType}
-              onValueChange={(v) => handleTypeChange(v as ExpoTeamMemberType)}
-            >
+            <Select value={memberType} onValueChange={(v) => handleTypeChange(v as ExpoTeamMemberType)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -503,60 +593,194 @@ function AddMemberDialog({ open, onOpenChange, onAdd, isPending, institutionId }
             </Select>
           </div>
 
-          {memberType === 'staff' && (
-            <div className="space-y-2">
-              <Label>Select Staff</Label>
-              <Select value={selectedId} onValueChange={setSelectedId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose staff member..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {faculty.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Hierarchy Filters for Staff & Student */}
+          {!isExternal && (
+            <div className="rounded-md border border-dashed p-3 space-y-3 bg-muted/30">
+              <p className="text-xs font-medium text-muted-foreground">
+                {isStaff ? 'Filter by Institution & Department' : 'Filter by Academic Hierarchy'}
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {/* Institution */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Institution</Label>
+                  <Select
+                    value={effectiveInstitutionId}
+                    onValueChange={(v) => { setFilterInstitutionId(v); resetHierarchy(); }}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="Select institution" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {institutions.map((inst) => (
+                        <SelectItem key={inst.institution_id} value={inst.institution_id}>
+                          {inst.institution_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Degree (student only) */}
+                {isStudent && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Degree</Label>
+                    <Select
+                      value={filterDegreeId}
+                      onValueChange={(v) => { setFilterDegreeId(v); setFilterDepartmentId(''); setFilterProgramId(''); setFilterSemesterId(''); setFilterSectionId(''); setSelectedId(''); }}
+                      disabled={!effectiveInstitutionId}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="All Degrees" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {degrees.map((d: any) => (
+                          <SelectItem key={d.id} value={d.id}>{d.degree_name || d.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Department */}
+                <div className="space-y-1">
+                  <Label className="text-xs">Department</Label>
+                  <Select
+                    value={filterDepartmentId}
+                    onValueChange={(v) => { setFilterDepartmentId(v); setFilterProgramId(''); setFilterSemesterId(''); setFilterSectionId(''); setSelectedId(''); }}
+                    disabled={!effectiveInstitutionId}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue placeholder="All Departments" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departments.map((d: any) => (
+                        <SelectItem key={d.id} value={d.id}>{d.department_name || d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Program (student only) */}
+                {isStudent && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Program</Label>
+                    <Select
+                      value={filterProgramId}
+                      onValueChange={(v) => { setFilterProgramId(v); setFilterSemesterId(''); setFilterSectionId(''); setSelectedId(''); }}
+                      disabled={!filterDepartmentId}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="All Programs" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {programs.map((p: any) => (
+                          <SelectItem key={p.id} value={p.id}>{p.program_name || p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Semester (student only) */}
+                {isStudent && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Semester</Label>
+                    <Select
+                      value={filterSemesterId}
+                      onValueChange={(v) => { setFilterSemesterId(v); setFilterSectionId(''); setSelectedId(''); }}
+                      disabled={!filterProgramId}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="All Semesters" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {semesters.map((s: any) => (
+                          <SelectItem key={s.id} value={s.id}>{s.semester_name || s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Section (student only) */}
+                {isStudent && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Section</Label>
+                    <Select
+                      value={filterSectionId}
+                      onValueChange={(v) => { setFilterSectionId(v); setSelectedId(''); }}
+                      disabled={!filterSemesterId}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="All Sections" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sections.map((s: any) => (
+                          <SelectItem key={s.id} value={s.id}>{s.section_name || s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+
+              {/* Search + Person Select */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Search</Label>
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search by name..."
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">
+                    {isStaff ? 'Select Staff' : 'Select Student'}
+                    {personList.length > 0 && (
+                      <span className="text-muted-foreground font-normal ml-1">({personList.length})</span>
+                    )}
+                  </Label>
+                  <Select
+                    value={selectedId}
+                    onValueChange={handlePersonSelect}
+                    disabled={personLoading || !effectiveInstitutionId}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue
+                        placeholder={
+                          personLoading ? 'Loading…'
+                            : !effectiveInstitutionId ? 'Select institution first'
+                            : personList.length === 0 ? 'No results'
+                            : `Select ${isStaff ? 'staff' : 'student'}`
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {personList.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {'role' in p && (p as any).role ? `${p.name} (${(p as any).role})` : p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
           )}
 
-          {memberType === 'student' && (
-            <div className="space-y-2">
-              <Label>Select Student</Label>
-              <Select value={selectedId} onValueChange={setSelectedId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose student..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {students.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {memberType === 'external' && (
+          {/* External only: Name */}
+          {isExternal && (
             <div className="space-y-2">
               <Label>Full Name</Label>
-              <Input
-                placeholder="Enter name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
+              <Input placeholder="Enter name" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
           )}
 
           <div className="space-y-2">
             <Label>Phone</Label>
-            <Input
-              placeholder="+91 XXXXX XXXXX"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
+            <Input placeholder="+91 XXXXX XXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
 
           <div className="space-y-2">
@@ -1325,34 +1549,54 @@ function ExpoEventDetailContent() {
 // ─── Page wrapper ──────────────────────────────────────────────────────────
 
 export default function ExpoEventDetailPage() {
+  const params = useParams();
+  const eventId = params.id as string;
+  const { canViewExpo, isLoading: teamAccessLoading } = useExpoTeamAccess(eventId);
+
+  // Allow access via permission OR team membership
   return (
-    <PermissionGuard module="admission.marketing.expos" action="view">
-      <ContentLayout title="Expo Event Details">
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbLink href="/admission/marketing/expos">Expos</BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>Event Details</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <div className="mt-6">
-          <AdmissionErrorBoundary>
-            <ExpoEventDetailContent />
-          </AdmissionErrorBoundary>
-        </div>
-      </ContentLayout>
+    <PermissionGuard
+      module="admission.marketing.expos"
+      action="view"
+      fallback={
+        // If PermissionGuard fails, check team membership as fallback
+        teamAccessLoading ? null : canViewExpo ? (
+          <ExpoDetailLayout eventId={eventId} />
+        ) : null
+      }
+    >
+      <ExpoDetailLayout eventId={eventId} />
     </PermissionGuard>
+  );
+}
+
+function ExpoDetailLayout({ eventId }: { eventId: string }) {
+  return (
+    <ContentLayout title="Expo Event Details">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/admission/marketing/expos">Expos</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Event Details</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+      <div className="mt-6">
+        <AdmissionErrorBoundary>
+          <ExpoEventDetailContent />
+        </AdmissionErrorBoundary>
+      </div>
+    </ContentLayout>
   );
 }
