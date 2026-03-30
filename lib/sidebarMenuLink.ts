@@ -389,9 +389,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/marketing/voice-agents': 'admission.marketing.voice.view',
   '/admission/marketing/voice-broadcast': 'admission.marketing.voice.view',
   '/admission/marketing/expos': 'admission.marketing.expos.view',
-  '/admission/marketing/expos/masters': 'admission.marketing.expos.view',
+  '/admission/marketing/expos/masters': 'admission.marketing.expos.create',
   '/admission/marketing/expos/new': 'admission.marketing.expos.create',
-  '/admission/marketing/expos/analytics': 'admission.marketing.expos.view',
+  '/admission/marketing/expos/analytics': 'admission.marketing.expos.create',
 
   // Admission Data Quality
   '/admission/data-quality/data-profiling': 'admission.data_quality.view',
