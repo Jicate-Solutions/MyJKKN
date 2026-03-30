@@ -242,7 +242,8 @@
       "WebFetch(domain:serwist.pages.dev)",
       "mcp__plugin_supabase_supabase__apply_migration",
       "mcp__plugin_supabase_supabase__execute_sql",
-      "mcp__exotel__getNumberMetadata"
+      "mcp__exotel__getNumberMetadata",
+      "WebFetch(domain:developer.exotel.com)"
     ],
     "deny": [],
     "ask": []

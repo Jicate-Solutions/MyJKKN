@@ -49,7 +49,7 @@
         "Authorization:${AUTH_HEADER}"
       ],
       "env": {
-        "AUTH_HEADER": "{'token':'7f5b6b75d0686b1197cc1dbaf9dd75ef8686c8c7a5876ceb','from_number':'04448134434','dlt_temp':'0','dlt_entity':'0','caller_id':'04448134434','api_domain':'https://api.in.exotel.com','account_sid':'jkkn1','exotel_portal_url':'https://my.exotel.com/'}"
+        "AUTH_HEADER": "{'token':'7f5b6b75d0686b1197cc1dbaf9dd75ef8686c8c7a5876ceb','from_number':'04448134434','dlt_temp':'YOUR_DLT_TEMPLATE','dlt_entity':'YOUR_DLT_ENTITY','caller_id':'YOUR_CALLER_ID','api_domain':'api.exotel.com','account_sid':'jkkn1','exotel_portal_url':'https://my.exotel.com/'}"
       }
     }
   }

@@ -292,6 +292,7 @@ export class InboundCallSyncService {
         started_at: record.StartTime || null,
         answered_at: null,
         ended_at: record.EndTime || null,
+        created_at: record.StartTime || new Date().toISOString(),
         lead_id: leadId,
         counselor_id: null,
       });
