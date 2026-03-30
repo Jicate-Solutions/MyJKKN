@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -17,6 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -52,9 +54,11 @@ import {
   type CallDisposition,
 } from '@/hooks/admission';
 import { AdmissionErrorBoundary } from '@/components/admission';
+import { IncomingCallsTab } from './_components/incoming-calls-tab';
 import {
   Phone,
   PhoneOff,
+  PhoneIncoming,
   PhoneMissed,
   Clock,
   FileText,
@@ -325,6 +329,11 @@ function CallLogDashboardContent() {
     setNotesDialogOpen(true);
   };
 
+  // Tab state from URL search params
+  const searchParams = useSearchParams();
+  const defaultTab = searchParams.get('direction') === 'inbound' ? 'incoming' : 'outbound';
+  const [activeTab, setActiveTab] = useState(defaultTab);
+
   return (
     <PermissionGuard module="admission" action="view">
       <ContentLayout title="Call Logs">
@@ -345,6 +354,27 @@ function CallLogDashboardContent() {
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
+
+          {/* Direction Tabs */}
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList>
+              <TabsTrigger value="outbound" className="gap-2">
+                <Phone className="h-4 w-4" />
+                Outbound Calls
+              </TabsTrigger>
+              <TabsTrigger value="incoming" className="gap-2">
+                <PhoneIncoming className="h-4 w-4" />
+                Incoming Calls
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Incoming Calls Tab */}
+            <TabsContent value="incoming" className="mt-6">
+              <IncomingCallsTab institutionId={institutionId} />
+            </TabsContent>
+
+            {/* Outbound Calls Tab (existing content) */}
+            <TabsContent value="outbound" className="mt-6 space-y-6">
 
           {/* KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -697,6 +727,9 @@ function CallLogDashboardContent() {
               )}
             </CardContent>
           </Card>
+
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Call Notes Dialog */}

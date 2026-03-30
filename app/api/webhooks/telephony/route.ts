@@ -67,13 +67,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Bad Request — failed to parse body' }, { status: 400 });
   }
 
-  // 3. Validate — need at least one identifier
+  // 3. Validate — need at least one identifier (CallSid required for inbound, CustomField for outbound)
   if (!payload.CallSid && !payload.CustomField) {
     logger.warn('admissions/telephony-webhook', 'Webhook rejected — missing CallSid and CustomField');
     return NextResponse.json(
       { error: 'Bad Request — CallSid or CustomField is required' },
       { status: 400 }
     );
+  }
+
+  // For inbound calls, we need From and To numbers to create a record
+  const isInbound = payload.Direction?.toLowerCase() === 'inbound';
+  if (isInbound && (!payload.From || !payload.To)) {
+    logger.warn('admissions/telephony-webhook', 'Inbound webhook missing From/To numbers', {
+      callSid: payload.CallSid,
+      direction: payload.Direction,
+    });
   }
 
   // 4. Log receipt with masked phone numbers

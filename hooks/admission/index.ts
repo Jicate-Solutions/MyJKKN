@@ -229,6 +229,7 @@ export {
 
 export {
   useCallStats,
+  useInboundCallStats,
   formatDuration,
   callStatsKeys,
 } from './use-call-stats';

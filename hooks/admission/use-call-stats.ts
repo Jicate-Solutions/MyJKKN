@@ -2,7 +2,7 @@
 // React Query hook for call analytics / statistics
 
 import { useQuery } from '@tanstack/react-query';
-import type { CallStats } from '@/lib/services/telephony/telephony-service';
+import type { CallStats, InboundCallStats, CallDirection } from '@/lib/services/telephony/telephony-service';
 
 // ============================================================================
 // QUERY KEYS
@@ -10,8 +10,10 @@ import type { CallStats } from '@/lib/services/telephony/telephony-service';
 
 export const callStatsKeys = {
   all: ['call-stats'] as const,
-  stats: (institutionId: string, fromDate?: string, toDate?: string) =>
-    [...callStatsKeys.all, institutionId, fromDate, toDate] as const,
+  stats: (institutionId: string, fromDate?: string, toDate?: string, direction?: string) =>
+    [...callStatsKeys.all, institutionId, fromDate, toDate, direction] as const,
+  inbound: (institutionId: string, fromDate?: string, toDate?: string) =>
+    [...callStatsKeys.all, 'inbound', institutionId, fromDate, toDate] as const,
 };
 
 // ============================================================================
@@ -32,21 +34,36 @@ const EMPTY_STATS: CallStats = {
   calls_without_notes: 0,
 };
 
+const EMPTY_INBOUND_STATS: InboundCallStats = {
+  total_incoming: 0,
+  answered: 0,
+  missed: 0,
+  answer_rate: 0,
+  missed_without_callback: 0,
+  avg_duration_seconds: 0,
+  calls_by_date: [],
+  calls_by_hour: [],
+  top_callers: [],
+};
+
 /**
  * Hook to fetch call statistics for an institution.
+ * Optionally filter by direction (inbound/outbound).
  */
 export function useCallStats(
   institutionId?: string,
   fromDate?: string,
-  toDate?: string
+  toDate?: string,
+  direction?: CallDirection
 ) {
   const query = useQuery<CallStats>({
-    queryKey: callStatsKeys.stats(institutionId || '', fromDate, toDate),
+    queryKey: callStatsKeys.stats(institutionId || '', fromDate, toDate, direction),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (institutionId) params.set('institution_id', institutionId);
       if (fromDate) params.set('from', fromDate);
       if (toDate) params.set('to', toDate);
+      if (direction) params.set('direction', direction);
 
       const res = await fetch(`/api/admission/calls/stats?${params.toString()}`);
       if (!res.ok) {
@@ -57,13 +74,51 @@ export function useCallStats(
       const json = await res.json();
       return json.data;
     },
-    // Always fetch. Super admins have no institution_id (returns all); others always have one.
     enabled: true,
-    staleTime: 60000, // 1 minute
+    staleTime: 60000,
   });
 
   return {
     stats: query.data || EMPTY_STATS,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
+/**
+ * Hook to fetch inbound-specific analytics (answer rate, hourly distribution, callback status).
+ */
+export function useInboundCallStats(
+  institutionId?: string,
+  fromDate?: string,
+  toDate?: string
+) {
+  const query = useQuery<InboundCallStats>({
+    queryKey: callStatsKeys.inbound(institutionId || '', fromDate, toDate),
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (institutionId) params.set('institution_id', institutionId);
+      if (fromDate) params.set('from', fromDate);
+      if (toDate) params.set('to', toDate);
+      params.set('direction', 'inbound');
+
+      const res = await fetch(`/api/admission/calls/stats?${params.toString()}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Failed to fetch inbound stats' }));
+        throw new Error(err.message || 'Failed to fetch inbound stats');
+      }
+
+      const json = await res.json();
+      return json.data;
+    },
+    enabled: true,
+    staleTime: 60000,
+  });
+
+  return {
+    stats: query.data || EMPTY_INBOUND_STATS,
     isLoading: query.isLoading,
     isError: query.isError,
     error: query.error,
@@ -84,4 +139,4 @@ export function formatDuration(seconds: number | null): string {
 }
 
 // Re-export types
-export type { CallStats };
+export type { CallStats, InboundCallStats };

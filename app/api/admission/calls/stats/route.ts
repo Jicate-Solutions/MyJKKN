@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
-import { TelephonyService } from '@/lib/services/telephony/telephony-service';
+import { TelephonyService, type CallDirection } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET(request: NextRequest) {
@@ -23,9 +23,29 @@ export async function GET(request: NextRequest) {
 
     const fromDate = searchParams.get('from') || searchParams.get('from_date') || undefined;
     const toDate = searchParams.get('to') || searchParams.get('to_date') || undefined;
+    const direction = searchParams.get('direction') as CallDirection | null;
 
     const supabase = createServiceRoleClient();
-    const stats = await TelephonyService.getCallStats(institution_id, supabase, fromDate, toDate);
+
+    // If direction=inbound, return inbound-specific stats with hourly distribution, callback status, etc.
+    if (direction === 'inbound') {
+      const inboundStats = await TelephonyService.getInboundCallStats(
+        institution_id,
+        supabase,
+        fromDate,
+        toDate
+      );
+      return NextResponse.json({ success: true, data: inboundStats });
+    }
+
+    // Default: general stats (optionally filtered by direction)
+    const stats = await TelephonyService.getCallStats(
+      institution_id,
+      supabase,
+      fromDate,
+      toDate,
+      direction || undefined
+    );
 
     return NextResponse.json({
       success: true,

@@ -4,5 +4,11 @@
   "regions": ["bom1"],
   "git": {
     "deploymentEnabled": false
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/sync-inbound-calls",
+      "schedule": "*/15 * * * *"
+    }
+  ]
 }

@@ -364,7 +364,7 @@ CREATE TABLE IF NOT EXISTS admission_call_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
   lead_id uuid REFERENCES admission_leads(id),
-  counselor_id uuid NOT NULL REFERENCES profiles(id),
+  counselor_id uuid REFERENCES profiles(id),  -- Updated: 2026-03-30 — Made nullable for inbound calls (no counselor initiates)
   call_sid text NOT NULL,
   direction text NOT NULL DEFAULT 'outbound',
   from_number text NOT NULL,
@@ -391,8 +391,31 @@ CREATE INDEX IF NOT EXISTS idx_call_logs_lead ON admission_call_logs(lead_id);
 CREATE INDEX IF NOT EXISTS idx_call_logs_counselor ON admission_call_logs(counselor_id);
 CREATE INDEX IF NOT EXISTS idx_call_logs_created ON admission_call_logs(created_at DESC);
 
+-- Updated: 2026-03-30 — Indexes for inbound call analytics & CDR sync deduplication
+CREATE UNIQUE INDEX IF NOT EXISTS idx_call_logs_call_sid_unique ON admission_call_logs(call_sid) WHERE call_sid NOT LIKE 'pending-%';
+CREATE INDEX IF NOT EXISTS idx_call_logs_inbound_lookup ON admission_call_logs(institution_id, direction, started_at DESC) WHERE direction = 'inbound';
+CREATE INDEX IF NOT EXISTS idx_call_logs_from_number_inbound ON admission_call_logs(from_number) WHERE direction = 'inbound' AND lead_id IS NULL;
+
 -- ============================================================================
--- 14. ADMISSION SMS LOGS
+-- 15. TELEPHONY SYNC METADATA (for CDR sync tracking)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS telephony_sync_metadata (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  sync_type TEXT NOT NULL DEFAULT 'inbound_cdr',
+  last_synced_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_synced_call_date TIMESTAMPTZ,
+  records_synced INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'success' CHECK (status IN ('success', 'partial', 'failed', 'running')),
+  error_message TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(institution_id, sync_type)
+);
+ALTER TABLE telephony_sync_metadata ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- 16. ADMISSION SMS LOGS
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS admission_sms_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

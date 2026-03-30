@@ -80,6 +80,62 @@ export interface ExotelCallbackPayload {
   AnswerTime?: string;
 }
 
+export interface ExotelCallRecord {
+  Sid: string;
+  ParentCallSid?: string;
+  DateCreated?: string;
+  DateUpdated?: string;
+  AccountSid?: string;
+  To: string;
+  From: string;
+  PhoneNumberSid?: string;
+  PhoneNumber?: string;
+  Status: string;
+  StartTime?: string;
+  EndTime?: string;
+  Duration?: string;
+  Price?: string;
+  Direction: string;
+  AnsweredBy?: string;
+  ForwardedFrom?: string;
+  CallerName?: string;
+  Uri?: string;
+  RecordingUrl?: string;
+  PreSignedRecordingUrl?: string;
+  Details?: {
+    ConversationDuration?: number;
+    Leg1Status?: string;
+    Leg2Status?: string;
+    Legs?: Array<{ Leg: { Id: number; OnCallDuration: number } }>;
+  };
+}
+
+export interface FetchCallRecordsParams {
+  /** Filter by call direction */
+  direction?: 'inbound' | 'outbound-api' | 'outbound-dial';
+  /** Start date (YYYY-MM-DD) */
+  dateFrom: string;
+  /** End date (YYYY-MM-DD) */
+  dateTo: string;
+  /** Comma-separated statuses: completed,no-answer,busy,failed */
+  status?: string;
+  /** Filter by ExoPhone number (To number for inbound) */
+  phoneNumber?: string;
+  /** Records per page (max 100) */
+  pageSize?: number;
+}
+
+export interface FetchCallRecordsResponse {
+  Metadata: {
+    Total?: number;
+    PageSize?: number;
+    FirstPageUri?: string;
+    PrevPageUri?: string;
+    NextPageUri?: string;
+  };
+  Calls: ExotelCallRecord[];
+}
+
 export interface MakeCallParams {
   /** Counselor phone — Exotel calls this FIRST */
   from: string;
@@ -289,6 +345,66 @@ export class ExotelClient {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /**
+   * Make a request to a full URL (used for cursor pagination where NextPageUri is absolute).
+   */
+  private async requestFullUrl<T = any>(method: 'GET' | 'POST', url: string): Promise<T> {
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeout);
+
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: {
+            Authorization: this.getAuthHeader(),
+            Accept: 'application/json',
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timer);
+
+        let responseBody: any;
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          responseBody = await response.json();
+        } else {
+          responseBody = await response.text();
+        }
+
+        if (response.ok) return responseBody as T;
+
+        if (response.status === 429 && attempt < this.maxRetries) {
+          await this.sleep(1000 * (attempt + 1));
+          continue;
+        }
+
+        if (response.status >= 500 && attempt < this.maxRetries) {
+          await this.sleep(1000 * (attempt + 1));
+          continue;
+        }
+
+        throw new ExotelApiError(
+          `Exotel API error: ${response.status} ${response.statusText}`,
+          response.status,
+          responseBody,
+        );
+      } catch (error) {
+        clearTimeout(timer);
+        if (error instanceof ExotelError) throw error;
+        if (attempt < this.maxRetries) {
+          await this.sleep(1000 * (attempt + 1));
+          continue;
+        }
+        throw new ExotelNetworkError(
+          `Exotel network error: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    throw new ExotelNetworkError('Exotel request failed after all retries');
+  }
+
   // -------------------------------------------------------------------------
   // Public API
   // -------------------------------------------------------------------------
@@ -344,6 +460,70 @@ export class ExotelClient {
       status,
       raw: data.Call,
     };
+  }
+
+  /**
+   * Fetch call detail records in bulk with cursor-based pagination.
+   * Yields arrays of call records, one page at a time.
+   * Use Direction=inbound to fetch incoming calls.
+   */
+  async *fetchCallRecords(
+    params: FetchCallRecordsParams
+  ): AsyncGenerator<ExotelCallRecord[], void, unknown> {
+    const queryParams = new URLSearchParams();
+
+    // Date range filter (required, max 31 days per Exotel API)
+    queryParams.set('DateCreated', `gte:${params.dateFrom} 00:00:00;lte:${params.dateTo} 23:59:59`);
+
+    if (params.direction) {
+      queryParams.set('Direction', params.direction);
+    }
+    if (params.status) {
+      queryParams.set('Status', params.status);
+    }
+    if (params.phoneNumber) {
+      queryParams.set('PhoneNumber', params.phoneNumber);
+    }
+
+    const pageSize = Math.min(params.pageSize || 100, 100);
+    queryParams.set('PageSize', String(pageSize));
+    queryParams.set('SortBy', 'DateCreated:desc');
+    queryParams.set('details', 'true');
+
+    let path = `/Calls.json?${queryParams.toString()}`;
+    let pageCount = 0;
+    const maxPages = 50; // Safety limit: 50 pages * 100 records = 5,000 calls max per sync
+
+    while (path && pageCount < maxPages) {
+      logger.info(MODULE, 'Fetching CDR page', { page: pageCount + 1, direction: params.direction });
+
+      const url = path.startsWith('http')
+        ? path // NextPageUri from Exotel may be a full URL
+        : `${this.getBaseUrl('v1')}${path}`;
+
+      const response = await this.requestFullUrl<FetchCallRecordsResponse>('GET', url);
+
+      if (response.Calls && response.Calls.length > 0) {
+        yield response.Calls;
+      }
+
+      // Follow cursor pagination
+      const nextUri = response.Metadata?.NextPageUri;
+      if (nextUri && response.Calls?.length === pageSize) {
+        path = nextUri;
+        pageCount++;
+      } else {
+        break;
+      }
+    }
+
+    if (pageCount >= maxPages) {
+      logger.warn(MODULE, `CDR fetch hit max page limit (${maxPages})`, {
+        direction: params.direction,
+        dateFrom: params.dateFrom,
+        dateTo: params.dateTo,
+      });
+    }
   }
 
   /**
