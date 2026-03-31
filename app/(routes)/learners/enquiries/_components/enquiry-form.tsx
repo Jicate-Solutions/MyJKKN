@@ -595,6 +595,7 @@ export function EnquiryForm({
           college_email: learner.college_email || '',
           regulation_id: learner.regulation_id || '',
           batch_id: learner.batch_id || '',
+          learner_type: learner.learner_type || undefined,
 
           // Contact - Convert location names back to IDs for editing
           student_mobile: learner.student_mobile || '',
@@ -878,6 +879,7 @@ export function EnquiryForm({
       roll_number: values.roll_number || undefined,
       register_number: values.register_number || undefined,
       college_email: values.college_email || undefined,
+      learner_type: values.learner_type || undefined,
 
       // Contact Details (NOT NULL fields)
       student_mobile: values.student_mobile || '',
