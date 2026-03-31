@@ -71,7 +71,9 @@ import {
   Rocket,
   Vote,
   SearchCheck,
-  UserCog
+  UserCog,
+  Activity,
+  Brain
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -237,6 +239,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/notifications/new': 'notifications.create',
 
   // System Management
+  // Work Pulse
+  '/work-pulse': 'work_pulse.view',
+  '/work-pulse/all': 'work_pulse.all.view',
+  '/work-pulse/agents': 'work_pulse.agents.view',
+  '/work-pulse/impact': 'work_pulse.impact.view',
+
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
@@ -1541,6 +1549,39 @@ export function GetPages(pathname: string): MenuGroup[] {
           }
         ];
       })()
+    },
+    {
+      groupLabel: 'Work Pulse',
+      menus: [
+        {
+          href: '/work-pulse',
+          label: 'My Pulse',
+          active: pathname === '/work-pulse',
+          icon: Activity,
+          submenus: []
+        },
+        {
+          href: '/work-pulse/agents',
+          label: 'Agent Board',
+          active: pathname.startsWith('/work-pulse/agents'),
+          icon: Brain,
+          submenus: []
+        },
+        {
+          href: '/work-pulse/all',
+          label: 'All Submissions',
+          active: pathname.startsWith('/work-pulse/all'),
+          icon: ClipboardList,
+          submenus: []
+        },
+        {
+          href: '/work-pulse/impact',
+          label: 'Impact',
+          active: pathname.startsWith('/work-pulse/impact'),
+          icon: TrendingUp,
+          submenus: []
+        }
+      ]
     },
     {
       groupLabel: 'System',

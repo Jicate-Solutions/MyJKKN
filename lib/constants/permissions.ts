@@ -734,6 +734,16 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.whatsapp.view', label: 'View WhatsApp Settings' },
       { key: 'admission.settings.whatsapp.manage', label: 'Manage WhatsApp Numbers & Settings' }
     ]
+  },
+  {
+    name: 'Work Pulse',
+    key: 'work_pulse',
+    permissions: [
+      { key: 'work_pulse.view', label: 'View Work Pulse (My Pulse)' },
+      { key: 'work_pulse.all.view', label: 'View All Submissions (Admin)' },
+      { key: 'work_pulse.agents.view', label: 'View Agent Opportunity Board' },
+      { key: 'work_pulse.impact.view', label: 'View Impact Dashboard' }
+    ]
   }
 ];
 
