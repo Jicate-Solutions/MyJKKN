@@ -12,7 +12,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Eye, Edit, ClipboardPlus, XCircle, Trash2, Loader2, ScanLine, QrCode } from 'lucide-react';
+import { Eye, Edit, ClipboardPlus, XCircle, Trash2, Loader2, ScanLine, QrCode, BarChart3 } from 'lucide-react';
 import type { ExpoEvent } from '@/types/admission';
 import { useUpdateExpoEventStatus, useDeleteExpoEvent } from '@/hooks/admission/use-expos';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -40,6 +40,7 @@ export function DataTableRowActions<TData>({ row, onRefresh }: DataTableRowActio
   const handleAddReport = () => router.push(`/admission/marketing/expos/${expo.id}/report/new`);
   const handleCapture = () => router.push(`/admission/marketing/expos/${expo.id}/capture`);
   const handleQr = () => router.push(`/admission/marketing/expos/${expo.id}/qr`);
+  const handleLive = () => router.push(`/admission/marketing/expos/${expo.id}/live`);
   const isActiveEvent = expo.event_status !== 'cancelled' && expo.event_status !== 'completed';
   const handleCancel = () => {
     updateStatus.mutate(
@@ -83,6 +84,9 @@ export function DataTableRowActions<TData>({ row, onRefresh }: DataTableRowActio
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={handleQr}>
                 <QrCode className="h-4 w-4 mr-2" /> QR Code
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={handleLive}>
+                <BarChart3 className="h-4 w-4 mr-2" /> Live Dashboard
               </DropdownMenuItem>
             </>
           )}

@@ -77,7 +77,7 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
   const [expanded, setExpanded] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitState, setSubmitState] = useState<'idle' | 'success' | 'duplicate'>('idle');
-  const [duplicateInfo, setDuplicateInfo] = useState<{ id: string; name: string } | null>(null);
+  const [duplicateInfo, setDuplicateInfo] = useState<{ id: string; name: string; stage?: string } | null>(null);
   const [captureCount, setCaptureCount] = useState(0);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -231,7 +231,25 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
       const message = err instanceof Error ? err.message : 'Failed to save lead';
       if (message.includes('Duplicate lead')) {
         setSubmitState('duplicate');
-        setDuplicateInfo({ id: '', name: form.name });
+        // Quick lookup to show existing lead details
+        try {
+          const supabase = (await import('@/lib/supabase/client')).createClientSupabaseClient();
+          const cleanPhone = form.phone.trim().replace(/[\s\-()]/g, '').replace(/^(\+91|0)/, '');
+          const { data: existing } = await (supabase as any)
+            .from('admission_leads')
+            .select('id, full_name, funnel_stage')
+            .eq('institution_id', selectedInstitutionId)
+            .eq('phone', cleanPhone)
+            .limit(1)
+            .single();
+          setDuplicateInfo({
+            id: existing?.id || '',
+            name: existing?.full_name || form.name,
+            stage: existing?.funnel_stage || 'unknown',
+          });
+        } catch {
+          setDuplicateInfo({ id: '', name: form.name });
+        }
         toast.error('This visitor was already captured');
       } else {
         toast.error(message);
@@ -505,15 +523,30 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
       {submitState === 'duplicate' && (
         <div className="bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0 mt-0.5" />
-          <div className="text-sm">
+          <div className="text-sm flex-1">
             <p className="font-medium text-yellow-800 dark:text-yellow-200">Already Captured</p>
             <p className="text-yellow-700 dark:text-yellow-300 mt-1">
-              A lead with this phone number already exists in the CRM.
+              A lead with phone <span className="font-mono">{form.phone}</span> already exists.
             </p>
-            <div className="flex gap-2 mt-2">
+            {duplicateInfo && (
+              <div className="mt-2 p-2 bg-yellow-100/50 dark:bg-yellow-900/30 rounded text-xs space-y-1">
+                <p><strong>Name:</strong> {duplicateInfo.name}</p>
+                {duplicateInfo.stage && (
+                  <p><strong>Stage:</strong> <Badge variant="outline" className="text-[10px] py-0">{duplicateInfo.stage.replace(/_/g, ' ')}</Badge></p>
+                )}
+              </div>
+            )}
+            <div className="flex gap-2 mt-3">
               <Button size="sm" variant="outline" type="button" onClick={resetForm}>
                 Skip &amp; Next
               </Button>
+              {duplicateInfo?.id && (
+                <Button size="sm" variant="secondary" type="button" asChild>
+                  <a href={`/admission/leads/${duplicateInfo.id}`} target="_blank" rel="noopener noreferrer">
+                    View Lead
+                  </a>
+                </Button>
+              )}
             </div>
           </div>
         </div>
