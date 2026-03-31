@@ -17,6 +17,7 @@ export const expoCaptureKeys = {
     [...expoCaptureKeys.all, 'my-stats', eventId, userId] as const,
   topCapturers: (eventId: string) => [...expoCaptureKeys.all, 'top-capturers', eventId] as const,
   actualCount: (eventId: string) => [...expoCaptureKeys.all, 'actual-count', eventId] as const,
+  waStats: (eventId: string) => [...expoCaptureKeys.all, 'wa-stats', eventId] as const,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -70,6 +71,40 @@ export function useExpoCaptureStats(eventId: string, currentUserId: string) {
     },
     enabled: !!eventId && !!currentUserId,
     refetchInterval: 30_000, // Poll every 30 seconds
+    staleTime: 15_000,
+  });
+}
+
+/**
+ * Polls WhatsApp message stats for a specific expo event.
+ * Returns sent/failed/queued counts for the capture stats bar.
+ */
+export function useExpoWaStats(eventId: string) {
+  return useQuery({
+    queryKey: expoCaptureKeys.waStats(eventId),
+    queryFn: async (): Promise<{ total: number; sent: number; failed: number; queued: number }> => {
+      const supabase = createClientSupabaseClient();
+
+      const { data, error } = await (supabase as any)
+        .from('expo_wa_message_queue')
+        .select('status')
+        .eq('expo_event_id', eventId);
+
+      if (error) {
+        console.warn('[expo-capture] Failed to fetch WA stats:', error.message);
+        return { total: 0, sent: 0, failed: 0, queued: 0 };
+      }
+
+      const items = data || [];
+      return {
+        total: items.length,
+        sent: items.filter((m: any) => m.status === 'sent' || m.status === 'delivered' || m.status === 'read').length,
+        failed: items.filter((m: any) => m.status === 'failed' || m.status === 'permanently_failed').length,
+        queued: items.filter((m: any) => m.status === 'queued').length,
+      };
+    },
+    enabled: !!eventId,
+    refetchInterval: 30_000,
     staleTime: 15_000,
   });
 }

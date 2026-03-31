@@ -649,6 +649,11 @@ CREATE TRIGGER set_expo_daily_reports_updated_at
   BEFORE UPDATE ON expo_daily_reports
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- Expo WhatsApp Message Queue updated_at trigger (Added: 2026-03-31)
+CREATE TRIGGER set_expo_wa_queue_updated_at
+  BEFORE UPDATE ON expo_wa_message_queue
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- BYOW WhatsApp Personal Connections updated_at trigger (Added: 2026-03-16)
 CREATE TRIGGER wa_personal_connections_updated_at
     BEFORE UPDATE ON wa_personal_connections

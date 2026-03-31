@@ -14,7 +14,9 @@ export type ConsentSource =
   | 'manual'
   | 'import'
   | 'chatbot'
-  | 'keyword_stop';
+  | 'keyword_stop'
+  | 'expo_capture_form'
+  | 'expo_bulk_upload';
 
 export interface ConsentStatus {
   hasConsent: boolean;

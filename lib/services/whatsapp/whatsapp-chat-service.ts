@@ -435,6 +435,14 @@ export class WhatsAppChatService {
     const conversation = await this.getConversation(conversationId);
     if (!conversation) throw new Error('Conversation not found');
 
+    // DPDPA compliance: respect explicit opt-out even for template messages
+    if (conversation.lead_id) {
+      const consent = await WhatsAppConsentService.checkConsent(conversation.lead_id);
+      if (!consent.hasConsent) {
+        throw new Error('Lead has opted out of WhatsApp messages. Cannot send template.');
+      }
+    }
+
     const waResponse = await apiSendTemplate(
       conversation.contact_phone,
       templateName,

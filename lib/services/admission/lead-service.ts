@@ -344,6 +344,14 @@ export class LeadService {
     // Expo Bridge — link lead to exhibition event and team member who captured it
     if (leadData.expo_event_id) insertData.expo_event_id = leadData.expo_event_id;
     if (leadData.captured_by) insertData.captured_by = leadData.captured_by;
+    // WhatsApp consent — set during lead capture (expo form or bulk upload)
+    if (leadData.wa_opt_in != null) {
+      insertData.wa_opt_in = leadData.wa_opt_in;
+      if (leadData.wa_opt_in) {
+        insertData.wa_opt_in_at = new Date().toISOString();
+        insertData.wa_opt_in_source = leadData.wa_opt_in_source || 'lead_creation';
+      }
+    }
 
     // Check for duplicate: same phone in same institution (re-engagement exception: lost/dormant allowed)
     const { data: existing, error: dupError } = await db

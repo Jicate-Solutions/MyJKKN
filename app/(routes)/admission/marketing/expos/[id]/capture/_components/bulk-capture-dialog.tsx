@@ -57,6 +57,7 @@ interface PreviewRow {
   twelfth_marks: string;
   current_school: string;
   notes: string;
+  wa_opt_in: boolean;
   errors: string[];
   isValid: boolean;
 }
@@ -94,6 +95,11 @@ const COLUMN_MAPPING: Record<string, string> = {
   'NOTES': 'notes',
   'REMARKS': 'notes',
   'COMMENTS': 'notes',
+  'WHATSAPP CONSENT': 'wa_opt_in',
+  'WA OPT IN': 'wa_opt_in',
+  'WA CONSENT': 'wa_opt_in',
+  'WHATSAPP OPT IN': 'wa_opt_in',
+  'WHATSAPP': 'wa_opt_in',
 };
 
 const TEMPLATE_COLUMNS = [
@@ -106,6 +112,7 @@ const TEMPLATE_COLUMNS = [
   { header: '12th Marks', key: 'twelfth_marks', width: 14 },
   { header: 'Current School', key: 'current_school', width: 30 },
   { header: 'Notes', key: 'notes', width: 30 },
+  { header: 'WhatsApp Consent', key: 'wa_opt_in', width: 18 },
 ];
 
 /** Validate Indian mobile number: 10 digits starting with 6-9 */
@@ -235,6 +242,12 @@ export function BulkCaptureDialog({
             errors.push('Invalid parent phone');
           }
 
+          // Parse wa_opt_in: treat "yes", "true", "1", "y" as true; default true if column missing
+          const waRaw = (mapped.wa_opt_in || '').toLowerCase().trim();
+          const waOptIn = mapped.wa_opt_in === undefined || mapped.wa_opt_in === ''
+            ? true // Default: opted in if column not present
+            : ['yes', 'true', '1', 'y'].includes(waRaw);
+
           return {
             rowNumber: index + 2,
             name: mapped.name || '',
@@ -246,6 +259,7 @@ export function BulkCaptureDialog({
             twelfth_marks: mapped.twelfth_marks || '',
             current_school: mapped.current_school || '',
             notes: mapped.notes || '',
+            wa_opt_in: waOptIn,
             errors,
             isValid: errors.length === 0,
           };
@@ -324,6 +338,7 @@ export function BulkCaptureDialog({
       twelfth_marks: row.twelfth_marks || undefined,
       current_school: row.current_school || undefined,
       notes: row.notes || undefined,
+      wa_opt_in: row.wa_opt_in,
     }));
 
     try {
@@ -406,6 +421,7 @@ export function BulkCaptureDialog({
         twelfth_marks: '85%',
         current_school: 'Government Higher Secondary School',
         notes: 'Interested in B.Tech CSE',
+        wa_opt_in: 'Yes',
       });
 
       // Add second sample row
@@ -419,6 +435,7 @@ export function BulkCaptureDialog({
         twelfth_marks: '92%',
         current_school: 'St. Mary\'s Matric Hr Sec School',
         notes: '',
+        wa_opt_in: 'No',
       });
 
       const buffer = await workbook.xlsx.writeBuffer();

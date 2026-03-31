@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Save } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Save, MessageCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -47,6 +48,8 @@ interface FormData {
   currentSchool: string;
   zone: 'regular' | 'ai_zone';
   notes: string;
+  // WhatsApp consent
+  waOptIn: boolean;
 }
 
 const INITIAL_FORM: FormData = {
@@ -61,6 +64,7 @@ const INITIAL_FORM: FormData = {
   currentSchool: '',
   zone: 'regular',
   notes: '',
+  waOptIn: true,
 };
 
 export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCaptureFormProps) {
@@ -192,15 +196,35 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
         parent_phone: form.parentPhone.trim(),
         interested_programs: form.selectedPrograms,
         tags: form.zone === 'ai_zone' ? ['ai-zone'] : [],
+        wa_opt_in: form.waOptIn,
+        wa_opt_in_source: form.waOptIn ? 'expo_capture_form' : null,
         ...(form.email && { email: form.email.trim() }),
         ...(form.district && { district: form.district.trim() }),
         ...(form.notes && { notes: form.notes.trim() }),
       };
 
-      await LeadService.createLead(leadInput);
+      const createdLead = await LeadService.createLead(leadInput);
 
       setSubmitState('success');
       toast.success(`Lead #${captureCount + 1} saved!`, { duration: 2000 });
+
+      // Fire-and-forget: trigger WhatsApp welcome (non-blocking)
+      if (form.waOptIn && createdLead?.id) {
+        fetch('/api/admission/expos/wa-welcome', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            leadId: createdLead.id,
+            leadPhone: form.phone.trim(),
+            leadName: form.name.trim(),
+            parentPhone: form.parentPhone.trim() || null,
+            parentName: form.parentName.trim() || null,
+            eventName: '', // Will be looked up server-side if needed
+            institutionId: selectedInstitutionId,
+            expoEventId: eventId,
+          }),
+        }).catch(() => { /* silent — WA send failure never blocks capture */ });
+      }
 
       setTimeout(resetForm, 1500);
     } catch (err: unknown) {
@@ -455,6 +479,27 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
           </CardContent>
         )}
       </Card>
+
+      {/* ── WhatsApp Consent ── */}
+      <div className="flex items-start gap-3 rounded-lg border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/30 p-4">
+        <Checkbox
+          id="waOptIn"
+          checked={form.waOptIn}
+          onCheckedChange={(checked) => updateField('waOptIn', checked === true)}
+          disabled={isSubmitting}
+          className="mt-0.5"
+        />
+        <div className="flex-1">
+          <Label htmlFor="waOptIn" className="text-sm font-medium cursor-pointer flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 text-green-600" />
+            WhatsApp Updates / வாட்ஸ்அப் புதுப்பிப்புகள்
+          </Label>
+          <p className="text-xs text-muted-foreground mt-1">
+            I consent to receive admission updates and program information via WhatsApp.
+            / வாட்ஸ்அப் வழியாக சேர்க்கை புதுப்பிப்புகளைப் பெற ஒப்புக்கொள்கிறேன்.
+          </p>
+        </div>
+      </div>
 
       {/* Duplicate handling */}
       {submitState === 'duplicate' && (

@@ -229,6 +229,9 @@ export interface CreateLeadInput {
   // Expo Bridge — optional, set when lead is captured at an exhibition event
   expo_event_id?: string | null;
   captured_by?: string | null;
+  // WhatsApp consent — set during lead capture when visitor opts in
+  wa_opt_in?: boolean;
+  wa_opt_in_source?: string | null;
 }
 
 export interface UpdateLeadInput extends Partial<CreateLeadInput> {

@@ -2592,6 +2592,41 @@ CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_status
     ON wa_personal_message_logs(status);
 
 -- =============================================================================
+-- Expo WhatsApp Message Queue
+-- Tracks WhatsApp welcome messages sent to expo leads with retry support
+-- Added: 2026-03-31
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS public.expo_wa_message_queue (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    expo_event_id UUID NOT NULL REFERENCES expo_events(id) ON DELETE CASCADE,
+    lead_id UUID NOT NULL REFERENCES admission_leads(id) ON DELETE CASCADE,
+    phone TEXT NOT NULL,
+    template_name TEXT NOT NULL DEFAULT 'exhibition_thankyou',
+    template_params JSONB DEFAULT '[]'::jsonb,
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'sent', 'delivered', 'read', 'failed', 'permanently_failed', 'skipped')),
+    wa_message_id TEXT,
+    retry_count INT NOT NULL DEFAULT 0,
+    next_retry_at TIMESTAMPTZ,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_expo_wa_queue_event
+    ON expo_wa_message_queue(expo_event_id);
+CREATE INDEX IF NOT EXISTS idx_expo_wa_queue_lead
+    ON expo_wa_message_queue(lead_id);
+CREATE INDEX IF NOT EXISTS idx_expo_wa_queue_status
+    ON expo_wa_message_queue(status);
+CREATE INDEX IF NOT EXISTS idx_expo_wa_queue_retry
+    ON expo_wa_message_queue(status, next_retry_at)
+    WHERE status IN ('queued', 'failed');
+CREATE INDEX IF NOT EXISTS idx_expo_wa_queue_created
+    ON expo_wa_message_queue(created_at DESC);
+
+-- =============================================================================
 -- Marketing Leads Database
 -- Bulk-uploaded lead data for admission marketing campaigns
 -- Added: 2026-03-17

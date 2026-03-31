@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
+import { ExpoWhatsAppService } from '@/lib/services/admission/expo-whatsapp-service';
 
 export const maxDuration = 60;
 
@@ -156,6 +157,10 @@ export async function POST(request: NextRequest) {
       const firstName = nameParts[0];
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
 
+      // Parse wa_opt_in from uploaded data (default true if not specified)
+      const waRaw = (lead.wa_opt_in ?? '').toString().toLowerCase().trim();
+      const waOptIn = waRaw === '' || ['yes', 'true', '1', 'y'].includes(waRaw);
+
       validRows.push({
         institution_id: institutionId,
         first_name: firstName,
@@ -172,6 +177,11 @@ export async function POST(request: NextRequest) {
         referral_type: 'learner_ambassador',
         referred_by_id: capturedBy,
         funnel_stage: 'new',
+        wa_opt_in: waOptIn,
+        ...(waOptIn && {
+          wa_opt_in_at: new Date().toISOString(),
+          wa_opt_in_source: 'expo_bulk_upload',
+        }),
         lead_number: `LEAD-${new Date().getFullYear().toString().slice(-2)}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
       });
     }
@@ -203,6 +213,52 @@ export async function POST(request: NextRequest) {
         }
       } else {
         inserted += batch.length;
+      }
+    }
+
+    // ── Queue WhatsApp welcome messages for opted-in leads (best-effort) ──
+    if (inserted > 0) {
+      try {
+        // Fetch event name for template params
+        const { data: expoEvent } = await (supabase as any)
+          .from('expo_events')
+          .select('event_name')
+          .eq('id', eventId)
+          .single();
+
+        // Fetch recently inserted leads with WA consent
+        const { data: waLeads } = await (supabase as any)
+          .from('admission_leads')
+          .select('id, first_name, last_name, phone, parent_phone, parent_name')
+          .eq('expo_event_id', eventId)
+          .eq('wa_opt_in', true)
+          .eq('captured_by', capturedBy)
+          .order('created_at', { ascending: false })
+          .limit(inserted);
+
+        if (waLeads && waLeads.length > 0) {
+          // Fire WA welcomes concurrently (non-blocking, capped at 10 parallel)
+          const batchSize = 10;
+          for (let i = 0; i < waLeads.length; i += batchSize) {
+            const waBatch = waLeads.slice(i, i + batchSize);
+            await Promise.allSettled(
+              waBatch.map((lead: any) =>
+                ExpoWhatsAppService.sendExpoWelcome({
+                  leadId: lead.id,
+                  leadPhone: lead.phone,
+                  leadName: [lead.first_name, lead.last_name].filter(Boolean).join(' '),
+                  parentPhone: lead.parent_phone,
+                  parentName: lead.parent_name,
+                  eventName: expoEvent?.event_name || 'Exhibition',
+                  institutionId: institutionId,
+                  expoEventId: eventId,
+                })
+              )
+            );
+          }
+        }
+      } catch (waErr) {
+        console.warn('[admission/expos] Bulk WA welcome failed (non-blocking):', waErr);
       }
     }
 

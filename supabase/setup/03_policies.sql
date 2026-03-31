@@ -3697,6 +3697,21 @@ CREATE POLICY "expo_reports_delete" ON expo_daily_reports FOR DELETE USING (
 );
 
 -- =============================================================================
+-- Expo WhatsApp Message Queue — RLS
+-- Added: 2026-03-31
+-- Pattern: accessible via expo_event team membership + super_admin/admission bypass
+-- Service role used for insert/update (server-side only); clients can SELECT for stats
+-- =============================================================================
+
+ALTER TABLE expo_wa_message_queue ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "expo_wa_queue_select" ON expo_wa_message_queue FOR SELECT USING (
+  expo_event_id = ANY(get_my_expo_event_ids())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (SELECT 1 FROM user_roles ur JOIN custom_roles cr ON ur.role_id = cr.id WHERE ur.user_id = auth.uid() AND cr.role_key = 'admission')
+);
+
+-- =============================================================================
 -- BYOW WhatsApp Personal Connections — RLS
 -- Added: 2026-03-16
 -- Pattern: department_id match via profiles + super_admin bypass + admission custom role
