@@ -499,7 +499,23 @@ function NewLeadPageContent() {
       router.push(`/admission/leads/${lead.id}`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create lead';
-      toast.error(errorMessage);
+
+      if (errorMessage.startsWith('Duplicate lead:')) {
+        toast.error('A lead with this phone number already exists', {
+          description: 'Update the existing lead or mark it as lost before creating a new one.',
+          duration: 6000,
+        });
+        setErrors((prev) => ({ ...prev, phone: 'This phone number already exists for this institution' }));
+      } else if (errorMessage.includes('Invalid phone number')) {
+        toast.error('Invalid phone number', {
+          description: errorMessage,
+          duration: 5000,
+        });
+        setErrors((prev) => ({ ...prev, phone: errorMessage }));
+      } else {
+        toast.error(errorMessage);
+      }
+
       console.error('[admission/leads] Failed to create lead:', error);
     }
   };
