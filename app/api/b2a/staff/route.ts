@@ -61,6 +61,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const isActiveParam = url.searchParams.get('is_active');
   const departmentId = url.searchParams.get('department_id');
   const designation = url.searchParams.get('designation');
+  const search = url.searchParams.get('search');
   const offset = (page - 1) * limit;
 
   // Convert is_active to boolean — silently ignore any value that is not 'true' or 'false'
@@ -80,8 +81,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .from('staff')
       .select(
         'id, staff_id, first_name, last_name, gender, designation, role_type, ' +
-        'institution_id, department_id, category_id, institution_email, email, ' +
-        'is_active, date_of_joining, created_at, updated_at',
+        'institution_id, department_id, category_id, institution_email, email, staff_mobile, ' +
+        'is_active, date_of_joining, created_at, updated_at, ' +
+        'institution:institutions(name), department:departments(department_name), category:staff_categories(name)',
         { count: 'exact' }
       );
 
@@ -99,6 +101,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (designation) {
       query = query.ilike('designation', `%${designation}%`);
+    }
+
+    if (search) {
+      query = query.or(
+        `institution_email.ilike.%${search}%,email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,staff_id.ilike.%${search}%`
+      );
     }
 
     query = query

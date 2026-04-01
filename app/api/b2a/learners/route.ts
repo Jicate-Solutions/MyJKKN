@@ -80,6 +80,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const lifecycleStatusParam = url.searchParams.get('lifecycle_status');
   const departmentId = url.searchParams.get('department_id');
   const semesterId = url.searchParams.get('semester_id');
+  const search = url.searchParams.get('search');
   const offset = (page - 1) * limit;
 
   // Validate lifecycle_status against allowlist — silently ignore invalid values
@@ -104,7 +105,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         'id, application_id, lifecycle_status, first_name, last_name, gender, ' +
         'institution_id, degree_id, department_id, program_id, semester_id, section_id, ' +
         'academic_year_id, batch_id, roll_number, register_number, college_email, ' +
-        'student_email, is_profile_complete, admission_year, created_at, updated_at',
+        'student_email, student_mobile, is_profile_complete, admission_year, created_at, updated_at, ' +
+        'institution:institutions(name), department:departments(department_name), program:programs(program_name)',
         { count: 'exact' }
       );
 
@@ -122,6 +124,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (semesterId) {
       query = query.eq('semester_id', semesterId);
+    }
+
+    if (search) {
+      // Search by email (college_email or student_email) or name
+      query = query.or(
+        `college_email.ilike.%${search}%,student_email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,roll_number.ilike.%${search}%`
+      );
     }
 
     query = query
