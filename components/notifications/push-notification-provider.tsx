@@ -120,15 +120,29 @@ export function PushNotificationProvider({
           await registration.pushManager.getSubscription();
 
         if (subscription) {
-          // Subscription exists in browser — verify it's saved server-side too
-          // (handles case where browser has subscription but DB doesn't)
+          // Verify subscription is saved server-side
           verifyServerSubscription(subscription);
         }
 
+        // On mobile, browser subscriptions go stale frequently (app killed,
+        // deep sleep, FCM token rotation). Mark isSubscribed = false when
+        // permission is granted but we need to validate — the auto-resubscribe
+        // effect will create a fresh subscription with a valid endpoint.
+        const isMobileOrPWA =
+          /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+          window.matchMedia('(display-mode: standalone)').matches;
+
+        const shouldForceResubscribe =
+          isMobileOrPWA &&
+          Notification.permission === 'granted' &&
+          !!subscription;
+
         setState((prev) => ({
           ...prev,
-          isSubscribed: !!subscription,
-          subscription,
+          // On mobile with granted permission, mark as NOT subscribed
+          // so auto-resubscribe creates a fresh endpoint
+          isSubscribed: shouldForceResubscribe ? false : !!subscription,
+          subscription: shouldForceResubscribe ? null : subscription,
           isLoading: false,
           permission: Notification.permission,
           error: null
@@ -163,7 +177,7 @@ export function PushNotificationProvider({
         } finally {
           isAutoResubscribeRef.current = false;
         }
-      }, 2500); // Longer delay to ensure SW is fully active
+      }, 1000); // SW is already activated by init, short delay is sufficient
       return () => clearTimeout(timer);
     }
   }, [state.isSupported, state.isLoading, state.permission, state.isSubscribed]);

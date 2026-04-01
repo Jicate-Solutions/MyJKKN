@@ -391,7 +391,8 @@ async function sendWebPushNotifications(
       url: notification.url || '/notifications',
       data: {
         notification_id: notification.id,
-        priority: notification.priority
+        priority: notification.priority,
+        created_at: notification.created_at
       }
     });
 

@@ -1,5 +1,6 @@
 // hooks/notification/use-notifications.ts
 
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getNotifications,
@@ -29,6 +30,7 @@ import type {
   SendNotificationDto
 } from '@/types/notification';
 import { useToast } from '@/hooks/use-toast';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // ==================== QUERY HOOKS ====================
 
@@ -50,6 +52,49 @@ export function useNotification(id: string | undefined) {
 }
 
 export function useUnreadNotifications(userId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  // Subscribe to Supabase realtime for instant new notification detection.
+  // When a new user_notification row is inserted for this user, immediately
+  // invalidate the React Query cache instead of waiting for the 30s poll.
+  useEffect(() => {
+    if (!userId) return;
+
+    const supabase = createClientSupabaseClient();
+    const channel = supabase
+      .channel(`unread-notifications-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'user_notifications',
+          filter: `user_id=eq.${userId}`
+        },
+        () => {
+          // Invalidate both unread and all notification queries so UI updates instantly
+          queryClient.invalidateQueries({ queryKey: ['notifications'] });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'user_notifications',
+          filter: `user_id=eq.${userId}`
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['notifications'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, queryClient]);
+
   return useQuery({
     queryKey: ['notifications', 'unread', userId],
     queryFn: () =>
@@ -62,7 +107,7 @@ export function useUnreadNotifications(userId: string | undefined) {
         : [],
     enabled: !!userId,
     staleTime: 5 * 1000, // 5 seconds for unread count
-    refetchInterval: 30 * 1000 // Auto-refresh every 30 seconds
+    refetchInterval: 30 * 1000 // Fallback poll if realtime misses
   });
 }
 

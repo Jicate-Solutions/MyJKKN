@@ -69,15 +69,13 @@ export async function getNotifications(
     query = query.lte('created_at', filters.to_date);
   }
 
-  if (filters.limit) {
-    query = query.limit(filters.limit);
-  }
-
-  if (filters.offset) {
-    query = query.range(
-      filters.offset,
-      filters.offset + (filters.limit || 10) - 1
-    );
+  // Use range() for pagination — it handles both offset and limit in one call.
+  // Using both .limit() and .range() causes PostgREST to apply limit first,
+  // then range on the limited set, which can cut off newer notifications.
+  if (filters.offset !== undefined || filters.limit !== undefined) {
+    const start = filters.offset || 0;
+    const end = start + (filters.limit || 20) - 1;
+    query = query.range(start, end);
   }
 
   const { data, error } = await query;
