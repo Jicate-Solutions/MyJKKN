@@ -574,8 +574,104 @@ FROM audience_votes av
 GROUP BY av.submission_id, av.event_id;
 
 -- ================================================================================
+-- SECTION: VAC + CASE Module Views (Added: 2026-04-02)
+-- ================================================================================
+
+-- 1. Enrollment details with course and user info
+CREATE OR REPLACE VIEW vac_enrollments_with_details AS
+SELECT
+  e.id,
+  e.user_id,
+  e.course_id,
+  e.enrolled_at,
+  e.status,
+  e.payment_status,
+  e.payment_amount,
+  e.payment_date,
+  e.payment_reference,
+  e.completed_at,
+  e.expires_at,
+  e.created_at,
+  e.updated_at,
+  c.code AS course_code,
+  c.name AS course_name,
+  c.institution AS course_institution,
+  c.track AS course_track,
+  c.duration_hours AS course_duration,
+  c.fee AS course_fee,
+  c.institution_id AS course_institution_id,
+  p.full_name AS user_name,
+  p.email AS user_email
+FROM vac_enrollments e
+JOIN vac_courses c ON e.course_id = c.id
+LEFT JOIN profiles p ON e.user_id = p.id;
+
+-- 2. CASE risk calculator — computes risk metrics per learner
+CREATE OR REPLACE VIEW case_risk_calculator AS
+SELECT
+  clp.user_id,
+  clp.programme_id,
+  clp.institution_id,
+  clp.current_semester,
+  clp.tracks_completed,
+  clp.graduation_ready,
+  clp.estimated_exam_date,
+  clp.risk_level,
+  clp.agency_index,
+  cgr.programme_duration_semesters,
+  cgr.programme_duration_semesters - clp.current_semester AS semesters_remaining,
+  6 - clp.tracks_completed AS tracks_remaining,
+  CEIL(
+    (6 - clp.tracks_completed)::NUMERIC
+    / GREATEST(cgr.programme_duration_semesters - clp.current_semester, 1)::NUMERIC
+  ) AS tracks_per_semester_needed,
+  CASE
+    WHEN clp.tracks_completed >= 6 THEN 'completed'
+    WHEN cgr.programme_duration_semesters - clp.current_semester <= 0
+      AND clp.tracks_completed < 6 THEN 'overdue'
+    WHEN CEIL((6 - clp.tracks_completed)::NUMERIC
+      / GREATEST(cgr.programme_duration_semesters - clp.current_semester, 1)::NUMERIC) >= 3 THEN 'critical'
+    WHEN CEIL((6 - clp.tracks_completed)::NUMERIC
+      / GREATEST(cgr.programme_duration_semesters - clp.current_semester, 1)::NUMERIC) >= 2 THEN 'at_risk'
+    ELSE 'on_track'
+  END AS calculated_risk_level
+FROM case_learner_progress clp
+JOIN case_graduation_requirements cgr
+  ON cgr.programme_id = clp.programme_id
+  AND cgr.institution_id = clp.institution_id
+  AND cgr.is_active = true;
+
+-- 3. Graduation readiness — institution-wide aggregation
+CREATE OR REPLACE VIEW case_graduation_readiness AS
+SELECT
+  i.name AS institution_name,
+  i.id AS institution_id,
+  p.program_name,
+  p.id AS programme_id,
+  clp.current_semester,
+  COUNT(*) AS total_learners,
+  COUNT(*) FILTER (WHERE clp.tracks_completed >= 6) AS graduation_ready_count,
+  ROUND(
+    COUNT(*) FILTER (WHERE clp.tracks_completed >= 6)::NUMERIC
+    / GREATEST(COUNT(*), 1)::NUMERIC * 100, 1
+  ) AS readiness_percentage,
+  COUNT(*) FILTER (WHERE rc.calculated_risk_level = 'at_risk') AS at_risk_count,
+  COUNT(*) FILTER (WHERE rc.calculated_risk_level = 'critical') AS critical_count,
+  COUNT(*) FILTER (WHERE rc.calculated_risk_level = 'overdue') AS overdue_count,
+  ROUND(AVG(clp.tracks_completed), 1) AS avg_tracks_completed,
+  ROUND(AVG(clp.total_hours_completed), 1) AS avg_hours_completed
+FROM case_learner_progress clp
+JOIN institutions i ON i.id = clp.institution_id
+JOIN programs p ON p.id = clp.programme_id
+LEFT JOIN case_risk_calculator rc
+  ON rc.user_id = clp.user_id
+  AND rc.programme_id = clp.programme_id
+GROUP BY i.name, i.id, p.program_name, p.id, clp.current_semester
+ORDER BY i.name, p.program_name, clp.current_semester;
+
+-- ================================================================================
 -- End of Views File
--- Total Views: 16 (3 billing + 3 bug-report + 2 academic + 2 compatibility
+-- Total Views: 19 (3 billing + 3 bug-report + 2 academic + 2 compatibility
 --               + 1 lifecycle materialized + 2 demo-day regular views
---               + 1 audience vote summary)
+--               + 1 audience vote summary + 3 VAC/CASE views)
 -- ================================================================================

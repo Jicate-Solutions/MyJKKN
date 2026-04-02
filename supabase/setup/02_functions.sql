@@ -5609,3 +5609,289 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION get_marketing_lead_upload_batches TO authenticated;
+
+-- ================================================================================
+-- SECTION: VAC + CASE Module Functions (Added: 2026-04-02)
+-- ================================================================================
+
+-- 1. Check if user is enrolled in a VAC course
+CREATE OR REPLACE FUNCTION is_enrolled_in_vac_course(
+  p_user_id UUID,
+  p_course_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM vac_enrollments
+    WHERE user_id = p_user_id
+      AND course_id = p_course_id
+      AND status = 'active'
+      AND (payment_status = 'paid' OR payment_status = 'waived')
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION is_enrolled_in_vac_course TO authenticated;
+
+-- 2. Get enrollment stats per VAC course (for analytics)
+CREATE OR REPLACE FUNCTION get_vac_course_enrollment_stats(
+  p_institution_id UUID
+)
+RETURNS TABLE (
+  course_id UUID,
+  course_code VARCHAR,
+  course_name VARCHAR,
+  track VARCHAR,
+  total_enrolled BIGINT,
+  active_count BIGINT,
+  completed_count BIGINT,
+  cancelled_count BIGINT,
+  avg_completion_pct NUMERIC,
+  total_revenue NUMERIC
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+AS $$
+  SELECT
+    vc.id AS course_id,
+    vc.code AS course_code,
+    vc.name AS course_name,
+    vc.track,
+    COUNT(ve.id) AS total_enrolled,
+    COUNT(ve.id) FILTER (WHERE ve.status = 'active') AS active_count,
+    COUNT(ve.id) FILTER (WHERE ve.status = 'completed') AS completed_count,
+    COUNT(ve.id) FILTER (WHERE ve.status = 'cancelled') AS cancelled_count,
+    COALESCE(
+      ROUND(
+        AVG(
+          CASE WHEN ve.status IN ('active', 'completed') THEN
+            (SELECT COUNT(*) FILTER (WHERE vlp.status = 'completed')::NUMERIC
+              / GREATEST(COUNT(*), 1)::NUMERIC * 100
+             FROM vac_learner_progress vlp
+             WHERE vlp.user_id = ve.user_id AND vlp.course_id = ve.course_id)
+          END
+        ), 1
+      ), 0
+    ) AS avg_completion_pct,
+    COALESCE(SUM(ve.payment_amount) FILTER (WHERE ve.payment_status = 'paid'), 0) AS total_revenue
+  FROM vac_courses vc
+  LEFT JOIN vac_enrollments ve ON ve.course_id = vc.id
+  WHERE vc.institution_id = p_institution_id
+    AND vc.is_active = true
+  GROUP BY vc.id, vc.code, vc.name, vc.track
+  ORDER BY total_enrolled DESC;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_vac_course_enrollment_stats TO authenticated;
+
+-- 3. Check CASE track prerequisite before enrollment (trigger function)
+CREATE OR REPLACE FUNCTION check_case_track_prerequisite()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_prereq_id UUID;
+  v_prereq_completed BOOLEAN;
+BEGIN
+  -- Get prerequisite track for the track being enrolled in
+  SELECT prerequisite_track_id INTO v_prereq_id
+  FROM case_tracks
+  WHERE id = NEW.track_id;
+
+  -- If no prerequisite, allow enrollment
+  IF v_prereq_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Check if prerequisite track is completed
+  SELECT EXISTS (
+    SELECT 1 FROM case_track_enrollments
+    WHERE user_id = NEW.user_id
+      AND track_id = v_prereq_id
+      AND status = 'completed'
+  ) INTO v_prereq_completed;
+
+  IF NOT v_prereq_completed THEN
+    RAISE EXCEPTION 'Prerequisite track not completed. Complete the prerequisite track before enrolling in this one.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- 4. Auto-update CASE learner progress when a track is completed (trigger function)
+CREATE OR REPLACE FUNCTION update_case_learner_progress()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_tracks_done INTEGER;
+  v_total_hours NUMERIC;
+  v_programme_id UUID;
+  v_institution_id UUID;
+BEGIN
+  -- Only process when status changes to 'completed'
+  IF NEW.status != 'completed' OR OLD.status = 'completed' THEN
+    RETURN NEW;
+  END IF;
+
+  -- Get learner's programme and institution from profile
+  SELECT p.programme_id, p.institution_id
+  INTO v_programme_id, v_institution_id
+  FROM profiles p
+  WHERE p.id = NEW.user_id;
+
+  -- If no programme_id, try from learners_profiles
+  IF v_programme_id IS NULL THEN
+    SELECT lp.program_id, lp.institution_id
+    INTO v_programme_id, v_institution_id
+    FROM learners_profiles lp
+    WHERE lp.id = NEW.user_id;
+  END IF;
+
+  -- Count completed tracks
+  SELECT COUNT(*), COALESCE(SUM(ct.duration_hours), 0)
+  INTO v_tracks_done, v_total_hours
+  FROM case_track_enrollments cte
+  JOIN case_tracks ct ON ct.id = cte.track_id
+  WHERE cte.user_id = NEW.user_id
+    AND cte.status = 'completed';
+
+  -- Upsert case_learner_progress
+  INSERT INTO case_learner_progress (
+    user_id, programme_id, institution_id,
+    tracks_completed, total_hours_completed,
+    graduation_ready, updated_at
+  )
+  VALUES (
+    NEW.user_id,
+    COALESCE(v_programme_id, '00000000-0000-0000-0000-000000000000'::UUID),
+    COALESCE(v_institution_id, '00000000-0000-0000-0000-000000000000'::UUID),
+    v_tracks_done,
+    v_total_hours,
+    v_tracks_done >= 6,
+    now()
+  )
+  ON CONFLICT (user_id, programme_id)
+  DO UPDATE SET
+    tracks_completed = EXCLUDED.tracks_completed,
+    total_hours_completed = EXCLUDED.total_hours_completed,
+    graduation_ready = EXCLUDED.graduation_ready,
+    updated_at = now();
+
+  RETURN NEW;
+END;
+$$;
+
+-- 5. Process CASE alerts — daily cron function
+CREATE OR REPLACE FUNCTION process_case_alerts()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_learner RECORD;
+  v_req RECORD;
+  v_semesters_remaining INTEGER;
+  v_tracks_remaining INTEGER;
+  v_tracks_per_sem NUMERIC;
+  v_new_risk TEXT;
+  v_days_to_exam INTEGER;
+BEGIN
+  -- For each active learner with CASE progress
+  FOR v_learner IN
+    SELECT clp.*, cgr.programme_duration_semesters, cgr.enforcement_days_before_exam
+    FROM case_learner_progress clp
+    JOIN case_graduation_requirements cgr
+      ON cgr.programme_id = clp.programme_id
+      AND cgr.institution_id = clp.institution_id
+      AND cgr.is_active = true
+    WHERE clp.graduation_ready = false
+      AND clp.risk_level != 'completed'
+  LOOP
+    -- Calculate risk
+    v_semesters_remaining := GREATEST(v_learner.programme_duration_semesters - v_learner.current_semester, 0);
+    v_tracks_remaining := 6 - v_learner.tracks_completed;
+    v_tracks_per_sem := CASE
+      WHEN v_semesters_remaining > 0 THEN CEIL(v_tracks_remaining::NUMERIC / v_semesters_remaining)
+      ELSE v_tracks_remaining + 1  -- Force overdue
+    END;
+
+    -- Determine risk level
+    IF v_learner.tracks_completed >= 6 THEN
+      v_new_risk := 'completed';
+    ELSIF v_semesters_remaining = 0 AND v_tracks_remaining > 0 THEN
+      v_new_risk := 'overdue';
+    ELSIF v_tracks_per_sem >= 3 THEN
+      v_new_risk := 'critical';
+    ELSIF v_tracks_per_sem >= 2 THEN
+      v_new_risk := 'at_risk';
+    ELSE
+      v_new_risk := 'on_track';
+    END IF;
+
+    -- Update risk level
+    UPDATE case_learner_progress
+    SET risk_level = v_new_risk, updated_at = now()
+    WHERE id = v_learner.id;
+
+    -- Generate alerts for at-risk and above (only if not recently alerted)
+    IF v_new_risk IN ('at_risk', 'critical', 'overdue')
+       AND (v_learner.last_alert_sent_at IS NULL
+            OR v_learner.last_alert_sent_at < now() - INTERVAL '7 days') THEN
+
+      INSERT INTO case_alerts (user_id, alert_type, message, sent_via)
+      VALUES (
+        v_learner.user_id,
+        v_new_risk || '_alert',
+        CASE v_new_risk
+          WHEN 'at_risk' THEN 'You need to complete ' || v_tracks_remaining || ' more CASE tracks. Consider enrolling in the next available batch.'
+          WHEN 'critical' THEN 'URGENT: You have ' || v_tracks_remaining || ' CASE tracks remaining with only ' || v_semesters_remaining || ' semester(s) left.'
+          WHEN 'overdue' THEN 'CRITICAL: You have exceeded the expected timeline for CASE completion. Contact your coordinator immediately.'
+        END,
+        CASE v_new_risk
+          WHEN 'at_risk' THEN ARRAY['push', 'in_app']
+          WHEN 'critical' THEN ARRAY['push', 'in_app', 'email']
+          WHEN 'overdue' THEN ARRAY['push', 'in_app', 'email', 'sms']
+        END
+      );
+
+      -- Update last alert timestamp
+      UPDATE case_learner_progress
+      SET last_alert_sent_at = now()
+      WHERE id = v_learner.id;
+    END IF;
+
+    -- Check exam proximity alerts
+    IF v_learner.estimated_exam_date IS NOT NULL THEN
+      v_days_to_exam := (v_learner.estimated_exam_date - CURRENT_DATE);
+
+      IF v_days_to_exam <= v_learner.enforcement_days_before_exam
+         AND v_learner.tracks_completed < 6
+         AND (v_learner.last_alert_sent_at IS NULL
+              OR v_learner.last_alert_sent_at < now() - INTERVAL '1 day') THEN
+
+        INSERT INTO case_alerts (user_id, alert_type, message, sent_via)
+        VALUES (
+          v_learner.user_id,
+          'enforcement_' || v_days_to_exam || '_days',
+          'ENFORCEMENT ALERT: ' || v_days_to_exam || ' days until exam. ' ||
+          (6 - v_learner.tracks_completed) || ' CASE tracks still incomplete.',
+          ARRAY['push', 'in_app', 'email']
+        );
+
+        UPDATE case_learner_progress
+        SET last_alert_sent_at = now()
+        WHERE id = v_learner.id;
+      END IF;
+    END IF;
+  END LOOP;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION process_case_alerts TO authenticated;

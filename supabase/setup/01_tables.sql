@@ -2444,6 +2444,10 @@ CREATE TABLE IF NOT EXISTS expo_events (
   total_team_members INT DEFAULT 0,
   total_expenses NUMERIC(12,2) DEFAULT 0,
   total_leads_collected INT DEFAULT 0,
+  -- WhatsApp channel preference for auto-welcome messages (Added: 2026-04-02)
+  wa_channel_preference TEXT NOT NULL DEFAULT 'meta_waba'
+      CHECK (wa_channel_preference IN ('personal', 'meta_waba', 'both', 'none')),
+  wa_personal_template_id UUID,  -- custom template for personal WA (FK added after table creation)
   created_by UUID REFERENCES profiles(id),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
@@ -2627,6 +2631,115 @@ CREATE INDEX IF NOT EXISTS idx_expo_wa_queue_created
     ON expo_wa_message_queue(created_at DESC);
 
 -- =============================================================================
+-- Personal WhatsApp Message Templates
+-- Customizable message templates for personal WhatsApp with variable substitution
+-- Added: 2026-04-02
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS wa_personal_message_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'expo_welcome'
+        CHECK (category IN ('expo_welcome', 'followup', 'reminder', 'general')),
+    content TEXT NOT NULL,  -- Supports {{lead_name}}, {{parent_name}}, {{event_name}}, etc.
+    variables TEXT[] DEFAULT '{}',  -- Extracted from content for validation
+    is_default BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    created_by UUID REFERENCES auth.users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_wa_personal_templates_institution
+    ON wa_personal_message_templates(institution_id);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_templates_category
+    ON wa_personal_message_templates(institution_id, category);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_templates_default
+    ON wa_personal_message_templates(institution_id, is_default)
+    WHERE is_default = true;
+
+ALTER TABLE wa_personal_message_templates ENABLE ROW LEVEL SECURITY;
+
+-- FK from expo_events to templates (deferred because template table defined after expo_events)
+ALTER TABLE expo_events
+    ADD CONSTRAINT fk_expo_events_wa_template
+    FOREIGN KEY (wa_personal_template_id) REFERENCES wa_personal_message_templates(id) ON DELETE SET NULL;
+
+-- =============================================================================
+-- WhatsApp Auto-Trigger Rules
+-- Event-driven rules that fire personal WhatsApp messages on lead events
+-- Added: 2026-04-02
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS wa_auto_trigger_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    event_type TEXT NOT NULL
+        CHECK (event_type IN ('lead_created', 'stage_changed', 'followup_due', 'expo_lead_captured')),
+    conditions JSONB DEFAULT '{}'::jsonb,  -- {source: [...], funnel_stage: [...], expo_event_id: ...}
+    channel_priority TEXT[] DEFAULT ARRAY['personal', 'meta_waba'],
+        -- Ordered preference: try first channel, fallback to next
+    template_id UUID REFERENCES wa_personal_message_templates(id) ON DELETE SET NULL,
+    delay_seconds INT NOT NULL DEFAULT 0,  -- 0 = immediate, >0 = delayed send
+    is_active BOOLEAN DEFAULT true,
+    daily_limit INT NOT NULL DEFAULT 500,
+    created_by UUID REFERENCES auth.users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_wa_auto_trigger_institution
+    ON wa_auto_trigger_rules(institution_id);
+CREATE INDEX IF NOT EXISTS idx_wa_auto_trigger_event
+    ON wa_auto_trigger_rules(institution_id, event_type)
+    WHERE is_active = true;
+
+ALTER TABLE wa_auto_trigger_rules ENABLE ROW LEVEL SECURITY;
+
+-- =============================================================================
+-- Personal WhatsApp Message Queue
+-- Queue for auto-triggered personal WhatsApp messages with retry support
+-- Added: 2026-04-02
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS wa_personal_message_queue (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
+    lead_id UUID NOT NULL REFERENCES admission_leads(id) ON DELETE CASCADE,
+    phone TEXT NOT NULL,
+    message_content TEXT NOT NULL,  -- Already substituted with variables
+    trigger_rule_id UUID REFERENCES wa_auto_trigger_rules(id) ON DELETE SET NULL,
+    channel TEXT NOT NULL DEFAULT 'personal'
+        CHECK (channel IN ('personal', 'meta_waba')),
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'sent', 'failed', 'permanently_failed', 'skipped')),
+    retry_count INT NOT NULL DEFAULT 0,
+    next_retry_at TIMESTAMPTZ,
+    error_message TEXT,
+    wa_message_id TEXT,
+    sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_wa_personal_queue_institution
+    ON wa_personal_message_queue(institution_id);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_queue_lead
+    ON wa_personal_message_queue(lead_id);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_queue_status
+    ON wa_personal_message_queue(status);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_queue_retry
+    ON wa_personal_message_queue(status, next_retry_at)
+    WHERE status IN ('queued', 'failed');
+CREATE INDEX IF NOT EXISTS idx_wa_personal_queue_created
+    ON wa_personal_message_queue(created_at DESC);
+
+ALTER TABLE wa_personal_message_queue ENABLE ROW LEVEL SECURITY;
+
+-- =============================================================================
 -- Marketing Leads Database
 -- Bulk-uploaded lead data for admission marketing campaigns
 -- Added: 2026-03-17
@@ -2780,6 +2893,278 @@ CREATE TABLE IF NOT EXISTS institution_off_days (
 
 CREATE INDEX IF NOT EXISTS idx_institution_off_days
   ON institution_off_days(institution_id, off_date);
+
+-- =====================================================
+-- VAC (Value-Added Courses) + CASE Graduation Tracker
+-- Added: 2026-04-02
+-- =====================================================
+
+-- Add programme_id to profiles if not exists
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS programme_id UUID REFERENCES programs(id);
+CREATE INDEX IF NOT EXISTS idx_profiles_programme ON profiles(programme_id);
+
+-- 1. vac_courses — Core course definitions
+CREATE TABLE IF NOT EXISTS vac_courses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code VARCHAR(50) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  institution VARCHAR(100),
+  track VARCHAR(50) DEFAULT 'general',
+  duration_hours INTEGER DEFAULT 30,
+  weeks INTEGER DEFAULT 3,
+  fee NUMERIC(10,2) DEFAULT 500.00,
+  is_active BOOLEAN DEFAULT true,
+  overall_finks_profile JSONB,
+  ai_era_strategic_value INTEGER,
+  programme_id UUID REFERENCES programs(id),
+  institution_id UUID REFERENCES institutions(id),
+  faculty_eligible BOOLEAN DEFAULT false,
+  course_category TEXT DEFAULT 'add_on' CHECK (course_category IN ('add_on', 'value_add')),
+  nsqf_level INTEGER CHECK (nsqf_level BETWEEN 1 AND 10),
+  nheqf_level INTEGER CHECK (nheqf_level BETWEEN 4 AND 10),
+  ncrf_credits NUMERIC(4,1),
+  ncrf_credit_hours INTEGER,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vac_courses_institution_text ON vac_courses(institution);
+CREATE INDEX IF NOT EXISTS idx_vac_courses_track ON vac_courses(track);
+CREATE INDEX IF NOT EXISTS idx_vac_courses_active ON vac_courses(is_active);
+CREATE INDEX IF NOT EXISTS idx_vac_courses_programme ON vac_courses(programme_id);
+CREATE INDEX IF NOT EXISTS idx_vac_courses_institution ON vac_courses(institution_id);
+CREATE INDEX IF NOT EXISTS idx_vac_courses_category ON vac_courses(course_category);
+
+-- 2. vac_lessons — Individual lesson content (30 per course)
+CREATE TABLE IF NOT EXISTS vac_lessons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id UUID NOT NULL REFERENCES vac_courses(id) ON DELETE CASCADE,
+  week INTEGER NOT NULL,
+  hour INTEGER NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  duration_minutes INTEGER DEFAULT 60,
+  prerequisites TEXT,
+  toolboxes TEXT,
+  learning_outcomes JSONB DEFAULT '[]'::jsonb,
+  faculty_script JSONB DEFAULT '[]'::jsonb,
+  student_content JSONB DEFAULT '[]'::jsonb,
+  exercises JSONB DEFAULT '[]'::jsonb,
+  gemini_prompts JSONB DEFAULT '[]'::jsonb,
+  error_troubleshooting JSONB DEFAULT '[]'::jsonb,
+  interview_questions JSONB DEFAULT '[]'::jsonb,
+  resources JSONB DEFAULT '[]'::jsonb,
+  self_check JSONB DEFAULT '[]'::jsonb,
+  ltl_phase TEXT DEFAULT 'learn' CHECK (ltl_phase IN ('learn', 'leverage', 'both')),
+  is_published BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(course_id, hour)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vac_lessons_course ON vac_lessons(course_id);
+CREATE INDEX IF NOT EXISTS idx_vac_lessons_course_week ON vac_lessons(course_id, week, hour);
+
+-- 3. vac_enrollments — Learner-to-course enrollment
+CREATE TABLE IF NOT EXISTS vac_enrollments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  course_id UUID NOT NULL REFERENCES vac_courses(id) ON DELETE CASCADE,
+  enrolled_at TIMESTAMPTZ DEFAULT now(),
+  status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'cancelled', 'expired')),
+  payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'waived', 'refunded')),
+  payment_amount NUMERIC(10,2),
+  payment_date TIMESTAMPTZ,
+  payment_reference VARCHAR(100),
+  completed_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id, course_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vac_enrollments_user ON vac_enrollments(user_id);
+CREATE INDEX IF NOT EXISTS idx_vac_enrollments_course ON vac_enrollments(course_id);
+CREATE INDEX IF NOT EXISTS idx_vac_enrollments_status ON vac_enrollments(status);
+
+-- 4. vac_learner_progress — Per-lesson progress tracking
+CREATE TABLE IF NOT EXISTS vac_learner_progress (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  course_id UUID NOT NULL REFERENCES vac_courses(id) ON DELETE CASCADE,
+  lesson_id UUID NOT NULL REFERENCES vac_lessons(id) ON DELETE CASCADE,
+  status TEXT DEFAULT 'not_started' CHECK (status IN ('not_started', 'in_progress', 'completed', 'tested_out')),
+  completed_at TIMESTAMPTZ,
+  score NUMERIC(5,2),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id, lesson_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vac_progress_user_course ON vac_learner_progress(user_id, course_id);
+CREATE INDEX IF NOT EXISTS idx_vac_progress_lesson ON vac_learner_progress(lesson_id);
+
+-- 5. vac_course_programmes — Junction: course-to-programme mapping
+CREATE TABLE IF NOT EXISTS vac_course_programmes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id UUID NOT NULL REFERENCES vac_courses(id) ON DELETE CASCADE,
+  programme_id UUID NOT NULL REFERENCES programs(id),
+  is_primary BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(course_id, programme_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vac_cp_course ON vac_course_programmes(course_id);
+CREATE INDEX IF NOT EXISTS idx_vac_cp_programme ON vac_course_programmes(programme_id);
+
+-- 6. case_tracks — 6 CASE graduation tracks (4 AI + 2 Human)
+CREATE TABLE IF NOT EXISTS case_tracks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  track_code TEXT UNIQUE NOT NULL,
+  track_name TEXT NOT NULL,
+  track_type TEXT NOT NULL CHECK (track_type IN ('ai_mastery', 'human_excellence')),
+  sequence_order INTEGER NOT NULL,
+  prerequisite_track_id UUID REFERENCES case_tracks(id),
+  duration_hours INTEGER DEFAULT 30,
+  description TEXT,
+  completion_attendance_threshold NUMERIC DEFAULT 0.75,
+  completion_grader_threshold NUMERIC DEFAULT 0.80,
+  completion_project_required BOOLEAN DEFAULT true,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 7. case_track_courses — Links tracks to VAC courses per programme/institution
+CREATE TABLE IF NOT EXISTS case_track_courses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  track_id UUID NOT NULL REFERENCES case_tracks(id) ON DELETE CASCADE,
+  course_id UUID NOT NULL REFERENCES vac_courses(id) ON DELETE CASCADE,
+  programme_id UUID REFERENCES programs(id),
+  institution_id UUID REFERENCES institutions(id),
+  is_primary BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_tc_track ON case_track_courses(track_id);
+CREATE INDEX IF NOT EXISTS idx_case_tc_course ON case_track_courses(course_id);
+CREATE INDEX IF NOT EXISTS idx_case_tc_programme ON case_track_courses(programme_id);
+CREATE INDEX IF NOT EXISTS idx_case_tc_institution ON case_track_courses(institution_id);
+
+-- 8. case_track_enrollments — Learner enrollment in a CASE track
+CREATE TABLE IF NOT EXISTS case_track_enrollments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  track_id UUID NOT NULL REFERENCES case_tracks(id),
+  course_id UUID REFERENCES vac_courses(id),
+  batch_id UUID,
+  enrolled_at TIMESTAMPTZ DEFAULT now(),
+  status TEXT DEFAULT 'enrolled' CHECK (status IN ('enrolled', 'in_progress', 'completed', 'incomplete', 'retry')),
+  attendance_percentage NUMERIC DEFAULT 0,
+  grader_score_average NUMERIC DEFAULT 0,
+  project_submitted BOOLEAN DEFAULT false,
+  project_score NUMERIC,
+  completion_gate_attendance BOOLEAN DEFAULT false,
+  completion_gate_grader BOOLEAN DEFAULT false,
+  completion_gate_project BOOLEAN DEFAULT false,
+  completed_at TIMESTAMPTZ,
+  retry_count INTEGER DEFAULT 0,
+  previous_enrollment_id UUID REFERENCES case_track_enrollments(id),
+  placement_score NUMERIC,
+  placement_start_week INTEGER DEFAULT 1,
+  placement_taken_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_te_user ON case_track_enrollments(user_id);
+CREATE INDEX IF NOT EXISTS idx_case_te_track ON case_track_enrollments(track_id);
+CREATE INDEX IF NOT EXISTS idx_case_te_status ON case_track_enrollments(status);
+
+-- 9. case_batches — Scheduled delivery batches per track
+CREATE TABLE IF NOT EXISTS case_batches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  track_id UUID NOT NULL REFERENCES case_tracks(id),
+  institution_id UUID REFERENCES institutions(id),
+  batch_code TEXT,
+  delivery_format TEXT DEFAULT 'moderate' CHECK (delivery_format IN ('spread', 'moderate', 'intensive')),
+  start_date DATE,
+  end_date DATE,
+  schedule_json JSONB,
+  max_capacity INTEGER DEFAULT 60,
+  current_enrollment INTEGER DEFAULT 0,
+  facilitator_id UUID,
+  status TEXT DEFAULT 'planned' CHECK (status IN ('planned', 'open', 'in_progress', 'completed', 'cancelled')),
+  is_auto_suggested BOOLEAN DEFAULT false,
+  created_by UUID,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_batches_track ON case_batches(track_id);
+CREATE INDEX IF NOT EXISTS idx_case_batches_institution ON case_batches(institution_id);
+CREATE INDEX IF NOT EXISTS idx_case_batches_status ON case_batches(status);
+
+-- 10. case_learner_progress — Overall CASE graduation progress per learner
+CREATE TABLE IF NOT EXISTS case_learner_progress (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  programme_id UUID NOT NULL REFERENCES programs(id),
+  institution_id UUID NOT NULL REFERENCES institutions(id),
+  admission_semester INTEGER DEFAULT 1,
+  current_semester INTEGER DEFAULT 1,
+  tracks_completed INTEGER DEFAULT 0,
+  total_hours_completed NUMERIC DEFAULT 0,
+  graduation_ready BOOLEAN DEFAULT false,
+  estimated_exam_date DATE,
+  risk_level TEXT DEFAULT 'on_track' CHECK (risk_level IN ('on_track', 'at_risk', 'critical', 'overdue', 'completed')),
+  last_alert_sent_at TIMESTAMPTZ,
+  agency_index NUMERIC(3,1) DEFAULT 0.0 CHECK (agency_index BETWEEN 0 AND 10),
+  agency_dimensions JSONB,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(user_id, programme_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_lp_user ON case_learner_progress(user_id);
+CREATE INDEX IF NOT EXISTS idx_case_lp_programme ON case_learner_progress(programme_id);
+CREATE INDEX IF NOT EXISTS idx_case_lp_institution ON case_learner_progress(institution_id);
+CREATE INDEX IF NOT EXISTS idx_case_lp_risk ON case_learner_progress(risk_level);
+
+-- 11. case_alerts — CASE risk and deadline alerts
+CREATE TABLE IF NOT EXISTS case_alerts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  alert_type TEXT NOT NULL,
+  message TEXT NOT NULL,
+  sent_via TEXT[] DEFAULT '{push}',
+  sent_at TIMESTAMPTZ DEFAULT now(),
+  read_at TIMESTAMPTZ,
+  coordinator_id UUID,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_alerts_user ON case_alerts(user_id);
+CREATE INDEX IF NOT EXISTS idx_case_alerts_type ON case_alerts(alert_type);
+CREATE INDEX IF NOT EXISTS idx_case_alerts_read ON case_alerts(user_id, read_at) WHERE read_at IS NULL;
+
+-- 12. case_graduation_requirements — Per-programme graduation config
+CREATE TABLE IF NOT EXISTS case_graduation_requirements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  programme_id UUID NOT NULL REFERENCES programs(id),
+  institution_id UUID NOT NULL REFERENCES institutions(id),
+  total_tracks_required INTEGER DEFAULT 6,
+  total_hours_required INTEGER DEFAULT 180,
+  programme_duration_semesters INTEGER NOT NULL,
+  enforcement_days_before_exam INTEGER DEFAULT 25,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_gr_programme ON case_graduation_requirements(programme_id);
+CREATE INDEX IF NOT EXISTS idx_case_gr_institution ON case_graduation_requirements(institution_id);
 
 -- =====================================================
 -- END OF TABLE DEFINITIONS

@@ -3795,6 +3795,135 @@ CREATE POLICY "wa_personal_msg_update" ON wa_personal_message_logs FOR UPDATE US
 );
 
 -- =============================================================================
+-- Personal WhatsApp Message Templates — RLS
+-- Added: 2026-04-02
+-- Pattern: institution_id match + super_admin bypass + admission custom role
+-- =============================================================================
+
+CREATE POLICY "wa_personal_templates_select" ON wa_personal_message_templates FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_templates_insert" ON wa_personal_message_templates FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_templates_update" ON wa_personal_message_templates FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_templates_delete" ON wa_personal_message_templates FOR DELETE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+
+-- =============================================================================
+-- WhatsApp Auto-Trigger Rules — RLS
+-- Added: 2026-04-02
+-- =============================================================================
+
+CREATE POLICY "wa_auto_trigger_rules_select" ON wa_auto_trigger_rules FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_auto_trigger_rules_insert" ON wa_auto_trigger_rules FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_auto_trigger_rules_update" ON wa_auto_trigger_rules FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_auto_trigger_rules_delete" ON wa_auto_trigger_rules FOR DELETE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+
+-- =============================================================================
+-- Personal WhatsApp Message Queue — RLS
+-- Added: 2026-04-02
+-- =============================================================================
+
+CREATE POLICY "wa_personal_queue_select" ON wa_personal_message_queue FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_queue_insert" ON wa_personal_message_queue FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_queue_update" ON wa_personal_message_queue FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+
+-- =============================================================================
 -- Marketing Leads Database Policies
 -- Added: 2026-03-17
 -- =============================================================================
@@ -3943,5 +4072,458 @@ CREATE POLICY "institution_off_days_write"
     OR EXISTS (
       SELECT 1 FROM profiles
       WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ================================================================================
+-- SECTION: VAC (Value-Added Courses) + CASE Graduation Tracker RLS
+-- Added: 2026-04-02
+-- ================================================================================
+
+-- Enable RLS on all VAC/CASE tables
+ALTER TABLE vac_courses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vac_lessons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vac_enrollments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vac_learner_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vac_course_programmes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE case_tracks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE case_track_courses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE case_track_enrollments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE case_batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE case_learner_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE case_alerts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE case_graduation_requirements ENABLE ROW LEVEL SECURITY;
+
+-- ── vac_courses ──────────────────────────────────────────────────────────────
+
+-- SELECT: Institution-scoped read for authenticated users
+CREATE POLICY "vac_courses_select" ON vac_courses
+  FOR SELECT USING (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- INSERT/UPDATE: Institution admins
+CREATE POLICY "vac_courses_insert" ON vac_courses
+  FOR INSERT WITH CHECK (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+CREATE POLICY "vac_courses_update" ON vac_courses
+  FOR UPDATE USING (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- DELETE: Super admin only
+CREATE POLICY "vac_courses_delete" ON vac_courses
+  FOR DELETE USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── vac_lessons ──────────────────────────────────────────────────────────────
+
+-- SELECT: Via course institution access
+CREATE POLICY "vac_lessons_select" ON vac_lessons
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM vac_courses vc
+      WHERE vc.id = vac_lessons.course_id
+      AND (
+        vc.institution_id IN (
+          SELECT institution_id FROM user_institution_access
+          WHERE user_id = auth.uid() AND is_active = true
+        )
+        OR EXISTS (
+          SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+        )
+      )
+    )
+  );
+
+-- INSERT/UPDATE/DELETE: Admin via course institution
+CREATE POLICY "vac_lessons_write" ON vac_lessons
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM vac_courses vc
+      WHERE vc.id = vac_lessons.course_id
+      AND vc.institution_id IN (
+        SELECT institution_id FROM user_institution_access
+        WHERE user_id = auth.uid() AND is_active = true
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM vac_courses vc
+      WHERE vc.id = vac_lessons.course_id
+      AND vc.institution_id IN (
+        SELECT institution_id FROM user_institution_access
+        WHERE user_id = auth.uid() AND is_active = true
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── vac_enrollments ──────────────────────────────────────────────────────────
+
+-- SELECT: Own data + admin
+CREATE POLICY "vac_enrollments_select" ON vac_enrollments
+  FOR SELECT USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM vac_courses vc
+      WHERE vc.id = vac_enrollments.course_id
+      AND vc.institution_id IN (
+        SELECT institution_id FROM user_institution_access
+        WHERE user_id = auth.uid() AND is_active = true
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- INSERT: Authenticated users (enroll themselves)
+CREATE POLICY "vac_enrollments_insert" ON vac_enrollments
+  FOR INSERT WITH CHECK (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- UPDATE: Own data + admin
+CREATE POLICY "vac_enrollments_update" ON vac_enrollments
+  FOR UPDATE USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM vac_courses vc
+      WHERE vc.id = vac_enrollments.course_id
+      AND vc.institution_id IN (
+        SELECT institution_id FROM user_institution_access
+        WHERE user_id = auth.uid() AND is_active = true
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- DELETE: Admin only
+CREATE POLICY "vac_enrollments_delete" ON vac_enrollments
+  FOR DELETE USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── vac_learner_progress ─────────────────────────────────────────────────────
+
+-- SELECT: Own data + admin
+CREATE POLICY "vac_learner_progress_select" ON vac_learner_progress
+  FOR SELECT USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM vac_courses vc
+      WHERE vc.id = vac_learner_progress.course_id
+      AND vc.institution_id IN (
+        SELECT institution_id FROM user_institution_access
+        WHERE user_id = auth.uid() AND is_active = true
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- INSERT/UPDATE: Own data
+CREATE POLICY "vac_learner_progress_write" ON vac_learner_progress
+  FOR ALL USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  )
+  WITH CHECK (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── vac_course_programmes ────────────────────────────────────────────────────
+
+-- SELECT: Authenticated read (needed for recommendations)
+CREATE POLICY "vac_course_programmes_select" ON vac_course_programmes
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+-- WRITE: Admin only
+CREATE POLICY "vac_course_programmes_write" ON vac_course_programmes
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM vac_courses vc
+      WHERE vc.id = vac_course_programmes.course_id
+      AND vc.institution_id IN (
+        SELECT institution_id FROM user_institution_access
+        WHERE user_id = auth.uid() AND is_active = true
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM vac_courses vc
+      WHERE vc.id = vac_course_programmes.course_id
+      AND vc.institution_id IN (
+        SELECT institution_id FROM user_institution_access
+        WHERE user_id = auth.uid() AND is_active = true
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── case_tracks ──────────────────────────────────────────────────────────────
+
+-- SELECT: All authenticated (public catalog)
+CREATE POLICY "case_tracks_select" ON case_tracks
+  FOR SELECT USING (auth.uid() IS NOT NULL);
+
+-- WRITE: Super admin only (6 tracks are fixed)
+CREATE POLICY "case_tracks_write" ON case_tracks
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── case_track_courses ───────────────────────────────────────────────────────
+
+-- SELECT: Institution-scoped
+CREATE POLICY "case_track_courses_select" ON case_track_courses
+  FOR SELECT USING (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR institution_id IS NULL
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- WRITE: Admin
+CREATE POLICY "case_track_courses_write" ON case_track_courses
+  FOR ALL USING (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  )
+  WITH CHECK (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── case_track_enrollments ───────────────────────────────────────────────────
+
+-- SELECT: Own data + admin
+CREATE POLICY "case_track_enrollments_select" ON case_track_enrollments
+  FOR SELECT USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid()
+      AND role IN ('super_admin', 'admin', 'faculty')
+    )
+  );
+
+-- INSERT: Own enrollment
+CREATE POLICY "case_track_enrollments_insert" ON case_track_enrollments
+  FOR INSERT WITH CHECK (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- UPDATE: Own data + admin
+CREATE POLICY "case_track_enrollments_update" ON case_track_enrollments
+  FOR UPDATE USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid()
+      AND role IN ('super_admin', 'admin', 'faculty')
+    )
+  );
+
+-- DELETE: Super admin only
+CREATE POLICY "case_track_enrollments_delete" ON case_track_enrollments
+  FOR DELETE USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── case_batches ─────────────────────────────────────────────────────────────
+
+-- SELECT: Institution-scoped
+CREATE POLICY "case_batches_select" ON case_batches
+  FOR SELECT USING (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- WRITE: Admin
+CREATE POLICY "case_batches_write" ON case_batches
+  FOR ALL USING (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  )
+  WITH CHECK (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── case_learner_progress ────────────────────────────────────────────────────
+
+-- SELECT: Own data + admin
+CREATE POLICY "case_learner_progress_select" ON case_learner_progress
+  FOR SELECT USING (
+    user_id = auth.uid()
+    OR institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- INSERT/UPDATE: Own data + admin
+CREATE POLICY "case_learner_progress_write" ON case_learner_progress
+  FOR ALL USING (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  )
+  WITH CHECK (
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── case_alerts ──────────────────────────────────────────────────────────────
+
+-- SELECT: Own alerts + coordinator
+CREATE POLICY "case_alerts_select" ON case_alerts
+  FOR SELECT USING (
+    user_id = auth.uid()
+    OR coordinator_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid()
+      AND role IN ('super_admin', 'admin')
+    )
+  );
+
+-- INSERT: System/admin only (generated by cron)
+CREATE POLICY "case_alerts_insert" ON case_alerts
+  FOR INSERT WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid()
+      AND role IN ('super_admin', 'admin')
+    )
+  );
+
+-- UPDATE: Mark as read (own alerts only)
+CREATE POLICY "case_alerts_update" ON case_alerts
+  FOR UPDATE USING (
+    user_id = auth.uid()
+    OR coordinator_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- ── case_graduation_requirements ─────────────────────────────────────────────
+
+-- SELECT: Institution-scoped
+CREATE POLICY "case_graduation_requirements_select" ON case_graduation_requirements
+  FOR SELECT USING (
+    institution_id IN (
+      SELECT institution_id FROM user_institution_access
+      WHERE user_id = auth.uid() AND is_active = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
+-- WRITE: Super admin only
+CREATE POLICY "case_graduation_requirements_write" ON case_graduation_requirements
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
     )
   );

@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VAC Module — Flow Diagrams</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0f1117;
+    color: #e1e4e8;
+    line-height: 1.6;
+  }
+  .header {
+    background: linear-gradient(135deg, #1a1f35 0%, #0d1117 100%);
+    border-bottom: 1px solid #30363d;
+    padding: 32px 48px;
+    text-align: center;
+  }
+  .header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #58a6ff, #bc8cff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .header p { color: #8b949e; font-size: 1rem; }
+  .nav {
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    padding: 0 48px;
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .nav button {
+    background: none;
+    border: none;
+    color: #8b949e;
+    padding: 14px 20px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .nav button:hover { color: #e1e4e8; background: #1c2128; }
+  .nav button.active {
+    color: #58a6ff;
+    border-bottom-color: #58a6ff;
+  }
+  .content { padding: 40px 48px; max-width: 1400px; margin: 0 auto; }
+  .diagram-section {
+    display: none;
+    animation: fadeIn 0.3s ease;
+  }
+  .diagram-section.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .diagram-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 32px;
+    margin-bottom: 32px;
+  }
+  .diagram-card h2 {
+    font-size: 1.25rem;
+    color: #e1e4e8;
+    margin-bottom: 6px;
+  }
+  .diagram-card .subtitle {
+    color: #8b949e;
+    font-size: 0.875rem;
+    margin-bottom: 24px;
+  }
+  .diagram-card .mermaid {
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+  }
+  .legend {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+    padding: 16px;
+    background: #1c2128;
+    border-radius: 8px;
+    border: 1px solid #30363d;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: #8b949e;
+  }
+  .legend-color {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .stat-card {
+    background: #1c2128;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+  }
+  .stat-card .number {
+    font-size: 2rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #58a6ff, #bc8cff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .stat-card .label { color: #8b949e; font-size: 0.8rem; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>VAC Module — Flow Diagrams</h1>
+  <p>Value-Added Courses + CASE Graduation Tracker | MyJKKN Platform</p>
+</div>
+
+<div class="nav" id="nav">
+  <button class="active" onclick="show('overview')">Overview</button>
+  <button onclick="show('enrollment')">Enrollment Flow</button>
+  <button onclick="show('lesson')">Lesson Progression</button>
+  <button onclick="show('case')">CASE Graduation</button>
+  <button onclick="show('placement')">Placement Test</button>
+  <button onclick="show('admin')">Admin Flow</button>
+  <button onclick="show('integration')">Cross-Module Map</button>
+  <button onclick="show('billing')">Billing Integration</button>
+  <button onclick="show('attendance')">Attendance Integration</button>
+  <button onclick="show('states')">State Machines</button>
+  <button onclick="show('data')">Data Flow</button>
+</div>
+
+<div class="content">
+
+<!-- ======================== OVERVIEW ======================== -->
+<div class="diagram-section active" id="overview">
+  <div class="stats-grid">
+    <div class="stat-card"><div class="number">13</div><div class="label">Database Tables</div></div>
+    <div class="stat-card"><div class="number">49</div><div class="label">New Files</div></div>
+    <div class="stat-card"><div class="number">7</div><div class="label">Module Integrations</div></div>
+    <div class="stat-card"><div class="number">23</div><div class="label">Frontend Pages</div></div>
+    <div class="stat-card"><div class="number">6</div><div class="label">CASE Tracks</div></div>
+    <div class="stat-card"><div class="number">180</div><div class="label">Total Hours Required</div></div>
+  </div>
+
+  <div class="diagram-card">
+    <h2>VAC Module — Complete System Overview</h2>
+    <div class="subtitle">How all components connect together</div>
+    <div class="mermaid">
+graph TB
+    subgraph LEARNER["LEARNER EXPERIENCE"]
+        direction TB
+        L1["/vac — Course Catalog"]
+        L2["/vac/courseId — Course Detail"]
+        L3["/vac/courseId/lessonId — Lesson Content"]
+        L4["/vac/my-courses — My Enrollments"]
+        L5["/vac/case — CASE Tracker"]
+        L6["/vac/case/placement/trackId — Placement Test"]
+        L7["/vac/certificate/enrollmentId — Certificate"]
+        L8["/vac/progress — Progress Overview"]
+
+        L1 -->|click course| L2
+        L2 -->|enroll + start| L3
+        L3 -->|complete all 30| L7
+        L2 -->|CASE course| L6
+        L6 -->|score assigned| L3
+        L1 -->|my courses tab| L4
+        L1 -->|CASE tab| L5
+        L5 -->|start track| L6
+    end
+
+    subgraph ADMIN["ADMIN MANAGEMENT"]
+        direction TB
+        A1["/vac/admin — Dashboard"]
+        A2["/vac/admin/courses — Course CRUD"]
+        A3["/vac/admin/courses/id/lessons — Lessons"]
+        A4["/vac/admin/enrollments — Manage"]
+        A5["/vac/admin/analytics — 4-Tab Analytics"]
+        A6["/vac/admin/case — CASE Admin"]
+        A7["/vac/admin/case/tracks — Track Mgmt"]
+        A8["/vac/admin/case/batches — Batch Mgmt"]
+        A9["/vac/admin/case/readiness — Graduation"]
+        A10["/vac/admin/settings — Settings"]
+
+        A1 --> A2
+        A2 --> A3
+        A1 --> A4
+        A1 --> A5
+        A1 --> A6
+        A6 --> A7
+        A6 --> A8
+        A6 --> A9
+    end
+
+    subgraph DATA["DATA LAYER"]
+        direction LR
+        D1[(vac_courses)]
+        D2[(vac_lessons)]
+        D3[(vac_enrollments)]
+        D4[(vac_learner_progress)]
+        D5[(case_tracks)]
+        D6[(case_track_enrollments)]
+        D7[(case_learner_progress)]
+        D8[(case_alerts)]
+    end
+
+    LEARNER --> DATA
+    ADMIN --> DATA
+
+    subgraph EXT["EXTERNAL MODULES"]
+        direction LR
+        E1[Organization]
+        E2[Learners]
+        E3[Billing]
+        E4[Attendance]
+        E5[Staff]
+        E6[Notifications]
+    end
+
+    DATA <--> EXT
+
+    style LEARNER fill:#1a2332,stroke:#58a6ff,color:#e1e4e8
+    style ADMIN fill:#1a2332,stroke:#bc8cff,color:#e1e4e8
+    style DATA fill:#1a2332,stroke:#3fb950,color:#e1e4e8
+    style EXT fill:#1a2332,stroke:#f0883e,color:#e1e4e8
+    </div>
+  </div>
+</div>
+
+<!-- ======================== ENROLLMENT ======================== -->
+<div class="diagram-section" id="enrollment">
+  <div class="diagram-card">
+    <h2>Enrollment Flow</h2>
+    <div class="subtitle">From course discovery to full access — including payment and CASE routing</div>
+    <div class="mermaid">
+flowchart TD
+    A([Learner visits /vac]) --> B[Browse Course Catalog]
+    B --> C[Click on Course Card]
+    C --> D["/vac/[courseId] — Course Detail"]
+    D --> E{Already Enrolled?}
+
+    E -->|YES| F[Show Full Course Content\nwith progress tracking]
+    E -->|NO| G[Show Course Preview\nHour 1 free, rest locked]
+
+    G --> H["Click [ENROLL NOW]"]
+    H --> I{Is CASE Track Course?}
+
+    I -->|YES| J["Redirect to Placement Test\n/vac/case/placement/[trackId]"]
+    J --> K[Take 10-Question Test]
+    K --> L[Calculate Placement Score]
+    L --> M{Score Range}
+    M -->|0-30%| N1[Start Week 1]
+    M -->|31-60%| N2[Start Week 2]
+    M -->|61-100%| N3[Start Week 3]
+    N1 --> O
+    N2 --> O
+    N3 --> O
+
+    I -->|NO Regular VAC| O["Create vac_enrollments\nstatus: active\npayment_status: pending"]
+
+    O --> P{Course Fee = 0?}
+    P -->|YES| Q["Auto-waive\npayment_status: waived"]
+    P -->|NO| R["Generate Bill\n→ billing_student_bills"]
+
+    R --> S["Student pays via\n/billing/schedule\n(HDFC Gateway)"]
+    S --> T["Payment Confirmed\npayment_status: paid"]
+
+    Q --> U[Full Course Access Granted]
+    T --> U
+
+    U --> V["Sequential Lessons\nHour 1 → Hour 2 → ... → Hour 30"]
+    V --> W{All 30 Lessons Done?}
+    W -->|YES| X["Enrollment status: completed\nCertificate Available"]
+    W -->|NO| Y[Continue Next Lesson]
+    Y --> V
+
+    style A fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style J fill:#8957e5,stroke:#bc8cff,color:#fff
+    style R fill:#da3633,stroke:#f85149,color:#fff
+    style U fill:#238636,stroke:#3fb950,color:#fff
+    style X fill:#238636,stroke:#3fb950,color:#fff
+    </div>
+  </div>
+</div>
+
+<!-- ======================== LESSON ======================== -->
+<div class="diagram-section" id="lesson">
+  <div class="diagram-card">
+    <h2>Lesson Progression — Sequential Gating</h2>
+    <div class="subtitle">30 hours across 3 weeks with Learn-Then-Leverage phases</div>
+    <div class="mermaid">
+flowchart TD
+    A([Open /vac/courseId/lessonId]) --> B{Is Hour = 1?}
+
+    B -->|YES| C["Always Accessible\n(Free Preview)"]
+    B -->|NO| D{Is Enrolled?}
+
+    D -->|NO| E["Show EnrollmentGate\nComponent\n'Enroll to access'"]
+    D -->|YES| F{Payment Complete?\npaid or waived}
+
+    F -->|NO| G["Show Payment Gate\n'Complete payment to access'\nLink to /billing/schedule"]
+    F -->|YES| H{Previous Lesson\nCompleted?}
+
+    H -->|NO| I["Show Lock Message\n'Complete Hour N-1 first'\nwith progress indicator"]
+    H -->|YES| J[Render Full Lesson Content]
+
+    J --> K["LESSON CONTENT"]
+    K --> K1["Learning Outcomes"]
+    K --> K2["Student Content\n(Rich text / media)"]
+    K --> K3["Tiered Exercises\nTier 1: Apply\nTier 2: Analyze\nTier 3: Create"]
+    K --> K4["Gemini Prompts\n(AI Practice)"]
+    K --> K5["Self-Check Quiz\n(Auto-graded)"]
+
+    K5 --> L["Click: MARK AS COMPLETE"]
+    L --> M["UPSERT vac_learner_progress\nstatus: completed\nscore: quiz_score\ncompleted_at: now()"]
+    M --> N["Next Lesson (N+1)\nUNLOCKED"]
+    N --> O{Last Lesson\nHour 30?}
+    O -->|NO| A
+    O -->|YES| P["Course Complete!\nCertificate Available"]
+
+    subgraph WEEK1["Week 1 — LEARN Phase"]
+        W1H1["Hour 1 (FREE)"]
+        W1H2["Hour 2"]
+        W1H3["Hour 3"]
+        W1HN["...Hour 10"]
+        W1H1 --> W1H2 --> W1H3 --> W1HN
+    end
+
+    subgraph WEEK2["Week 2 — LEVERAGE Phase"]
+        W2H1["Hour 11"]
+        W2H2["Hour 12"]
+        W2HN["...Hour 20"]
+        W2H1 --> W2H2 --> W2HN
+    end
+
+    subgraph WEEK3["Week 3 — LEVERAGE Phase"]
+        W3H1["Hour 21"]
+        W3H2["Hour 22"]
+        W3HN["...Hour 30"]
+        W3H1 --> W3H2 --> W3HN
+    end
+
+    W1HN --> W2H1
+    W2HN --> W3H1
+
+    style C fill:#238636,stroke:#3fb950,color:#fff
+    style E fill:#da3633,stroke:#f85149,color:#fff
+    style G fill:#da3633,stroke:#f85149,color:#fff
+    style I fill:#d29922,stroke:#e3b341,color:#fff
+    style P fill:#238636,stroke:#3fb950,color:#fff
+    style WEEK1 fill:#1a2332,stroke:#58a6ff,color:#e1e4e8
+    style WEEK2 fill:#1a2332,stroke:#bc8cff,color:#e1e4e8
+    style WEEK3 fill:#1a2332,stroke:#bc8cff,color:#e1e4e8
+    </div>
+  </div>
+</div>
+
+<!-- ======================== CASE ======================== -->
+<div class="diagram-section" id="case">
+  <div class="diagram-card">
+    <h2>CASE Graduation Tracker</h2>
+    <div class="subtitle">6 Tracks x 30 Hours = 180 Hours | Triple Gate Completion | Semester-Mapped</div>
+    <div class="mermaid">
+flowchart TD
+    subgraph AI["AI MASTERY (4 Tracks)"]
+        direction TB
+        AI1["AI-1: Foundations\n30 hours | Sem 1"]
+        AI2["AI-2: Application\n30 hours | Sem 2"]
+        AI3["AI-3: Mastery\n30 hours | Sem 3"]
+        AI4["AI-4: Innovation\n30 hours | Sem 4"]
+        AI1 -->|prerequisite| AI2
+        AI2 -->|prerequisite| AI3
+        AI3 -->|prerequisite| AI4
+    end
+
+    subgraph HE["HUMAN EXCELLENCE (2 Tracks)"]
+        direction TB
+        H1["H-1: Communication\n30 hours | Sem 1"]
+        H2["H-2: Leadership\n30 hours | Sem 2"]
+        H1 -->|prerequisite| H2
+    end
+
+    subgraph GATE["TRIPLE GATE (per track)"]
+        direction LR
+        G1["Gate 1\nAttendance >= 75%"]
+        G2["Gate 2\nGrader Score >= 80%"]
+        G3["Gate 3\nProject Submitted"]
+    end
+
+    AI1 & AI2 & AI3 & AI4 & H1 & H2 --> GATE
+
+    GATE --> CHECK{All 3 Gates\nPassed?}
+
+    CHECK -->|YES| COMPLETE["Track COMPLETED\ntracks_completed += 1\ntotal_hours += 30"]
+    CHECK -->|NO — Attendance| RETRY1["Attend remaining\nclasses"]
+    CHECK -->|NO — Score| RETRY2["Retake graded\nexercises"]
+    CHECK -->|NO — Project| RETRY3["Submit project"]
+
+    COMPLETE --> GRAD{tracks_completed\n= 6?}
+    GRAD -->|YES| DONE["GRADUATION READY\nSenior Learner\nEndorsement"]
+    GRAD -->|NO| NEXT["Start Next Track\n(check prerequisites)"]
+
+    subgraph RISK["DAILY RISK MONITORING (7AM IST Cron)"]
+        direction TB
+        R1["Calculate:\nsemesters_remaining\ntracks_remaining\ntracks_per_sem_needed"]
+        R2{"Risk Level"}
+        R1 --> R2
+        R2 -->|"<= 1 track/sem"| R3["ON TRACK 🟢"]
+        R2 -->|"2 tracks/sem"| R4["AT RISK 🟡"]
+        R2 -->|">= 3 tracks/sem"| R5["CRITICAL 🔴"]
+        R2 -->|"0 sems left"| R6["OVERDUE ⚫"]
+    end
+
+    COMPLETE --> RISK
+
+    subgraph ALERTS["ALERT TRIGGERS"]
+        direction TB
+        AL1["90 days → Learner"]
+        AL2["60 days → Learner + Coordinator"]
+        AL3["30 days → All + Push"]
+        AL4["25 days → Enforcement + HOD"]
+    end
+
+    RISK --> ALERTS
+
+    style AI fill:#1a2332,stroke:#58a6ff,color:#e1e4e8
+    style HE fill:#1a2332,stroke:#bc8cff,color:#e1e4e8
+    style GATE fill:#1a2332,stroke:#d29922,color:#e1e4e8
+    style RISK fill:#1a2332,stroke:#f85149,color:#e1e4e8
+    style ALERTS fill:#1a2332,stroke:#f0883e,color:#e1e4e8
+    style DONE fill:#238636,stroke:#3fb950,color:#fff
+    style R3 fill:#238636,stroke:#3fb950,color:#fff
+    style R4 fill:#d29922,stroke:#e3b341,color:#fff
+    style R5 fill:#da3633,stroke:#f85149,color:#fff
+    style R6 fill:#484f58,stroke:#6e7681,color:#fff
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <h2>Semester-to-Track Mapping</h2>
+    <div class="subtitle">AI and Human tracks run in parallel across semesters</div>
+    <div class="mermaid">
+gantt
+    title CASE Track Schedule Across Semesters
+    dateFormat YYYY-MM
+    axisFormat %b %Y
+    section AI Mastery
+        AI-1 Foundations     :ai1, 2026-07, 5M
+        AI-2 Application     :ai2, after ai1, 5M
+        AI-3 Mastery         :ai3, after ai2, 5M
+        AI-4 Innovation      :ai4, after ai3, 5M
+    section Human Excellence
+        H-1 Communication    :h1, 2026-07, 5M
+        H-2 Leadership       :h2, after h1, 5M
+    section Milestones
+        Sem 1 Start          :milestone, 2026-07, 0d
+        Sem 2 Start          :milestone, 2026-12, 0d
+        Sem 3 Start          :milestone, 2027-05, 0d
+        Sem 4 Start          :milestone, 2027-10, 0d
+        Graduation Check     :crit, milestone, 2028-03, 0d
+    </div>
+  </div>
+</div>
+
+<!-- ======================== PLACEMENT ======================== -->
+<div class="diagram-section" id="placement">
+  <div class="diagram-card">
+    <h2>Placement Test Flow</h2>
+    <div class="subtitle">10 questions per track — determines starting week (skip ahead if advanced)</div>
+    <div class="mermaid">
+flowchart TD
+    A([Learner clicks Start Track\non CASE Dashboard]) --> B{Prerequisite\nTrack Complete?}
+
+    B -->|"No prerequisite\n(AI-1, H-1)"| D[Load Placement Questions]
+    B -->|"Has prerequisite\nbut NOT done"| C["BLOCKED\n'Complete [Track X] first'"]
+    B -->|"Prerequisite\ncompleted"| D
+
+    D --> E["10 Multiple Choice Questions\nfrom case-placement-questions.ts\n(50 total: 10 per track area)"]
+
+    E --> F["Student Completes Test"]
+    F --> G["Calculate Score: correct / 10 x 100"]
+
+    G --> H{Score Range}
+    H -->|"0 - 30%\nBeginner"| I1["placement_start_week: 1\nStart from beginning\nAll 30 hours"]
+    H -->|"31 - 60%\nIntermediate"| I2["placement_start_week: 2\nSkip Week 1 basics\n~20 hours"]
+    H -->|"61 - 100%\nAdvanced"| I3["placement_start_week: 3\nSkip to advanced\n~10 hours"]
+
+    I1 --> J["Save to case_track_enrollments:\n- placement_score\n- placement_start_week\n- placement_taken_at\n- status: enrolled"]
+    I2 --> J
+    I3 --> J
+
+    J --> K["Auto-create vac_enrollments\nfor the mapped VAC course"]
+
+    K --> L{"Start week > 1?"}
+    L -->|YES| M["Auto-mark skipped lessons\nas 'tested_out' in\nvac_learner_progress"]
+    L -->|NO| N["All lessons start\nas 'not_started'"]
+
+    M --> O["Redirect to\n/vac/[courseId]\nFirst unlocked lesson"]
+    N --> O
+
+    style C fill:#da3633,stroke:#f85149,color:#fff
+    style I1 fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style I2 fill:#8957e5,stroke:#bc8cff,color:#fff
+    style I3 fill:#238636,stroke:#3fb950,color:#fff
+    style O fill:#238636,stroke:#3fb950,color:#fff
+    </div>
+  </div>
+</div>
+
+<!-- ======================== ADMIN ======================== -->
+<div class="diagram-section" id="admin">
+  <div class="diagram-card">
+    <h2>Admin Management Flow</h2>
+    <div class="subtitle">Course CRUD, Lesson Management, CASE Admin, Analytics</div>
+    <div class="mermaid">
+flowchart TD
+    A(["/vac/admin — Dashboard"]) --> B["Stats Cards:\nTotal Courses | Active Enrollments\nTotal Learners | Revenue"]
+
+    A --> C["/vac/admin/courses"]
+    A --> D["/vac/admin/enrollments"]
+    A --> E["/vac/admin/analytics"]
+    A --> F["/vac/admin/case"]
+    A --> G["/vac/admin/settings"]
+
+    C --> C1["Course List (DataTable)\nSearch | Filter by Track/Status\nBulk Actions"]
+    C1 --> C2["[+ Add Course]\n/vac/admin/courses/new"]
+    C1 --> C3["[Edit]\n/vac/admin/courses/id/edit"]
+    C1 --> C4["[Lessons]\n/vac/admin/courses/id/lessons"]
+
+    C2 --> FORM["Course Form:\n- Basic Info (code, name, desc)\n- Track & Category\n- Fee & Duration\n- NSQF / NHEQF / NCrF\n- Fink's Taxonomy Editor\n  (6 dimensions sum = 100%)\n- Programme Mapping\n  (multi-select checkbox)"]
+
+    C4 --> C5["Lesson List (30 hours)\nGrouped by Week"]
+    C5 --> C6["[+ Add Lesson]\nWeek, Hour, Title"]
+    C5 --> C7["[Edit Lesson]\nContent Editor:\n- Learning Outcomes\n- Student Content\n- Faculty Script\n- Exercises (Tiered)\n- Gemini Prompts\n- Self-Check Quiz\n- Resources"]
+
+    D --> D1["Enrollment DataTable\nFilter: Course | Status | Payment\nActions: Approve | Cancel | Waive Fee"]
+
+    E --> E1["Tab 1: Overview\nEnrollment Funnel | Completion Rate"]
+    E --> E2["Tab 2: CASE Tracks\nPer-Track Completion Bar Chart"]
+    E --> E3["Tab 3: Programmes\nProgramme-wise Enrollment Table"]
+    E --> E4["Tab 4: Trends\nMonthly Enrollment Line Chart"]
+
+    F --> F1["/vac/admin/case\nAt-Risk Students | Stats"]
+    F --> F2["/vac/admin/case/tracks\nTrack CRUD"]
+    F --> F3["/vac/admin/case/batches\nBatch Scheduling"]
+    F --> F4["/vac/admin/case/readiness\nGraduation Readiness Chart"]
+
+    style A fill:#8957e5,stroke:#bc8cff,color:#fff
+    style FORM fill:#1a2332,stroke:#58a6ff,color:#e1e4e8
+    style E1 fill:#1a2332,stroke:#3fb950,color:#e1e4e8
+    style E2 fill:#1a2332,stroke:#3fb950,color:#e1e4e8
+    style E3 fill:#1a2332,stroke:#3fb950,color:#e1e4e8
+    style E4 fill:#1a2332,stroke:#3fb950,color:#e1e4e8
+    </div>
+  </div>
+</div>
+
+<!-- ======================== INTEGRATION ======================== -->
+<div class="diagram-section" id="integration">
+  <div class="diagram-card">
+    <h2>Cross-Module Integration Map</h2>
+    <div class="subtitle">VAC connects to 7 existing modules through 20+ foreign key references</div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-color" style="background:#58a6ff"></div>VAC Core</div>
+      <div class="legend-item"><div class="legend-color" style="background:#3fb950"></div>Organization</div>
+      <div class="legend-item"><div class="legend-color" style="background:#bc8cff"></div>Learners</div>
+      <div class="legend-item"><div class="legend-color" style="background:#f85149"></div>Billing</div>
+      <div class="legend-item"><div class="legend-color" style="background:#d29922"></div>Attendance</div>
+      <div class="legend-item"><div class="legend-color" style="background:#f0883e"></div>Staff</div>
+      <div class="legend-item"><div class="legend-color" style="background:#db61a2"></div>Notifications</div>
+      <div class="legend-item"><div class="legend-color" style="background:#8b949e"></div>Admission CRM</div>
+    </div>
+    <div class="mermaid">
+flowchart TD
+    subgraph VAC["VAC MODULE"]
+        direction TB
+        VC[("vac_courses\n93 courses")]
+        VL[("vac_lessons\n2,746 lessons")]
+        VE[("vac_enrollments")]
+        VP[("vac_learner_progress")]
+        VCP[("vac_course_programmes")]
+        CT[("case_tracks\n6 tracks")]
+        CTC[("case_track_courses")]
+        CTE[("case_track_enrollments")]
+        CB[("case_batches")]
+        CLP[("case_learner_progress")]
+        CA[("case_alerts")]
+        CGR[("case_graduation_reqs")]
+    end
+
+    subgraph ORG["ORGANIZATION MODULE"]
+        direction TB
+        INST[("institutions")]
+        PROG[("programs")]
+        SEM[("semesters")]
+        DEPT[("departments")]
+    end
+
+    subgraph LEARN["LEARNERS MODULE"]
+        direction TB
+        PROF[("profiles\nuser identity")]
+        LP[("learners_profiles\nstudent data")]
+    end
+
+    subgraph BILL["BILLING MODULE"]
+        direction TB
+        BSB[("billing_student_bills")]
+        BR[("billing_receipts")]
+        BD[("billing_discounts")]
+    end
+
+    subgraph ATT["ATTENDANCE MODULE"]
+        direction TB
+        SA[("student_attendance")]
+        TT[("timetables")]
+        TSC[("timetable_slot_continuity")]
+    end
+
+    subgraph STAFF["STAFF MODULE"]
+        direction TB
+        ST[("staff")]
+        SP[("staff_plans")]
+        SPC[("staff_plan_courses")]
+    end
+
+    subgraph NOTIF["NOTIFICATION MODULE"]
+        direction TB
+        NOT[("notifications")]
+        UN[("user_notifications")]
+        PS[("push_subscriptions")]
+    end
+
+    subgraph ADM["ADMISSION CRM"]
+        direction TB
+        AL[("admission_leads")]
+        AA[("admission_applications")]
+    end
+
+    %% Organization connections
+    INST -->|institution_id| VC
+    INST -->|institution_id| CB
+    INST -->|institution_id| CTC
+    INST -->|institution_id| CLP
+    INST -->|institution_id| CGR
+    PROG -->|programme_id| VC
+    PROG -->|programme_id| VCP
+    PROG -->|programme_id| CTC
+    PROG -->|programme_id| CLP
+    PROG -->|programme_id| CGR
+
+    %% Learner connections
+    PROF -->|user_id| VE
+    PROF -->|user_id| VP
+    PROF -->|user_id| CTE
+    PROF -->|user_id| CLP
+    PROF -->|user_id| CA
+    LP -->|programme for recommendations| VCP
+
+    %% Billing connections
+    VE -->|"enrollment triggers bill"| BSB
+    BSB -->|"payment confirms"| BR
+    BR -->|"update payment_status"| VE
+
+    %% Attendance connections
+    SA -->|"filtered by VAC course"| CTE
+    TT -->|"VAC timetable slots"| SA
+    TSC -->|"course → slot mapping"| SA
+
+    %% Staff connections
+    ST -->|facilitator_id| CB
+    SPC -->|"VAC course assignment"| VC
+    PROF -->|coordinator_id| CA
+
+    %% Notification connections
+    CA -->|"alert → notification"| NOT
+    NOT -->|"per-user delivery"| UN
+    UN -->|"push delivery"| PS
+
+    %% Admission CRM (indirect)
+    AA -->|"enrolled → learner"| LP
+    LP -->|"student can access"| VE
+
+    style VAC fill:#0d1117,stroke:#58a6ff,color:#e1e4e8
+    style ORG fill:#0d1117,stroke:#3fb950,color:#e1e4e8
+    style LEARN fill:#0d1117,stroke:#bc8cff,color:#e1e4e8
+    style BILL fill:#0d1117,stroke:#f85149,color:#e1e4e8
+    style ATT fill:#0d1117,stroke:#d29922,color:#e1e4e8
+    style STAFF fill:#0d1117,stroke:#f0883e,color:#e1e4e8
+    style NOTIF fill:#0d1117,stroke:#db61a2,color:#e1e4e8
+    style ADM fill:#0d1117,stroke:#8b949e,color:#e1e4e8
+    </div>
+  </div>
+</div>
+
+<!-- ======================== BILLING ======================== -->
+<div class="diagram-section" id="billing">
+  <div class="diagram-card">
+    <h2>Billing Integration Flow</h2>
+    <div class="subtitle">Enrollment triggers bill generation — payment unlocks course access</div>
+    <div class="mermaid">
+sequenceDiagram
+    participant L as Learner
+    participant VAC as VAC Module
+    participant BILL as Billing Module
+    participant HDFC as HDFC Gateway
+    participant DB as Database
+
+    L->>VAC: Click "Enroll Now"
+    VAC->>DB: INSERT vac_enrollments<br/>payment_status: pending
+
+    alt Fee = 0
+        VAC->>DB: UPDATE payment_status = 'waived'
+        VAC->>L: Access Granted
+    else Fee > 0
+        VAC->>BILL: Generate billing_student_bills<br/>amount: course.fee
+        BILL->>DB: INSERT billing_student_bills<br/>status: unpaid
+
+        L->>BILL: Visit /billing/schedule
+        L->>BILL: Click "Pay Now"
+        BILL->>HDFC: Create Payment Session
+
+        HDFC->>L: Payment Page
+        L->>HDFC: Enter Card / UPI
+        HDFC->>BILL: Payment Callback (success)
+
+        BILL->>DB: INSERT billing_receipts
+        BILL->>DB: UPDATE billing_student_bills<br/>status: paid
+        BILL->>DB: UPDATE vac_enrollments<br/>payment_status: paid<br/>payment_date: now()<br/>payment_reference: receipt#
+
+        BILL->>L: Payment Confirmed
+        VAC->>L: Full Course Access Granted
+    end
+
+    Note over L,DB: EDGE CASES
+
+    alt Scholarship / Discount
+        BILL->>DB: INSERT billing_discounts<br/>reduced final_amount
+    end
+
+    alt Course Withdrawal
+        L->>VAC: Drop Course
+        VAC->>BILL: Process Refund
+        BILL->>DB: INSERT billing_refunds
+        VAC->>DB: UPDATE vac_enrollments<br/>status: cancelled
+    end
+    </div>
+  </div>
+</div>
+
+<!-- ======================== ATTENDANCE ======================== -->
+<div class="diagram-section" id="attendance">
+  <div class="diagram-card">
+    <h2>Attendance Integration — CASE Triple Gate</h2>
+    <div class="subtitle">VAC attendance tracked via existing timetable system — feeds CASE 75% threshold</div>
+    <div class="mermaid">
+flowchart TD
+    subgraph SETUP["SETUP (One-time by Admin)"]
+        S1["Admin creates VAC\ntimetable slots in\n/academic/timetables"]
+        S2["timetable_data JSONB:\nday.period = {\n  course_id: vac_course,\n  staff_ids: [facilitator]\n}"]
+        S3["timetable_slot_continuity\nmaps slot → VAC course"]
+        S1 --> S2 --> S3
+    end
+
+    subgraph MARK["DAILY (Faculty marks attendance)"]
+        M1["Faculty opens\n/academic/attendance"]
+        M2["Selects VAC period slot"]
+        M3["Marks present/absent\nfor each student"]
+        M4["INSERT student_attendance\n{\n  attendance_date,\n  timetable_id,\n  section_id,\n  attendance_data: JSONB\n}"]
+        M1 --> M2 --> M3 --> M4
+    end
+
+    subgraph CALC["CASE GATE CALCULATION"]
+        C1["Query: student_attendance\nJOIN timetable_slot_continuity\nJOIN case_track_courses\nWHERE track_id = X\nAND user_id = Y"]
+        C2["attended = COUNT(present)\ntotal = COUNT(all classes)"]
+        C3["attendance_pct =\nattended / total * 100"]
+        C4{">= 75%?"}
+        C1 --> C2 --> C3 --> C4
+        C4 -->|YES| C5["completion_gate_attendance\n= TRUE ✅"]
+        C4 -->|NO| C6["completion_gate_attendance\n= FALSE ❌\nShow warning to learner"]
+    end
+
+    S3 --> M1
+    M4 --> C1
+
+    style SETUP fill:#1a2332,stroke:#3fb950,color:#e1e4e8
+    style MARK fill:#1a2332,stroke:#58a6ff,color:#e1e4e8
+    style CALC fill:#1a2332,stroke:#d29922,color:#e1e4e8
+    style C5 fill:#238636,stroke:#3fb950,color:#fff
+    style C6 fill:#da3633,stroke:#f85149,color:#fff
+    </div>
+  </div>
+</div>
+
+<!-- ======================== STATES ======================== -->
+<div class="diagram-section" id="states">
+  <div class="diagram-card">
+    <h2>Enrollment Status — State Machine</h2>
+    <div class="subtitle">vac_enrollments.status transitions</div>
+    <div class="mermaid">
+stateDiagram-v2
+    [*] --> active : Learner enrolls
+    active --> completed : All 30 lessons done
+    active --> expired : 30 days no payment
+    active --> cancelled : Student withdraws
+
+    completed --> [*] : Certificate available
+
+    state active {
+        [*] --> payment_pending
+        payment_pending --> payment_paid : HDFC confirms
+        payment_pending --> payment_waived : Fee = 0 or scholarship
+        payment_pending --> payment_refunded : Cancelled + refund
+    }
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <h2>CASE Track Enrollment — State Machine</h2>
+    <div class="subtitle">case_track_enrollments.status transitions</div>
+    <div class="mermaid">
+stateDiagram-v2
+    [*] --> enrolled : Placement test taken
+    enrolled --> in_progress : First class attended
+    in_progress --> completed : All 3 gates passed
+    in_progress --> incomplete : Semester ends, gates not met
+    incomplete --> retry : Re-enroll next semester
+
+    retry --> enrolled : New enrollment created
+
+    completed --> [*] : Track done, next track unlocked
+
+    state "Triple Gate Check" as gate {
+        [*] --> checking
+        checking --> attendance_ok : >= 75%
+        checking --> grader_ok : >= 80%
+        checking --> project_ok : Submitted + scored
+    }
+    </div>
+  </div>
+
+  <div class="diagram-card">
+    <h2>CASE Risk Level — State Machine</h2>
+    <div class="subtitle">case_learner_progress.risk_level — recalculated daily by cron</div>
+    <div class="mermaid">
+stateDiagram-v2
+    [*] --> on_track : Initial enrollment
+
+    on_track --> at_risk : tracks_per_sem_needed = 2
+    at_risk --> critical : tracks_per_sem_needed >= 3
+    critical --> overdue : 0 semesters left + not done
+
+    on_track --> completed : 6 tracks done
+    at_risk --> completed : 6 tracks done
+    critical --> completed : 6 tracks done
+    at_risk --> on_track : Completed tracks, pace improved
+    critical --> at_risk : Completed track, reduced backlog
+
+    completed --> [*]
+
+    note right of on_track : <= 1 track/semester needed
+    note right of at_risk : 60-day alert + coordinator notified
+    note right of critical : 30-day alert + HOD notified
+    note right of overdue : Enforcement triggered
+    </div>
+  </div>
+</div>
+
+<!-- ======================== DATA FLOW ======================== -->
+<div class="diagram-section" id="data">
+  <div class="diagram-card">
+    <h2>Complete Data Flow Architecture</h2>
+    <div class="subtitle">Write paths, read paths, and cron paths</div>
+    <div class="mermaid">
+flowchart LR
+    subgraph WRITES["WRITE PATHS"]
+        direction TB
+        AW["Admin Writes"]
+        LW["Learner Writes"]
+        CW["Cron Writes"]
+
+        AW --> AW1["Create/Edit Course\n→ vac_courses"]
+        AW --> AW2["Create/Edit Lessons\n→ vac_lessons"]
+        AW --> AW3["Configure Tracks\n→ case_tracks"]
+        AW --> AW4["Create Batches\n→ case_batches"]
+        AW --> AW5["Set Grad Reqs\n→ case_graduation_reqs"]
+
+        LW --> LW1["Enroll\n→ vac_enrollments"]
+        LW --> LW2["Take Placement\n→ case_track_enrollments"]
+        LW --> LW3["Complete Lesson\n→ vac_learner_progress"]
+        LW --> LW4["Submit Project\n→ case_track_enrollments"]
+
+        CW --> CW1["Risk Calculation\n→ case_learner_progress"]
+        CW --> CW2["Generate Alerts\n→ case_alerts"]
+        CW --> CW3["Send Notifications\n→ notifications"]
+    end
+
+    subgraph READS["READ PATHS"]
+        direction TB
+        LR1["/vac\n← vac_courses\n+ vac_course_programmes"]
+        LR2["/vac/courseId\n← vac_lessons\n+ vac_learner_progress"]
+        LR3["/vac/my-courses\n← vac_enrollments_with_details\n(VIEW)"]
+        LR4["/vac/case\n← case_tracks\n+ case_track_enrollments\n+ case_learner_progress"]
+        LR5["/vac/admin/analytics\n← case_graduation_readiness\n(VIEW)\n+ case_risk_calculator\n(VIEW)\n+ get_vac_course_\nenrollment_stats()\n(FUNCTION)"]
+    end
+
+    subgraph EXTERNAL["EXTERNAL DATA"]
+        direction TB
+        EX1["institutions\nprograms\nsemesters"]
+        EX2["profiles\nlearners_profiles"]
+        EX3["billing_student_bills\nbilling_receipts"]
+        EX4["student_attendance\ntimetables"]
+        EX5["notifications\npush_subscriptions"]
+    end
+
+    WRITES --> READS
+    EXTERNAL --> READS
+
+    style WRITES fill:#0d1117,stroke:#58a6ff,color:#e1e4e8
+    style READS fill:#0d1117,stroke:#3fb950,color:#e1e4e8
+    style EXTERNAL fill:#0d1117,stroke:#f0883e,color:#e1e4e8
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#0d1117',
+      primaryColor: '#1f6feb',
+      primaryTextColor: '#e1e4e8',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#1c2128',
+      fontFamily: 'Segoe UI, system-ui, sans-serif',
+      fontSize: '14px',
+      noteBkgColor: '#1c2128',
+      noteTextColor: '#8b949e',
+      noteBorderColor: '#30363d',
+    },
+    flowchart: { curve: 'basis', padding: 20 },
+    sequence: { mirrorActors: false },
+    gantt: { barHeight: 25 }
+  });
+
+  function show(id) {
+    document.querySelectorAll('.diagram-section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    event.target.classList.add('active');
+  }
+</script>
+
+</body>
+</html>

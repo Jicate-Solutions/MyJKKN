@@ -665,7 +665,80 @@ CREATE TRIGGER wa_personal_message_logs_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- Personal WhatsApp Templates updated_at trigger (Added: 2026-04-02)
+CREATE TRIGGER wa_personal_templates_updated_at
+    BEFORE UPDATE ON wa_personal_message_templates
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Auto-Trigger Rules updated_at trigger (Added: 2026-04-02)
+CREATE TRIGGER wa_auto_trigger_rules_updated_at
+    BEFORE UPDATE ON wa_auto_trigger_rules
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Personal WhatsApp Message Queue updated_at trigger (Added: 2026-04-02)
+CREATE TRIGGER wa_personal_queue_updated_at
+    BEFORE UPDATE ON wa_personal_message_queue
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+
+-- ================================================================================
+-- SECTION: VAC + CASE Module Triggers (Added: 2026-04-02)
+-- ================================================================================
+
+-- Timestamp triggers for VAC tables
+CREATE TRIGGER update_vac_courses_updated_at
+    BEFORE UPDATE ON vac_courses
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+CREATE TRIGGER update_vac_lessons_updated_at
+    BEFORE UPDATE ON vac_lessons
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+CREATE TRIGGER update_vac_enrollments_updated_at
+    BEFORE UPDATE ON vac_enrollments
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+CREATE TRIGGER update_vac_learner_progress_updated_at
+    BEFORE UPDATE ON vac_learner_progress
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+-- Timestamp triggers for CASE tables
+CREATE TRIGGER update_case_tracks_updated_at
+    BEFORE UPDATE ON case_tracks
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+CREATE TRIGGER update_case_track_enrollments_updated_at
+    BEFORE UPDATE ON case_track_enrollments
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+CREATE TRIGGER update_case_batches_updated_at
+    BEFORE UPDATE ON case_batches
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+CREATE TRIGGER update_case_learner_progress_updated_at
+    BEFORE UPDATE ON case_learner_progress
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+CREATE TRIGGER update_case_graduation_requirements_updated_at
+    BEFORE UPDATE ON case_graduation_requirements
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+-- Business logic trigger: Check CASE track prerequisites before enrollment
+CREATE TRIGGER check_case_track_prerequisite_trigger
+    BEFORE INSERT ON case_track_enrollments
+    FOR EACH ROW EXECUTE FUNCTION check_case_track_prerequisite();
+
+-- Business logic trigger: Auto-update learner progress when track enrollment completes
+CREATE TRIGGER update_case_progress_on_track_complete
+    AFTER UPDATE OF status ON case_track_enrollments
+    FOR EACH ROW
+    WHEN (NEW.status = 'completed' AND OLD.status != 'completed')
+    EXECUTE FUNCTION update_case_learner_progress();
+
 -- ================================================================================
 -- End of Triggers File
--- Total Triggers: 89 (Updated: 2026-03-16)
+-- Total Triggers: 103 (Updated: 2026-04-02) — Added 11 VAC/CASE triggers
 -- ================================================================================

@@ -245,6 +245,22 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/work-pulse/agents': 'work_pulse.agents.view',
   '/work-pulse/impact': 'work_pulse.impact.view',
 
+  // VAC (Value-Added Courses) Module
+  '/vac': 'vac.courses.view',
+  '/vac/my-courses': 'vac.my_courses.view',
+  '/vac/progress': 'vac.progress.view',
+  '/vac/case': 'vac.case.view',
+  '/vac/admin': 'vac.admin.view',
+  '/vac/admin/courses': 'vac.admin.courses.view',
+  '/vac/admin/courses/new': 'vac.admin.courses.create',
+  '/vac/admin/enrollments': 'vac.admin.enrollments.view',
+  '/vac/admin/analytics': 'vac.admin.analytics.view',
+  '/vac/admin/case': 'vac.admin.case.view',
+  '/vac/admin/case/tracks': 'vac.admin.case.tracks.view',
+  '/vac/admin/case/batches': 'vac.admin.case.batches.view',
+  '/vac/admin/case/readiness': 'vac.admin.case.readiness.view',
+  '/vac/admin/settings': 'vac.admin.settings.view',
+
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
@@ -1549,6 +1565,65 @@ export function GetPages(pathname: string): MenuGroup[] {
           }
         ];
       })()
+    },
+    {
+      groupLabel: 'Value Added Courses',
+      menus: [
+        {
+          href: '/vac',
+          label: 'Course Catalog',
+          active: pathname === '/vac',
+          icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/vac/my-courses',
+          label: 'My Courses',
+          active: pathname.startsWith('/vac/my-courses'),
+          icon: GraduationCap,
+          submenus: []
+        },
+        {
+          href: '/vac/case',
+          label: 'CASE Tracker',
+          active: pathname.startsWith('/vac/case') && !pathname.includes('/admin'),
+          icon: Award,
+          submenus: []
+        },
+        {
+          href: '/vac/admin',
+          label: 'VAC Admin',
+          active: pathname.startsWith('/vac/admin'),
+          icon: Settings,
+          submenus: [
+            {
+              href: '/vac/admin/courses',
+              label: 'Courses',
+              active: pathname.startsWith('/vac/admin/courses')
+            },
+            {
+              href: '/vac/admin/enrollments',
+              label: 'Enrollments',
+              active: pathname.startsWith('/vac/admin/enrollments')
+            },
+            {
+              href: '/vac/admin/analytics',
+              label: 'Analytics',
+              active: pathname.startsWith('/vac/admin/analytics')
+            },
+            {
+              href: '/vac/admin/case',
+              label: 'CASE Admin',
+              active: pathname.startsWith('/vac/admin/case')
+            },
+            {
+              href: '/vac/admin/settings',
+              label: 'Settings',
+              active: pathname.startsWith('/vac/admin/settings')
+            }
+          ]
+        }
+      ]
     },
     {
       groupLabel: 'Work Pulse',
