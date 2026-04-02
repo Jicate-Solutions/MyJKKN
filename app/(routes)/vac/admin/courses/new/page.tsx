@@ -35,7 +35,7 @@ import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 export default function CreateCoursePage() {
   const router = useRouter();
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id || '';
+  const institutionId = profile?.institution_id;
   const createMutation = useCreateVACCourse();
 
   const [form, setForm] = useState<Partial<CreateVACCourseInput>>({
@@ -48,7 +48,6 @@ export default function CreateCoursePage() {
     fee: 0,
     course_category: 'value_add',
     faculty_eligible: false,
-    institution_id: institutionId,
   });
 
   const updateField = <K extends keyof CreateVACCourseInput>(
@@ -60,7 +59,7 @@ export default function CreateCoursePage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.code || !form.name) return;
+    if (!form.code || !form.name || !institutionId) return;
 
     createMutation.mutate(
       {

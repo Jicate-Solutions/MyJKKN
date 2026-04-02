@@ -190,11 +190,34 @@ export class VACService {
   /**
    * Create a new VAC course with optional programme mappings.
    */
+  /**
+   * Strips empty-string values from UUID and optional fields
+   * so Supabase doesn't receive '' where NULL is expected.
+   */
+  private static sanitizePayload<T extends Record<string, unknown>>(payload: T): T {
+    const cleaned = { ...payload };
+    for (const key of Object.keys(cleaned)) {
+      const val = cleaned[key];
+      if (val === '' || val === undefined) {
+        (cleaned as any)[key] = null;
+      }
+    }
+    return cleaned;
+  }
+
   static async createCourse(input: CreateVACCourseInput): Promise<VACCourse> {
     const supabase = this.getSupabase();
 
     // Separate programme_ids from the course payload
-    const { programme_ids, ...coursePayload } = input;
+    const { programme_ids, ...rawPayload } = input;
+
+    // Sanitize: convert empty strings / undefined to null for UUID columns
+    const coursePayload = this.sanitizePayload(rawPayload);
+
+    // Ensure institution_id is present (required)
+    if (!coursePayload.institution_id) {
+      throw new Error('Institution ID is required to create a course.');
+    }
 
     const { data: course, error } = await supabase
       .from('vac_courses')
@@ -242,11 +265,11 @@ export class VACService {
 
     const { programme_ids, ...coursePayload } = input;
 
-    // Only update fields that were actually provided
+    // Only update fields that were actually provided — sanitize empty strings to null
     const updateData: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(coursePayload)) {
       if (value !== undefined) {
-        updateData[key] = value;
+        updateData[key] = value === '' ? null : value;
       }
     }
 
