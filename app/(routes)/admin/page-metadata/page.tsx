@@ -26,6 +26,7 @@ import {
 import { usePageMetadata } from '@/hooks/use-page-metadata';
 import { getPageRegistry, ICON_MAP } from '@/lib/navigation/page-registry';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { PageBreadcrumb } from '@/components/navigation';
 import { Search, Edit2, Trash2, Plus, FileText, Tag, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -35,6 +36,13 @@ export default function PageMetadataPage() {
   return (
     <PermissionGuard module="system" action="view">
       <ContentLayout title="Page Metadata">
+        <PageBreadcrumb
+          items={[
+            { label: 'Dashboard', href: '/' },
+            { label: 'Administration' },
+            { label: 'Page Metadata' },
+          ]}
+        />
         <PageMetadataContent />
       </ContentLayout>
     </PermissionGuard>
