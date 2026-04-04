@@ -5,6 +5,11 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { CommunicationTemplatesService } from './communication-templates-service';
 import { WhatsAppConsentService } from '@/lib/services/whatsapp/whatsapp-consent-service';
+import {
+  sendTextMessage,
+  isWhatsAppConfigured,
+  type WAMessageResponse,
+} from '@/lib/services/whatsapp/whatsapp-api-client';
 
 // ============================================================================
 // TYPES
@@ -173,17 +178,55 @@ export class WhatsAppCampaignService {
         };
       }
 
-      // Note: In production, this would call the WhatsApp MCP server
-      // For now, we mark as sent and return the log ID
-      // The actual sending would be handled by a background processor or API route
-      // that has access to the MCP tools
+      // Check if WhatsApp Cloud API is configured
+      if (!isWhatsAppConfigured()) {
+        await this.supabase
+          .from('admission_whatsapp_logs')
+          .update({
+            delivery_status: 'failed',
+            failed_at: new Date().toISOString(),
+            error_message: 'WhatsApp Cloud API not configured (missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID)',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', logEntry.id);
 
-      // Update status to sent (simulated - in real scenario this happens after MCP call)
+        return {
+          success: false,
+          error: 'WhatsApp Cloud API not configured',
+        };
+      }
+
+      // Send via Meta WhatsApp Cloud API
+      let waResult: WAMessageResponse;
+      try {
+        waResult = await sendTextMessage(formattedPhone, messageContent);
+      } catch (apiError) {
+        console.error('[admission/whatsapp-campaign] Meta API error:', apiError);
+        await this.supabase
+          .from('admission_whatsapp_logs')
+          .update({
+            delivery_status: 'failed',
+            failed_at: new Date().toISOString(),
+            error_message: apiError instanceof Error ? apiError.message : 'Meta API call failed',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', logEntry.id);
+
+        return {
+          success: false,
+          error: apiError instanceof Error ? apiError.message : 'Meta API call failed',
+        };
+      }
+
+      const whatsappMessageId = waResult.messages?.[0]?.id || null;
+
+      // Update status to sent with Meta message ID
       const { error: updateError } = await this.supabase
         .from('admission_whatsapp_logs')
         .update({
           delivery_status: 'sent',
           sent_at: new Date().toISOString(),
+          whatsapp_message_id: whatsappMessageId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', logEntry.id);
@@ -195,6 +238,7 @@ export class WhatsAppCampaignService {
       return {
         success: true,
         message_id: logEntry.id,
+        whatsapp_message_id: whatsappMessageId || undefined,
       };
     } catch (error) {
       console.error('[admission/whatsapp-campaign] Error sending message:', error);
