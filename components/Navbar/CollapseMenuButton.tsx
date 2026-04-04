@@ -38,6 +38,7 @@ interface CollapseMenuButtonProps {
   active: boolean;
   submenus: Submenu[];
   isOpen?: boolean;
+  shortcut?: string;
 }
 
 export function CollapseMenuButton({
@@ -45,7 +46,8 @@ export function CollapseMenuButton({
   label,
   active,
   submenus,
-  isOpen
+  isOpen,
+  shortcut
 }: CollapseMenuButtonProps) {
   const isSubmenuActive = submenus.some((submenu) => submenu.active);
   const [isCollapsed, setIsCollapsed] = useState<boolean>(isSubmenuActive);
@@ -82,12 +84,17 @@ export function CollapseMenuButton({
             </div>
             <div
               className={cn(
-                'whitespace-nowrap',
+                'whitespace-nowrap flex items-center gap-1',
                 isOpen
                   ? 'translate-x-0 opacity-100'
                   : '-translate-x-96 opacity-0'
               )}
             >
+              {shortcut && (
+                <kbd className='hidden lg:inline-flex h-4 select-none items-center rounded border px-1 font-mono text-[9px] font-medium text-muted-foreground/60 dark:border-gray-700 bg-transparent'>
+                  {shortcut}
+                </kbd>
+              )}
               <ChevronDown
                 size={18}
                 className='transition-transform duration-200'
