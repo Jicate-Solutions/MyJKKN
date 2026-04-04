@@ -62,7 +62,7 @@ export function CollapseMenuButton({
       >
         <Button
           variant={active ? 'secondary' : 'ghost'}
-          className='w-full justify-start h-10'
+          className={cn('w-full justify-start h-10', !active && 'dark:text-gray-400')}
         >
           <div className='w-full items-center flex justify-between'>
             <div className='flex items-center'>
@@ -101,7 +101,7 @@ export function CollapseMenuButton({
           <Button
             key={index}
             variant={active ? 'secondary' : 'ghost'}
-            className='w-full justify-start h-10 mb-1'
+            className={cn('w-full justify-start h-10 mb-1', !active && 'dark:text-gray-400')}
             asChild
           >
             <Link href={href}>
@@ -131,7 +131,7 @@ export function CollapseMenuButton({
             <DropdownMenuTrigger asChild>
               <Button
                 variant={active ? 'secondary' : 'ghost'}
-                className='w-full justify-start h-10 mb-1'
+                className={cn('w-full justify-start h-10 mb-1', !active && 'dark:text-gray-400')}
               >
                 <div className='w-full items-center flex justify-between'>
                   <div className='flex items-center'>

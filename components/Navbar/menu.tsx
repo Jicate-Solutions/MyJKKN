@@ -100,7 +100,7 @@ export function Menu({ isOpen }: MenuProps) {
                 key={index}
               >
                 {(isOpen && groupLabel) || isOpen === undefined ? (
-                  <p className='text-sm font-medium text-muted-foreground px-4 pb-2 max-w-[248px] truncate'>
+                  <p className='text-sm font-medium text-muted-foreground dark:text-white/80 px-4 pb-2 max-w-[248px] truncate'>
                     {groupLabel}
                   </p>
                 ) : !isOpen && isOpen !== undefined && groupLabel ? (
@@ -128,7 +128,7 @@ export function Menu({ isOpen }: MenuProps) {
                             <TooltipTrigger asChild>
                               <Button
                                 variant={active ? 'secondary' : 'ghost'}
-                                className='w-full justify-start h-10 mb-1'
+                                className={cn('w-full justify-start h-10 mb-1', !active && 'dark:text-gray-400')}
                                 asChild
                               >
                                 <Link href={href}>
