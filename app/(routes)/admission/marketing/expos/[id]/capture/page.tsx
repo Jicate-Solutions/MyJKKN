@@ -149,6 +149,7 @@ function ExpoCaptureContent() {
         eventId={eventId}
         institutionId={event.institution_id}
         capturedBy={access.currentUserId || ''}
+        waChannelPreference={event.wa_channel_preference || 'meta_waba'}
       />
 
       <CaptureStatsBar

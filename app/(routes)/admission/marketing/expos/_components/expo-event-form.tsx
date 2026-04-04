@@ -42,6 +42,8 @@ import {
   useFilteredStudentsForDropdown,
 } from '@/hooks/admission/use-referral-dropdowns';
 import { TeamMemberPicker } from './team-member-picker';
+import { ChannelPreferenceSelector } from '@/components/whatsapp/channel-preference-selector';
+import type { ExpoWAChannelPreference } from '@/types/whatsapp-personal';
 import type {
   ExpoEvent,
   CreateExpoEventInput,
@@ -96,8 +98,54 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
       approvedById: initialData?.approved_by_id ?? '',
       eventStatus: initialData?.event_status ?? 'planned' as ExpoEventStatus,
       notes: initialData?.notes ?? '',
-      teamMembers: [] as CreateExpoTeamMemberInput[],
+      waChannelPreference: (initialData?.wa_channel_preference ?? 'meta_waba') as ExpoWAChannelPreference,
+      teamMembers: (initialData?.team_members || []).map(m => ({
+        member_type: m.member_type,
+        staff_id: m.staff_id || undefined,
+        student_id: m.student_id || undefined,
+        name: m.name,
+        phone: m.phone || undefined,
+        role: m.role,
+      })) as CreateExpoTeamMemberInput[],
     });
+
+  // ── Sync stale draft with fresh initialData in edit mode ──────────────
+  // SessionStorage draft may have been saved before team member / WA fields
+  // were populated. Re-initialize those fields from initialData on first load.
+  useEffect(() => {
+    if (mode !== 'edit' || !initialData) return;
+
+    const updates: Record<string, any> = {};
+
+    // Sync team leader if draft is empty but server has data
+    if (!draft.teamLeaderId && initialData.team_leader_id) {
+      updates.teamLeaderId = initialData.team_leader_id;
+    }
+    // Sync approved by if draft is empty but server has data
+    if (!draft.approvedById && initialData.approved_by_id) {
+      updates.approvedById = initialData.approved_by_id;
+    }
+    // Sync team members if draft is empty but server has data
+    if (draft.teamMembers.length === 0 && initialData.team_members && initialData.team_members.length > 0) {
+      updates.teamMembers = initialData.team_members.map(m => ({
+        member_type: m.member_type,
+        staff_id: m.staff_id || undefined,
+        student_id: m.student_id || undefined,
+        name: m.name,
+        phone: m.phone || undefined,
+        role: m.role,
+      }));
+    }
+    // Sync WA channel preference
+    if (draft.waChannelPreference === 'meta_waba' && initialData.wa_channel_preference && initialData.wa_channel_preference !== 'meta_waba') {
+      updates.waChannelPreference = initialData.wa_channel_preference;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      setDraftValues(updates);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, initialData?.id]);
 
   // Convenience aliases for readability
   const selectedMasterId = draft.selectedMasterId;
@@ -115,6 +163,10 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
   const { data: masters, isLoading: mastersLoading } = useExpoMasters({
     is_active: true,
   });
+
+  // ── Pre-loaded names from joined data (for edit mode display) ───────────
+  const initialTeamLeaderName = initialData?.team_leader?.full_name || null;
+  const initialApprovedByName = initialData?.approved_by?.full_name || null;
 
   // ── Team Leader hierarchy filter state ──────────────────────────────────
   const [leaderType, setLeaderType] = useState<'staff' | 'student'>('staff');
@@ -263,6 +315,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
         ...(approvedById ? { approved_by_id: approvedById } : {}),
         event_status: eventStatus,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        wa_channel_preference: draft.waChannelPreference,
         ...(teamMembers.length > 0 ? { team_members: teamMembers } : {}),
       };
 
@@ -275,7 +328,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
     } else {
       if (!initialData?.id) return;
 
-      const input: UpdateExpoEventInput & { id: string } = {
+      const input: UpdateExpoEventInput & { id: string; team_members?: CreateExpoTeamMemberInput[] } = {
         id: initialData.id,
         event_name: eventName.trim(),
         city: city.trim(),
@@ -293,6 +346,8 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
         ...(approvedById ? { approved_by_id: approvedById } : {}),
         event_status: eventStatus,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        wa_channel_preference: draft.waChannelPreference,
+        ...(teamMembers.length > 0 ? { team_members: teamMembers } : {}),
       };
 
       updateMutation.mutate(input, {
@@ -740,7 +795,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                           ? 'Loading…'
                           : !leaderInstId
                             ? 'Select institution first'
-                            : leaderList.length === 0
+                            : leaderList.length === 0 && !teamLeaderId
                               ? 'No results'
                               : 'Select team leader'
                       }
@@ -748,6 +803,12 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">— None —</SelectItem>
+                    {/* Show current selection from joined data if not in filtered list */}
+                    {teamLeaderId && initialTeamLeaderName && !leaderList.some(u => u.id === teamLeaderId) && (
+                      <SelectItem key={teamLeaderId} value={teamLeaderId}>
+                        {initialTeamLeaderName} (current)
+                      </SelectItem>
+                    )}
                     {leaderList.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
                         {'role' in u && (u as any).role
@@ -761,12 +822,10 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
             </div>
           </div>
 
-          {mode === 'create' && (
-            <TeamMemberPicker
-              members={teamMembers}
-              onChange={(members) => setDraft('teamMembers', members)}
-            />
-          )}
+          <TeamMemberPicker
+            members={teamMembers}
+            onChange={(members) => setDraft('teamMembers', members)}
+          />
         </CardContent>
       </Card>
 
@@ -828,16 +887,16 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                 onValueChange={(v) =>
                   setDraft('approvedById', v === '__none__' ? '' : v)
                 }
-                disabled={approverLoading || !approverRole}
+                disabled={approverLoading || (!approverRole && !approvedById)}
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      !approverRole
+                      !approverRole && !approvedById
                         ? 'Select role first'
                         : approverLoading
                           ? 'Loading…'
-                          : approverList.length === 0
+                          : approverList.length === 0 && !approvedById
                             ? 'No results'
                             : 'Select approver'
                     }
@@ -845,6 +904,12 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">— None —</SelectItem>
+                  {/* Show current selection from joined data if not in filtered list */}
+                  {approvedById && initialApprovedByName && !approverList.some(u => u.id === approvedById) && (
+                    <SelectItem key={approvedById} value={approvedById}>
+                      {initialApprovedByName} (current)
+                    </SelectItem>
+                  )}
                   {approverList.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.name} ({u.role})
@@ -886,6 +951,12 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
               rows={3}
             />
           </div>
+
+          <ChannelPreferenceSelector
+            value={draft.waChannelPreference}
+            onChange={(v) => setDraft('waChannelPreference', v)}
+            label="WhatsApp Auto-Welcome Channel"
+          />
         </CardContent>
       </Card>
 

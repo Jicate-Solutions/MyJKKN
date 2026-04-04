@@ -53,46 +53,62 @@ body {
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    /* ═══ Ultrahuman-Inspired Dark Cinema Theme ═══ */
+    /* 4-tier surface elevation: L0 (#050506) → L1 (#0A0A0C) → L2 (#141416) → L3 (#2A2A2E) */
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    /* L0 — Deepest background */
+    --background: 240 10% 2%;
+    --foreground: 0 0% 95%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    /* L2 — Elevated card surfaces */
+    --card: 240 7% 8%;
+    --card-foreground: 0 0% 95%;
 
-    --primary: 150 70% 35%;
+    /* L2.5 — Popovers sit above cards */
+    --popover: 240 7% 10%;
+    --popover-foreground: 0 0% 95%;
+
+    /* Brand green — preserved from JKKN identity */
+    --primary: 150 78% 26%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 48 32.6% 17.5%;
-    --secondary-foreground: 48 50% 98%;
+    /* L3 — Interactive surfaces (pills, tags, hover states) */
+    --secondary: 240 5% 17%;
+    --secondary-foreground: 0 0% 90%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    /* Between L1 and L2 — subtle surface variation */
+    --muted: 240 5% 12%;
+    --muted-foreground: 240 4% 63%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    /* Accent highlight surface */
+    --accent: 240 5% 15%;
+    --accent-foreground: 0 0% 95%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    /* Semantic danger — visible on dark surfaces */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 150 70% 35%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
+    /* Ultra-subtle borders — elevation via bg color, not borders */
+    --border: 240 5% 12%;
+    --input: 240 5% 15%;
+    --ring: 150 78% 26%;
+
+    /* Semantic chart colors (health-inspired) */
+    --chart-1: 145 80% 42%;
+    --chart-2: 217 91% 60%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 280 68% 60%;
     --chart-5: 340 75% 55%;
-    --sidebar-background: 240 6% 10%;
-    --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 150 70% 35%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4% 15%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 4% 15%;
-    --sidebar-ring: 150 70% 35%;
+
+    /* Sidebar — slightly darker than main bg for depth */
+    --sidebar-background: 240 10% 3%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 150 78% 26%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 5% 10%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 240 5% 12%;
+    --sidebar-ring: 150 78% 26%;
   }
   .theme {
     --animate-aurora: aurora 8s ease-in-out infinite alternate;
@@ -122,29 +138,25 @@ body {
   }
 
   .dark {
-    /* Glass backgrounds - Dark mode */
-    --glass-primary: hsla(150, 70%, 35%, 0.15);
-    --glass-secondary: hsla(48, 32.6%, 17.5%, 0.2);
-    --glass-card: hsla(222.2, 84%, 4.9%, 0.6);
-    --glass-card-hover: hsla(222.2, 84%, 4.9%, 0.75);
+    /* Glass backgrounds — neutral near-black (no blue tint) */
+    --glass-primary: hsla(150, 78%, 26%, 0.15);
+    --glass-secondary: hsla(240, 5%, 17%, 0.2);
+    --glass-card: hsla(240, 10%, 2%, 0.6);
+    --glass-card-hover: hsla(240, 10%, 2%, 0.75);
 
-    /* Glass borders */
-    --glass-border-light: hsla(255, 255%, 255%, 0.1);
-    --glass-border-strong: hsla(255, 255%, 255%, 0.2);
+    /* Glass borders — hairline white borders (Ultrahuman-style) */
+    --glass-border-light: rgba(255, 255, 255, 0.06);
+    --glass-border-strong: rgba(255, 255, 255, 0.12);
 
-    /* Enhanced shadows for dark mode */
-    --glass-shadow-sm: 0 2px 8px -2px rgba(0, 0, 0, 0.3),
-                       0 4px 16px -4px rgba(0, 0, 0, 0.2),
-                       inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
-    --glass-shadow-md: 0 4px 16px -4px rgba(0, 0, 0, 0.4),
-                       0 8px 32px -8px rgba(0, 0, 0, 0.3),
+    /* Minimal shadows — Ultrahuman uses elevation via bg color, not heavy shadows */
+    --glass-shadow-sm: 0 1px 4px -1px rgba(0, 0, 0, 0.4),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+    --glass-shadow-md: 0 2px 8px -2px rgba(0, 0, 0, 0.5),
+                       inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+    --glass-shadow-lg: 0 4px 16px -4px rgba(0, 0, 0, 0.6),
                        inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
-    --glass-shadow-lg: 0 8px 32px -8px rgba(0, 0, 0, 0.5),
-                       0 16px 64px -16px rgba(0, 0, 0, 0.4),
+    --glass-shadow-xl: 0 8px 32px -8px rgba(0, 0, 0, 0.7),
                        inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
-    --glass-shadow-xl: 0 12px 48px -12px rgba(0, 0, 0, 0.6),
-                       0 24px 96px -24px rgba(0, 0, 0, 0.5),
-                       inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
   }
 }
 

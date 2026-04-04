@@ -33,6 +33,7 @@ interface RapidCaptureFormProps {
   eventId: string;
   institutionId: string;
   capturedBy: string;
+  waChannelPreference?: 'personal' | 'meta_waba' | 'both' | 'none';
 }
 
 interface FormData {
@@ -67,7 +68,7 @@ const INITIAL_FORM: FormData = {
   waOptIn: true,
 };
 
-export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCaptureFormProps) {
+export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannelPreference = 'meta_waba' }: RapidCaptureFormProps) {
   // Persist form data across tab switches and navigation via sessionStorage
   const draftKey = `expo-capture-${eventId}`;
   const { values: form, setValue: setDraftField, setValues: setDraftValues, clearDraft } = useFormDraftObject<FormData>(draftKey, INITIAL_FORM);
@@ -222,6 +223,7 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy }: RapidCa
             eventName: '', // Will be looked up server-side if needed
             institutionId: selectedInstitutionId,
             expoEventId: eventId,
+            channel: waChannelPreference,
           }),
         }).catch(() => { /* silent — WA send failure never blocks capture */ });
       }

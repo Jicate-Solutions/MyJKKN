@@ -620,6 +620,8 @@ export interface ExpoEvent {
   total_team_members: number;
   total_expenses: number;
   total_leads_collected: number;
+  wa_channel_preference: 'personal' | 'meta_waba' | 'both' | 'none';
+  wa_personal_template_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -642,6 +644,8 @@ export interface CreateExpoEventInput {
   approved_by_id?: string;
   event_status?: ExpoEventStatus;
   notes?: string;
+  wa_channel_preference?: 'personal' | 'meta_waba' | 'both' | 'none';
+  wa_personal_template_id?: string;
   team_members?: CreateExpoTeamMemberInput[];
 }
 
@@ -658,6 +662,8 @@ export interface UpdateExpoEventInput {
   approved_by_id?: string;
   event_status?: ExpoEventStatus;
   notes?: string;
+  wa_channel_preference?: 'personal' | 'meta_waba' | 'both' | 'none';
+  wa_personal_template_id?: string | null;
 }
 
 export interface ExpoEventFilters {

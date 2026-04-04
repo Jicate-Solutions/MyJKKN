@@ -139,6 +139,148 @@ export class ExpoWhatsAppService {
   }
 
   /**
+   * Send expo welcome via personal WhatsApp (BYOW).
+   * Finds any ready personal connection and sends the templated message.
+   * Falls back to queueing if no connection is ready.
+   */
+  static async sendExpoWelcomeViaPersonal(input: ExpoWelcomeInput & {
+    templateContent?: string;
+  }): Promise<SendResult> {
+    const supabase = createServiceRoleClient();
+
+    // 1. Check consent
+    const { data: lead } = await (supabase as any)
+      .from('admission_leads')
+      .select('wa_opt_in')
+      .eq('id', input.leadId)
+      .single();
+
+    if (!lead?.wa_opt_in) {
+      return { success: false, skipped: true, skipReason: 'no_consent' };
+    }
+
+    // 2. Build message content from template or default
+    let messageContent = input.templateContent;
+    if (!messageContent) {
+      // Try to get default expo_welcome template for institution
+      const { WhatsAppPersonalTemplateService } = await import(
+        '@/lib/services/whatsapp/whatsapp-personal-template-service'
+      );
+      const template = await WhatsAppPersonalTemplateService.getDefaultTemplate(
+        input.institutionId,
+        'expo_welcome'
+      );
+      if (template) {
+        messageContent = WhatsAppPersonalTemplateService.substituteVariables(template.content, {
+          lead_name: input.leadName,
+          parent_name: input.parentName || undefined,
+          event_name: input.eventName,
+          institution_name: input.institutionName || 'JKKN Institutions',
+        });
+      } else {
+        // Fallback default message
+        messageContent = `Hello ${input.leadName}! Thank you for visiting us at ${input.eventName}. We are excited about your interest in ${input.institutionName || 'JKKN Institutions'}. Our counselor will reach out to you shortly. Reply STOP to opt out.`;
+      }
+    }
+
+    // 3. Find ready personal connection
+    const { WhatsAppPersonalConnectionService } = await import(
+      '@/lib/services/whatsapp/whatsapp-personal-connection-service'
+    );
+    const connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
+
+    if (!connection || connection.status !== 'ready') {
+      // Queue for later
+      await supabase.from('wa_personal_message_queue').insert({
+        institution_id: input.institutionId,
+        lead_id: input.leadId,
+        phone: formatPhoneForWA(input.leadPhone),
+        message_content: messageContent,
+        channel: 'personal',
+        status: 'queued',
+        next_retry_at: new Date(Date.now() + 60_000).toISOString(),
+      });
+      return { success: false, skipped: true, skipReason: 'personal_wa_not_connected_queued' };
+    }
+
+    // 4. Send via Railway service
+    try {
+      const { personalSendMessageAPI } = await import('@/lib/whatsapp/personal-api-client');
+      const jid = formatPhoneForWA(input.leadPhone).replace(/^\+?/, '') + '@c.us';
+      // Convert to JID format for personal WA
+      let cleanPhone = input.leadPhone.replace(/[\s\-()]/g, '');
+      if (cleanPhone.startsWith('+91')) cleanPhone = cleanPhone.slice(1);
+      else if (cleanPhone.startsWith('0')) cleanPhone = '91' + cleanPhone.slice(1);
+      else if (/^[6-9]\d{9}$/.test(cleanPhone)) cleanPhone = '91' + cleanPhone;
+      const personalJid = cleanPhone + '@c.us';
+
+      const clientId = connection.client_id || `dept-${connection.department_id}`;
+      const serviceUrl = connection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
+
+      const result = await personalSendMessageAPI(personalJid, messageContent, {
+        serviceUrl: `${serviceUrl}/clients/${clientId}`,
+        apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+      });
+
+      if (result.success) {
+        // Log to personal message logs
+        const { WhatsAppPersonalMessageService } = await import(
+          '@/lib/services/whatsapp/whatsapp-personal-message-service'
+        );
+        await WhatsAppPersonalMessageService.logMessage({
+          department_id: connection.department_id,
+          connection_id: connection.id,
+          recipient_type: 'individual',
+          recipient_phone: personalJid,
+          message_content: messageContent,
+          lead_id: input.leadId,
+          sent_by: 'system',
+          status: 'sent',
+          whatsapp_message_id: result.messageId,
+        });
+
+        // Also log to queue table for tracking
+        await supabase.from('wa_personal_message_queue').insert({
+          institution_id: input.institutionId,
+          department_id: connection.department_id,
+          lead_id: input.leadId,
+          phone: input.leadPhone,
+          message_content: messageContent,
+          channel: 'personal',
+          status: 'sent',
+          wa_message_id: result.messageId,
+          sent_at: new Date().toISOString(),
+        });
+
+        return { success: true, waMessageId: result.messageId };
+      } else {
+        throw new Error(result.error || 'Personal WA send failed');
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[admission/expo-wa] Personal WA send failed:', {
+        leadId: input.leadId,
+        error: errorMsg,
+      });
+
+      // Queue for retry
+      await supabase.from('wa_personal_message_queue').insert({
+        institution_id: input.institutionId,
+        lead_id: input.leadId,
+        phone: input.leadPhone,
+        message_content: messageContent,
+        channel: 'personal',
+        status: 'failed',
+        error_message: errorMsg,
+        retry_count: 0,
+        next_retry_at: new Date(Date.now() + 120_000).toISOString(),
+      });
+
+      return { success: false, error: errorMsg };
+    }
+  }
+
+  /**
    * Queue a message for later delivery (used when daily limit hit or for retry)
    */
   private static async queueMessage(

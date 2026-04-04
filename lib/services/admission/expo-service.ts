@@ -378,12 +378,15 @@ export class ExpoService {
   /**
    * Update an existing expo event's fields (does not manage team members).
    */
-  static async updateExpoEvent(id: string, input: UpdateExpoEventInput): Promise<ExpoEvent> {
+  static async updateExpoEvent(id: string, input: UpdateExpoEventInput & { team_members?: CreateExpoTeamMemberInput[] }): Promise<ExpoEvent> {
     const supabase = createClientSupabaseClient();
+
+    // Separate team_members from the event update payload
+    const { team_members, ...eventFields } = input;
 
     const { data, error } = await (supabase as any)
       .from('expo_events')
-      .update({ ...input, updated_at: new Date().toISOString() })
+      .update({ ...eventFields, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
@@ -393,7 +396,35 @@ export class ExpoService {
       throw new Error(error.message);
     }
 
-    return data as ExpoEvent;
+    // Sync team members if provided: delete existing, insert new
+    if (team_members && team_members.length > 0) {
+      // Delete existing team members
+      await (supabase as any)
+        .from('expo_event_team_members')
+        .delete()
+        .eq('expo_event_id', id);
+
+      // Insert updated team members
+      const rows = team_members.map((m) => ({
+        expo_event_id: id,
+        ...m,
+      }));
+      const { error: insertError } = await (supabase as any)
+        .from('expo_event_team_members')
+        .insert(rows);
+
+      if (insertError) {
+        console.error('[admission/expos] Failed to update team members:', insertError);
+      }
+
+      // Update total_team_members count
+      await (supabase as any)
+        .from('expo_events')
+        .update({ total_team_members: team_members.length })
+        .eq('id', id);
+    }
+
+    return ExpoService.getExpoEvent(id);
   }
 
   /**

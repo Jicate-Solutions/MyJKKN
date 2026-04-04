@@ -63,6 +63,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { PersonalConnectionTab } from './_components/personal-connection-tab';
+import { PersonalTemplatesTab } from './_components/personal-templates-tab';
+import { AutoTriggerTab } from './_components/auto-trigger-tab';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -392,6 +394,8 @@ function WhatsAppNumbersContent() {
             <TabsList>
               <TabsTrigger value="business">Business Numbers</TabsTrigger>
               <TabsTrigger value="personal">Personal WhatsApp</TabsTrigger>
+              <TabsTrigger value="templates">Message Templates</TabsTrigger>
+              <TabsTrigger value="auto-triggers">Auto-Triggers</TabsTrigger>
             </TabsList>
 
             <TabsContent value="business" className="space-y-6">
@@ -553,6 +557,26 @@ function WhatsAppNumbersContent() {
                   </p>
                 )}
               </div>
+            </TabsContent>
+
+            <TabsContent value="templates" className="space-y-6">
+              {institutionId ? (
+                <PersonalTemplatesTab institutionId={institutionId} />
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  No institution selected.
+                </p>
+              )}
+            </TabsContent>
+
+            <TabsContent value="auto-triggers" className="space-y-6">
+              {institutionId ? (
+                <AutoTriggerTab institutionId={institutionId} />
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  No institution selected.
+                </p>
+              )}
             </TabsContent>
           </Tabs>
         </div>
