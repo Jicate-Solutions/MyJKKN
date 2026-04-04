@@ -12,7 +12,7 @@ import type {
   FunnelStage,
   LeadPriority
 } from '@/types/admission';
-import { sanitizeSearch } from '@/lib/config/pagination';
+
 import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -104,119 +104,57 @@ export class LeadService {
    * Get leads with filters and pagination
    */
   static async getLeads(filters: LeadFilters): Promise<LeadListResponse> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = (this.supabase as any)
-      .from('admission_leads')
-      .select(`
-        *,
-        counselor:admission_counselors(id, name, email)
-      `, { count: 'exact' });
+    // Route through server-side API to bypass RLS overhead.
+    // The admission_leads RLS policies cascade 3 levels deep
+    // (admission_leads → user_roles → profiles) and exceed the
+    // 8-second authenticated role statement_timeout.
+    const params = new URLSearchParams();
 
-    // Apply filters
-    if (filters.institution_id) {
-      query = query.eq('institution_id', filters.institution_id);
-    }
+    if (filters.institution_id) params.set('institution_id', filters.institution_id);
+    if (filters.page) params.set('page', String(filters.page));
+    if (filters.limit) params.set('limit', String(filters.limit));
+    if (filters.search) params.set('search', filters.search);
+    if (filters.sort_by) params.set('sort_by', filters.sort_by);
+    if (filters.sort_order) params.set('sort_order', filters.sort_order);
+    if (filters.date_from) params.set('date_from', filters.date_from);
+    if (filters.date_to) params.set('date_to', filters.date_to);
+    if (filters.expo_event_id) params.set('expo_event_id', filters.expo_event_id);
+    if (filters.captured_by) params.set('captured_by', filters.captured_by);
+    if (filters.counselor_id) params.set('counselor_id', filters.counselor_id);
+
+    // Funnel stage: support single value (array handled by caller)
     if (filters.funnel_stage) {
-      // Filter by stage (enum column) with fallback to funnel_stage (legacy)
-      // Sanitize stage values to prevent PostgREST filter injection
-      const sanitizeStage = (s: string) => s.replace(/[^a-z_]/g, '');
-      if (Array.isArray(filters.funnel_stage)) {
-        const safe = filters.funnel_stage.map(sanitizeStage).filter(Boolean);
-        if (safe.length > 0) {
-          query = query.or(`stage.in.(${safe.join(',')}),funnel_stage.in.(${safe.join(',')})`);
-        }
-      } else {
-        const safe = sanitizeStage(filters.funnel_stage);
-        if (safe) {
-          query = query.or(`stage.eq.${safe},funnel_stage.eq.${safe}`);
-        }
-      }
+      const stage = Array.isArray(filters.funnel_stage) ? filters.funnel_stage[0] : filters.funnel_stage;
+      if (stage) params.set('funnel_stage', stage);
     }
+    // Priority: support single value
     if (filters.priority) {
-      // Map priority filter to actual DB columns (is_hot_lead, is_priority booleans)
-      const priorityValues = Array.isArray(filters.priority) ? filters.priority : [filters.priority];
-      if (priorityValues.length === 1) {
-        const pv = priorityValues[0];
-        if (pv === 'hot') {
-          query = query.eq('is_hot_lead', true);
-        } else if (pv === 'warm') {
-          query = query.eq('is_priority', true).eq('is_hot_lead', false);
-        } else if (pv === 'cold') {
-          query = query.eq('is_hot_lead', false).eq('is_priority', false);
-        }
-      } else if (priorityValues.length > 1) {
-        // Build OR clause for multiple priority values
-        const orClauses: string[] = [];
-        if (priorityValues.includes('hot')) orClauses.push('is_hot_lead.eq.true');
-        if (priorityValues.includes('warm')) orClauses.push('and(is_priority.eq.true,is_hot_lead.eq.false)');
-        if (priorityValues.includes('cold')) orClauses.push('and(is_hot_lead.eq.false,is_priority.eq.false)');
-        if (orClauses.length > 0) {
-          query = query.or(orClauses.join(','));
-        }
-      }
+      const prio = Array.isArray(filters.priority) ? filters.priority[0] : filters.priority;
+      if (prio) params.set('priority', prio);
     }
+    // Source: support single value
     if (filters.source) {
-      if (Array.isArray(filters.source)) {
-        // Guard: empty array with .in() returns ALL rows in Supabase
-        if (filters.source.length > 0) {
-          query = query.in('source', filters.source);
-        }
-      } else {
-        query = query.eq('source', filters.source);
-      }
-    }
-    if (filters.counselor_id) {
-      query = query.eq('counselor_id', filters.counselor_id);
-    }
-    // FIX: LeadFilters.program_interest renamed to interested_programs to match DB
-    if (filters.interested_programs) {
-      query = query.contains('interested_programs', [filters.interested_programs]);
-    }
-    if (filters.search) {
-      const sanitizedSearch = sanitizeSearch(filters.search);
-      query = query.or(`full_name.ilike.%${sanitizedSearch}%,phone.ilike.%${sanitizedSearch}%,email.ilike.%${sanitizedSearch}%`);
-    }
-    if (filters.date_from) {
-      query = query.gte('created_at', filters.date_from);
-    }
-    if (filters.date_to) {
-      query = query.lte('created_at', filters.date_to);
-    }
-    // Expo Bridge — filter by exhibition event or team member who captured
-    if (filters.expo_event_id) {
-      query = query.eq('expo_event_id', filters.expo_event_id);
-    }
-    if (filters.captured_by) {
-      query = query.eq('captured_by', filters.captured_by);
+      const src = Array.isArray(filters.source) ? filters.source[0] : filters.source;
+      if (src) params.set('source', src);
     }
 
-    // Apply sorting
-    const sortBy = filters.sort_by || 'created_at';
-    const sortOrder = filters.sort_order || 'desc';
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+    const res = await fetch(`/api/admission/leads/list?${params.toString()}`);
 
-    // Apply pagination
-    const page = filters.page || 1;
-    const limit = filters.limit || 10;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-
-    query = query.range(from, to);
-
-    const { data, count, error } = await query;
-
-    if (error) {
-      console.error('[LeadService] Error fetching leads:', error);
-      throw new Error(`Failed to fetch leads: ${error.message}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      console.error('[LeadService] Error fetching leads:', body);
+      throw new Error(body.error || `Failed to fetch leads (HTTP ${res.status})`);
     }
+
+    const result = await res.json();
 
     return {
-      data: (data || []).map((row: any) => this.normalizeLead(row)),
+      data: (result.data || []).map((row: any) => this.normalizeLead(row)),
       metadata: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: Math.ceil((count || 0) / limit)
+        total: result.metadata?.total || 0,
+        page: result.metadata?.page || (filters.page || 1),
+        limit: result.metadata?.limit || (filters.limit || 10),
+        totalPages: result.metadata?.totalPages || 0
       }
     };
   }
