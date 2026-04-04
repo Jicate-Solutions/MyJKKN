@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/gd-pi/[id]/candidates/route.ts
 // POST   — Add candidates to session
 // DELETE — Remove a candidate

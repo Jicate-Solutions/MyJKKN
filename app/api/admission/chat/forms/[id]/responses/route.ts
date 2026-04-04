@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/chat/forms/[id]/responses/route.ts
 // GET form responses for a specific form template
 

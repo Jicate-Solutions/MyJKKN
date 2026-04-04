@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // ============================================
 // BULK UPLOAD PREVIEW VALIDATION API
 // ============================================

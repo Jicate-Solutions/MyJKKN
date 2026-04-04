@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/insights/generate/route.ts
 // Generates AI-powered CRM insights using Claude claude-sonnet-4-5.
 // Uses server-side service role client to bypass RLS for read/write.

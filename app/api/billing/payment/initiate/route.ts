@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // Payment Initiation API Endpoint
 // POST /api/billing/payment/initiate
 // Purpose: Create HDFC payment session for student bills

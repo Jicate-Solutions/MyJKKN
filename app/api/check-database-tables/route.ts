@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/check-database-tables/route.ts
 
 import { Database } from '@/types/applications';

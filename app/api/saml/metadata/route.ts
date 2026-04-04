@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * SAML IdP Metadata Endpoint
  *

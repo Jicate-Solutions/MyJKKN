@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // ============================================
 // ALUMNI DETAIL PAGE (SERVER COMPONENT)
 // ============================================

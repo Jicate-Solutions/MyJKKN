@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse, connection } from 'next/server';
 import { getAuthSession } from '@/lib/supabase/server';
 import { ServiceRequestService } from '@/lib/services/service-requests/service-request-service';

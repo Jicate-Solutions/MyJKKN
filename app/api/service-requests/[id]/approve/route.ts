@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { getAuthSession } from '@/lib/supabase/server';

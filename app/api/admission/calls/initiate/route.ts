@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/calls/initiate/route.ts
 // POST /api/admission/calls/initiate — Initiate a click-to-call via Exotel
 

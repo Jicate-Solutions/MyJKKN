@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/gd-pi/[id]/attendance/route.ts
 // PATCH — Mark candidate attendance
 

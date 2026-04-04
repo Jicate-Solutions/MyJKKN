@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * LTI Launch API Endpoint
  * POST /api/lti/launch - Launch LTI 1.3 tool

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { connection } from 'next/server';
 import { getEnhancedUserProfile } from '@/lib/supabase/server';

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // ============================================
 // REJECT CHANGE REQUEST API
 // ============================================

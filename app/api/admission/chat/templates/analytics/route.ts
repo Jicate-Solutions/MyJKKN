@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // GET /api/admission/chat/templates/analytics
 // Template engagement analytics
 // If template_id provided: return timeline. Otherwise: return all analytics + top/worst

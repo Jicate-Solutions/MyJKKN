@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // TEMPORARY: Debug endpoint to verify environment variables
 // DELETE THIS FILE AFTER TESTING!
 

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // CRUD /api/admission/chat/quick-replies
 // Manage quick reply templates for counselors
 

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // GET /api/admission/chat/conversations/[id]/messages — List messages (cursor-based)
 // POST /api/admission/chat/conversations/[id]/messages — Send a message
 

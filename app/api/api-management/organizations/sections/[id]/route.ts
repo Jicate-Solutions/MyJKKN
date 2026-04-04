@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createHash } from 'crypto';

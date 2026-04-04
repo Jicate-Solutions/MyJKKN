@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // POST /api/admission/settings/whatsapp-numbers/[id]/primary
 // Set a WABA phone number as the primary number for the institution
 

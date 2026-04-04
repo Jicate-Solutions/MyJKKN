@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/chatbot/analytics/route.ts
 // Authenticated endpoint — chatbot analytics
 

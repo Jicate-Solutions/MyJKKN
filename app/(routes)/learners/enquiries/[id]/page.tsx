@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // ============================================
 // ENQUIRY DETAIL PAGE (SERVER COMPONENT)
 // ============================================

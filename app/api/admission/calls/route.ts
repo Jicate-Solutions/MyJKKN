@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/calls/route.ts
 // GET /api/admission/calls — List call logs with filters
 

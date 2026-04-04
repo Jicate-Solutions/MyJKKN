@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * LTI Tool API Routes (Individual Tool)
  * GET /api/lti/tools/[id] - Get tool by ID

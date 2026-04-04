@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';

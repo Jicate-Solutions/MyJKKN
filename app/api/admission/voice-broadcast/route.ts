@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/voice-broadcast/route.ts
 // CRUD API for voice broadcast campaigns
 

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { Database } from '@/types/auth';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';

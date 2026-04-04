@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/marketing/leads/route.ts
 // Server-side fetch endpoint for marketing leads database.
 // Uses service role client to bypass RLS overhead that causes statement timeouts.

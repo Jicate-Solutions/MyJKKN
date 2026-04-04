@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * LTI JWKS (JSON Web Key Set) Endpoint
  * GET /api/lti/jwks - Public key for JWT verification

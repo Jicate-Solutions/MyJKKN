@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // GET/PUT /api/admission/settings/whatsapp
 // Fetch and update WhatsApp settings (including auto-assignment config)
 

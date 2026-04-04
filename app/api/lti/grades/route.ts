@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * LTI Grade Passback Endpoint (AGS)
  * POST /api/lti/grades - Receive grades from external LTI tools

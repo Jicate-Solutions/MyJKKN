@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // POST /api/admission/chat/conversations/[id]/resolve
 // Mark a conversation as resolved
 

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // HDFC Webhook Handler API Endpoint - SECURE VERSION
 // POST /api/billing/payment/webhook
 // Purpose: Receive and process HDFC payment notifications

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * AI Query API Route
  * Handles natural language queries using Claude with MCP tools

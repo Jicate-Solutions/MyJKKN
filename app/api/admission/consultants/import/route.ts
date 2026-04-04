@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/consultants/import/route.ts
 // Import API for bulk consultant upload
 

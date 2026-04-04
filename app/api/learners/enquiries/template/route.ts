@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/learners/enquiries/template/route.ts
 
 import { NextRequest, NextResponse , connection } from 'next/server';

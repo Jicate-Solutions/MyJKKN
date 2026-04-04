@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // GET /api/admission/campaigns/segments — list segments
 // POST /api/admission/campaigns/segments — create segment
 

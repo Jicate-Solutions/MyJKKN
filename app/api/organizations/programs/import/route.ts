@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/organizations/programs/import/route.ts
 
 import { createServerClient } from '@supabase/ssr';

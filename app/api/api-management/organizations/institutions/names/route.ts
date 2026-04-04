@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse , connection } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { corsHeaders } from '@/lib/cors';

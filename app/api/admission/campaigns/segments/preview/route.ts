@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // POST /api/admission/campaigns/segments/preview
 // Preview segment: returns count + sample leads
 

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Application Launch API
  * POST /api/applications/[id]/launch - Launch application by ID

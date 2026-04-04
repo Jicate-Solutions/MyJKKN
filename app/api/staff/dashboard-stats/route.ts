@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { StaffDashboardFilters } from '@/types/staff';

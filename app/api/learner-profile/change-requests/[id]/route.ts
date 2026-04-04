@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/learner-profile/change-requests/[id]/route.ts
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { LearnerProfileChangeService } from '@/lib/services/learner-profile-change-service';

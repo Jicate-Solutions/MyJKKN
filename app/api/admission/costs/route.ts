@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/costs/route.ts
 // GET communication cost data
 

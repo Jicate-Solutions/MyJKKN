@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/calls/stats/route.ts
 // GET /api/admission/calls/stats — Call analytics
 

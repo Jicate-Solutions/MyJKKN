@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/whatsapp-personal/templates/route.ts
 // CRUD API for personal WhatsApp message templates
 

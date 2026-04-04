@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * LTI OIDC Login Initiation Endpoint
  * GET/POST /api/lti/auth - Handle OIDC login initiation from LTI tool

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/chatbot/config/route.ts
 // Authenticated endpoint — CRUD chatbot configuration
 

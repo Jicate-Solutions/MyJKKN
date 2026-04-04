@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Academic Year Details Page - Server Component with Cache Components
  *

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * LTI Names and Roles Provisioning Service (NRPS) Endpoint
  * GET /api/lti/names-roles - Provide student roster to external tools

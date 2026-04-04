@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/calls/[id]/notes/route.ts
 // PUT /api/admission/calls/[id]/notes — Update post-call notes
 

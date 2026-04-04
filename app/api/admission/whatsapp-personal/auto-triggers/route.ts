@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/whatsapp-personal/auto-triggers/route.ts
 // CRUD API for WhatsApp auto-trigger rules
 

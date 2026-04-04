@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * LTI OAuth 2.0 Token Endpoint
  * POST /api/lti/token - Issue access tokens for LTI Advantage services

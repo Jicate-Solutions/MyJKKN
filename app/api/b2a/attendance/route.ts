@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse , connection } from 'next/server';
 import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authenticate';
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';

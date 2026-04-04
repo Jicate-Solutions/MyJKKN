@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/(routes)/resource-management/reservations/[id]/page.tsx
 'use client';
 

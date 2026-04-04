@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/(routes)/learners/my-profile/status/[id]/page.tsx
 import { redirect, notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';

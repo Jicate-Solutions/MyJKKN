@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/bridge/convert/route.ts
 // Converts an admission application into a learners_profiles draft.
 // Atomically: INSERT learners_profiles → UPDATE admission_leads.learner_profile_id

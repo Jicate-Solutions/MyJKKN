@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/marketing/leads/bulk-upload/route.ts
 // Server-side bulk upload endpoint for marketing leads.
 // Uses service role client to bypass RLS and avoid the 8-second PostgREST timeout.

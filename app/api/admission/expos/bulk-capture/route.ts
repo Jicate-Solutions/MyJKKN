@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/expos/bulk-capture/route.ts
 // Server-side bulk capture endpoint for expo leads.
 // Uses service role client to bypass RLS and avoid the 8-second PostgREST timeout.

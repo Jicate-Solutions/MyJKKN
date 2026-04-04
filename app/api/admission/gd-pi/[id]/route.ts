@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/gd-pi/[id]/route.ts
 // GET    /api/admission/gd-pi/:id — Get session detail
 // PUT    /api/admission/gd-pi/:id — Update session

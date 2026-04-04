@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // PUT/DELETE /api/admission/settings/whatsapp-numbers/[id]
 // Update or delete a specific WABA phone number
 

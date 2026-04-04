@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/voice-agents/calls/route.ts
 // GET agent call logs
 

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // Payment Status Check API Endpoint
 // GET /api/billing/payment/status/[transactionId]
 // Purpose: Check payment status from HDFC and database

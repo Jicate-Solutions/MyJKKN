@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Student Attendance Excel Export API
  * Created: 2025-01-02

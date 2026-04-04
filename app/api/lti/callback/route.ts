@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * LTI OIDC Callback/Redirect Endpoint
  * POST /api/lti/callback - Handle authentication response from LTI tool

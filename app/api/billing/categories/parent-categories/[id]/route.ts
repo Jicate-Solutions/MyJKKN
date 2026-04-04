@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { z } from 'zod';
 import { NextResponse, connection } from 'next/server';
 import { BillingParentCategoryService } from '@/lib/services/billing/categories/billing-parent-category-service';

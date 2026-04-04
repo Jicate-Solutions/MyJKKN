@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { LearnerAdvancedAnalyticsService } from '@/lib/services/learner-advanced-analytics-service';
 import type { LearnerDashboardFilters } from '@/types/learner-analytics';

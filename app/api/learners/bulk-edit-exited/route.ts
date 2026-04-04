@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // ============================================
 // BULK EDIT ACTIVE LEARNERS API
 // ============================================

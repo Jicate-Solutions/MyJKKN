@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/chat/forms/route.ts
 // CRUD API for WhatsApp in-chat form templates
 

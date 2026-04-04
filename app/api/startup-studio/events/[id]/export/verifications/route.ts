@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/startup-studio/events/[id]/export/verifications/route.ts
 import { NextRequest, NextResponse, connection } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'

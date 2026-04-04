@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/applications/[id]/route.ts
 
 import { Database } from '@/types/supabase';

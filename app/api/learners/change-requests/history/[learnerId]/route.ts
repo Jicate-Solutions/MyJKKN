@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/learners/change-requests/history/[learnerId]/route.ts
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';

@@ -1,4 +1,5 @@
 'use client';
+nexport const dynamic = 'force-dynamic';
 
 import { useParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';

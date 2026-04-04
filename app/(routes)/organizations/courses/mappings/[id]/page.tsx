@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { use } from 'react';
 import { CourseMappingDetailView } from '../_components/course-mapping-detail-view';
 

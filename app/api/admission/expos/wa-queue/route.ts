@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/expos/wa-queue/route.ts
 // Process the expo WhatsApp message queue — retries failed messages.
 // Can be called by a cron job or manually by an admin.

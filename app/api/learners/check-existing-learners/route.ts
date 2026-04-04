@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // ============================================
 // CHECK EXISTING LEARNERS API
 // ============================================

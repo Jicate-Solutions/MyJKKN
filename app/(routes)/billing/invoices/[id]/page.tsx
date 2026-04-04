@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Invoice Detail Page - Server Component
  *

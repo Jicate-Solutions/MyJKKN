@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/api/admission/chatbot/sessions/route.ts
 // Authenticated admin endpoint — view all chatbot sessions
 

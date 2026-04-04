@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Transport Service Type Seed Trigger
  *
