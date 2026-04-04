@@ -524,6 +524,46 @@ export class SMSCampaignService {
     }
   }
 
+  /**
+   * Send SMS via Exotel
+   */
+  private static async sendViaExotel(params: {
+    phone: string;
+    message: string;
+    senderId: string;
+    dltTemplateId?: string;
+    dltEntityId?: string;
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    try {
+      const { ExotelClient } = await import('@/lib/services/telephony/exotel-client');
+
+      const response = await ExotelClient.sendSms({
+        from: params.senderId,
+        to: params.phone,
+        body: params.message,
+        dltEntityId: params.dltEntityId,
+        dltTemplateId: params.dltTemplateId,
+        smsType: 'transactional',
+        statusCallback: `${process.env.NEXT_PUBLIC_APP_URL || ''}/api/webhooks/sms?provider=exotel`,
+      });
+
+      if (response.SMSMessage?.Sid) {
+        return { success: true, messageId: response.SMSMessage.Sid };
+      }
+
+      return {
+        success: false,
+        error: response.SMSMessage?.DetailedStatus || 'Exotel SMS sending failed',
+      };
+    } catch (error) {
+      logger.error('admission/sms-campaign', 'Exotel SMS API error', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Exotel SMS API error',
+      };
+    }
+  }
+
   // ============================================================================
   // WEBHOOK HANDLING
   // ============================================================================
