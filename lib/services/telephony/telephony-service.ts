@@ -3,6 +3,11 @@
 // NOTE: This service does NOT import any Supabase client — callers must inject one.
 // API routes should pass createServiceRoleClient(); client components are not
 // expected to call this service directly (they go through API routes).
+// EXCEPTION: handleCallStatusCallback() creates its own service-role client
+// because webhooks have no authenticated user session.
+
+import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -107,6 +112,37 @@ export interface UpdateCallNotesInput {
   follow_up_date?: string | null;
 }
 
+export interface ExotelCallbackPayload {
+  CallSid: string;
+  Status: string;
+  Direction: string;
+  From: string;
+  To: string;
+  StartTime?: string;
+  EndTime?: string;
+  Duration?: string;
+  ConversationDuration?: string;
+  RecordingUrl?: string;
+  Price?: string;
+  Currency?: string;
+  CustomField?: string;
+  [key: string]: string | undefined;
+}
+
+// Status ordering for idempotent webhook processing
+const STATUS_ORDER: Record<string, number> = {
+  initiated: 0,
+  ringing: 1,
+  'in-progress': 2,
+  completed: 3,
+  busy: 3,
+  'no-answer': 3,
+  failed: 3,
+  cancelled: 3,
+};
+
+const TERMINAL_STATUSES: CallStatus[] = ['completed', 'busy', 'no-answer', 'failed', 'cancelled'];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SERVICE
 // ═══════════════════════════════════════════════════════════════════════════
@@ -119,7 +155,7 @@ export class TelephonyService {
     return !!(
       process.env.EXOTEL_API_KEY &&
       process.env.EXOTEL_API_TOKEN &&
-      process.env.EXOTEL_SID
+      process.env.EXOTEL_ACCOUNT_SID
     );
   }
 
@@ -249,10 +285,11 @@ export class TelephonyService {
   }
 
   static async initiateCall(input: InitiateCallInput, supabase: any): Promise<InitiateCallResult> {
+    // Step 1: Create DB record with placeholder call_sid (NOT NULL constraint)
+    const placeholderSid = `pending-${crypto.randomUUID()}`;
+    let recordId: string;
+
     try {
-      // Create a call log record.
-      // call_sid is NOT NULL in the DB. We generate a placeholder UUID until the
-      // Exotel integration is wired up and returns the real SID.
       const { data, error } = await supabase
         .from('admission_call_logs')
         .insert({
@@ -263,24 +300,71 @@ export class TelephonyService {
           from_number: input.counselor_phone,
           direction: 'outbound',
           status: 'initiated',
-          call_sid: `pending-${crypto.randomUUID()}`,
+          call_sid: placeholderSid,
         })
         .select()
         .single();
 
       if (error) throw new Error(error.message);
-
-      // TODO: Integrate with Exotel API to actually initiate the call
-      // For now, return the call log ID as a placeholder
-      return {
-        success: true,
-        call_sid: data.id, // Will be replaced with actual Exotel call SID
-        call_log_id: data.id,
-      };
+      recordId = data.id;
     } catch (err) {
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Failed to initiate call',
+        error: err instanceof Error ? err.message : 'Failed to create call record',
+      };
+    }
+
+    // Step 2: Call Exotel API to initiate the real call
+    try {
+      const callerId = input.caller_id || process.env.EXOTEL_CALLER_ID || '';
+      const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL || ''}/api/webhooks/telephony`;
+
+      const response = await ExotelClient.makeCall({
+        from: input.counselor_phone,
+        to: input.prospect_phone,
+        callerId,
+        record: true,
+        statusCallback: webhookUrl,
+        statusCallbackEvents: ['terminal', 'answered'],
+        timeLimit: 1800,
+        timeOut: 30,
+        customField: recordId,
+      });
+
+      const realSid = response.Call.Sid;
+
+      // Update DB record with real Exotel call SID
+      await supabase
+        .from('admission_call_logs')
+        .update({ call_sid: realSid, started_at: new Date().toISOString() })
+        .eq('id', recordId);
+
+      logger.info('telephony', 'Call initiated via Exotel', {
+        callLogId: recordId,
+        exotelSid: realSid,
+      });
+
+      return {
+        success: true,
+        call_sid: realSid,
+        call_log_id: recordId,
+      };
+    } catch (err) {
+      // Exotel call failed — mark DB record as failed
+      logger.error('telephony', 'Exotel call initiation failed', {
+        callLogId: recordId,
+        error: err,
+      });
+
+      await supabase
+        .from('admission_call_logs')
+        .update({ status: 'failed' })
+        .eq('id', recordId);
+
+      return {
+        success: false,
+        call_log_id: recordId,
+        error: err instanceof Error ? err.message : 'Failed to initiate Exotel call',
       };
     }
   }
@@ -300,5 +384,346 @@ export class TelephonyService {
 
     if (error) throw new Error(error.message);
     return data;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // WEBHOOK CALLBACK HANDLER
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Process an Exotel status callback and update the call log.
+   * Creates its own service-role client because webhooks have no user session.
+   */
+  static async handleCallStatusCallback(
+    payload: ExotelCallbackPayload
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Dynamic import to keep this module safe for client-side tree-shaking.
+      // createServiceRoleClient requires server-only Node APIs.
+      const { createServiceRoleClient } = await import('@/lib/supabase/server');
+      const supabase = createServiceRoleClient();
+
+      const { CallSid, Status, Duration, ConversationDuration, RecordingUrl, Price, CustomField, StartTime, EndTime } = payload;
+
+      if (!CallSid) {
+        return { success: false, error: 'Missing CallSid in payload' };
+      }
+
+      // Map Exotel status to internal status
+      const mappedStatus = TelephonyService.mapExotelStatus(Status);
+
+      // Find the call log — try by call_sid first, fall back to CustomField (our DB record ID)
+      let callLog: any = null;
+
+      const { data: bySid } = await supabase
+        .from('admission_call_logs')
+        .select('id, status, institution_id, call_sid')
+        .eq('call_sid', CallSid)
+        .maybeSingle();
+
+      if (bySid) {
+        callLog = bySid;
+      } else if (CustomField) {
+        // Fallback: webhook arrived before initiateCall() updated the real SID
+        const { data: byId } = await supabase
+          .from('admission_call_logs')
+          .select('id, status, institution_id, call_sid')
+          .eq('id', CustomField)
+          .maybeSingle();
+        callLog = byId;
+      }
+
+      if (!callLog) {
+        // No existing record — check if this is an INBOUND call
+        const direction = (payload.Direction || '').toLowerCase();
+        if (direction === 'incoming' || direction === 'inbound') {
+          // Create a new inbound call log entry
+          callLog = await TelephonyService.createInboundCallLog(payload, supabase);
+          if (!callLog) {
+            logger.warn('telephony/webhook', 'Failed to create inbound call log', { CallSid });
+            return { success: false, error: `Failed to create inbound call log for CallSid: ${CallSid}` };
+          }
+          logger.info('telephony/webhook', 'Created inbound call log', {
+            callLogId: callLog.id,
+            from: payload.From,
+            to: payload.To,
+          });
+        } else {
+          logger.warn('telephony/webhook', 'Call log not found', { CallSid, CustomField });
+          return { success: false, error: `Call log not found for CallSid: ${CallSid}` };
+        }
+      }
+
+      // Idempotent status ordering — never downgrade
+      const currentOrder = STATUS_ORDER[callLog.status] ?? 0;
+      const newOrder = STATUS_ORDER[mappedStatus] ?? 0;
+      if (newOrder < currentOrder) {
+        logger.info('telephony/webhook', 'Skipping status downgrade', {
+          callLogId: callLog.id,
+          current: callLog.status,
+          received: mappedStatus,
+        });
+        return { success: true };
+      }
+
+      // Build update object
+      const updateData: Record<string, any> = {
+        status: mappedStatus,
+      };
+
+      // Replace pending placeholder with real Exotel SID
+      if (callLog.call_sid.startsWith('pending-')) {
+        updateData.call_sid = CallSid;
+      }
+
+      const durationSec = parseInt(ConversationDuration || Duration || '0', 10);
+      if (durationSec > 0) updateData.duration_seconds = durationSec;
+      if (RecordingUrl) updateData.recording_url = RecordingUrl;
+      if (Price) updateData.cost_amount = parseFloat(Price);
+
+      // Timestamps
+      if (StartTime && (mappedStatus === 'ringing' || mappedStatus === 'in-progress')) {
+        updateData.started_at = StartTime;
+      }
+      if (mappedStatus === 'in-progress') {
+        updateData.answered_at = new Date().toISOString();
+      }
+      if (EndTime && TERMINAL_STATUSES.includes(mappedStatus)) {
+        updateData.ended_at = EndTime;
+      }
+
+      const { error } = await supabase
+        .from('admission_call_logs')
+        .update(updateData)
+        .eq('id', callLog.id);
+
+      if (error) {
+        logger.error('telephony/webhook', 'Failed to update call log', { error, callLogId: callLog.id });
+        return { success: false, error: error.message };
+      }
+
+      // Track cost on terminal statuses
+      if (TERMINAL_STATUSES.includes(mappedStatus)) {
+        await TelephonyService.trackCallCost(
+          callLog.id,
+          callLog.institution_id,
+          durationSec,
+          Price ? parseFloat(Price) : null,
+          supabase
+        );
+      }
+
+      logger.info('telephony/webhook', 'Call log updated', {
+        callLogId: callLog.id,
+        status: mappedStatus,
+        duration: durationSec,
+      });
+
+      return { success: true };
+    } catch (err) {
+      logger.error('telephony/webhook', 'handleCallStatusCallback error', err);
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error processing callback',
+      };
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // INBOUND CALL HANDLING
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Create a call log entry for an inbound call received via webhook.
+   * Attempts to match the caller's phone number to an existing lead.
+   */
+  private static async createInboundCallLog(
+    payload: ExotelCallbackPayload,
+    supabase: any
+  ): Promise<{ id: string; status: string; institution_id: string; call_sid: string } | null> {
+    try {
+      const callerPhone = payload.From || '';
+      const exoPhone = payload.To || '';
+
+      // Try to match caller phone to an existing lead
+      // Search by phone, stripping leading 0 or +91
+      const phoneVariants = [
+        callerPhone,
+        callerPhone.replace(/^0/, ''),
+        callerPhone.replace(/^\+91/, ''),
+        callerPhone.replace(/^91/, ''),
+      ];
+
+      let leadMatch: { id: string; institution_id: string } | null = null;
+
+      for (const phone of phoneVariants) {
+        if (!phone || phone.length < 10) continue;
+        const { data } = await supabase
+          .from('admission_leads')
+          .select('id, institution_id')
+          .eq('phone', phone)
+          .limit(1)
+          .maybeSingle();
+        if (data) {
+          leadMatch = data;
+          break;
+        }
+      }
+
+      // If no lead found, try with the last 10 digits
+      if (!leadMatch && callerPhone.length >= 10) {
+        const last10 = callerPhone.slice(-10);
+        const { data } = await supabase
+          .from('admission_leads')
+          .select('id, institution_id')
+          .like('phone', `%${last10}`)
+          .limit(1)
+          .maybeSingle();
+        if (data) leadMatch = data;
+      }
+
+      // Determine institution_id — from lead match or from ExoPhone mapping
+      // Default to a known institution if we can't determine it
+      const institutionId = leadMatch?.institution_id || await TelephonyService.getInstitutionForExoPhone(exoPhone, supabase);
+
+      if (!institutionId) {
+        logger.warn('telephony/webhook', 'Cannot determine institution for inbound call', {
+          from: callerPhone,
+          exoPhone,
+        });
+        return null;
+      }
+
+      const mappedStatus = TelephonyService.mapExotelStatus(payload.Status);
+      const durationSec = parseInt(payload.ConversationDuration || payload.Duration || '0', 10);
+
+      const { data, error } = await supabase
+        .from('admission_call_logs')
+        .insert({
+          institution_id: institutionId,
+          lead_id: leadMatch?.id || null,
+          counselor_id: null, // Inbound — no counselor assigned yet
+          call_sid: payload.CallSid,
+          direction: 'inbound',
+          status: mappedStatus,
+          from_number: callerPhone,
+          to_number: exoPhone,
+          duration_seconds: durationSec,
+          recording_url: payload.RecordingUrl || null,
+          cost_amount: payload.Price ? parseFloat(payload.Price) : null,
+          started_at: payload.StartTime || null,
+          ended_at: payload.EndTime || null,
+          answered_at: durationSec > 0 ? payload.StartTime || new Date().toISOString() : null,
+        })
+        .select('id, status, institution_id, call_sid')
+        .single();
+
+      if (error) {
+        logger.error('telephony/webhook', 'Failed to insert inbound call log', { error });
+        return null;
+      }
+
+      return data;
+    } catch (err) {
+      logger.error('telephony/webhook', 'createInboundCallLog error', err);
+      return null;
+    }
+  }
+
+  /**
+   * Map an ExoPhone number to an institution_id.
+   * Uses a simple mapping table — extend as needed.
+   */
+  private static async getInstitutionForExoPhone(
+    exoPhone: string,
+    _supabase: any
+  ): Promise<string | null> {
+    // ExoPhone → institution mapping
+    // All JKKN ExoPhones map to the primary JKKN institution
+    // This could be moved to a DB config table in the future
+    const EXOPHONE_MAP: Record<string, string> = {
+      '04446313503': 'a1111111-1111-1111-1111-111111111111', // JKKN-COLLEGES (staging)
+      '04446313545': 'a1111111-1111-1111-1111-111111111111', // JKKN-SCHOOLS
+      '04446313596': 'a1111111-1111-1111-1111-111111111111', // JKKN-DENTAL
+      '04448134434': 'a1111111-1111-1111-1111-111111111111', // JKKN-MAIN
+      '04446310202': 'a1111111-1111-1111-1111-111111111111', // JKKN-NEW
+    };
+
+    // Strip any prefix and try matching
+    const cleanPhone = exoPhone.replace(/^\+91/, '').replace(/^91/, '');
+    return EXOPHONE_MAP[cleanPhone] || EXOPHONE_MAP[exoPhone] || null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CALL DETAILS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Fetch live call details from Exotel by CallSid.
+   * Returns null if the call has a placeholder SID or Exotel is unreachable.
+   */
+  static async getCallDetails(callSid: string): Promise<ExotelCallDetailsResponse | null> {
+    if (callSid.startsWith('pending-')) return null;
+
+    try {
+      return await ExotelClient.getCallDetails(callSid);
+    } catch (err) {
+      logger.error('telephony', 'Failed to fetch call details from Exotel', { callSid, error: err });
+      return null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // HELPERS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Map Exotel status string to internal CallStatus.
+   */
+  private static mapExotelStatus(exotelStatus: string): CallStatus {
+    const normalized = (exotelStatus || '').toLowerCase().trim();
+    const statusMap: Record<string, CallStatus> = {
+      'queued': 'initiated',
+      'ringing': 'ringing',
+      'in-progress': 'in-progress',
+      'completed': 'completed',
+      'busy': 'busy',
+      'no-answer': 'no-answer',
+      'failed': 'failed',
+      'canceled': 'cancelled',
+      'cancelled': 'cancelled',
+    };
+    return statusMap[normalized] || 'initiated';
+  }
+
+  /**
+   * Track call cost in communication_cost_log.
+   */
+  private static async trackCallCost(
+    callLogId: string,
+    institutionId: string,
+    durationSeconds: number,
+    exotelPrice: number | null,
+    supabase: any
+  ): Promise<void> {
+    try {
+      const unitCost = parseFloat(process.env.EXOTEL_CALL_COST_PER_MIN || '0.50');
+      const minutes = Math.ceil(durationSeconds / 60) || 1;
+      const totalCost = exotelPrice ?? unitCost * minutes;
+
+      await supabase.from('communication_cost_log').insert({
+        institution_id: institutionId,
+        channel: 'call',
+        event_type: 'call_minute',
+        unit_cost: unitCost,
+        quantity: minutes,
+        total_cost: totalCost,
+        currency: 'INR',
+        reference_id: callLogId,
+      });
+    } catch (err) {
+      // Non-blocking — cost tracking failure should not break the webhook
+      logger.error('telephony', 'Failed to track call cost', { callLogId, error: err });
+    }
   }
 }
