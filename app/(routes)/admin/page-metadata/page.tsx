@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,14 +28,7 @@ import { usePageMetadata } from '@/hooks/use-page-metadata';
 import { getPageRegistry, ICON_MAP } from '@/lib/navigation/page-registry';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
-import { getShortcutKeyMap, formatShortcutKey } from '@/lib/navigation/keyboard-shortcuts';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { formatShortcutKey, DEFAULT_KEYBOARD_SHORTCUTS } from '@/lib/navigation/keyboard-shortcuts';
 import { Search, Edit2, Trash2, Plus, FileText, Tag, X, Keyboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -349,55 +342,14 @@ function PageMetadataContent() {
                   Keyboard Shortcut
                 </label>
                 <p className="text-xs text-muted-foreground mb-2">
-                  Assign an Alt+key shortcut for quick navigation to this page
+                  Press any key combination to assign, or pick from common shortcuts below
                 </p>
-                <div className="flex gap-2">
-                  <Select
-                    value={editShortcut || 'none'}
-                    onValueChange={(val) => setEditShortcut(val === 'none' ? null : val)}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="No shortcut assigned" />
-                    </SelectTrigger>
-                    <SelectContent position="popper" className="z-[200] max-h-[250px]" sideOffset={4}>
-                      <SelectItem value="none">No shortcut</SelectItem>
-                      {getShortcutKeyMap().map(({ key, display, assignedTo }) => {
-                        const isCurrent = key === editShortcut;
-                        const isTaken = !!assignedTo && !isCurrent;
-                        return (
-                          <SelectItem
-                            key={key}
-                            value={key}
-                            disabled={isTaken}
-                            className={cn(isTaken && 'opacity-50')}
-                          >
-                            <span className="flex items-center gap-2 w-full">
-                              <kbd className="font-mono text-xs bg-muted px-1 rounded">{display}</kbd>
-                              {isTaken && (
-                                <span className="text-[10px] text-muted-foreground truncate">
-                                  ({assignedTo.label}{assignedTo.isCustom ? ' - custom' : ' - default'})
-                                </span>
-                              )}
-                              {isCurrent && (
-                                <span className="text-[10px] text-green-600">current</span>
-                              )}
-                            </span>
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                  {editShortcut && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEditShortcut(null)}
-                      className="shrink-0 text-destructive hover:text-destructive"
-                    >
-                      <X className="h-3 w-3 mr-1" /> Remove
-                    </Button>
-                  )}
-                </div>
+                <ShortcutRecorder
+                  value={editShortcut}
+                  onChange={setEditShortcut}
+                  currentPagePath={editingPage?.path || ''}
+                  allMetadata={allMetadata}
+                />
               </div>
             </div>
           )}
@@ -412,6 +364,209 @@ function PageMetadataContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ─── Shortcut Recorder Component ─────────────────────────────────────────────
+
+const COMMON_SHORTCUTS = [
+  'alt+a', 'alt+b', 'alt+c', 'alt+d', 'alt+e', 'alt+f',
+  'alt+g', 'alt+h', 'alt+i', 'alt+j', 'alt+k', 'alt+l',
+  'alt+m', 'alt+n', 'alt+o', 'alt+p', 'alt+q', 'alt+r',
+  'alt+s', 'alt+t', 'alt+u', 'alt+v', 'alt+w', 'alt+x',
+  'alt+y', 'alt+z',
+];
+
+function ShortcutRecorder({
+  value,
+  onChange,
+  currentPagePath,
+  allMetadata,
+}: {
+  value: string | null;
+  onChange: (shortcut: string | null) => void;
+  currentPagePath: string;
+  allMetadata: PageMetadata[];
+}) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedKey, setRecordedKey] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<string | null>(null);
+  const inputRef = useRef<HTMLDivElement>(null);
+
+  // Check if a shortcut key is already taken by another page
+  const getConflict = useCallback(
+    (shortcutKey: string): string | null => {
+      // Check admin-assigned shortcuts in metadata
+      const metaConflict = allMetadata.find(
+        (m) => m.shortcutKey === shortcutKey && m.pagePath !== currentPagePath
+      );
+      if (metaConflict) return metaConflict.customTitle || metaConflict.pagePath;
+
+      // Check hardcoded defaults
+      const defaultConflict = DEFAULT_KEYBOARD_SHORTCUTS[shortcutKey];
+      if (defaultConflict) return `${defaultConflict.label} (default)`;
+
+      return null;
+    },
+    [allMetadata, currentPagePath]
+  );
+
+  // Parse keyboard event into shortcut string
+  const parseEvent = (e: KeyboardEvent): string | null => {
+    const key = e.key.toLowerCase();
+    // Ignore modifier-only presses
+    if (['control', 'shift', 'alt', 'meta'].includes(key)) return null;
+    // Must have at least one modifier
+    if (!e.altKey && !e.ctrlKey && !e.metaKey) return null;
+    // Don't capture Tab, Escape, etc.
+    if (['tab', 'escape', 'enter', 'backspace', 'delete'].includes(key)) return null;
+
+    const parts: string[] = [];
+    if (e.ctrlKey || e.metaKey) parts.push('ctrl');
+    if (e.altKey) parts.push('alt');
+    if (e.shiftKey) parts.push('shift');
+    parts.push(key.length === 1 ? key : key);
+
+    return parts.join('+');
+  };
+
+  // Format for display
+  const formatDisplay = (shortcut: string): string => {
+    return shortcut
+      .split('+')
+      .map((p) => {
+        if (p === 'ctrl') return 'Ctrl';
+        if (p === 'alt') return 'Alt';
+        if (p === 'shift') return 'Shift';
+        return p.toUpperCase();
+      })
+      .join(' + ');
+  };
+
+  // Key recording handler
+  useEffect(() => {
+    if (!isRecording) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const parsed = parseEvent(e);
+      if (!parsed) return;
+
+      setRecordedKey(parsed);
+
+      // Check for conflicts
+      const conflictLabel = getConflict(parsed);
+      setConflict(conflictLabel);
+
+      if (!conflictLabel) {
+        onChange(parsed);
+        setIsRecording(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [isRecording, getConflict, onChange]);
+
+  // Close recording on outside click
+  useEffect(() => {
+    if (!isRecording) return;
+    const handleClick = (e: MouseEvent) => {
+      if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
+        setIsRecording(false);
+        setRecordedKey(null);
+        setConflict(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [isRecording]);
+
+  return (
+    <div className="space-y-3" ref={inputRef}>
+      {/* Recorder input */}
+      <div
+        onClick={() => { setIsRecording(true); setRecordedKey(null); setConflict(null); }}
+        className={cn(
+          'flex items-center gap-2 rounded-md border px-3 py-2.5 cursor-pointer transition-all',
+          isRecording
+            ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
+            : 'border-border hover:border-primary/50',
+        )}
+      >
+        <Keyboard className="h-4 w-4 text-muted-foreground shrink-0" />
+        {isRecording ? (
+          <span className="text-sm text-primary animate-pulse">
+            Press any key combination...
+          </span>
+        ) : value ? (
+          <kbd className="inline-flex items-center rounded border bg-muted px-2 py-0.5 font-mono text-sm font-medium dark:border-gray-600 dark:bg-gray-800">
+            {formatDisplay(value)}
+          </kbd>
+        ) : (
+          <span className="text-sm text-muted-foreground">
+            Click to record shortcut
+          </span>
+        )}
+        <div className="flex-1" />
+        {value && !isRecording && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onChange(null); }}
+            className="h-6 px-2 text-destructive hover:text-destructive"
+          >
+            <X className="h-3 w-3 mr-1" /> Remove
+          </Button>
+        )}
+      </div>
+
+      {/* Conflict warning */}
+      {conflict && isRecording && recordedKey && (
+        <div className="flex items-start gap-2 rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs">
+          <span className="text-amber-600 font-medium shrink-0">Conflict:</span>
+          <span className="text-amber-700 dark:text-amber-400">
+            <kbd className="font-mono bg-amber-500/10 px-1 rounded">{formatDisplay(recordedKey)}</kbd>
+            {' '}is already assigned to <strong>{conflict}</strong>. Press a different combination.
+          </span>
+        </div>
+      )}
+
+      {/* Quick assign buttons */}
+      <div>
+        <p className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wider">Quick assign</p>
+        <div className="flex flex-wrap gap-1">
+          {COMMON_SHORTCUTS.map((key) => {
+            const conflictLabel = getConflict(key);
+            const isCurrent = key === value;
+            const isTaken = !!conflictLabel && !isCurrent;
+
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  if (isTaken) return;
+                  onChange(isCurrent ? null : key);
+                }}
+                disabled={isTaken}
+                className={cn(
+                  'h-7 px-1.5 rounded border font-mono text-[10px] transition-colors',
+                  isCurrent
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : isTaken
+                    ? 'bg-muted/30 text-muted-foreground/30 border-border/30 cursor-not-allowed'
+                    : 'bg-muted/50 text-muted-foreground border-border hover:bg-primary/10 hover:border-primary/50 hover:text-foreground cursor-pointer'
+                )}
+                title={isTaken ? `Assigned to: ${conflictLabel}` : isCurrent ? 'Click to remove' : `Assign ${formatDisplay(key)}`}
+              >
+                {key.split('+').pop()?.toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

@@ -135,10 +135,22 @@ export function formatShortcutKey(key: string): string {
 
 /**
  * Parse a keyboard event into a shortcut key string.
+ * Supports alt+key, ctrl+key, ctrl+shift+key, etc.
  */
 export function parseKeyboardEvent(e: KeyboardEvent): string | null {
-  if (!e.altKey) return null;
   const key = e.key.toLowerCase();
-  if (key.length !== 1) return null;
-  return `alt+${key}`;
+  // Ignore modifier-only presses
+  if (['control', 'shift', 'alt', 'meta'].includes(key)) return null;
+  // Must have at least one modifier
+  if (!e.altKey && !e.ctrlKey && !e.metaKey) return null;
+  // Don't capture special keys
+  if (['tab', 'escape', 'enter', 'backspace', 'delete'].includes(key)) return null;
+
+  const parts: string[] = [];
+  if (e.ctrlKey || e.metaKey) parts.push('ctrl');
+  if (e.altKey) parts.push('alt');
+  if (e.shiftKey) parts.push('shift');
+  parts.push(key.length === 1 ? key : key);
+
+  return parts.join('+');
 }
