@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/(routes)/resource-management/maintenance/[id]/edit/page.tsx
 'use client';
 

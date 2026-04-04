@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 // app/(routes)/academic/years/[id]/edit/page.tsx
 
 'use client';

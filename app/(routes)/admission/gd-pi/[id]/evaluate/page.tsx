@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
