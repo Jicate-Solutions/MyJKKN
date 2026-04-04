@@ -370,13 +370,14 @@ function PageMetadataContent() {
 
 // ─── Shortcut Recorder Component ─────────────────────────────────────────────
 
-const COMMON_SHORTCUTS = [
-  'alt+a', 'alt+b', 'alt+c', 'alt+d', 'alt+e', 'alt+f',
-  'alt+g', 'alt+h', 'alt+i', 'alt+j', 'alt+k', 'alt+l',
-  'alt+m', 'alt+n', 'alt+o', 'alt+p', 'alt+q', 'alt+r',
-  'alt+s', 'alt+t', 'alt+u', 'alt+v', 'alt+w', 'alt+x',
-  'alt+y', 'alt+z',
-];
+const MODIFIER_GROUPS = [
+  { label: 'Alt', prefix: 'alt' },
+  { label: 'Ctrl', prefix: 'ctrl' },
+  { label: 'Ctrl+Shift', prefix: 'ctrl+shift' },
+  { label: 'Alt+Shift', prefix: 'alt+shift' },
+] as const;
+
+const LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
 
 function ShortcutRecorder({
   value,
@@ -530,42 +531,58 @@ function ShortcutRecorder({
         </div>
       )}
 
-      {/* Quick assign buttons */}
+      {/* Quick assign with modifier tabs */}
       <div>
-        <p className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wider">Quick assign</p>
-        <div className="flex flex-wrap gap-1">
-          {COMMON_SHORTCUTS.map((key) => {
-            const conflictLabel = getConflict(key);
-            const isCurrent = key === value;
-            const isTaken = !!conflictLabel && !isCurrent;
+        <p className="text-[10px] text-muted-foreground mb-2 uppercase tracking-wider">Quick assign</p>
+        {MODIFIER_GROUPS.map(({ label, prefix }) => (
+          <div key={prefix} className="mb-3">
+            <p className="text-[10px] font-medium text-muted-foreground mb-1">
+              <kbd className="font-mono bg-muted px-1 py-0.5 rounded text-[9px] dark:bg-gray-800">{label}</kbd>
+              {' + Letter'}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {LETTERS.map((letter) => {
+                const key = `${prefix}+${letter}`;
+                const conflictLabel = getConflict(key);
+                const isCurrent = key === value;
+                const isTaken = !!conflictLabel && !isCurrent;
 
-            return (
-              <button
-                key={key}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isTaken) return;
-                  setIsRecording(false);
-                  setConflict(null);
-                  setRecordedKey(null);
-                  onChange(isCurrent ? null : key);
-                }}
-                disabled={isTaken}
-                className={cn(
-                  'h-7 px-1.5 rounded border font-mono text-[10px] transition-colors',
-                  isCurrent
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : isTaken
-                    ? 'bg-muted/30 text-muted-foreground/30 border-border/30 cursor-not-allowed'
-                    : 'bg-muted/50 text-muted-foreground border-border hover:bg-primary/10 hover:border-primary/50 hover:text-foreground cursor-pointer'
-                )}
-                title={isTaken ? `Assigned to: ${conflictLabel}` : isCurrent ? 'Click to remove' : `Assign ${formatDisplay(key)}`}
-              >
-                {key.split('+').pop()?.toUpperCase()}
-              </button>
-            );
-          })}
-        </div>
+                return (
+                  <button
+                    key={key}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isTaken) return;
+                      setIsRecording(false);
+                      setConflict(null);
+                      setRecordedKey(null);
+                      onChange(isCurrent ? null : key);
+                    }}
+                    disabled={isTaken}
+                    className={cn(
+                      'h-6 w-6 rounded border font-mono text-[10px] transition-colors flex items-center justify-center',
+                      isCurrent
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : isTaken
+                        ? 'bg-muted/30 text-muted-foreground/30 border-border/30 cursor-not-allowed'
+                        : 'bg-muted/50 text-muted-foreground border-border hover:bg-primary/10 hover:border-primary/50 hover:text-foreground cursor-pointer'
+                    )}
+                    title={
+                      isTaken ? `Assigned to: ${conflictLabel}`
+                      : isCurrent ? 'Click to remove'
+                      : `Assign ${label}+${letter.toUpperCase()}`
+                    }
+                  >
+                    {letter.toUpperCase()}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <p className="text-[10px] text-muted-foreground/50 mt-1">
+          Or click the recorder above and press any custom combination
+        </p>
       </div>
     </div>
   );
