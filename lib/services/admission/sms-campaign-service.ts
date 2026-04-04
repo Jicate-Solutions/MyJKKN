@@ -677,6 +677,21 @@ export class SMSCampaignService {
     return statusMap[twilioStatus.toLowerCase()] || 'pending';
   }
 
+  /**
+   * Map Exotel SMS status to internal status
+   */
+  private static mapExotelSmsStatus(exotelStatus: string): SMSDeliveryStatus {
+    const statusMap: Record<string, SMSDeliveryStatus> = {
+      queued: 'queued',
+      sending: 'pending',
+      submitted: 'sent',
+      sent: 'delivered',
+      'failed-dnd': 'rejected',
+      failed: 'failed',
+    };
+    return statusMap[exotelStatus.toLowerCase()] || 'pending';
+  }
+
   // ============================================================================
   // DELIVERY STATUS
   // ============================================================================
