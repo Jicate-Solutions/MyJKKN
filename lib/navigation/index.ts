@@ -8,3 +8,4 @@ export { KEYBOARD_SHORTCUTS, getShortcutForPath, formatShortcutKey, parseKeyboar
 export { generateBreadcrumbs, getSiblingPages } from './breadcrumbs';
 export { getDefaultFavoritesForRole, ROLE_DEFAULT_FAVORITES } from './role-defaults';
 export { trackSearch, getSearchHistory, clearSearchHistory } from './search-history';
+export { trackSearchAnalytics } from './search-analytics';

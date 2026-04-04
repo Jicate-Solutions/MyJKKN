@@ -7,8 +7,14 @@ import { usePageSearch } from '@/hooks/use-page-search';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { KEYBOARD_SHORTCUTS } from '@/lib/navigation/keyboard-shortcuts';
+import { trackSearch } from '@/lib/navigation/search-history';
+import { trackSearchAnalytics } from '@/lib/navigation/search-analytics';
+import { useContextualSuggestions } from './ContextualSuggestions';
+import { findRestrictedPages, RestrictedPageItem } from './RequestAccess';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Search, Star, Clock, Zap, TrendingUp, ArrowRight, FileText } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
+import { Search, Star, Clock, Zap, TrendingUp, ArrowRight, FileText, Compass, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SearchResult, RecentPage } from '@/lib/navigation/types';
 
@@ -21,9 +27,17 @@ interface CommandPaletteModalProps {
 
 export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissionsLoaded }: CommandPaletteModalProps) {
   const [query, setQuery] = useState('');
-  const { search, recentPages, frequentPages, isLoading } = usePageSearch();
+  const { search, searchablePages, recentPages, frequentPages, isLoading } = usePageSearch();
   const isMobile = useIsMobile();
+  const pathname = usePathname();
+  const { profile } = useAuth();
   const { permissions, isSuperAdmin } = usePermissions();
+
+  // Contextual suggestions based on current page
+  const contextualSuggestions = useContextualSuggestions(pathname);
+
+  // Accessible paths set (for finding restricted pages)
+  const accessiblePaths = new Set(searchablePages.map(p => p.path));
 
   // Sync permissions back to provider for keyboard shortcuts
   useEffect(() => {
@@ -40,8 +54,26 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
   const hasResults = searchResults.pages.length > 0 || searchResults.actions.length > 0;
   const showEmptyState = !query.trim() || query.trim().length < 2;
 
+  // Find restricted pages matching the query (Phase 9)
+  const restrictedPages = !showEmptyState && !hasResults
+    ? findRestrictedPages(query, accessiblePaths, 3)
+    : !showEmptyState
+    ? findRestrictedPages(query, accessiblePaths, 2)
+    : [];
+
   const handleSelect = useCallback(
     (path: string) => {
+      // Track search analytics
+      if (query.trim().length >= 2 && profile?.id) {
+        trackSearch(query, path);
+        trackSearchAnalytics({
+          userId: profile.id,
+          query,
+          resultsCount: searchResults.pages.length + searchResults.actions.length,
+          selectedPath: path,
+          institutionId: profile.institution_id || undefined,
+        });
+      }
       onNavigate(path);
     },
     [onNavigate]
@@ -142,8 +174,26 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                   </Command.Group>
                 )}
 
+                {/* Contextual Suggestions based on current page */}
+                {contextualSuggestions.length > 0 && (
+                  <Command.Group heading={
+                    <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                      <Compass className="h-3 w-3" /> Related Pages
+                    </span>
+                  }>
+                    {contextualSuggestions.slice(0, 4).map((page) => (
+                      <SearchResultItem
+                        key={`ctx-${page.path}`}
+                        result={{ page, score: 0 }}
+                        shortcut={getShortcut(page.path)}
+                        onSelect={handleSelect}
+                      />
+                    ))}
+                  </Command.Group>
+                )}
+
                 {/* If nothing to show */}
-                {recentPages.length === 0 && frequentPages.length === 0 && (
+                {recentPages.length === 0 && frequentPages.length === 0 && contextualSuggestions.length === 0 && (
                   <div className="py-8 text-center text-sm text-muted-foreground">
                     <Search className="mx-auto h-8 w-8 mb-2 opacity-50" />
                     <p>Start typing to search pages...</p>
@@ -192,8 +242,25 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                   </Command.Group>
                 )}
 
+                {/* Restricted pages the user can't access */}
+                {restrictedPages.length > 0 && (
+                  <Command.Group heading={
+                    <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                      <Lock className="h-3 w-3" /> Restricted
+                    </span>
+                  }>
+                    {restrictedPages.map(({ page, requiredPermission }) => (
+                      <RestrictedPageItem
+                        key={`locked-${page.path}`}
+                        page={page}
+                        permission={requiredPermission}
+                      />
+                    ))}
+                  </Command.Group>
+                )}
+
                 {/* No results */}
-                {!hasResults && (
+                {!hasResults && restrictedPages.length === 0 && (
                   <Command.Empty className="py-6 text-center text-sm text-muted-foreground">
                     <p>No pages found for &quot;{query}&quot;</p>
                     <p className="text-xs mt-1 opacity-70">Try different keywords or check permissions</p>

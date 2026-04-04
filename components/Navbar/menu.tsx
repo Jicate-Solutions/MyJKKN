@@ -20,6 +20,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebarSection';
+import { RecentPagesSidebarSection } from '@/components/RecentPages/RecentPagesSidebarSection';
 import { Search } from 'lucide-react';
 import { getShortcutForPath } from '@/lib/navigation/keyboard-shortcuts';
 
@@ -110,6 +111,8 @@ export function Menu({ isOpen }: MenuProps) {
       </div>
       {/* Favorites section */}
       <FavoritesSidebarSection isOpen={isOpen} />
+      {/* Recent pages section */}
+      <RecentPagesSidebarSection isOpen={isOpen} />
       <nav className='mt-2 h-full w-full'>
         {permissionsLoading ? (
           <div className='flex justify-center items-center py-4'>

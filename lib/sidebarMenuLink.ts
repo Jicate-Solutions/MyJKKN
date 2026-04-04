@@ -265,6 +265,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
   '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
+  '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
 
   // Lifecycle Analytics
   '/admin/lifecycle': 'admin.lifecycle.view',
@@ -1473,6 +1474,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Lifecycle Analytics',
           active: pathname.startsWith('/admin/lifecycle'),
           icon: BarChart3,
+          submenus: []
+        },
+        {
+          href: '/admin/page-metadata',
+          label: 'Page Metadata',
+          active: pathname.startsWith('/admin/page-metadata'),
+          icon: Tags,
           submenus: []
         }
       ]
