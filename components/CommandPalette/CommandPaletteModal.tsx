@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Command } from 'cmdk';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { usePageSearch } from '@/hooks/use-page-search';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
@@ -101,6 +102,9 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
         // Remove default close button — Command palette closes with Escape
         onPointerDownOutside={() => onClose()}
       >
+        <VisuallyHidden>
+          <DialogTitle>Search pages and actions</DialogTitle>
+        </VisuallyHidden>
         <Command
           className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-2 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5"
           loop
