@@ -110,6 +110,14 @@ export interface SMSWebhookPayload {
   From?: string;
   ErrorCode?: string;
   ErrorMessage?: string;
+  // Exotel webhook format
+  SmsSid?: string;
+  Status?: string;
+  DetailedStatus?: string;
+  DetailedStatusCode?: string;
+  DateSent?: string;
+  SmsUnits?: string;
+  CustomField?: string;
 }
 
 export interface SMSCampaignStats {
