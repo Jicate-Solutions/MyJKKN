@@ -272,7 +272,7 @@ function PageMetadataContent() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingPage} onOpenChange={(open) => !open && setEditingPage(null)}>
-        <DialogContent className="max-w-lg dark:bg-gray-900">
+        <DialogContent className="max-w-lg dark:bg-gray-900" onPointerDownOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit2 className="h-4 w-4" />
@@ -359,7 +359,7 @@ function PageMetadataContent() {
                     <SelectTrigger className="flex-1">
                       <SelectValue placeholder="No shortcut assigned" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent position="popper" className="z-[200] max-h-[250px]" sideOffset={4}>
                       <SelectItem value="none">No shortcut</SelectItem>
                       {getShortcutKeyMap().map(({ key, display, assignedTo }) => {
                         const isCurrent = key === editShortcut;
