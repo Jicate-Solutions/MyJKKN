@@ -301,6 +301,14 @@ export class SMSCampaignService {
           dltEntityId: config.dltEntityId,
           authKey: config.apiKey,
         });
+      } else if (config.provider === 'exotel') {
+        sendResult = await this.sendViaExotel({
+          phone,
+          message: messageContent,
+          senderId: config.senderId,
+          dltTemplateId: input.dltTemplateId,
+          dltEntityId: config.dltEntityId,
+        });
       } else {
         sendResult = await this.sendViaTwilio({
           phone,
