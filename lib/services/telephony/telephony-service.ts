@@ -3,6 +3,11 @@
 // NOTE: This service does NOT import any Supabase client — callers must inject one.
 // API routes should pass createServiceRoleClient(); client components are not
 // expected to call this service directly (they go through API routes).
+// EXCEPTION: handleCallStatusCallback() creates its own service-role client
+// because webhooks have no authenticated user session.
+
+import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -85,32 +90,6 @@ export interface CallStats {
   calls_without_notes: number;
 }
 
-export interface InboundCallStats {
-  total_incoming: number;
-  answered: number;
-  missed: number;
-  answer_rate: number;
-  missed_without_callback: number;
-  avg_duration_seconds: number;
-  calls_by_date: Array<{
-    date: string;
-    answered: number;
-    missed: number;
-  }>;
-  calls_by_hour: Array<{
-    hour: number;
-    answered: number;
-    missed: number;
-  }>;
-  top_callers: Array<{
-    from_number: string;
-    lead_name: string | null;
-    lead_id: string | null;
-    call_count: number;
-    last_call_at: string;
-  }>;
-}
-
 export interface InitiateCallInput {
   institution_id: string;
   counselor_id: string;
@@ -133,30 +112,36 @@ export interface UpdateCallNotesInput {
   follow_up_date?: string | null;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// WEBHOOK TYPES & CONSTANTS
-// ═══════════════════════════════════════════════════════════════════════════
+export interface ExotelCallbackPayload {
+  CallSid: string;
+  Status: string;
+  Direction: string;
+  From: string;
+  To: string;
+  StartTime?: string;
+  EndTime?: string;
+  Duration?: string;
+  ConversationDuration?: string;
+  RecordingUrl?: string;
+  Price?: string;
+  Currency?: string;
+  CustomField?: string;
+  [key: string]: string | undefined;
+}
 
-/** Re-export from exotel-client for convenience */
-export type { ExotelCallbackPayload } from './exotel-client';
-
-/**
- * Status ordering for idempotent webhook processing.
- * A webhook with a lower order than the current status is stale and should be skipped.
- */
+// Status ordering for idempotent webhook processing
 const STATUS_ORDER: Record<string, number> = {
-  'initiating': 0,
-  'initiated': 1,
-  'ringing': 2,
-  'in-progress': 3,
-  'completed': 4,
-  'busy': 4,
-  'no-answer': 4,
-  'failed': 4,
-  'cancelled': 4,
+  initiated: 0,
+  ringing: 1,
+  'in-progress': 2,
+  completed: 3,
+  busy: 3,
+  'no-answer': 3,
+  failed: 3,
+  cancelled: 3,
 };
 
-const TERMINAL_STATUSES = ['completed', 'busy', 'no-answer', 'failed', 'cancelled'];
+const TERMINAL_STATUSES: CallStatus[] = ['completed', 'busy', 'no-answer', 'failed', 'cancelled'];
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SERVICE
@@ -170,8 +155,7 @@ export class TelephonyService {
     return !!(
       process.env.EXOTEL_API_KEY &&
       process.env.EXOTEL_API_TOKEN &&
-      process.env.EXOTEL_ACCOUNT_SID &&
-      process.env.EXOTEL_CALLER_ID
+      process.env.EXOTEL_ACCOUNT_SID
     );
   }
 
@@ -213,8 +197,7 @@ export class TelephonyService {
     institutionId: string | undefined,
     supabase: any,
     fromDate?: string,
-    toDate?: string,
-    direction?: CallDirection
+    toDate?: string
   ): Promise<CallStats> {
     let query = supabase
       .from('admission_call_logs')
@@ -223,7 +206,6 @@ export class TelephonyService {
     // When institutionId is provided, scope to that institution.
     // Super admins omit it to aggregate across all institutions.
     if (institutionId) query = query.eq('institution_id', institutionId);
-    if (direction) query = query.eq('direction', direction);
 
     if (fromDate) query = query.gte('created_at', fromDate);
     if (toDate) query = query.lte('created_at', toDate);
@@ -302,146 +284,15 @@ export class TelephonyService {
     };
   }
 
-  /**
-   * Get inbound-specific analytics: answer rate, hourly distribution, callback status.
-   */
-  static async getInboundCallStats(
-    institutionId: string | undefined,
-    supabase: any,
-    fromDate?: string,
-    toDate?: string
-  ): Promise<InboundCallStats> {
-    let query = supabase
-      .from('admission_call_logs')
-      .select('id, status, direction, duration_seconds, from_number, to_number, started_at, created_at, lead_id, lead:admission_leads(id, full_name)')
-      .eq('direction', 'inbound');
-
-    if (institutionId) query = query.eq('institution_id', institutionId);
-    if (fromDate) query = query.gte('created_at', fromDate);
-    if (toDate) query = query.lte('created_at', toDate);
-
-    const { data: inboundCalls, error } = await query;
-    if (error) throw new Error(error.message);
-
-    const calls = inboundCalls || [];
-    const answered = calls.filter((c: any) => c.status === 'completed' && (c.duration_seconds || 0) > 0);
-    const missed = calls.filter((c: any) => ['no-answer', 'busy', 'failed'].includes(c.status));
-
-    // Calculate "missed without callback" — check if any outbound call was made to the same from_number after the inbound call
-    let missedWithoutCallback = 0;
-    if (missed.length > 0) {
-      const missedNumbers = [...new Set(missed.map((c: any) => c.from_number))];
-      // Get outbound calls to these numbers
-      const { data: callbacks } = await supabase
-        .from('admission_call_logs')
-        .select('to_number')
-        .eq('direction', 'outbound')
-        .in('to_number', missedNumbers);
-
-      const calledBackNumbers = new Set((callbacks || []).map((c: any) => c.to_number));
-      missedWithoutCallback = missed.filter((c: any) => !calledBackNumbers.has(c.from_number)).length;
-    }
-
-    // Calls by date (answered vs missed)
-    const dateMap: Record<string, { answered: number; missed: number }> = {};
-    calls.forEach((c: any) => {
-      const dateKey = (c.created_at || '').substring(0, 10);
-      if (!dateKey) return;
-      if (!dateMap[dateKey]) dateMap[dateKey] = { answered: 0, missed: 0 };
-      if (c.status === 'completed' && (c.duration_seconds || 0) > 0) {
-        dateMap[dateKey].answered++;
-      } else if (['no-answer', 'busy', 'failed'].includes(c.status)) {
-        dateMap[dateKey].missed++;
-      }
-    });
-
-    // Calls by hour (using started_at for accurate hour)
-    const hourMap: Record<number, { answered: number; missed: number }> = {};
-    for (let h = 0; h < 24; h++) hourMap[h] = { answered: 0, missed: 0 };
-    calls.forEach((c: any) => {
-      const timeStr = c.started_at || c.created_at;
-      if (!timeStr) return;
-      // Convert to IST for hourly distribution
-      const date = new Date(timeStr);
-      const istHour = parseInt(
-        date.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false }),
-        10
-      );
-      if (c.status === 'completed' && (c.duration_seconds || 0) > 0) {
-        hourMap[istHour].answered++;
-      } else if (['no-answer', 'busy', 'failed'].includes(c.status)) {
-        hourMap[istHour].missed++;
-      }
-    });
-
-    // Top callers (most frequent incoming numbers)
-    const callerMap: Record<string, { count: number; lastCall: string; leadName: string | null; leadId: string | null }> = {};
-    calls.forEach((c: any) => {
-      const num = c.from_number;
-      if (!num) return;
-      if (!callerMap[num]) {
-        callerMap[num] = {
-          count: 0,
-          lastCall: c.created_at,
-          leadName: c.lead?.full_name || null,
-          leadId: c.lead_id || null,
-        };
-      }
-      callerMap[num].count++;
-      if (c.created_at > callerMap[num].lastCall) {
-        callerMap[num].lastCall = c.created_at;
-      }
-    });
-
-    const totalDuration = answered.reduce((sum: number, c: any) => sum + (c.duration_seconds || 0), 0);
-
-    return {
-      total_incoming: calls.length,
-      answered: answered.length,
-      missed: missed.length,
-      answer_rate: calls.length > 0 ? Math.round((answered.length / calls.length) * 100) : 0,
-      missed_without_callback: missedWithoutCallback,
-      avg_duration_seconds: answered.length > 0 ? Math.round(totalDuration / answered.length) : 0,
-      calls_by_date: Object.entries(dateMap)
-        .map(([date, stats]) => ({ date, ...stats }))
-        .sort((a, b) => a.date.localeCompare(b.date)),
-      calls_by_hour: Object.entries(hourMap)
-        .map(([hour, stats]) => ({ hour: parseInt(hour, 10), ...stats }))
-        .sort((a, b) => a.hour - b.hour),
-      top_callers: Object.entries(callerMap)
-        .map(([num, data]) => ({
-          from_number: num,
-          lead_name: data.leadName,
-          lead_id: data.leadId,
-          call_count: data.count,
-          last_call_at: data.lastCall,
-        }))
-        .sort((a, b) => b.call_count - a.call_count)
-        .slice(0, 20),
-    };
-  }
-
   static async initiateCall(input: InitiateCallInput, supabase: any): Promise<InitiateCallResult> {
-    try {
-      // TRAI compliance: no calls before 9 AM or after 9 PM IST
-      const now = new Date();
-      const istHour = parseInt(
-        now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false }),
-        10
-      );
-      if (istHour < 9 || istHour >= 21) {
-        return {
-          success: false,
-          error: 'Calls are only allowed between 9:00 AM and 9:00 PM IST (TRAI regulation)',
-        };
-      }
+    // Step 1: Create DB record with placeholder call_sid (NOT NULL constraint)
+    const placeholderSid = `pending-${crypto.randomUUID()}`;
+    let recordId: string;
 
-      // Step 1: Create DB record with placeholder call_sid
-      const recordId = crypto.randomUUID();
+    try {
       const { data, error } = await supabase
         .from('admission_call_logs')
         .insert({
-          id: recordId,
           institution_id: input.institution_id,
           lead_id: input.lead_id || null,
           counselor_id: input.counselor_id,
@@ -449,47 +300,71 @@ export class TelephonyService {
           from_number: input.counselor_phone,
           direction: 'outbound',
           status: 'initiated',
-          call_sid: `pending-${recordId}`,
+          call_sid: placeholderSid,
         })
-        .select('id')
+        .select()
         .single();
 
       if (error) throw new Error(error.message);
-
-      // Step 2: Call Exotel API
-      const { getExotelClient } = await import('./exotel-client');
-      const client = getExotelClient();
-
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL
-        || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null)
-        || 'http://localhost:3000';
-
-      const exotelResponse = await client.makeCall({
-        from: input.counselor_phone,
-        to: input.prospect_phone,
-        customField: data.id,
-        statusCallbackUrl: `${appUrl}/api/webhooks/telephony`,
-        callerId: input.caller_id,
-      });
-
-      // Step 3: Update DB with real Exotel call_sid
-      await supabase
-        .from('admission_call_logs')
-        .update({
-          call_sid: exotelResponse.callSid,
-          started_at: new Date().toISOString(),
-        })
-        .eq('id', data.id);
-
-      return {
-        success: true,
-        call_sid: exotelResponse.callSid,
-        call_log_id: data.id,
-      };
+      recordId = data.id;
     } catch (err) {
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Failed to initiate call',
+        error: err instanceof Error ? err.message : 'Failed to create call record',
+      };
+    }
+
+    // Step 2: Call Exotel API to initiate the real call
+    try {
+      const callerId = input.caller_id || process.env.EXOTEL_CALLER_ID || '';
+      const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL || ''}/api/webhooks/telephony`;
+
+      const response = await ExotelClient.makeCall({
+        from: input.counselor_phone,
+        to: input.prospect_phone,
+        callerId,
+        record: true,
+        statusCallback: webhookUrl,
+        statusCallbackEvents: ['terminal', 'answered'],
+        timeLimit: 1800,
+        timeOut: 30,
+        customField: recordId,
+      });
+
+      const realSid = response.Call.Sid;
+
+      // Update DB record with real Exotel call SID
+      await supabase
+        .from('admission_call_logs')
+        .update({ call_sid: realSid, started_at: new Date().toISOString() })
+        .eq('id', recordId);
+
+      logger.info('telephony', 'Call initiated via Exotel', {
+        callLogId: recordId,
+        exotelSid: realSid,
+      });
+
+      return {
+        success: true,
+        call_sid: realSid,
+        call_log_id: recordId,
+      };
+    } catch (err) {
+      // Exotel call failed — mark DB record as failed
+      logger.error('telephony', 'Exotel call initiation failed', {
+        callLogId: recordId,
+        error: err,
+      });
+
+      await supabase
+        .from('admission_call_logs')
+        .update({ status: 'failed' })
+        .eq('id', recordId);
+
+      return {
+        success: false,
+        call_log_id: recordId,
+        error: err instanceof Error ? err.message : 'Failed to initiate Exotel call',
       };
     }
   }
@@ -511,83 +386,302 @@ export class TelephonyService {
     return data;
   }
 
-  /**
-   * Resolve which institution owns the given ExoPhone number.
-   * Falls back to the first institution if only one exists (single-tenant deployment).
-   */
-  static async resolveInstitutionFromExophone(
-    exophone: string,
-    supabase: any
-  ): Promise<string | null> {
-    // First check if the ExoPhone matches the configured EXOTEL_CALLER_ID
-    const configuredCallerId = process.env.EXOTEL_CALLER_ID;
-    if (configuredCallerId) {
-      // Normalize both for comparison (strip non-digits, compare last 10)
-      const normalizePhone = (p: string) => p.replace(/[^0-9]/g, '').slice(-10);
-      if (normalizePhone(exophone) === normalizePhone(configuredCallerId)) {
-        // For single-institution setups, get the institution
-        const { data } = await supabase
-          .from('institutions')
-          .select('id')
-          .limit(1)
-          .single();
-        return data?.id || null;
-      }
-    }
-
-    // Fallback: if only one institution exists, use it
-    const { data: institutions } = await supabase
-      .from('institutions')
-      .select('id')
-      .limit(2);
-
-    if (institutions?.length === 1) {
-      return institutions[0].id;
-    }
-
-    return null;
-  }
+  // ═══════════════════════════════════════════════════════════════════════
+  // WEBHOOK CALLBACK HANDLER
+  // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Match a caller phone number to an existing admission lead.
-   * Uses last-10-digit normalization to handle Indian phone format variations.
-   * Returns lead_id or null if no match.
-   */
-  static async matchLeadByPhone(
-    callerPhone: string,
-    institutionId: string,
-    supabase: any
-  ): Promise<string | null> {
-    if (!callerPhone) return null;
-
-    const normalizedDigits = callerPhone.replace(/[^0-9]/g, '').slice(-10);
-    if (normalizedDigits.length < 10) return null;
-
-    // Query leads with phone matching (try phone and alternate_phone)
-    const { data } = await supabase
-      .from('admission_leads')
-      .select('id')
-      .eq('institution_id', institutionId)
-      .or(`phone.ilike.%${normalizedDigits},alternate_phone.ilike.%${normalizedDigits},parent_phone.ilike.%${normalizedDigits}`)
-      .eq('is_active', true)
-      .order('last_activity_at', { ascending: false })
-      .limit(1);
-
-    return data?.[0]?.id || null;
-  }
-
-  /**
-   * Handle an Exotel call status webhook callback.
-   * Uses idempotent status ordering to prevent regression from out-of-order webhooks.
-   * Uses CustomField (DB record UUID) for correlation when call_sid isn't yet in the DB.
+   * Process an Exotel status callback and update the call log.
+   * Creates its own service-role client because webhooks have no user session.
    */
   static async handleCallStatusCallback(
-    payload: import('./exotel-client').ExotelCallbackPayload,
-    supabase: any
-  ): Promise<{ processed: boolean; reason?: string }> {
-    const { CallSid, Status, Duration, RecordingUrl, Price, CustomField, AnswerTime, EndTime } = payload;
+    payload: ExotelCallbackPayload
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Dynamic import to keep this module safe for client-side tree-shaking.
+      // createServiceRoleClient requires server-only Node APIs.
+      const { createServiceRoleClient } = await import('@/lib/supabase/server');
+      const supabase = createServiceRoleClient();
 
-    // Map Exotel status strings to our status values
+      const { CallSid, Status, Duration, ConversationDuration, RecordingUrl, Price, CustomField, StartTime, EndTime } = payload;
+
+      if (!CallSid) {
+        return { success: false, error: 'Missing CallSid in payload' };
+      }
+
+      // Map Exotel status to internal status
+      const mappedStatus = TelephonyService.mapExotelStatus(Status);
+
+      // Find the call log — try by call_sid first, fall back to CustomField (our DB record ID)
+      let callLog: any = null;
+
+      const { data: bySid } = await supabase
+        .from('admission_call_logs')
+        .select('id, status, institution_id, call_sid')
+        .eq('call_sid', CallSid)
+        .maybeSingle();
+
+      if (bySid) {
+        callLog = bySid;
+      } else if (CustomField) {
+        // Fallback: webhook arrived before initiateCall() updated the real SID
+        const { data: byId } = await supabase
+          .from('admission_call_logs')
+          .select('id, status, institution_id, call_sid')
+          .eq('id', CustomField)
+          .maybeSingle();
+        callLog = byId;
+      }
+
+      if (!callLog) {
+        // No existing record — check if this is an INBOUND call
+        const direction = (payload.Direction || '').toLowerCase();
+        if (direction === 'incoming' || direction === 'inbound') {
+          // Create a new inbound call log entry
+          callLog = await TelephonyService.createInboundCallLog(payload, supabase);
+          if (!callLog) {
+            logger.warn('telephony/webhook', 'Failed to create inbound call log', { CallSid });
+            return { success: false, error: `Failed to create inbound call log for CallSid: ${CallSid}` };
+          }
+          logger.info('telephony/webhook', 'Created inbound call log', {
+            callLogId: callLog.id,
+            from: payload.From,
+            to: payload.To,
+          });
+        } else {
+          logger.warn('telephony/webhook', 'Call log not found', { CallSid, CustomField });
+          return { success: false, error: `Call log not found for CallSid: ${CallSid}` };
+        }
+      }
+
+      // Idempotent status ordering — never downgrade
+      const currentOrder = STATUS_ORDER[callLog.status] ?? 0;
+      const newOrder = STATUS_ORDER[mappedStatus] ?? 0;
+      if (newOrder < currentOrder) {
+        logger.info('telephony/webhook', 'Skipping status downgrade', {
+          callLogId: callLog.id,
+          current: callLog.status,
+          received: mappedStatus,
+        });
+        return { success: true };
+      }
+
+      // Build update object
+      const updateData: Record<string, any> = {
+        status: mappedStatus,
+      };
+
+      // Replace pending placeholder with real Exotel SID
+      if (callLog.call_sid.startsWith('pending-')) {
+        updateData.call_sid = CallSid;
+      }
+
+      const durationSec = parseInt(ConversationDuration || Duration || '0', 10);
+      if (durationSec > 0) updateData.duration_seconds = durationSec;
+      if (RecordingUrl) updateData.recording_url = RecordingUrl;
+      if (Price) updateData.cost_amount = parseFloat(Price);
+
+      // Timestamps
+      if (StartTime && (mappedStatus === 'ringing' || mappedStatus === 'in-progress')) {
+        updateData.started_at = StartTime;
+      }
+      if (mappedStatus === 'in-progress') {
+        updateData.answered_at = new Date().toISOString();
+      }
+      if (EndTime && TERMINAL_STATUSES.includes(mappedStatus)) {
+        updateData.ended_at = EndTime;
+      }
+
+      const { error } = await supabase
+        .from('admission_call_logs')
+        .update(updateData)
+        .eq('id', callLog.id);
+
+      if (error) {
+        logger.error('telephony/webhook', 'Failed to update call log', { error, callLogId: callLog.id });
+        return { success: false, error: error.message };
+      }
+
+      // Track cost on terminal statuses
+      if (TERMINAL_STATUSES.includes(mappedStatus)) {
+        await TelephonyService.trackCallCost(
+          callLog.id,
+          callLog.institution_id,
+          durationSec,
+          Price ? parseFloat(Price) : null,
+          supabase
+        );
+      }
+
+      logger.info('telephony/webhook', 'Call log updated', {
+        callLogId: callLog.id,
+        status: mappedStatus,
+        duration: durationSec,
+      });
+
+      return { success: true };
+    } catch (err) {
+      logger.error('telephony/webhook', 'handleCallStatusCallback error', err);
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error processing callback',
+      };
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // INBOUND CALL HANDLING
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Create a call log entry for an inbound call received via webhook.
+   * Attempts to match the caller's phone number to an existing lead.
+   */
+  private static async createInboundCallLog(
+    payload: ExotelCallbackPayload,
+    supabase: any
+  ): Promise<{ id: string; status: string; institution_id: string; call_sid: string } | null> {
+    try {
+      const callerPhone = payload.From || '';
+      const exoPhone = payload.To || '';
+
+      // Try to match caller phone to an existing lead
+      // Search by phone, stripping leading 0 or +91
+      const phoneVariants = [
+        callerPhone,
+        callerPhone.replace(/^0/, ''),
+        callerPhone.replace(/^\+91/, ''),
+        callerPhone.replace(/^91/, ''),
+      ];
+
+      let leadMatch: { id: string; institution_id: string } | null = null;
+
+      for (const phone of phoneVariants) {
+        if (!phone || phone.length < 10) continue;
+        const { data } = await supabase
+          .from('admission_leads')
+          .select('id, institution_id')
+          .eq('phone', phone)
+          .limit(1)
+          .maybeSingle();
+        if (data) {
+          leadMatch = data;
+          break;
+        }
+      }
+
+      // If no lead found, try with the last 10 digits
+      if (!leadMatch && callerPhone.length >= 10) {
+        const last10 = callerPhone.slice(-10);
+        const { data } = await supabase
+          .from('admission_leads')
+          .select('id, institution_id')
+          .like('phone', `%${last10}`)
+          .limit(1)
+          .maybeSingle();
+        if (data) leadMatch = data;
+      }
+
+      // Determine institution_id — from lead match or from ExoPhone mapping
+      // Default to a known institution if we can't determine it
+      const institutionId = leadMatch?.institution_id || await TelephonyService.getInstitutionForExoPhone(exoPhone, supabase);
+
+      if (!institutionId) {
+        logger.warn('telephony/webhook', 'Cannot determine institution for inbound call', {
+          from: callerPhone,
+          exoPhone,
+        });
+        return null;
+      }
+
+      const mappedStatus = TelephonyService.mapExotelStatus(payload.Status);
+      const durationSec = parseInt(payload.ConversationDuration || payload.Duration || '0', 10);
+
+      const { data, error } = await supabase
+        .from('admission_call_logs')
+        .insert({
+          institution_id: institutionId,
+          lead_id: leadMatch?.id || null,
+          counselor_id: null, // Inbound — no counselor assigned yet
+          call_sid: payload.CallSid,
+          direction: 'inbound',
+          status: mappedStatus,
+          from_number: callerPhone,
+          to_number: exoPhone,
+          duration_seconds: durationSec,
+          recording_url: payload.RecordingUrl || null,
+          cost_amount: payload.Price ? parseFloat(payload.Price) : null,
+          started_at: payload.StartTime || null,
+          ended_at: payload.EndTime || null,
+          answered_at: durationSec > 0 ? payload.StartTime || new Date().toISOString() : null,
+        })
+        .select('id, status, institution_id, call_sid')
+        .single();
+
+      if (error) {
+        logger.error('telephony/webhook', 'Failed to insert inbound call log', { error });
+        return null;
+      }
+
+      return data;
+    } catch (err) {
+      logger.error('telephony/webhook', 'createInboundCallLog error', err);
+      return null;
+    }
+  }
+
+  /**
+   * Map an ExoPhone number to an institution_id.
+   * Uses a simple mapping table — extend as needed.
+   */
+  private static async getInstitutionForExoPhone(
+    exoPhone: string,
+    _supabase: any
+  ): Promise<string | null> {
+    // ExoPhone → institution mapping
+    // All JKKN ExoPhones map to the primary JKKN institution
+    // This could be moved to a DB config table in the future
+    const EXOPHONE_MAP: Record<string, string> = {
+      '04446313503': 'a1111111-1111-1111-1111-111111111111', // JKKN-COLLEGES (staging)
+      '04446313545': 'a1111111-1111-1111-1111-111111111111', // JKKN-SCHOOLS
+      '04446313596': 'a1111111-1111-1111-1111-111111111111', // JKKN-DENTAL
+      '04448134434': 'a1111111-1111-1111-1111-111111111111', // JKKN-MAIN
+      '04446310202': 'a1111111-1111-1111-1111-111111111111', // JKKN-NEW
+    };
+
+    // Strip any prefix and try matching
+    const cleanPhone = exoPhone.replace(/^\+91/, '').replace(/^91/, '');
+    return EXOPHONE_MAP[cleanPhone] || EXOPHONE_MAP[exoPhone] || null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // CALL DETAILS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Fetch live call details from Exotel by CallSid.
+   * Returns null if the call has a placeholder SID or Exotel is unreachable.
+   */
+  static async getCallDetails(callSid: string): Promise<ExotelCallDetailsResponse | null> {
+    if (callSid.startsWith('pending-')) return null;
+
+    try {
+      return await ExotelClient.getCallDetails(callSid);
+    } catch (err) {
+      logger.error('telephony', 'Failed to fetch call details from Exotel', { callSid, error: err });
+      return null;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // HELPERS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Map Exotel status string to internal CallStatus.
+   */
+  private static mapExotelStatus(exotelStatus: string): CallStatus {
+    const normalized = (exotelStatus || '').toLowerCase().trim();
     const statusMap: Record<string, CallStatus> = {
       'queued': 'initiated',
       'ringing': 'ringing',
@@ -599,195 +693,37 @@ export class TelephonyService {
       'canceled': 'cancelled',
       'cancelled': 'cancelled',
     };
+    return statusMap[normalized] || 'initiated';
+  }
 
-    const newStatus = statusMap[Status?.toLowerCase()] || 'failed';
+  /**
+   * Track call cost in communication_cost_log.
+   */
+  private static async trackCallCost(
+    callLogId: string,
+    institutionId: string,
+    durationSeconds: number,
+    exotelPrice: number | null,
+    supabase: any
+  ): Promise<void> {
+    try {
+      const unitCost = parseFloat(process.env.EXOTEL_CALL_COST_PER_MIN || '0.50');
+      const minutes = Math.ceil(durationSeconds / 60) || 1;
+      const totalCost = exotelPrice ?? unitCost * minutes;
 
-    // Find the call record — try CustomField (DB UUID) first, then call_sid
-    let record = null;
-
-    if (CustomField) {
-      const { data } = await supabase
-        .from('admission_call_logs')
-        .select('id, status, institution_id')
-        .eq('id', CustomField)
-        .single();
-      record = data;
+      await supabase.from('communication_cost_log').insert({
+        institution_id: institutionId,
+        channel: 'call',
+        event_type: 'call_minute',
+        unit_cost: unitCost,
+        quantity: minutes,
+        total_cost: totalCost,
+        currency: 'INR',
+        reference_id: callLogId,
+      });
+    } catch (err) {
+      // Non-blocking — cost tracking failure should not break the webhook
+      logger.error('telephony', 'Failed to track call cost', { callLogId, error: err });
     }
-
-    if (!record && CallSid) {
-      const { data } = await supabase
-        .from('admission_call_logs')
-        .select('id, status, institution_id')
-        .eq('call_sid', CallSid)
-        .single();
-      record = data;
-    }
-
-    // If no record found and this is an inbound call, create a new record
-    if (!record) {
-      const isInbound = payload.Direction?.toLowerCase() === 'inbound';
-      if (!isInbound) {
-        return { processed: false, reason: 'Call record not found (outbound)' };
-      }
-
-      // Determine institution from ExoPhone (To number for inbound calls)
-      const institutionId = await TelephonyService.resolveInstitutionFromExophone(
-        payload.To || '',
-        supabase
-      );
-
-      if (!institutionId) {
-        return { processed: false, reason: `No institution found for ExoPhone: ${payload.To}` };
-      }
-
-      // Match caller phone to an existing admission lead
-      const leadId = await TelephonyService.matchLeadByPhone(
-        payload.From || '',
-        institutionId,
-        supabase
-      );
-
-      // Create inbound call record
-      const { data: newRecord, error: insertError } = await supabase
-        .from('admission_call_logs')
-        .insert({
-          call_sid: CallSid,
-          institution_id: institutionId,
-          direction: 'inbound' as CallDirection,
-          from_number: payload.From || '',
-          to_number: payload.To || '',
-          status: newStatus,
-          lead_id: leadId,
-          counselor_id: null,
-          duration_seconds: Duration ? parseInt(Duration, 10) || 0 : null,
-          recording_url: RecordingUrl || null,
-          cost_amount: Price ? parseFloat(Price) || 0 : null,
-          cost_currency: 'INR',
-          started_at: payload.StartTime || new Date().toISOString(),
-          answered_at: AnswerTime || null,
-          ended_at: EndTime || null,
-        })
-        .select('id, institution_id')
-        .single();
-
-      if (insertError) {
-        // Duplicate call_sid — record already exists from CDR sync, update instead
-        if (insertError.code === '23505') {
-          const { data: existing } = await supabase
-            .from('admission_call_logs')
-            .select('id, status, institution_id')
-            .eq('call_sid', CallSid)
-            .single();
-          if (existing) {
-            record = existing;
-            // Fall through to update logic below
-          } else {
-            return { processed: false, reason: `Duplicate call_sid but record not found: ${CallSid}` };
-          }
-        } else {
-          return { processed: false, reason: `Insert failed: ${insertError.message}` };
-        }
-      } else {
-        // Successfully created — log cost if terminal
-        if (TERMINAL_STATUSES.includes(newStatus) && Duration) {
-          const durationMinutes = Math.ceil((parseInt(Duration, 10) || 0) / 60);
-          const costPerMin = parseFloat(process.env.EXOTEL_CALL_COST_PER_MIN || '0.50');
-          const totalCost = Price ? parseFloat(Price) : durationMinutes * costPerMin;
-
-          if (totalCost > 0) {
-            await supabase.from('communication_cost_log').insert({
-              institution_id: institutionId,
-              channel: 'call',
-              event_type: 'call_minute',
-              unit_cost: costPerMin,
-              quantity: durationMinutes,
-              total_cost: totalCost,
-              currency: 'INR',
-              reference_id: newRecord.id,
-              metadata: { call_sid: CallSid, exotel_price: Price, direction: 'inbound' },
-            });
-          }
-        }
-        return { processed: true, reason: 'Inbound call record created' };
-      }
-    }
-
-    // Idempotent status check: don't go backward
-    const currentOrder = STATUS_ORDER[record.status] ?? 0;
-    const newOrder = STATUS_ORDER[newStatus] ?? 0;
-
-    if (newOrder < currentOrder) {
-      return { processed: false, reason: `Stale webhook: ${newStatus} < ${record.status}` };
-    }
-
-    // Don't update if already terminal
-    if (TERMINAL_STATUSES.includes(record.status)) {
-      return { processed: false, reason: `Already terminal: ${record.status}` };
-    }
-
-    // Build update object
-    const update: Record<string, any> = {
-      status: newStatus,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (CallSid && !CallSid.startsWith('pending-')) {
-      update.call_sid = CallSid;
-    }
-
-    if (Duration) {
-      update.duration_seconds = parseInt(Duration, 10) || 0;
-    }
-
-    if (RecordingUrl) {
-      update.recording_url = RecordingUrl;
-    }
-
-    if (Price) {
-      update.cost_amount = parseFloat(Price) || 0;
-      update.cost_currency = 'INR';
-    }
-
-    if (AnswerTime) {
-      update.answered_at = AnswerTime;
-    }
-
-    if (EndTime && TERMINAL_STATUSES.includes(newStatus)) {
-      update.ended_at = EndTime;
-    }
-
-    // Update with DB-level guard against concurrent terminal updates
-    const { error } = await supabase
-      .from('admission_call_logs')
-      .update(update)
-      .eq('id', record.id)
-      .not('status', 'in', `(${TERMINAL_STATUSES.join(',')})`);
-
-    if (error) {
-      return { processed: false, reason: error.message };
-    }
-
-    // Log cost for terminal statuses with duration
-    if (TERMINAL_STATUSES.includes(newStatus) && Duration) {
-      const durationMinutes = Math.ceil((parseInt(Duration, 10) || 0) / 60);
-      const costPerMin = parseFloat(process.env.EXOTEL_CALL_COST_PER_MIN || '0.50');
-      const totalCost = Price ? parseFloat(Price) : durationMinutes * costPerMin;
-
-      if (totalCost > 0) {
-        await supabase.from('communication_cost_log').insert({
-          institution_id: record.institution_id,
-          channel: 'call',
-          event_type: 'call_minute',
-          unit_cost: costPerMin,
-          quantity: durationMinutes,
-          total_cost: totalCost,
-          currency: 'INR',
-          reference_id: record.id,
-          metadata: { call_sid: CallSid, exotel_price: Price },
-        });
-      }
-    }
-
-    return { processed: true };
   }
 }

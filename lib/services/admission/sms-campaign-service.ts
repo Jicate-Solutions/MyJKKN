@@ -12,7 +12,7 @@ import {
 // TYPES
 // ============================================================================
 
-export type SMSProvider = 'msg91' | 'twilio';
+export type SMSProvider = 'msg91' | 'twilio' | 'exotel';
 
 export type SMSDeliveryStatus =
   | 'pending'

@@ -1,150 +1,196 @@
-export const dynamic = 'force-dynamic';
+// app/api/webhooks/telephony/route.ts
+// Exotel Call Status Callback Handler
+// POST /api/webhooks/telephony
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { createServiceRoleClient } from '@/lib/supabase/server';
-import { TelephonyService } from '@/lib/services/telephony/telephony-service';
-import type { ExotelCallbackPayload } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
-import { maskPhone } from '@/lib/utils/phone-number';
+import {
+  TelephonyService,
+  type ExotelCallbackPayload,
+} from '@/lib/services/telephony/telephony-service';
 
-// ---------------------------------------------------------------------------
-// Auth helper — timing-safe comparison to prevent token enumeration attacks
-// ---------------------------------------------------------------------------
-function verifyToken(providedToken: string): boolean {
-  const expectedToken = process.env.EXOTEL_API_TOKEN;
-  if (!expectedToken) {
-    logger.warn('admissions/telephony-webhook', 'EXOTEL_API_TOKEN env var is not set');
-    return false;
-  }
+// ============================================================================
+// WEBHOOK HANDLER
+// ============================================================================
+
+export async function POST(request: NextRequest) {
+  const startTime = Date.now();
 
   try {
-    const a = Buffer.from(providedToken);
-    const b = Buffer.from(expectedToken);
-    // Buffers must be the same length for timingSafeEqual
-    if (a.length !== b.length) {
-      return false;
+    logger.info('telephony/webhook', 'Received Exotel callback');
+
+    // ========================================================================
+    // STEP 1: Verify Authentication
+    // ========================================================================
+    const isAuthenticated = verifyWebhookAuth(request);
+
+    if (!isAuthenticated) {
+      logger.error('telephony/webhook', 'Webhook authentication failed');
+      return NextResponse.json(
+        { error: 'UNAUTHORIZED', message: 'Invalid webhook authentication' },
+        { status: 401 }
+      );
     }
-    return crypto.timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
 
-// ---------------------------------------------------------------------------
-// POST — receive Exotel call-status webhook
-// ---------------------------------------------------------------------------
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  // 1. Verify auth token
-  const providedToken =
-    request.headers.get('x-exotel-token') ?? request.headers.get('x-api-token') ?? '';
+    // ========================================================================
+    // STEP 2: Parse Callback Payload
+    // ========================================================================
+    let payload: ExotelCallbackPayload;
 
-  if (!verifyToken(providedToken)) {
-    logger.warn('admissions/telephony-webhook', 'Unauthorized webhook request — invalid token');
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+    const contentType = request.headers.get('content-type') || '';
 
-  // 2. Parse application/x-www-form-urlencoded body
-  let payload: ExotelCallbackPayload;
-  try {
-    const bodyText = await request.text();
-    const params = new URLSearchParams(bodyText);
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      // Exotel sends as form-encoded data
+      const formData = await request.formData();
+      const data: Record<string, string> = {};
+      formData.forEach((value, key) => {
+        data[key] = value.toString();
+      });
+      payload = data as ExotelCallbackPayload;
+    } else {
+      // JSON fallback
+      payload = await request.json();
+    }
 
-    payload = {
-      CallSid: params.get('CallSid') ?? undefined,
-      Status: params.get('Status') ?? undefined,
-      Direction: params.get('Direction') ?? undefined,
-      From: params.get('From') ?? undefined,
-      To: params.get('To') ?? undefined,
-      Duration: params.get('Duration') ?? undefined,
-      RecordingUrl: params.get('RecordingUrl') ?? undefined,
-      Price: params.get('Price') ?? undefined,
-      CustomField: params.get('CustomField') ?? undefined,
-      StartTime: params.get('StartTime') ?? undefined,
-      EndTime: params.get('EndTime') ?? undefined,
-      AnswerTime: params.get('AnswerTime') ?? undefined,
-    } as ExotelCallbackPayload;
-  } catch (parseError) {
-    logger.error('admissions/telephony-webhook', 'Failed to parse webhook body', parseError);
-    return NextResponse.json({ error: 'Bad Request — failed to parse body' }, { status: 400 });
-  }
-
-  // 3. Validate — need at least one identifier (CallSid required for inbound, CustomField for outbound)
-  if (!payload.CallSid && !payload.CustomField) {
-    logger.warn('admissions/telephony-webhook', 'Webhook rejected — missing CallSid and CustomField');
-    return NextResponse.json(
-      { error: 'Bad Request — CallSid or CustomField is required' },
-      { status: 400 }
-    );
-  }
-
-  // For inbound calls, we need From and To numbers to create a record
-  const isInbound = payload.Direction?.toLowerCase() === 'inbound';
-  if (isInbound && (!payload.From || !payload.To)) {
-    logger.warn('admissions/telephony-webhook', 'Inbound webhook missing From/To numbers', {
+    logger.info('telephony/webhook', 'Processing callback', {
       callSid: payload.CallSid,
+      status: payload.Status,
       direction: payload.Direction,
     });
-  }
 
-  // 4. Log receipt with masked phone numbers
-  logger.info('admissions/telephony-webhook', 'Exotel call-status webhook received', {
-    callSid: payload.CallSid,
-    status: payload.Status,
-    direction: payload.Direction,
-    from: payload.From ? maskPhone(payload.From) : undefined,
-    to: payload.To ? maskPhone(payload.To) : undefined,
-    customField: payload.CustomField,
-  });
+    // ========================================================================
+    // STEP 3: Process Callback
+    // ========================================================================
+    const result = await TelephonyService.handleCallStatusCallback(payload);
 
-  // 5. Respond 200 immediately — Exotel expects a fast response
-  const response = NextResponse.json({ received: true, processed: true }, { status: 200 });
+    const processingTime = Date.now() - startTime;
 
-  // 6. Background processing via waitUntil (Vercel) or synchronous fallback
-  const processCallback = async () => {
-    try {
-      const supabase = createServiceRoleClient();
-      const result = await TelephonyService.handleCallStatusCallback(payload, supabase);
-
-      if (result.processed) {
-        logger.info('admissions/telephony-webhook', 'Callback processed successfully', {
-          callSid: payload.CallSid,
-          reason: result.reason,
-        });
-      } else {
-        logger.info('admissions/telephony-webhook', 'Callback skipped', {
-          callSid: payload.CallSid,
-          reason: result.reason,
-        });
-      }
-    } catch (processingError) {
-      logger.error('admissions/telephony-webhook', 'Callback processing failed', {
-        callSid: payload.CallSid,
-        error: String(processingError),
+    if (!result.success) {
+      logger.error('telephony/webhook', 'Callback processing failed', {
+        error: result.error,
+        processingTimeMs: processingTime,
       });
+
+      // Return 200 to acknowledge receipt even if processing failed
+      // This prevents Exotel from retrying indefinitely
+      return NextResponse.json(
+        {
+          received: true,
+          processed: false,
+          error: result.error,
+        },
+        { status: 200 }
+      );
     }
-  };
 
-  try {
-    // Try to use waitUntil for non-blocking background execution on Vercel
-    const { waitUntil } = await import('@vercel/functions');
-    waitUntil(processCallback());
-  } catch {
-    // @vercel/functions not available — process synchronously (local dev / non-Vercel)
-    await processCallback();
+    logger.info('telephony/webhook', 'Callback processed successfully', {
+      callSid: payload.CallSid,
+      status: payload.Status,
+      processingTimeMs: processingTime,
+    });
+
+    return NextResponse.json(
+      {
+        received: true,
+        processed: true,
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    logger.error('telephony/webhook', 'Webhook endpoint error', error);
+
+    // Return 200 to prevent retries
+    return NextResponse.json(
+      {
+        received: true,
+        processed: false,
+        error: error instanceof Error ? error.message : 'Internal error',
+      },
+      { status: 200 }
+    );
   }
-
-  return response;
 }
 
-// ---------------------------------------------------------------------------
-// GET — health check
-// ---------------------------------------------------------------------------
-export async function GET(): Promise<NextResponse> {
-  const configured = Boolean(process.env.EXOTEL_API_TOKEN);
-  return NextResponse.json({
-    status: 'active',
-    provider: 'exotel',
-    configured,
-  });
+// ============================================================================
+// AUTHENTICATION
+// ============================================================================
+
+/**
+ * Verify Exotel webhook authentication.
+ * Exotel sends an API token that should match our configured token.
+ * SECURITY: Rejects requests when EXOTEL_API_TOKEN is not configured.
+ */
+function verifyWebhookAuth(request: NextRequest): boolean {
+  const expectedToken = process.env.EXOTEL_API_TOKEN;
+
+  // SECURITY: Reject if token is not configured — never allow unauthenticated requests
+  if (!expectedToken) {
+    logger.error('telephony/webhook', 'EXOTEL_API_TOKEN not configured — rejecting request');
+    return false;
+  }
+
+  // Check for token in various common header formats
+  const authHeader = request.headers.get('authorization');
+  const apiToken = request.headers.get('x-exotel-token') || request.headers.get('x-api-token');
+
+  if (apiToken && apiToken.length === expectedToken.length) {
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(apiToken), Buffer.from(expectedToken))) {
+        return true;
+      }
+    } catch {
+      // Length mismatch handled by try/catch
+    }
+  }
+
+  // Check Basic auth header (Exotel sometimes uses basic auth in callbacks)
+  if (authHeader && authHeader.startsWith('Basic ')) {
+    try {
+      const decoded = atob(authHeader.slice(6));
+      const [, token] = decoded.split(':');
+      if (token && token.length === expectedToken.length) {
+        if (crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expectedToken))) {
+          return true;
+        }
+      }
+    } catch {
+      // Invalid base64 or length mismatch
+    }
+  }
+
+  // Check query parameter as a fallback
+  const tokenParam = request.nextUrl.searchParams.get('token');
+  if (tokenParam && tokenParam.length === expectedToken.length) {
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(tokenParam), Buffer.from(expectedToken))) {
+        return true;
+      }
+    } catch {
+      // Length mismatch
+    }
+  }
+
+  logger.warn('telephony/webhook', 'Exotel webhook authentication failed — no valid token found');
+  return false;
+}
+
+// ============================================================================
+// HEALTH CHECK
+// ============================================================================
+
+export async function GET() {
+  const configured = TelephonyService.isConfigured();
+
+  return NextResponse.json(
+    {
+      service: 'Exotel Telephony Webhook',
+      status: configured ? 'active' : 'not_configured',
+      endpoint: '/api/webhooks/telephony',
+      methods: ['POST'],
+      provider: 'exotel',
+      webhookUrl: `${process.env.NEXT_PUBLIC_APP_URL || ''}/api/webhooks/telephony`,
+    },
+    { status: 200 }
+  );
 }
