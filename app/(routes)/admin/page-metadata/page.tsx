@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -129,7 +130,7 @@ function PageMetadataContent() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 py-8">
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -252,6 +253,9 @@ function PageMetadataContent() {
               <Edit2 className="h-4 w-4" />
               Edit Page Metadata
             </DialogTitle>
+            <DialogDescription>
+              Customize keywords and description to improve search results
+            </DialogDescription>
           </DialogHeader>
 
           {editingPage && (

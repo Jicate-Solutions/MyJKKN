@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { KEYBOARD_SHORTCUTS, formatShortcutKey } from '@/lib/navigation/keyboard-shortcuts';
 import { Keyboard } from 'lucide-react';
 
@@ -34,6 +34,9 @@ export function KeyboardShortcutsHelp() {
             <Keyboard className="h-5 w-5" />
             Keyboard Shortcuts
           </DialogTitle>
+          <DialogDescription>
+            Navigate quickly using these keyboard shortcuts
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

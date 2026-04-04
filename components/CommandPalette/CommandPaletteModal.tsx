@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Command } from 'cmdk';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { usePageSearch } from '@/hooks/use-page-search';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -104,6 +104,7 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
       >
         <VisuallyHidden>
           <DialogTitle>Search pages and actions</DialogTitle>
+          <DialogDescription>Use the search bar to find pages, actions, and navigate quickly</DialogDescription>
         </VisuallyHidden>
         <Command
           className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group]]:px-2 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5"
