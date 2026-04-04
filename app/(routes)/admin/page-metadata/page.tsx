@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/table';
 import { usePageMetadata } from '@/hooks/use-page-metadata';
 import { getPageRegistry, ICON_MAP } from '@/lib/navigation/page-registry';
-import { PermissionGuard } from '@/components/PermissionGuard';
+import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Search, Edit2, Trash2, Plus, FileText, Tag, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -33,7 +33,7 @@ import type { PageEntry } from '@/lib/navigation/types';
 
 export default function PageMetadataPage() {
   return (
-    <PermissionGuard requiredPermission="super_admin">
+    <PermissionGuard module="system" action="view">
       <ContentLayout title="Page Metadata">
         <PageMetadataContent />
       </ContentLayout>
