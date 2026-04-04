@@ -265,7 +265,7 @@ function PageMetadataContent() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingPage} onOpenChange={(open) => !open && setEditingPage(null)}>
-        <DialogContent className="max-w-lg dark:bg-gray-900" onPointerDownOutside={(e) => e.preventDefault()}>
+        <DialogContent className="max-w-lg dark:bg-gray-900 max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit2 className="h-4 w-4" />
@@ -277,7 +277,7 @@ function PageMetadataContent() {
           </DialogHeader>
 
           {editingPage && (
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto max-h-[60vh] pr-1">
               {/* Page info (read-only) */}
               <div className="rounded-md bg-muted p-3">
                 <div className="font-medium text-sm">{editingPage.title}</div>
@@ -449,11 +449,20 @@ function ShortcutRecorder({
     if (!isRecording) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+      // Escape stops recording
+      if (e.key === 'Escape') {
+        setIsRecording(false);
+        setRecordedKey(null);
+        setConflict(null);
+        e.stopPropagation();
+        return;
+      }
+
       const parsed = parseEvent(e);
       if (!parsed) return;
 
+      e.preventDefault();
+      e.stopPropagation();
       setRecordedKey(parsed);
 
       // Check for conflicts
@@ -466,23 +475,10 @@ function ShortcutRecorder({
       }
     };
 
+    // Use capture phase only for the recording input area
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [isRecording, getConflict, onChange]);
-
-  // Close recording on outside click
-  useEffect(() => {
-    if (!isRecording) return;
-    const handleClick = (e: MouseEvent) => {
-      if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
-        setIsRecording(false);
-        setRecordedKey(null);
-        setConflict(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [isRecording]);
 
   return (
     <div className="space-y-3" ref={inputRef}>
@@ -546,8 +542,12 @@ function ShortcutRecorder({
             return (
               <button
                 key={key}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   if (isTaken) return;
+                  setIsRecording(false);
+                  setConflict(null);
+                  setRecordedKey(null);
                   onChange(isCurrent ? null : key);
                 }}
                 disabled={isTaken}
