@@ -18,6 +18,10 @@ import { AuthService } from '@/lib/auth/auth-service';
 import { useMemo } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
+import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
+import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebarSection';
+import { Search } from 'lucide-react';
+import { getShortcutForPath } from '@/lib/navigation/keyboard-shortcuts';
 
 interface MenuProps {
   isOpen: boolean | undefined;
@@ -32,6 +36,7 @@ export function Menu({ isOpen }: MenuProps) {
     userProfile
   } = usePermissions();
   const { isInstalled, canInstall, installApp } = usePWA();
+  const { open: openCommandPalette } = useCommandPalette();
 
   // Check if user is an expo team member (for dynamic sidebar visibility)
   const { data: isExpoTeamMember } = useUserExpoTeamStatus();
@@ -81,7 +86,31 @@ export function Menu({ isOpen }: MenuProps) {
 
   return (
     <div className='overflow-y-auto h-full custom-scrollbar'>
-      <nav className='mt-8 h-full w-full'>
+      {/* Search trigger button */}
+      <div className='px-2 pt-4 pb-1'>
+        <button
+          onClick={openCommandPalette}
+          className={cn(
+            'w-full flex items-center gap-2 rounded-lg border border-border/50 px-3 py-2 text-sm text-muted-foreground',
+            'hover:bg-accent hover:text-accent-foreground transition-colors',
+            'dark:border-gray-700/50 dark:hover:bg-gray-800',
+            isOpen === false && 'justify-center px-2'
+          )}
+        >
+          <Search className='h-4 w-4 shrink-0' />
+          {isOpen !== false && (
+            <>
+              <span className='flex-1 text-left truncate'>Search...</span>
+              <kbd className='hidden lg:inline-flex h-5 select-none items-center rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground dark:border-gray-600'>
+                Ctrl+K
+              </kbd>
+            </>
+          )}
+        </button>
+      </div>
+      {/* Favorites section */}
+      <FavoritesSidebarSection isOpen={isOpen} />
+      <nav className='mt-2 h-full w-full'>
         {permissionsLoading ? (
           <div className='flex justify-center items-center py-4'>
             <div className='animate-pulse h-4 w-24 bg-muted rounded mb-2'></div>
@@ -141,7 +170,7 @@ export function Menu({ isOpen }: MenuProps) {
                                   </span>
                                   <p
                                     className={cn(
-                                      'max-w-[200px] truncate',
+                                      'max-w-[170px] truncate flex-1',
                                       isOpen === false
                                         ? '-translate-x-96 opacity-0'
                                         : 'translate-x-0 opacity-100'
@@ -149,6 +178,14 @@ export function Menu({ isOpen }: MenuProps) {
                                   >
                                     {label}
                                   </p>
+                                  {isOpen !== false && (() => {
+                                    const shortcut = getShortcutForPath(href);
+                                    return shortcut ? (
+                                      <kbd className='hidden lg:inline-flex h-4 select-none items-center rounded border px-1 font-mono text-[9px] font-medium text-muted-foreground/60 dark:border-gray-700 bg-transparent'>
+                                        {shortcut}
+                                      </kbd>
+                                    ) : null;
+                                  })()}
                                 </Link>
                               </Button>
                             </TooltipTrigger>

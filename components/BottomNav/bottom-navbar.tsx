@@ -18,11 +18,13 @@ import {
   TabletSmartphone,
   Bug,
   Rocket,
-  LucideIcon
+  LucideIcon,
+  Search
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBottomNav, useBottomNavHydration } from '@/hooks/use-bottom-nav';
+import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
@@ -132,6 +134,8 @@ export function BottomNavbar() {
     isLoading,
     userProfile
   } = usePermissions();
+
+  const { open: openSearch } = useCommandPalette();
 
   const {
     activeNavId,
@@ -423,6 +427,17 @@ export function BottomNavbar() {
               onClick={() => handleNavClick(group.id)}
             />
           ))}
+
+          {/* Search button */}
+          <BottomNavItem
+            id="search"
+            icon={Search}
+            label="Search"
+            isActive={false}
+            hasSubmenu={false}
+            hideIndicator={true}
+            onClick={openSearch}
+          />
 
           {/* More button if there are additional groups */}
           {moreNavGroups.length > 0 && (

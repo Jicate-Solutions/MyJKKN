@@ -9,6 +9,9 @@ import Sidebar from '@/components/Sidebar/Sidebar';
 import { Footer } from '@/components/Footer/Footer';
 import { BottomNavbar } from '@/components/BottomNav';
 import { PushNotificationBanner } from '@/components/notifications/push-notification-banner';
+import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
+import { Breadcrumbs } from '@/components/Breadcrumbs/Breadcrumbs';
+import { KeyboardShortcutsHelp } from '@/components/CommandPalette/KeyboardShortcutsHelp';
 
 export default function AdminPanelLayout({
   children
@@ -22,7 +25,7 @@ export default function AdminPanelLayout({
   const isOpen = sidebar?.isOpen ?? true;
 
   return (
-    <>
+    <CommandPaletteProvider>
       <Suspense>
         <Sidebar />
       </Suspense>
@@ -35,6 +38,7 @@ export default function AdminPanelLayout({
         )}
       >
         <PushNotificationBanner />
+        <Breadcrumbs />
         <Suspense>
           {children}
         </Suspense>
@@ -53,6 +57,7 @@ export default function AdminPanelLayout({
       <Suspense>
         <BottomNavbar />
       </Suspense>
-    </>
+      <KeyboardShortcutsHelp />
+    </CommandPaletteProvider>
   );
 }
