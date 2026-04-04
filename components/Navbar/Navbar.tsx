@@ -4,10 +4,13 @@ import { SheetMenu } from './sheet-menu';
 import { Button } from '../ui/button';
 import { LogOut, UserCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import { usePathname } from 'next/navigation';
 import { AuthService } from '@/lib/auth/auth-service';
 import { UserNav } from './user-nav';
 import { ModeToggle } from '../theme/mode-toggle';
 import { NotificationBell } from '../notifications/notification-bell';
+import { FavoriteStar } from '../Favorites/FavoriteStar';
+import { getPageByPath } from '@/lib/navigation/page-registry';
 
 interface NavbarProps {
   title: string;
@@ -15,6 +18,18 @@ interface NavbarProps {
 
 export function Navbar({ title }: NavbarProps) {
   const { profile } = useAuth();
+  const pathname = usePathname();
+
+  // Look up current page for favorite star
+  let currentPage: { path: string; title: string; module: string; iconName: string } | null = null;
+  try {
+    const page = getPageByPath(pathname);
+    if (page) {
+      currentPage = { path: page.path, title: page.title, module: page.module, iconName: page.iconName };
+    }
+  } catch {
+    // Registry not ready
+  }
 
   const handleLogout = async () => {
     try {
@@ -30,6 +45,15 @@ export function Navbar({ title }: NavbarProps) {
         <div className='flex items-center space-x-4 lg:space-x-0'>
           <SheetMenu />
           <h1 className='font-bold text-foreground'>{title}</h1>
+          {currentPage && (
+            <FavoriteStar
+              pagePath={currentPage.path}
+              pageTitle={currentPage.title}
+              module={currentPage.module}
+              iconName={currentPage.iconName}
+              size="sm"
+            />
+          )}
         </div>
         <div className='flex items-center justify-between space-x-4'>
           {/* Desktop view */}
