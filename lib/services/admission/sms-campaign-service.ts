@@ -596,6 +596,21 @@ export class SMSCampaignService {
 
           if (!error) updated++;
         }
+      } else if (provider === 'exotel' && payload.SmsSid) {
+        // Exotel webhook format
+        const status = this.mapExotelSmsStatus(payload.Status || '');
+
+        const { error } = await this.supabase
+          .from('admission_sms_logs')
+          .update({
+            status,
+            delivered_at: status === 'delivered' ? payload.DateSent || new Date().toISOString() : null,
+            error_message: payload.DetailedStatus || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('provider_message_id', payload.SmsSid);
+
+        if (!error) updated = 1;
       } else if (provider === 'twilio' && payload.MessageSid) {
         // Twilio webhook format
         const status = this.mapTwilioStatus(payload.MessageStatus || '');
