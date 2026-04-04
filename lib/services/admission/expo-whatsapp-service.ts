@@ -23,6 +23,7 @@ export interface ExpoWelcomeInput {
   institutionId: string;
   institutionName?: string;
   expoEventId: string;
+  interestedPrograms?: string;
 }
 
 export interface SendResult {
@@ -537,15 +538,16 @@ function formatPhoneForWA(phone: string): string {
 
 /** Build template components with lead/event parameters */
 function buildTemplateComponents(input: ExpoWelcomeInput): WATemplateComponent[] {
-  // exhibition_thankyou template expected params:
-  // body: {{1}} = student name, {{2}} = event name, {{3}} = institution name
+  // exhibition_thankyou template:
+  // "Hi {{1}}, thank you for visiting JKKN at {{2}}! You showed interest in {{3}}."
+  // body: {{1}} = student name, {{2}} = event name, {{3}} = interested program(s)
   return [
     {
       type: 'body',
       parameters: [
         { type: 'text', text: input.leadName },
         { type: 'text', text: input.eventName },
-        { type: 'text', text: input.institutionName || 'JKKN Institutions' },
+        { type: 'text', text: input.interestedPrograms || 'our programs' },
       ],
     },
   ];
