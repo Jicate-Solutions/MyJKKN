@@ -1,3 +1,4 @@
+'use client';
 /**
  * Change Requests Search Wrapper Component
  *
@@ -5,7 +6,6 @@
  * Uses client-side filtering since all data is loaded at once
  */
 
-'use client';
 
 import { useState, useCallback } from 'react';
 import { LearnerAdvancedSearchShared, type LearnerSearchFilters } from '@/components/learners/learner-advanced-search-shared';

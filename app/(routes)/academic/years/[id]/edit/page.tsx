@@ -1,8 +1,7 @@
-export const dynamic = 'force-dynamic';
+'use client';
 
 // app/(routes)/academic/years/[id]/edit/page.tsx
 
-'use client';
 
 import { use } from 'react';
 import { useEffect, useState } from 'react';

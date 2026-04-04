@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/approvals/_components/approval-filters.tsx
 'use client';
+// app/(routes)/resource-management/reservations/approvals/_components/approval-filters.tsx
 
 import { Search, Filter, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';

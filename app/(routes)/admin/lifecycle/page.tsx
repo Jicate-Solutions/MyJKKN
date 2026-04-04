@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // LIFECYCLE ANALYTICS DASHBOARD
 // ============================================
@@ -7,7 +8,6 @@
 //          health scores, and downloadable reports
 // ============================================
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';

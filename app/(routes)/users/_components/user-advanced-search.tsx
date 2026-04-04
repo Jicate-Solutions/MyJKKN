@@ -1,3 +1,4 @@
+'use client';
 /**
  * User Advanced Search Component
  *
@@ -13,7 +14,6 @@
  * - Clear filters functionality
  */
 
-'use client';
 
 import { useState, useCallback, useMemo } from 'react';
 import { Search, X, Filter, AlertCircle } from 'lucide-react';

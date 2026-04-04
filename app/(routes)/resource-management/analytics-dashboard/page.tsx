@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/analytics-dashboard/page.tsx
 'use client';
+// app/(routes)/resource-management/analytics-dashboard/page.tsx
 
 import { useState, useMemo, Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';

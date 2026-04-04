@@ -1,5 +1,5 @@
-// app/(routes)/notifications/page.tsx
 'use client';
+// app/(routes)/notifications/page.tsx
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Bell } from 'lucide-react';

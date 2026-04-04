@@ -1,10 +1,10 @@
+'use client';
 /**
  * Enquiries Search Wrapper Component
  *
  * Client component that handles advanced search integration with URL state
  */
 
-'use client';
 
 import { useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';

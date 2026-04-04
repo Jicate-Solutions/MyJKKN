@@ -1,10 +1,10 @@
+'use client';
 /**
  * Export Actions Component
  * Created: 2025-12-29
  * Description: Buttons for exporting attendance data to PDF and Excel
  */
 
-'use client';
 
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

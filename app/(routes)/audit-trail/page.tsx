@@ -1,5 +1,5 @@
-// app/(routes)/audit-trail/page.tsx
 'use client';
+// app/(routes)/audit-trail/page.tsx
 
 import { useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';

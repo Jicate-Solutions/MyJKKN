@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/organizations/degrees/_components/degree-filters.tsx
 
-'use client';
 
 import { useEffect, useState } from 'react';
 import {

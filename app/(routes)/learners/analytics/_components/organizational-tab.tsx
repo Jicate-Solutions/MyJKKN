@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // ORGANIZATIONAL TAB - HIERARCHICAL VIEW
 // ============================================
@@ -6,7 +7,6 @@
 // Purpose: Institution → Degree → Department → Program → Semester → Section hierarchy
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

@@ -1,5 +1,5 @@
-// app/(routes)/audit-trail/_components/audit-log-item.tsx
 'use client';
+// app/(routes)/audit-trail/_components/audit-log-item.tsx
 
 import {
   User,

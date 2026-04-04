@@ -13,8 +13,10 @@ const withSerwist = withSerwistInit({
 });
 
 const nextConfig: NextConfig = {
-  // Enable Cache Components for server-side caching (Next.js 16.1.1)
-  cacheComponents: true,
+  // Cache Components disabled — codebase has 422+ dynamic routes using
+  // force-dynamic which is incompatible with cacheComponents. Requires
+  // migration to use cache / connection() / Suspense before enabling.
+  // cacheComponents: true,
 
   // Exclude browser-only PDF libraries from server bundle.
   // jspdf depends on fflate which uses Node.js Worker via a dynamic `new Worker()`

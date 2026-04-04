@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+'use client';
 
 // ============================================
 // LEARNER EDIT PAGE
@@ -8,7 +8,6 @@ export const dynamic = 'force-dynamic';
 // Purpose: Edit learner profile with comprehensive form
 // ============================================
 
-'use client';
 
 import { use } from 'react';
 import Link from 'next/link';

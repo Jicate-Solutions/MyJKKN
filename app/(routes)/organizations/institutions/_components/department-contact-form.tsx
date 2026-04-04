@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/organizations/institutions/_components/department-contact-form.tsx
 
-'use client';
 
 import { DepartmentContact } from '@/types/organizations';
 import {

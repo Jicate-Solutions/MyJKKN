@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/my-reservations/page.tsx
 'use client';
+// app/(routes)/resource-management/reservations/my-reservations/page.tsx
 
 import { useState, useMemo } from 'react';
 import { Plus } from 'lucide-react';

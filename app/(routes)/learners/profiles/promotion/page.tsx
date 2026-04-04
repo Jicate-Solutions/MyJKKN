@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // LEARNER PROMOTION PAGE
 // ============================================
@@ -6,7 +7,6 @@
 // Features: Bulk operations with progress tracking
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';

@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // FINANCE DETAILS FORM SECTION
 // ============================================
@@ -6,7 +7,6 @@
 //          with config-driven conditional optional fees
 // ============================================
 
-'use client';
 
 import { UseFormReturn, useWatch } from 'react-hook-form';
 import { Input } from '@/components/ui/input';

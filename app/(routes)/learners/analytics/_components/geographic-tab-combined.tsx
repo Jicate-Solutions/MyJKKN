@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // GEOGRAPHIC TAB - COMBINED (Enhanced)
 // ============================================
@@ -9,7 +10,6 @@
 // Updated: 2025-02-02 - Moved Taluks to basic view
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

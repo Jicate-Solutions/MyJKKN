@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/maintenance/_components/maintenance-stats-cards.tsx
 'use client';
+// app/(routes)/resource-management/maintenance/_components/maintenance-stats-cards.tsx
 
 import {
   Wrench,

@@ -1,5 +1,5 @@
-// app/(routes)/profile/_components/avatar-upload.tsx
 'use client';
+// app/(routes)/profile/_components/avatar-upload.tsx
 
 import { CameraIcon, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';

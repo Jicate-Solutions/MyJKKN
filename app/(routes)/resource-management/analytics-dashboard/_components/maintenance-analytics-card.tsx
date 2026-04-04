@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/analytics/_components/maintenance-analytics-card.tsx
 'use client';
+// app/(routes)/resource-management/analytics/_components/maintenance-analytics-card.tsx
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';

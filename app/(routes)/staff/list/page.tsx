@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/staff/list/page.tsx
 
-'use client';
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';

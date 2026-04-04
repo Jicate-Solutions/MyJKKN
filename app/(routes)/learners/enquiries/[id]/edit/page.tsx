@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+'use client';
 
 // ============================================
 // EDIT ENQUIRY PAGE
@@ -8,7 +8,6 @@ export const dynamic = 'force-dynamic';
 // Purpose: Edit learner enquiry details
 // ============================================
 
-'use client';
 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';

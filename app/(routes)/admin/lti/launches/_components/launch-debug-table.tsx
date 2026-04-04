@@ -1,3 +1,4 @@
+'use client';
 /**
  * Launch Debug Table Component
  * Detailed table showing LTI launch records with full debugging information
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { useState } from 'react';
 import { format } from 'date-fns';

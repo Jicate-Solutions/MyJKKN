@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/staff/_components/staff-filters.tsx
 
-'use client';
 
 import { useEffect, useState, memo } from 'react';
 import {

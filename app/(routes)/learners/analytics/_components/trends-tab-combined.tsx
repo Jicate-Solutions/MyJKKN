@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // TRENDS TAB - COMBINED (Enhanced)
 // ============================================
@@ -8,7 +9,6 @@
 //   - Demographics (from advanced tab): Gender, Category, Community, Income, First-gen
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

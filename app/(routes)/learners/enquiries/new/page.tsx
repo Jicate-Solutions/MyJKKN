@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // NEW ENQUIRY PAGE
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Create new learner enquiry
 // ============================================
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';

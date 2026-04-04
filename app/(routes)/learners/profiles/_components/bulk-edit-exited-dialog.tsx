@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // BULK EDIT ACTIVE LEARNERS DIALOG
 // ============================================
@@ -7,7 +8,6 @@
 // Filters: Institution → Degree → Department → Program → Semester → Section
 // ============================================
 
-'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import {

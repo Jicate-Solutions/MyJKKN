@@ -1,5 +1,5 @@
-// app/(routes)/organizations/institutions/_components/institution-filters.tsx
 'use client';
+// app/(routes)/organizations/institutions/_components/institution-filters.tsx
 
 import {
   Select,

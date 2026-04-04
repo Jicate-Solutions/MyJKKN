@@ -1,5 +1,5 @@
-// app/(routes)/system/api-management/_components/test-endpoint.tsx
 'use client';
+// app/(routes)/system/api-management/_components/test-endpoint.tsx
 
 import { useState, useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';

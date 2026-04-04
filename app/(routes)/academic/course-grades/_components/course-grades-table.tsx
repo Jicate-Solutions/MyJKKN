@@ -1,3 +1,4 @@
+'use client';
 /**
  * Course Grades Table Component (Faculty View)
  * Displays all student grades with sorting and filtering
@@ -10,7 +11,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { useState, useMemo } from 'react';
 import {

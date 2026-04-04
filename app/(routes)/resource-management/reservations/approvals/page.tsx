@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/approvals/page.tsx
 'use client';
+// app/(routes)/resource-management/reservations/approvals/page.tsx
 
 import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';

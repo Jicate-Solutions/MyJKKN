@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // PROFILE IMAGE UPLOAD COMPONENT
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Upload learner profile images to Supabase storage
 // ============================================
 
-'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';

@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/[id]/_components/images-tab.tsx
 
-'use client';
 
 import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';

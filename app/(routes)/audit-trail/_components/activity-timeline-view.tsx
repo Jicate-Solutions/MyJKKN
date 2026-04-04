@@ -1,5 +1,5 @@
-// app/(routes)/audit-trail/_components/activity-timeline-view.tsx
 'use client';
+// app/(routes)/audit-trail/_components/activity-timeline-view.tsx
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

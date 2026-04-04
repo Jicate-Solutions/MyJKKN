@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // ENQUIRY FORM COMPONENT (Multi-Step)
 // ============================================
@@ -6,7 +7,6 @@
 // Purpose: Complete multi-step form for learner enquiries
 // ============================================
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

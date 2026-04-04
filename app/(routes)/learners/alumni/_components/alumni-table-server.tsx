@@ -1,10 +1,10 @@
+'use client';
 /**
  * Server-rendered Alumni Table
  *
  * Hybrid component: Renders on server but supports client-side interactions.
  */
 
-'use client';
 
 import { useState, useCallback, useEffect } from 'react';
 import { DataTable } from '@/components/data-table/data-table';

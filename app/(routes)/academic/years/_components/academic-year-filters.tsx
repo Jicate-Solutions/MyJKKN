@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/academic/years/_components/academic-year-filters.tsx
 
-'use client';
 
 import { useEffect, useState } from 'react';
 import {

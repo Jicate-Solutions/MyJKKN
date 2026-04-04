@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // PROFILES ROW ACTIONS COMPONENT
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Actions menu for active learner profile rows in TanStack Table
 // ============================================
 
-'use client';
 
 import { DotsHorizontalIcon } from '@radix-ui/react-icons';
 import type { Row } from '@tanstack/react-table';

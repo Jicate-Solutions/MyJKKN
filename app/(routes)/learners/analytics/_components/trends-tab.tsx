@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // TRENDS TAB - COMPREHENSIVE
 // ============================================
@@ -6,7 +7,6 @@
 // Charts: Area charts with gradient fills, combined multi-line chart
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

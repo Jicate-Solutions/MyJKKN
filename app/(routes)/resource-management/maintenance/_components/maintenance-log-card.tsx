@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/maintenance/_components/maintenance-log-card.tsx
 'use client';
+// app/(routes)/resource-management/maintenance/_components/maintenance-log-card.tsx
 
 import {
   Calendar,

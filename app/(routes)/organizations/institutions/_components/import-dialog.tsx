@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/organizations/institutions/_components/import-dialog.tsx
 
-'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';

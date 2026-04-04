@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/staff/_components/staff-list.tsx
 
-'use client';
 
 import { useMemo, useCallback, useState, memo } from 'react';
 import Link from 'next/link';

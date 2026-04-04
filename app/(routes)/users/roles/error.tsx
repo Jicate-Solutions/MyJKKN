@@ -1,5 +1,5 @@
-// app/(routes)/users/error.tsx
 'use client';
+// app/(routes)/users/error.tsx
 
 import { Button } from '@/components/ui/button';
 import { ContentLayout } from '@/components/layout/content-layout';

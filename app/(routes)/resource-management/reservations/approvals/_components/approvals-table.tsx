@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/approvals/_components/approvals-table.tsx
 'use client';
+// app/(routes)/resource-management/reservations/approvals/_components/approvals-table.tsx
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';

@@ -1,5 +1,5 @@
-// app/(routes)/learners/my-profile/_components/pending-changes-banner.tsx
 'use client';
+// app/(routes)/learners/my-profile/_components/pending-changes-banner.tsx
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';

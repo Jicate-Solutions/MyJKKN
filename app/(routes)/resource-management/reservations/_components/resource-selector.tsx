@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/_components/resource-selector.tsx
 'use client';
+// app/(routes)/resource-management/reservations/_components/resource-selector.tsx
 
 import { useState } from 'react';
 import { Search, Filter, MapPin, Users, Calendar } from 'lucide-react';

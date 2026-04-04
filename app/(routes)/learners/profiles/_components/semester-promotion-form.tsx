@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // SEMESTER PROMOTION FORM
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Bulk promote learners to new semester/section
 // ============================================
 
-'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';

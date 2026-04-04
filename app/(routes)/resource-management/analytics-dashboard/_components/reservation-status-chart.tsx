@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/analytics-dashboard/_components/reservation-status-chart.tsx
 'use client';
+// app/(routes)/resource-management/analytics-dashboard/_components/reservation-status-chart.tsx
 
 import {
   Card,

@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/maintenance/_components/maintenance-filters.tsx
 'use client';
+// app/(routes)/resource-management/maintenance/_components/maintenance-filters.tsx
 
 import { Search, Filter, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';

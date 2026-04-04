@@ -1,5 +1,5 @@
-// app/(routes)/profile/_components/profile-form.tsx
 'use client';
+// app/(routes)/profile/_components/profile-form.tsx
 
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';

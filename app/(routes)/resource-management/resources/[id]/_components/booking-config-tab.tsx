@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/[id]/_components/booking-config-tab.tsx
 
-'use client';
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

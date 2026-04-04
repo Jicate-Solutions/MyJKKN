@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // ENHANCED BULK UPLOAD ENQUIRIES DIALOG
 // ============================================
@@ -7,7 +8,6 @@
 // Based on: bulk-upload-profiles-dialog-enhanced.tsx
 // ============================================
 
-'use client';
 
 import { useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';

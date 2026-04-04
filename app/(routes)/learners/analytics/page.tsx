@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // LEARNERS ANALYTICS DASHBOARD - COMPREHENSIVE
 // ============================================
@@ -6,7 +7,6 @@
 // Purpose: Unified analytics for entire learner lifecycle
 // ============================================
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';

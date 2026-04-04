@@ -1,3 +1,4 @@
+'use client';
 /**
  * Launch Debug Filters Component
  * Filter LTI launches by date, tool, institution, and launch type
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';

@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // OVERVIEW TAB - COMPREHENSIVE
 // ============================================
@@ -6,7 +7,6 @@
 // Charts: KPI cards, status distribution pie chart, conversion funnel
 // ============================================
 
-'use client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

@@ -5246,6 +5246,7 @@ AS $$
         LEFT JOIN semesters     sem  ON sem.id  = lp.semester_id
         LEFT JOIN sections      sec  ON sec.id  = lp.section_id
         WHERE  lp.lifecycle_status = 'active'
+          AND  lp.learner_type = 'regular'
           AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
           AND (p_degree_id      IS NULL OR lp.degree_id      = p_degree_id)
           AND (p_department_id  IS NULL OR lp.department_id  = p_department_id)
@@ -5318,6 +5319,7 @@ AS $$
         FROM   learners_profiles lp
         LEFT JOIN institutions i ON i.id = lp.institution_id
         WHERE  lp.lifecycle_status = 'active'
+          AND  lp.learner_type = 'regular'
           AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
           AND (p_degree_id      IS NULL OR lp.degree_id      = p_degree_id)
           AND (p_department_id  IS NULL OR lp.department_id  = p_department_id)

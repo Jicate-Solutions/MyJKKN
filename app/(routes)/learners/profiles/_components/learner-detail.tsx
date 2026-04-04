@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // LEARNER DETAIL COMPONENT
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Display comprehensive learner profile information
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import { format } from 'date-fns';

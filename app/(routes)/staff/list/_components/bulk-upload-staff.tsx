@@ -1,3 +1,4 @@
+'use client';
 /**
  * BulkUploadStaff Component
  *
@@ -14,7 +15,6 @@
  * 3. Clear error messages guide users to fix data issues before upload
  */
 
-'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';

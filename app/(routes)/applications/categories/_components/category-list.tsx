@@ -1,5 +1,5 @@
-// app/(routes)/applications/categories/_components/category-list.tsx
 'use client';
+// app/(routes)/applications/categories/_components/category-list.tsx
 
 import { useState } from 'react';
 import { MoreVertical, Plus, Edit, Trash2, RefreshCw } from 'lucide-react';

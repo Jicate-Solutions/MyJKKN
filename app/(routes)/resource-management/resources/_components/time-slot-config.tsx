@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/_components/time-slot-config.tsx
 
-'use client';
 
 import {
   Card,

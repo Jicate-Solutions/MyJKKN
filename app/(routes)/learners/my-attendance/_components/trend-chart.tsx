@@ -1,10 +1,10 @@
+'use client';
 /**
  * Attendance Trend Chart Component
  * Created: 2025-12-29
  * Description: Line chart showing attendance percentage over time
  */
 
-'use client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';

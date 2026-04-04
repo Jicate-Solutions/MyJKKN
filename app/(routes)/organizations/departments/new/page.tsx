@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/organizations/departments/new/page.tsx
 
-'use client';
 
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';

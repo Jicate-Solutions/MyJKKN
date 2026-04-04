@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/_components/availability-calendar.tsx
 'use client';
+// app/(routes)/resource-management/reservations/_components/availability-calendar.tsx
 
 import { useState, useMemo, useEffect } from 'react';
 import {

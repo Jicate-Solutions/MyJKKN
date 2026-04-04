@@ -1,3 +1,4 @@
+'use client';
 /**
  * Period-wise Attendance Table Component
  * Created: 2025-12-29
@@ -5,7 +6,6 @@
  * Description: Detailed table showing all attendance records by period with sorting, filtering
  */
 
-'use client';
 
 import { useState, useMemo } from 'react';
 import {

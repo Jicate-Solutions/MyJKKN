@@ -1,3 +1,4 @@
+'use client';
 /**
  * Tool Usage Chart Component
  * Bar chart showing launches by tool
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 interface ToolStat {
   name: string;

@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/analytics-dashboard/_components/financial-overview-chart.tsx
 'use client';
+// app/(routes)/resource-management/analytics-dashboard/_components/financial-overview-chart.tsx
 
 import {
   Card,

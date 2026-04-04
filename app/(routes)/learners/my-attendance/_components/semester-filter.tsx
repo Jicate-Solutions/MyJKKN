@@ -1,10 +1,10 @@
+'use client';
 /**
  * Semester Filter Component
  * Created: 2025-12-29
  * Description: Dropdown to select semester for attendance view
  */
 
-'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

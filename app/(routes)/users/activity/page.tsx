@@ -1,5 +1,5 @@
-// app/(routes)/users/activity/page.tsx
 'use client';
+// app/(routes)/users/activity/page.tsx
 
 import { useState, useMemo, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';

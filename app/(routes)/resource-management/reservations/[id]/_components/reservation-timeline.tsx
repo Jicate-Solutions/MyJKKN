@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/[id]/_components/reservation-timeline.tsx
 'use client';
+// app/(routes)/resource-management/reservations/[id]/_components/reservation-timeline.tsx
 
 import {
   CheckCircle2,

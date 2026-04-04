@@ -1,3 +1,4 @@
+'use client';
 /**
  * Receipt Actions Client Component
  *
@@ -5,7 +6,6 @@
  * Uses server actions with optimistic UI updates.
  */
 
-'use client';
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';

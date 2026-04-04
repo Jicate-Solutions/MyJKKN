@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // STATUS PROMOTION FORM
 // ============================================
@@ -6,7 +7,6 @@
 // Features: Account disabling for 'exited' status
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';

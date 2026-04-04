@@ -1,3 +1,4 @@
+'use client';
 /**
  * Timetable Filters - Client Component Wrapper
  *
@@ -9,7 +10,6 @@
  * - handleClearFilters uses same pattern for stability
  */
 
-'use client';
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useCallback, useMemo } from 'react';

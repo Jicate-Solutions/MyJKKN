@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/_components/booking-form.tsx
 'use client';
+// app/(routes)/resource-management/reservations/_components/booking-form.tsx
 
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';

@@ -1,3 +1,4 @@
+'use client';
 /**
  * Launches Over Time Chart Component
  * Line chart showing LTI launches per day
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { useMemo } from 'react';
 import { format, eachDayOfInterval, startOfDay } from 'date-fns';

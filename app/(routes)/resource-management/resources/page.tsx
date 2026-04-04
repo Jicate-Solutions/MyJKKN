@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/page.tsx
 
-'use client';
 
 import { useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';

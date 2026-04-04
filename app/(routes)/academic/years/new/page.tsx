@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/academic/years/new/page.tsx
 
-'use client';
 
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';

@@ -1,3 +1,4 @@
+'use client';
 /**
  * Analytics Filters Component
  * Filter analytics by date range, institution, and tool
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {

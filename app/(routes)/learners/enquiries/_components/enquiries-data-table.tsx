@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // ENQUIRIES DATA TABLE COMPONENT
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: TanStack Table for enquiries and pending applications
 // ============================================
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';

@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/_components/time-slot-picker.tsx
 'use client';
+// app/(routes)/resource-management/reservations/_components/time-slot-picker.tsx
 
 import { useState } from 'react';
 import { Clock, Check, X, Zap } from 'lucide-react';

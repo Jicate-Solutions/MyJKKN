@@ -1,3 +1,4 @@
+'use client';
 /**
  * Grade Sync Table Component
  * Display grade sync records with search, sort, and retry functionality
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { useState } from 'react';
 import { format } from 'date-fns';

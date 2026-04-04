@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/organizations/degrees/_components/degree-form.tsx
 
-'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';

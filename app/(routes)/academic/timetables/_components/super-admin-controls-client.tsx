@@ -1,10 +1,10 @@
+'use client';
 /**
  * Super Admin Controls - Client Component
  *
  * Interactive controls for super admin timetable management
  */
 
-'use client';
 
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';

@@ -1,5 +1,5 @@
-// app/(routes)/applications/new/page.tsx
 'use client';
+// app/(routes)/applications/new/page.tsx
 
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';

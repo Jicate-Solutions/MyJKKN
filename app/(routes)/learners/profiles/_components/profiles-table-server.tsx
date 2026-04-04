@@ -1,3 +1,4 @@
+'use client';
 /**
  * Server-rendered Profiles Table with Client Selection
  *
@@ -5,7 +6,6 @@
  * Uses the existing DataTable component for advanced features.
  */
 
-'use client';
 
 import { useState, useCallback, useEffect } from 'react';
 import { DataTable } from '@/components/data-table/data-table';

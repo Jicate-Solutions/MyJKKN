@@ -1,5 +1,5 @@
-// app/(routes)/applications/_components/application-form.tsx
 'use client';
+// app/(routes)/applications/_components/application-form.tsx
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';

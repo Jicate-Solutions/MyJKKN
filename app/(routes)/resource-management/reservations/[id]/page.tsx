@@ -1,7 +1,6 @@
-export const dynamic = 'force-dynamic';
+'use client';
 
 // app/(routes)/resource-management/reservations/[id]/page.tsx
-'use client';
 
 import { ArrowLeft } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';

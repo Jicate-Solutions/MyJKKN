@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/page.tsx
 'use client';
+// app/(routes)/resource-management/page.tsx
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';

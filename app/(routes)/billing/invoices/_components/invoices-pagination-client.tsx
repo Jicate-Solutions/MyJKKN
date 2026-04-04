@@ -1,3 +1,4 @@
+'use client';
 /**
  * Invoices Pagination Client Component
  *
@@ -5,7 +6,6 @@
  * Updates URL search params for page navigation.
  */
 
-'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useTransition } from 'react';

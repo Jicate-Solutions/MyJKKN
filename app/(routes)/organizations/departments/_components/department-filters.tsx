@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/organizations/departments/_components/department-filters.tsx
 
-'use client';
 
 import { useEffect, useState } from 'react';
 import {

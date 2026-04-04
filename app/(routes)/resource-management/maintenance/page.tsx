@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/maintenance/page.tsx
 'use client';
+// app/(routes)/resource-management/maintenance/page.tsx
 
 import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';

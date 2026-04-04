@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/organizations/institutions/_components/institution-form.tsx
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

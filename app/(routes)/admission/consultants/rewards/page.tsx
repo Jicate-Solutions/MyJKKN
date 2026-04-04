@@ -1,7 +1,7 @@
+'use client';
 // app/(routes)/admission/consultants/rewards/page.tsx
 // Admin page for managing referral reward configurations and viewing rewards
 
-'use client';
 
 import { useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';

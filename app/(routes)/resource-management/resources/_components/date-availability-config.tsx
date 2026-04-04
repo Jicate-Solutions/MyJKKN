@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/_components/date-availability-config.tsx
 
-'use client';
 
 import { useState } from 'react';
 import {

@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // PROFILE COMPLETION TAB - COMPREHENSIVE
 // ============================================
@@ -6,7 +7,6 @@
 // Charts: Completion funnel, missing fields bar chart, tier pie chart
 // ============================================
 
-'use client';
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';

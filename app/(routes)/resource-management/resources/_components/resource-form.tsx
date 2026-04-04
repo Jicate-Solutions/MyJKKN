@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/_components/resource-form.tsx
 
-'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';

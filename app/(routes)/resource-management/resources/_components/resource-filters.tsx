@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/_components/resource-filters.tsx
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import { Search, Filter, X, ChevronDown, RotateCcw } from 'lucide-react';

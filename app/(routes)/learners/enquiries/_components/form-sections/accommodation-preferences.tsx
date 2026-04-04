@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // ACCOMMODATION PREFERENCES FORM SECTION
 // ============================================
@@ -13,7 +14,6 @@
 // - Updated all values to uppercase format
 // ============================================
 
-'use client';
 
 import { UseFormReturn, useWatch } from 'react-hook-form';
 import { Input } from '@/components/ui/input';

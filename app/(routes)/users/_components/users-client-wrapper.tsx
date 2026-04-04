@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // USERS CLIENT WRAPPER - DYNAMIC CONTENT
 // ============================================
@@ -6,7 +7,6 @@
 // Architecture: Receives cached profile and stats from server parent
 // ============================================
 
-'use client';
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';

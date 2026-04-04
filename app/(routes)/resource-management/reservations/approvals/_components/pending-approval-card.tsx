@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/approvals/_components/pending-approval-card.tsx
 'use client';
+// app/(routes)/resource-management/reservations/approvals/_components/pending-approval-card.tsx
 
 import {
   Calendar,

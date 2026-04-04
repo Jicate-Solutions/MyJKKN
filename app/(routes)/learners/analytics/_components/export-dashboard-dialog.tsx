@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // EXPORT DASHBOARD DIALOG - COMPREHENSIVE
 // ============================================
@@ -6,7 +7,6 @@
 // Libraries: jsPDF, html2canvas, xlsx
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import {

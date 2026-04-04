@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/analytics-dashboard/_components/resource-utilization-chart.tsx
 'use client';
+// app/(routes)/resource-management/analytics-dashboard/_components/resource-utilization-chart.tsx
 
 import {
   Card,

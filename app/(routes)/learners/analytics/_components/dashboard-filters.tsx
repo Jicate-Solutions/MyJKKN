@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // DASHBOARD FILTERS - COMPREHENSIVE
 // ============================================
@@ -6,7 +7,6 @@
 // Features: Institution, Academic Hierarchy, Status, Demographics, Date Range
 // ============================================
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import { subDays } from 'date-fns';

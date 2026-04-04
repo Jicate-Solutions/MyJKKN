@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/approvals/_components/approval-stats-cards.tsx
 'use client';
+// app/(routes)/resource-management/reservations/approvals/_components/approval-stats-cards.tsx
 
 import {
   Clock,

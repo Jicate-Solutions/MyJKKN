@@ -1,8 +1,7 @@
-export const dynamic = 'force-dynamic';
+'use client';
 
 // app/(routes)/resource-management/resources/[id]/page.tsx
 
-'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';

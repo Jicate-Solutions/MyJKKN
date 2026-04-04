@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/my-reservations/_components/reservation-card.tsx
 'use client';
+// app/(routes)/resource-management/reservations/my-reservations/_components/reservation-card.tsx
 
 import {
   Calendar,

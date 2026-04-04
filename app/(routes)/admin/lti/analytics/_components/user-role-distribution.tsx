@@ -1,3 +1,4 @@
+'use client';
 /**
  * User Role Distribution Component
  * Donut chart showing student vs faculty launches
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { GraduationCap, Briefcase } from 'lucide-react';
 

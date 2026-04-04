@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/[id]/_components/reservation-actions.tsx
 'use client';
+// app/(routes)/resource-management/reservations/[id]/_components/reservation-actions.tsx
 
 import { useState } from 'react';
 import { Check, X, LogIn, LogOut, Trash2, Edit, Loader2 } from 'lucide-react';

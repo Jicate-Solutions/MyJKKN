@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/[id]/_components/reservation-info.tsx
 'use client';
+// app/(routes)/resource-management/reservations/[id]/_components/reservation-info.tsx
 
 import { Calendar, Clock, MapPin, User, Hash, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

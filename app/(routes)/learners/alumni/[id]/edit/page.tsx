@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+'use client';
 
 // ============================================
 // ALUMNI EDIT PAGE
@@ -7,7 +7,6 @@ export const dynamic = 'force-dynamic';
 // Purpose: Edit alumni profile with comprehensive form
 // ============================================
 
-'use client';
 
 import { use, useState } from 'react';
 import Link from 'next/link';

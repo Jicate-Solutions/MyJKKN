@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/organizations/institutions/_components/logo-upload.tsx
 
-'use client';
 
 import { useState } from 'react';
 import { ImagePlus, X } from 'lucide-react';

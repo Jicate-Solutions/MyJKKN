@@ -1,5 +1,5 @@
-// app/(routes)/system/api-management/_components/test-api-key-modal.tsx
 'use client';
+// app/(routes)/system/api-management/_components/test-api-key-modal.tsx
 
 import { useState } from 'react';
 import toast  from 'react-hot-toast';

@@ -1,7 +1,7 @@
+'use client';
 // app/(routes)/admission/consultants/commissions/page.tsx
 // Commission Tracking - View and manage commission transactions
 
-'use client';
 
 import { useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';

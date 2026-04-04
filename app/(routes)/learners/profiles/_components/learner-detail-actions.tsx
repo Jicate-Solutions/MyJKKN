@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // LEARNER DETAIL ACTIONS COMPONENT
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Action buttons for learner detail page
 // ============================================
 
-'use client';
 
 import { FileEdit } from 'lucide-react';
 import Link from 'next/link';

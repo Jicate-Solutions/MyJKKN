@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/analytics-dashboard/_components/institution-comparison-chart.tsx
 'use client';
+// app/(routes)/resource-management/analytics-dashboard/_components/institution-comparison-chart.tsx
 
 import {
   Card,

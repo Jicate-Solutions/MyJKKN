@@ -1,5 +1,5 @@
-// app/(routes)/audit-trail/_components/activity-timeline.tsx
 'use client';
+// app/(routes)/audit-trail/_components/activity-timeline.tsx
 
 import { Calendar } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

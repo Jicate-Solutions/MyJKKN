@@ -1,5 +1,5 @@
-// app/(routes)/notifications/settings/page.tsx
 'use client';
+// app/(routes)/notifications/settings/page.tsx
 
 import { useState, useEffect } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';

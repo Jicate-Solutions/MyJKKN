@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/approvals/_components/approval-actions-dialog.tsx
 'use client';
+// app/(routes)/resource-management/reservations/approvals/_components/approval-actions-dialog.tsx
 
 import { useState } from 'react';
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';

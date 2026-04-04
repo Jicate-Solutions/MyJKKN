@@ -1,5 +1,5 @@
-// app/(routes)/applications/categories/_components/edit-subcategory-modal.tsx
 'use client';
+// app/(routes)/applications/categories/_components/edit-subcategory-modal.tsx
 
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';

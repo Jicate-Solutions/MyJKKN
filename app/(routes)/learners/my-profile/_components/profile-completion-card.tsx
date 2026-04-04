@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // PROFILE COMPLETION CARD
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Detailed profile completion breakdown with sections and missing fields
 // ============================================
 
-'use client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

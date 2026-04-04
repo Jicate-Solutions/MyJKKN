@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // PROFILE COMPLETION INDICATOR
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Compact top bar showing profile completion status
 // ============================================
 
-'use client';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

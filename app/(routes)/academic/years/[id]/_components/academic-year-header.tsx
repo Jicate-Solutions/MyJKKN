@@ -1,10 +1,10 @@
+'use client';
 /**
  * Client-side Header Component for Academic Year Details
  *
  * Handles permission-based UI (edit button) which requires client-side execution.
  */
 
-'use client';
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';

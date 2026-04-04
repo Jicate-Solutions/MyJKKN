@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/_components/resource-empty-state.tsx
 
-'use client';
 
 import Link from 'next/link';
 import { Package, Plus } from 'lucide-react';

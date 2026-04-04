@@ -1,5 +1,5 @@
-// app/(routes)/system/api-management/_components/api-key-list.tsx
 'use client';
+// app/(routes)/system/api-management/_components/api-key-list.tsx
 
 import { MoreVertical } from 'lucide-react';
 import { format } from 'date-fns';

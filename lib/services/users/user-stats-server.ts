@@ -10,7 +10,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { UserStats } from '@/types/users';
-import { cacheLife, cacheTag } from 'next/cache';
+// cacheLife/cacheTag disabled — requires cacheComponents in next.config.ts
+// import { cacheLife, cacheTag } from 'next/cache';
 
 /**
  * Fetch user statistics from the database (server-side only)
@@ -125,13 +126,6 @@ async function getUserStatsServer(institutionId?: string): Promise<UserStats> {
  * ```
  */
 export async function getCachedUserStats(institutionId?: string): Promise<UserStats> {
-  'use cache';
-
-  // Cache for 1 hour - stats don't change frequently
-  cacheLife('hours');
-
-  // Tag for cache invalidation
-  cacheTag('user-stats', institutionId || 'all-institutions');
-
+  // NOTE: 'use cache' + cacheLife/cacheTag disabled until cacheComponents is re-enabled
   return await getUserStatsServer(institutionId);
 }

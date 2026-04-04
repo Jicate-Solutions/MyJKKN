@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // BULK STATUS UPDATE DIALOG COMPONENT
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Dialog for bulk status updates with user creation preview
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import {

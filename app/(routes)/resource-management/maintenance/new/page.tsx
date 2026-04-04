@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/maintenance/new/page.tsx
 'use client';
+// app/(routes)/resource-management/maintenance/new/page.tsx
 
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';

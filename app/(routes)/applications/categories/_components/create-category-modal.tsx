@@ -1,5 +1,5 @@
-// app/(routes)/applications/categories/_components/create-category-modal.tsx
 'use client';
+// app/(routes)/applications/categories/_components/create-category-modal.tsx
 
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';

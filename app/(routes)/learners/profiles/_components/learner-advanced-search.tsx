@@ -1,3 +1,4 @@
+'use client';
 /**
  * Advanced Search Component for Learner Profiles
  *
@@ -13,7 +14,6 @@
  * - billing/schedule/students/_components/student-search-filters.tsx
  */
 
-'use client';
 
 import { useState, useCallback, useMemo } from 'react';
 import { Search, X, Filter, AlertCircle } from 'lucide-react';

@@ -1,3 +1,4 @@
+'use client';
 /**
  * Grade Sync Statistics Cards Component
  * Display key metrics for grade synchronization
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle2, Clock, XCircle, TrendingUp } from 'lucide-react';

@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // ALUMNI DETAIL ACTIONS COMPONENT
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: Action buttons for alumni detail page
 // ============================================
 
-'use client';
 
 import { FileEdit } from 'lucide-react';
 import Link from 'next/link';

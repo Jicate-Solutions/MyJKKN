@@ -1,3 +1,4 @@
+'use client';
 /**
  * Top Institutions Chart Component
  * Bar chart showing top 10 institutions by launch count
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { Building2 } from 'lucide-react';
 

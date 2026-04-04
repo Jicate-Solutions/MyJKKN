@@ -1,3 +1,4 @@
+'use client';
 'use client'; // Recommended for not-found to allow interactive elements like a redirect button
 
 import Link from 'next/link';

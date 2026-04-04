@@ -1,5 +1,5 @@
-// app/(routes)/resource-management/reservations/new/page.tsx
 'use client';
+// app/(routes)/resource-management/reservations/new/page.tsx
 
 import { useState } from 'react';
 import { ArrowRight, ArrowLeft, CheckCircle2 } from 'lucide-react';

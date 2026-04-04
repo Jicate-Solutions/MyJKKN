@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // PROFILES DATA TABLE COMPONENT
 // ============================================
@@ -5,7 +6,6 @@
 // Purpose: TanStack Table for active learner profiles
 // ============================================
 
-'use client';
 
 import { useState } from 'react';
 import { DataTable } from '@/components/data-table/data-table';

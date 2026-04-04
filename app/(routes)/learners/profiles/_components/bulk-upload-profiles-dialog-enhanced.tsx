@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // ENHANCED BULK UPLOAD PROFILES DIALOG
 // ============================================
@@ -6,7 +7,6 @@
 // Features: Data preview, row-by-row validation, error display, progress tracking
 // ============================================
 
-'use client';
 
 import { useState, useRef, useMemo } from 'react';
 import {

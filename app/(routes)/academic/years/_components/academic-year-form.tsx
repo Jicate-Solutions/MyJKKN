@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/academic/years/_components/academic-year-form.tsx
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

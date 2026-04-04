@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // GEOGRAPHIC TAB - COMPREHENSIVE
 // ============================================
@@ -6,7 +7,6 @@
 // Charts: Top states bar chart, top districts bar chart
 // ============================================
 
-'use client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/organizations/departments/_components/department-form.tsx
 
-'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';

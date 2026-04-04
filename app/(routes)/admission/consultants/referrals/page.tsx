@@ -1,7 +1,7 @@
+'use client';
 // app/(routes)/admission/consultants/referrals/page.tsx
 // All Referrals — view lead attributions filtered by consultant and/or date
 
-'use client';
 
 import { useState, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';

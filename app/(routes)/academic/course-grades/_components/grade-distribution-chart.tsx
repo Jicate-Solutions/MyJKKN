@@ -1,3 +1,4 @@
+'use client';
 /**
  * Grade Distribution Chart Component
  * Shows histogram of grade distribution by percentage ranges
@@ -10,7 +11,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { useMemo } from 'react';
 import { Card } from '@/components/ui/card';

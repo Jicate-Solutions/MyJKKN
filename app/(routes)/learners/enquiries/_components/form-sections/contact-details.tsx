@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // CONTACT DETAILS FORM SECTION
 // ============================================
@@ -12,7 +13,6 @@
 // - Added proper input types (numeric for mobile and PIN code)
 // ============================================
 
-'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { UseFormReturn, useWatch } from 'react-hook-form';

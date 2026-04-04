@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/[id]/_components/location-tab.tsx
 
-'use client';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MapPin, Building2, Home, Navigation } from 'lucide-react';

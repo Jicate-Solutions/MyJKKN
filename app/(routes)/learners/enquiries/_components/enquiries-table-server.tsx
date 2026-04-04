@@ -1,10 +1,10 @@
+'use client';
 /**
  * Server-rendered Enquiries Table with Client Selection
  *
  * Hybrid component: Renders on server but supports client-side row selection.
  */
 
-'use client';
 
 import { useState, useCallback, useEffect } from 'react';
 import { DataTable } from '@/components/data-table/data-table';

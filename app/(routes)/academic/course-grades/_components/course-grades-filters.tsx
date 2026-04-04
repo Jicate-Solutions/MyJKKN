@@ -1,3 +1,4 @@
+'use client';
 /**
  * Course Grades Filters Component
  * Filter grades by program, semester, section, tool, resource
@@ -5,7 +6,6 @@
  * Created: 2026-01-12
  */
 
-'use client';
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {

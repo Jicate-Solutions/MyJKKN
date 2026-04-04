@@ -1,3 +1,4 @@
+'use client';
 // ============================================
 // DEMOGRAPHICS TAB - COMPREHENSIVE
 // ============================================
@@ -6,7 +7,6 @@
 // Charts: Pie charts for gender/community, bar charts for religion/age/entry type
 // ============================================
 
-'use client';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

@@ -1,6 +1,6 @@
+'use client';
 // app/(routes)/resource-management/resources/_components/approver-selector.tsx
 
-'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
