@@ -7,6 +7,7 @@
 // because webhooks have no authenticated user session.
 
 import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
+import { getCallContext, lookupAgent } from './exotel-agent-map';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -545,8 +546,38 @@ export class TelephonyService {
       const callerPhone = payload.From || '';
       const exoPhone = payload.To || '';
 
-      // Try to match caller phone to an existing lead
-      // Search by phone, stripping leading 0 or +91
+      // ── Agent Detection ──
+      // On connected calls, Exotel's detailed response changes `To` to the agent's phone.
+      // The webhook payload may still show the ExoPhone. Try to get agent from call details.
+      let agentPhone = '';
+      try {
+        const callDetails = await ExotelClient.getCallDetails(payload.CallSid);
+        const detailTo = callDetails?.Call?.To || '';
+        // If `To` differs from the ExoPhone, it's the agent who answered
+        if (detailTo && detailTo !== exoPhone) {
+          agentPhone = detailTo;
+        }
+      } catch {
+        // Non-blocking — agent detection is best-effort
+      }
+
+      // Look up agent context from our mapping
+      const callContext = getCallContext(agentPhone, exoPhone);
+      const agent = agentPhone ? lookupAgent(agentPhone) : null;
+
+      // ── Counselor Matching ──
+      // Try to find the answering agent's user ID in MyJKKN profiles
+      let counselorId: string | null = null;
+      if (agent?.email) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id')
+          .ilike('email', agent.email)
+          .maybeSingle();
+        if (profile) counselorId = profile.id;
+      }
+
+      // ── Lead Matching ──
       const phoneVariants = [
         callerPhone,
         callerPhone.replace(/^0/, ''),
@@ -570,7 +601,7 @@ export class TelephonyService {
         }
       }
 
-      // If no lead found, try with the last 10 digits
+      // Fallback: last 10 digits
       if (!leadMatch && callerPhone.length >= 10) {
         const last10 = callerPhone.slice(-10);
         const { data } = await supabase
@@ -582,8 +613,7 @@ export class TelephonyService {
         if (data) leadMatch = data;
       }
 
-      // Determine institution_id — from lead match or from ExoPhone mapping
-      // Default to a known institution if we can't determine it
+      // ── Institution ID ──
       const institutionId = leadMatch?.institution_id || await TelephonyService.getInstitutionForExoPhone(exoPhone, supabase);
 
       if (!institutionId) {
@@ -597,19 +627,28 @@ export class TelephonyService {
       const mappedStatus = TelephonyService.mapExotelStatus(payload.Status);
       const durationSec = parseInt(payload.ConversationDuration || payload.Duration || '0', 10);
 
+      // ── Build call_notes with context ──
+      const contextParts: string[] = [];
+      if (callContext.department !== 'general') contextParts.push(`Dept: ${callContext.department}`);
+      if (callContext.college) contextParts.push(`College: ${callContext.college}`);
+      if (callContext.agentName) contextParts.push(`Agent: ${callContext.agentName}`);
+      if (durationSec === 0) contextParts.push('Missed call');
+      const autoNotes = contextParts.length > 0 ? `[Auto] ${contextParts.join(' | ')}` : null;
+
       const { data, error } = await supabase
         .from('admission_call_logs')
         .insert({
           institution_id: institutionId,
           lead_id: leadMatch?.id || null,
-          counselor_id: null, // Inbound — no counselor assigned yet
+          counselor_id: counselorId,
           call_sid: payload.CallSid,
           direction: 'inbound',
           status: mappedStatus,
           from_number: callerPhone,
-          to_number: exoPhone,
+          to_number: agentPhone || exoPhone,
           duration_seconds: durationSec,
           recording_url: payload.RecordingUrl || null,
+          call_notes: autoNotes,
           cost_amount: payload.Price ? parseFloat(payload.Price) : null,
           started_at: payload.StartTime || null,
           ended_at: payload.EndTime || null,
@@ -622,6 +661,17 @@ export class TelephonyService {
         logger.error('telephony/webhook', 'Failed to insert inbound call log', { error });
         return null;
       }
+
+      logger.info('telephony/webhook', 'Inbound call logged', {
+        callLogId: data.id,
+        from: callerPhone,
+        agent: callContext.agentName || agentPhone || 'unknown',
+        department: callContext.department,
+        college: callContext.college,
+        isAdmission: callContext.isAdmission,
+        leadMatched: !!leadMatch,
+        counselorMatched: !!counselorId,
+      });
 
       return data;
     } catch (err) {
