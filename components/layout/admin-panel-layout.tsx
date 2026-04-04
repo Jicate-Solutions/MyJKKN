@@ -10,7 +10,6 @@ import { Footer } from '@/components/Footer/Footer';
 import { BottomNavbar } from '@/components/BottomNav';
 import { PushNotificationBanner } from '@/components/notifications/push-notification-banner';
 import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPaletteProvider';
-import { Breadcrumbs } from '@/components/Breadcrumbs/Breadcrumbs';
 import { KeyboardShortcutsHelp } from '@/components/CommandPalette/KeyboardShortcutsHelp';
 
 export default function AdminPanelLayout({
@@ -38,7 +37,6 @@ export default function AdminPanelLayout({
         )}
       >
         <PushNotificationBanner />
-        <Breadcrumbs />
         <Suspense>
           {children}
         </Suspense>
