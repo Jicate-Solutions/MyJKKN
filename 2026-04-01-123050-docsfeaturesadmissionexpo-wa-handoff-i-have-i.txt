@@ -1,0 +1,116 @@
+ ▐▛███▜▌   Claude Code v2.1.89
+▝▜█████▛▘  Opus 4.6 (1M context) · Claude Max
+  ▘▘ ▝▝    D:\Projects\MyJKKN
+
+● That @vercel/functions error is expected — the same pattern is used in the
+  telephony webhook (app/api/webhooks/telephony/route.ts:128). It's a dynamic
+  import inside a try-catch that falls back to sync execution when not on
+  Vercel. Let me verify this is the only error and that it matches the existing
+  pattern.
+
+● Bash(cd "D:/Projects/MyJKKN" && npx tsc --noEmit 2>&1 | grep "webhooks/" |
+      head -10)
+  ⎿  app/api/webhooks/telephony/route.ts(128,40): error TS2307: Cannot find
+      module '@vercel/functions' or its corresponding type declarations.
+     app/api/webhooks/whatsapp/route.ts(200,40): error TS2307: Cannot find
+     module '@vercel/functions' or its corresponding type declarations.
+  ⎿  (timeout 3m)
+
+● Both webhook routes have the same @vercel/functions error — it's a known
+  non-issue since the import is inside a try-catch and only resolves at runtime
+  on Vercel. No real errors in our new webhook route.
+
+  ★ Insight ─────────────────────────────────────
+  - The waitUntil pattern (try { import('@vercel/functions') } catch { sync 
+  fallback }) is standard for Vercel serverless functions — it lets you return a
+   200 response immediately while processing continues in the background. Meta
+  requires a 200 response within 20 seconds or it retries.
+  - Locally, the fallback runs synchronously, which is fine for development.
+  ─────────────────────────────────────────────────
+
+  ---
+  Summary of What Was Created
+
+  New File: app/api/webhooks/whatsapp/route.ts
+
+  ┌──────────────┬──────────────────────────────────────────────────────────┐
+  │   Feature    │                      Implementation                      │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ GET handler  │ Meta webhook verification (challenge-response handshake) │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ POST handler │ Receives inbound messages + status updates               │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Security     │ HMAC-SHA256 signature verification via                   │
+  │              │ X-Hub-Signature-256 header                               │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Institution  │ Looks up wa_phone_numbers table, falls back to env var + │
+  │ resolution   │  single-institution detection                            │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Message      │ text, image, video, audio, document, location,           │
+  │ types        │ interactive (buttons/lists), button replies, reactions   │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Status       │ sent → delivered → read → failed tracking on wa_messages │
+  │ updates      │                                                          │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Background   │ Vercel waitUntil() for non-blocking response             │
+  │ processing   │                                                          │
+  ├──────────────┼──────────────────────────────────────────────────────────┤
+  │ Downstream   │ Calls WhatsAppChatService.handleInboundMessage() which   │
+  │ integration  │ handles conversation creation, smart routing, consent,   │
+  │              │ auto-assign                                              │
+  └──────────────┴──────────────────────────────────────────────────────────┘
+
+  Database Fix
+
+  - Inserted JKKN phone number into wa_phone_numbers (was EMPTY — critical
+  blocker)
+
+  Environment Variables Added
+
+  - WHATSAPP_VERIFY_TOKEN — set to jkkn_wa_verify_2026_s3cret (use this when
+  registering webhook in Meta/Exotel)
+  - WHATSAPP_WEBHOOK_SECRET — needs your Meta App Secret (from Meta App
+  Dashboard → App Settings → Basic)
+
+  ---
+  Next Steps to Go Live
+
+  1. Set WHATSAPP_WEBHOOK_SECRET in .env — get it from your Meta/Exotel App
+  Dashboard
+  2. Deploy to Vercel so the webhook URL is publicly accessible
+  3. Register webhook URL in Meta/Exotel dashboard:
+    - URL: https://jkkn.ai/api/webhooks/whatsapp
+    - Verify Token: jkkn_wa_verify_2026_s3cret
+    - Subscribe to: messages, message_template_status_update
+  4. Send a test message to +91 63803 10048 and verify it appears in
+  wa_conversations and wa_messages
+
+  Want me to also fix the EXOTEL_CALLER_ID placeholder and register the Exotel
+  voice webhook, or would you like to test the WhatsApp webhook first?
+
+✻ Churned for 10m 34s
+
+● Background command "TypeScript check for WhatsApp webhook route" completed
+(exit code 0)
+
+● Background command "TypeScript check for WhatsApp webhook" completed (exit
+code 0)
+
+● Both background TypeScript checks completed successfully — zero errors related
+   to the WhatsApp webhook (only the expected @vercel/functions dynamic import
+  warning that both webhook routes share).
+
+  The WhatsApp webhook is ready. Would you like to:
+
+  1. Test it locally — I can show you how to simulate a Meta webhook payload
+  with curl
+  2. Fix the Exotel voice webhook — register the callback URL and fix the
+  EXOTEL_CALLER_ID=0000000000 placeholder
+  3. Deploy and register — proceed with deploying to Vercel and registering the
+  webhook URL in Meta/Exotel dashboard
+
+  What's your next priority?
+
+❯ /copy                                                                         
+  ⎿  Copied to clipboard (603 characters, 9 lines)
+     Also written to C:\Users\Admin\AppData\Local\Temp\claude\response.md

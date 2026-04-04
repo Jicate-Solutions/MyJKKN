@@ -243,7 +243,9 @@
       "mcp__plugin_supabase_supabase__apply_migration",
       "mcp__plugin_supabase_supabase__execute_sql",
       "mcp__exotel__getNumberMetadata",
-      "WebFetch(domain:developer.exotel.com)"
+      "WebFetch(domain:developer.exotel.com)",
+      "mcp__exotel__getVoiceCallCallbacks",
+      "mcp__exotel__getBulkCallDetails"
     ],
     "deny": [],
     "ask": []
