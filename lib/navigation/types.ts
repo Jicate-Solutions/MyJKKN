@@ -70,5 +70,7 @@ export interface PageMetadata {
   keywords: string[];
   category?: string;
   isSearchable: boolean;
+  /** Keyboard shortcut e.g. 'alt+a'. Null means no shortcut. */
+  shortcutKey?: string | null;
   updatedBy?: string;
 }

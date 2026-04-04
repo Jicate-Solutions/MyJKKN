@@ -28,7 +28,15 @@ import { usePageMetadata } from '@/hooks/use-page-metadata';
 import { getPageRegistry, ICON_MAP } from '@/lib/navigation/page-registry';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Search, Edit2, Trash2, Plus, FileText, Tag, X } from 'lucide-react';
+import { getShortcutKeyMap, formatShortcutKey } from '@/lib/navigation/keyboard-shortcuts';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Search, Edit2, Trash2, Plus, FileText, Tag, X, Keyboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { PageEntry } from '@/lib/navigation/types';
@@ -56,6 +64,7 @@ function PageMetadataContent() {
   const [editKeywords, setEditKeywords] = useState<string[]>([]);
   const [editDescription, setEditDescription] = useState('');
   const [editSearchable, setEditSearchable] = useState(true);
+  const [editShortcut, setEditShortcut] = useState<string | null>(null);
   const [keywordInput, setKeywordInput] = useState('');
 
   const { allMetadata, upsertMetadata, deleteMetadata, getMetadataForPath } = usePageMetadata();
@@ -89,6 +98,7 @@ function PageMetadataContent() {
     setEditKeywords(meta?.keywords || page.keywords);
     setEditDescription(meta?.description || page.description);
     setEditSearchable(meta?.isSearchable ?? true);
+    setEditShortcut(meta?.shortcutKey || null);
     setKeywordInput('');
   };
 
@@ -101,6 +111,7 @@ function PageMetadataContent() {
         description: editDescription,
         keywords: editKeywords,
         isSearchable: editSearchable,
+        shortcutKey: editShortcut,
         category: editingPage.module,
       },
       {
@@ -164,6 +175,7 @@ function PageMetadataContent() {
                   <TableHead className="w-[250px]">Page</TableHead>
                   <TableHead className="w-[120px]">Module</TableHead>
                   <TableHead>Keywords</TableHead>
+                  <TableHead className="w-[80px]">Shortcut</TableHead>
                   <TableHead className="w-[80px]">Custom</TableHead>
                   <TableHead className="w-[70px]">Searchable</TableHead>
                   <TableHead className="w-[60px]">Actions</TableHead>
@@ -210,6 +222,19 @@ function PageMetadataContent() {
                             </Badge>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {meta?.shortcutKey ? (
+                          <kbd className="inline-flex h-5 items-center rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground dark:border-gray-600 dark:bg-gray-800">
+                            {formatShortcutKey(meta.shortcutKey)}
+                          </kbd>
+                        ) : page.shortcut ? (
+                          <kbd className="inline-flex h-5 items-center rounded border bg-muted/50 px-1.5 font-mono text-[10px] font-medium text-muted-foreground/50 dark:border-gray-700">
+                            {page.shortcut}
+                          </kbd>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground/30">—</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {hasCustom ? (
@@ -315,6 +340,52 @@ function PageMetadataContent() {
                   <div className="text-xs text-muted-foreground">Show this page in search results</div>
                 </div>
                 <Switch checked={editSearchable} onCheckedChange={setEditSearchable} />
+              </div>
+
+              {/* Keyboard Shortcut */}
+              <div>
+                <label className="text-sm font-medium mb-1 flex items-center gap-1.5">
+                  <Keyboard className="h-3.5 w-3.5" />
+                  Keyboard Shortcut
+                </label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Assign an Alt+key shortcut for quick navigation to this page
+                </p>
+                <Select
+                  value={editShortcut || 'none'}
+                  onValueChange={(val) => setEditShortcut(val === 'none' ? null : val)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="No shortcut assigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No shortcut</SelectItem>
+                    {getShortcutKeyMap().map(({ key, display, assignedTo }) => {
+                      const isCurrent = key === editShortcut;
+                      const isTaken = !!assignedTo && !isCurrent;
+                      return (
+                        <SelectItem
+                          key={key}
+                          value={key}
+                          disabled={isTaken}
+                          className={cn(isTaken && 'opacity-50')}
+                        >
+                          <span className="flex items-center gap-2 w-full">
+                            <kbd className="font-mono text-xs bg-muted px-1 rounded">{display}</kbd>
+                            {isTaken && (
+                              <span className="text-[10px] text-muted-foreground truncate">
+                                ({assignedTo.label}{assignedTo.isCustom ? ' - custom' : ' - default'})
+                              </span>
+                            )}
+                            {isCurrent && (
+                              <span className="text-[10px] text-green-600">current</span>
+                            )}
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}

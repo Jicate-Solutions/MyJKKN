@@ -3,6 +3,20 @@ import type { PageMetadata } from '@/lib/navigation/types';
 
 const supabase = createClientSupabaseClient();
 
+function mapRow(row: any): PageMetadata {
+  return {
+    id: row.id,
+    pagePath: row.page_path,
+    customTitle: row.custom_title,
+    description: row.description,
+    keywords: row.keywords || [],
+    category: row.category,
+    isSearchable: row.is_searchable,
+    shortcutKey: row.shortcut_key || null,
+    updatedBy: row.updated_by,
+  };
+}
+
 export class PageMetadataService {
   /**
    * Get all page metadata entries.
@@ -14,17 +28,7 @@ export class PageMetadataService {
       .order('page_path', { ascending: true });
 
     if (error) throw error;
-
-    return (data || []).map(row => ({
-      id: row.id,
-      pagePath: row.page_path,
-      customTitle: row.custom_title,
-      description: row.description,
-      keywords: row.keywords || [],
-      category: row.category,
-      isSearchable: row.is_searchable,
-      updatedBy: row.updated_by,
-    }));
+    return (data || []).map(mapRow);
   }
 
   /**
@@ -39,17 +43,7 @@ export class PageMetadataService {
 
     if (error) throw error;
     if (!data) return null;
-
-    return {
-      id: data.id,
-      pagePath: data.page_path,
-      customTitle: data.custom_title,
-      description: data.description,
-      keywords: data.keywords || [],
-      category: data.category,
-      isSearchable: data.is_searchable,
-      updatedBy: data.updated_by,
-    };
+    return mapRow(data);
   }
 
   /**
@@ -63,6 +57,7 @@ export class PageMetadataService {
       keywords: string[];
       category?: string;
       isSearchable: boolean;
+      shortcutKey?: string | null;
     },
     userId: string,
     institutionId?: string
@@ -77,6 +72,7 @@ export class PageMetadataService {
           keywords: metadata.keywords,
           category: metadata.category || null,
           is_searchable: metadata.isSearchable,
+          shortcut_key: metadata.shortcutKey || null,
           updated_by: userId,
           institution_id: institutionId || null,
           updated_at: new Date().toISOString(),
@@ -87,17 +83,7 @@ export class PageMetadataService {
       .single();
 
     if (error) throw error;
-
-    return {
-      id: data.id,
-      pagePath: data.page_path,
-      customTitle: data.custom_title,
-      description: data.description,
-      keywords: data.keywords || [],
-      category: data.category,
-      isSearchable: data.is_searchable,
-      updatedBy: data.updated_by,
-    };
+    return mapRow(data);
   }
 
   /**
@@ -110,5 +96,19 @@ export class PageMetadataService {
       .eq('page_path', pagePath);
 
     if (error) throw error;
+  }
+
+  /**
+   * Get all pages that have shortcuts assigned.
+   */
+  static async getShortcutAssignments(): Promise<PageMetadata[]> {
+    const { data, error } = await supabase
+      .from('page_metadata')
+      .select('*')
+      .not('shortcut_key', 'is', null)
+      .order('shortcut_key', { ascending: true });
+
+    if (error) throw error;
+    return (data || []).map(mapRow);
   }
 }
