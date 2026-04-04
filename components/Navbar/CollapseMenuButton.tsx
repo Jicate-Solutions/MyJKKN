@@ -91,7 +91,7 @@ export function CollapseMenuButton({
               )}
             >
               {shortcut && (
-                <kbd className='hidden lg:inline-flex h-4 select-none items-center rounded border px-1 font-mono text-[9px] font-medium text-muted-foreground/60 dark:border-gray-700 bg-transparent'>
+                <kbd className='hidden lg:inline-flex h-4 select-none items-center rounded border px-1 font-mono text-[9px] font-medium text-muted-foreground dark:text-gray-400 dark:border-gray-600 dark:bg-gray-800/50 bg-muted/80 border-border/60'>
                   {shortcut}
                 </kbd>
               )}
