@@ -351,41 +351,53 @@ function PageMetadataContent() {
                 <p className="text-xs text-muted-foreground mb-2">
                   Assign an Alt+key shortcut for quick navigation to this page
                 </p>
-                <Select
-                  value={editShortcut || 'none'}
-                  onValueChange={(val) => setEditShortcut(val === 'none' ? null : val)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="No shortcut assigned" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No shortcut</SelectItem>
-                    {getShortcutKeyMap().map(({ key, display, assignedTo }) => {
-                      const isCurrent = key === editShortcut;
-                      const isTaken = !!assignedTo && !isCurrent;
-                      return (
-                        <SelectItem
-                          key={key}
-                          value={key}
-                          disabled={isTaken}
-                          className={cn(isTaken && 'opacity-50')}
-                        >
-                          <span className="flex items-center gap-2 w-full">
-                            <kbd className="font-mono text-xs bg-muted px-1 rounded">{display}</kbd>
-                            {isTaken && (
-                              <span className="text-[10px] text-muted-foreground truncate">
-                                ({assignedTo.label}{assignedTo.isCustom ? ' - custom' : ' - default'})
-                              </span>
-                            )}
-                            {isCurrent && (
-                              <span className="text-[10px] text-green-600">current</span>
-                            )}
-                          </span>
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <Select
+                    value={editShortcut || 'none'}
+                    onValueChange={(val) => setEditShortcut(val === 'none' ? null : val)}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="No shortcut assigned" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No shortcut</SelectItem>
+                      {getShortcutKeyMap().map(({ key, display, assignedTo }) => {
+                        const isCurrent = key === editShortcut;
+                        const isTaken = !!assignedTo && !isCurrent;
+                        return (
+                          <SelectItem
+                            key={key}
+                            value={key}
+                            disabled={isTaken}
+                            className={cn(isTaken && 'opacity-50')}
+                          >
+                            <span className="flex items-center gap-2 w-full">
+                              <kbd className="font-mono text-xs bg-muted px-1 rounded">{display}</kbd>
+                              {isTaken && (
+                                <span className="text-[10px] text-muted-foreground truncate">
+                                  ({assignedTo.label}{assignedTo.isCustom ? ' - custom' : ' - default'})
+                                </span>
+                              )}
+                              {isCurrent && (
+                                <span className="text-[10px] text-green-600">current</span>
+                              )}
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  {editShortcut && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditShortcut(null)}
+                      className="shrink-0 text-destructive hover:text-destructive"
+                    >
+                      <X className="h-3 w-3 mr-1" /> Remove
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           )}

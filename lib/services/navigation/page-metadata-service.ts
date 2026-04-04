@@ -72,7 +72,7 @@ export class PageMetadataService {
           keywords: metadata.keywords,
           category: metadata.category || null,
           is_searchable: metadata.isSearchable,
-          shortcut_key: metadata.shortcutKey || null,
+          shortcut_key: metadata.shortcutKey ?? null,
           updated_by: userId,
           institution_id: institutionId || null,
           updated_at: new Date().toISOString(),
