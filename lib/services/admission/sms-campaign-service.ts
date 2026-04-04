@@ -179,6 +179,15 @@ export class SMSCampaignService {
       };
     }
 
+    if (provider === 'exotel') {
+      return {
+        provider: 'exotel',
+        apiKey: process.env.EXOTEL_API_KEY || '',
+        senderId: process.env.EXOTEL_CALLER_ID || '',
+        dltEntityId: process.env.EXOTEL_DLT_ENTITY_ID,
+      };
+    }
+
     return {
       provider: 'twilio',
       apiKey: process.env.TWILIO_AUTH_TOKEN || '',
