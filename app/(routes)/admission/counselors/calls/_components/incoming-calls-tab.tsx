@@ -429,7 +429,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                       </TableCell>
                       <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
                       <TableCell>
-                        {log.status === 'completed' && log.duration_seconds > 0 ? (
+                        {log.duration_seconds > 0 ? (
                           <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
                         ) : (
                           <span className="text-xs text-muted-foreground">--</span>
