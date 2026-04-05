@@ -427,7 +427,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           {log.to_number ? `...${log.to_number.slice(-4)}` : '-'}
                         </span>
                       </TableCell>
-                      <TableCell>{getStatusBadge(log.status)}</TableCell>
+                      <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
                       <TableCell>
                         {log.status === 'completed' && log.duration_seconds > 0 ? (
                           <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
