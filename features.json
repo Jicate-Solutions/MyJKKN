@@ -1,0 +1,72 @@
+{
+  "project": "MyJKKN - Exotel Integration",
+  "lastUpdated": "2026-04-05",
+  "features": [
+    {
+      "id": "exotel-core",
+      "name": "Exotel API Client + Click-to-Call",
+      "status": "deployed-awaiting-test",
+      "notes": "PRs #2,#6 merged. Webhook auth verified. Needs real counselor click-to-call test."
+    },
+    {
+      "id": "inbound-logging",
+      "name": "Inbound Call Logging + Agent Mapping",
+      "status": "self-verified",
+      "notes": "Working. Test call logged with auto-notes. 34 agents mapped to departments."
+    },
+    {
+      "id": "call-intelligence",
+      "name": "Level 3 Call Intelligence",
+      "status": "deployed-awaiting-test",
+      "notes": "PR #6 merged. Auto-create leads, activity logging, urgency. Needs real call to verify."
+    },
+    {
+      "id": "phone-normalization",
+      "name": "E.164 Phone Normalization",
+      "status": "deployed-awaiting-test",
+      "notes": "PR #6 merged. Applied to Exotel webhook. Full migration Phase 2."
+    },
+    {
+      "id": "cron-sync",
+      "name": "Exotel Call Polling Sync (Cron)",
+      "status": "in-progress",
+      "notes": "PR #7 open. Merge + deploy hook needed. Vercel cron every 5 min Mon-Sat 8AM-8PM."
+    },
+    {
+      "id": "passthru-webhook",
+      "name": "IVR Passthru Webhook for Journey Capture",
+      "status": "in-progress",
+      "notes": "PR #7 open. Endpoint built. Needs Passthru added to 1-JKKN-COLLEGES flow."
+    },
+    {
+      "id": "session-skill-upgrade",
+      "name": "Session Skill — BUILD + VERIFY Phases",
+      "status": "self-verified",
+      "notes": "Added /session build (swarm), /session verify (audit). Chains to existing skills."
+    },
+    {
+      "id": "skills-cleanup",
+      "name": "Skills List Cleanup — Remove Shortcuts + Better Descriptions",
+      "status": "planned",
+      "notes": "100+ skill files need: remove short aliases, add full descriptive names, better one-liners."
+    },
+    {
+      "id": "exotel-sms",
+      "name": "Exotel as SMS Provider",
+      "status": "blocked",
+      "notes": "Code deployed but sms_provider enum on production DB missing 'exotel' value."
+    },
+    {
+      "id": "call-transcription",
+      "name": "Call Recording Transcription",
+      "status": "planned",
+      "notes": "Phase 2. Recording URLs IP-restricted. Need whitelist then: download → transcribe → extract intent."
+    },
+    {
+      "id": "multi-college-leads",
+      "name": "Multi-College Lead Architecture",
+      "status": "planned",
+      "notes": "Phase 2. Leads should belong to admission pipeline before college decided. Needs CRM spec."
+    }
+  ]
+}
