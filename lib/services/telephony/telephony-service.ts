@@ -350,15 +350,15 @@ export class TelephonyService {
     // Missed calls with no callback — approximate: missed calls where disposition IS NULL
     const missedNoCallback = missed.filter((c: any) => !c.call_disposition).length;
 
-    // Calls by date — split into answered vs missed per day
+    // Calls by date — split into answered vs missed per day (using cost_amount)
     const dateMap: Record<string, { answered: number; missed: number }> = {};
     calls.forEach((c: any) => {
       if (c.created_at) {
         const dateKey = c.created_at.substring(0, 10); // YYYY-MM-DD
         if (!dateMap[dateKey]) dateMap[dateKey] = { answered: 0, missed: 0 };
-        if (c.status === 'completed') {
+        if (c.cost_amount != null && c.cost_amount > 0) {
           dateMap[dateKey].answered++;
-        } else if (MISSED_STATUSES.includes(c.status)) {
+        } else {
           dateMap[dateKey].missed++;
         }
       }
