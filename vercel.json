@@ -2,10 +2,31 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "regions": ["bom1"],
-  "git": {
-    "deploymentEnabled": false
-  },
   "crons": [
+    {
+      "path": "/api/academic/privileges/cron/auto-pause",
+      "schedule": "0 0 1 * *"
+    },
+    {
+      "path": "/api/work-pulse/analyze",
+      "schedule": "0 0 * * 0"
+    },
+    {
+      "path": "/api/work-pulse/notify?type=pulse_reminder",
+      "schedule": "0 16 * * 5"
+    },
+    {
+      "path": "/api/work-pulse/notify?type=pulse_followup",
+      "schedule": "0 10 * * 6"
+    },
+    {
+      "path": "/api/work-pulse/notify?type=hod_compliance",
+      "schedule": "0 9 * * 1"
+    },
+    {
+      "path": "/api/admission/calls/sync",
+      "schedule": "*/5 8-20 * * 1-6"
+    },
     {
       "path": "/api/cron/sync-inbound-calls",
       "schedule": "*/15 * * * *"

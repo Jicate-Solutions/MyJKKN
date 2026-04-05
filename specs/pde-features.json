@@ -1,0 +1,218 @@
+{
+  "module": "pde",
+  "title": "MyJKKN Principal Development Engine",
+  "spec": "specs/PDE-PRINCIPAL-DEVELOPMENT-ENGINE-SPEC.md",
+  "paradigm": "Quest-driven, capability-based, agency-measured — NOT traditional LMS",
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Plumbing",
+      "weeks": "1-4",
+      "theme": "Build the infrastructure that both LMS and PDE need",
+      "features": [
+        {
+          "id": "F1.1",
+          "name": "Assessment Engine",
+          "description": "Flexible assessments: quizzes (Phase 1) + demonstration gates (Phase 2). Auto-generate from 2,746 existing lessons.",
+          "tables": ["pde_assessments", "pde_assessment_questions", "pde_submissions"],
+          "pages": ["/admin/pde/assessments/create", "/learn/assess/[id]", "/learn/assess/[id]/results"],
+          "apis": 7,
+          "effort": "L",
+          "priority": "P0",
+          "status": "pending"
+        },
+        {
+          "id": "F1.2",
+          "name": "Engagement Tracking",
+          "description": "Event logging, daily aggregation, engagement score, at-risk detection. Tracks AI usage patterns for Agency Index.",
+          "tables": ["pde_engagement_events", "pde_engagement_daily"],
+          "views": ["pde_at_risk_learners"],
+          "apis": 2,
+          "effort": "M",
+          "priority": "P0",
+          "status": "pending"
+        },
+        {
+          "id": "F1.3",
+          "name": "Progress Wiring",
+          "description": "Connect existing markLessonComplete/startLesson to lesson viewer UI",
+          "effort": "S",
+          "priority": "P0",
+          "status": "pending"
+        },
+        {
+          "id": "F1.4",
+          "name": "Certificate System",
+          "description": "PDF with JKKN branding + QR code + Fink's radar + Agency Index. Public verification page.",
+          "tables": ["pde_certificates"],
+          "pages": ["/learn/certificate/[id]", "/verify/[number]"],
+          "apis": 2,
+          "effort": "M",
+          "priority": "P1",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "The Paradigm Shift",
+      "weeks": "5-10",
+      "theme": "Transform from content consumption to quest-driven capability building",
+      "features": [
+        {
+          "id": "F2.1",
+          "name": "Quest Board",
+          "description": "Real problems from 44 Solutions Departments, JICATE, NIF, industry. Learners choose what to build.",
+          "tables": ["pde_quests", "pde_quest_enrollments", "pde_quest_submissions"],
+          "pages": ["/learn/quests", "/learn/quests/[id]", "/faculty/quests"],
+          "apis": 5,
+          "effort": "L",
+          "priority": "P0",
+          "status": "pending"
+        },
+        {
+          "id": "F2.2",
+          "name": "Capability Tree",
+          "description": "Visual non-linear skill map. 120+ capabilities derived from 2,746 lessons. Learn what your quest needs.",
+          "tables": ["pde_capabilities", "pde_learner_capabilities"],
+          "pages": ["/learn/capabilities"],
+          "apis": 4,
+          "effort": "L",
+          "priority": "P0",
+          "status": "pending"
+        },
+        {
+          "id": "F2.3",
+          "name": "Build Arena",
+          "description": "Workspace for building quest solutions. AI interaction tracking for Agency Index.",
+          "tables": ["pde_build_sessions"],
+          "pages": ["/learn/build/[questId]"],
+          "apis": 2,
+          "effort": "M",
+          "priority": "P1",
+          "status": "pending"
+        },
+        {
+          "id": "F2.4",
+          "name": "Demonstration Gates",
+          "description": "Prove capability through action: peer + AI + faculty triangulated evaluation.",
+          "effort": "L",
+          "priority": "P0",
+          "status": "pending",
+          "note": "Uses F1.1 assessment engine with demonstration type"
+        },
+        {
+          "id": "F2.5",
+          "name": "Community Channels",
+          "description": "Real-time per-quest and per-capability channels. Show-and-tell, help requests, peer collaboration.",
+          "tables": ["pde_channels", "pde_messages"],
+          "pages": ["/learn/channels"],
+          "apis": 3,
+          "effort": "M",
+          "priority": "P1",
+          "status": "pending"
+        },
+        {
+          "id": "F2.6",
+          "name": "Reputation + Badges",
+          "description": "Points, levels (Apprentice→Mentor), badges, leaderboard. Quest completion + social contribution.",
+          "tables": ["pde_reputation", "pde_badges", "pde_learner_badges"],
+          "pages": ["/learn/profile"],
+          "apis": 3,
+          "effort": "M",
+          "priority": "P1",
+          "status": "pending"
+        },
+        {
+          "id": "F2.7",
+          "name": "Notifications",
+          "description": "Quest available, capability unlocked, demonstration result, streak milestone, badge earned, at-risk alert.",
+          "effort": "S",
+          "priority": "P1",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Intelligence Layer",
+      "weeks": "11-16",
+      "theme": "AI Coach, Agency Index, faculty impact dashboards, MATLAB Grader",
+      "features": [
+        {
+          "id": "F3.1",
+          "name": "AI Coach (Gemini)",
+          "description": "Coaches, not tutors. Asks questions, challenges assumptions. Adapts style to Agency level. Tamil support.",
+          "tables": ["pde_coach_conversations"],
+          "pages": ["embedded in Build Arena + lesson viewer"],
+          "apis": 2,
+          "effort": "L",
+          "priority": "P1",
+          "status": "pending"
+        },
+        {
+          "id": "F3.2",
+          "name": "Agency Index",
+          "description": "5-dimension measure: initiative, self-direction, tool mastery, critical evaluation, ethical judgment. CASE graduation requirement.",
+          "tables": ["pde_agency_index"],
+          "apis": 1,
+          "effort": "XL",
+          "priority": "P1",
+          "status": "pending"
+        },
+        {
+          "id": "F3.3",
+          "name": "Faculty Impact Dashboard",
+          "description": "Quest progress, capability heatmap, agency trends, at-risk alerts, Fink's radar, impact board.",
+          "pages": ["/faculty/dashboard", "/faculty/analytics"],
+          "effort": "L",
+          "priority": "P1",
+          "status": "pending"
+        },
+        {
+          "id": "F3.4",
+          "name": "MATLAB Grader LTI",
+          "description": "LTI 1.3 integration with campus-wide MATLAB Grader for auto-grading code.",
+          "effort": "L",
+          "priority": "P2",
+          "status": "pending"
+        },
+        {
+          "id": "F3.5",
+          "name": "Public Portfolio",
+          "description": "Auto-generated from quests + demonstrations. Shareable URL for recruiters.",
+          "pages": ["/portfolio/[learnerId]"],
+          "effort": "M",
+          "priority": "P2",
+          "status": "pending"
+        },
+        {
+          "id": "F3.6",
+          "name": "NAAC Evidence Reports",
+          "description": "Auto-generated OBE attainment, engagement, competency evidence from PDE data.",
+          "effort": "M",
+          "priority": "P2",
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_features": 17,
+    "new_tables": 19,
+    "new_views": 3,
+    "new_api_routes": 31,
+    "new_pages": 15,
+    "estimated_weeks": 16,
+    "existing_foundation": "93 courses, 2746 lessons, enrollment + progress schema, 43 source files",
+    "paradigm_shift": "Phase 2 transforms from content consumption to quest-driven capability building",
+    "unique_differentiators": [
+      "Quest Board with real problems from 44 Solutions Departments",
+      "Agency Index: measures AI-direction independence",
+      "Capability Tree: non-linear skill map (not sequential lessons)",
+      "Demonstration Gates: prove through action, not MCQ recall",
+      "AI Coach: asks questions, doesn't give answers",
+      "Solutions Hub pipeline: school project → startup"
+    ]
+  }
+}
