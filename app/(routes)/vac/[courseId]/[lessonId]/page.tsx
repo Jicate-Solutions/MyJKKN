@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useMemo, useCallback } from 'react';
+import { use, useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -55,12 +55,8 @@ import {
   ListChecks,
   Link2,
 } from 'lucide-react';
-<<<<<<< Updated upstream
 import toast from 'react-hot-toast';
-=======
-import { EnrollmentGate } from '../../_components/enrollment-gate';
 import { useLogEngagement, useAssessmentsByLesson } from '@/hooks/pde/use-pde';
->>>>>>> Stashed changes
 
 // ── Content block renderer ─────────────────────────────────────────────────
 
@@ -391,6 +387,10 @@ export default function LessonContentPage({
   const { data: progress } = useVACProgress(userId, courseId);
   const markComplete = useMarkLessonComplete();
 
+  // PDE engagement tracking
+  const logEngagement = useLogEngagement();
+  const { data: pdeAssessments } = useAssessmentsByLesson(lessonId);
+
   // Determine current lesson's position
   const sortedLessons = useMemo(() => {
     if (!allLessons || !Array.isArray(allLessons)) return [];
@@ -399,18 +399,9 @@ export default function LessonContentPage({
     );
   }, [allLessons]);
 
-<<<<<<< Updated upstream
   const currentIndex = sortedLessons.findIndex((l) => l.id === lessonId);
   const prevLesson = currentIndex > 0 ? sortedLessons[currentIndex - 1] : null;
   const nextLesson = currentIndex < sortedLessons.length - 1 ? sortedLessons[currentIndex + 1] : null;
-=======
-  // PDE engagement tracking
-  const logEngagement = useLogEngagement();
-  const { data: pdeAssessments } = useAssessmentsByLesson(lessonId);
-
-  // Local state for completion
-  const [isCompleting, setIsCompleting] = useState(false);
->>>>>>> Stashed changes
 
   // Check if this lesson is already completed
   const isCompleted = useMemo(() => {
@@ -423,109 +414,10 @@ export default function LessonContentPage({
   const isHourOne = currentIndex === 0;
   const isGated = !isHourOne && !isEnrolled;
 
-<<<<<<< Updated upstream
   const handleMarkComplete = useCallback(() => {
     if (!userId || !courseId || !lessonId) return;
     markComplete.mutate({ userId, courseId, lessonId });
   }, [userId, courseId, lessonId, markComplete]);
-=======
-  // Fetch all progress for sequential gating
-  const { data: allProgress } = useVACProgress(user?.id, courseId);
-
-  // Determine if this lesson is accessible (hour 1 is free preview, others require enrollment)
-  const isFreePreview = lesson?.hour === 1;
-  const hasAccess = isFreePreview || isEnrolled;
-
-  // Sequential gating: previous lesson must be completed to access this one
-  const isPrevLessonCompleted = (() => {
-    if (!prevLesson) return true; // First lesson — no prerequisite
-    if (!allProgress) return false; // Loading — default to locked
-    const prevProgress = allProgress.find((p: VACLearnerProgress) => p.lesson_id === prevLesson.id);
-    return prevProgress?.status === 'completed' || prevProgress?.status === 'tested_out';
-  })();
-  const isSequentiallyLocked = isEnrolled && !isFreePreview && !isPrevLessonCompleted && !isCompleted;
-
-  // Next lesson gating: must complete or test out current lesson before proceeding
-  const canProceedToNext = isDone;
-
-  // Mark lesson as in_progress when user opens it (if authenticated and has access)
-  useEffect(() => {
-    if (user?.id && courseId && lessonId && lesson && !isCompleted && hasAccess) {
-      startLessonMutation.mutate({
-        userId: user.id,
-        courseId,
-        lessonId
-      });
-      // Log PDE engagement event for lesson view
-      logEngagement.mutate({
-        learner_id: user.id,
-        event_type: 'lesson_view',
-        course_id: courseId,
-        lesson_id: lessonId,
-        metadata: { start_time: new Date().toISOString() },
-      });
-    }
-    // Only run when lesson loads, not on every dependency change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, lessonId, lesson?.id, hasAccess]);
-
-  const handleMarkComplete = async () => {
-    if (!user?.id) {
-      toast({
-        title: 'Sign in required',
-        description: 'Please sign in to track your progress',
-        variant: 'destructive'
-      });
-      return;
-    }
-
-    setIsCompleting(true);
-    try {
-      await markCompleteMutation.mutateAsync({
-        userId: user.id,
-        courseId,
-        lessonId
-      });
-      // Log PDE engagement event for lesson completion
-      logEngagement.mutate({
-        learner_id: user.id,
-        event_type: 'lesson_complete',
-        course_id: courseId,
-        lesson_id: lessonId,
-      });
-      toast({
-        title: 'Lesson completed!',
-        description: nextLesson
-          ? 'Great job! Continue to the next lesson.'
-          : 'Congratulations on completing all lessons!',
-      });
-    } catch (err) {
-      toast({
-        title: 'Error',
-        description: 'Failed to mark lesson as complete',
-        variant: 'destructive'
-      });
-    } finally {
-      setIsCompleting(false);
-    }
-  };
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast({
-        title: 'Copied!',
-        description: 'Prompt copied to clipboard',
-      });
-    } catch {
-      toast({
-        title: 'Failed to copy',
-        description: 'Please try again',
-        variant: 'destructive',
-      });
-    }
-  };
->>>>>>> Stashed changes
 
   if (isLoading) {
     return (
@@ -682,7 +574,6 @@ export default function LessonContentPage({
           ) : (
             <div />
           )}
-<<<<<<< Updated upstream
           {nextLesson ? (
             <Button
               variant="outline"
@@ -696,80 +587,6 @@ export default function LessonContentPage({
               Back to Course
             </Button>
           )}
-=======
-
-          <div className="flex items-center gap-3">
-            {/* Test Out Button — skip to PROVE gate directly */}
-            {user && !isDone && !isInProgress && (
-              <Button
-                variant="outline"
-                className="gap-2 border-blue-500 text-blue-600 hover:bg-blue-50"
-                onClick={handleMarkComplete}
-                title="Skip this lesson by passing the PROVE gate (80% threshold)"
-              >
-                <GraduationCap className="h-4 w-4" />
-                Test Out
-              </Button>
-            )}
-
-            {/* Mark Complete Button (only for authenticated users, not yet done) */}
-            {user && !isDone && (
-              <Button
-                variant="default"
-                onClick={handleMarkComplete}
-                disabled={isCompleting}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                {isCompleting ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                )}
-                Mark Complete
-              </Button>
-            )}
-
-            {/* Take Assessment Button (if assessments exist for this lesson) */}
-            {pdeAssessments && pdeAssessments.length > 0 && (
-              <Link href={`/learn/assess/${pdeAssessments[0].id}`}>
-                <Button variant="outline" className="gap-2">
-                  <BookOpen className="h-4 w-4" />
-                  Take Assessment
-                </Button>
-              </Link>
-            )}
-
-            {nextLesson ? (
-              canProceedToNext ? (
-                <Link href={`/vac/${courseId}/${nextLesson.id}`}>
-                  <Button>
-                    Next: Hour {nextLesson.hour}
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
-                </Link>
-              ) : (
-                <Button disabled className="opacity-60">
-                  <Lock className="h-4 w-4 mr-2" />
-                  Complete this lesson to unlock Hour {nextLesson.hour}
-                </Button>
-              )
-            ) : (
-              canProceedToNext ? (
-                <Link href={`/vac/${courseId}`}>
-                  <Button>
-                    <Trophy className="h-4 w-4 mr-2" />
-                    Finish Course
-                  </Button>
-                </Link>
-              ) : (
-                <Button disabled className="opacity-60">
-                  <Lock className="h-4 w-4 mr-2" />
-                  Complete this lesson to finish
-                </Button>
-              )
-            )}
-          </div>
->>>>>>> Stashed changes
         </div>
       </div>
     </ContentLayout>
