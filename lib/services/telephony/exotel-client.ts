@@ -267,6 +267,15 @@ export class ExotelClient {
     return this.request<ExotelCallDetailsResponse>('GET', `/Calls/${callSid}.json`);
   }
 
+  /**
+   * Get recent calls from Exotel (for sync/polling).
+   * Returns up to pageSize calls after the given start time.
+   */
+  static async getRecentCalls(sinceTime: string, pageSize: number = 50, offset: number = 0): Promise<any> {
+    const encodedTime = encodeURIComponent(sinceTime);
+    return this.request<any>('GET', `/Calls.json?PageSize=${pageSize}&Offset=${offset}&StartTime%3E=${encodedTime}`);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // SMS API (V1)
   // ═══════════════════════════════════════════════════════════════════════
