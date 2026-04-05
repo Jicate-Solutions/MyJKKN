@@ -35,8 +35,8 @@
     {
       "id": "incoming-kpis",
       "name": "Incoming Calls KPI Dashboard",
-      "status": "in-progress",
-      "notes": "PRs #9,#12 merged. Stats + badge now use cost_amount for classification. PR #13 submitted. Needs backfill of 635 calls then verify."
+      "status": "self-verified",
+      "notes": "PRs #9,#12,#13 merged. Stats + badge use cost_amount. 763 calls backfilled. Answer rate: 28% (214 answered, 548 missed)."
     },
     {
       "id": "call-details-page",
