@@ -1,0 +1,72 @@
+{
+  "project": "MyJKKN - Exotel Integration",
+  "lastUpdated": "2026-04-05",
+  "features": [
+    {
+      "id": "exotel-core",
+      "name": "Exotel API Client + Click-to-Call",
+      "status": "deployed-awaiting-test",
+      "notes": "PRs #2,#6 merged. Webhook auth verified. Needs real counselor click-to-call test."
+    },
+    {
+      "id": "inbound-logging",
+      "name": "Inbound Call Logging + Agent Mapping",
+      "status": "self-verified",
+      "notes": "Working. 34 agents mapped. Webhook verified. 763 calls in production DB."
+    },
+    {
+      "id": "call-intelligence",
+      "name": "Level 3 Call Intelligence",
+      "status": "deployed-awaiting-test",
+      "notes": "PR #6 merged. Auto-create leads, activity logging, urgency. Needs real call to verify."
+    },
+    {
+      "id": "cron-sync",
+      "name": "Exotel Call Polling Sync (Cron)",
+      "status": "self-verified",
+      "notes": "PRs #7,#8 merged. CRON_SECRET + env vars fixed. Verified: 80 calls synced. Mon-Sat 8am-8pm IST."
+    },
+    {
+      "id": "passthru-webhook",
+      "name": "IVR Passthru Webhook for Journey Capture",
+      "status": "deployed-awaiting-test",
+      "notes": "PR #7 merged. Endpoint live. Still needs Passthru node added to IVR flow in Exotel dashboard."
+    },
+    {
+      "id": "incoming-kpis",
+      "name": "Incoming Calls KPI Dashboard",
+      "status": "self-verified",
+      "notes": "PRs #9,#12,#13 merged. Stats + badge use cost_amount. 763 calls backfilled. Answer rate: 28% (214 answered, 548 missed)."
+    },
+    {
+      "id": "call-details-page",
+      "name": "Call Details Page",
+      "status": "self-verified",
+      "notes": "PR #11 merged. Clickable rows → detail page with info, audio player, notes editor, lead card, call history."
+    },
+    {
+      "id": "exotel-price-classification",
+      "name": "Answered/Missed Classification via Exotel Price",
+      "status": "complete",
+      "notes": "PR #13 merged + deployed. All 763 calls backfilled with cost_amount from Exotel. 214 answered (28%), 548 missed (72%). Backfill endpoint available for future use."
+    },
+    {
+      "id": "exotel-sms",
+      "name": "Exotel as SMS Provider",
+      "status": "blocked",
+      "notes": "Code deployed but sms_provider enum on production DB missing 'exotel' value."
+    },
+    {
+      "id": "call-transcription",
+      "name": "Call Recording Transcription",
+      "status": "planned",
+      "notes": "Phase 2. Recording URLs IP-restricted. Need whitelist then: download → transcribe → extract intent."
+    },
+    {
+      "id": "multi-college-leads",
+      "name": "Multi-College Lead Architecture",
+      "status": "planned",
+      "notes": "Phase 2. Leads should belong to admission pipeline before college decided. Needs CRM spec."
+    }
+  ]
+}

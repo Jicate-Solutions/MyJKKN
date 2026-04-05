@@ -28,7 +28,8 @@ import {
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
-import { useCallLogs, formatDuration, type CallDisposition } from '@/hooks/admission';
+import { useCallLogs, useCallIntelligence, useAnalyzeCall, formatDuration, type CallDisposition } from '@/hooks/admission';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -227,6 +228,10 @@ function CallDetailContent() {
     },
     enabled: !!id,
   });
+
+  // AI Intelligence
+  const { data: intelligence } = useCallIntelligence(call?.id);
+  const analyzeCall = useAnalyzeCall();
 
   // Notes form state
   const [notes, setNotes] = useState('');
@@ -460,6 +465,89 @@ function CallDetailContent() {
                   </div>
                   {saveNotes.isSuccess && (
                     <p className="text-xs text-green-600">Notes saved successfully.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* AI Insights Card */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <span>AI Insights</span>
+                    {intelligence?.analyze_status === 'processing' && (
+                      <span className="text-xs text-muted-foreground animate-pulse">Analyzing...</span>
+                    )}
+                    {intelligence?.sentiment && (
+                      <span className={cn(
+                        "inline-block w-2.5 h-2.5 rounded-full",
+                        intelligence.sentiment === 'positive' && "bg-green-500",
+                        intelligence.sentiment === 'negative' && "bg-red-500",
+                        intelligence.sentiment === 'neutral' && "bg-yellow-500",
+                      )} />
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {!intelligence && call?.recording_url && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => analyzeCall.mutate(call.id)}
+                      disabled={analyzeCall.isPending}
+                    >
+                      {analyzeCall.isPending ? 'Submitting...' : 'Analyze Call'}
+                    </Button>
+                  )}
+
+                  {intelligence?.summary && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Summary</p>
+                      <p className="text-sm mt-1">{intelligence.summary}</p>
+                    </div>
+                  )}
+
+                  {intelligence?.categories && intelligence.categories.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Categories</p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {intelligence.categories.map((cat: string) => (
+                          <Badge key={cat} variant="secondary" className="text-xs">
+                            {cat.replace(/_/g, ' ')}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(intelligence?.extracted_name || intelligence?.extracted_course || intelligence?.extracted_location) && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Extracted Info</p>
+                      <div className="grid grid-cols-3 gap-2 mt-1 text-sm">
+                        {intelligence.extracted_name && <div><span className="text-muted-foreground">Name:</span> {intelligence.extracted_name}</div>}
+                        {intelligence.extracted_course && <div><span className="text-muted-foreground">Course:</span> {intelligence.extracted_course}</div>}
+                        {intelligence.extracted_location && <div><span className="text-muted-foreground">Location:</span> {intelligence.extracted_location}</div>}
+                      </div>
+                      {intelligence.enrichment_applied && (
+                        <p className="text-xs text-green-600 mt-1">Applied to lead record</p>
+                      )}
+                    </div>
+                  )}
+
+                  {intelligence?.transcription && (
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Transcription</p>
+                      <p className="text-sm mt-1 whitespace-pre-wrap max-h-40 overflow-y-auto bg-muted/30 p-2 rounded">
+                        {intelligence.transcription}
+                      </p>
+                    </div>
+                  )}
+
+                  {intelligence?.analyze_status === 'failed' && (
+                    <p className="text-sm text-red-500">Analysis failed. Try again.</p>
+                  )}
+
+                  {!intelligence && !call?.recording_url && (
+                    <p className="text-sm text-muted-foreground">No recording available for analysis.</p>
                   )}
                 </CardContent>
               </Card>

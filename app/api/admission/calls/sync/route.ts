@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { ExotelClient } from '@/lib/services/telephony/exotel-client';
 import { TelephonyService } from '@/lib/services/telephony/telephony-service';
+import { CallPipelineService } from '@/lib/services/telephony/call-pipeline-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // Verify the request is authorized
@@ -142,10 +143,19 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Pipeline sweep — retry stuck calls
+    let sweepResult = { retried: 0, errors: [] as string[] };
+    try {
+      sweepResult = await CallPipelineService.sweepPipeline(supabase);
+    } catch (err) {
+      logger.error('telephony/sync', 'Pipeline sweep error:', err);
+    }
+
     logger.info('telephony/sync', 'Sync complete', {
       total: exotelCalls.length,
       synced,
       skipped,
+      pipeline_sweep: sweepResult,
     });
 
     return NextResponse.json({
@@ -153,6 +163,7 @@ export async function GET(request: NextRequest) {
       skipped,
       total: exotelCalls.length,
       message: `Synced ${synced} new calls, skipped ${skipped} existing`,
+      pipeline_sweep: sweepResult,
     });
   } catch (error) {
     logger.error('telephony/sync', 'Sync failed', error);

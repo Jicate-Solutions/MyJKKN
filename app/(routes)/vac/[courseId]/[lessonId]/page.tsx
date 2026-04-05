@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useMemo, useCallback } from 'react';
+import { use, useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -56,6 +56,7 @@ import {
   Link2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useLogEngagement, useAssessmentsByLesson } from '@/hooks/pde/use-pde';
 
 // ── Content block renderer ─────────────────────────────────────────────────
 
@@ -386,6 +387,10 @@ export default function LessonContentPage({
   const { data: progress } = useVACProgress(userId, courseId);
   const markComplete = useMarkLessonComplete();
 
+  // PDE engagement tracking
+  const logEngagement = useLogEngagement();
+  const { data: pdeAssessments } = useAssessmentsByLesson(lessonId);
+
   // Determine current lesson's position
   const sortedLessons = useMemo(() => {
     if (!allLessons || !Array.isArray(allLessons)) return [];
@@ -409,10 +414,31 @@ export default function LessonContentPage({
   const isHourOne = currentIndex === 0;
   const isGated = !isHourOne && !isEnrolled;
 
+  // Log lesson_view engagement event on page mount
+  useEffect(() => {
+    if (userId && courseId && lessonId && lesson) {
+      logEngagement.mutate({
+        learner_id: userId,
+        event_type: 'lesson_view',
+        course_id: courseId,
+        lesson_id: lessonId,
+        metadata: { start_time: new Date().toISOString() },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId]);
+
   const handleMarkComplete = useCallback(() => {
     if (!userId || !courseId || !lessonId) return;
     markComplete.mutate({ userId, courseId, lessonId });
-  }, [userId, courseId, lessonId, markComplete]);
+    // Log lesson_complete engagement event
+    logEngagement.mutate({
+      learner_id: userId,
+      event_type: 'lesson_complete',
+      course_id: courseId,
+      lesson_id: lessonId,
+    });
+  }, [userId, courseId, lessonId, markComplete, logEngagement]);
 
   if (isLoading) {
     return (
@@ -539,9 +565,9 @@ export default function LessonContentPage({
 
         <Separator />
 
-        {/* Mark Complete */}
-        {isEnrolled && !isCompleted && (
-          <div className="flex justify-center">
+        {/* Mark Complete + Assessment */}
+        <div className="flex justify-center gap-3 flex-wrap">
+          {isEnrolled && !isCompleted && (
             <Button
               size="lg"
               onClick={handleMarkComplete}
@@ -553,8 +579,22 @@ export default function LessonContentPage({
               <CheckCircle2 className="h-4 w-4 mr-2" />
               Mark as Complete
             </Button>
-          </div>
-        )}
+          )}
+          {isCompleted && (
+            <Badge className="bg-green-100 text-green-800 text-sm py-2 px-4">
+              <CheckCircle2 className="h-4 w-4 mr-1" />
+              Completed
+            </Badge>
+          )}
+          {pdeAssessments && pdeAssessments.length > 0 && (
+            <Link href={`/learn/assess/${pdeAssessments[0].id}`}>
+              <Button variant="outline" size="lg" className="gap-2">
+                <BookOpen className="h-4 w-4" />
+                Take Assessment
+              </Button>
+            </Link>
+          )}
+        </div>
 
         {/* Navigation */}
         <div className="flex items-center justify-between pt-4">

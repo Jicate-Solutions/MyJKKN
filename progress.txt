@@ -1,0 +1,132 @@
+## Session: 2026-04-05 (Evening) - Price Classification Fix + Full Backfill + Exotel API Research
+
+### Accomplished
+- **P0 FIXED**: Answered/missed classification now uses cost_amount > 0 (Exotel Price) instead of status
+- Updated getInboundCallStats: select includes cost_amount, all aggregations use cost_amount
+- Updated incoming calls badge: getInboundStatusBadge() uses cost_amount
+- Built backfill endpoint: POST /api/admission/calls/backfill-cost
+- PR #13 created, merged, deployed
+- **BACKFILL COMPLETE**: 763 calls classified — 214 answered (28%), 548 missed (72%), 1 null
+- Previously was showing ~100% answer rate (all "completed" = "answered") — now shows true 28%
+- Exotel API research: 672-line report at docs/exotel-api-reference.md
+  - Discovered 93 API endpoints, we use only 4 (4%)
+  - Top opportunities: ExoVoiceAnalyze (auto-transcribe), Bulk SMS, Voice v3, Call Campaigns, Heartbeat
+
+### Current Status
+- **KPI Dashboard**: Live on production with correct answered/missed split
+- **Backfill**: 762/763 calls have cost_amount populated (1 failed = deleted from Exotel)
+- **Exotel Research**: Complete report saved to docs/exotel-api-reference.md
+- **Build**: Passing on omm-dev
+- **Production**: PR #13 merged and deployed
+
+### Next Steps
+1. Browser-verify the production calls page shows correct KPIs
+2. Consider ExoVoiceAnalyze integration (auto-transcribe every call)
+3. Upgrade from Voice v1 to v3 (dual-channel recording, call legs)
+4. Add Bulk SMS to replace single-send loops in SMS campaigns
+
+---
+
+## Session: 2026-04-05 (End) - Exotel Calls Dashboard Live + 6 PRs Merged + Root Cause Found
+
+### Accomplished
+- PR #7: Cron sync + passthru merged (resolved vercel.json conflict)
+- PR #8: CRON_SECRET auth fix — cron was silently 401-ing
+- PR #9: Created missing getInboundCallStats method (worktree agent)
+- PR #10: Default to Incoming Calls tab
+- PR #11: Call details page with notes editor, audio player, lead card, call history
+- PR #12: Field name alignment (answered_count → answered)
+- Fixed 8 Exotel env vars with trailing \n (printf not echo)
+- Backfilled 413 calls (Mar 31-Apr 4) via Python script → 763 total calls
+- Cron sync VERIFIED WORKING: 80 new calls synced in one shot
+- Browser-verified: logged into jkkn.ai, checked calls page, incoming tab, KPIs
+- CRITICAL DISCOVERY: Exotel Price field is the real answered/missed indicator
+  - Price > 0 = connected to agent (billed, ~21% of calls)
+  - Price = 0 = IVR only, nobody answered (~79% of calls)
+  - Exotel marks ALL IVR calls as Status:"completed" regardless of outcome
+
+### Current Status
+- **Calls Page**: Live on production, Incoming tab default, clickable rows → detail page
+- **KPI Cards**: Showing data but all classified as "answered" (Price field not yet used)
+- **Cron Sync**: Working, fires Mon-Sat 8am-8pm IST every 5 min
+- **Build**: Passing on omm-dev
+- **Production**: All 12 PRs merged, fully deployed
+
+### CRITICAL Next Session — P0
+1. Store Exotel `Price` → `cost_amount` in sync route (currently ignored)
+2. Use `cost_amount > 0` for answered/missed classification in getInboundCallStats
+3. Backfill existing 763 calls with `cost_amount` from Exotel API
+4. Update incoming calls table to show Answered/Missed badge based on cost_amount
+5. Store `RecordingUrl` properly during sync
+
+### Later Tasks
+- Add Passthru to 1-JKKN-COLLEGES flow (manual Exotel dashboard)
+- Multi-college lead architecture spec
+- Call transcription pipeline (Phase 2)
+
+---
+
+## Session: 2026-04-05 (Previous) - Exotel Full Integration + Session Skill Upgrade + Skills Cleanup Queued
+
+### Accomplished
+- Exotel webhook auth fixed (trailing \n in env var — use printf not echo)
+- Webhook verified working on production (HTTP 200, test call logged)
+- Cron-based call sync built (/api/admission/calls/sync — every 5 min)
+- Passthru webhook endpoint built (/api/webhooks/telephony/passthru)
+- Passthru instructions written for Exotel flow editor (specs/exotel-setup/05-PASSTHRU-INSTRUCTIONS.md)
+- Level 3 call intelligence: every caller = lead on first call, activity logging, urgency detection
+- E.164 phone normalization (lib/utils/phone.ts) — handles international numbers
+- Production institution ID fixed (was staging UUID)
+- StatusCallback set on all 3 active ExoPhones
+- Deploy hook discovered and saved to memory
+- /session skill upgraded: added BUILD (swarm execution) and VERIFY (proportional audit) phases
+- /session START now auto-interviews for complex tasks (3+ files = interview)
+- /session END now auto-verifies changed files before closing
+- Skills cleanup task saved to memory (200+ entries need renaming + better descriptions)
+
+### Current Status
+- **Webhook**: Working on production (auth verified)
+- **Cron Sync**: PR #7 pending merge + deploy hook trigger
+- **Passthru**: Endpoint built, needs Passthru added to 1-JKKN-COLLEGES flow in Exotel dashboard
+- **Session Skill**: Upgraded with BUILD + VERIFY phases
+- **Build**: Passing on omm-dev
+- **Production Deploy**: Via deploy hook ONLY
+
+### Production PRs (Jicate-Solutions/MyJKKN)
+- PR #2: Core Exotel (MERGED)
+- PR #4: Agent mapping (MERGED)
+- PR #6: Intelligence + phone + institution fix (MERGED)
+- PR #7: Cron sync + passthru (OPEN — merge + deploy hook)
+
+### Deploy Hook
+```
+curl -X POST "https://api.vercel.com/v1/integrations/deploy/prj_yH37MwPX0aAAUXNjZX1YlOHoowRM/bLNJV5yB1h"
+```
+
+### Key Rules Established
+- NEVER deploy production from local directory — only via GitHub PR merge + deploy hook
+- NEVER use echo to pipe env vars to Vercel — use printf (no trailing \n)
+- Production repo: Jicate-Solutions/MyJKKN (jicate remote)
+- Developer handoffs: GitHub links only, never Google Drive
+- ExoPhone StatusCallback doesn't apply to IVR-routed calls — need Passthru in flow OR cron polling
+- Cron polling is safer than webhook for IVR flows (no flow modification needed)
+
+### Next Session — Tasks
+1. [P0] Merge PR #7 + trigger deploy hook — cron sync + passthru go live (small)
+2. [P0] Test cron sync — verify calls appear on jkkn.ai/admission/counselors/calls (small)
+3. [P0] Skills list cleanup — remove shortcuts, rename to full names, add descriptions (large — 100+ files)
+4. [P1] Add Passthru to 1-JKKN-COLLEGES flow in Exotel dashboard — test IVR journey capture (medium)
+5. [P1] Backfill 5-day call gap (Mar 31 - Apr 4) to production DB (medium)
+6. [P1] Fix Outbound/Incoming tab filtering on calls page (small)
+7. [P2] Multi-college lead architecture spec (large)
+8. [P2] Call transcription pipeline (large)
+9. [P2] E.164 migration across all modules (large)
+10. [P2] Recording URL IP whitelist in Exotel dashboard (small — dashboard only)
+
+---
+
+## Previous Session: 2026-04-04 - Exotel Integration Started
+- Crawled Exotel developer docs, built ExotelClient
+- Real initiateCall(), webhook handlers, SMS provider
+- Agent mapping (34 co-workers), developer handoff package
+- 250 calls backfilled to staging, Exotel credentials configured

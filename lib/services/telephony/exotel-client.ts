@@ -82,6 +82,41 @@ export interface ExotelSmsResponse {
   };
 }
 
+export interface AnalyzeCallParams {
+  callSid: string;
+  tasks: ('transcript' | 'summarization' | 'sentiment' | 'categorise')[];
+  callbackUrl: string;
+  categories?: string[];  // for 'categorise' task
+}
+
+export interface AnalyzeCallResponse {
+  request_id: string;
+  status: string;
+}
+
+export interface ExoVoiceAnalyzeWebhookPayload {
+  call_sid: string;
+  request_id: string;
+  status: 'completed' | 'failed';
+  insights: {
+    transcript?: {
+      text: string;
+      language: string;
+    };
+    summarization?: {
+      summary: string;
+    };
+    sentiment?: {
+      label: 'positive' | 'negative' | 'neutral';
+      score: number;
+    };
+    categorise?: {
+      categories: string[];
+    };
+  };
+  error?: string;
+}
+
 export class ExotelApiError extends Error {
   statusCode: number;
   exotelCode?: string;
@@ -298,5 +333,27 @@ export class ExotelClient {
     if (params.priority) body.Priority = params.priority;
 
     return this.request<ExotelSmsResponse>('POST', '/Sms/send', body);
+  }
+
+  /**
+   * Submit call recording for AI analysis via ExoVoiceAnalyze.
+   * Async: POST returns job_id, results arrive at callbackUrl webhook.
+   * Endpoint: POST /v1/Accounts/{sid}/Calls/{callSid}/ExoVoiceAnalyze.json
+   */
+  static async analyzeCall(params: AnalyzeCallParams): Promise<AnalyzeCallResponse> {
+    const body: Record<string, string> = {
+      InsightTasks: params.tasks.join(','),
+      CallbackUrl: params.callbackUrl,
+    };
+
+    if (params.categories?.length) {
+      body.Categories = params.categories.join(',');
+    }
+
+    return this.request<AnalyzeCallResponse>(
+      'POST',
+      `/Calls/${params.callSid}/ExoVoiceAnalyze.json`,
+      body
+    );
   }
 }
