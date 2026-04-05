@@ -744,7 +744,7 @@ export class TelephonyService {
     if (callCount > 1) intelligenceParts.push(`Call #${callCount} today`);
     if (missedCount >= 2 && !everConnected) intelligenceParts.push(`URGENT: ${missedCount} missed, never connected`);
     if (missedCount >= 1 && isConnected) intelligenceParts.push('Returning caller — previously missed');
-    if (!leadMatch && callCount >= 2) intelligenceParts.push('Unknown caller, repeated attempts — high intent');
+    if (!leadMatch) intelligenceParts.push('New caller — lead auto-created');
 
     if (intelligenceParts.length > 0) {
       const existingNotes = (await supabase
@@ -763,8 +763,8 @@ export class TelephonyService {
         .eq('id', callLogId);
     }
 
-    // ── 3. Auto-create lead for unknown repeat callers ──
-    if (!leadMatch && callCount >= 2 && callContext.isAdmission) {
+    // ── 3. Auto-create lead for EVERY unknown caller (first call itself) ──
+    if (!leadMatch) {
       const last10 = callerPhone.slice(-10);
 
       // Double-check lead doesn't exist (could have been created between calls)
@@ -775,16 +775,19 @@ export class TelephonyService {
         .maybeSingle();
 
       if (!existingLead) {
+        const priority = missedCount >= 3 ? 'hot' : missedCount >= 1 && !everConnected ? 'warm' : 'normal';
         const { data: newLead } = await supabase
           .from('admission_leads')
           .insert({
             institution_id: institutionId,
             phone: callerPhone,
-            full_name: `Inbound Caller ${callerPhone.slice(-4)}`,
+            full_name: `Caller ${callerPhone.slice(-4)}`,
             source: 'inbound_call',
             status: 'new',
-            priority: missedCount >= 2 ? 'hot' : 'warm',
-            notes: `Auto-created from ${callCount} inbound call(s). ${isMissed ? 'Never connected — needs callback.' : 'Connected on latest call.'}`,
+            priority,
+            notes: isMissed
+              ? `Auto-created from inbound call (missed). Needs callback.`
+              : `Auto-created from inbound call. Connected with ${callContext.agentName || 'agent'} (${Math.floor(durationSec / 60)}m ${durationSec % 60}s).`,
           })
           .select('id')
           .single();
@@ -804,23 +807,38 @@ export class TelephonyService {
             .eq('direction', 'inbound')
             .is('lead_id', null);
 
-          logger.info('telephony/intelligence', 'Auto-created lead from repeat caller', {
+          logger.info('telephony/intelligence', 'Auto-created lead from inbound caller', {
             leadId: newLead.id,
             phone: callerPhone,
             callCount,
+            isFirstCall: callCount === 1,
           });
         }
       }
     }
 
-    // ── 4. Log activity on existing lead ──
-    if (leadMatch) {
+    // ── 4. Log activity on lead (existing OR newly created) ──
+    const activeLeadId = leadMatch?.id || null;
+    // If we just created a lead above, get its ID
+    // The newLead variable is scoped inside the if block, so we use a different approach
+    // Re-fetch the lead_id from the call log we just updated
+    let finalLeadId = activeLeadId;
+    if (!finalLeadId) {
+      const { data: updatedLog } = await supabase
+        .from('admission_call_logs')
+        .select('lead_id')
+        .eq('id', callLogId)
+        .single();
+      finalLeadId = updatedLog?.lead_id || null;
+    }
+
+    if (finalLeadId) {
       const activityTitle = isConnected
         ? `Inbound call — ${Math.floor(durationSec / 60)}m ${durationSec % 60}s with ${callContext.agentName || 'agent'}`
         : `Missed inbound call (attempt #${callCount} today)`;
 
       await supabase.from('admission_lead_activities').insert({
-        lead_id: leadMatch.id,
+        lead_id: finalLeadId,
         institution_id: institutionId,
         activity_type: 'call',
         title: activityTitle,
@@ -853,7 +871,7 @@ export class TelephonyService {
       await supabase
         .from('admission_leads')
         .update(leadUpdate)
-        .eq('id', leadMatch.id);
+        .eq('id', finalLeadId);
     }
 
     // ── 6. Auto-set disposition for missed calls ──
@@ -873,7 +891,7 @@ export class TelephonyService {
       missedCount,
       isConnected,
       leadMatched: !!leadMatch,
-      autoCreatedLead: !leadMatch && callCount >= 2,
+      autoCreatedLead: !leadMatch,
     });
   }
 
