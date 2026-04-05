@@ -7,7 +7,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PDEService } from '@/lib/services/pde-service';
 import type {
   CreateAssessmentInput, CreateQuestionInput, SubmissionAnswer,
-  LogEngagementInput, GenerateCertificateInput
+  LogEngagementInput, GenerateCertificateInput,
+  // Phase 2
+  CreateQuestInput, UpdateQuestInput, CreateQuestSubmissionInput,
+  DemonstrateCapabilityInput, StartBuildSessionInput, EndBuildSessionInput,
+  LogAIInteractionInput, PostMessageInput, AddReputationPointsInput, AwardBadgeInput,
+  QuestFilters, CapabilityCategory,
 } from '@/types/pde';
 
 // ============================================
@@ -36,6 +41,36 @@ export const pdeQueryKeys = {
   certificate: (id: string) => [...pdeQueryKeys.certificates(), id] as const,
   verifyCertificate: (number: string) => [...pdeQueryKeys.certificates(), 'verify', number] as const,
   learnerCertificates: (learnerId: string) => [...pdeQueryKeys.certificates(), 'learner', learnerId] as const,
+  // Phase 2: Quests
+  quests: () => [...pdeQueryKeys.all, 'quests'] as const,
+  questList: (filters?: QuestFilters) => [...pdeQueryKeys.quests(), 'list', filters] as const,
+  questDetail: (id: string) => [...pdeQueryKeys.quests(), 'detail', id] as const,
+  questEnrollments: (questId: string) => [...pdeQueryKeys.quests(), 'enrollments', questId] as const,
+  questSubmissions: (questId: string) => [...pdeQueryKeys.quests(), 'submissions', questId] as const,
+  learnerEnrollments: (learnerId: string) => [...pdeQueryKeys.quests(), 'learner-enrollments', learnerId] as const,
+  learnerQuestSubmissions: (learnerId: string, questId?: string) =>
+    [...pdeQueryKeys.quests(), 'learner-submissions', learnerId, questId] as const,
+  // Phase 2: Capabilities
+  capabilities: () => [...pdeQueryKeys.all, 'capabilities'] as const,
+  capabilityList: (category?: string) => [...pdeQueryKeys.capabilities(), 'list', category] as const,
+  capabilityDetail: (id: string) => [...pdeQueryKeys.capabilities(), 'detail', id] as const,
+  learnerCapabilities: (learnerId: string) => [...pdeQueryKeys.capabilities(), 'learner', learnerId] as const,
+  // Phase 2: Build Arena
+  buildSessions: () => [...pdeQueryKeys.all, 'build-sessions'] as const,
+  learnerBuildSessions: (learnerId: string, questId?: string) =>
+    [...pdeQueryKeys.buildSessions(), learnerId, questId] as const,
+  // Phase 2: Channels
+  channels: () => [...pdeQueryKeys.all, 'channels'] as const,
+  channelList: (type?: string, referenceId?: string) => [...pdeQueryKeys.channels(), 'list', type, referenceId] as const,
+  channelMessages: (channelId: string) => [...pdeQueryKeys.channels(), 'messages', channelId] as const,
+  // Phase 2: Reputation
+  reputation: () => [...pdeQueryKeys.all, 'reputation'] as const,
+  learnerReputation: (learnerId: string) => [...pdeQueryKeys.reputation(), learnerId] as const,
+  leaderboard: (limit?: number) => [...pdeQueryKeys.reputation(), 'leaderboard', limit] as const,
+  // Phase 2: Badges
+  badges: () => [...pdeQueryKeys.all, 'badges'] as const,
+  badgeList: () => [...pdeQueryKeys.badges(), 'list'] as const,
+  learnerBadges: (learnerId: string) => [...pdeQueryKeys.badges(), 'learner', learnerId] as const,
 };
 
 // ============================================
@@ -257,6 +292,347 @@ export function useCheckAndGenerateCertificate() {
         qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerCertificates(variables.learnerId) });
         qc.invalidateQueries({ queryKey: pdeQueryKeys.certificates() });
       }
+    },
+  });
+}
+
+// ============================================
+// Phase 2: Quest Hooks
+// ============================================
+
+export function useQuests(filters?: QuestFilters) {
+  return useQuery({
+    queryKey: pdeQueryKeys.questList(filters),
+    queryFn: () => PDEService.getQuests(filters),
+    staleTime: 60000,
+  });
+}
+
+export function useQuestDetail(questId: string | undefined) {
+  return useQuery({
+    queryKey: pdeQueryKeys.questDetail(questId || ''),
+    queryFn: () => PDEService.getQuestById(questId!),
+    enabled: !!questId,
+    staleTime: 30000,
+  });
+}
+
+export function useQuestEnrollments(questId: string | undefined) {
+  return useQuery({
+    queryKey: pdeQueryKeys.questEnrollments(questId || ''),
+    queryFn: () => PDEService.getQuestEnrollments(questId!),
+    enabled: !!questId,
+    staleTime: 30000,
+  });
+}
+
+export function useLearnerQuestEnrollments(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: pdeQueryKeys.learnerEnrollments(learnerId || ''),
+    queryFn: () => PDEService.getLearnerQuestEnrollments(learnerId!),
+    enabled: !!learnerId,
+    staleTime: 30000,
+  });
+}
+
+export function useQuestSubmissions(questId: string | undefined) {
+  return useQuery({
+    queryKey: pdeQueryKeys.questSubmissions(questId || ''),
+    queryFn: () => PDEService.getQuestSubmissions(questId!),
+    enabled: !!questId,
+    staleTime: 30000,
+  });
+}
+
+export function useLearnerQuestSubmissions(learnerId: string | undefined, questId?: string) {
+  return useQuery({
+    queryKey: pdeQueryKeys.learnerQuestSubmissions(learnerId || '', questId),
+    queryFn: () => PDEService.getLearnerQuestSubmissions(learnerId!, questId),
+    enabled: !!learnerId,
+    staleTime: 30000,
+  });
+}
+
+export function useCreateQuest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateQuestInput) => PDEService.createQuest(input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.quests() });
+    },
+  });
+}
+
+export function useUpdateQuest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateQuestInput }) =>
+      PDEService.updateQuest(id, input),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.questDetail(data.id) });
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.quests() });
+    },
+  });
+}
+
+export function useEnrollInQuest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ questId, learnerId, teamId }: { questId: string; learnerId: string; teamId?: string }) =>
+      PDEService.enrollInQuest(questId, learnerId, teamId),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.questEnrollments(data.quest_id) });
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerEnrollments(data.learner_id) });
+    },
+  });
+}
+
+export function useSubmitQuestWork() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateQuestSubmissionInput) => PDEService.submitQuestWork(input),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.questSubmissions(data.quest_id) });
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerQuestSubmissions(data.learner_id) });
+    },
+  });
+}
+
+// ============================================
+// Phase 2: Capability Hooks
+// ============================================
+
+export function useCapabilities(category?: string) {
+  return useQuery({
+    queryKey: pdeQueryKeys.capabilityList(category),
+    queryFn: () => PDEService.getCapabilities(category),
+    staleTime: 5 * 60 * 1000, // Capabilities rarely change
+  });
+}
+
+export function useCapabilityDetail(capabilityId: string | undefined) {
+  return useQuery({
+    queryKey: pdeQueryKeys.capabilityDetail(capabilityId || ''),
+    queryFn: () => PDEService.getCapabilityById(capabilityId!),
+    enabled: !!capabilityId,
+    staleTime: 60000,
+  });
+}
+
+export function useLearnerCapabilities(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: pdeQueryKeys.learnerCapabilities(learnerId || ''),
+    queryFn: () => PDEService.getLearnerCapabilities(learnerId!),
+    enabled: !!learnerId,
+    staleTime: 30000,
+  });
+}
+
+export function useUpdateCapabilityStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ learnerId, capabilityId, status }: { learnerId: string; capabilityId: string; status: string }) =>
+      PDEService.updateCapabilityStatus(learnerId, capabilityId, status),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerCapabilities(variables.learnerId) });
+    },
+  });
+}
+
+export function useDemonstrateCapability() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ learnerId, capabilityId, evidence }: {
+      learnerId: string;
+      capabilityId: string;
+      evidence: DemonstrateCapabilityInput;
+    }) => PDEService.demonstrateCapability(learnerId, capabilityId, evidence),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerCapabilities(variables.learnerId) });
+    },
+  });
+}
+
+export function useLearnerCapabilityStatus(learnerId: string | undefined, capabilityId: string | undefined) {
+  return useQuery({
+    queryKey: [...pdeQueryKeys.learnerCapabilities(learnerId || ''), 'status', capabilityId],
+    queryFn: async () => {
+      const all = await PDEService.getLearnerCapabilities(learnerId!);
+      return all.find((c: { capability_id: string }) => c.capability_id === capabilityId) || null;
+    },
+    enabled: !!learnerId && !!capabilityId,
+    staleTime: 30000,
+  });
+}
+
+export function useCapabilityLessons(capabilityId: string | undefined) {
+  return useQuery({
+    queryKey: [...pdeQueryKeys.capabilityDetail(capabilityId || ''), 'lessons'],
+    queryFn: () => PDEService.getCapabilityLessons(capabilityId!),
+    enabled: !!capabilityId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useStartCapability() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ learnerId, capabilityId }: { learnerId: string; capabilityId: string }) =>
+      PDEService.updateCapabilityStatus(learnerId, capabilityId, 'in_progress'),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerCapabilities(variables.learnerId) });
+    },
+  });
+}
+
+// ============================================
+// Phase 2: Build Arena Hooks
+// ============================================
+
+export function useBuildSessions(learnerId: string | undefined, questId?: string) {
+  return useQuery({
+    queryKey: pdeQueryKeys.learnerBuildSessions(learnerId || '', questId),
+    queryFn: () => PDEService.getBuildSessions(learnerId!, questId),
+    enabled: !!learnerId,
+    staleTime: 30000,
+  });
+}
+
+export function useStartBuildSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: StartBuildSessionInput) => PDEService.startBuildSession(input),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerBuildSessions(data.learner_id) });
+    },
+  });
+}
+
+export function useEndBuildSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, input }: { sessionId: string; input: EndBuildSessionInput }) =>
+      PDEService.endBuildSession(sessionId, input),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerBuildSessions(data.learner_id) });
+    },
+  });
+}
+
+export function useLogAIInteraction() {
+  return useMutation({
+    mutationFn: ({ sessionId, interaction }: { sessionId: string; interaction: LogAIInteractionInput }) =>
+      PDEService.logAIInteraction(sessionId, interaction),
+  });
+}
+
+// ============================================
+// Phase 2: Channel Hooks
+// ============================================
+
+export function useChannels(type?: string, referenceId?: string) {
+  return useQuery({
+    queryKey: pdeQueryKeys.channelList(type, referenceId),
+    queryFn: () => PDEService.getChannels(type, referenceId),
+    staleTime: 60000,
+  });
+}
+
+export function useChannelMessages(channelId: string | undefined, limit = 50) {
+  return useQuery({
+    queryKey: pdeQueryKeys.channelMessages(channelId || ''),
+    queryFn: () => PDEService.getMessages(channelId!, limit),
+    enabled: !!channelId,
+    staleTime: 5000, // Messages refresh often
+    refetchInterval: 10000, // Poll every 10s for new messages
+  });
+}
+
+export function usePostMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: PostMessageInput) => PDEService.postMessage(input),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.channelMessages(data.channel_id) });
+    },
+  });
+}
+
+export function useToggleReaction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ messageId, userId, emoji, channelId }: {
+      messageId: string;
+      userId: string;
+      emoji: string;
+      channelId: string;
+    }) => PDEService.toggleReaction(messageId, userId, emoji),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.channelMessages(variables.channelId) });
+    },
+  });
+}
+
+// ============================================
+// Phase 2: Reputation Hooks
+// ============================================
+
+export function useReputation(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: pdeQueryKeys.learnerReputation(learnerId || ''),
+    queryFn: () => PDEService.getReputation(learnerId!),
+    enabled: !!learnerId,
+    staleTime: 30000,
+  });
+}
+
+export function useAddReputationPoints() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AddReputationPointsInput) => PDEService.addPoints(input),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerReputation(data.learner_id) });
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.leaderboard() });
+    },
+  });
+}
+
+export function useLeaderboard(limit = 20) {
+  return useQuery({
+    queryKey: pdeQueryKeys.leaderboard(limit),
+    queryFn: () => PDEService.getLeaderboard(limit),
+    staleTime: 60000,
+  });
+}
+
+// ============================================
+// Phase 2: Badge Hooks
+// ============================================
+
+export function useBadges() {
+  return useQuery({
+    queryKey: pdeQueryKeys.badgeList(),
+    queryFn: () => PDEService.getBadges(),
+    staleTime: 5 * 60 * 1000, // Badges rarely change
+  });
+}
+
+export function useLearnerBadges(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: pdeQueryKeys.learnerBadges(learnerId || ''),
+    queryFn: () => PDEService.getLearnerBadges(learnerId!),
+    enabled: !!learnerId,
+    staleTime: 60000,
+  });
+}
+
+export function useAwardBadge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AwardBadgeInput) => PDEService.awardBadge(input),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerBadges(data.learner_id) });
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.badges() });
     },
   });
 }
