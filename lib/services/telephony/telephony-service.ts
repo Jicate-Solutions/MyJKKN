@@ -33,6 +33,7 @@ export interface CallLog {
   to_number: string;
   duration_seconds: number;
   recording_url: string | null;
+  cost_amount: number | null;
   call_notes: string | null;
   follow_up_date: string | null;
   started_at: string | null;
