@@ -898,12 +898,18 @@ export class TelephonyService {
     // ExoPhone → institution mapping
     // All JKKN ExoPhones map to the primary JKKN institution
     // This could be moved to a DB config table in the future
+    // Use JKKN College of Pharmacy as default (most admission calls go here)
+    // Production has separate institutions per college — the agent mapping + lead matching
+    // determines the correct institution. This is just the fallback.
+    const DEFAULT_INSTITUTION = process.env.EXOTEL_DEFAULT_INSTITUTION_ID
+      || '5736d86f-5dab-4b7f-9aa1-b3bb1a2dd334'; // JKKN College of Pharmacy (production)
+
     const EXOPHONE_MAP: Record<string, string> = {
-      '04446313503': 'a1111111-1111-1111-1111-111111111111', // JKKN-COLLEGES (staging)
-      '04446313545': 'a1111111-1111-1111-1111-111111111111', // JKKN-SCHOOLS
-      '04446313596': 'a1111111-1111-1111-1111-111111111111', // JKKN-DENTAL
-      '04448134434': 'a1111111-1111-1111-1111-111111111111', // JKKN-MAIN
-      '04446310202': 'a1111111-1111-1111-1111-111111111111', // JKKN-NEW
+      '04446313503': DEFAULT_INSTITUTION, // 1-JKKN-COLLEGES (main IVR)
+      '04446313545': DEFAULT_INSTITUTION, // JKKN secondary
+      '04446313596': DEFAULT_INSTITUTION, // JKKN tertiary
+      '04448134434': DEFAULT_INSTITUTION, // JKKN main
+      '04446310202': DEFAULT_INSTITUTION, // Dharmapuri
     };
 
     // Strip any prefix and try matching
