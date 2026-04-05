@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ExotelClient } from './exotel-client';
+import { PhoneNumberIntelligence } from './phone-number-intelligence';
 
 const PIPELINE_STAGES = ['captured', 'classified', 'matched', 'intelligence', 'enriched', 'responded', 'complete'] as const;
 type PipelineStage = typeof PIPELINE_STAGES[number];
@@ -60,6 +61,38 @@ export class CallPipelineService {
 
       const isAnswered = ctx.costAmount > 0 && ctx.durationSeconds > 0;
       const isMissed = !isAnswered && ctx.direction === 'inbound';
+
+      // INTEGRATION: Phone number location intelligence (works for ALL calls)
+      if (ctx.fromNumber && ctx.direction === 'inbound') {
+        try {
+          const phoneInfo = PhoneNumberIntelligence.analyzePhoneNumber(ctx.fromNumber);
+          if (phoneInfo.location) {
+            // Set caller_location on call log
+            await supabase
+              .from('admission_call_logs')
+              .update({ caller_location: phoneInfo.location })
+              .eq('id', ctx.callLogId);
+
+            // If lead exists and has no city, update lead
+            if (ctx.leadId) {
+              const { data: lead } = await supabase
+                .from('admission_leads')
+                .select('city, state')
+                .eq('id', ctx.leadId)
+                .single();
+
+              if (lead && !lead.city && !lead.state) {
+                await supabase
+                  .from('admission_leads')
+                  .update({ state: phoneInfo.location })
+                  .eq('id', ctx.leadId);
+              }
+            }
+          }
+        } catch {
+          // Non-blocking — phone intelligence should never break the pipeline
+        }
+      }
 
       // Stage 5: ENRICH (answered calls with recordings)
       let intelligenceId: string | undefined;
@@ -160,6 +193,7 @@ export class CallPipelineService {
 
   /**
    * Send auto-SMS to missed caller.
+   * FIX 3: One SMS per caller per 24 hours — prevents spamming repeat callers.
    */
   private static async sendMissedCallSms(
     ctx: PipelineContext,
@@ -169,6 +203,28 @@ export class CallPipelineService {
     try {
       if (!settings.auto_sms_sender_id) {
         console.warn('[CallPipeline] No SMS sender ID configured for institution', ctx.institutionId);
+        return false;
+      }
+
+      // FIX 3: Check if we already sent SMS to this number in the last 24 hours
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: recentSms } = await supabase
+        .from('admission_call_logs')
+        .select('id')
+        .eq('from_number', ctx.fromNumber)
+        .eq('direction', 'inbound')
+        .eq('auto_sms_sent', true)
+        .gte('created_at', twentyFourHoursAgo)
+        .limit(1)
+        .maybeSingle();
+
+      if (recentSms) {
+        // Already sent SMS to this caller in the last 24h — skip
+        await supabase
+          .from('admission_call_logs')
+          .update({ auto_sms_skipped_reason: 'already_sent_24h' })
+          .eq('id', ctx.callLogId);
+        console.info('[CallPipeline] SMS skipped — already sent to', ctx.fromNumber.slice(-4), 'in last 24h');
         return false;
       }
 
@@ -245,6 +301,16 @@ export class CallPipelineService {
 
       let callbackId: string;
 
+      // FIX 2: Calculate callback_due_by based on priority (SLA)
+      const slaMinutes: Record<string, number> = {
+        urgent: 15,
+        high: 30,
+        normal: 120,
+        low: 240,
+      };
+      const dueByMs = (slaMinutes[priority] ?? 120) * 60 * 1000;
+      const callbackDueBy = new Date(Date.now() + dueByMs).toISOString();
+
       if (existing) {
         // Update existing entry with higher priority
         const newPriority = this.higherPriority(existing.priority, priority);
@@ -256,6 +322,7 @@ export class CallPipelineService {
             escalated: shouldEscalate,
             escalated_at: shouldEscalate ? new Date().toISOString() : null,
             call_log_id: ctx.callLogId,  // point to latest missed call
+            callback_due_by: callbackDueBy,
           })
           .eq('id', existing.id);
         callbackId = existing.id;
@@ -273,6 +340,7 @@ export class CallPipelineService {
             ever_connected: everConnected,
             escalated: shouldEscalate,
             escalated_at: shouldEscalate ? new Date().toISOString() : null,
+            callback_due_by: callbackDueBy,
           })
           .select('id')
           .single();
@@ -292,12 +360,64 @@ export class CallPipelineService {
   }
 
   /**
-   * Sweep: retry failed pipeline stages and backfill.
+   * Sweep: retry failed pipeline stages, backfill, and check SLA breaches.
    * Called from 5-min cron after CDR sync.
    */
-  static async sweepPipeline(supabase: SupabaseClient): Promise<{ retried: number; errors: string[] }> {
+  static async sweepPipeline(supabase: SupabaseClient): Promise<{ retried: number; errors: string[]; slaBreached: number }> {
     const errors: string[] = [];
     let retried = 0;
+    let slaBreached = 0;
+
+    // FIX 2: Check for SLA-breached callbacks
+    try {
+      const { data: overdueCallbacks } = await supabase
+        .from('admission_callback_queue')
+        .select('id, institution_id, caller_number, priority, escalation_level')
+        .eq('status', 'pending')
+        .eq('sla_breached', false)
+        .lt('callback_due_by', new Date().toISOString())
+        .limit(50);
+
+      if (overdueCallbacks?.length) {
+        for (const cb of overdueCallbacks) {
+          const newLevel = (cb.escalation_level ?? 0) + 1;
+          const update: Record<string, any> = {
+            sla_breached: true,
+            sla_breached_at: new Date().toISOString(),
+            escalation_level: newLevel,
+            escalated: true,
+            escalated_at: new Date().toISOString(),
+          };
+
+          // Level 1: Reassign to institution's most-active counselor
+          if (newLevel === 1) {
+            const { data: topCounselor } = await supabase
+              .from('admission_call_logs')
+              .select('counselor_id')
+              .eq('institution_id', cb.institution_id)
+              .eq('direction', 'outbound')
+              .not('counselor_id', 'is', null)
+              .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (topCounselor?.counselor_id) {
+              update.assigned_counselor_id = topCounselor.counselor_id;
+            }
+          }
+
+          await supabase
+            .from('admission_callback_queue')
+            .update(update)
+            .eq('id', cb.id);
+
+          slaBreached++;
+        }
+      }
+    } catch (err) {
+      errors.push(`SLA sweep: ${String(err)}`);
+    }
 
     // Find calls stuck in early pipeline stages (not complete, not enriched/responded)
     const { data: stuckCalls } = await supabase
@@ -308,7 +428,7 @@ export class CallPipelineService {
       .order('created_at', { ascending: true })
       .limit(50);
 
-    if (!stuckCalls?.length) return { retried: 0, errors: [] };
+    if (!stuckCalls?.length) return { retried: 0, errors, slaBreached };
 
     for (const call of stuckCalls) {
       try {
@@ -332,7 +452,7 @@ export class CallPipelineService {
       }
     }
 
-    return { retried, errors };
+    return { retried, errors, slaBreached };
   }
 
   /**
