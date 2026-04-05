@@ -647,3 +647,62 @@ export interface QuestFilters {
   status?: QuestStatus;
   source_type?: QuestSourceType;
 }
+
+// ============================================
+// Phase 3: AI Coach Types
+// ============================================
+
+export type CoachingStyle = 'scaffolding' | 'guided' | 'challenging' | 'socratic' | 'peer';
+export type CoachContextType = 'lesson' | 'quest' | 'build' | 'reflection';
+
+export interface CoachMessage {
+  role: 'learner' | 'coach';
+  content: string;
+  timestamp: string;
+}
+
+export interface PDECoachConversation {
+  id: string;
+  learner_id: string;
+  context_type: CoachContextType;
+  context_id: string | null;
+  messages: CoachMessage[];
+  coaching_style: CoachingStyle;
+  tokens_used: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SendCoachMessageInput {
+  learner_id: string;
+  context_type: CoachContextType;
+  context_id: string;
+  message: string;
+}
+
+export interface CoachMessageResponse {
+  reply: string;
+  conversation_id: string;
+}
+
+// ============================================
+// Phase 3: Agency Index Types
+// ============================================
+
+export type AgencyLevel = 'dependent' | 'directed' | 'independent' | 'self_directed' | 'principal';
+
+export interface PDEAgencyIndex {
+  id: string;
+  learner_id: string;
+  course_id: string;
+  assessment_date: string;
+  initiative: number;
+  self_direction: number;
+  tool_mastery: number;
+  critical_evaluation: number;
+  ethical_judgment: number;
+  overall: number;
+  level: AgencyLevel;
+  evidence: Record<string, unknown>;
+  created_at: string;
+}
