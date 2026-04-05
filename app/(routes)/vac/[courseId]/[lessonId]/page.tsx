@@ -565,9 +565,9 @@ export default function LessonContentPage({
 
         <Separator />
 
-        {/* Mark Complete */}
-        {isEnrolled && !isCompleted && (
-          <div className="flex justify-center">
+        {/* Mark Complete + Assessment */}
+        <div className="flex justify-center gap-3 flex-wrap">
+          {isEnrolled && !isCompleted && (
             <Button
               size="lg"
               onClick={handleMarkComplete}
@@ -579,8 +579,22 @@ export default function LessonContentPage({
               <CheckCircle2 className="h-4 w-4 mr-2" />
               Mark as Complete
             </Button>
-          </div>
-        )}
+          )}
+          {isCompleted && (
+            <Badge className="bg-green-100 text-green-800 text-sm py-2 px-4">
+              <CheckCircle2 className="h-4 w-4 mr-1" />
+              Completed
+            </Badge>
+          )}
+          {pdeAssessments && pdeAssessments.length > 0 && (
+            <Link href={`/learn/assess/${pdeAssessments[0].id}`}>
+              <Button variant="outline" size="lg" className="gap-2">
+                <BookOpen className="h-4 w-4" />
+                Take Assessment
+              </Button>
+            </Link>
+          )}
+        </div>
 
         {/* Navigation */}
         <div className="flex items-center justify-between pt-4">
