@@ -331,7 +331,7 @@ function CallLogDashboardContent() {
 
   // Tab state from URL search params
   const searchParams = useSearchParams();
-  const defaultTab = searchParams.get('direction') === 'inbound' ? 'incoming' : 'outbound';
+  const defaultTab = searchParams.get('direction') === 'outbound' ? 'outbound' : 'incoming';
   const [activeTab, setActiveTab] = useState(defaultTab);
 
   return (
