@@ -8,6 +8,7 @@
 
 import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
 import { getCallContext, lookupAgent } from './exotel-agent-map';
+import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -543,8 +544,8 @@ export class TelephonyService {
     supabase: any
   ): Promise<{ id: string; status: string; institution_id: string; call_sid: string } | null> {
     try {
-      const callerPhone = payload.From || '';
-      const exoPhone = payload.To || '';
+      const callerPhone = normalizePhone(payload.From);
+      const exoPhone = payload.To || ''; // ExoPhone kept as-is (landline format for mapping)
 
       // ── Agent Detection ──
       // On connected calls, Exotel's detailed response changes `To` to the agent's phone.
@@ -577,40 +578,31 @@ export class TelephonyService {
         if (profile) counselorId = profile.id;
       }
 
-      // ── Lead Matching ──
-      const phoneVariants = [
-        callerPhone,
-        callerPhone.replace(/^0/, ''),
-        callerPhone.replace(/^\+91/, ''),
-        callerPhone.replace(/^91/, ''),
-      ];
-
+      // ── Lead Matching (E.164 normalized + last-10-digit fallback) ──
       let leadMatch: { id: string; institution_id: string } | null = null;
 
-      for (const phone of phoneVariants) {
-        if (!phone || phone.length < 10) continue;
-        const { data } = await supabase
-          .from('admission_leads')
-          .select('id, institution_id')
-          .eq('phone', phone)
-          .limit(1)
-          .maybeSingle();
-        if (data) {
-          leadMatch = data;
-          break;
-        }
-      }
+      // Try exact E.164 match first
+      const { data: exactMatch } = await supabase
+        .from('admission_leads')
+        .select('id, institution_id')
+        .eq('phone', callerPhone)
+        .limit(1)
+        .maybeSingle();
 
-      // Fallback: last 10 digits
-      if (!leadMatch && callerPhone.length >= 10) {
-        const last10 = callerPhone.slice(-10);
-        const { data } = await supabase
-          .from('admission_leads')
-          .select('id, institution_id')
-          .like('phone', `%${last10}`)
-          .limit(1)
-          .maybeSingle();
-        if (data) leadMatch = data;
+      if (exactMatch) {
+        leadMatch = exactMatch;
+      } else {
+        // Fallback: match by last 10 digits (handles legacy non-E.164 data)
+        const last10 = phoneLastDigits(callerPhone);
+        if (last10.length >= 10) {
+          const { data: fuzzyMatch } = await supabase
+            .from('admission_leads')
+            .select('id, institution_id')
+            .like('phone', `%${last10}`)
+            .limit(1)
+            .maybeSingle();
+          if (fuzzyMatch) leadMatch = fuzzyMatch;
+        }
       }
 
       // ── Institution ID ──
