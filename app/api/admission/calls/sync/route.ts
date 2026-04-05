@@ -144,7 +144,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Pipeline sweep — retry stuck calls
-    let sweepResult = { retried: 0, errors: [] as string[] };
+    let sweepResult = { retried: 0, errors: [] as string[], slaBreached: 0 };
     try {
       sweepResult = await CallPipelineService.sweepPipeline(supabase);
     } catch (err) {

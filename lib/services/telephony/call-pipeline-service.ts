@@ -160,7 +160,12 @@ export class CallPipelineService {
       }
 
       // Build callback URL
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+      if (!baseUrl) {
+        console.error('[CallPipeline] No APP_URL configured — skipping analysis');
+        return undefined;
+      }
       const webhookToken = process.env.EXOTEL_API_TOKEN;
       const callbackUrl = `${baseUrl}/api/webhooks/telephony/intelligence?token=${webhookToken}`;
 
