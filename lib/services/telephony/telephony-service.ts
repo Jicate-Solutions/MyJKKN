@@ -8,6 +8,7 @@
 
 import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
 import { CallPipelineService } from './call-pipeline-service';
+import { PhoneNumberIntelligence } from './phone-number-intelligence';
 import { getCallContext, lookupAgent } from './exotel-agent-map';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -878,6 +879,65 @@ export class TelephonyService {
     const missedCount = (recentCalls || []).filter((c: any) => (c.duration_seconds || 0) === 0).length;
     const everConnected = (recentCalls || []).some((c: any) => (c.duration_seconds || 0) > 0);
 
+    // ── FIX 1 + 5: Phone location + journey context ──
+    const phoneInfo = PhoneNumberIntelligence.analyzePhoneNumber(callerPhone);
+    const callerLocation = phoneInfo.location;
+
+    // Set caller_location on call log immediately
+    if (callerLocation) {
+      await supabase
+        .from('admission_call_logs')
+        .update({ caller_location: callerLocation })
+        .eq('id', callLogId);
+    }
+
+    // FIX 5: Build caller journey context
+    let journeyContext = '';
+    if (recentCalls && recentCalls.length > 0) {
+      const journeyLines: string[] = [];
+      journeyLines.push(`[Caller Journey] Attempt #${callCount} over ${Math.max(1, Math.ceil((Date.now() - new Date(recentCalls[0].created_at).getTime()) / (1000 * 60 * 60 * 24)))} day(s)`);
+
+      // Show history of previous calls (up to last 10)
+      const historyEntries = recentCalls.slice(-10);
+      for (const call of historyEntries) {
+        if (call.id === callLogId) continue; // skip current call
+        const dt = new Date(call.created_at);
+        const dateStr = dt.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+        const timeStr = dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        const wasMissed = (call.duration_seconds || 0) === 0;
+        journeyLines.push(`- ${dateStr}, ${timeStr} (${wasMissed ? 'missed' : `answered, ${Math.floor((call.duration_seconds || 0) / 60)}m ${(call.duration_seconds || 0) % 60}s`})`);
+      }
+
+      // Current call
+      const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      journeyLines.push(`- NOW: ${nowStr} -> ${isConnected ? 'Connected!' : 'Missed'}`);
+
+      if (callerLocation) {
+        journeyLines.push(`Location: ${callerLocation} (from phone prefix)`);
+      }
+
+      // Lead info
+      if (leadMatch) {
+        journeyLines.push(`Lead: Linked to existing lead`);
+      } else {
+        journeyLines.push(`Lead: New caller (auto-created) — listen for name/course/location`);
+      }
+
+      journeyContext = journeyLines.join('\n');
+    }
+
+    // Set caller_attempt_number and journey context
+    const journeyUpdate: Record<string, any> = {
+      caller_attempt_number: callCount,
+    };
+    if (journeyContext) {
+      journeyUpdate.caller_journey_context = journeyContext;
+    }
+    await supabase
+      .from('admission_call_logs')
+      .update(journeyUpdate)
+      .eq('id', callLogId);
+
     // ── 2. Update call notes with intelligence ──
     const intelligenceParts: string[] = [];
     if (callCount > 1) intelligenceParts.push(`Call #${callCount} in 7 days`);
@@ -915,19 +975,24 @@ export class TelephonyService {
 
       if (!existingLead) {
         const priority = missedCount >= 3 ? 'hot' : missedCount >= 1 && !everConnected ? 'warm' : 'normal';
+        // FIX 1: Include phone-based location on auto-created lead
+        const leadInsert: Record<string, any> = {
+          institution_id: institutionId,
+          phone: callerPhone,
+          full_name: `Caller ${callerPhone.slice(-4)}`,
+          source: 'inbound_call',
+          status: 'new',
+          priority,
+          notes: isMissed
+            ? `Auto-created from inbound call (missed). Needs callback.`
+            : `Auto-created from inbound call. Connected with ${callContext.agentName || 'agent'} (${Math.floor(durationSec / 60)}m ${durationSec % 60}s).`,
+        };
+        if (callerLocation) {
+          leadInsert.state = callerLocation;
+        }
         const { data: newLead } = await supabase
           .from('admission_leads')
-          .insert({
-            institution_id: institutionId,
-            phone: callerPhone,
-            full_name: `Caller ${callerPhone.slice(-4)}`,
-            source: 'inbound_call',
-            status: 'new',
-            priority,
-            notes: isMissed
-              ? `Auto-created from inbound call (missed). Needs callback.`
-              : `Auto-created from inbound call. Connected with ${callContext.agentName || 'agent'} (${Math.floor(durationSec / 60)}m ${durationSec % 60}s).`,
-          })
+          .insert(leadInsert)
           .select('id')
           .single();
 

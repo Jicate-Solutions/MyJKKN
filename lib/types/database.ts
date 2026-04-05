@@ -513,11 +513,15 @@ export type Database = {
           answered_at: string | null
           auto_sms_sent: boolean | null
           auto_sms_sid: string | null
+          auto_sms_skipped_reason: string | null
           call_disposition: string | null
           call_notes: string | null
           call_sid: string
           callback_queue_id: string | null
           callback_queued: boolean | null
+          caller_attempt_number: number | null
+          caller_journey_context: string | null
+          caller_location: string | null
           cost_amount: number | null
           cost_currency: string | null
           counselor_id: string | null
@@ -543,11 +547,15 @@ export type Database = {
           answered_at?: string | null
           auto_sms_sent?: boolean | null
           auto_sms_sid?: string | null
+          auto_sms_skipped_reason?: string | null
           call_disposition?: string | null
           call_notes?: string | null
           call_sid: string
           callback_queue_id?: string | null
           callback_queued?: boolean | null
+          caller_attempt_number?: number | null
+          caller_journey_context?: string | null
+          caller_location?: string | null
           cost_amount?: number | null
           cost_currency?: string | null
           counselor_id?: string | null
@@ -573,11 +581,15 @@ export type Database = {
           answered_at?: string | null
           auto_sms_sent?: boolean | null
           auto_sms_sid?: string | null
+          auto_sms_skipped_reason?: string | null
           call_disposition?: string | null
           call_notes?: string | null
           call_sid?: string
           callback_queue_id?: string | null
           callback_queued?: boolean | null
+          caller_attempt_number?: number | null
+          caller_journey_context?: string | null
+          caller_location?: string | null
           cost_amount?: number | null
           cost_currency?: string | null
           counselor_id?: string | null
@@ -663,19 +675,24 @@ export type Database = {
           assigned_counselor_id: string | null
           call_log_id: string
           callback_call_id: string | null
+          callback_due_by: string | null
           caller_number: string
           created_at: string | null
           escalated: boolean | null
           escalated_at: string | null
+          escalation_level: number | null
           ever_connected: boolean | null
           id: string
           institution_id: string
+          last_sms_sent_at: string | null
           lead_id: string | null
           missed_count_7d: number | null
           priority: string
           resolution_notes: string | null
           resolved_at: string | null
           resolved_by: string | null
+          sla_breached: boolean | null
+          sla_breached_at: string | null
           status: string
           updated_at: string | null
         }
@@ -683,19 +700,24 @@ export type Database = {
           assigned_counselor_id?: string | null
           call_log_id: string
           callback_call_id?: string | null
+          callback_due_by?: string | null
           caller_number: string
           created_at?: string | null
           escalated?: boolean | null
           escalated_at?: string | null
+          escalation_level?: number | null
           ever_connected?: boolean | null
           id?: string
           institution_id: string
+          last_sms_sent_at?: string | null
           lead_id?: string | null
           missed_count_7d?: number | null
           priority?: string
           resolution_notes?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
+          sla_breached?: boolean | null
+          sla_breached_at?: string | null
           status?: string
           updated_at?: string | null
         }
@@ -703,19 +725,24 @@ export type Database = {
           assigned_counselor_id?: string | null
           call_log_id?: string
           callback_call_id?: string | null
+          callback_due_by?: string | null
           caller_number?: string
           created_at?: string | null
           escalated?: boolean | null
           escalated_at?: string | null
+          escalation_level?: number | null
           ever_connected?: boolean | null
           id?: string
           institution_id?: string
+          last_sms_sent_at?: string | null
           lead_id?: string | null
           missed_count_7d?: number | null
           priority?: string
           resolution_notes?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
+          sla_breached?: boolean | null
+          sla_breached_at?: string | null
           status?: string
           updated_at?: string | null
         }
@@ -26470,6 +26497,76 @@ export type Database = {
           },
         ]
       }
+      pde_agency_index: {
+        Row: {
+          assessment_date: string | null
+          course_id: string | null
+          created_at: string | null
+          critical_evaluation: number | null
+          ethical_judgment: number | null
+          evidence: Json | null
+          id: string
+          initiative: number | null
+          learner_id: string | null
+          level: string | null
+          overall: number | null
+          self_direction: number | null
+          tool_mastery: number | null
+        }
+        Insert: {
+          assessment_date?: string | null
+          course_id?: string | null
+          created_at?: string | null
+          critical_evaluation?: number | null
+          ethical_judgment?: number | null
+          evidence?: Json | null
+          id?: string
+          initiative?: number | null
+          learner_id?: string | null
+          level?: string | null
+          overall?: number | null
+          self_direction?: number | null
+          tool_mastery?: number | null
+        }
+        Update: {
+          assessment_date?: string | null
+          course_id?: string | null
+          created_at?: string | null
+          critical_evaluation?: number | null
+          ethical_judgment?: number | null
+          evidence?: Json | null
+          id?: string
+          initiative?: number | null
+          learner_id?: string | null
+          level?: string | null
+          overall?: number | null
+          self_direction?: number | null
+          tool_mastery?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pde_agency_index_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "vac_courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pde_agency_index_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "pde_agency_index_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pde_assessment_questions: {
         Row: {
           assessment_id: string
@@ -26834,6 +26931,57 @@ export type Database = {
           reference_id?: string | null
         }
         Relationships: []
+      }
+      pde_coach_conversations: {
+        Row: {
+          coaching_style: string | null
+          context_id: string | null
+          context_type: string | null
+          created_at: string | null
+          id: string
+          learner_id: string | null
+          messages: Json | null
+          tokens_used: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          coaching_style?: string | null
+          context_id?: string | null
+          context_type?: string | null
+          created_at?: string | null
+          id?: string
+          learner_id?: string | null
+          messages?: Json | null
+          tokens_used?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          coaching_style?: string | null
+          context_id?: string | null
+          context_type?: string | null
+          created_at?: string | null
+          id?: string
+          learner_id?: string | null
+          messages?: Json | null
+          tokens_used?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pde_coach_conversations_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "pde_coach_conversations_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pde_engagement_daily: {
         Row: {
@@ -50433,5 +50581,3 @@ export const Constants = {
     },
   },
 } as const
-A new version of Supabase CLI is available: v2.84.2 (currently installed v2.75.0)
-We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli

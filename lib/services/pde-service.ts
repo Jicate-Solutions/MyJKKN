@@ -19,7 +19,10 @@ import type {
   StartBuildSessionInput, EndBuildSessionInput, LogAIInteractionInput,
   CreateChannelInput, PostMessageInput,
   AddReputationPointsInput, AwardBadgeInput,
-  QuestFilters, AIInteraction, ReputationLevel
+  QuestFilters, AIInteraction, ReputationLevel,
+  // Phase 3 types
+  PDECoachConversation, CoachMessage, CoachMessageResponse, CoachingStyle,
+  PDEAgencyIndex, AgencyLevel,
 } from '@/types/pde';
 
 // Helper to get untyped supabase client for PDE tables (not yet in generated types)
@@ -1039,5 +1042,270 @@ export class PDEService {
         },
         { onConflict: 'learner_id' }
       );
+  }
+
+  // ============================================
+  // PHASE 3: AI COACH OPERATIONS
+  // ============================================
+
+  /**
+   * Get an existing coach conversation for a given context.
+   */
+  static async getCoachConversation(
+    learnerId: string,
+    contextType: string,
+    contextId: string
+  ): Promise<PDECoachConversation | null> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('pde_coach_conversations')
+      .select('*')
+      .eq('learner_id', learnerId)
+      .eq('context_type', contextType)
+      .eq('context_id', contextId)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Failed to get coach conversation: ${error.message}`);
+    return data || null;
+  }
+
+  /**
+   * Send a message to the AI Coach. Stores the learner message,
+   * generates a placeholder coach reply (actual Gemini integration is follow-up).
+   */
+  static async sendCoachMessage(
+    learnerId: string,
+    contextType: string,
+    contextId: string,
+    message: string
+  ): Promise<CoachMessageResponse> {
+    const supabase = getSupabase();
+
+    // Get or create conversation
+    let conversation = await this.getCoachConversation(learnerId, contextType, contextId);
+
+    // Determine coaching style from agency level
+    const agencyIndex = await this.getAgencyIndex(learnerId);
+    const coachingStyle = this.getCoachingStyleForLevel(agencyIndex?.level || 'dependent');
+
+    const now = new Date().toISOString();
+    const learnerMsg: CoachMessage = { role: 'learner', content: message, timestamp: now };
+
+    // Placeholder coach reply — will be replaced by Gemini integration
+    const coachReply = this.generatePlaceholderCoachReply(coachingStyle);
+    const coachMsg: CoachMessage = { role: 'coach', content: coachReply, timestamp: now };
+
+    if (!conversation) {
+      const { data, error } = await supabase
+        .from('pde_coach_conversations')
+        .insert({
+          learner_id: learnerId,
+          context_type: contextType,
+          context_id: contextId,
+          messages: [learnerMsg, coachMsg],
+          coaching_style: coachingStyle,
+          tokens_used: message.length + coachReply.length,
+        })
+        .select()
+        .single();
+      if (error) throw new Error(`Failed to create coach conversation: ${error.message}`);
+      return { reply: coachReply, conversation_id: data.id };
+    }
+
+    const updatedMessages = [...(conversation.messages || []), learnerMsg, coachMsg];
+    const { error } = await supabase
+      .from('pde_coach_conversations')
+      .update({
+        messages: updatedMessages,
+        coaching_style: coachingStyle,
+        tokens_used: (conversation.tokens_used || 0) + message.length + coachReply.length,
+        updated_at: now,
+      })
+      .eq('id', conversation.id);
+    if (error) throw new Error(`Failed to update coach conversation: ${error.message}`);
+
+    return { reply: coachReply, conversation_id: conversation.id };
+  }
+
+  /**
+   * Get coach conversation history for a learner.
+   */
+  static async getCoachHistory(learnerId: string, limit = 20): Promise<PDECoachConversation[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('pde_coach_conversations')
+      .select('*')
+      .eq('learner_id', learnerId)
+      .order('updated_at', { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(`Failed to get coach history: ${error.message}`);
+    return data || [];
+  }
+
+  /** Map agency level to coaching style. */
+  private static getCoachingStyleForLevel(level: AgencyLevel | string): CoachingStyle {
+    const styleMap: Record<string, CoachingStyle> = {
+      dependent: 'scaffolding',
+      directed: 'guided',
+      independent: 'challenging',
+      self_directed: 'socratic',
+      principal: 'peer',
+    };
+    return styleMap[level] || 'scaffolding';
+  }
+
+  /** Placeholder coach reply. Will be replaced by Gemini API. */
+  private static generatePlaceholderCoachReply(style: CoachingStyle): string {
+    const replies: Record<CoachingStyle, string> = {
+      scaffolding: "Let's break this down step by step. What part of this do you understand already, and where do you feel stuck?",
+      guided: "You're on the right track. Before I point you further, what do you think the next step should be?",
+      challenging: "Interesting approach. But what would happen if the input was unexpected? Have you considered edge cases?",
+      socratic: "That's one way to look at it. What would someone who disagrees with your approach say? What assumptions are you making?",
+      peer: "I see where you're going. I'd push back on one aspect though — have you validated this with real data?",
+    };
+    return replies[style];
+  }
+
+  // ============================================
+  // PHASE 3: AGENCY INDEX OPERATIONS
+  // ============================================
+
+  /**
+   * Get the latest agency index for a learner, optionally for a specific course.
+   */
+  static async getAgencyIndex(learnerId: string, courseId?: string): Promise<PDEAgencyIndex | null> {
+    const supabase = getSupabase();
+    let query = supabase
+      .from('pde_agency_index')
+      .select('*')
+      .eq('learner_id', learnerId);
+    if (courseId) query = query.eq('course_id', courseId);
+    const { data, error } = await query
+      .order('assessment_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Failed to get agency index: ${error.message}`);
+    return data || null;
+  }
+
+  /**
+   * Calculate the agency index for a learner in a specific course.
+   * Reads from pde_engagement_daily and pde_build_sessions to compute all 5 dimensions.
+   */
+  static async calculateAgencyIndex(learnerId: string, courseId: string): Promise<PDEAgencyIndex> {
+    const supabase = getSupabase();
+
+    // Fetch engagement data
+    const { data: engagementRows } = await supabase
+      .from('pde_engagement_daily')
+      .select('*')
+      .eq('learner_id', learnerId)
+      .eq('course_id', courseId);
+    const engagement: PDEEngagementDaily[] = engagementRows || [];
+
+    // Fetch build session data
+    const { data: buildRows } = await supabase
+      .from('pde_build_sessions')
+      .select('ai_prompts_count, ai_outputs_modified, ai_outputs_blind, ai_interactions')
+      .eq('learner_id', learnerId);
+    const builds = buildRows || [];
+
+    // Initiative: self-started AI interactions / total interactions
+    const totalAiPrompts = engagement.reduce((s, r) => s + (r.ai_prompts_used || 0), 0);
+    const totalLessonsViewed = engagement.reduce((s, r) => s + (r.lessons_viewed || 0), 0);
+    const initiative = totalLessonsViewed > 0
+      ? Math.min(100, Math.round((totalAiPrompts / Math.max(1, totalLessonsViewed)) * 50))
+      : 0;
+
+    // Self-direction: AI outputs modified / total AI outputs
+    const totalAiModified = engagement.reduce((s, r) => s + (r.ai_outputs_modified || 0), 0);
+    const totalAiBlind = engagement.reduce((s, r) => s + (r.ai_outputs_accepted_blind || 0), 0);
+    const totalAiOutputs = totalAiModified + totalAiBlind;
+    const selfDirection = totalAiOutputs > 0
+      ? Math.round((totalAiModified / totalAiOutputs) * 100)
+      : 50;
+
+    // Tool mastery: prompt complexity trend
+    let toolMastery = 30;
+    if (builds.length > 0) {
+      const totalBuildPrompts = builds.reduce((s: number, b: { ai_prompts_count?: number }) => s + (b.ai_prompts_count || 0), 0);
+      const totalBuildModified = builds.reduce((s: number, b: { ai_outputs_modified?: number }) => s + (b.ai_outputs_modified || 0), 0);
+      const modRatio = totalBuildPrompts > 0 ? totalBuildModified / totalBuildPrompts : 0;
+      toolMastery = Math.min(100, Math.round(modRatio * 80 + Math.min(20, totalBuildPrompts * 2)));
+    }
+
+    // Critical evaluation: verified outputs / total outputs
+    const criticalEvaluation = totalAiOutputs > 0
+      ? Math.round((totalAiModified / totalAiOutputs) * 100)
+      : 50;
+
+    // Ethical judgment: penalize blind acceptance
+    const ethicalJudgment = totalAiOutputs > 0
+      ? Math.max(0, Math.round(100 - (totalAiBlind / totalAiOutputs) * 100))
+      : 50;
+
+    // Overall: weighted average (20% each)
+    const overall = Math.round(
+      initiative * 0.2 +
+      selfDirection * 0.2 +
+      toolMastery * 0.2 +
+      criticalEvaluation * 0.2 +
+      ethicalJudgment * 0.2
+    );
+
+    // Determine level
+    let level: AgencyLevel = 'dependent';
+    if (overall >= 80) level = 'principal';
+    else if (overall >= 60) level = 'self_directed';
+    else if (overall >= 40) level = 'independent';
+    else if (overall >= 20) level = 'directed';
+
+    const evidence = {
+      total_ai_prompts: totalAiPrompts,
+      total_ai_outputs: totalAiOutputs,
+      total_ai_modified: totalAiModified,
+      total_ai_blind: totalAiBlind,
+      build_sessions_count: builds.length,
+      engagement_days: engagement.length,
+    };
+
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from('pde_agency_index')
+      .upsert(
+        {
+          learner_id: learnerId,
+          course_id: courseId,
+          assessment_date: today,
+          initiative,
+          self_direction: selfDirection,
+          tool_mastery: toolMastery,
+          critical_evaluation: criticalEvaluation,
+          ethical_judgment: ethicalJudgment,
+          overall,
+          level,
+          evidence,
+        },
+        { onConflict: 'learner_id,course_id,assessment_date' }
+      )
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to calculate agency index: ${error.message}`);
+    return data;
+  }
+
+  /**
+   * Get agency index trend for a learner (all historical assessments).
+   */
+  static async getAgencyTrends(learnerId: string): Promise<PDEAgencyIndex[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('pde_agency_index')
+      .select('*')
+      .eq('learner_id', learnerId)
+      .order('assessment_date', { ascending: true });
+    if (error) throw new Error(`Failed to get agency trends: ${error.message}`);
+    return data || [];
   }
 }
