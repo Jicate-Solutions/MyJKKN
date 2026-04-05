@@ -56,7 +56,8 @@ const RISK_SORT_ORDER: Record<RiskLevel, number> = {
 export default function AtRiskLearnersPage() {
   const [courseFilter, setCourseFilter] = useState<string | undefined>(undefined);
   const [sortField, setSortField] = useState<'risk' | 'days' | 'score'>('risk');
-  const { data: courses } = useVACCourses();
+  const { data: coursesData } = useVACCourses();
+  const courses = coursesData?.data || [];
   const { data: learners, isLoading, isError } = useAtRiskLearners(
     courseFilter && courseFilter !== 'all' ? courseFilter : undefined
   );

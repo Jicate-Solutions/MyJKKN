@@ -88,7 +88,7 @@ export default function AssessmentCreatePage() {
 
   // Courses and lessons
   const { data: coursesData } = useVACCourses();
-  const courses = coursesData?.courses || [];
+  const courses = coursesData?.data || [];
 
   // Form state
   const [title, setTitle] = useState('');
@@ -334,7 +334,7 @@ export default function AssessmentCreatePage() {
                   </SelectTrigger>
                   <SelectContent>
                     {courses.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

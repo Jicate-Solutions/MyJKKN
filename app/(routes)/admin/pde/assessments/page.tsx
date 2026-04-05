@@ -36,7 +36,7 @@ export default function AdminAssessmentsPage() {
     selectedCourseId || undefined
   );
 
-  const courses = coursesData?.courses || [];
+  const courses = coursesData?.data || [];
 
   return (
     <ContentLayout title="PDE Assessments">
@@ -77,7 +77,7 @@ export default function AdminAssessmentsPage() {
                 <SelectContent>
                   {courses.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.title}
+                      {c.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
