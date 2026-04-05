@@ -36,7 +36,7 @@
       "id": "incoming-kpis",
       "name": "Incoming Calls KPI Dashboard",
       "status": "in-progress",
-      "notes": "PRs #9,#12 merged. Stats method + field names fixed. BUT: all calls show as 'answered' because Exotel Price field not captured. P0 next session."
+      "notes": "PRs #9,#12 merged. Stats + badge now use cost_amount for classification. PR #13 submitted. Needs backfill of 635 calls then verify."
     },
     {
       "id": "call-details-page",
