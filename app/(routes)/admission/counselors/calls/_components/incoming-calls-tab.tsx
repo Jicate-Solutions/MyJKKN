@@ -626,7 +626,10 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                             variant="outline"
                             size="sm"
                             className="h-7 px-2 text-xs"
-                            onClick={() => bulkCallback.mutate([log.callback_queue_id])}
+                            onClick={() => {
+                              if (!log.callback_queue_id) return;
+                              bulkCallback.mutate([log.callback_queue_id]);
+                            }}
                             disabled={bulkCallback.isPending}
                           >
                             <Phone className="h-3 w-3 mr-1" />

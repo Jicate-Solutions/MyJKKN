@@ -12,6 +12,11 @@ interface CallbackEntry {
   missed_count_7d: number;
   ever_connected: boolean;
   escalated: boolean;
+  sla_breached: boolean;
+  callback_due_by: string | null;
+  sla_breached_at: string | null;
+  escalation_level: number;
+  last_sms_sent_at: string | null;
   created_at: string;
 }
 
