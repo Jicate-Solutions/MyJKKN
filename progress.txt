@@ -1,25 +1,29 @@
-## Session: 2026-04-05 (Evening) - Price Classification Fix + Backfill + Exotel API Research
+## Session: 2026-04-05 (Evening) - Price Classification Fix + Full Backfill + Exotel API Research
 
 ### Accomplished
-- Fixed answered/missed classification: now uses cost_amount > 0 (Exotel Price) instead of status field
-- Updated getInboundCallStats: select includes cost_amount, classification uses cost_amount > 0
-- Updated incoming calls badge: getInboundStatusBadge() uses cost_amount instead of status
-- Built backfill endpoint: POST /api/admission/calls/backfill-cost (fetches Price from Exotel per call)
-- PR #13 created + merged + deploy hook triggered
-- DB verified: 110 answered (14%) vs 653 missed — was showing ~100% before fix
-- 635 of 763 calls have NULL cost_amount (need backfill after deploy)
-- Exotel API research agent launched (background)
+- **P0 FIXED**: Answered/missed classification now uses cost_amount > 0 (Exotel Price) instead of status
+- Updated getInboundCallStats: select includes cost_amount, all aggregations use cost_amount
+- Updated incoming calls badge: getInboundStatusBadge() uses cost_amount
+- Built backfill endpoint: POST /api/admission/calls/backfill-cost
+- PR #13 created, merged, deployed
+- **BACKFILL COMPLETE**: 763 calls classified — 214 answered (28%), 548 missed (72%), 1 null
+- Previously was showing ~100% answer rate (all "completed" = "answered") — now shows true 28%
+- Exotel API research: 672-line report at docs/exotel-api-reference.md
+  - Discovered 93 API endpoints, we use only 4 (4%)
+  - Top opportunities: ExoVoiceAnalyze (auto-transcribe), Bulk SMS, Voice v3, Call Campaigns, Heartbeat
 
 ### Current Status
-- **Deploy**: PR #13 merged, deploy hook triggered, waiting for Vercel build
-- **Backfill**: Endpoint ready, will run after deploy completes
-- **Research**: Exotel docs crawl in progress (background agent)
+- **KPI Dashboard**: Live on production with correct answered/missed split
+- **Backfill**: 762/763 calls have cost_amount populated (1 failed = deleted from Exotel)
+- **Exotel Research**: Complete report saved to docs/exotel-api-reference.md
 - **Build**: Passing on omm-dev
+- **Production**: PR #13 merged and deployed
 
 ### Next Steps
-1. Wait for deploy → run backfill endpoint → verify KPIs
-2. Review Exotel API research report for new capabilities
-3. Update call details page to show answered/missed badge
+1. Browser-verify the production calls page shows correct KPIs
+2. Consider ExoVoiceAnalyze integration (auto-transcribe every call)
+3. Upgrade from Voice v1 to v3 (dual-channel recording, call legs)
+4. Add Bulk SMS to replace single-send loops in SMS campaigns
 
 ---
 
