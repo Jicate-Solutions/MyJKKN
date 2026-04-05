@@ -414,10 +414,31 @@ export default function LessonContentPage({
   const isHourOne = currentIndex === 0;
   const isGated = !isHourOne && !isEnrolled;
 
+  // Log lesson_view engagement event on page mount
+  useEffect(() => {
+    if (userId && courseId && lessonId && lesson) {
+      logEngagement.mutate({
+        learner_id: userId,
+        event_type: 'lesson_view',
+        course_id: courseId,
+        lesson_id: lessonId,
+        metadata: { start_time: new Date().toISOString() },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId]);
+
   const handleMarkComplete = useCallback(() => {
     if (!userId || !courseId || !lessonId) return;
     markComplete.mutate({ userId, courseId, lessonId });
-  }, [userId, courseId, lessonId, markComplete]);
+    // Log lesson_complete engagement event
+    logEngagement.mutate({
+      learner_id: userId,
+      event_type: 'lesson_complete',
+      course_id: courseId,
+      lesson_id: lessonId,
+    });
+  }, [userId, courseId, lessonId, markComplete, logEngagement]);
 
   if (isLoading) {
     return (
