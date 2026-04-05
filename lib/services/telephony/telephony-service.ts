@@ -94,11 +94,11 @@ export interface CallStats {
 
 export interface InboundCallStats {
   total_incoming: number;
-  answered_count: number;
-  missed_count: number;
+  answered: number;
+  missed: number;
   answer_rate: number;
-  avg_talk_time_seconds: number;
-  missed_no_callback: number;
+  avg_duration_seconds: number;
+  missed_without_callback: number;
   calls_by_date: Array<{
     date: string;
     answered: number;
@@ -109,6 +109,10 @@ export interface InboundCallStats {
     count: number;
     answered: number;
     missed: number;
+  }>;
+  top_callers: Array<{
+    phone: string;
+    count: number;
   }>;
 }
 
@@ -381,15 +385,27 @@ export class TelephonyService {
       .map(([hour, data]) => ({ hour: parseInt(hour, 10), count: data.count, answered: data.answered, missed: data.missed }))
       .sort((a, b) => a.hour - b.hour);
 
+    // Top callers by frequency
+    const callerMap: Record<string, number> = {};
+    calls.forEach((c: any) => {
+      const from = c.from_number || 'unknown';
+      callerMap[from] = (callerMap[from] || 0) + 1;
+    });
+    const topCallers = Object.entries(callerMap)
+      .map(([phone, count]) => ({ phone, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
     return {
       total_incoming: totalIncoming,
-      answered_count: answeredCount,
-      missed_count: missedCount,
+      answered: answeredCount,
+      missed: missedCount,
       answer_rate: answerRate,
-      avg_talk_time_seconds: avgTalkTimeSeconds,
-      missed_no_callback: missedNoCallback,
+      avg_duration_seconds: avgTalkTimeSeconds,
+      missed_without_callback: missedNoCallback,
       calls_by_date: callsByDate,
       calls_by_hour: callsByHour,
+      top_callers: topCallers,
     };
   }
 
