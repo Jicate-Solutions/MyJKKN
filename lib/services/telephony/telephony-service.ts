@@ -319,7 +319,7 @@ export class TelephonyService {
   ): Promise<InboundCallStats> {
     let query = supabase
       .from('admission_call_logs')
-      .select('status, call_disposition, duration_seconds, created_at')
+      .select('status, call_disposition, duration_seconds, cost_amount, created_at')
       .eq('direction', 'inbound');
 
     if (institutionId) query = query.eq('institution_id', institutionId);
