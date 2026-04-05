@@ -4,6 +4,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -12,8 +13,13 @@ import {
   useLearnerBadges,
   useLeaderboard,
 } from '@/hooks/pde/use-pde-phase2';
+import {
+  useLearnerQuestEnrollments,
+  useLearnerCapabilities,
+} from '@/hooks/pde/use-pde';
 import { useAuth } from '@/hooks/use-auth';
 import { BeatLoader } from 'react-spinners';
+import Link from 'next/link';
 import {
   Trophy,
   Star,
@@ -27,6 +33,11 @@ import {
   Crown,
   Medal,
   Clock,
+  ExternalLink,
+  CheckCircle2,
+  Lock,
+  Loader2,
+  Hammer,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -116,6 +127,114 @@ function BadgeCard({ badge, earned }: { badge: PDEBadge; earned: PDELearnerBadge
         <p className="text-[10px] text-muted-foreground mt-1">Not yet earned</p>
       )}
     </div>
+  );
+}
+
+// ============================================
+// My Quests Section
+// ============================================
+
+function MyQuestsSection({ learnerId }: { learnerId: string | undefined }) {
+  const { data: enrollments = [], isLoading } = useLearnerQuestEnrollments(learnerId);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Target className="h-5 w-5" />
+            My Quests
+          </CardTitle>
+          <Link href="/learn/quests" className="text-xs text-primary hover:underline">
+            Browse Quest Board
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-4"><BeatLoader color="#00e902" /></div>
+        ) : enrollments.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No active quests. Visit the Quest Board to choose a problem to solve.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {enrollments.slice(0, 5).map((e: { id: string; quest_id: string; status: string; quest?: { title?: string } }) => (
+              <Link
+                key={e.id}
+                href={`/learn/build/${e.quest_id}`}
+                className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 transition-colors"
+              >
+                <Hammer className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {e.quest?.title || `Quest ${e.quest_id.slice(0, 8)}`}
+                  </p>
+                </div>
+                <Badge variant="outline" className="text-xs shrink-0">
+                  {e.status || 'enrolled'}
+                </Badge>
+              </Link>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================
+// My Capabilities Summary
+// ============================================
+
+function MyCapabilitiesSection({ learnerId }: { learnerId: string | undefined }) {
+  const { data: caps = [], isLoading } = useLearnerCapabilities(learnerId);
+
+  const demonstrated = caps.filter((c: { status: string }) => c.status === 'demonstrated' || c.status === 'verified').length;
+  const inProgress = caps.filter((c: { status: string }) => c.status === 'in_progress').length;
+  const locked = caps.filter((c: { status: string }) => c.status === 'locked' || c.status === 'not_started').length;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Target className="h-5 w-5" />
+            My Capabilities
+          </CardTitle>
+          <Link href="/learn/capabilities" className="text-xs text-primary hover:underline">
+            View Capability Tree
+          </Link>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-4"><BeatLoader color="#00e902" /></div>
+        ) : caps.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            Start a quest to begin developing capabilities.
+          </p>
+        ) : (
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
+              <CheckCircle2 className="h-5 w-5 mx-auto text-green-600 mb-1" />
+              <p className="text-xl font-bold">{demonstrated}</p>
+              <p className="text-xs text-muted-foreground">Demonstrated</p>
+            </div>
+            <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/20">
+              <Loader2 className="h-5 w-5 mx-auto text-yellow-600 mb-1" />
+              <p className="text-xl font-bold">{inProgress}</p>
+              <p className="text-xs text-muted-foreground">In Progress</p>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/50">
+              <Lock className="h-5 w-5 mx-auto text-muted-foreground mb-1" />
+              <p className="text-xl font-bold">{locked}</p>
+              <p className="text-xs text-muted-foreground">Locked</p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -277,6 +396,48 @@ export default function ProfilePage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Agency Index + Portfolio Link */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Zap className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-muted-foreground">Agency Index</p>
+                  <p className="text-2xl font-bold">{(reputation as Record<string, unknown>)?.agency_index as number ?? '--'}</p>
+                </div>
+              </div>
+              <Progress value={((reputation as Record<string, unknown>)?.agency_index as number) ?? 0} className="h-1.5 mt-2" />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                How independently you direct AI tools as a Principal
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4 flex flex-col justify-center h-full">
+              <p className="text-sm font-medium mb-2">Public Portfolio</p>
+              <p className="text-xs text-muted-foreground mb-3">
+                Share your verified capabilities and quest completions with employers and peers.
+              </p>
+              <Link href={`/portfolio/${learnerId || ''}`}>
+                <Button variant="outline" size="sm" className="w-full">
+                  <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                  View My Public Portfolio
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* My Quests */}
+        <MyQuestsSection learnerId={learnerId} />
+
+        {/* My Capabilities Summary */}
+        <MyCapabilitiesSection learnerId={learnerId} />
 
         {/* Leaderboard Preview */}
         <Card>
