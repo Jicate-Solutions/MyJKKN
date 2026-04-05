@@ -329,11 +329,14 @@ export class TelephonyService {
     if (error) throw new Error(error.message);
 
     const calls: any[] = data || [];
-    const MISSED_STATUSES = ['no-answer', 'busy', 'failed', 'cancelled'];
 
+    // Classification: Exotel marks ALL IVR-completed calls as status:"completed"
+    // regardless of whether a human answered. The reliable indicator is cost_amount:
+    //   cost_amount > 0 → call connected to agent (billed, truly answered)
+    //   cost_amount = 0 or NULL → IVR only, nobody answered (missed)
     const totalIncoming = calls.length;
-    const answered = calls.filter((c) => c.status === 'completed');
-    const missed = calls.filter((c) => MISSED_STATUSES.includes(c.status));
+    const answered = calls.filter((c) => c.cost_amount != null && c.cost_amount > 0);
+    const missed = calls.filter((c) => !c.cost_amount || c.cost_amount <= 0);
 
     const answeredCount = answered.length;
     const missedCount = missed.length;
