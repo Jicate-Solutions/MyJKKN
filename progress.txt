@@ -1,3 +1,28 @@
+## Session: 2026-04-05 (Evening) - Price Classification Fix + Backfill + Exotel API Research
+
+### Accomplished
+- Fixed answered/missed classification: now uses cost_amount > 0 (Exotel Price) instead of status field
+- Updated getInboundCallStats: select includes cost_amount, classification uses cost_amount > 0
+- Updated incoming calls badge: getInboundStatusBadge() uses cost_amount instead of status
+- Built backfill endpoint: POST /api/admission/calls/backfill-cost (fetches Price from Exotel per call)
+- PR #13 created + merged + deploy hook triggered
+- DB verified: 110 answered (14%) vs 653 missed — was showing ~100% before fix
+- 635 of 763 calls have NULL cost_amount (need backfill after deploy)
+- Exotel API research agent launched (background)
+
+### Current Status
+- **Deploy**: PR #13 merged, deploy hook triggered, waiting for Vercel build
+- **Backfill**: Endpoint ready, will run after deploy completes
+- **Research**: Exotel docs crawl in progress (background agent)
+- **Build**: Passing on omm-dev
+
+### Next Steps
+1. Wait for deploy → run backfill endpoint → verify KPIs
+2. Review Exotel API research report for new capabilities
+3. Update call details page to show answered/missed badge
+
+---
+
 ## Session: 2026-04-05 (End) - Exotel Calls Dashboard Live + 6 PRs Merged + Root Cause Found
 
 ### Accomplished
