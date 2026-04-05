@@ -13,6 +13,8 @@ import type {
   DemonstrateCapabilityInput, StartBuildSessionInput, EndBuildSessionInput,
   LogAIInteractionInput, PostMessageInput, AddReputationPointsInput, AwardBadgeInput,
   QuestFilters, CapabilityCategory,
+  // Phase 3
+  SendCoachMessageInput,
 } from '@/types/pde';
 
 // ============================================
@@ -71,6 +73,16 @@ export const pdeQueryKeys = {
   badges: () => [...pdeQueryKeys.all, 'badges'] as const,
   badgeList: () => [...pdeQueryKeys.badges(), 'list'] as const,
   learnerBadges: (learnerId: string) => [...pdeQueryKeys.badges(), 'learner', learnerId] as const,
+  // Phase 3: AI Coach
+  coach: () => [...pdeQueryKeys.all, 'coach'] as const,
+  coachConversation: (learnerId: string, contextType: string, contextId: string) =>
+    [...pdeQueryKeys.coach(), 'conversation', learnerId, contextType, contextId] as const,
+  coachHistory: (learnerId: string) => [...pdeQueryKeys.coach(), 'history', learnerId] as const,
+  // Phase 3: Agency Index
+  agency: () => [...pdeQueryKeys.all, 'agency'] as const,
+  agencyIndex: (learnerId: string, courseId?: string) =>
+    [...pdeQueryKeys.agency(), 'index', learnerId, courseId] as const,
+  agencyTrends: (learnerId: string) => [...pdeQueryKeys.agency(), 'trends', learnerId] as const,
 };
 
 // ============================================
@@ -634,5 +646,79 @@ export function useAwardBadge() {
       qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerBadges(data.learner_id) });
       qc.invalidateQueries({ queryKey: pdeQueryKeys.badges() });
     },
+  });
+}
+
+// ============================================
+// Phase 3: AI Coach Hooks
+// ============================================
+
+export function useCoachConversation(
+  learnerId: string | undefined,
+  contextType: string | undefined,
+  contextId: string | undefined
+) {
+  return useQuery({
+    queryKey: pdeQueryKeys.coachConversation(learnerId || '', contextType || '', contextId || ''),
+    queryFn: () => PDEService.getCoachConversation(learnerId!, contextType!, contextId!),
+    enabled: !!learnerId && !!contextType && !!contextId,
+    staleTime: 10000,
+  });
+}
+
+export function useSendCoachMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SendCoachMessageInput) =>
+      PDEService.sendCoachMessage(input.learner_id, input.context_type, input.context_id, input.message),
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({
+        queryKey: pdeQueryKeys.coachConversation(variables.learner_id, variables.context_type, variables.context_id),
+      });
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.coachHistory(variables.learner_id) });
+    },
+  });
+}
+
+export function useCoachHistory(learnerId: string | undefined, limit = 20) {
+  return useQuery({
+    queryKey: pdeQueryKeys.coachHistory(learnerId || ''),
+    queryFn: () => PDEService.getCoachHistory(learnerId!, limit),
+    enabled: !!learnerId,
+    staleTime: 30000,
+  });
+}
+
+// ============================================
+// Phase 3: Agency Index Hooks
+// ============================================
+
+export function useAgencyIndex(learnerId: string | undefined, courseId?: string) {
+  return useQuery({
+    queryKey: pdeQueryKeys.agencyIndex(learnerId || '', courseId),
+    queryFn: () => PDEService.getAgencyIndex(learnerId!, courseId),
+    enabled: !!learnerId,
+    staleTime: 60000,
+  });
+}
+
+export function useCalculateAgencyIndex() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ learnerId, courseId }: { learnerId: string; courseId: string }) =>
+      PDEService.calculateAgencyIndex(learnerId, courseId),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.agencyIndex(data.learner_id, data.course_id) });
+      qc.invalidateQueries({ queryKey: pdeQueryKeys.agencyTrends(data.learner_id) });
+    },
+  });
+}
+
+export function useAgencyTrends(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: pdeQueryKeys.agencyTrends(learnerId || ''),
+    queryFn: () => PDEService.getAgencyTrends(learnerId!),
+    enabled: !!learnerId,
+    staleTime: 60000,
   });
 }
