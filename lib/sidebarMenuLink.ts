@@ -73,7 +73,11 @@ import {
   SearchCheck,
   UserCog,
   Activity,
-  Brain
+  Brain,
+  Hammer,
+  TreePine,
+  UserCircle2,
+  Trophy as TrophyIcon,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -434,6 +438,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/workflow-config': 'admission.settings.workflows.manage',
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
+
+  // PDE (Principal Development Engine) — Learning
+  '/learn/quests': 'pde.quests.view',
+  '/learn/capabilities': 'pde.capabilities.view',
+  '/learn/build': 'pde.build.view',
+  '/learn/channels': 'pde.channels.view',
+  '/learn/profile': 'pde.profile.view',
+  '/learn/leaderboard': 'pde.leaderboard.view',
 
   // Startup Studio
   '/startup-studio/events': 'startup_studio.events.view',
@@ -1481,6 +1493,53 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Page Metadata',
           active: pathname.startsWith('/admin/page-metadata'),
           icon: Tags,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Learning',
+      menus: [
+        {
+          href: '/learn/quests',
+          label: 'Quest Board',
+          active: pathname === '/learn/quests' || pathname.startsWith('/learn/quests/'),
+          icon: Target,
+          submenus: []
+        },
+        {
+          href: '/learn/capabilities',
+          label: 'Capability Tree',
+          active: pathname.startsWith('/learn/capabilities'),
+          icon: TreePine,
+          submenus: []
+        },
+        {
+          href: '/learn/build',
+          label: 'Build Arena',
+          active: pathname.startsWith('/learn/build'),
+          icon: Hammer,
+          submenus: []
+        },
+        {
+          href: '/learn/channels',
+          label: 'Channels',
+          active: pathname.startsWith('/learn/channels'),
+          icon: MessageSquare,
+          submenus: []
+        },
+        {
+          href: '/learn/profile',
+          label: 'Profile',
+          active: pathname === '/learn/profile',
+          icon: UserCircle2,
+          submenus: []
+        },
+        {
+          href: '/learn/leaderboard',
+          label: 'Leaderboard',
+          active: pathname === '/learn/leaderboard',
+          icon: TrophyIcon,
           submenus: []
         }
       ]
