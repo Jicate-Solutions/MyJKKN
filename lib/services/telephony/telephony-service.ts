@@ -33,6 +33,7 @@ export interface CallLog {
   to_number: string;
   duration_seconds: number;
   recording_url: string | null;
+  cost_amount: number | null;
   call_notes: string | null;
   follow_up_date: string | null;
   started_at: string | null;
@@ -318,7 +319,7 @@ export class TelephonyService {
   ): Promise<InboundCallStats> {
     let query = supabase
       .from('admission_call_logs')
-      .select('status, call_disposition, duration_seconds, created_at')
+      .select('status, call_disposition, duration_seconds, cost_amount, created_at')
       .eq('direction', 'inbound');
 
     if (institutionId) query = query.eq('institution_id', institutionId);
@@ -329,11 +330,14 @@ export class TelephonyService {
     if (error) throw new Error(error.message);
 
     const calls: any[] = data || [];
-    const MISSED_STATUSES = ['no-answer', 'busy', 'failed', 'cancelled'];
 
+    // Classification: Exotel marks ALL IVR-completed calls as status:"completed"
+    // regardless of whether a human answered. The reliable indicator is cost_amount:
+    //   cost_amount > 0 → call connected to agent (billed, truly answered)
+    //   cost_amount = 0 or NULL → IVR only, nobody answered (missed)
     const totalIncoming = calls.length;
-    const answered = calls.filter((c) => c.status === 'completed');
-    const missed = calls.filter((c) => MISSED_STATUSES.includes(c.status));
+    const answered = calls.filter((c) => c.cost_amount != null && c.cost_amount > 0);
+    const missed = calls.filter((c) => !c.cost_amount || c.cost_amount <= 0);
 
     const answeredCount = answered.length;
     const missedCount = missed.length;
@@ -346,15 +350,15 @@ export class TelephonyService {
     // Missed calls with no callback — approximate: missed calls where disposition IS NULL
     const missedNoCallback = missed.filter((c: any) => !c.call_disposition).length;
 
-    // Calls by date — split into answered vs missed per day
+    // Calls by date — split into answered vs missed per day (using cost_amount)
     const dateMap: Record<string, { answered: number; missed: number }> = {};
     calls.forEach((c: any) => {
       if (c.created_at) {
         const dateKey = c.created_at.substring(0, 10); // YYYY-MM-DD
         if (!dateMap[dateKey]) dateMap[dateKey] = { answered: 0, missed: 0 };
-        if (c.status === 'completed') {
+        if (c.cost_amount != null && c.cost_amount > 0) {
           dateMap[dateKey].answered++;
-        } else if (MISSED_STATUSES.includes(c.status)) {
+        } else {
           dateMap[dateKey].missed++;
         }
       }
@@ -373,9 +377,9 @@ export class TelephonyService {
         const hour = parseInt(timePart, 10);
         if (!isNaN(hour) && hour >= 0 && hour < 24) {
           hourMap[hour].count++;
-          if (c.status === 'completed') {
+          if (c.cost_amount != null && c.cost_amount > 0) {
             hourMap[hour].answered++;
-          } else if (MISSED_STATUSES.includes(c.status)) {
+          } else {
             hourMap[hour].missed++;
           }
         }

@@ -51,19 +51,15 @@ import { maskPhone } from '@/lib/utils/phone-number';
 // HELPERS
 // ============================================================================
 
-function getStatusBadge(status: CallStatus) {
-  const map: Record<string, { label: string; className: string }> = {
-    completed: { label: 'Answered', className: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
-    'no-answer': { label: 'Missed', className: 'bg-red-100 text-red-700 border-red-200' },
-    busy: { label: 'Busy', className: 'bg-orange-100 text-orange-800 border-orange-200' },
-    failed: { label: 'Failed', className: 'bg-red-100 text-red-800 border-red-200' },
-    initiated: { label: 'Initiated', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-    ringing: { label: 'Ringing', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    'in-progress': { label: 'In Progress', className: 'bg-green-100 text-green-800 border-green-200' },
-    cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-800 border-gray-200' },
-  };
-  const cfg = map[status] || map.initiated;
-  return <Badge variant="outline" className={cfg.className}>{cfg.label}</Badge>;
+// For inbound calls, Exotel marks ALL IVR-completed calls as status:"completed"
+// regardless of whether a human answered. The reliable indicator is cost_amount:
+//   cost_amount > 0 → agent answered (billed)
+//   cost_amount = 0 or null → nobody answered (missed)
+function getInboundStatusBadge(costAmount: number | null | undefined) {
+  if (costAmount != null && costAmount > 0) {
+    return <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200">Answered</Badge>;
+  }
+  return <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200">Missed</Badge>;
 }
 
 function RecordingPlayer({ url }: { url: string | null }) {
@@ -431,9 +427,9 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           {log.to_number ? `...${log.to_number.slice(-4)}` : '-'}
                         </span>
                       </TableCell>
-                      <TableCell>{getStatusBadge(log.status)}</TableCell>
+                      <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
                       <TableCell>
-                        {log.status === 'completed' && log.duration_seconds > 0 ? (
+                        {log.duration_seconds > 0 ? (
                           <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
                         ) : (
                           <span className="text-xs text-muted-foreground">--</span>
