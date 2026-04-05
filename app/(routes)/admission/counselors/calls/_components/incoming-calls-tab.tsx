@@ -25,8 +25,10 @@ import {
 import {
   useCallLogs,
   useInboundCallStats,
+  useUniqueCallers,
   formatDuration,
   type CallStatus,
+  type UniqueCaller,
 } from '@/hooks/admission';
 import {
   PhoneIncoming,
@@ -42,6 +44,9 @@ import {
   ChevronRight,
   Filter,
   X,
+  Users,
+  MapPin,
+  AlertCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -261,12 +266,22 @@ interface IncomingCallsTabProps {
 export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   const router = useRouter();
 
+  // View mode: 'all' = individual calls, 'unique' = grouped by caller
+  const [viewMode, setViewMode] = useState<'all' | 'unique'>('all');
+
   // Filter state
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+
+  // Unique callers hook
+  const { callers, summary: callerSummary, isLoading: uniqueLoading } = useUniqueCallers(
+    institutionId,
+    fromDate || undefined,
+    toDate || undefined
+  );
 
   // Data hooks
   const { logs, total, totalPages, isLoading: logsLoading } = useCallLogs({
@@ -331,10 +346,34 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
             <div>
               <CardTitle>Incoming Call History</CardTitle>
               <CardDescription>
-                {total} incoming call{total !== 1 ? 's' : ''}
+                {viewMode === 'all'
+                  ? `${total} incoming call${total !== 1 ? 's' : ''}`
+                  : `${callerSummary.unique_callers} unique callers from ${callerSummary.total_calls} calls`
+                }
               </CardDescription>
             </div>
             <div className="flex gap-2">
+              {/* View Mode Toggle */}
+              <div className="flex rounded-md border">
+                <Button
+                  variant={viewMode === 'all' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="rounded-r-none"
+                  onClick={() => setViewMode('all')}
+                >
+                  <Phone className="h-3.5 w-3.5 mr-1" />
+                  All Calls
+                </Button>
+                <Button
+                  variant={viewMode === 'unique' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="rounded-l-none"
+                  onClick={() => setViewMode('unique')}
+                >
+                  <Users className="h-3.5 w-3.5 mr-1" />
+                  Unique Callers
+                </Button>
+              </div>
               {hasFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters}>
                   <X className="h-4 w-4 mr-1" />
@@ -377,7 +416,150 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
           )}
         </CardHeader>
         <CardContent>
-          {logsLoading ? (
+          {/* ======= UNIQUE CALLERS VIEW ======= */}
+          {viewMode === 'unique' ? (
+            uniqueLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+              </div>
+            ) : callers.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Users className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                <p className="font-medium">No callers found</p>
+              </div>
+            ) : (
+              <>
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                    <p className="text-2xl font-bold">{callerSummary.unique_callers}</p>
+                    <p className="text-xs text-muted-foreground">Unique Callers</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                    <p className="text-2xl font-bold">{callerSummary.avg_attempts_per_caller}</p>
+                    <p className="text-xs text-muted-foreground">Avg Attempts</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/20 text-center">
+                    <p className="text-2xl font-bold text-red-600">{callerSummary.callers_never_reached}</p>
+                    <p className="text-xs text-muted-foreground">Never Reached</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-orange-50 dark:bg-orange-950/20 text-center">
+                    <p className="text-2xl font-bold text-orange-600">{callerSummary.callers_with_breached_sla}</p>
+                    <p className="text-xs text-muted-foreground">SLA Breached</p>
+                  </div>
+                </div>
+
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Caller</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Attempts</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Callback</TableHead>
+                      <TableHead>Last Call</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {callers.map((caller: UniqueCaller) => {
+                      const neverReached = caller.answered_count === 0;
+                      return (
+                        <TableRow key={caller.from_number} className={`hover:bg-muted/50 ${neverReached ? 'bg-red-50/50 dark:bg-red-950/10' : ''}`}>
+                          <TableCell>
+                            <div>
+                              {caller.lead_name ? (
+                                <Link
+                                  href={caller.lead_id ? `/admission/leads/${caller.lead_id}` : '#'}
+                                  className="text-sm font-medium hover:underline text-primary"
+                                >
+                                  {caller.lead_name}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-medium text-muted-foreground italic">Unknown</span>
+                              )}
+                              <p className="text-xs text-muted-foreground font-mono">
+                                {maskPhone(caller.from_number)}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {caller.caller_location ? (
+                              <span className="text-xs flex items-center gap-1">
+                                <MapPin className="h-3 w-3 text-muted-foreground" />
+                                {caller.caller_location}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-mono font-bold">{caller.total_attempts}</span>
+                              <div className="text-[10px] text-muted-foreground">
+                                <span className="text-green-600">{caller.answered_count} ans</span>
+                                {' / '}
+                                <span className="text-red-500">{caller.missed_count} miss</span>
+                              </div>
+                            </div>
+                            {caller.days_trying > 1 && (
+                              <p className="text-[10px] text-muted-foreground">over {caller.days_trying} days</p>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {neverReached ? (
+                              <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200 text-[10px]">
+                                <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
+                                Never Reached
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">
+                                Connected
+                              </Badge>
+                            )}
+                            {caller.auto_sms_sent && (
+                              <p className="text-[10px] text-blue-500 mt-0.5">SMS sent</p>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {caller.callback_status ? (
+                              <div>
+                                <Badge variant="outline" className={`text-[10px] ${
+                                  caller.sla_breached
+                                    ? 'bg-red-100 text-red-700 border-red-200'
+                                    : caller.callback_status === 'completed'
+                                    ? 'bg-green-100 text-green-700 border-green-200'
+                                    : 'bg-yellow-100 text-yellow-700 border-yellow-200'
+                                }`}>
+                                  {caller.sla_breached ? 'SLA BREACHED' : caller.callback_status}
+                                </Badge>
+                                {caller.callback_priority && (
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">{caller.callback_priority}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(caller.last_call_at).toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </>
+            )
+          ) : (
+          /* ======= ALL CALLS VIEW (original) ======= */
+          logsLoading ? (
             <div className="space-y-3">
               {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
             </div>
@@ -470,6 +652,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                 </div>
               )}
             </>
+          )
           )}
         </CardContent>
       </Card>

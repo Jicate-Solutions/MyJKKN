@@ -234,6 +234,16 @@ export {
   callStatsKeys,
 } from './use-call-stats';
 
+// Re-export unique callers hook
+export {
+  useUniqueCallers,
+  uniqueCallersKeys,
+} from './use-unique-callers';
+export type {
+  UniqueCaller,
+  UniqueCallersSummary,
+} from './use-unique-callers';
+
 // ============================================
 // LEADS HOOKS
 // ============================================

@@ -50,6 +50,9 @@ import {
   Save,
   UserPlus,
   History,
+  MapPin,
+  Route,
+  AlertCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -75,6 +78,10 @@ interface CallDetail {
   lead: { id: string; full_name: string; phone: string } | null;
   counselor: { id: string; full_name: string } | null;
   exotel: Record<string, unknown> | null;
+  // Journey intelligence fields
+  caller_journey_context: string | null;
+  caller_location: string | null;
+  caller_attempt_number: number | null;
 }
 
 const DISPOSITION_OPTIONS: { value: CallDisposition; label: string }[] = [
@@ -359,6 +366,88 @@ function CallDetailContent() {
 
             {/* Left Column (2/3) */}
             <div className="lg:col-span-2 space-y-6">
+
+              {/* Journey Context Card (FIX 5) */}
+              {call.caller_journey_context && (call.caller_attempt_number ?? 1) > 1 && (
+                <Card className="border-orange-200 bg-orange-50/50 dark:bg-orange-950/10">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2 text-orange-700">
+                      <Route className="h-4 w-4" />
+                      Caller Journey
+                      <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-200 ml-2">
+                        Attempt #{call.caller_attempt_number}
+                      </Badge>
+                      {call.caller_location && (
+                        <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-200 ml-1">
+                          <MapPin className="h-3 w-3 mr-1" />
+                          {call.caller_location}
+                        </Badge>
+                      )}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {/* Timeline dots */}
+                    <div className="space-y-2">
+                      {call.caller_journey_context.split('\n').map((line, i) => {
+                        if (!line.trim()) return null;
+                        const isHeader = line.startsWith('[Caller Journey]');
+                        const isCurrent = line.includes('NOW:');
+                        const isMissed = line.includes('missed');
+                        const isAnswered = line.includes('answered') || line.includes('Connected');
+                        const isLocation = line.startsWith('Location:');
+                        const isLead = line.startsWith('Lead:');
+
+                        if (isHeader) {
+                          return (
+                            <p key={i} className="text-sm font-semibold text-orange-800">
+                              {line.replace('[Caller Journey] ', '')}
+                            </p>
+                          );
+                        }
+
+                        if (line.startsWith('- ')) {
+                          return (
+                            <div key={i} className="flex items-center gap-2 ml-2">
+                              <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                isCurrent ? 'bg-blue-500 ring-2 ring-blue-200' :
+                                isMissed ? 'bg-red-400' :
+                                isAnswered ? 'bg-green-500' :
+                                'bg-gray-300'
+                              }`} />
+                              <span className={`text-xs ${
+                                isCurrent ? 'font-bold text-blue-700' :
+                                isMissed ? 'text-red-600' :
+                                isAnswered ? 'text-green-700' :
+                                'text-muted-foreground'
+                              }`}>
+                                {line.slice(2)}
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        if (isLocation || isLead) {
+                          return (
+                            <p key={i} className="text-xs text-muted-foreground ml-2 mt-1">
+                              {line}
+                            </p>
+                          );
+                        }
+
+                        return <p key={i} className="text-xs text-muted-foreground">{line}</p>;
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Caller Location (shown even without full journey, if location exists) */}
+              {call.caller_location && (!call.caller_journey_context || (call.caller_attempt_number ?? 1) <= 1) && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200">
+                  <MapPin className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm text-blue-700">Caller location: <strong>{call.caller_location}</strong> (from phone prefix)</span>
+                </div>
+              )}
 
               {/* Call Info Card */}
               <Card>

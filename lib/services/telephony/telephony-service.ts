@@ -7,6 +7,7 @@
 // because webhooks have no authenticated user session.
 
 import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
+import { PhoneNumberIntelligence } from './phone-number-intelligence';
 import { getCallContext, lookupAgent } from './exotel-agent-map';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
