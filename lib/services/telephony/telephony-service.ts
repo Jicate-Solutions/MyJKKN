@@ -8,6 +8,7 @@
 
 import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
 import { getCallContext, lookupAgent } from './exotel-agent-map';
+import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -543,8 +544,8 @@ export class TelephonyService {
     supabase: any
   ): Promise<{ id: string; status: string; institution_id: string; call_sid: string } | null> {
     try {
-      const callerPhone = payload.From || '';
-      const exoPhone = payload.To || '';
+      const callerPhone = normalizePhone(payload.From);
+      const exoPhone = payload.To || ''; // ExoPhone kept as-is (landline format for mapping)
 
       // ── Agent Detection ──
       // On connected calls, Exotel's detailed response changes `To` to the agent's phone.
@@ -577,40 +578,31 @@ export class TelephonyService {
         if (profile) counselorId = profile.id;
       }
 
-      // ── Lead Matching ──
-      const phoneVariants = [
-        callerPhone,
-        callerPhone.replace(/^0/, ''),
-        callerPhone.replace(/^\+91/, ''),
-        callerPhone.replace(/^91/, ''),
-      ];
-
+      // ── Lead Matching (E.164 normalized + last-10-digit fallback) ──
       let leadMatch: { id: string; institution_id: string } | null = null;
 
-      for (const phone of phoneVariants) {
-        if (!phone || phone.length < 10) continue;
-        const { data } = await supabase
-          .from('admission_leads')
-          .select('id, institution_id')
-          .eq('phone', phone)
-          .limit(1)
-          .maybeSingle();
-        if (data) {
-          leadMatch = data;
-          break;
-        }
-      }
+      // Try exact E.164 match first
+      const { data: exactMatch } = await supabase
+        .from('admission_leads')
+        .select('id, institution_id')
+        .eq('phone', callerPhone)
+        .limit(1)
+        .maybeSingle();
 
-      // Fallback: last 10 digits
-      if (!leadMatch && callerPhone.length >= 10) {
-        const last10 = callerPhone.slice(-10);
-        const { data } = await supabase
-          .from('admission_leads')
-          .select('id, institution_id')
-          .like('phone', `%${last10}`)
-          .limit(1)
-          .maybeSingle();
-        if (data) leadMatch = data;
+      if (exactMatch) {
+        leadMatch = exactMatch;
+      } else {
+        // Fallback: match by last 10 digits (handles legacy non-E.164 data)
+        const last10 = phoneLastDigits(callerPhone);
+        if (last10.length >= 10) {
+          const { data: fuzzyMatch } = await supabase
+            .from('admission_leads')
+            .select('id, institution_id')
+            .like('phone', `%${last10}`)
+            .limit(1)
+            .maybeSingle();
+          if (fuzzyMatch) leadMatch = fuzzyMatch;
+        }
       }
 
       // ── Institution ID ──
@@ -662,6 +654,26 @@ export class TelephonyService {
         return null;
       }
 
+      // ── Level 3: Call Intelligence (non-blocking) ──
+      try {
+        await TelephonyService.processCallIntelligence({
+          callLogId: data.id,
+          callerPhone,
+          agentPhone,
+          exoPhone,
+          institutionId,
+          leadMatch,
+          counselorId,
+          callContext,
+          durationSec,
+          mappedStatus,
+          supabase,
+        });
+      } catch (err) {
+        // Non-blocking — intelligence processing should never break the webhook
+        logger.error('telephony/webhook', 'Call intelligence processing failed', err);
+      }
+
       logger.info('telephony/webhook', 'Inbound call logged', {
         callLogId: data.id,
         from: callerPhone,
@@ -680,6 +692,201 @@ export class TelephonyService {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // CALL INTELLIGENCE (Level 3)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Process call intelligence: repeat caller detection, auto-create leads,
+   * lead activity logging, missed call follow-ups, and lead score bumps.
+   */
+  private static async processCallIntelligence(params: {
+    callLogId: string;
+    callerPhone: string;
+    agentPhone: string;
+    exoPhone: string;
+    institutionId: string;
+    leadMatch: { id: string; institution_id: string } | null;
+    counselorId: string | null;
+    callContext: { agentName: string | null; department: string; college: string | null; isAdmission: boolean };
+    durationSec: number;
+    mappedStatus: CallStatus;
+    supabase: any;
+  }): Promise<void> {
+    const { callLogId, callerPhone, institutionId, leadMatch, counselorId, callContext, durationSec, mappedStatus, supabase } = params;
+    const isMissed = durationSec === 0 || ['no-answer', 'busy', 'failed'].includes(mappedStatus);
+    const isConnected = durationSec > 0 && mappedStatus === 'completed';
+
+    // ── 1. Check call history for this caller (today) ──
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: todayCalls } = await supabase
+      .from('admission_call_logs')
+      .select('id, status, duration_seconds, created_at')
+      .eq('from_number', callerPhone)
+      .eq('direction', 'inbound')
+      .gte('created_at', `${today}T00:00:00`)
+      .order('created_at', { ascending: true });
+
+    const callCount = todayCalls?.length || 1;
+    const missedCount = (todayCalls || []).filter((c: any) => (c.duration_seconds || 0) === 0).length;
+    const everConnected = (todayCalls || []).some((c: any) => (c.duration_seconds || 0) > 0);
+
+    // ── 2. Update call notes with intelligence ──
+    const intelligenceParts: string[] = [];
+    if (callCount > 1) intelligenceParts.push(`Call #${callCount} today`);
+    if (missedCount >= 2 && !everConnected) intelligenceParts.push(`URGENT: ${missedCount} missed, never connected`);
+    if (missedCount >= 1 && isConnected) intelligenceParts.push('Returning caller — previously missed');
+    if (!leadMatch) intelligenceParts.push('New caller — lead auto-created');
+
+    if (intelligenceParts.length > 0) {
+      const existingNotes = (await supabase
+        .from('admission_call_logs')
+        .select('call_notes')
+        .eq('id', callLogId)
+        .single()).data?.call_notes || '';
+
+      const newNotes = existingNotes
+        ? `${existingNotes} | ${intelligenceParts.join(' | ')}`
+        : `[Auto] ${intelligenceParts.join(' | ')}`;
+
+      await supabase
+        .from('admission_call_logs')
+        .update({ call_notes: newNotes })
+        .eq('id', callLogId);
+    }
+
+    // ── 3. Auto-create lead for EVERY unknown caller (first call itself) ──
+    if (!leadMatch) {
+      const last10 = callerPhone.slice(-10);
+
+      // Double-check lead doesn't exist (could have been created between calls)
+      const { data: existingLead } = await supabase
+        .from('admission_leads')
+        .select('id')
+        .like('phone', `%${last10}`)
+        .maybeSingle();
+
+      if (!existingLead) {
+        const priority = missedCount >= 3 ? 'hot' : missedCount >= 1 && !everConnected ? 'warm' : 'normal';
+        const { data: newLead } = await supabase
+          .from('admission_leads')
+          .insert({
+            institution_id: institutionId,
+            phone: callerPhone,
+            full_name: `Caller ${callerPhone.slice(-4)}`,
+            source: 'inbound_call',
+            status: 'new',
+            priority,
+            notes: isMissed
+              ? `Auto-created from inbound call (missed). Needs callback.`
+              : `Auto-created from inbound call. Connected with ${callContext.agentName || 'agent'} (${Math.floor(durationSec / 60)}m ${durationSec % 60}s).`,
+          })
+          .select('id')
+          .single();
+
+        if (newLead) {
+          // Link this call log to the new lead
+          await supabase
+            .from('admission_call_logs')
+            .update({ lead_id: newLead.id })
+            .eq('id', callLogId);
+
+          // Also link previous calls from same number
+          await supabase
+            .from('admission_call_logs')
+            .update({ lead_id: newLead.id })
+            .eq('from_number', callerPhone)
+            .eq('direction', 'inbound')
+            .is('lead_id', null);
+
+          logger.info('telephony/intelligence', 'Auto-created lead from inbound caller', {
+            leadId: newLead.id,
+            phone: callerPhone,
+            callCount,
+            isFirstCall: callCount === 1,
+          });
+        }
+      }
+    }
+
+    // ── 4. Log activity on lead (existing OR newly created) ──
+    const activeLeadId = leadMatch?.id || null;
+    // If we just created a lead above, get its ID
+    // The newLead variable is scoped inside the if block, so we use a different approach
+    // Re-fetch the lead_id from the call log we just updated
+    let finalLeadId = activeLeadId;
+    if (!finalLeadId) {
+      const { data: updatedLog } = await supabase
+        .from('admission_call_logs')
+        .select('lead_id')
+        .eq('id', callLogId)
+        .single();
+      finalLeadId = updatedLog?.lead_id || null;
+    }
+
+    if (finalLeadId) {
+      const activityTitle = isConnected
+        ? `Inbound call — ${Math.floor(durationSec / 60)}m ${durationSec % 60}s with ${callContext.agentName || 'agent'}`
+        : `Missed inbound call (attempt #${callCount} today)`;
+
+      await supabase.from('admission_lead_activities').insert({
+        lead_id: finalLeadId,
+        institution_id: institutionId,
+        activity_type: 'call',
+        title: activityTitle,
+        description: isMissed
+          ? `Caller tried to reach ${callContext.department}${callContext.college ? ` (${callContext.college})` : ''}. No one answered.`
+          : `Connected with ${callContext.agentName || 'agent'} in ${callContext.department}${callContext.college ? ` (${callContext.college})` : ''}.`,
+        performed_by: counselorId || null,
+        metadata: {
+          call_log_id: callLogId,
+          direction: 'inbound',
+          duration_seconds: durationSec,
+          department: callContext.department,
+          college: callContext.college,
+          call_number_today: callCount,
+          missed_count_today: missedCount,
+        },
+      });
+
+      // ── 5. Update lead: last_contacted_at + priority boost ──
+      const leadUpdate: Record<string, any> = {
+        last_contacted_at: new Date().toISOString(),
+      };
+
+      // Boost priority for repeat missed callers
+      if (missedCount >= 3 && !everConnected) {
+        leadUpdate.priority = 'hot';
+        leadUpdate.notes = `[Auto ${today}] Called ${missedCount} times, never connected — URGENT callback needed`;
+      }
+
+      await supabase
+        .from('admission_leads')
+        .update(leadUpdate)
+        .eq('id', finalLeadId);
+    }
+
+    // ── 6. Auto-set disposition for missed calls ──
+    if (isMissed && missedCount >= 2) {
+      await supabase
+        .from('admission_call_logs')
+        .update({
+          call_disposition: 'callback',
+        })
+        .eq('id', callLogId);
+    }
+
+    logger.info('telephony/intelligence', 'Call intelligence processed', {
+      callLogId,
+      callerPhone: callerPhone.slice(-4),
+      callCount,
+      missedCount,
+      isConnected,
+      leadMatched: !!leadMatch,
+      autoCreatedLead: !leadMatch,
+    });
+  }
+
   /**
    * Map an ExoPhone number to an institution_id.
    * Uses a simple mapping table — extend as needed.
@@ -691,12 +898,18 @@ export class TelephonyService {
     // ExoPhone → institution mapping
     // All JKKN ExoPhones map to the primary JKKN institution
     // This could be moved to a DB config table in the future
+    // Use JKKN College of Pharmacy as default (most admission calls go here)
+    // Production has separate institutions per college — the agent mapping + lead matching
+    // determines the correct institution. This is just the fallback.
+    const DEFAULT_INSTITUTION = process.env.EXOTEL_DEFAULT_INSTITUTION_ID
+      || '5736d86f-5dab-4b7f-9aa1-b3bb1a2dd334'; // JKKN College of Pharmacy (production)
+
     const EXOPHONE_MAP: Record<string, string> = {
-      '04446313503': 'a1111111-1111-1111-1111-111111111111', // JKKN-COLLEGES (staging)
-      '04446313545': 'a1111111-1111-1111-1111-111111111111', // JKKN-SCHOOLS
-      '04446313596': 'a1111111-1111-1111-1111-111111111111', // JKKN-DENTAL
-      '04448134434': 'a1111111-1111-1111-1111-111111111111', // JKKN-MAIN
-      '04446310202': 'a1111111-1111-1111-1111-111111111111', // JKKN-NEW
+      '04446313503': DEFAULT_INSTITUTION, // 1-JKKN-COLLEGES (main IVR)
+      '04446313545': DEFAULT_INSTITUTION, // JKKN secondary
+      '04446313596': DEFAULT_INSTITUTION, // JKKN tertiary
+      '04448134434': DEFAULT_INSTITUTION, // JKKN main
+      '04446310202': DEFAULT_INSTITUTION, // Dharmapuri
     };
 
     // Strip any prefix and try matching
