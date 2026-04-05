@@ -376,9 +376,9 @@ export class TelephonyService {
         const hour = parseInt(timePart, 10);
         if (!isNaN(hour) && hour >= 0 && hour < 24) {
           hourMap[hour].count++;
-          if (c.status === 'completed') {
+          if (c.cost_amount != null && c.cost_amount > 0) {
             hourMap[hour].answered++;
-          } else if (MISSED_STATUSES.includes(c.status)) {
+          } else {
             hourMap[hour].missed++;
           }
         }
