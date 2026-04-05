@@ -175,17 +175,17 @@ CREATE POLICY "service_role_all_call_settings" ON institution_call_settings
 CREATE POLICY "auth_read_call_intel" ON admission_call_intelligence
   FOR SELECT TO authenticated
   USING (institution_id IN (
-    SELECT institution_id FROM user_institutions WHERE user_id = auth.uid()
+    SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid() AND is_active = true
   ));
 CREATE POLICY "auth_read_callback_queue" ON admission_callback_queue
   FOR SELECT TO authenticated
   USING (institution_id IN (
-    SELECT institution_id FROM user_institutions WHERE user_id = auth.uid()
+    SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid() AND is_active = true
   ));
 CREATE POLICY "auth_read_health_events" ON telephony_health_events
   FOR SELECT TO authenticated USING (true);
 CREATE POLICY "auth_read_call_settings" ON institution_call_settings
   FOR SELECT TO authenticated
   USING (institution_id IN (
-    SELECT institution_id FROM user_institutions WHERE user_id = auth.uid()
+    SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid() AND is_active = true
   ));
