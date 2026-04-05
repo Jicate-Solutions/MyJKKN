@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { WhatsAppChatService } from '@/lib/services/whatsapp/whatsapp-chat-service';
+import { sendTextMessage, isWhatsAppConfigured } from '@/lib/services/whatsapp/whatsapp-api-client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // =============================================================================
@@ -298,6 +299,54 @@ async function processInboundMessage(
   }
 
   await WhatsAppChatService.handleInboundMessage(params);
+
+  // Auto-reply: send instant acknowledgment for new conversations
+  // Only for text/media messages (not reactions, button clicks, etc.)
+  if (['text', 'image', 'video', 'audio', 'document', 'location'].includes(msg.type)) {
+    try {
+      await handleAutoReply(institutionId, msg.from);
+    } catch (err) {
+      logger.warn('admissions/wa-webhook', 'Auto-reply failed (non-critical)', { error: String(err) });
+    }
+  }
+}
+
+async function handleAutoReply(institutionId: string, senderPhone: string) {
+  if (!isWhatsAppConfigured()) return;
+
+  const supabase = getServiceClient();
+
+  // Check if auto-replies are enabled for this institution
+  const { data: settings } = await supabase
+    .from('wa_settings')
+    .select('enable_auto_replies, auto_reply_message')
+    .eq('institution_id', institutionId)
+    .single();
+
+  if (!settings?.enable_auto_replies) return;
+
+  // Check if this is a new conversation (only 1 message = first contact)
+  const { count } = await supabase
+    .from('wa_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('conversation_id', (
+      await supabase
+        .from('wa_conversations')
+        .select('id')
+        .eq('institution_id', institutionId)
+        .eq('contact_phone', senderPhone)
+        .single()
+    ).data?.id)
+    .eq('direction', 'inbound');
+
+  // Only auto-reply on first message (count = 1 means we just stored it)
+  if (count !== 1) return;
+
+  const replyMessage = settings.auto_reply_message ||
+    'Thank you for reaching out to JKKN Institutions! We received your message and a counselor will respond shortly. For urgent queries, call +91 94899 75604.';
+
+  await sendTextMessage(senderPhone, replyMessage);
+  logger.info('admissions/wa-webhook', 'Auto-reply sent', { to: senderPhone });
 }
 
 async function processStatusUpdate(status: MetaStatus) {
