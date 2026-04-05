@@ -92,6 +92,26 @@ export interface CallStats {
   calls_without_notes: number;
 }
 
+export interface InboundCallStats {
+  total_incoming: number;
+  answered_count: number;
+  missed_count: number;
+  answer_rate: number;
+  avg_talk_time_seconds: number;
+  missed_no_callback: number;
+  calls_by_date: Array<{
+    date: string;
+    answered: number;
+    missed: number;
+  }>;
+  calls_by_hour: Array<{
+    hour: number;
+    count: number;
+    answered: number;
+    missed: number;
+  }>;
+}
+
 export interface InitiateCallInput {
   institution_id: string;
   counselor_id: string;
@@ -283,6 +303,93 @@ export class TelephonyService {
       calls_by_counselor: callsByCounselor,
       calls_by_date: callsByDate,
       calls_without_notes: callsWithoutNotes,
+    };
+  }
+
+  static async getInboundCallStats(
+    institutionId: string | undefined,
+    supabase: any,
+    fromDate?: string,
+    toDate?: string
+  ): Promise<InboundCallStats> {
+    let query = supabase
+      .from('admission_call_logs')
+      .select('status, call_disposition, duration_seconds, created_at')
+      .eq('direction', 'inbound');
+
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    if (fromDate) query = query.gte('created_at', fromDate);
+    if (toDate) query = query.lte('created_at', toDate);
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    const calls: any[] = data || [];
+    const MISSED_STATUSES = ['no-answer', 'busy', 'failed', 'cancelled'];
+
+    const totalIncoming = calls.length;
+    const answered = calls.filter((c) => c.status === 'completed');
+    const missed = calls.filter((c) => MISSED_STATUSES.includes(c.status));
+
+    const answeredCount = answered.length;
+    const missedCount = missed.length;
+    const answerRate = totalIncoming > 0 ? Math.round((answeredCount / totalIncoming) * 10000) / 100 : 0;
+
+    // Average talk time for answered (completed) calls
+    const totalTalkTime = answered.reduce((sum: number, c: any) => sum + (c.duration_seconds || 0), 0);
+    const avgTalkTimeSeconds = answeredCount > 0 ? Math.round(totalTalkTime / answeredCount) : 0;
+
+    // Missed calls with no callback — approximate: missed calls where disposition IS NULL
+    const missedNoCallback = missed.filter((c: any) => !c.call_disposition).length;
+
+    // Calls by date — split into answered vs missed per day
+    const dateMap: Record<string, { answered: number; missed: number }> = {};
+    calls.forEach((c: any) => {
+      if (c.created_at) {
+        const dateKey = c.created_at.substring(0, 10); // YYYY-MM-DD
+        if (!dateMap[dateKey]) dateMap[dateKey] = { answered: 0, missed: 0 };
+        if (c.status === 'completed') {
+          dateMap[dateKey].answered++;
+        } else if (MISSED_STATUSES.includes(c.status)) {
+          dateMap[dateKey].missed++;
+        }
+      }
+    });
+    const callsByDate = Object.entries(dateMap)
+      .map(([date, counts]) => ({ date, answered: counts.answered, missed: counts.missed }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Calls by hour — hourly distribution (0-23) with answered/missed breakdown
+    const hourMap: Record<number, { count: number; answered: number; missed: number }> = {};
+    for (let h = 0; h < 24; h++) hourMap[h] = { count: 0, answered: 0, missed: 0 };
+    calls.forEach((c: any) => {
+      if (c.created_at) {
+        // Parse hour from ISO timestamp (e.g., "2026-04-05T14:30:00")
+        const timePart = c.created_at.substring(11, 13);
+        const hour = parseInt(timePart, 10);
+        if (!isNaN(hour) && hour >= 0 && hour < 24) {
+          hourMap[hour].count++;
+          if (c.status === 'completed') {
+            hourMap[hour].answered++;
+          } else if (MISSED_STATUSES.includes(c.status)) {
+            hourMap[hour].missed++;
+          }
+        }
+      }
+    });
+    const callsByHour = Object.entries(hourMap)
+      .map(([hour, data]) => ({ hour: parseInt(hour, 10), count: data.count, answered: data.answered, missed: data.missed }))
+      .sort((a, b) => a.hour - b.hour);
+
+    return {
+      total_incoming: totalIncoming,
+      answered_count: answeredCount,
+      missed_count: missedCount,
+      answer_rate: answerRate,
+      avg_talk_time_seconds: avgTalkTimeSeconds,
+      missed_no_callback: missedNoCallback,
+      calls_by_date: callsByDate,
+      calls_by_hour: callsByHour,
     };
   }
 
