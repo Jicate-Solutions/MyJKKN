@@ -7,6 +7,7 @@
 // because webhooks have no authenticated user session.
 
 import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
+import { CallPipelineService } from './call-pipeline-service';
 import { getCallContext, lookupAgent } from './exotel-agent-map';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -801,6 +802,23 @@ export class TelephonyService {
         logger.error('telephony/webhook', 'Call intelligence processing failed', err);
       }
 
+      // ── Level 4: Call Pipeline (non-blocking) ──
+      // Runs enrichment (ExoVoiceAnalyze) and response (auto-SMS, callback queue)
+      CallPipelineService.runPipeline({
+        callLogId: data.id,
+        callSid: payload.CallSid,
+        institutionId,
+        direction: 'inbound',
+        status: mappedStatus,
+        fromNumber: callerPhone,
+        toNumber: agentPhone || exoPhone,
+        durationSeconds: durationSec,
+        costAmount: payload.Price ? parseFloat(payload.Price) : 0,
+        recordingUrl: payload.RecordingUrl ?? undefined,
+        leadId: leadMatch?.id ?? undefined,
+        counselorId: counselorId ?? undefined,
+      }, supabase).catch(err => console.error('[Pipeline] Error:', err));
+
       logger.info('telephony/webhook', 'Inbound call logged', {
         callLogId: data.id,
         from: callerPhone,
@@ -844,23 +862,25 @@ export class TelephonyService {
     const isMissed = durationSec === 0 || ['no-answer', 'busy', 'failed'].includes(mappedStatus);
     const isConnected = durationSec > 0 && mappedStatus === 'completed';
 
-    // ── 1. Check call history for this caller (today) ──
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: todayCalls } = await supabase
+    // ── 1. Check call history for this caller (7-day window) ──
+    const windowStart = new Date();
+    windowStart.setDate(windowStart.getDate() - 7);
+    const windowStartStr = windowStart.toISOString();
+    const { data: recentCalls } = await supabase
       .from('admission_call_logs')
       .select('id, status, duration_seconds, created_at')
       .eq('from_number', callerPhone)
       .eq('direction', 'inbound')
-      .gte('created_at', `${today}T00:00:00`)
+      .gte('created_at', windowStartStr)
       .order('created_at', { ascending: true });
 
-    const callCount = todayCalls?.length || 1;
-    const missedCount = (todayCalls || []).filter((c: any) => (c.duration_seconds || 0) === 0).length;
-    const everConnected = (todayCalls || []).some((c: any) => (c.duration_seconds || 0) > 0);
+    const callCount = recentCalls?.length || 1;
+    const missedCount = (recentCalls || []).filter((c: any) => (c.duration_seconds || 0) === 0).length;
+    const everConnected = (recentCalls || []).some((c: any) => (c.duration_seconds || 0) > 0);
 
     // ── 2. Update call notes with intelligence ──
     const intelligenceParts: string[] = [];
-    if (callCount > 1) intelligenceParts.push(`Call #${callCount} today`);
+    if (callCount > 1) intelligenceParts.push(`Call #${callCount} in 7 days`);
     if (missedCount >= 2 && !everConnected) intelligenceParts.push(`URGENT: ${missedCount} missed, never connected`);
     if (missedCount >= 1 && isConnected) intelligenceParts.push('Returning caller — previously missed');
     if (!leadMatch) intelligenceParts.push('New caller — lead auto-created');
@@ -954,7 +974,7 @@ export class TelephonyService {
     if (finalLeadId) {
       const activityTitle = isConnected
         ? `Inbound call — ${Math.floor(durationSec / 60)}m ${durationSec % 60}s with ${callContext.agentName || 'agent'}`
-        : `Missed inbound call (attempt #${callCount} today)`;
+        : `Missed inbound call (attempt #${callCount} in 7 days)`;
 
       await supabase.from('admission_lead_activities').insert({
         lead_id: finalLeadId,
@@ -984,7 +1004,7 @@ export class TelephonyService {
       // Boost priority for repeat missed callers
       if (missedCount >= 3 && !everConnected) {
         leadUpdate.priority = 'hot';
-        leadUpdate.notes = `[Auto ${today}] Called ${missedCount} times, never connected — URGENT callback needed`;
+        leadUpdate.notes = `[Auto ${new Date().toISOString().slice(0, 10)}] Called ${missedCount} times, never connected — URGENT callback needed`;
       }
 
       await supabase

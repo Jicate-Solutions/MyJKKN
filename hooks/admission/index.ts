@@ -206,6 +206,11 @@ export {
   communicationCostKeys,
 } from './use-communication-costs';
 
+// Re-export call intelligence hooks
+export { useCallIntelligence, useAnalyzeCall, callIntelligenceKeys } from './use-call-intelligence';
+export { useCallbackQueue, useBulkCallback, callbackQueueKeys } from './use-callback-queue';
+export { useTelephonyHealth, telephonyHealthKeys } from './use-telephony-health';
+
 // Re-export telephony / call log hooks
 export {
   useCallLogs,

@@ -25,9 +25,12 @@ import {
 import {
   useCallLogs,
   useInboundCallStats,
+  useTelephonyHealth,
+  useBulkCallback,
   formatDuration,
   type CallStatus,
 } from '@/hooks/admission';
+import { cn } from '@/lib/utils';
 import {
   PhoneIncoming,
   PhoneCall,
@@ -280,6 +283,8 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   });
 
   const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId);
+  const { data: health } = useTelephonyHealth();
+  const bulkCallback = useBulkCallback();
 
   const clearFilters = () => {
     setStatusFilter('');
@@ -292,6 +297,20 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
 
   return (
     <div className="space-y-6">
+      {/* Health Banner */}
+      {health && health.status !== 'healthy' && (
+        <div className={cn(
+          "p-3 rounded-lg text-sm flex items-center gap-2",
+          health.status === 'critical' ? "bg-red-50 text-red-800 border border-red-200" : "bg-yellow-50 text-yellow-800 border border-yellow-200"
+        )}>
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="font-medium">
+            {health.status === 'critical' ? 'ExoPhone Outage' : 'ExoPhone Warning'}
+          </span>
+          <span>— {health.latest?.connectivity_status || 'Unknown issue'}. Miss rates may be elevated.</span>
+        </div>
+      )}
+
       {/* KPI Cards */}
       <InboundKpiCards stats={stats} isLoading={statsLoading} />
 
@@ -397,9 +416,11 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                     <TableHead>Caller</TableHead>
                     <TableHead>ExoPhone</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Follow-up</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Recording</TableHead>
                     <TableHead>Time</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -428,6 +449,16 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                         </span>
                       </TableCell>
                       <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-wrap gap-1">
+                          {log.auto_sms_sent && (
+                            <Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">SMS</Badge>
+                          )}
+                          {log.callback_queued && (
+                            <Badge variant="outline" className="text-[10px] px-1 py-0 bg-purple-50 text-purple-700 border-purple-200">Callback</Badge>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>
                         {log.duration_seconds > 0 ? (
                           <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
@@ -447,6 +478,20 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                             minute: '2-digit',
                           })}
                         </span>
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        {(!log.cost_amount || log.cost_amount <= 0) && log.callback_queue_id && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => bulkCallback.mutate([log.callback_queue_id])}
+                            disabled={bulkCallback.isPending}
+                          >
+                            <Phone className="h-3 w-3 mr-1" />
+                            Call Back
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
