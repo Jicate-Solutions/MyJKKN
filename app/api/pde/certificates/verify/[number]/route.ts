@@ -53,10 +53,10 @@ export async function GET(
     try {
       const { data: course } = await (supabase as any)
         .from('vac_courses')
-        .select('title')
+        .select('name')
         .eq('id', cert.course_id)
         .single();
-      if (course) courseName = course.title;
+      if (course) courseName = course.name;
     } catch {
       // Course lookup failed — continue without name
     }

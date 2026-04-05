@@ -241,3 +241,22 @@ export function useLearnerCertificates(learnerId: string | undefined) {
     staleTime: 60000,
   });
 }
+
+/**
+ * Auto-check and generate certificate when conditions are met.
+ * Call after lesson completion or assessment submission.
+ */
+export function useCheckAndGenerateCertificate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ learnerId, courseId }: { learnerId: string; courseId: string }) =>
+      PDEService.checkAndGenerateCertificate(learnerId, courseId),
+    onSuccess: (data, variables) => {
+      if (data) {
+        // Certificate was generated — invalidate certificate queries
+        qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerCertificates(variables.learnerId) });
+        qc.invalidateQueries({ queryKey: pdeQueryKeys.certificates() });
+      }
+    },
+  });
+}

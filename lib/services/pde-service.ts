@@ -322,4 +322,114 @@ export class PDEService {
     if (error) throw new Error(`Failed to get certificates: ${error.message}`);
     return data || [];
   }
+
+  /**
+   * Check if a learner qualifies for a certificate and auto-generate one.
+   * Conditions: all lessons completed + final assessment passed + no existing certificate.
+   * Called after lesson completion or assessment submission.
+   */
+  static async checkAndGenerateCertificate(
+    learnerId: string,
+    courseId: string
+  ): Promise<PDECertificate | null> {
+    const supabase = getSupabase();
+
+    // 1. Check if certificate already exists for this learner+course
+    const { data: existing } = await supabase
+      .from('pde_certificates')
+      .select('id')
+      .eq('learner_id', learnerId)
+      .eq('course_id', courseId)
+      .maybeSingle();
+
+    if (existing) return null; // Already has certificate
+
+    // 2. Check all lessons completed via vac_learner_progress
+    const { count: totalLessons } = await supabase
+      .from('vac_lessons')
+      .select('id', { count: 'exact', head: true })
+      .eq('course_id', courseId);
+
+    if (!totalLessons || totalLessons === 0) return null;
+
+    const { count: completedLessons } = await supabase
+      .from('vac_learner_progress')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', learnerId)
+      .eq('course_id', courseId)
+      .eq('status', 'completed');
+
+    if ((completedLessons ?? 0) < totalLessons) return null; // Not all lessons done
+
+    // 3. Check if there is a passed final assessment (course-level assessment)
+    //    Look for any passed submission for a course-level assessment (lesson_id IS NULL)
+    const { data: courseAssessments } = await supabase
+      .from('pde_assessments')
+      .select('id')
+      .eq('course_id', courseId)
+      .is('lesson_id', null)
+      .eq('is_active', true);
+
+    let finalScore = 0;
+    let hasPassed = false;
+
+    if (courseAssessments && courseAssessments.length > 0) {
+      // Check if the learner has passed at least one course-level assessment
+      for (const assessment of courseAssessments) {
+        const { data: submission } = await supabase
+          .from('pde_submissions')
+          .select('final_score, passed')
+          .eq('assessment_id', assessment.id)
+          .eq('learner_id', learnerId)
+          .eq('passed', true)
+          .order('final_score', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (submission?.passed) {
+          hasPassed = true;
+          finalScore = Math.max(finalScore, submission.final_score || 0);
+        }
+      }
+
+      if (!hasPassed) return null; // Has course assessment but hasn't passed
+    } else {
+      // No course-level assessment — completion alone qualifies
+      // Calculate average score from all lesson-level submissions
+      const { data: allSubmissions } = await supabase
+        .from('pde_submissions')
+        .select('final_score')
+        .eq('learner_id', learnerId)
+        .eq('passed', true)
+        .not('final_score', 'is', null);
+
+      if (allSubmissions && allSubmissions.length > 0) {
+        finalScore = Math.round(
+          allSubmissions.reduce((sum: number, s: { final_score: number | null }) => sum + (s.final_score || 0), 0) / allSubmissions.length
+        );
+      } else {
+        finalScore = 100; // All lessons completed, no assessments — perfect
+      }
+    }
+
+    // 4. Calculate completion hours from engagement data
+    const { data: engagementRows } = await supabase
+      .from('pde_engagement_daily')
+      .select('time_spent_minutes')
+      .eq('learner_id', learnerId)
+      .eq('course_id', courseId);
+
+    const totalMinutes = (engagementRows || []).reduce(
+      (sum: number, r: { time_spent_minutes: number }) => sum + r.time_spent_minutes, 0
+    );
+    const completionHours = Math.max(1, Math.round(totalMinutes / 60));
+
+    // 5. Generate the certificate
+    return this.generateCertificate({
+      learner_id: learnerId,
+      course_id: courseId,
+      final_score: finalScore,
+      completion_hours: completionHours,
+    });
+  }
 }

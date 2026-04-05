@@ -9,7 +9,7 @@
  */
 
 import jsPDF from 'jspdf';
-import QRCode from 'qrcode';
+import * as QRCode from 'qrcode';
 
 // ── JKKN Brand Colors (RGB) ─────────────────────────────────────────────────
 const JKKN_CREAM = { r: 251, g: 251, b: 238 };     // #fbfbee
