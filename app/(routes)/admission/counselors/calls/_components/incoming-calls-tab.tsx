@@ -44,6 +44,7 @@ import {
   X,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { maskPhone } from '@/lib/utils/phone-number';
 
 // ============================================================================
@@ -262,6 +263,8 @@ interface IncomingCallsTabProps {
 }
 
 export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
+  const router = useRouter();
+
   // Filter state
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -405,7 +408,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                 </TableHeader>
                 <TableBody>
                   {logs.map((log: any) => (
-                    <TableRow key={log.id} className="hover:bg-muted/50">
+                    <TableRow key={log.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}>
                       <TableCell>
                         <div>
                           {log.lead ? (
