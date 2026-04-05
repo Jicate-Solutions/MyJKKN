@@ -47,8 +47,8 @@
     {
       "id": "exotel-price-classification",
       "name": "Answered/Missed Classification via Exotel Price",
-      "status": "in-progress",
-      "notes": "PR #13: Stats + badge use cost_amount > 0 for classification. Backfill endpoint built. DB shows 110 answered (14%) vs 653 missed. 635 calls still need backfill (NULL cost_amount). After PR merge + deploy: run backfill then verify."
+      "status": "complete",
+      "notes": "PR #13 merged + deployed. All 763 calls backfilled with cost_amount from Exotel. 214 answered (28%), 548 missed (72%). Backfill endpoint available for future use."
     },
     {
       "id": "exotel-sms",
