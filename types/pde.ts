@@ -165,6 +165,11 @@ export interface PDECertificate {
   verification_url: string | null;
   pdf_url: string | null;
   metadata: Record<string, unknown>;
+  // Joined fields from API (learner + course info)
+  learner_name?: string;
+  course_name?: string;
+  course_code?: string;
+  [key: string]: unknown;
 }
 
 // ============================================

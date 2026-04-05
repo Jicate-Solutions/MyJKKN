@@ -199,9 +199,9 @@ export default function PDECertificatePage({
     try {
       const certData: CertificateData = {
         certificateNumber: certificate.certificate_number,
-        learnerName: (certificate as Record<string, unknown>).learner_name as string || 'Learner',
-        courseName: (certificate as Record<string, unknown>).course_name as string || 'Course',
-        courseCode: (certificate as Record<string, unknown>).course_code as string | undefined,
+        learnerName: certificate.learner_name || 'Learner',
+        courseName: certificate.course_name || 'Course',
+        courseCode: certificate.course_code,
         completionDate,
         finalScore: certificate.final_score || 0,
         completionHours: certificate.completion_hours || 0,
@@ -317,12 +317,8 @@ export default function PDECertificatePage({
         {/* Certificate Preview */}
         <CertificatePreview
           certificateNumber={certificate.certificate_number}
-          learnerName={
-            (certificate as Record<string, unknown>).learner_name as string || 'Learner'
-          }
-          courseName={
-            (certificate as Record<string, unknown>).course_name as string || 'Course'
-          }
+          learnerName={certificate.learner_name || 'Learner'}
+          courseName={certificate.course_name || 'Course'}
           completionDate={completionDate}
           finalScore={certificate.final_score || 0}
           completionHours={certificate.completion_hours || 0}

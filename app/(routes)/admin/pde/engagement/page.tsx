@@ -176,7 +176,8 @@ function eventTypeBadgeVariant(type: string): 'default' | 'secondary' | 'destruc
 
 export default function EngagementDashboardPage() {
   const [courseFilter, setCourseFilter] = useState<string>('all');
-  const { data: courses, isLoading: coursesLoading } = useVACCourses();
+  const { data: coursesData, isLoading: coursesLoading } = useVACCourses();
+  const courses = coursesData?.data || [];
   const { data: stats, isLoading: statsLoading } = useEngagementStats(courseFilter);
   const { data: events, isLoading: eventsLoading } = useRecentEvents(courseFilter);
 
