@@ -12,7 +12,16 @@ import { TelephonyService } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // Verify the request is authorized
+// Accepts: Vercel CRON_SECRET (Authorization: Bearer <secret>), x-api-token header, or ?token= query param
 function verifyAuth(request: NextRequest): boolean {
+  // 1. Vercel Cron sends Authorization: Bearer <CRON_SECRET>
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    const authHeader = request.headers.get('authorization') || '';
+    if (authHeader === `Bearer ${cronSecret}`) return true;
+  }
+
+  // 2. Manual trigger via x-api-token or ?token=
   const expectedToken = process.env.EXOTEL_API_TOKEN;
   if (!expectedToken) return false;
 
