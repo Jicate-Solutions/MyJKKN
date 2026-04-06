@@ -26,8 +26,10 @@ import {
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Badge } from '@/components/ui/badge';
-import { Plus, X, GripVertical, ArrowRight, ArrowDown, Check } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Plus, X, GripVertical, Search, ArrowRight, ArrowDown, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useState } from 'react';
 
 interface ApprovalFlowBuilderProps {
   flowType: FlowType;
@@ -298,6 +300,8 @@ function StepCard({
   onMoveUp,
   onMoveDown,
 }: StepCardProps) {
+  const [approverSearch, setApproverSearch] = useState('');
+
   // Ensure customRoles is always an array for safe operations
   const safeRoles = Array.isArray(customRoles) ? customRoles : [];
 
@@ -316,6 +320,7 @@ function StepCard({
   const handleRoleChange = (roleId: string) => {
     const selectedRole = safeRoles.find((r) => r.id === roleId);
     if (selectedRole) {
+      setApproverSearch(''); // Reset search when role changes
       onUpdate(step.step_order, {
         role_id: roleId,
         role_name: selectedRole.role_name,
@@ -433,35 +438,62 @@ function StepCard({
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {/* User Selection as Checkboxes - Simpler approach that avoids cmdk issues */}
-                      <div className="border border-gray-200 dark:border-gray-700 rounded-md max-h-48 overflow-y-auto">
-                        {safeUsers.map((user) => {
-                          const isChecked = approverIds.includes(user.id);
-                          return (
-                            <div
-                              key={user.id}
-                              className={cn(
-                                'flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-700 last:border-b-0',
-                                isChecked && 'bg-primary/5'
-                              )}
-                              onClick={() => handleUserToggle(user.id)}
-                            >
-                              <Checkbox
-                                checked={isChecked}
-                                onCheckedChange={() => handleUserToggle(user.id)}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-sm truncate">{user.full_name}</div>
-                                <div className="text-xs text-gray-500 truncate">{user.email}</div>
-                              </div>
-                              {isChecked && (
-                                <Check className="h-4 w-4 text-primary flex-shrink-0" />
-                              )}
-                            </div>
-                          );
-                        })}
+                      {/* Search input for approvers */}
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <Input
+                          placeholder="Search approvers by name or email..."
+                          value={approverSearch}
+                          onChange={(e) => setApproverSearch(e.target.value)}
+                          className="pl-9"
+                        />
                       </div>
+                      {/* Filtered user list - only shown when searching */}
+                      {approverSearch.trim() && (
+                        <div className="border border-gray-200 dark:border-gray-700 rounded-md max-h-48 overflow-y-auto">
+                          {(() => {
+                            const query = approverSearch.trim().toLowerCase();
+                            const filtered = safeUsers.filter(
+                              (user) =>
+                                user.full_name?.toLowerCase().includes(query) ||
+                                user.email?.toLowerCase().includes(query)
+                            );
+                            if (filtered.length === 0) {
+                              return (
+                                <div className="p-3 text-sm text-gray-500 text-center">
+                                  No matching approvers found
+                                </div>
+                              );
+                            }
+                            return filtered.map((user) => {
+                              const isChecked = approverIds.includes(user.id);
+                              return (
+                                <div
+                                  key={user.id}
+                                  className={cn(
+                                    'flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-700 last:border-b-0',
+                                    isChecked && 'bg-primary/5'
+                                  )}
+                                  onClick={() => handleUserToggle(user.id)}
+                                >
+                                  <Checkbox
+                                    checked={isChecked}
+                                    onCheckedChange={() => handleUserToggle(user.id)}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-sm truncate">{user.full_name}</div>
+                                    <div className="text-xs text-gray-500 truncate">{user.email}</div>
+                                  </div>
+                                  {isChecked && (
+                                    <Check className="h-4 w-4 text-primary flex-shrink-0" />
+                                  )}
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      )}
                       <p className="text-xs text-gray-500">
                         {approverIds.length} of {safeUsers.length} user(s) selected
                       </p>
