@@ -2,15 +2,16 @@ export const dynamic = 'force-dynamic';
 
 // app/api/admission/counselors/status/route.ts
 // GET /api/admission/counselors/status — Counselor availability from Exotel User Management API
+// Email list is now sourced from admission_counselors table (synced from Exotel agent map).
+// Falls back to hardcoded list if table is empty.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase/server';
+import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import { ExotelClient, type ExotelUser } from '@/lib/services/telephony/exotel-client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-// Agent map gives us names, departments, and isAdmissionCounselor flag
-// keyed by phone number with leading 0
-const ADMISSION_COUNSELOR_EMAILS = new Set([
+// Hardcoded fallback — only used if admission_counselors table is empty
+const FALLBACK_COUNSELOR_EMAILS = new Set([
   'shanmugaprabhu@jkkn.org',
   'gowrisankar@jkkn.ac.in',
   'ratheshraj@jkkn.ac.in',
@@ -19,6 +20,30 @@ const ADMISSION_COUNSELOR_EMAILS = new Set([
   'saranyadevi.pm@jkkn.ac.in',
   'gandhimathi.v@jkkn.ac.in',
 ]);
+
+/**
+ * Get admission counselor emails from DB, falling back to hardcoded list.
+ */
+async function getAdmissionCounselorEmails(): Promise<Set<string>> {
+  try {
+    const supabase = createServiceRoleClient();
+    const { data, error } = await supabase
+      .from('admission_counselors')
+      .select('email')
+      .eq('is_active', true);
+
+    if (error || !data || data.length === 0) {
+      logger.info('admission/counselors/status', 'Using fallback email list', {
+        reason: error ? error.message : 'no active counselors in DB',
+      });
+      return FALLBACK_COUNSELOR_EMAILS;
+    }
+
+    return new Set(data.map(c => c.email.toLowerCase()));
+  } catch {
+    return FALLBACK_COUNSELOR_EMAILS;
+  }
+}
 
 export type CounselorStatus = 'online' | 'on_call' | 'offline';
 
@@ -77,6 +102,9 @@ export async function GET(_request: NextRequest) {
       );
     }
 
+    // Get counselor emails from DB (or fallback)
+    const counselorEmails = await getAdmissionCounselorEmails();
+
     // Fetch all users from Exotel CCM API
     let allUsers: ExotelUser[];
     try {
@@ -94,7 +122,7 @@ export async function GET(_request: NextRequest) {
 
     // Filter to admission counselors by matching email
     const counselors: CounselorInfo[] = allUsers
-      .filter(u => ADMISSION_COUNSELOR_EMAILS.has(u.email.toLowerCase()))
+      .filter(u => counselorEmails.has(u.email.toLowerCase()))
       .map(u => {
         const status = determineCounselorStatus(u);
         return {

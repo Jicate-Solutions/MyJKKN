@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { ExotelClient } from '@/lib/services/telephony/exotel-client';
 import { TelephonyService } from '@/lib/services/telephony/telephony-service';
 import { CallPipelineService } from '@/lib/services/telephony/call-pipeline-service';
+import { CounselorSyncService } from '@/lib/services/telephony/counselor-sync-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // Verify the request is authorized
@@ -151,11 +152,20 @@ export async function GET(request: NextRequest) {
       logger.error('telephony/sync', 'Pipeline sweep error:', err);
     }
 
+    // Counselor sync — keep admission_counselors table in sync with agent map
+    let counselorSync = { synced: 0, created: 0, updated: 0, deactivated: 0, errors: [] as string[] };
+    try {
+      counselorSync = await CounselorSyncService.syncFromExotel(supabase);
+    } catch (err) {
+      logger.error('telephony/sync', 'Counselor sync error:', err);
+    }
+
     logger.info('telephony/sync', 'Sync complete', {
       total: exotelCalls.length,
       synced,
       skipped,
       pipeline_sweep: sweepResult,
+      counselor_sync: counselorSync,
     });
 
     return NextResponse.json({
@@ -164,6 +174,7 @@ export async function GET(request: NextRequest) {
       total: exotelCalls.length,
       message: `Synced ${synced} new calls, skipped ${skipped} existing`,
       pipeline_sweep: sweepResult,
+      counselor_sync: counselorSync,
     });
   } catch (error) {
     logger.error('telephony/sync', 'Sync failed', error);
