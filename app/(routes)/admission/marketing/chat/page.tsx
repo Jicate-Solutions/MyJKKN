@@ -14,11 +14,12 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, BarChart3, IndianRupee, MessageCircle, Wifi, WifiOff } from 'lucide-react';
+import { Settings, BarChart3, IndianRupee, MessageCircle, Wifi, WifiOff, Megaphone } from 'lucide-react';
 import Link from 'next/link';
 import { ConversationList } from './_components/conversation-list';
 import { ChatThread } from './_components/chat-thread';
 import { LeadProfileSidebar } from './_components/lead-profile-sidebar';
+import { BroadcastTab } from './_components/broadcast-tab';
 import { useChatRealtime } from '@/hooks/admission/use-chat-realtime';
 import { useChatStats } from '@/hooks/admission/use-chat-stats';
 import { useCostDashboard } from '@/hooks/admission/use-communication-costs';
@@ -29,7 +30,7 @@ import type { Conversation } from '@/lib/services/whatsapp/whatsapp-chat-service
 function ChatInboxContent() {
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
-  const [channel, setChannel] = useState<'business' | 'personal'>('business');
+  const [channel, setChannel] = useState<'business' | 'personal' | 'broadcast'>('business');
   const { profile } = useAuth();
   const institutionId = profile?.institution_id;
 
@@ -100,6 +101,17 @@ function ChatInboxContent() {
                   <MessageCircle className="h-3 w-3 inline mr-1.5" />
                   Personal
                 </button>
+                <button
+                  onClick={() => setChannel('broadcast')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    channel === 'broadcast'
+                      ? 'bg-orange-600 text-white shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
+                >
+                  <Megaphone className="h-3 w-3 inline mr-1.5" />
+                  Broadcast
+                </button>
               </div>
 
               {/* Stats badges (Business channel only) */}
@@ -155,7 +167,14 @@ function ChatInboxContent() {
             </div>
           </div>
 
-          {channel === 'business' ? (
+          {channel === 'broadcast' ? (
+            /* Broadcast View */
+            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 180px)' }}>
+              <div className="h-full overflow-y-auto p-6">
+                <BroadcastTab institutionId={institutionId || ''} />
+              </div>
+            </Card>
+          ) : channel === 'business' ? (
             /* Three-panel Chat Layout (Business) */
             <Card className="overflow-hidden" style={{ height: 'calc(100vh - 180px)' }}>
               <div className="flex h-full">
