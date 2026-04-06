@@ -321,7 +321,7 @@ export class TelephonyService {
   ): Promise<InboundCallStats> {
     let query = supabase
       .from('admission_call_logs')
-      .select('status, call_disposition, duration_seconds, cost_amount, created_at')
+      .select('status, call_disposition, duration_seconds, cost_amount, created_at, started_at, from_number')
       .eq('direction', 'inbound');
 
     if (institutionId) query = query.eq('institution_id', institutionId);
@@ -352,11 +352,25 @@ export class TelephonyService {
     // Missed calls with no callback — approximate: missed calls where disposition IS NULL
     const missedNoCallback = missed.filter((c: any) => !c.call_disposition).length;
 
+    // Helper: convert a UTC ISO timestamp to IST (UTC+5:30) and return a Date object
+    const toIST = (isoStr: string): Date => {
+      const d = new Date(isoStr);
+      // Add 5 hours 30 minutes (IST offset) in milliseconds
+      return new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+    };
+
+    // Use started_at (when call happened) with fallback to created_at (when DB record was created).
+    // This prevents sync-day spikes where bulk-imported records all share the same created_at date.
+    const getCallTimestamp = (c: any): string | null => c.started_at || c.created_at;
+
     // Calls by date — split into answered vs missed per day (using cost_amount)
+    // Dates are in IST so Indian business days align correctly
     const dateMap: Record<string, { answered: number; missed: number }> = {};
     calls.forEach((c: any) => {
-      if (c.created_at) {
-        const dateKey = c.created_at.substring(0, 10); // YYYY-MM-DD
+      const ts = getCallTimestamp(c);
+      if (ts) {
+        const istDate = toIST(ts);
+        const dateKey = istDate.toISOString().substring(0, 10); // YYYY-MM-DD in IST
         if (!dateMap[dateKey]) dateMap[dateKey] = { answered: 0, missed: 0 };
         if (c.cost_amount != null && c.cost_amount > 0) {
           dateMap[dateKey].answered++;
@@ -370,14 +384,15 @@ export class TelephonyService {
       .sort((a, b) => a.date.localeCompare(b.date));
 
     // Calls by hour — hourly distribution (0-23) with answered/missed breakdown
+    // Hours are in IST so Indian business hours (9 AM - 6 PM) display correctly
     const hourMap: Record<number, { count: number; answered: number; missed: number }> = {};
     for (let h = 0; h < 24; h++) hourMap[h] = { count: 0, answered: 0, missed: 0 };
     calls.forEach((c: any) => {
-      if (c.created_at) {
-        // Parse hour from ISO timestamp (e.g., "2026-04-05T14:30:00")
-        const timePart = c.created_at.substring(11, 13);
-        const hour = parseInt(timePart, 10);
-        if (!isNaN(hour) && hour >= 0 && hour < 24) {
+      const ts = getCallTimestamp(c);
+      if (ts) {
+        const istDate = toIST(ts);
+        const hour = istDate.getUTCHours(); // getUTCHours because we already shifted to IST
+        if (hour >= 0 && hour < 24) {
           hourMap[hour].count++;
           if (c.cost_amount != null && c.cost_amount > 0) {
             hourMap[hour].answered++;
