@@ -363,7 +363,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   })();
 
   // Unique callers hook
-  const { callers, summary: callerSummary, isLoading: uniqueLoading } = useUniqueCallers(
+  const { callers, summary: callerSummary, isLoading: uniqueLoading, isError: uniqueError, error: uniqueErrorMsg, refetch: refetchUnique } = useUniqueCallers(
     institutionId, effectiveFromDate || undefined, effectiveToDate || undefined
   );
 
@@ -578,10 +578,20 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <div className="space-y-3">
                 {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
               </div>
+            ) : uniqueError ? (
+              <div className="text-center py-12 text-red-500">
+                <AlertCircle className="h-10 w-10 mx-auto mb-3 opacity-70" />
+                <p className="font-medium">Failed to load callers</p>
+                <p className="text-sm mt-1 text-muted-foreground">{uniqueErrorMsg?.message || 'Unknown error'}</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => refetchUnique()}>
+                  Retry
+                </Button>
+              </div>
             ) : callers.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Users className="h-10 w-10 mx-auto mb-3 opacity-50" />
                 <p className="font-medium">No callers found</p>
+                <p className="text-xs mt-1">Try adjusting the date filters</p>
               </div>
             ) : (
               <>

@@ -13,11 +13,13 @@ export async function GET(request: NextRequest) {
   try {
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {
+      logger.warn('admission/calls/unique-callers', 'Auth failed', { authError: authError?.message });
       return NextResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
+    logger.info('admission/calls/unique-callers', 'Request', { userId: user.id });
 
     const { searchParams } = request.nextUrl;
     const institutionId = searchParams.get('institution_id') || undefined;
@@ -42,7 +44,11 @@ export async function GET(request: NextRequest) {
     if (toDate) query = query.lte('created_at', toDate);
 
     const { data: calls, error } = await query;
-    if (error) throw new Error(error.message);
+    if (error) {
+      logger.error('admission/calls/unique-callers', 'Query failed', { error: error.message, code: error.code });
+      throw new Error(error.message);
+    }
+    logger.info('admission/calls/unique-callers', 'Query result', { callCount: (calls || []).length });
 
     const callerMap: Record<string, any> = {};
 
