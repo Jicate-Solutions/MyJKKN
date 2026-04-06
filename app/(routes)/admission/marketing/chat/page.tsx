@@ -1,24 +1,27 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
+  Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
+  BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, BarChart3, IndianRupee, MessageCircle, Wifi, WifiOff } from 'lucide-react';
+import {
+  Settings, IndianRupee, MessageCircle, Wifi, WifiOff,
+  Megaphone, Users, RotateCcw, BarChart3,
+} from 'lucide-react';
 import Link from 'next/link';
 import { ConversationList } from './_components/conversation-list';
 import { ChatThread } from './_components/chat-thread';
 import { LeadProfileSidebar } from './_components/lead-profile-sidebar';
+import { BroadcastTab } from './_components/broadcast-tab';
+import { SegmentsTab } from './_components/segments-tab';
+import { ReengageTab } from './_components/reengage-tab';
+import { AnalyticsTab } from './_components/analytics-tab';
 import { useChatRealtime } from '@/hooks/admission/use-chat-realtime';
 import { useChatStats } from '@/hooks/admission/use-chat-stats';
 import { useCostDashboard } from '@/hooks/admission/use-communication-costs';
@@ -26,14 +29,24 @@ import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-person
 import { useAuth } from '@/hooks/use-auth';
 import type { Conversation } from '@/lib/services/whatsapp/whatsapp-chat-service';
 
+type Channel = 'inbox' | 'personal' | 'broadcast' | 'segments' | 'reengage' | 'analytics';
+
+const TABS: { id: Channel; label: string; icon: React.ElementType; color: string }[] = [
+  { id: 'inbox', label: 'Inbox', icon: MessageCircle, color: 'bg-blue-600' },
+  { id: 'broadcast', label: 'Broadcast', icon: Megaphone, color: 'bg-orange-600' },
+  { id: 'segments', label: 'Segments', icon: Users, color: 'bg-purple-600' },
+  { id: 'reengage', label: 'Re-engage', icon: RotateCcw, color: 'bg-teal-600' },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3, color: 'bg-indigo-600' },
+  { id: 'personal', label: 'Personal', icon: Wifi, color: '' },
+];
+
 function ChatInboxContent() {
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
-  const [showSidebar, setShowSidebar] = useState(true);
-  const [channel, setChannel] = useState<'business' | 'personal'>('business');
+  const [showSidebar] = useState(true);
+  const [channel, setChannel] = useState<Channel>('inbox');
   const { profile } = useAuth();
   const institutionId = profile?.institution_id;
 
-  // Personal WhatsApp connection status (only fetched when personal tab is active)
   const departmentId = profile?.department_id;
   const { data: personalStatus } = usePersonalWhatsAppStatus(
     channel === 'personal' ? departmentId : undefined
@@ -42,68 +55,32 @@ function ChatInboxContent() {
   const { stats } = useChatStats();
   const { dashboard: costDashboard } = useCostDashboard(institutionId);
 
-  // Real-time: pass institution_id from active conversation (or null)
   useChatRealtime(
     activeConversation?.institution_id || null,
     activeConversation?.id || null
   );
 
-  const handleSelectConversation = (conv: Conversation) => {
-    setActiveConversation(conv);
-  };
-
   return (
     <PermissionGuard module="admission" action="view">
-      <ContentLayout title="WhatsApp Chat">
+      <ContentLayout title="WhatsApp Command Center">
         <div className="space-y-4">
           {/* Header */}
           <div className="flex items-center justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
-                  <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
                   <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem>
-                  <BreadcrumbPage>Chat</BreadcrumbPage>
+                  <BreadcrumbPage>WhatsApp</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
 
             <div className="flex items-center gap-3">
-              {/* Channel Toggle */}
-              <div className="flex items-center rounded-lg border p-0.5 gap-0.5">
-                <button
-                  onClick={() => setChannel('business')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                    channel === 'business'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                  }`}
-                >
-                  <MessageCircle className="h-3 w-3 inline mr-1.5" />
-                  Business
-                </button>
-                <button
-                  onClick={() => setChannel('personal')}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                    channel === 'personal'
-                      ? 'text-white shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                  }`}
-                  style={channel === 'personal' ? { backgroundColor: '#25D366' } : undefined}
-                >
-                  <MessageCircle className="h-3 w-3 inline mr-1.5" />
-                  Personal
-                </button>
-              </div>
-
-              {/* Stats badges (Business channel only) */}
-              {channel === 'business' && (
+              {/* Inbox stats */}
+              {channel === 'inbox' && (
                 <div className="hidden md:flex items-center gap-2">
                   <Badge variant="outline" className="text-xs">
                     <span className="h-2 w-2 rounded-full bg-green-500 mr-1.5" />
@@ -118,7 +95,6 @@ function ChatInboxContent() {
                       {stats.total_unread} Unread
                     </Badge>
                   )}
-                  {/* Gap 15: Cost Widget */}
                   <Badge variant="outline" className="text-xs gap-1">
                     <IndianRupee className="h-3 w-3" />
                     Today: {costDashboard.daily_average.toFixed(2)} | Month: {costDashboard.monthly_spend.toFixed(2)}
@@ -126,7 +102,7 @@ function ChatInboxContent() {
                 </div>
               )}
 
-              {/* Connection status badge (Personal channel only) */}
+              {/* Personal status */}
               {channel === 'personal' && (
                 <div className="hidden md:flex items-center gap-2">
                   <Badge
@@ -155,24 +131,48 @@ function ChatInboxContent() {
             </div>
           </div>
 
-          {channel === 'business' ? (
-            /* Three-panel Chat Layout (Business) */
-            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 180px)' }}>
+          {/* Tab Bar */}
+          <div className="flex items-center rounded-lg border p-0.5 gap-0.5 overflow-x-auto">
+            {TABS.map(tab => {
+              const Icon = tab.icon;
+              const isActive = channel === tab.id;
+              const isPersonal = tab.id === 'personal';
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setChannel(tab.id)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
+                    isActive
+                      ? `${isPersonal ? '' : tab.color} text-white shadow-sm`
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
+                  style={isActive && isPersonal ? { backgroundColor: '#25D366' } : undefined}
+                >
+                  <Icon className="h-3 w-3 inline mr-1.5" />
+                  {tab.label}
+                  {tab.id === 'inbox' && stats.total_unread > 0 && (
+                    <span className="ml-1.5 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                      {stats.total_unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Content */}
+          {channel === 'inbox' && (
+            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
               <div className="flex h-full">
-                {/* Left: Conversation List (320px) */}
                 <div className="w-80 flex-shrink-0 h-full">
                   <ConversationList
                     activeId={activeConversation?.id || null}
-                    onSelect={handleSelectConversation}
+                    onSelect={(conv: Conversation) => setActiveConversation(conv)}
                   />
                 </div>
-
-                {/* Center: Chat Thread */}
                 <div className="flex-1 h-full min-w-0">
                   <ChatThread conversationId={activeConversation?.id || null} />
                 </div>
-
-                {/* Right: Lead Profile Sidebar (300px) */}
                 {showSidebar && (
                   <div className="w-[300px] flex-shrink-0 h-full hidden lg:block">
                     <LeadProfileSidebar conversationId={activeConversation?.id || null} />
@@ -180,9 +180,42 @@ function ChatInboxContent() {
                 )}
               </div>
             </Card>
-          ) : (
-            /* Personal WhatsApp View */
-            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 180px)' }}>
+          )}
+
+          {channel === 'broadcast' && (
+            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
+              <div className="h-full overflow-y-auto p-6">
+                <BroadcastTab institutionId={institutionId || ''} />
+              </div>
+            </Card>
+          )}
+
+          {channel === 'segments' && (
+            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
+              <div className="h-full overflow-y-auto p-6">
+                <SegmentsTab institutionId={institutionId || ''} />
+              </div>
+            </Card>
+          )}
+
+          {channel === 'reengage' && (
+            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
+              <div className="h-full overflow-y-auto p-6">
+                <ReengageTab institutionId={institutionId || ''} />
+              </div>
+            </Card>
+          )}
+
+          {channel === 'analytics' && (
+            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
+              <div className="h-full overflow-y-auto p-6">
+                <AnalyticsTab institutionId={institutionId || ''} />
+              </div>
+            </Card>
+          )}
+
+          {channel === 'personal' && (
+            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
               <div className="flex flex-col items-center justify-center h-full text-center p-8">
                 <div
                   className="h-16 w-16 rounded-full flex items-center justify-center mb-4"
@@ -199,9 +232,6 @@ function ChatInboxContent() {
                   {personalStatus?.status === 'connected'
                     ? 'Your personal WhatsApp is connected. Messages sent via personal channel will appear in lead timelines.'
                     : 'Your personal WhatsApp is not connected. Go to Settings to scan the QR code and connect.'}
-                </p>
-                <p className="text-xs text-muted-foreground mb-6">
-                  Message history and connection management are available in the Settings page.
                 </p>
                 <Button variant="outline" size="sm" asChild>
                   <Link href="/admission/marketing/chat/settings">
