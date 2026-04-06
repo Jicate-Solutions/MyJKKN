@@ -161,7 +161,17 @@ function InboundKpiCards({ stats, isLoading }: { stats: any; isLoading: boolean 
 // CHARTS
 // ============================================================================
 
-function InboundVolumeChart({ data, isLoading }: { data: Array<{ date: string; answered: number; missed: number }>; isLoading: boolean }) {
+function InboundVolumeChart({
+  data,
+  isLoading,
+  selectedDate,
+  onDateClick,
+}: {
+  data: Array<{ date: string; answered: number; missed: number }>;
+  isLoading: boolean;
+  selectedDate?: string;
+  onDateClick?: (date: string) => void;
+}) {
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (!data.length) {
     return <div className="text-center py-8 text-muted-foreground text-sm">No incoming call data yet</div>;
@@ -176,10 +186,19 @@ function InboundVolumeChart({ data, isLoading }: { data: Array<{ date: string; a
         const total = day.answered + day.missed;
         const answeredPct = (day.answered / maxTotal) * 100;
         const missedPct = (day.missed / maxTotal) * 100;
+        const isSelected = selectedDate === day.date;
         return (
-          <div key={day.date} className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground w-20 shrink-0">
-              {new Date(day.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+          <div
+            key={day.date}
+            className={cn(
+              "flex items-center gap-3 rounded px-1 -mx-1 transition-colors",
+              onDateClick && "cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20",
+              isSelected && "bg-blue-100 dark:bg-blue-950/30 ring-1 ring-blue-300"
+            )}
+            onClick={() => onDateClick?.(day.date)}
+          >
+            <span className={cn("text-xs w-20 shrink-0", isSelected ? "font-bold text-blue-600" : "text-muted-foreground")}>
+              {new Date(day.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             </span>
             <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden flex">
               <div
@@ -206,12 +225,30 @@ function InboundVolumeChart({ data, isLoading }: { data: Array<{ date: string; a
           <div className="w-3 h-3 rounded bg-red-400" />
           Missed
         </div>
+        {selectedDate && (
+          <button
+            className="ml-auto text-blue-600 hover:underline flex items-center gap-1"
+            onClick={(e) => { e.stopPropagation(); onDateClick?.(''); }}
+          >
+            <X className="h-3 w-3" /> Clear filter
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-function HourlyDistributionChart({ data, isLoading }: { data: Array<{ hour: number; answered: number; missed: number }>; isLoading: boolean }) {
+function HourlyDistributionChart({
+  data,
+  isLoading,
+  selectedHour,
+  onHourClick,
+}: {
+  data: Array<{ hour: number; answered: number; missed: number }>;
+  isLoading: boolean;
+  selectedHour?: number | null;
+  onHourClick?: (hour: number | null) => void;
+}) {
   if (isLoading) return <Skeleton className="h-40 w-full" />;
 
   // Only show hours 6-22 (relevant business hours in India)
@@ -233,11 +270,24 @@ function HourlyDistributionChart({ data, isLoading }: { data: Array<{ hour: numb
         const answeredPct = (h.answered / maxTotal) * 100;
         const missedPct = (h.missed / maxTotal) * 100;
         const isPeak = h.hour === peakHour.hour && total > 0;
+        const isSelected = selectedHour === h.hour;
         const hourLabel = h.hour === 0 ? '12 AM' : h.hour < 12 ? `${h.hour} AM` : h.hour === 12 ? '12 PM' : `${h.hour - 12} PM`;
 
         return (
-          <div key={h.hour} className={`flex items-center gap-3 ${isPeak ? 'bg-blue-50 dark:bg-blue-950/20 -mx-2 px-2 py-0.5 rounded' : ''}`}>
-            <span className={`text-xs w-12 shrink-0 ${isPeak ? 'font-bold text-blue-600' : 'text-muted-foreground'}`}>
+          <div
+            key={h.hour}
+            className={cn(
+              "flex items-center gap-3 -mx-2 px-2 py-0.5 rounded transition-colors",
+              onHourClick && total > 0 && "cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20",
+              isSelected && "bg-blue-100 dark:bg-blue-950/30 ring-1 ring-blue-300",
+              isPeak && !isSelected && "bg-blue-50 dark:bg-blue-950/20",
+            )}
+            onClick={() => total > 0 && onHourClick?.(isSelected ? null : h.hour)}
+          >
+            <span className={cn(
+              "text-xs w-12 shrink-0",
+              isSelected ? "font-bold text-blue-600" : isPeak ? "font-bold text-blue-600" : "text-muted-foreground"
+            )}>
               {hourLabel}
             </span>
             <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden flex">
@@ -248,12 +298,22 @@ function HourlyDistributionChart({ data, isLoading }: { data: Array<{ hour: numb
           </div>
         );
       })}
-      {peakHour && (peakHour.answered + peakHour.missed) > 0 && (
-        <div className="text-xs text-blue-600 pt-1 font-medium">
-          Peak: {peakHour.hour === 0 ? '12 AM' : peakHour.hour < 12 ? `${peakHour.hour} AM` : peakHour.hour === 12 ? '12 PM' : `${peakHour.hour - 12} PM`}
-          {' '}({peakHour.answered + peakHour.missed} calls)
-        </div>
-      )}
+      <div className="flex items-center gap-2 pt-1">
+        {peakHour && (peakHour.answered + peakHour.missed) > 0 && (
+          <span className="text-xs text-blue-600 font-medium">
+            Peak: {peakHour.hour === 0 ? '12 AM' : peakHour.hour < 12 ? `${peakHour.hour} AM` : peakHour.hour === 12 ? '12 PM' : `${peakHour.hour - 12} PM`}
+            {' '}({peakHour.answered + peakHour.missed} calls)
+          </span>
+        )}
+        {selectedHour != null && (
+          <button
+            className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1"
+            onClick={(e) => { e.stopPropagation(); onHourClick?.(null); }}
+          >
+            <X className="h-3 w-3" /> Clear filter
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -279,9 +339,32 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   const [toDate, setToDate] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
+  // Drill-down state — set by clicking chart bars
+  const [drilldownDate, setDrilldownDate] = useState<string>('');
+  const [drilldownHour, setDrilldownHour] = useState<number | null>(null);
+
+  // Compute effective date filters: drill-down overrides manual filters
+  // When a day bar is clicked, scope to that day. When an hour bar is clicked
+  // AND a day is selected, further narrow to that hour window.
+  const effectiveFromDate = (() => {
+    if (drilldownDate && drilldownHour != null) {
+      // Date + hour selected: scope to that IST hour on that date
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${drilldownDate}T${pad(drilldownHour)}:00:00+05:30`;
+    }
+    return drilldownDate || fromDate;
+  })();
+  const effectiveToDate = (() => {
+    if (drilldownDate && drilldownHour != null) {
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${drilldownDate}T${pad(drilldownHour)}:59:59+05:30`;
+    }
+    return drilldownDate || toDate;
+  })();
+
   // Unique callers hook
   const { callers, summary: callerSummary, isLoading: uniqueLoading } = useUniqueCallers(
-    institutionId, fromDate || undefined, toDate || undefined
+    institutionId, effectiveFromDate || undefined, effectiveToDate || undefined
   );
 
   // Data hooks
@@ -289,8 +372,8 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
     institution_id: institutionId,
     direction: 'inbound',
     status: (statusFilter as CallStatus) || undefined,
-    from_date: fromDate || undefined,
-    to_date: toDate || undefined,
+    from_date: effectiveFromDate || undefined,
+    to_date: effectiveToDate || undefined,
     page,
     limit: 20,
   });
@@ -303,10 +386,28 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
     setStatusFilter('');
     setFromDate('');
     setToDate('');
+    setDrilldownDate('');
+    setDrilldownHour(null);
     setPage(1);
   };
 
-  const hasFilters = !!statusFilter || !!fromDate || !!toDate;
+  const hasFilters = !!statusFilter || !!fromDate || !!toDate || !!drilldownDate || drilldownHour != null;
+
+  // Handlers for chart drill-down
+  const handleDateClick = (date: string) => {
+    if (date === drilldownDate || !date) {
+      setDrilldownDate('');
+    } else {
+      setDrilldownDate(date);
+      setDrilldownHour(null);
+    }
+    setPage(1);
+  };
+
+  const handleHourClick = (hour: number | null) => {
+    setDrilldownHour(hour);
+    setPage(1);
+  };
 
   return (
     <div className="space-y-6">
@@ -335,10 +436,15 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <TrendingUp className="h-4 w-4" />
               Incoming Call Volume
             </CardTitle>
-            <CardDescription>Answered vs. missed per day</CardDescription>
+            <CardDescription>Answered vs. missed per day — click a bar to filter</CardDescription>
           </CardHeader>
           <CardContent>
-            <InboundVolumeChart data={stats.calls_by_date} isLoading={statsLoading} />
+            <InboundVolumeChart
+              data={stats.calls_by_date}
+              isLoading={statsLoading}
+              selectedDate={drilldownDate}
+              onDateClick={handleDateClick}
+            />
           </CardContent>
         </Card>
 
@@ -348,13 +454,46 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <Clock className="h-4 w-4" />
               When Do Prospects Call?
             </CardTitle>
-            <CardDescription>Hourly distribution (IST)</CardDescription>
+            <CardDescription>Hourly distribution (IST) — click a bar to filter</CardDescription>
           </CardHeader>
           <CardContent>
-            <HourlyDistributionChart data={stats.calls_by_hour} isLoading={statsLoading} />
+            <HourlyDistributionChart
+              data={stats.calls_by_hour}
+              isLoading={statsLoading}
+              selectedHour={drilldownHour}
+              onHourClick={handleHourClick}
+            />
           </CardContent>
         </Card>
       </div>
+
+      {/* Drill-down active banner */}
+      {(drilldownDate || drilldownHour != null) && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 text-sm text-blue-800 dark:text-blue-200">
+          <Filter className="h-4 w-4 shrink-0" />
+          <span>
+            Showing calls
+            {drilldownDate && (
+              <> from <span className="font-semibold">{new Date(drilldownDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span></>
+            )}
+            {drilldownHour != null && (
+              <> between <span className="font-semibold">
+                {drilldownHour === 0 ? '12 AM' : drilldownHour < 12 ? `${drilldownHour} AM` : drilldownHour === 12 ? '12 PM' : `${drilldownHour - 12} PM`}
+                {' - '}
+                {(drilldownHour + 1) % 24 === 0 ? '12 AM' : (drilldownHour + 1) < 12 ? `${drilldownHour + 1} AM` : (drilldownHour + 1) === 12 ? '12 PM' : `${(drilldownHour + 1) - 12} PM`}
+              </span> (IST)</>
+            )}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-7 px-2 text-xs text-blue-700 hover:text-blue-900"
+            onClick={() => { setDrilldownDate(''); setDrilldownHour(null); setPage(1); }}
+          >
+            <X className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        </div>
+      )}
 
       {/* Call Log Table */}
       <Card>
@@ -612,7 +751,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                       </TableCell>
                       <TableCell>
                         <span className="text-xs text-muted-foreground">
-                          {new Date(log.created_at).toLocaleDateString(undefined, {
+                          {new Date(log.started_at || log.created_at).toLocaleDateString(undefined, {
                             month: 'short',
                             day: 'numeric',
                             hour: '2-digit',
