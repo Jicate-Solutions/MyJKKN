@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileEdit, Trash2, MoreVertical } from 'lucide-react';
+import { FileEdit, Trash2, MoreVertical, Landmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -26,6 +26,8 @@ import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
 import { LearnerProfile } from '@/types/learner-profile';
 import { useDeleteLearnerProfile } from '@/hooks/use-learner-profiles';
+import { useMarkAsAccount } from '@/hooks/billing/use-onboarding';
+import { OnboardingService } from '@/lib/services/billing/onboarding/onboarding-service';
 
 interface EnquiryDetailActionsProps {
   enquiry: LearnerProfile;
@@ -34,6 +36,7 @@ interface EnquiryDetailActionsProps {
 export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
   const router = useRouter();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const {
     canAccess,
     isSuperAdmin,
@@ -42,15 +45,27 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
 
   // Use React Query mutation for delete with automatic cache invalidation
   const deleteMutation = useDeleteLearnerProfile();
+  const markAsAccountMutation = useMarkAsAccount();
 
   // Only access permissions after they've loaded - use learners.admissions module for enquiries
   const hasEditPermission =
     !permissionsLoading && (isSuperAdmin || canAccess('learners.admissions', 'edit'));
   const hasDeletePermission =
     !permissionsLoading && (isSuperAdmin || canAccess('learners.admissions', 'delete'));
+  const hasMarkAccountPermission =
+    !permissionsLoading && (isSuperAdmin || canAccess('learners.admissions', 'mark_account'));
 
   const handleEdit = () => {
     router.push(`/learners/enquiries/${enquiry.id}/edit`);
+  };
+
+  const handleMarkAsAccount = () => {
+    const validation = OnboardingService.validateFinanceFields(enquiry);
+    if (!validation.valid) {
+      toast.error(`Missing finance fields: ${(validation as any).missing.join(', ')}. Please edit the enquiry to add finance details.`);
+      return;
+    }
+    setAccountDialogOpen(true);
   };
 
   const handleDelete = async () => {
@@ -84,6 +99,15 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
               Edit Enquiry
             </DropdownMenuItem>
           )}
+          {hasMarkAccountPermission && enquiry.lifecycle_status === 'approved' && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleMarkAsAccount}>
+                <Landmark className='mr-2 h-4 w-4' />
+                Mark as Account
+              </DropdownMenuItem>
+            </>
+          )}
           {hasDeletePermission && (
             <DropdownMenuItem
               onClick={() => setDeleteDialogOpen(true)}
@@ -114,6 +138,31 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Send to Accounts Team?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will create bills for {enquiry.first_name} {enquiry.last_name || ''} based on their
+              fee structure and send them to the accounts team for payment processing.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={markAsAccountMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                try {
+                  await markAsAccountMutation.mutateAsync(enquiry.id);
+                  setAccountDialogOpen(false);
+                } catch {}
+              }}
+              disabled={markAsAccountMutation.isPending}
+            >
+              {markAsAccountMutation.isPending ? 'Processing...' : 'Confirm'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

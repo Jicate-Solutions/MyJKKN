@@ -84,6 +84,12 @@ export class LearnerProfileService {
     // ============================================
     // PART 1: Auto-activation (ONLY from 'approved' status)
     // ============================================
+
+    // Skip auto-activation for 'account' status - accounts team must explicitly approve after payment
+    if (updatedProfile.lifecycle_status === 'account') {
+      return { profile: updatedProfile };
+    }
+
     if (updatedProfile.lifecycle_status === 'approved') {
       // Check if profile is ready for auto-activation
       if (!isComplete || !hasValidEmail) {

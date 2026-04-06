@@ -26,6 +26,7 @@ DO $$ BEGIN
         'enquiry',      -- Initial contact/enquiry stage
         'pending',      -- Application submitted, pending review
         'approved',     -- Application approved, ready for enrollment
+        'account',      -- Sent to accounts team for billing
         'rejected',     -- Application rejected
         'waitlisted',   -- Application waitlisted
         'active',       -- Currently enrolled and active student
@@ -818,7 +819,7 @@ CREATE TABLE IF NOT EXISTS public.billing_student_bills (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    item_category_id UUID NOT NULL,
+    item_category_id UUID,
     bill_description TEXT NOT NULL,
     due_date DATE NOT NULL,
     quantity INTEGER DEFAULT 1,

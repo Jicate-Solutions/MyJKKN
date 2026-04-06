@@ -5132,10 +5132,13 @@ $$;
 -- =====================================================
 -- STARTUP STUDIO: get_learner_participation_stats
 -- Added: 2026-03-07
+-- Updated: 2026-04-06 - Fixed: team owners were not counted as participants
+--   because owner_id references profiles.id, not learners_profiles.id.
+--   Added UNION to include owners via profiles.learner_id bridge.
 -- Returns total learners / participated / not_participated for a given event.
 -- Counts only lifecycle_status = 'active' learners from learners_profiles.
--- Participation = learner_id appears in event_team_members for this event
---   with status 'accepted' or 'pending'.
+-- Participation = learner_id appears in event_team_members (accepted)
+--   OR is a team owner in event_registrations (via profiles.learner_id).
 -- All filter params are optional (NULL = no filter applied).
 -- SECURITY DEFINER: bypasses RLS so admin can count all institution learners.
 -- =====================================================
@@ -5163,6 +5166,7 @@ AS $$
           AND (p_semester_id    IS NULL OR semester_id    = p_semester_id)
     ),
     participated AS (
+        -- Team members (accepted)
         SELECT DISTINCT etm.learner_id
         FROM event_team_members etm
         JOIN event_registrations er ON er.id = etm.registration_id
@@ -5170,6 +5174,16 @@ AS $$
           AND etm.learner_id IS NOT NULL
           AND etm.status = 'accepted'
           AND etm.learner_id IN (SELECT id FROM eligible_learners)
+
+        UNION
+
+        -- Team owners (via profiles.learner_id)
+        SELECT DISTINCT p.learner_id
+        FROM event_registrations er
+        JOIN profiles p ON p.id = er.owner_id
+        WHERE er.event_id = p_event_id
+          AND p.learner_id IS NOT NULL
+          AND p.learner_id IN (SELECT id FROM eligible_learners)
     )
     SELECT jsonb_build_object(
         'total_learners',   (SELECT COUNT(*) FROM eligible_learners),
@@ -5183,8 +5197,11 @@ $$;
 -- Added: 2026-03-08
 -- Updated: 2026-03-09 - Added section_id, section_name, class_incharge_names,
 --                       class_incharge_count to show staff class incharge per student
+-- Updated: 2026-04-06 - Fixed: team owners were not counted as participants
+--   because owner_id references profiles.id, not learners_profiles.id.
+--   Added UNION to include owners via profiles.learner_id bridge.
 -- Returns paginated list of active learners who have NOT participated
--- (i.e. not accepted into any team) for the given event.
+-- (i.e. not accepted into any team AND not a team owner) for the given event.
 -- Mirrors the CTEs in get_learner_participation_stats but returns rows.
 -- Supports optional class hierarchy filters and text search.
 -- SECURITY DEFINER: bypasses RLS so admin can read all institution learners.
@@ -5201,10 +5218,11 @@ CREATE OR REPLACE FUNCTION get_not_participated_learners(
     p_offset          INT     DEFAULT 0
 )
 RETURNS jsonb
-LANGUAGE sql
+LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
-AS $$
+AS $function$
+BEGIN
+    RETURN (
     WITH eligible_learners AS (
         SELECT
             lp.id,
@@ -5254,6 +5272,7 @@ AS $$
           AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
     ),
     participated AS (
+        -- Team members (accepted)
         SELECT DISTINCT etm.learner_id
         FROM   event_team_members etm
         JOIN   event_registrations er ON er.id = etm.registration_id
@@ -5261,6 +5280,16 @@ AS $$
           AND  etm.learner_id   IS NOT NULL
           AND  etm.status       = 'accepted'
           AND  etm.learner_id   IN (SELECT id FROM eligible_learners)
+
+        UNION
+
+        -- Team owners (via profiles.learner_id)
+        SELECT DISTINCT p.learner_id
+        FROM   event_registrations er
+        JOIN   profiles p ON p.id = er.owner_id
+        WHERE  er.event_id  = p_event_id
+          AND  p.learner_id IS NOT NULL
+          AND  p.learner_id IN (SELECT id FROM eligible_learners)
     ),
     not_participated AS (
         SELECT el.*
@@ -5290,12 +5319,17 @@ AS $$
             ),
             '[]'::jsonb
         )
+    )
     );
-$$;
+END;
+$function$;
 
 -- =====================================================
 -- STARTUP STUDIO: get_not_participated_by_institution
 -- Added: 2026-03-08
+-- Updated: 2026-04-06 - Fixed: team owners were not counted as participants
+--   because owner_id references profiles.id, not learners_profiles.id.
+--   Added UNION to include owners via profiles.learner_id bridge.
 -- Returns institution-wise breakdown of not-participated learner counts
 -- for a given event. Applies the same eligibility + participation logic
 -- as get_not_participated_learners. No pagination — always returns all rows.
@@ -5310,10 +5344,11 @@ CREATE OR REPLACE FUNCTION get_not_participated_by_institution(
     p_semester_id     UUID DEFAULT NULL
 )
 RETURNS jsonb
-LANGUAGE sql
+LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
-AS $$
+AS $function$
+BEGIN
+    RETURN (
     WITH eligible_learners AS (
         SELECT lp.id, lp.institution_id, i.name AS institution_name
         FROM   learners_profiles lp
@@ -5327,6 +5362,7 @@ AS $$
           AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
     ),
     participated AS (
+        -- Team members (accepted)
         SELECT DISTINCT etm.learner_id
         FROM   event_team_members etm
         JOIN   event_registrations er ON er.id = etm.registration_id
@@ -5334,6 +5370,16 @@ AS $$
           AND  etm.learner_id IS NOT NULL
           AND  etm.status     = 'accepted'
           AND  etm.learner_id IN (SELECT id FROM eligible_learners)
+
+        UNION
+
+        -- Team owners (via profiles.learner_id)
+        SELECT DISTINCT p.learner_id
+        FROM   event_registrations er
+        JOIN   profiles p ON p.id = er.owner_id
+        WHERE  er.event_id  = p_event_id
+          AND  p.learner_id IS NOT NULL
+          AND  p.learner_id IN (SELECT id FROM eligible_learners)
     ),
     not_participated AS (
         SELECT el.institution_id, el.institution_name
@@ -5353,8 +5399,10 @@ AS $$
         jsonb_agg(row_to_json(bi)),
         '[]'::jsonb
     )
-    FROM by_institution bi;
-$$;
+    FROM by_institution bi
+    );
+END;
+$function$;
 
 -- =====================================================
 -- STARTUP STUDIO: prevent_duplicate_event_member

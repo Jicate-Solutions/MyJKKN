@@ -299,6 +299,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
   '/billing/schedule/students/[id]': 'billing.schedule.view',
+  '/billing/onboarding': 'billing.onboarding.view',
   '/billing/receipts': 'billing.receipts.view',
   '/billing/receipts/new': 'billing.receipts.create',
   '/billing/receipts/[id]': 'billing.receipts.view',
@@ -1265,6 +1266,13 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/billing/schedule'
             }
           ]
+        },
+        {
+          href: '/billing/onboarding',
+          label: 'Learner Onboarding',
+          active: pathname.startsWith('/billing/onboarding'),
+          icon: UserCheck,
+          submenus: []
         },
         {
           href: '/billing/receipts',

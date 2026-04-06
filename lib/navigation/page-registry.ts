@@ -280,6 +280,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['student fee', 'student bill', 'fee search', 'student balance'],
     description: 'Search students and view their fee details'
   },
+  '/billing/onboarding': {
+    keywords: ['onboarding', 'learner onboarding', 'account', 'enrollment', 'fee payment', 'admission billing', 'new student'],
+    description: 'Review pending learner payments and approve for enrollment'
+  },
   '/billing/receipts': {
     keywords: ['payments', 'paid', 'collection', 'fee receipt', 'transaction'],
     description: 'Record and view fee payment receipts'

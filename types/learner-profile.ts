@@ -16,6 +16,7 @@ export type LifecycleStatus =
   | 'enquiry'      // Initial contact/enquiry stage
   | 'pending'      // Application submitted, pending review
   | 'approved'     // Application approved, ready for enrollment
+  | 'account'      // Sent to accounts for billing
   | 'rejected'     // Application rejected
   | 'waitlisted'   // Application waitlisted
   | 'active'       // Currently enrolled and active student
@@ -628,7 +629,7 @@ export interface LearnerDashboardStats {
  * Status groups for filtering
  */
 export const STATUS_GROUPS = {
-  ADMISSION_PIPELINE: ['enquiry', 'pending', 'approved', 'rejected', 'waitlisted'] as LifecycleStatus[],
+  ADMISSION_PIPELINE: ['enquiry', 'pending', 'approved', 'account', 'rejected', 'waitlisted'] as LifecycleStatus[],
   ENROLLED: ['active', 'inactive'] as LifecycleStatus[],
   COMPLETED: ['graduated', 'alumni'] as LifecycleStatus[],
   EXITED: ['exited'] as LifecycleStatus[],
@@ -640,7 +641,8 @@ export const STATUS_GROUPS = {
 export const STATUS_TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
   enquiry: ['pending', 'rejected'],
   pending: ['approved', 'rejected', 'waitlisted'],
-  approved: ['active', 'rejected'],
+  approved: ['account', 'active', 'rejected'],
+  account: ['active', 'approved'],
   rejected: ['pending'], // Allow reapplication
   waitlisted: ['approved', 'pending', 'rejected'],
   active: ['inactive', 'exited', 'graduated'],
@@ -658,6 +660,7 @@ export const REQUIRED_FIELDS_BY_STATUS: Record<LifecycleStatus, string[]> = {
   enquiry: ['first_name', 'student_mobile', 'student_email'],
   pending: ['first_name', 'father_name', 'mother_name', 'date_of_birth', 'tenth_marks', 'twelfth_marks'],
   approved: ['institution_id', 'degree_id', 'department_id', 'program_id'],
+  account: ['institution_id', 'degree_id', 'department_id', 'program_id', 'fee_structure_type', 'tuition_fee'],
   rejected: [],
   waitlisted: [],
   active: ['semester_id', 'section_id', 'academic_year_id', 'college_email'],

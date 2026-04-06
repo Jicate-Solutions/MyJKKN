@@ -120,6 +120,7 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
           <TabsList>
             <TabsTrigger value="enquiries">Enquiries</TabsTrigger>
             <TabsTrigger value="pending">Pending Applications</TabsTrigger>
+            <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="rejected">Rejected</TabsTrigger>
             <TabsTrigger value="waitlisted">Waitlisted</TabsTrigger>
           </TabsList>
@@ -139,6 +140,15 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
               fallback={<TableSkeleton rows={10} columns={8} />}
             >
               <EnquiriesContent searchParams={params} statusFilter="pending" />
+            </Suspense>
+          </TabsContent>
+
+          <TabsContent value="account" className="space-y-4">
+            <Suspense
+              key={`account-${JSON.stringify(params)}`}
+              fallback={<TableSkeleton rows={10} columns={8} />}
+            >
+              <EnquiriesContent searchParams={params} statusFilter="account" />
             </Suspense>
           </TabsContent>
 

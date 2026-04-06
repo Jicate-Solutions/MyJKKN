@@ -43,6 +43,12 @@ const statusConfig: Record<
     className: 'bg-green-100 text-green-800 border-green-300',
     icon: '✅',
   },
+  account: {
+    label: 'Account',
+    variant: 'secondary',
+    className: 'bg-amber-100 text-amber-800 border-amber-300',
+    icon: '🏦',
+  },
   rejected: {
     label: 'Rejected',
     variant: 'destructive',

@@ -286,6 +286,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.admissions.create', label: 'Create Admissions' },
       { key: 'learners.admissions.edit', label: 'Edit Admissions' },
       { key: 'learners.admissions.delete', label: 'Delete Admissions' },
+      { key: 'learners.admissions.mark_account', label: 'Mark as Account' },
       { key: 'learners.admissions.crm.view', label: 'View Enquiry CRM' },
 
       // Learner Enquiries Bulk Operations
@@ -502,6 +503,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.invoices.edit', label: 'Edit Invoices' },
       { key: 'billing.invoices.delete', label: 'Delete Invoices' },
       { key: 'billing.invoices.send', label: 'Send Invoices' },
+      { key: 'billing.onboarding.view', label: 'View Learner Onboarding' },
+      { key: 'billing.onboarding.approve', label: 'Approve Learner Onboarding' },
       { key: 'billing.reports.view', label: 'View Billing Reports' }
     ]
   },
