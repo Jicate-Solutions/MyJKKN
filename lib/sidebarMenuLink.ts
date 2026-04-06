@@ -299,7 +299,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
   '/billing/schedule/students/[id]': 'billing.schedule.view',
-  '/billing/onboarding': 'billing.onboarding.view',
   '/billing/receipts': 'billing.receipts.view',
   '/billing/receipts/new': 'billing.receipts.create',
   '/billing/receipts/[id]': 'billing.receipts.view',
@@ -409,6 +408,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/marketing/chat': 'admission.marketing.chat.view',
   '/admission/marketing/chat/performance': 'admission.marketing.chat.view',
   '/admission/marketing/chat/settings': 'admission.marketing.chat.manage',
+  '/admission/marketing/whatsapp-broadcast': 'admission.marketing.chat.view',
   '/admission/marketing/chatbot': 'admission.marketing.chatbot.view',
   '/admission/marketing/chatbot/analytics': 'admission.marketing.chatbot.view',
   '/admission/marketing/chatbot/knowledge': 'admission.marketing.chatbot.manage',
@@ -961,13 +961,8 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/marketing/campaigns/roi'
             },
             {
-              href: '/admission/marketing/campaigns/segments',
-              label: 'Segments',
-              active: pathname === '/admission/marketing/campaigns/segments'
-            },
-            {
               href: '/admission/marketing/chat',
-              label: 'WhatsApp Chat',
+              label: 'WhatsApp',
               active: pathname.startsWith('/admission/marketing/chat')
             },
             {
@@ -979,11 +974,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/marketing/parent-communication',
               label: 'Parent Communication',
               active: pathname === '/admission/marketing/parent-communication'
-            },
-            {
-              href: '/admission/marketing/re-engagement',
-              label: 'Re-engagement',
-              active: pathname === '/admission/marketing/re-engagement'
             },
             {
               href: '/admission/marketing/remarketing',
@@ -1266,13 +1256,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/billing/schedule'
             }
           ]
-        },
-        {
-          href: '/billing/onboarding',
-          label: 'Learner Onboarding',
-          active: pathname.startsWith('/billing/onboarding'),
-          icon: UserCheck,
-          submenus: []
         },
         {
           href: '/billing/receipts',

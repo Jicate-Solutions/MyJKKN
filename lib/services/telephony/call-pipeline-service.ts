@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { ExotelClient } from './exotel-client';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
+import { sendTextMessage as waSendText, isWhatsAppConfigured } from '@/lib/services/whatsapp/whatsapp-api-client';
 
 const PIPELINE_STAGES = ['captured', 'classified', 'matched', 'intelligence', 'enriched', 'responded', 'complete'] as const;
 type PipelineStage = typeof PIPELINE_STAGES[number];
@@ -25,6 +26,7 @@ interface PipelineResult {
   intelligenceId?: string;
   callbackQueueId?: string;
   autoSmsSent?: boolean;
+  autoWhatsAppSent?: boolean;
   error?: string;
 }
 
@@ -34,6 +36,8 @@ interface InstitutionCallSettings {
   auto_sms_sender_id: string | null;
   dlt_entity_id: string | null;
   dlt_template_id: string | null;
+  auto_whatsapp_enabled: boolean;
+  auto_whatsapp_template: string;
   auto_transcribe_enabled: boolean;
   auto_enrich_leads: boolean;
   repeat_detection_window_days: number;
@@ -103,10 +107,15 @@ export class CallPipelineService {
       // Stage 6: RESPOND (missed inbound calls)
       let callbackQueueId: string | undefined;
       let autoSmsSent = false;
+      let autoWhatsAppSent = false;
       if (isMissed) {
         // Auto-SMS
         if (settings.auto_sms_enabled && ctx.fromNumber) {
           autoSmsSent = await this.sendMissedCallSms(ctx, settings, supabase);
+        }
+        // Auto-WhatsApp (higher engagement than SMS)
+        if (settings.auto_whatsapp_enabled && ctx.fromNumber) {
+          autoWhatsAppSent = await this.sendMissedCallWhatsApp(ctx, settings, supabase);
         }
         // Callback queue
         callbackQueueId = await this.queueCallback(ctx, settings, supabase);
@@ -120,12 +129,13 @@ export class CallPipelineService {
           pipeline_stage: finalStage,
           intelligence_id: intelligenceId ?? null,
           auto_sms_sent: autoSmsSent,
+          auto_whatsapp_sent: autoWhatsAppSent,
           callback_queued: !!callbackQueueId,
           callback_queue_id: callbackQueueId ?? null,
         })
         .eq('id', ctx.callLogId);
 
-      return { stage: finalStage, intelligenceId, callbackQueueId, autoSmsSent };
+      return { stage: finalStage, intelligenceId, callbackQueueId, autoSmsSent, autoWhatsAppSent };
     } catch (error) {
       console.error('[CallPipeline] Error:', error);
       return { stage: 'intelligence', error: String(error) };
@@ -253,6 +263,100 @@ export class CallPipelineService {
       return true;
     } catch (error) {
       console.error('[CallPipeline] Auto-SMS failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Send auto-WhatsApp to missed caller.
+   * Higher engagement than SMS — supports two-way conversation.
+   * Dedup: One WhatsApp per caller per 24 hours (same logic as SMS).
+   * Uses text message (not template) since we're within Meta's customer service window
+   * — the caller just tried to reach us, so we can initiate within 24h.
+   */
+  private static async sendMissedCallWhatsApp(
+    ctx: PipelineContext,
+    settings: InstitutionCallSettings,
+    supabase: SupabaseClient
+  ): Promise<boolean> {
+    try {
+      // Check WhatsApp Cloud API is configured
+      if (!isWhatsAppConfigured()) {
+        console.warn('[CallPipeline] WhatsApp Cloud API not configured — skipping');
+        return false;
+      }
+
+      // Dedup: Check if we already sent WhatsApp to this number in the last 24 hours
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: recentWa } = await supabase
+        .from('admission_call_logs')
+        .select('id')
+        .eq('from_number', ctx.fromNumber)
+        .eq('direction', 'inbound')
+        .eq('auto_whatsapp_sent', true)
+        .gte('created_at', twentyFourHoursAgo)
+        .limit(1)
+        .maybeSingle();
+
+      if (recentWa) {
+        // Already sent WhatsApp to this caller in the last 24h — skip
+        await supabase
+          .from('admission_call_logs')
+          .update({ auto_whatsapp_skipped_reason: 'already_sent_24h' })
+          .eq('id', ctx.callLogId);
+        console.info('[CallPipeline] WhatsApp skipped — already sent to', ctx.fromNumber.slice(-4), 'in last 24h');
+        return false;
+      }
+
+      // Format phone number for WhatsApp (remove non-digits, ensure country code)
+      let formattedPhone = ctx.fromNumber.replace(/\D/g, '');
+      if (formattedPhone.startsWith('0')) {
+        formattedPhone = '91' + formattedPhone.substring(1);
+      }
+      if (formattedPhone.length === 10) {
+        formattedPhone = '91' + formattedPhone;
+      }
+
+      // Send text message (not template — within customer service window)
+      const messageText = settings.auto_whatsapp_template;
+      const waResult = await waSendText(formattedPhone, messageText);
+      const waMessageId = waResult.messages?.[0]?.id || null;
+
+      // Log to admission_whatsapp_logs (only if lead exists — lead_id is NOT NULL in schema)
+      if (ctx.leadId) {
+        try {
+          await supabase
+            .from('admission_whatsapp_logs')
+            .insert({
+              institution_id: ctx.institutionId,
+              lead_id: ctx.leadId,
+              recipient_phone: formattedPhone,
+              message_content: messageText,
+              delivery_status: 'sent',
+              whatsapp_message_id: waMessageId,
+              sent_at: new Date().toISOString(),
+              metadata: {
+                source: 'missed_call_auto_responder',
+                call_log_id: ctx.callLogId,
+                call_sid: ctx.callSid,
+              },
+            });
+        } catch (logError) {
+          // Non-blocking — message was sent even if logging fails
+          console.warn('[CallPipeline] WhatsApp log insert failed:', logError);
+        }
+      }
+
+      // Track WhatsApp message ID on call log
+      await supabase
+        .from('admission_call_logs')
+        .update({ auto_whatsapp_message_id: waMessageId })
+        .eq('id', ctx.callLogId);
+
+      console.info('[CallPipeline] WhatsApp sent to', ctx.fromNumber.slice(-4), 'msg:', waMessageId);
+      return true;
+    } catch (error) {
+      console.error('[CallPipeline] Auto-WhatsApp failed:', error);
       return false;
     }
   }
@@ -479,6 +583,8 @@ export class CallPipelineService {
       auto_sms_sender_id: null,
       dlt_entity_id: null,
       dlt_template_id: null,
+      auto_whatsapp_enabled: false,
+      auto_whatsapp_template: 'Thank you for calling JKKN Institutions. We missed your call and apologize. A counselor will call you back shortly. Reply here if you have any questions about our courses.',
       auto_transcribe_enabled: true,
       auto_enrich_leads: true,
       repeat_detection_window_days: 7,
