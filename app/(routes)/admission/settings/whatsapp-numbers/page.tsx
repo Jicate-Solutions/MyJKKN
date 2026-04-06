@@ -63,6 +63,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { PersonalConnectionTab } from './_components/personal-connection-tab';
+import { NumberDetailSheet } from './_components/number-detail-sheet';
 import { PersonalTemplatesTab } from './_components/personal-templates-tab';
 import { AutoTriggerTab } from './_components/auto-trigger-tab';
 import { useDepartments } from '@/hooks/organization/use-departments';
@@ -306,6 +307,7 @@ function WhatsAppNumbersContent() {
   const isSuperAdmin = profile?.role === 'super_admin' || profile?.is_super_admin === true;
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<WAPhoneNumber | null>(null);
+  const [selectedNumber, setSelectedNumber] = useState<WAPhoneNumber | null>(null);
 
   // Department selector for Personal WhatsApp
   const userDepartmentId = profile?.department_id || '';
@@ -442,7 +444,7 @@ function WhatsAppNumbersContent() {
                   </TableHeader>
                   <TableBody>
                     {(numbers || []).map((num) => (
-                      <TableRow key={num.id}>
+                      <TableRow key={num.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedNumber(num)}>
                         <TableCell>
                           <div>
                             <p className="font-medium">{num.display_number}</p>
@@ -470,7 +472,8 @@ function WhatsAppNumbersContent() {
                             variant="ghost"
                             size="icon"
                             className={cn('h-8 w-8', num.is_primary && 'text-yellow-500')}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               if (!num.is_primary) setPrimaryMutation.mutate(num.id);
                             }}
                             disabled={num.is_primary || setPrimaryMutation.isPending}
@@ -488,7 +491,7 @@ function WhatsAppNumbersContent() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={() => setDeleteTarget(num)}
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(num); }}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -581,6 +584,17 @@ function WhatsAppNumbersContent() {
           </Tabs>
         </div>
       </ContentLayout>
+
+      {/* Number Detail Sheet */}
+      <NumberDetailSheet
+        number={selectedNumber}
+        open={!!selectedNumber}
+        onOpenChange={(open) => { if (!open) setSelectedNumber(null); }}
+        onSetPrimary={(id) => {
+          setPrimaryMutation.mutate(id);
+          setSelectedNumber(null);
+        }}
+      />
 
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
