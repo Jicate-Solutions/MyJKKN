@@ -54,6 +54,7 @@ import {
   AlertCircle,
   ArrowRight,
 } from 'lucide-react';
+import { CounselorAvailabilityCard } from './counselor-availability-card';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { maskPhone } from '@/lib/utils/phone-number';
@@ -543,6 +544,9 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
 
       {/* KPI Cards */}
       <InboundKpiCards stats={stats} isLoading={statsLoading} />
+
+      {/* Counselor Availability */}
+      <CounselorAvailabilityCard />
 
       {/* Call-to-Enrollment Funnel */}
       <CallFunnelView stages={funnel.stages} isLoading={funnelLoading} />
