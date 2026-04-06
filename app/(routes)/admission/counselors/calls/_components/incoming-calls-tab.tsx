@@ -51,6 +51,7 @@ import {
   MapPin,
   AlertCircle,
 } from 'lucide-react';
+import { CounselorAvailabilityCard } from './counselor-availability-card';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { maskPhone } from '@/lib/utils/phone-number';
@@ -427,6 +428,9 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
 
       {/* KPI Cards */}
       <InboundKpiCards stats={stats} isLoading={statsLoading} />
+
+      {/* Counselor Availability */}
+      <CounselorAvailabilityCard />
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

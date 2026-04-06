@@ -249,6 +249,17 @@ export type {
   UniqueCallersSummary,
 } from './use-unique-callers';
 
+// Re-export counselor status hook (Exotel CCM)
+export {
+  useCounselorStatus,
+  counselorStatusKeys,
+} from './use-counselor-status';
+export type {
+  CounselorInfo,
+  CounselorStatusSummary,
+  CounselorStatusResponse,
+} from './use-counselor-status';
+
 // ============================================
 // LEADS HOOKS
 // ============================================
