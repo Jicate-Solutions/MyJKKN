@@ -21,7 +21,8 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  HelpCircle
+  HelpCircle,
+  Landmark
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -46,6 +47,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { useDeleteLearnerProfile, useUpdateLearnerProfile } from '@/hooks/use-learner-profiles';
+import { useMarkAsAccount } from '@/hooks/billing/use-onboarding';
 import { usePermissions } from '@/hooks/use-permissions';
 
 interface DataTableRowActionsProps<TData> {
@@ -84,6 +86,7 @@ export function DataTableRowActions<TData>({
   // Use React Query mutation hooks with automatic cache invalidation
   const deleteMutation = useDeleteLearnerProfile();
   const updateMutation = useUpdateLearnerProfile();
+  const markAsAccountMutation = useMarkAsAccount();
 
   const handleDelete = async () => {
     if (!canDelete) return;
@@ -130,50 +133,57 @@ export function DataTableRowActions<TData>({
     });
 
     try {
-      const result = await updateMutation.mutateAsync({
-        id: learner.id,
-        dto: { lifecycle_status: selectedStatus as any }
-      });
+      // Use OnboardingService.markAsAccount for 'account' status — validates finance fields & auto-creates bills
+      if (selectedStatus === 'account') {
+        await markAsAccountMutation.mutateAsync(learner.id);
+      } else {
+        const result = await updateMutation.mutateAsync({
+          id: learner.id,
+          dto: { lifecycle_status: selectedStatus as any }
+        });
 
-      console.log('[enquiries/row-actions] Status mutation completed', { result });
+        console.log('[enquiries/row-actions] Status mutation completed', { result });
+
+        // Check if user account was created during this update
+        // @ts-expect-error - Temporary metadata from service
+        const userCreation = result._userCreation;
+        if (userCreation) {
+          console.log('[enquiries/row-actions] User creation metadata found', userCreation);
+          if (userCreation.success) {
+            toast.success(userCreation.message, { duration: 5000 });
+          } else {
+            toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
+          }
+        }
+      }
 
       const statusLabels: Record<string, string> = {
         enquiry: 'Enquiry',
         pending: 'Pending Application',
-        approved: 'Approved',
+        account: 'Account (Sent to Billing)',
         rejected: 'Rejected',
         waitlisted: 'Waitlisted'
       };
 
-      toast.success(`Status updated to ${statusLabels[selectedStatus]}`);
-
-      // Check if user account was created during this update
-      // @ts-expect-error - Temporary metadata from service
-      const userCreation = result._userCreation;
-      if (userCreation) {
-        console.log('[enquiries/row-actions] User creation metadata found', userCreation);
-        if (userCreation.success) {
-          toast.success(userCreation.message, { duration: 5000 });
-        } else {
-          toast.error(`User creation failed: ${userCreation.message}`, { duration: 5000 });
-        }
+      if (selectedStatus !== 'account') {
+        // markAsAccount hook already shows its own toast
+        toast.success(`Status updated to ${statusLabels[selectedStatus]}`);
       }
 
       // Close dialog and clear state first
-      console.log('[enquiries/row-actions] Closing dialog');
       setShowStatusDialog(false);
       setSelectedStatus('');
 
       // Delay refresh to allow React to finish updating component state
-      // This prevents race conditions between client state and server re-render
-      console.log('[enquiries/row-actions] Scheduling router.refresh()');
       setTimeout(() => {
-        console.log('[enquiries/row-actions] Calling router.refresh()');
         router.refresh();
       }, 300);
     } catch (error) {
       console.error('[enquiries/row-actions] Error updating status:', error);
-      toast.error('Failed to update status. Please try again.');
+      if (selectedStatus !== 'account') {
+        // markAsAccount hook already shows its own error toast
+        toast.error('Failed to update status. Please try again.');
+      }
       setShowStatusDialog(false);
       setSelectedStatus('');
     }
@@ -234,11 +244,11 @@ export function DataTableRowActions<TData>({
                     Mark as Pending
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => handleStatusUpdate('approved')}
-                    disabled={learner.lifecycle_status === 'approved' || updateMutation.isPending}
+                    onClick={() => handleStatusUpdate('account')}
+                    disabled={learner.lifecycle_status === 'account' || learner.lifecycle_status === 'active' || updateMutation.isPending}
                   >
-                    <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                    Mark as Approved
+                    <Landmark className="mr-2 h-4 w-4 text-amber-500" />
+                    Mark as Account
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => handleStatusUpdate('rejected')}

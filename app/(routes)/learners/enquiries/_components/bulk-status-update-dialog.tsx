@@ -36,6 +36,7 @@ import {
   Users,
   AlertTriangle,
   TrendingUp,
+  Landmark,
 } from 'lucide-react';
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
@@ -74,11 +75,11 @@ const STATUS_OPTIONS = [
     description: 'Mark as pending application',
   },
   {
-    value: 'approved',
-    label: 'Approved',
-    icon: CheckCircle,
-    color: 'text-green-500',
-    description: 'Approve (may auto-activate if profile complete)',
+    value: 'account',
+    label: 'Account',
+    icon: Landmark,
+    color: 'text-amber-500',
+    description: 'Send to accounts team for billing and payment processing',
   },
   {
     value: 'rejected',

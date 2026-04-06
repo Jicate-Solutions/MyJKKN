@@ -313,6 +313,21 @@ export class OnboardingService {
       const { data: userData } = await supabase.auth.getUser();
       const currentUserId = userData?.user?.id ?? null;
 
+      // Fetch item categories for this institution under "Admission & Registration Fees"
+      const { data: itemCategories } = await supabase
+        .from('billing_item_categories')
+        .select('id, item_category_name, institution_id')
+        .eq('institution_id', learner.institution_id)
+        .eq('is_active', true);
+
+      // Build a lookup: item_category_name → id
+      const categoryLookup: Record<string, string> = {};
+      if (itemCategories) {
+        for (const cat of itemCategories) {
+          categoryLookup[cat.item_category_name] = cat.id;
+        }
+      }
+
       // Due date = 30 days from now
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
@@ -324,11 +339,14 @@ export class OnboardingService {
       for (const fieldName of BILL_FIELD_ORDER) {
         const amount = Number((learner as any)[fieldName] ?? 0);
         if (amount > 0) {
+          const description = BILL_DESCRIPTIONS[fieldName] ?? fieldName;
+          const categoryId = categoryLookup[description] || null;
+
           billsToInsert.push({
             student_id: learnerId,
             institution_id: learner.institution_id,
-            item_category_id: null,
-            bill_description: BILL_DESCRIPTIONS[fieldName] ?? fieldName,
+            item_category_id: categoryId,
+            bill_description: description,
             due_date: dueDateStr,
             quantity: 1,
             unit_amount: amount,
@@ -363,11 +381,11 @@ export class OnboardingService {
   // ── 4. markAsAccount ────────────────────────────────────────────────────
 
   /**
-   * Admission team calls this on an approved enquiry.
-   * 1. Validates lifecycle_status is 'approved'.
+   * Admission team calls this to send a learner to the accounts team.
+   * 1. Validates lifecycle_status is enquiry, pending, or approved.
    * 2. Validates all required finance fields are filled.
    * 3. Updates lifecycle_status → 'account'.
-   * 4. Auto-generates bills from the finance profile.
+   * 4. Auto-generates bills from the finance profile with proper categories.
    */
   static async markAsAccount(learnerId: string): Promise<void> {
     try {
@@ -383,10 +401,11 @@ export class OnboardingService {
       if (fetchError) throw fetchError;
       if (!learner) throw new Error(`Learner ${learnerId} not found`);
 
-      // Guard: must be 'approved'
-      if (learner.lifecycle_status !== 'approved') {
+      // Guard: must be in a pre-billing status
+      const allowedStatuses = ['enquiry', 'pending', 'approved'];
+      if (!allowedStatuses.includes(learner.lifecycle_status)) {
         throw new Error(
-          `Cannot mark as account: learner is '${learner.lifecycle_status}', expected 'approved'`
+          `Cannot mark as account: learner is '${learner.lifecycle_status}'. Must be enquiry, pending, or approved.`
         );
       }
 

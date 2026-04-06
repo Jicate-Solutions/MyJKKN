@@ -49,12 +49,12 @@ export const onboardingColumns: ColumnDef<OnboardingLearner>[] = [
     },
   },
   {
-    accessorKey: 'student_email',
+    id: 'contact',
     header: 'Contact',
     size: 200,
     cell: ({ row }) => (
       <div>
-        <div className="text-sm">{row.original.student_email}</div>
+        <div className="text-sm">{row.original.college_email || row.original.student_email}</div>
         <div className="text-xs text-muted-foreground">{row.original.student_mobile}</div>
       </div>
     ),

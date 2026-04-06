@@ -639,8 +639,8 @@ export const STATUS_GROUPS = {
  * Status transitions map (allowed transitions)
  */
 export const STATUS_TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
-  enquiry: ['pending', 'rejected'],
-  pending: ['approved', 'rejected', 'waitlisted'],
+  enquiry: ['pending', 'account', 'rejected'],
+  pending: ['account', 'approved', 'rejected', 'waitlisted'],
   approved: ['account', 'active', 'rejected'],
   account: ['active', 'approved'],
   rejected: ['pending'], // Allow reapplication

@@ -237,7 +237,7 @@ export class StudentSearchService {
         `
         )
         .eq('id', studentId)
-        .eq('lifecycle_status', 'active')
+        .in('lifecycle_status', ['active', 'account'])
         .single();
 
       if (error) throw error;

@@ -11,7 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { LearnerAdvancedSearchShared, type LearnerSearchFilters } from '@/components/learners/learner-advanced-search-shared';
 
 interface EnquiriesSearchWrapperProps {
-  statusFilter?: 'enquiry' | 'pending' | 'rejected' | 'waitlisted' | 'approved';
+  statusFilter?: 'enquiry' | 'pending' | 'rejected' | 'waitlisted' | 'approved' | 'account';
 }
 
 export function EnquiriesSearchWrapper({ statusFilter }: EnquiriesSearchWrapperProps) {
@@ -20,7 +20,8 @@ export function EnquiriesSearchWrapper({ statusFilter }: EnquiriesSearchWrapperP
 
   // Handle search execution - update URL params
   const handleSearch = useCallback((filters: LearnerSearchFilters) => {
-    const params = new URLSearchParams(searchParams.toString());
+    // Start fresh to avoid accumulating stale params
+    const params = new URLSearchParams();
 
     // Build the combined search query for backend
     const searchParts: string[] = [];
@@ -40,21 +41,6 @@ export function EnquiriesSearchWrapper({ statusFilter }: EnquiriesSearchWrapperP
 
     if (combinedSearch) {
       params.set('search', combinedSearch);
-
-      // Store search options as separate params
-      params.set('search_case_sensitive', filters.searchOptions.caseSensitive.toString());
-      params.set('search_exact_match', filters.searchOptions.exactMatch.toString());
-
-      // Store which fields to search in
-      const activeFields = Object.entries(filters.searchOptions.searchFields)
-        .filter(([_, enabled]) => enabled)
-        .map(([field]) => field);
-      params.set('search_fields', activeFields.join(','));
-    } else {
-      params.delete('search');
-      params.delete('search_case_sensitive');
-      params.delete('search_exact_match');
-      params.delete('search_fields');
     }
 
     // Reset to page 1 when searching
@@ -65,28 +51,35 @@ export function EnquiriesSearchWrapper({ statusFilter }: EnquiriesSearchWrapperP
       params.set('lifecycle_status', statusFilter);
     }
 
+    // Preserve non-search filters from current URL
+    const preserveKeys = ['institution_id', 'degree_id', 'department_id', 'pageSize', 'sort_by', 'sort_order'];
+    preserveKeys.forEach(key => {
+      const value = searchParams.get(key);
+      if (value) params.set(key, value);
+    });
+
     router.push(`/learners/enquiries?${params.toString()}`);
   }, [router, searchParams, statusFilter]);
 
-  // Handle clear - remove search params and reset pagination
+  // Handle clear - reset to clean URL with only essential params
   const handleClear = useCallback(() => {
-    const params = new URLSearchParams(searchParams.toString());
+    // Start fresh — only keep non-search params that matter
+    const cleanParams = new URLSearchParams();
+    cleanParams.set('page', '1');
 
-    // Remove all search-related parameters
-    params.delete('search');
-    params.delete('search_case_sensitive');
-    params.delete('search_exact_match');
-    params.delete('search_fields');
-
-    // IMPORTANT: Reset to page 1 when clearing search to prevent pagination errors
-    params.set('page', '1');
-
-    // Preserve lifecycle status
+    // Preserve lifecycle status if set
     if (statusFilter) {
-      params.set('lifecycle_status', statusFilter);
+      cleanParams.set('lifecycle_status', statusFilter);
     }
 
-    router.push(`/learners/enquiries?${params.toString()}`);
+    // Preserve non-search filters (institution, degree, department)
+    const preserveKeys = ['institution_id', 'degree_id', 'department_id', 'pageSize', 'sort_by', 'sort_order'];
+    preserveKeys.forEach(key => {
+      const value = searchParams.get(key);
+      if (value) cleanParams.set(key, value);
+    });
+
+    router.push(`/learners/enquiries?${cleanParams.toString()}`);
   }, [router, searchParams, statusFilter]);
 
   return (
