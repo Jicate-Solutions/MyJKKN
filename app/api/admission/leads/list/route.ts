@@ -37,23 +37,25 @@ export async function GET(request: NextRequest) {
 
   const isSuperAdmin = profile.role === 'super_admin';
 
-  // Check if user has admission role
-  let isAdmissionUser = isSuperAdmin;
-  if (!isAdmissionUser) {
-    const { data: admissionRole } = await supabase
-      .from('user_roles')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('role_id', (
-        await supabase
-          .from('custom_roles')
-          .select('id')
-          .eq('role_key', 'admission')
-          .single()
-      ).data?.id || '')
-      .maybeSingle();
+  // Check if user has admission or counselor custom role
+  let isAdmissionGlobalUser = isSuperAdmin || profile.role === 'admission';
+  let isAdmissionUser = isAdmissionGlobalUser;
 
-    isAdmissionUser = !!admissionRole;
+  if (!isAdmissionUser) {
+    // Check custom_roles for admission or counselor role
+    const { data: userRoles } = await supabase
+      .from('user_roles')
+      .select('role_id, custom_roles!inner(role_key)')
+      .eq('user_id', user.id)
+      .in('custom_roles.role_key', ['admission', 'counselor']);
+
+    if (userRoles && userRoles.length > 0) {
+      isAdmissionUser = true;
+      // Admission role gets global (all-institution) access
+      isAdmissionGlobalUser = userRoles.some(
+        (r: any) => r.custom_roles?.role_key === 'admission'
+      );
+    }
   }
 
   if (!isAdmissionUser) {
@@ -114,10 +116,17 @@ export async function GET(request: NextRequest) {
 
     // 5. Apply institution scoping (manual RLS replacement)
     // Super admins and admission global users can see all institutions.
-    // Regular admission users are scoped to their own institution.
+    // Counselors and other users are scoped to their own institution.
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
-    } else if (!isSuperAdmin) {
+    } else if (!isAdmissionGlobalUser) {
+      if (!profile.institution_id) {
+        // User has no institution assigned — return empty result
+        return NextResponse.json({
+          data: [],
+          metadata: { total: 0, page, limit, totalPages: 0 },
+        });
+      }
       query = query.eq('institution_id', profile.institution_id);
     }
 
