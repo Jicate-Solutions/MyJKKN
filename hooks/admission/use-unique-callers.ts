@@ -44,9 +44,14 @@ export function useUniqueCallers(institutionId?: string, fromDate?: string, toDa
       if (fromDate) params.set('from_date', fromDate);
       if (toDate) params.set('to_date', toDate);
       const res = await fetch(`/api/admission/calls/unique-callers?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to fetch unique callers');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error('[useUniqueCallers] API error:', res.status, err);
+        throw new Error(err.message || `Failed to fetch unique callers (${res.status})`);
+      }
       const json = await res.json();
-      return json.data;
+      // Route returns { success, data: { callers, summary } }
+      return json.data || { callers: [], summary: null };
     },
     enabled: true,
     staleTime: 60000,
