@@ -28,9 +28,11 @@ import {
   useTelephonyHealth,
   useBulkCallback,
   useUniqueCallers,
+  useCallFunnel,
   formatDuration,
   type CallStatus,
   type UniqueCaller,
+  type FunnelStage,
 } from '@/hooks/admission';
 import { cn } from '@/lib/utils';
 import {
@@ -50,6 +52,7 @@ import {
   Users,
   MapPin,
   AlertCircle,
+  ArrowRight,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -154,6 +157,118 @@ function InboundKpiCards({ stats, isLoading }: { stats: any; isLoading: boolean 
         </Card>
       ))}
     </div>
+  );
+}
+
+// ============================================================================
+// CALL-TO-ENROLLMENT FUNNEL
+// ============================================================================
+
+function getConversionColor(rate: number | null): string {
+  if (rate === null) return '';
+  if (rate >= 50) return 'text-emerald-600';
+  if (rate >= 25) return 'text-yellow-600';
+  return 'text-red-500';
+}
+
+function getFunnelBarColor(index: number): string {
+  const colors = [
+    'bg-blue-500',
+    'bg-emerald-500',
+    'bg-violet-500',
+    'bg-amber-500',
+    'bg-green-600',
+  ];
+  return colors[index] || 'bg-gray-400';
+}
+
+function CallFunnelView({ stages, isLoading }: { stages: FunnelStage[]; isLoading: boolean }) {
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Call-to-Enrollment Funnel</CardTitle>
+          <CardDescription>Prospect journey from inbound call to enrollment</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-24 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const maxCount = Math.max(...stages.map(s => s.count), 1);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <TrendingUp className="h-4 w-4" />
+          Call-to-Enrollment Funnel
+        </CardTitle>
+        <CardDescription>Inbound call prospect journey with conversion rates between stages</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {/* Horizontal funnel for md+ screens */}
+        <div className="hidden md:flex items-center gap-1">
+          {stages.map((stage, i) => (
+            <div key={stage.key} className="flex items-center gap-1 flex-1 min-w-0">
+              <div className="flex-1 min-w-0">
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground truncate">{stage.name}</p>
+                  <p className="text-2xl font-bold tabular-nums">{stage.count.toLocaleString()}</p>
+                  {stage.rate !== null && (
+                    <p className={cn('text-xs font-medium', getConversionColor(stage.rate))}>
+                      {stage.rate}%
+                    </p>
+                  )}
+                </div>
+                {/* Bar */}
+                <div className="mt-1.5 h-2.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={cn('h-full rounded-full transition-all', getFunnelBarColor(i))}
+                    style={{ width: `${Math.max((stage.count / maxCount) * 100, 2)}%` }}
+                  />
+                </div>
+              </div>
+              {i < stages.length - 1 && (
+                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 mx-0.5" />
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Vertical funnel for small screens */}
+        <div className="md:hidden space-y-3">
+          {stages.map((stage, i) => (
+            <div key={stage.key}>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">{stage.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-bold tabular-nums">{stage.count.toLocaleString()}</span>
+                  {stage.rate !== null && (
+                    <span className={cn('text-xs font-medium', getConversionColor(stage.rate))}>
+                      {stage.rate}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden mt-1">
+                <div
+                  className={cn('h-full rounded-full transition-all', getFunnelBarColor(i))}
+                  style={{ width: `${Math.max((stage.count / maxCount) * 100, 2)}%` }}
+                />
+              </div>
+              {i < stages.length - 1 && (
+                <div className="flex justify-center py-1">
+                  <ArrowRight className="h-3 w-3 text-muted-foreground rotate-90" />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -379,6 +494,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   });
 
   const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId);
+  const { funnel, isLoading: funnelLoading } = useCallFunnel(institutionId);
   const { data: health } = useTelephonyHealth();
   const bulkCallback = useBulkCallback();
 
@@ -427,6 +543,9 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
 
       {/* KPI Cards */}
       <InboundKpiCards stats={stats} isLoading={statsLoading} />
+
+      {/* Call-to-Enrollment Funnel */}
+      <CallFunnelView stages={funnel.stages} isLoading={funnelLoading} />
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

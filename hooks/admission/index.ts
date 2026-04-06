@@ -244,6 +244,16 @@ export {
   useUniqueCallers,
   uniqueCallersKeys,
 } from './use-unique-callers';
+
+// Re-export call funnel hook
+export {
+  useCallFunnel,
+  callFunnelKeys,
+} from './use-call-funnel';
+export type {
+  FunnelStage,
+  CallFunnelData,
+} from './use-call-funnel';
 export type {
   UniqueCaller,
   UniqueCallersSummary,

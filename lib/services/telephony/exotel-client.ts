@@ -117,6 +117,92 @@ export interface ExoVoiceAnalyzeWebhookPayload {
   error?: string;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CDR TYPES (used by inbound-call-sync-service)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface ExotelCallRecord {
+  Sid: string;
+  Status: string;
+  Direction: string;
+  From: string;
+  To: string;
+  StartTime: string | null;
+  EndTime: string | null;
+  Duration: string | null;
+  ConversationDuration?: string | null;
+  Price: string | null;
+  Currency?: string;
+  RecordingUrl?: string | null;
+  PreSignedRecordingUrl?: string | null;
+  DateCreated: string;
+  DateUpdated?: string;
+  PhoneNumberSid?: string;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STANDALONE HELPERS (used by inbound-call-sync-service)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Check if Exotel env vars are configured (standalone convenience function).
+ */
+export function isExotelConfigured(): boolean {
+  return !!(
+    process.env.EXOTEL_API_KEY &&
+    process.env.EXOTEL_API_TOKEN &&
+    process.env.EXOTEL_ACCOUNT_SID
+  );
+}
+
+/**
+ * Get an ExotelClient instance with CDR pagination support.
+ */
+export function getExotelClient() {
+  if (!isExotelConfigured()) {
+    throw new Error('Exotel is not configured');
+  }
+  return {
+    /**
+     * Async generator that yields pages of call records from the CDR API.
+     */
+    async *fetchCallRecords(params: {
+      direction?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      status?: string;
+      pageSize?: number;
+    }): AsyncGenerator<ExotelCallRecord[]> {
+      const pageSize = params.pageSize || 100;
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const queryParts: string[] = [`PageSize=${pageSize}`, `Offset=${offset}`];
+        if (params.dateFrom) queryParts.push(`StartTime%3E=${encodeURIComponent(params.dateFrom)}`);
+        if (params.dateTo) queryParts.push(`StartTime%3C=${encodeURIComponent(params.dateTo)}`);
+        if (params.status) queryParts.push(`Status=${encodeURIComponent(params.status)}`);
+        if (params.direction) {
+          const dir = params.direction === 'inbound' ? 'incoming' : 'outgoing';
+          queryParts.push(`Direction=${dir}`);
+        }
+
+        const result = await ExotelClient.fetchCDRPage(queryParts.join('&'));
+
+        const calls: ExotelCallRecord[] = result?.Calls || [];
+        if (calls.length === 0) {
+          hasMore = false;
+        } else {
+          yield calls;
+          offset += pageSize;
+          // If fewer than pageSize returned, we've reached the end
+          if (calls.length < pageSize) hasMore = false;
+        }
+      }
+    },
+  };
+}
+
 export class ExotelApiError extends Error {
   statusCode: number;
   exotelCode?: string;
@@ -181,6 +267,13 @@ export class ExotelClient {
   private static getAuthHeader(): string {
     const config = this.getConfig();
     return `Basic ${Buffer.from(`${config.apiKey}:${config.apiToken}`).toString('base64')}`;
+  }
+
+  /**
+   * Fetch call records from CDR API (public, used by getExotelClient).
+   */
+  static async fetchCDRPage(queryString: string): Promise<any> {
+    return this.request<any>('GET', `/Calls.json?${queryString}`);
   }
 
   /**
