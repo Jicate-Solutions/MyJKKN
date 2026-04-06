@@ -82,6 +82,34 @@ export interface ExotelSmsResponse {
   };
 }
 
+// ── User Management (CCM API) ──────────────────────────────────────────────
+
+export interface ExotelDevice {
+  device_id: string;
+  is_active: boolean;
+  type: string; // 'softphone' | 'browser' | 'sip' etc.
+}
+
+export interface ExotelActiveCall {
+  call_sid: string;
+  from: string;
+  to: string;
+  direction: string;
+  status: string;
+  start_time: string;
+}
+
+export interface ExotelUser {
+  user_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: 'admin' | 'supervisor' | 'user';
+  devices: ExotelDevice[];
+  active_call: ExotelActiveCall | null;
+  last_login: string | null;
+}
+
 export interface AnalyzeCallParams {
   callSid: string;
   tasks: ('transcript' | 'summarization' | 'sentiment' | 'categorise')[];
@@ -259,6 +287,19 @@ export class ExotelClient {
   private static getBaseUrl(version: 'v1' | 'v2' = 'v1'): string {
     const config = this.getConfig();
     return `https://${config.subdomain}/${version}/Accounts/${config.accountSid}`;
+  }
+
+  /**
+   * Build base URL for the CCM (User Management) API.
+   * The CCM subdomain mirrors the voice subdomain pattern:
+   *   api.exotel.com → ccm-api.exotel.com
+   *   api.in.exotel.com → ccm-api.in.exotel.com
+   */
+  private static getCcmBaseUrl(): string {
+    const config = this.getConfig();
+    // Replace leading 'api.' with 'ccm-api.' to get the CCM subdomain
+    const ccmSubdomain = config.subdomain.replace(/^api\./, 'ccm-api.');
+    return `https://${ccmSubdomain}/v2/accounts/${config.accountSid}`;
   }
 
   /**
@@ -448,5 +489,150 @@ export class ExotelClient {
       `/Calls/${params.callSid}/ExoVoiceAnalyze.json`,
       body
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // USER MANAGEMENT API (CCM subdomain)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Core HTTP request for the CCM (User Management) API.
+   * Uses ccm-api subdomain, always JSON, always v2.
+   */
+  private static async ccmRequest<T>(method: string, path: string): Promise<T> {
+    const baseUrl = this.getCcmBaseUrl();
+    const url = `${baseUrl}${path}`;
+    const authHeader = this.getAuthHeader();
+
+    logger.info('telephony/exotel-ccm', `${method} ${path}`);
+
+    const response = await withRetry(
+      () =>
+        withTimeout(
+          fetch(url, {
+            method,
+            headers: {
+              Authorization: authHeader,
+              'Content-Type': 'application/json',
+            },
+          }),
+          15000,
+          `Exotel CCM API timeout: ${method} ${path}`
+        ),
+      2,
+      1000
+    );
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      logger.error('telephony/exotel-ccm', `API error: ${response.status}`, {
+        path,
+        status: response.status,
+        body: responseText.substring(0, 500),
+      });
+
+      throw new ExotelApiError(
+        `Exotel CCM API ${method} ${path} failed: ${response.status}`,
+        response.status,
+        undefined,
+        responseText.substring(0, 500)
+      );
+    }
+
+    try {
+      const data = JSON.parse(responseText);
+      logger.info('telephony/exotel-ccm', `${method} ${path} success`);
+      return data as T;
+    } catch {
+      throw new ExotelApiError(
+        `Exotel CCM API returned non-JSON: ${responseText.substring(0, 200)}`,
+        response.status
+      );
+    }
+  }
+
+  /**
+   * Get all Exotel users (counselors/agents).
+   * Uses CCM subdomain: ccm-api.{region}.exotel.com
+   * Paginates automatically (max 50 per page).
+   */
+  static async getUsers(): Promise<ExotelUser[]> {
+    const allUsers: ExotelUser[] = [];
+    let offset = 0;
+    const limit = 50;
+
+    // Paginate through all users
+    // Safety cap at 500 to avoid infinite loops
+    while (offset < 500) {
+      const params = `?devices=true&active_call=true&last_login=true&offset=${offset}&limit=${limit}`;
+      const response = await this.ccmRequest<any>('GET', `/users${params}`);
+
+      // Exotel CCM returns: { response: [{ code: 200, data: { id, email, ... } }], metadata: { total, count, offset, limit } }
+      const rawItems: any[] = response?.response || response?.data || response?.users || (Array.isArray(response) ? response : []);
+      // Unwrap nested { data: {...} } wrappers
+      const users: any[] = rawItems.map((item: any) => item?.data || item);
+
+      if (users.length === 0) break;
+
+      for (const u of users) {
+        allUsers.push({
+          user_id: u.user_id || u.id || '',
+          first_name: u.first_name || '',
+          last_name: u.last_name || '',
+          email: u.email || '',
+          role: u.role || 'user',
+          devices: (u.devices || []).map((d: any) => ({
+            device_id: d.device_id || d.id || '',
+            is_active: d.is_active ?? false,
+            type: d.type || 'unknown',
+          })),
+          active_call: u.active_call ? {
+            call_sid: u.active_call.call_sid || u.active_call.sid || '',
+            from: u.active_call.from || '',
+            to: u.active_call.to || '',
+            direction: u.active_call.direction || '',
+            status: u.active_call.status || '',
+            start_time: u.active_call.start_time || '',
+          } : null,
+          last_login: u.last_login || null,
+        });
+      }
+
+      if (users.length < limit) break;
+      offset += limit;
+    }
+
+    return allUsers;
+  }
+
+  /**
+   * Get a single user with device and call status.
+   */
+  static async getUser(userId: string): Promise<ExotelUser> {
+    const response = await this.ccmRequest<any>('GET', `/users/${userId}?devices=true&active_call=true&last_login=true`);
+
+    const u = response?.data || response;
+    return {
+      user_id: u.user_id || u.id || userId,
+      first_name: u.first_name || '',
+      last_name: u.last_name || '',
+      email: u.email || '',
+      role: u.role || 'user',
+      devices: (u.devices || []).map((d: any) => ({
+        device_id: d.device_id || d.id || '',
+        is_active: d.is_active ?? false,
+        type: d.type || 'unknown',
+      })),
+      active_call: u.active_call ? {
+        call_sid: u.active_call.call_sid || u.active_call.sid || '',
+        from: u.active_call.from || '',
+        to: u.active_call.to || '',
+        direction: u.active_call.direction || '',
+        status: u.active_call.status || '',
+        start_time: u.active_call.start_time || '',
+      } : null,
+      last_login: u.last_login || null,
+    };
   }
 }
