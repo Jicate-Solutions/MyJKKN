@@ -165,6 +165,15 @@ export function isAdmissionCall(agentPhone: string, exoPhone: string): boolean {
 }
 
 /**
+ * Get all agents marked as admission counselors from the static agent map.
+ * Used by CounselorSyncService to know which Exotel users should be
+ * in the admission_counselors table.
+ */
+export function getAdmissionCounselors(): ExotelAgent[] {
+  return Object.values(AGENT_MAP).filter(a => a.isAdmissionCounselor);
+}
+
+/**
  * Get call context for enriching call logs.
  */
 export function getCallContext(agentPhone: string, exoPhone: string): {
