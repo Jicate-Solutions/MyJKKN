@@ -305,13 +305,12 @@ function StepCard({
   // Ensure customRoles is always an array for safe operations
   const safeRoles = Array.isArray(customRoles) ? customRoles : [];
 
-  // Find the selected role safely
-  const selectedRoleKey = safeRoles.find((r) => r.id === step.role_id)?.role_key || null;
+  // Fetch approvers from faculty, HOD, and principal roles institution-wide
+  const APPROVER_ROLES = ['faculty', 'hod', 'principal'];
 
   const { data: users, isLoading: usersLoading } = useUsersByRole(
-    selectedRoleKey,
-    institutionId,
-    departmentId
+    step.role_id ? APPROVER_ROLES : null,
+    institutionId
   );
 
   // Ensure users is always an array
@@ -424,9 +423,9 @@ function StepCard({
               {step.role_id && (
                 <div className="space-y-2">
                   <Label>Select Approvers *</Label>
-                  {!institutionId || !departmentId ? (
+                  {!institutionId ? (
                     <div className="text-sm text-gray-500 italic p-2 border border-gray-200 dark:border-gray-700 rounded-md">
-                      Please select institution and department first to view available users
+                      Please select institution first to view available users
                     </div>
                   ) : usersLoading ? (
                     <div className="text-sm text-gray-500 italic p-2 border border-gray-200 dark:border-gray-700 rounded-md">
@@ -434,7 +433,7 @@ function StepCard({
                     </div>
                   ) : safeUsers.length === 0 ? (
                     <div className="text-sm text-gray-500 italic p-2 border border-gray-200 dark:border-gray-700 rounded-md">
-                      No users found with this role in selected institution/department
+                      No users found with this role in selected institution
                     </div>
                   ) : (
                     <div className="space-y-2">

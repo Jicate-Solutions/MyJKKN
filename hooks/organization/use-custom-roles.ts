@@ -72,24 +72,30 @@ export function useCustomRolesForApproval() {
 }
 
 /**
- * Get users by role key filtered by institution and department
+ * Get users by role key(s) filtered by institution and optionally department.
+ * Accepts a single role key or an array of role keys to fetch users across multiple roles.
  */
 export function useUsersByRole(
-  roleKey: string | null,
+  roleKey: string | string[] | null,
   institutionId?: string,
   departmentId?: string
 ) {
+  // Normalize to array for consistent handling
+  const roleKeys = roleKey
+    ? (Array.isArray(roleKey) ? roleKey : [roleKey])
+    : [];
+
   return useQuery({
-    queryKey: [...KEYS.usersByRole(roleKey || ''), institutionId, departmentId],
+    queryKey: [...KEYS.usersByRole(roleKeys.join(',')), institutionId, departmentId],
     queryFn: async (): Promise<UserWithRole[]> => {
-      if (!roleKey) {
+      if (roleKeys.length === 0) {
         return [];
       }
 
       let query = supabase
         .from('profiles')
         .select('id, full_name, email, role, avatar_url, institution_id, department_id')
-        .eq('role', roleKey);
+        .in('role', roleKeys);
 
       // Filter by institution if provided
       if (institutionId) {
@@ -113,6 +119,6 @@ export function useUsersByRole(
 
       return (data || []) as UserWithRole[];
     },
-    enabled: !!roleKey,
+    enabled: roleKeys.length > 0,
   });
 }

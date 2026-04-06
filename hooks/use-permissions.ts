@@ -203,7 +203,17 @@ export function usePermissions(
       userRoles.some((r) => r.role_key === 'admission')
     );
   }, [userProfile?.role, userRoles]);
-  
+
+  // Users with the 'counselor' custom role (in ANY of their assigned roles)
+  // get access to admission module pages (call logs, leads, counselor dashboard, etc.)
+  // This handles multi-role users like faculty+counselor or student+counselor.
+  const isCounselorUser = useMemo(() => {
+    return (
+      userProfile?.role === 'counselor' ||
+      userRoles.some((r) => r.role_key === 'counselor')
+    );
+  }, [userProfile?.role, userRoles]);
+
   // Overall loading state
   const isLoading = authLoading || (!!userProfile && queryLoading);
   const error = authError ? new Error(authError) : (queryError as Error | null);
@@ -384,6 +394,7 @@ export function usePermissions(
     hasAnyPermission,
     isSuperAdmin,
     isAdmissionGlobalUser,
+    isCounselorUser,
     userProfile,
 
     // Multi-role properties

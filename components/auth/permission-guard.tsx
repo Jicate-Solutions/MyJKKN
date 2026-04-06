@@ -48,7 +48,7 @@ export function PermissionGuard({
   fallback = null,
   loading = null
 }: PermissionGuardProps) {
-  const { isLoading, canPerformAll, canPerformAny, isSuperAdmin, isAdmissionGlobalUser } =
+  const { isLoading, canPerformAll, canPerformAny, isSuperAdmin, isAdmissionGlobalUser, isCounselorUser } =
     usePermissions([], {
       waitForLoad: true
     });
@@ -65,6 +65,12 @@ export function PermissionGuard({
 
   // Admission global users have full access to all admission module pages
   if (isAdmissionGlobalUser && (module === 'admission' || module.startsWith('admission.'))) {
+    return <>{children}</>;
+  }
+
+  // Counselor users (in ANY of their assigned roles) can access admission module pages
+  // This handles multi-role users like faculty+counselor or student+counselor
+  if (isCounselorUser && (module === 'admission' || module.startsWith('admission.'))) {
     return <>{children}</>;
   }
 
