@@ -568,8 +568,10 @@ export class ExotelClient {
       const params = `?devices=true&active_call=true&last_login=true&offset=${offset}&limit=${limit}`;
       const response = await this.ccmRequest<any>('GET', `/users${params}`);
 
-      // The API may return { data: [...] } or { users: [...] } or just [...]
-      const users: any[] = response?.data || response?.users || (Array.isArray(response) ? response : []);
+      // Exotel CCM returns: { response: [{ code: 200, data: { id, email, ... } }], metadata: { total, count, offset, limit } }
+      const rawItems: any[] = response?.response || response?.data || response?.users || (Array.isArray(response) ? response : []);
+      // Unwrap nested { data: {...} } wrappers
+      const users: any[] = rawItems.map((item: any) => item?.data || item);
 
       if (users.length === 0) break;
 
