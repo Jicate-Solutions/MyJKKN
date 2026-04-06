@@ -18,6 +18,7 @@ import {
   TabletSmartphone,
   Bug,
   Rocket,
+  Star,
   LucideIcon,
   Search
 } from 'lucide-react';
@@ -28,6 +29,8 @@ import { useCommandPalette } from '@/components/CommandPalette/CommandPalettePro
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
+import { usePageFavorites } from '@/hooks/use-page-favorites';
+import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu } from './bottom-nav-more-menu';
@@ -136,6 +139,7 @@ export function BottomNavbar() {
   } = usePermissions();
 
   const { open: openSearch } = useCommandPalette();
+  const { favorites } = usePageFavorites();
 
   const {
     activeNavId,
@@ -193,20 +197,51 @@ export function BottomNavbar() {
       }));
   }, [filteredPages]);
 
-  // Primary nav groups (first 4)
-  const primaryNavGroups = useMemo(() => {
-    return allNavGroups.slice(0, 4);
-  }, [allNavGroups]);
+  // Build a favorites nav group from user's favorited pages
+  const favoritesNavGroup = useMemo((): BottomNavGroup | null => {
+    if (favorites.length === 0) return null;
+    return {
+      id: 'favorites',
+      groupLabel: 'Favorites',
+      icon: Star,
+      menus: favorites.map((fav) => ({
+        href: fav.path,
+        label: fav.title,
+        icon: ICON_MAP[fav.iconName] || Star,
+      })),
+    };
+  }, [favorites]);
 
-  // Remaining groups for "More" menu
+  // Primary nav groups: 3 regular + favorites (if any), or 4 regular
+  const primaryNavGroups = useMemo(() => {
+    if (favoritesNavGroup) {
+      // Show 3 regular groups + favorites group
+      return [...allNavGroups.slice(0, 3), favoritesNavGroup];
+    }
+    return allNavGroups.slice(0, 4);
+  }, [allNavGroups, favoritesNavGroup]);
+
+  // Remaining groups for "More" menu — start from index 3 if favorites took a slot
   const moreNavGroups = useMemo(() => {
+    if (favoritesNavGroup) {
+      return allNavGroups.slice(3);
+    }
     return allNavGroups.slice(4);
-  }, [allNavGroups]);
+  }, [allNavGroups, favoritesNavGroup]);
+
+  // All groups including favorites for lookup purposes
+  // Regular groups come first so pathname matching prefers module context over favorites
+  const allGroupsWithFavorites = useMemo(() => {
+    if (favoritesNavGroup) {
+      return [...allNavGroups, favoritesNavGroup];
+    }
+    return allNavGroups;
+  }, [allNavGroups, favoritesNavGroup]);
 
   // Find the group that contains the current pathname
   const currentActiveGroup = useMemo(() => {
-    // Search all groups for a matching menu item
-    for (const group of allNavGroups) {
+    // Search all groups (including favorites) for a matching menu item
+    for (const group of allGroupsWithFavorites) {
       for (const menu of group.menus) {
         // Exact match or starts with (for nested routes)
         if (pathname === menu.href || pathname.startsWith(menu.href + '/')) {
@@ -216,7 +251,7 @@ export function BottomNavbar() {
     }
     // Default to first group if no match found
     return allNavGroups[0] || null;
-  }, [pathname, allNavGroups]);
+  }, [pathname, allGroupsWithFavorites, allNavGroups]);
 
   // Find the active page info based on current pathname
   const currentActivePage = useMemo((): ActivePageInfo | null => {
@@ -253,14 +288,14 @@ export function BottomNavbar() {
   // Current active submenu items - based on effective active nav
   const activeSubmenus = useMemo(() => {
     if (effectiveActiveNavId) {
-      const selectedGroup = allNavGroups.find((g) => g.id === effectiveActiveNavId);
+      const selectedGroup = allGroupsWithFavorites.find((g) => g.id === effectiveActiveNavId);
       if (selectedGroup) {
         return selectedGroup.menus;
       }
     }
     // Fallback to current pathname's group
     return currentActiveGroup?.menus || [];
-  }, [effectiveActiveNavId, allNavGroups, currentActiveGroup]);
+  }, [effectiveActiveNavId, allGroupsWithFavorites, currentActiveGroup]);
 
   // Update active page IMMEDIATELY when currentActivePage changes (before paint)
   useLayoutEffect(() => {
@@ -424,6 +459,7 @@ export function BottomNavbar() {
               label={group.groupLabel}
               isActive={effectiveActiveNavId === group.id}
               hasSubmenu={group.menus.length > 1}
+              customColor={group.id === 'favorites' ? 'text-yellow-600 dark:text-yellow-500' : undefined}
               onClick={() => handleNavClick(group.id)}
             />
           ))}

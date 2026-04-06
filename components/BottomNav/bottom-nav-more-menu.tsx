@@ -2,8 +2,11 @@
 
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
+import { Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BottomNavMoreMenuProps } from './types';
+import { usePageFavorites } from '@/hooks/use-page-favorites';
+import { ICON_MAP } from '@/lib/navigation/page-registry';
 import {
   Sheet,
   SheetContent,
@@ -24,6 +27,7 @@ export function BottomNavMoreMenu({
   onItemClick
 }: BottomNavMoreMenuProps) {
   const pathname = usePathname();
+  const { favorites, isLoading: favoritesLoading } = usePageFavorites();
 
   const handleItemClick = (href: string) => {
     onItemClick(href);
@@ -53,6 +57,65 @@ export function BottomNavMoreMenu({
               display: none;
             }
           `}</style>
+
+          {/* Favorites section — shown at the top when user has favorites */}
+          {!favoritesLoading && favorites.length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center gap-2 py-2 px-1">
+                <div className="p-2 rounded-lg bg-yellow-500/10">
+                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" strokeWidth={2.5} />
+                </div>
+                <span className="font-medium text-sm">Favorites</span>
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {favorites.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-2 pb-3">
+                {favorites.map((fav, index) => {
+                  const isActive =
+                    pathname === fav.path ||
+                    pathname.startsWith(fav.path + '/');
+                  const Icon = ICON_MAP[fav.iconName] || Star;
+
+                  return (
+                    <motion.button
+                      key={fav.path}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{
+                        opacity: 1,
+                        scale: 1,
+                        transition: { delay: index * 0.02 }
+                      }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => handleItemClick(fav.path)}
+                      className={cn(
+                        'flex flex-col items-center justify-center p-3 rounded-lg',
+                        'transition-colors duration-200',
+                        'active:bg-accent',
+                        isActive
+                          ? 'bg-primary/10 text-primary ring-1 ring-primary/20'
+                          : 'text-muted-foreground bg-yellow-500/5 dark:bg-yellow-500/10'
+                      )}
+                    >
+                      <Icon
+                        className="h-5 w-5 mb-1"
+                        strokeWidth={isActive ? 2.5 : 2}
+                      />
+                      <span
+                        className={cn(
+                          'text-[10px] text-center leading-tight line-clamp-2',
+                          isActive && 'font-semibold'
+                        )}
+                      >
+                        {fav.title}
+                      </span>
+                    </motion.button>
+                  );
+                })}
+              </div>
+              <div className="border-b border-border/30" />
+            </div>
+          )}
 
           <Accordion type="multiple" className="w-full" defaultValue={groups.map(g => g.id)}>
             {groups.map((group) => {

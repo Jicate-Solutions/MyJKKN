@@ -110,7 +110,11 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const navigateTo = useCallback(
     (path: string) => {
       close();
-      router.push(path);
+      // Defer navigation to avoid race condition with Dialog unmount
+      // aborting the RSC payload fetch in Next.js 16
+      requestAnimationFrame(() => {
+        router.push(path);
+      });
     },
     [close, router]
   );
