@@ -28,12 +28,15 @@ export async function GET(request: NextRequest) {
 
     const supabase = createServiceRoleClient();
 
+    // Only select columns that exist in the base schema (pre-pipeline).
+    // Pipeline columns (auto_sms_sent, caller_location, etc.) may not be
+    // visible to PostgREST until its schema cache refreshes after migration.
+    // We compute location from PhoneNumberIntelligence instead.
     let query = supabase
       .from('admission_call_logs')
       .select(`
         id, from_number, lead_id, status, duration_seconds, cost_amount,
-        created_at, auto_sms_sent, caller_location, caller_attempt_number,
-        callback_queued, callback_queue_id,
+        created_at, started_at,
         lead:admission_leads(id, full_name, priority)
       `)
       .eq('direction', 'inbound')
@@ -59,7 +62,8 @@ export async function GET(request: NextRequest) {
       const isAnswered = (call.cost_amount ?? 0) > 0 && (call.duration_seconds ?? 0) > 0;
 
       if (!callerMap[phone]) {
-        const location = call.caller_location || PhoneNumberIntelligence.getLocationFromPhone(phone);
+        const location = PhoneNumberIntelligence.getLocationFromPhone(phone);
+        const callTime = call.started_at || call.created_at;
         callerMap[phone] = {
           from_number: phone,
           lead_id: call.lead_id ?? (call.lead as any)?.id ?? null,
@@ -68,53 +72,35 @@ export async function GET(request: NextRequest) {
           total_attempts: 0,
           missed_count: 0,
           answered_count: 0,
-          first_call_at: call.created_at,
-          last_call_at: call.created_at,
+          first_call_at: callTime,
+          last_call_at: callTime,
           auto_sms_sent: false,
-          callback_queue_id: call.callback_queue_id ?? null,
+          callback_status: null,
+          callback_priority: null,
+          sla_breached: false,
           current_lead_priority: (call.lead as any)?.priority ?? null,
         };
       }
 
       const caller = callerMap[phone];
+      const callTime = call.started_at || call.created_at;
       caller.total_attempts++;
       if (isAnswered) caller.answered_count++;
       else caller.missed_count++;
-      if (call.auto_sms_sent) caller.auto_sms_sent = true;
       if (call.lead_id && !caller.lead_id) {
         caller.lead_id = call.lead_id;
         caller.lead_name = (call.lead as any)?.full_name ?? null;
         caller.current_lead_priority = (call.lead as any)?.priority ?? null;
       }
-      if (call.created_at < caller.first_call_at) caller.first_call_at = call.created_at;
-      if (call.created_at > caller.last_call_at) caller.last_call_at = call.created_at;
-      if (call.callback_queue_id) caller.callback_queue_id = call.callback_queue_id;
-    }
-
-    // Fetch callback statuses
-    const callbackIds = Object.values(callerMap)
-      .map((c: any) => c.callback_queue_id)
-      .filter(Boolean) as string[];
-
-    const callbackStatusMap: Record<string, any> = {};
-    if (callbackIds.length > 0) {
-      const { data: callbacks } = await supabase
-        .from('admission_callback_queue')
-        .select('id, status, priority, sla_breached')
-        .in('id', callbackIds);
-      if (callbacks) {
-        for (const cb of callbacks) {
-          callbackStatusMap[cb.id] = { status: cb.status, priority: cb.priority, sla_breached: cb.sla_breached ?? false };
-        }
-      }
+      if (callTime < caller.first_call_at) caller.first_call_at = callTime;
+      if (callTime > caller.last_call_at) caller.last_call_at = callTime;
     }
 
     const callers = Object.values(callerMap).map((caller: any) => {
-      const cb = caller.callback_queue_id ? callbackStatusMap[caller.callback_queue_id] : null;
       const firstCall = new Date(caller.first_call_at).getTime();
       const lastCall = new Date(caller.last_call_at).getTime();
       const daysTrying = Math.max(1, Math.ceil((lastCall - firstCall) / (1000 * 60 * 60 * 24)));
-      return { ...caller, days_trying: daysTrying, callback_status: cb?.status ?? null, callback_priority: cb?.priority ?? null, sla_breached: cb?.sla_breached ?? false };
+      return { ...caller, days_trying: daysTrying };
     });
 
     callers.sort((a: any, b: any) => {
