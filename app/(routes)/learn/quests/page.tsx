@@ -422,8 +422,17 @@ export default function QuestBoardPage() {
   };
 
   const handleEnroll = async (questId: string) => {
-    if (!user?.id) return;
-    await enrollInQuest.mutateAsync({ questId, learnerId: user.id });
+    if (!user?.id) {
+      alert('Please log in to start a quest');
+      return;
+    }
+    try {
+      await enrollInQuest.mutateAsync({ questId, learnerId: user.id });
+      alert('Successfully enrolled in quest! Go to Build Arena to start working.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to enroll';
+      alert(msg);
+    }
   };
 
   const activeFilterCount = [
@@ -456,17 +465,17 @@ export default function QuestBoardPage() {
 
           {/* Status filter - quick toggle */}
           <Select
-            value={filters.status}
-            onValueChange={(val) => handleFilterChange('status', val)}
+            value={filters.status || 'all'}
+            onValueChange={(val) => handleFilterChange('status', val === 'all' ? '' : val)}
           >
             <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="all">All</SelectItem>
               <SelectItem value="open">Open</SelectItem>
               <SelectItem value="in_progress">In Progress</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="">All</SelectItem>
             </SelectContent>
           </Select>
         </div>
