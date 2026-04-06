@@ -179,7 +179,7 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
         { id: '12', name: 'campus_announcement', category: 'MARKETING', language: 'en', status: 'APPROVED' },
       ];
     },
-    enabled: !!institutionId,
+    enabled: true,
     staleTime: 5 * 60 * 1000,
   });
 
