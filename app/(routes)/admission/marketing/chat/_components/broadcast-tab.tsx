@@ -147,39 +147,34 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
   });
 
   const { data: templates } = useQuery({
-    queryKey: ['wa-broadcast-templates', institutionId],
+    queryKey: ['wa-broadcast-templates'],
     queryFn: async () => {
-      // Try dedicated templates endpoint first, fallback to chat templates
-      for (const url of [
-        `/api/admission/chat/templates/refresh-quality?institution_id=${institutionId}`,
-        `/api/admission/settings/whatsapp-numbers?action=templates&institution_id=${institutionId}`,
-      ]) {
-        try {
-          const res = await fetch(url);
-          if (res.ok) {
-            const json = await res.json();
-            const data = json.data || json.templates || [];
-            if (data.length > 0) return data.filter((t: ApprovedTemplate) => t.status === 'APPROVED');
-          }
-        } catch { /* try next */ }
-      }
-      // Hardcoded fallback — known approved templates from Meta
+      // Fetch APPROVED templates directly from Meta Graph API
+      try {
+        const res = await fetch('/api/admission/chat/templates');
+        if (res.ok) {
+          const json = await res.json();
+          const approved = (json.data || []).filter((t: ApprovedTemplate) => t.status === 'APPROVED');
+          if (approved.length > 0) return approved;
+        }
+      } catch { /* fall through to hardcoded */ }
+
+      // Hardcoded fallback — known approved templates from Meta WABA
       return [
-        { id: '1', name: 'contactus', category: 'UTILITY', language: 'en', status: 'APPROVED' },
-        { id: '2', name: 'jkkn_welcome', category: 'MARKETING', language: 'en', status: 'APPROVED' },
-        { id: '3', name: 'jkkn_followup', category: 'MARKETING', language: 'en', status: 'APPROVED' },
-        { id: '4', name: 'fee_reminder', category: 'UTILITY', language: 'en', status: 'APPROVED' },
-        { id: '5', name: 'attendance_alert', category: 'UTILITY', language: 'en', status: 'APPROVED' },
-        { id: '6', name: 'application_status', category: 'UTILITY', language: 'en', status: 'APPROVED' },
-        { id: '7', name: 'document_request', category: 'UTILITY', language: 'en', status: 'APPROVED' },
-        { id: '8', name: 'payment_received', category: 'UTILITY', language: 'en', status: 'APPROVED' },
-        { id: '9', name: 'instant_welcome_messages', category: 'MARKETING', language: 'en', status: 'APPROVED' },
-        { id: '10', name: 'complaint_status', category: 'UTILITY', language: 'en', status: 'APPROVED' },
-        { id: '11', name: 'followup', category: 'UTILITY', language: 'en', status: 'APPROVED' },
-        { id: '12', name: 'campus_announcement', category: 'MARKETING', language: 'en', status: 'APPROVED' },
+        { id: '1', name: 'contactus', category: 'UTILITY', language: 'en', status: 'APPROVED', components: [] },
+        { id: '2', name: 'jkkn_welcome', category: 'MARKETING', language: 'en', status: 'APPROVED', components: [] },
+        { id: '3', name: 'jkkn_followup', category: 'MARKETING', language: 'en', status: 'APPROVED', components: [] },
+        { id: '4', name: 'fee_reminder', category: 'UTILITY', language: 'en', status: 'APPROVED', components: [] },
+        { id: '5', name: 'attendance_alert', category: 'UTILITY', language: 'en', status: 'APPROVED', components: [] },
+        { id: '6', name: 'application_status', category: 'UTILITY', language: 'en', status: 'APPROVED', components: [] },
+        { id: '7', name: 'document_request', category: 'UTILITY', language: 'en', status: 'APPROVED', components: [] },
+        { id: '8', name: 'payment_received', category: 'UTILITY', language: 'en', status: 'APPROVED', components: [] },
+        { id: '9', name: 'instant_welcome_messages', category: 'MARKETING', language: 'en', status: 'APPROVED', components: [] },
+        { id: '10', name: 'complaint_status', category: 'UTILITY', language: 'en', status: 'APPROVED', components: [] },
+        { id: '11', name: 'followup', category: 'UTILITY', language: 'en', status: 'APPROVED', components: [] },
+        { id: '12', name: 'campus_announcement', category: 'MARKETING', language: 'en', status: 'APPROVED', components: [] },
       ];
     },
-    enabled: true,
     staleTime: 5 * 60 * 1000,
   });
 
