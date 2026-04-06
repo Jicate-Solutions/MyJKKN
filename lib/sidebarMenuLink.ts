@@ -961,24 +961,9 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/marketing/campaigns/roi'
             },
             {
-              href: '/admission/marketing/campaigns/segments',
-              label: 'Segments',
-              active: pathname === '/admission/marketing/campaigns/segments'
-            },
-            {
               href: '/admission/marketing/chat',
               label: 'WhatsApp',
               active: pathname.startsWith('/admission/marketing/chat')
-            },
-            {
-              href: '/admission/marketing/whatsapp-broadcast',
-              label: 'WhatsApp Broadcast',
-              active: pathname.startsWith('/admission/marketing/whatsapp-broadcast')
-            },
-            {
-              href: '/admission/settings/whatsapp-numbers',
-              label: 'Personal WhatsApp',
-              active: pathname === '/admission/settings/whatsapp-numbers'
             },
             {
               href: '/admission/marketing/chatbot',
@@ -989,11 +974,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/marketing/parent-communication',
               label: 'Parent Communication',
               active: pathname === '/admission/marketing/parent-communication'
-            },
-            {
-              href: '/admission/marketing/re-engagement',
-              label: 'Re-engagement',
-              active: pathname === '/admission/marketing/re-engagement'
             },
             {
               href: '/admission/marketing/remarketing',
