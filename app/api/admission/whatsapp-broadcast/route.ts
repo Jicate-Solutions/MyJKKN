@@ -172,6 +172,37 @@ export async function GET(request: NextRequest) {
     }
 
     const serviceClient = createServiceRoleClient();
+    const campaign_id = searchParams.get('campaign_id');
+
+    // If campaign_id provided, return per-phone delivery detail for that campaign
+    if (campaign_id) {
+      const { data: details, error: detailError } = await serviceClient
+        .from('admission_whatsapp_logs')
+        .select('recipient_phone, delivery_status, whatsapp_message_id, error_message, message_content, created_at, sent_at, delivered_at, read_at, failed_at, metadata')
+        .eq('institution_id', institution_id)
+        .eq('campaign_id', campaign_id)
+        .order('created_at', { ascending: true });
+
+      if (detailError) {
+        return NextResponse.json({ error: 'Failed to fetch campaign details' }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        campaign_id,
+        recipients: (details || []).map(d => ({
+          phone: d.recipient_phone,
+          status: d.delivery_status,
+          whatsapp_message_id: d.whatsapp_message_id,
+          error: d.error_message,
+          sent_at: d.sent_at || d.created_at,
+          delivered_at: d.delivered_at,
+          read_at: d.read_at,
+          failed_at: d.failed_at,
+          template: (d.metadata as Record<string, string>)?.template_name || '',
+          sender: (d.metadata as Record<string, string>)?.sender_number || '',
+        })),
+      });
+    }
 
     // Get campaigns grouped by campaign_id with delivery stats
     const { data: logs, error } = await serviceClient

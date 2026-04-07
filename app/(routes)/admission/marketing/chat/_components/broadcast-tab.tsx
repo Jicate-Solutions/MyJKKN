@@ -323,15 +323,35 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
     setShowConfirm(false);
   };
 
-  const exportCampaignCSV = (c: BroadcastCampaign) => {
-    const csv = `Campaign,Template,Total,Sent,Delivered,Read,Failed,Date\n"${c.campaign_name}","${c.template_name}",${c.total},${c.sent},${c.delivered},${c.read},${c.failed},"${new Date(c.created_at).toLocaleString('en-IN')}"`;
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `broadcast-${c.campaign_id.slice(0, 8)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportCampaignCSV = async (c: BroadcastCampaign) => {
+    try {
+      // Fetch per-phone delivery detail
+      const res = await fetch(`/api/admission/whatsapp-broadcast?institution_id=${institutionId}&campaign_id=${c.campaign_id}`);
+      if (!res.ok) throw new Error('Failed to fetch details');
+      const detail = await res.json();
+      const recipients = detail.recipients || [];
+
+      // Build detailed CSV with per-phone delivery report
+      const headers = 'Phone,Status,Template,Sender,Sent At,Delivered At,Read At,Failed At,Error,WhatsApp Message ID';
+      const rows = recipients.map((r: { phone: string; status: string; template: string; sender: string; sent_at: string; delivered_at: string; read_at: string; failed_at: string; error: string; whatsapp_message_id: string }) => {
+        const fmt = (d: string) => d ? new Date(d).toLocaleString('en-IN') : '';
+        return `"${r.phone}","${r.status}","${r.template}","${r.sender}","${fmt(r.sent_at)}","${fmt(r.delivered_at)}","${fmt(r.read_at)}","${fmt(r.failed_at)}","${(r.error || '').replace(/"/g, '""')}","${r.whatsapp_message_id || ''}"`;
+      });
+
+      // Add summary row at the end
+      const summary = `\n\nCampaign Summary\nCampaign,"${c.campaign_name}"\nTemplate,"${c.template_name}"\nCreated By,"${c.created_by}"\nDate,"${new Date(c.created_at).toLocaleString('en-IN')}"\nTotal,${c.total}\nSent,${c.sent}\nDelivered,${c.delivered}\nRead,${c.read}\nFailed,${c.failed}\nDelivery Rate,"${c.total > 0 ? Math.round(((c.delivered + c.read) / c.total) * 100) : 0}%"`;
+
+      const csv = headers + '\n' + rows.join('\n') + summary;
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `broadcast-${c.campaign_name.replace(/[^a-zA-Z0-9]/g, '-')}-${c.campaign_id.slice(0, 8)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to export campaign details');
+    }
   };
 
   // Stats
