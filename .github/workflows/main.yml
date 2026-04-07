@@ -39,17 +39,71 @@ jobs:
           echo "=== Core Pages ==="
           check "Homepage" "$BASE_URL" "200"
           check "Login page" "$BASE_URL/auth/login" "200"
+          check "Dashboard" "$BASE_URL/dashboard" "307"
 
-          echo "=== WhatsApp API Endpoints ==="
+          echo "=== Admission Module ==="
+          check "Leads list" "$BASE_URL/api/admission/leads/list" "401"
+          check "Broadcast" "$BASE_URL/api/admission/whatsapp-broadcast" "401"
+          check "Chat templates" "$BASE_URL/api/admission/chat/templates" "401"
+          check "Sender info" "$BASE_URL/api/admission/chat/sender-info" "401"
+          check "Calls" "$BASE_URL/api/admission/calls" "401"
+          check "Expos" "$BASE_URL/api/admission/expos" "401"
+          check "Re-engagement" "$BASE_URL/api/admission/re-engagement" "401"
+
+          echo "=== WhatsApp Infrastructure ==="
           check "Webhook (GET)" "$BASE_URL/api/webhooks/whatsapp" "403"
-          check "Discover API" "$BASE_URL/api/admission/settings/whatsapp-numbers/discover" "200"
-          check "Sync API" "$BASE_URL/api/admission/settings/whatsapp-numbers/sync" "405"
-          check "Templates API" "$BASE_URL/api/admission/settings/whatsapp-templates" "401"
-          check "Profile API" "$BASE_URL/api/admission/settings/whatsapp-profile" "200"
-          check "Analytics API" "$BASE_URL/api/admission/settings/whatsapp-analytics" "401"
-          check "Health API" "$BASE_URL/api/admission/settings/whatsapp-health" "401"
+          check "WA Numbers" "$BASE_URL/api/admission/settings/whatsapp-numbers" "401"
+          check "WA Discover" "$BASE_URL/api/admission/settings/whatsapp-numbers/discover" "200"
+          check "WA Profile" "$BASE_URL/api/admission/settings/whatsapp-profile" "200"
+          check "WA Templates" "$BASE_URL/api/admission/settings/whatsapp-templates" "401"
+          check "WA Analytics" "$BASE_URL/api/admission/settings/whatsapp-analytics" "401"
+          check "WA Health" "$BASE_URL/api/admission/settings/whatsapp-health" "401"
 
-          echo "=== WhatsApp Webhook Verification ==="
+          echo "=== Solution Hub ==="
+          check "Solutions" "$BASE_URL/api/solution-hub/solutions" "401"
+          check "Departments" "$BASE_URL/api/solution-hub/departments" "401"
+
+          echo "=== Admin ==="
+          check "Users" "$BASE_URL/api/admin/users" "401"
+          check "Roles" "$BASE_URL/api/admin/roles" "401"
+          check "Audit Logs" "$BASE_URL/api/audit-logs" "401"
+          check "Notifications" "$BASE_URL/api/notifications" "401"
+
+          echo "=== Learners ==="
+          check "Learners analytics" "$BASE_URL/api/learners/analytics" "401"
+          check "Learners attendance" "$BASE_URL/api/learners/attendance" "401"
+
+          echo "=== Staff ==="
+          check "Staff" "$BASE_URL/api/staff" "401"
+          check "Staff stats" "$BASE_URL/api/staff/dashboard-stats" "401"
+
+          echo "=== Organizations ==="
+          check "Institutions" "$BASE_URL/api/organizations/institutions" "401"
+          check "Departments" "$BASE_URL/api/organizations/departments" "401"
+          check "Programs" "$BASE_URL/api/organizations/programs" "401"
+          check "Courses" "$BASE_URL/api/organizations/courses" "401"
+
+          echo "=== PDE (Personal Dev Engine) ==="
+          check "PDE Quests" "$BASE_URL/api/pde/quests" "401"
+          check "PDE Badges" "$BASE_URL/api/pde/badges" "401"
+
+          echo "=== Applications ==="
+          check "Applications" "$BASE_URL/api/applications" "401"
+          check "Bug Reports" "$BASE_URL/api/bug-reports" "401"
+          check "Service Requests" "$BASE_URL/api/service-requests" "401"
+
+          echo "=== B2A (Bridge to Action) ==="
+          check "B2A Admission" "$BASE_URL/api/b2a/admission" "401"
+          check "B2A Learners" "$BASE_URL/api/b2a/learners" "401"
+
+          echo "=== Telephony & Cron ==="
+          check "Telephony webhook" "$BASE_URL/api/webhooks/telephony" "405"
+          check "SMS webhook" "$BASE_URL/api/webhooks/sms" "405"
+
+          echo "=== Work Pulse ==="
+          check "Work Pulse admin" "$BASE_URL/api/work-pulse/admin" "401"
+
+          echo "=== Webhook Security ==="
           WEBHOOK_RESPONSE=$(curl -s "$BASE_URL/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=invalid_token&hub.challenge=test")
           if echo "$WEBHOOK_RESPONSE" | grep -q "failed\|error\|Invalid"; then
             echo "PASS Webhook rejects invalid tokens"
@@ -59,7 +113,7 @@ jobs:
             FAILED=$((FAILED + 1))
           fi
 
-          echo "=== WhatsApp Discover Data Check ==="
+          echo "=== WhatsApp Discover Data ==="
           DISCOVER=$(curl -s "$BASE_URL/api/admission/settings/whatsapp-numbers/discover")
           WABA_COUNT=$(echo "$DISCOVER" | python3 -c "import sys,json; print(json.load(sys.stdin).get('waba_count',0))" 2>/dev/null || echo "0")
           TOTAL=$(echo "$DISCOVER" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total',0))" 2>/dev/null || echo "0")
