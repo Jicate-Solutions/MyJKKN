@@ -59,6 +59,8 @@ import {
   XCircle,
   Loader2,
   RefreshCw,
+  Search,
+  CloudDownload,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
@@ -297,6 +299,210 @@ function AddNumberDialog({
 }
 
 // =============================================================================
+// Discover from Meta Dialog
+// =============================================================================
+
+interface DiscoveredNumber {
+  phone_number_id: string;
+  display_number: string;
+  verified_name: string;
+  quality_rating: string;
+  platform_type: string;
+  verification_status: string;
+  status: string;
+  messaging_limit: string;
+  waba_id: string;
+  waba_name: string;
+  already_added: boolean;
+}
+
+function DiscoverDialog({
+  institutionId,
+  onSuccess,
+}: {
+  institutionId: string;
+  onSuccess: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discovered, setDiscovered] = useState<DiscoveredNumber[]>([]);
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleDiscover = async () => {
+    setIsDiscovering(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admission/settings/whatsapp-numbers/discover?institution_id=${institutionId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Discovery failed');
+      setDiscovered(data.discovered || []);
+      if (data.total === 0) {
+        setError('No phone numbers found on your Meta account. Make sure the access token has whatsapp_business_management permission.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Discovery failed');
+    } finally {
+      setIsDiscovering(false);
+    }
+  };
+
+  const handleAdd = async (num: DiscoveredNumber) => {
+    setAddingId(num.phone_number_id);
+    try {
+      await addWANumber({
+        institution_id: institutionId,
+        phone_number_id: num.phone_number_id,
+        business_account_id: num.waba_id,
+        display_number: num.display_number,
+      });
+      toast.success(`Added ${num.display_number} (${num.verified_name})`);
+      // Mark as added in local state
+      setDiscovered(prev =>
+        prev.map(d =>
+          d.phone_number_id === num.phone_number_id ? { ...d, already_added: true } : d
+        )
+      );
+      onSuccess();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add number');
+    } finally {
+      setAddingId(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v && discovered.length === 0) handleDiscover(); }}>
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <Search className="h-4 w-4 mr-2" />
+          Discover from Meta
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Discover WhatsApp Numbers</DialogTitle>
+          <DialogDescription>
+            Phone numbers found on your Meta Business Account. Click + to add any number to MyJKKN.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isDiscovering && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin mr-2" />
+            Scanning Meta Business Account...
+          </div>
+        )}
+
+        {error && (
+          <div className="text-center py-4 text-red-500 text-sm">{error}</div>
+        )}
+
+        {!isDiscovering && discovered.length > 0 && (
+          <div className="space-y-3">
+            {/* Group by WABA */}
+            {Array.from(new Set(discovered.map(d => d.waba_id))).map(wabaId => {
+              const wabaNumbers = discovered.filter(d => d.waba_id === wabaId);
+              const wabaName = wabaNumbers[0]?.waba_name || wabaId;
+              return (
+                <div key={wabaId} className="space-y-2">
+                  <h4 className="text-sm font-semibold text-muted-foreground">{wabaName}</h4>
+                  {wabaNumbers.map(num => (
+                    <div
+                      key={num.phone_number_id}
+                      className={cn(
+                        'flex items-center justify-between p-3 rounded-lg border',
+                        num.already_added ? 'bg-muted/50 opacity-60' : 'bg-card'
+                      )}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium">{num.display_number}</div>
+                        <div className="text-sm text-muted-foreground flex items-center gap-2">
+                          {num.verified_name}
+                          <QualityBadge rating={num.quality_rating} />
+                          <Badge variant="outline" className="text-xs">
+                            {num.platform_type === 'CLOUD_API' ? 'Cloud API' : num.platform_type}
+                          </Badge>
+                        </div>
+                      </div>
+                      {num.already_added ? (
+                        <Badge variant="secondary">Already added</Badge>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => handleAdd(num)}
+                          disabled={addingId === num.phone_number_id}
+                        >
+                          {addingId === num.phone_number_id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <>
+                              <Plus className="h-4 w-4 mr-1" />
+                              Add
+                            </>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={handleDiscover} disabled={isDiscovering}>
+            <RefreshCw className={cn('h-4 w-4 mr-2', isDiscovering && 'animate-spin')} />
+            Re-scan
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// =============================================================================
+// Sync from Meta Button
+// =============================================================================
+
+function SyncFromMetaButton({ institutionId, onDone }: { institutionId: string; onDone: () => void }) {
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/admission/settings/whatsapp-numbers/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institution_id: institutionId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Sync failed');
+
+      const updated = data.results?.filter((r: { status: string }) => r.status === 'updated').length || 0;
+      if (updated > 0) {
+        toast.success(`Synced ${updated} number(s) with latest Meta data`);
+      } else {
+        toast.info('All numbers are up to date');
+      }
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Sync failed');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  return (
+    <Button variant="outline" onClick={handleSync} disabled={isSyncing}>
+      <CloudDownload className={cn('h-4 w-4 mr-2', isSyncing && 'animate-spin')} />
+      {isSyncing ? 'Syncing...' : 'Sync from Meta'}
+    </Button>
+  );
+}
+
+// =============================================================================
 // Page Content
 // =============================================================================
 
@@ -381,10 +587,14 @@ function WhatsAppNumbersContent() {
               </BreadcrumbList>
             </Breadcrumb>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => refetch()}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
+              <SyncFromMetaButton
+                institutionId={institutionId}
+                onDone={() => queryClient.invalidateQueries({ queryKey: ['wa-phone-numbers'] })}
+              />
+              <DiscoverDialog
+                institutionId={institutionId}
+                onSuccess={() => queryClient.invalidateQueries({ queryKey: ['wa-phone-numbers'] })}
+              />
               <AddNumberDialog
                 institutionId={institutionId}
                 onSuccess={() => queryClient.invalidateQueries({ queryKey: ['wa-phone-numbers'] })}
