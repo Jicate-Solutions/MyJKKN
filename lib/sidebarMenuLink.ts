@@ -462,6 +462,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/vote': 'startup_studio.events.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
   '/startup-studio/events/[id]/dashboard': 'startup_studio.analytics.view',
+
+  // Events Module (Marathon)
+  '/events': 'events.view',
+  '/events/marathon': 'events.marathon.view',
+  '/events/marathon/[id]/dashboard': 'events.marathon.view',
+  '/events/marathon/[id]/registrations': 'events.marathon.registrations.manage',
+  '/events/marathon/[id]/sponsors': 'events.marathon.sponsors.manage',
+  '/events/marathon/[id]/committees': 'events.marathon.committees.manage',
+  '/events/marathon/[id]/budget': 'events.marathon.budget.manage',
+  '/events/marathon/[id]/live': 'events.marathon.live_ops.manage',
+  '/events/marathon/[id]/results': 'events.marathon.results.manage',
+  '/events/marathon/[id]/analytics': 'events.marathon.analytics.view',
+  '/events/marathon/[id]/certificates': 'events.marathon.certificates.manage',
+  '/events/marathon/[id]/settings': 'events.marathon.settings.manage',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1618,6 +1632,75 @@ export function GetPages(pathname: string): MenuGroup[] {
                 href: `/startup-studio/events/${activeId}/case-study`,
                 label: 'Case Study',
                 active: pathname.includes('/case-study')
+              },
+            ] : []
+          }
+        ];
+      })()
+    },
+    {
+      groupLabel: 'Events',
+      menus: (() => {
+        // Extract active marathon event ID from pathname: /events/marathon/[uuid]/...
+        const marathonMatch = pathname.match(/\/events\/marathon\/([^/]+)/);
+        const activeMarathonId = marathonMatch?.[1] ? marathonMatch[1] : null;
+
+        return [
+          {
+            href: '/events/marathon',
+            label: 'Marathon Events',
+            active: pathname.startsWith('/events'),
+            icon: CalendarDays,
+            submenus: activeMarathonId ? [
+              {
+                href: `/events/marathon/${activeMarathonId}/dashboard`,
+                label: 'Dashboard',
+                active: pathname.includes('/dashboard')
+              },
+              {
+                href: `/events/marathon/${activeMarathonId}/registrations`,
+                label: 'Registrations',
+                active: pathname.includes('/registrations')
+              },
+              {
+                href: `/events/marathon/${activeMarathonId}/sponsors`,
+                label: 'Sponsors',
+                active: pathname.includes('/sponsors')
+              },
+              {
+                href: `/events/marathon/${activeMarathonId}/committees`,
+                label: 'Committees',
+                active: pathname.includes('/committees')
+              },
+              {
+                href: `/events/marathon/${activeMarathonId}/budget`,
+                label: 'Budget',
+                active: pathname.includes('/budget')
+              },
+              {
+                href: `/events/marathon/${activeMarathonId}/live`,
+                label: 'Live Ops',
+                active: pathname.includes('/live')
+              },
+              {
+                href: `/events/marathon/${activeMarathonId}/results`,
+                label: 'Results',
+                active: pathname.includes('/results')
+              },
+              {
+                href: `/events/marathon/${activeMarathonId}/analytics`,
+                label: 'Analytics',
+                active: pathname.includes('/analytics')
+              },
+              {
+                href: `/events/marathon/${activeMarathonId}/certificates`,
+                label: 'Certificates',
+                active: pathname.includes('/certificates')
+              },
+              {
+                href: `/events/marathon/${activeMarathonId}/settings`,
+                label: 'Settings',
+                active: pathname.includes('/settings')
               },
             ] : []
           }
