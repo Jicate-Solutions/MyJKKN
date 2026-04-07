@@ -155,6 +155,22 @@ export class WhatsAppCampaignService {
         };
       }
 
+      // Check if WhatsApp Cloud API is configured BEFORE creating any DB records
+      if (!isWhatsAppConfigured()) {
+        return {
+          success: false,
+          error: 'WhatsApp Cloud API not configured',
+        };
+      }
+
+      // Validate formatted phone number is actually a real number
+      if (!formattedPhone) {
+        return {
+          success: false,
+          error: `Invalid phone number: ${input.recipient_phone}`,
+        };
+      }
+
       // Create log entry with pending status
       const { data: logEntry, error: insertError } = await this.supabase
         .from('admission_whatsapp_logs')
@@ -177,24 +193,6 @@ export class WhatsAppCampaignService {
         return {
           success: false,
           error: 'Failed to create message log',
-        };
-      }
-
-      // Check if WhatsApp Cloud API is configured
-      if (!isWhatsAppConfigured()) {
-        await this.supabase
-          .from('admission_whatsapp_logs')
-          .update({
-            delivery_status: 'failed',
-            failed_at: new Date().toISOString(),
-            error_message: 'WhatsApp Cloud API not configured (missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID)',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', logEntry.id);
-
-        return {
-          success: false,
-          error: 'WhatsApp Cloud API not configured',
         };
       }
 
@@ -631,10 +629,16 @@ export class WhatsAppCampaignService {
   /**
    * Format phone number for WhatsApp
    * Removes + and spaces, ensures country code
+   * Returns null if the input is not a valid phone number
    */
-  private static formatPhoneNumber(phone: string): string {
+  private static formatPhoneNumber(phone: string): string | null {
     // Remove all non-digit characters
     let cleaned = phone.replace(/\D/g, '');
+
+    // Reject if fewer than 10 real digits remain (garbage like "abc123" → "123")
+    if (cleaned.length < 10) {
+      return null;
+    }
 
     // If starts with 0, remove it and add India country code
     if (cleaned.startsWith('0')) {
@@ -644,6 +648,16 @@ export class WhatsAppCampaignService {
     // If no country code (10 digits), assume India
     if (cleaned.length === 10) {
       cleaned = '91' + cleaned;
+    }
+
+    // Final validation: must be 12-15 digits and not all zeros
+    if (cleaned.length < 12 || cleaned.length > 15) {
+      return null;
+    }
+
+    // Reject numbers that are all zeros (e.g. "000000000000")
+    if (/^0+$/.test(cleaned)) {
+      return null;
     }
 
     return cleaned;
