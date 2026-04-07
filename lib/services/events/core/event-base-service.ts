@@ -198,11 +198,19 @@ export class EventBaseService {
         .eq('id', id);
 
       if (error) {
-        logger.error('events/core', 'Failed to delete event', { id, error });
-        throw error;
+        logger.error('events/core', 'Failed to delete event', {
+          id,
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+        });
+        throw new Error(error.message || 'Failed to delete event');
       }
     } catch (error) {
-      logger.error('events/core', 'Unexpected error in deleteEvent', error);
+      if (error instanceof Error) {
+        logger.error('events/core', 'Unexpected error in deleteEvent', { message: error.message });
+      }
       throw error;
     }
   }
