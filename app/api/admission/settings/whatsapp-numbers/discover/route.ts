@@ -116,15 +116,24 @@ export async function GET(request: NextRequest) {
       wabaIdSet.add(envWabaId);
     }
 
-    // Method D: Query the business for owned WABAs using business_id from Meta URL
-    // Business ID: check if we can get it from the app
+    // Method D: Query the business portfolio for ALL owned WABAs
+    // Try app→business first, then fall back to known business ID
+    const businessIds = new Set<string>();
     try {
       const appRes = await fetch(
         `${GRAPH_API}/${appId}?fields=business&access_token=${accessToken}`
       );
       const appData = await appRes.json();
-      const businessId = appData.business?.id;
-      if (businessId) {
+      if (appData.business?.id) businessIds.add(appData.business.id);
+    } catch {
+      // May fail with some token types
+    }
+
+    // Known JKKN business ID (from Meta Business Manager)
+    businessIds.add('1720903384834051');
+
+    for (const businessId of businessIds) {
+      try {
         const ownedRes = await fetch(
           `${GRAPH_API}/${businessId}/owned_whatsapp_business_accounts?access_token=${accessToken}`
         );
@@ -132,9 +141,9 @@ export async function GET(request: NextRequest) {
         for (const waba of ownedData.data || []) {
           wabaIdSet.add(waba.id);
         }
+      } catch {
+        // Non-critical
       }
-    } catch {
-      // Business query may fail with some token types
     }
 
     // Method E: Check wa_phone_numbers table for any other WABA IDs already stored
