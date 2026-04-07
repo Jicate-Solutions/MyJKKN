@@ -168,24 +168,26 @@ function AudioPlayer({ url }: { url: string }) {
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border">
-      <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={toggle}>
-        {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-      </Button>
-      {playing && (
-        <Button variant="ghost" size="sm" className="h-9 w-9 p-0" onClick={stop}>
-          <Square className="h-3.5 w-3.5" />
+    <div className="flex flex-col gap-2 p-3 rounded-lg bg-muted/50 border">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="sm" className="h-11 w-11 sm:h-9 sm:w-9 p-0 shrink-0" onClick={toggle}>
+          {playing ? <Pause className="h-5 w-5 sm:h-4 sm:w-4" /> : <Play className="h-5 w-5 sm:h-4 sm:w-4" />}
         </Button>
-      )}
-      <div className="flex-1">
-        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-          <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+        {playing && (
+          <Button variant="ghost" size="sm" className="h-11 w-11 sm:h-9 sm:w-9 p-0 shrink-0" onClick={stop}>
+            <Square className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
+          </Button>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="h-2 sm:h-1.5 bg-muted rounded-full overflow-hidden">
+            <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${pct}%` }} />
+          </div>
         </div>
+        <Volume2 className="h-3.5 w-3.5 text-muted-foreground shrink-0 hidden sm:block" />
       </div>
-      <span className="text-xs text-muted-foreground font-mono tabular-nums w-16 text-right">
+      <span className="text-xs text-muted-foreground font-mono tabular-nums text-right">
         {fmt(currentTime)} / {fmt(duration)}
       </span>
-      <Volume2 className="h-3.5 w-3.5 text-muted-foreground" />
     </div>
   );
 }
@@ -346,23 +348,33 @@ function CallDetailContent() {
           </Breadcrumb>
 
           {/* Header */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <Button variant="ghost" size="sm" onClick={() => router.push('/admission/counselors/calls')}>
-              <ArrowLeft className="h-4 w-4 mr-1" />
-              Back
-            </Button>
-            <div className="h-6 w-px bg-border" />
-            <h1 className="text-lg font-semibold">Call Details</h1>
-            <Badge variant="outline" className={isInbound
-              ? 'bg-green-50 text-green-700 border-green-200'
-              : 'bg-blue-50 text-blue-700 border-blue-200'
-            }>
-              {isInbound ? <PhoneIncoming className="h-3 w-3 mr-1" /> : <PhoneOutgoing className="h-3 w-3 mr-1" />}
-              {isInbound ? 'Inbound' : 'Outbound'}
-            </Badge>
-            <Badge variant="outline" className={statusStyle.className}>
-              {statusStyle.label}
-            </Badge>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Button variant="ghost" size="sm" onClick={() => router.push('/admission/counselors/calls')}>
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+              <div className="h-6 w-px bg-border hidden sm:block" />
+              <h1 className="text-lg font-semibold">Call Details</h1>
+              <Badge variant="outline" className={isInbound
+                ? 'bg-green-50 text-green-700 border-green-200'
+                : 'bg-blue-50 text-blue-700 border-blue-200'
+              }>
+                {isInbound ? <PhoneIncoming className="h-3 w-3 mr-1" /> : <PhoneOutgoing className="h-3 w-3 mr-1" />}
+                {isInbound ? 'Inbound' : 'Outbound'}
+              </Badge>
+              <Badge variant="outline" className={statusStyle.className}>
+                {statusStyle.label}
+              </Badge>
+            </div>
+            {/* Call Back CTA -- prominent on mobile */}
+            <a
+              href={`tel:${call.from_number}`}
+              className="flex items-center justify-center gap-2 w-full sm:w-auto sm:inline-flex px-4 py-3 sm:py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium text-sm transition-colors active:scale-[0.98]"
+            >
+              <Phone className="h-4 w-4" />
+              Call Back {call.from_number}
+            </a>
           </div>
 
           {/* Main Grid: 2/3 + 1/3 */}
@@ -590,7 +602,7 @@ function CallDetailContent() {
                   {(intelligence?.extracted_name || intelligence?.extracted_course || intelligence?.extracted_location) && (
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Extracted Info</p>
-                      <div className="grid grid-cols-3 gap-2 mt-1 text-sm">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1 text-sm">
                         {intelligence.extracted_name && <div><span className="text-muted-foreground">Name:</span> {intelligence.extracted_name}</div>}
                         {intelligence.extracted_course && <div><span className="text-muted-foreground">Course:</span> {intelligence.extracted_course}</div>}
                         {intelligence.extracted_location && <div><span className="text-muted-foreground">Location:</span> {intelligence.extracted_location}</div>}
@@ -639,7 +651,7 @@ function CallDetailContent() {
                         <p className="font-medium">{call.lead.full_name}</p>
                         <p className="text-sm text-muted-foreground font-mono">{call.lead.phone}</p>
                       </div>
-                      <Button variant="outline" size="sm" className="w-full" asChild>
+                      <Button variant="outline" size="sm" className="w-full h-10 sm:h-8" asChild>
                         <Link href={`/admission/leads/${call.lead.id}`}>
                           <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
                           View Lead Profile
@@ -653,7 +665,7 @@ function CallDetailContent() {
                         <p className="text-sm font-medium text-muted-foreground">Unknown Caller</p>
                         <p className="text-xs text-muted-foreground font-mono mt-1">{call.from_number}</p>
                       </div>
-                      <Button variant="outline" size="sm" className="w-full" asChild>
+                      <Button variant="outline" size="sm" className="w-full h-10 sm:h-8" asChild>
                         <Link href={`/admission/leads/new?phone=${encodeURIComponent(call.from_number)}`}>
                           <UserPlus className="h-3.5 w-3.5 mr-1.5" />
                           Create Lead
@@ -705,7 +717,7 @@ function CallDetailContent() {
                           <Link
                             key={c.id}
                             href={`/admission/counselors/calls/${c.id}`}
-                            className="flex items-center justify-between p-2 rounded-md hover:bg-muted/50 transition-colors text-sm"
+                            className="flex items-center justify-between p-3 sm:p-2 rounded-md hover:bg-muted/50 active:bg-muted transition-colors text-sm"
                           >
                             <div className="flex items-center gap-2">
                               {c.direction === 'inbound' ? (
