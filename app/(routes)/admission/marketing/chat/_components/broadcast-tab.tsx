@@ -147,7 +147,7 @@ async function sendBroadcast(input: {
 // BroadcastTab Component
 // =============================================================================
 
-export function BroadcastTab({ institutionId }: { institutionId: string }) {
+export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institutionId: string; isSuperAdmin?: boolean }) {
   const [view, setView] = useState<'list' | 'wizard'>('list');
   const [step, setStep] = useState(1);
   const [campaignName, setCampaignName] = useState('');
@@ -358,9 +358,13 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
           </div>
         </div>
 
-        <Button onClick={() => setView('wizard')} className="w-full">
-          <Megaphone className="h-4 w-4 mr-2" /> New Broadcast
-        </Button>
+        {isSuperAdmin ? (
+          <Button onClick={() => setView('wizard')} className="w-full">
+            <Megaphone className="h-4 w-4 mr-2" /> New Broadcast
+          </Button>
+        ) : (
+          <p className="text-xs text-center text-muted-foreground py-2">Only super admins can create broadcasts</p>
+        )}
 
         {/* Campaign List */}
         {isLoading ? (
