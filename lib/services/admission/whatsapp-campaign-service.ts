@@ -246,20 +246,28 @@ export class WhatsAppCampaignService {
           waResult = await sendTextMessage(formattedPhone, messageContent);
         }
       } catch (apiError) {
-        console.error('[admission/whatsapp-campaign] Meta API error:', apiError);
+        // Extract Meta's actual error message, not just the generic axios "Request failed with status code 400"
+        const axiosErr = apiError as { response?: { data?: { error?: { message?: string; error_data?: { details?: string } } } } };
+        const metaMessage = axiosErr?.response?.data?.error?.message;
+        const metaDetails = axiosErr?.response?.data?.error?.error_data?.details;
+        const humanError = metaDetails
+          ? `${metaMessage}: ${metaDetails}`
+          : metaMessage || (apiError instanceof Error ? apiError.message : 'Meta API call failed');
+
+        console.error('[admission/whatsapp-campaign] Meta API error:', humanError);
         await this.supabase
           .from('admission_whatsapp_logs')
           .update({
             delivery_status: 'failed',
             failed_at: new Date().toISOString(),
-            error_message: apiError instanceof Error ? apiError.message : 'Meta API call failed',
+            error_message: humanError,
             updated_at: new Date().toISOString(),
           })
           .eq('id', logEntry.id);
 
         return {
           success: false,
-          error: apiError instanceof Error ? apiError.message : 'Meta API call failed',
+          error: humanError,
         };
       }
 
