@@ -25,6 +25,7 @@ import {
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import {
   Dialog,
   DialogContent,
@@ -292,15 +293,38 @@ export default function MarathonRegistrationsPage() {
     }
   }, [searchParams, eventId, router]);
 
+  const access = useMarathonAccess();
   const [filters, setFilters] = useState<Partial<RegistrationFilters>>({});
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
   const {
-    data: registrations,
+    data: allRegistrations,
     isLoading,
     error,
     refetch,
   } = useMarathonRegistrations(eventId, filters);
+
+  // Filter registrations based on access level
+  const registrations = useMemo(() => {
+    if (!allRegistrations) return [];
+    if (access.level === 'full') {
+      // Super admin / admin: see all registrations
+      return allRegistrations;
+    }
+    if (access.level === 'institution' && access.institutionId) {
+      // Principal / HOD / Faculty: see only their institution's registrations
+      return allRegistrations.filter(
+        (r) => r.institution_id === access.institutionId
+      );
+    }
+    if (access.level === 'self' && access.profileId) {
+      // Student: see only their own registration
+      return allRegistrations.filter(
+        (r) => r.profile_id === access.profileId
+      );
+    }
+    return [];
+  }, [allRegistrations, access.level, access.institutionId, access.profileId]);
 
   const categories = useMemo(
     () =>
@@ -467,21 +491,29 @@ export default function MarathonRegistrationsPage() {
 
       <div className="space-y-4 mt-4">
         <div>
-          <h1 className="text-2xl font-bold py-1">Registrations</h1>
+          <h1 className="text-2xl font-bold py-1">
+            {access.selfOnly ? 'My Registration' : 'Registrations'}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Manage participant registrations for {event?.name ?? 'this event'}.
+            {access.selfOnly
+              ? `Your registration for ${event?.name ?? 'this event'}.`
+              : access.level === 'institution'
+                ? `Registrations from your institution for ${event?.name ?? 'this event'}.`
+                : `Manage participant registrations for ${event?.name ?? 'this event'}.`}
           </p>
         </div>
 
-        {/* Stats Cards */}
-        <StatsCards eventId={eventId} />
+        {/* Stats Cards — only for admin users */}
+        {access.canManage && <StatsCards eventId={eventId} />}
 
-        {/* Filters */}
-        <FilterBar
-          filters={filters}
-          setFilters={setFilters}
-          categories={categories}
-        />
+        {/* Filters — only for admin and institution users */}
+        {!access.selfOnly && (
+          <FilterBar
+            filters={filters}
+            setFilters={setFilters}
+            categories={categories}
+          />
+        )}
 
         {/* Data Table */}
         {isLoading && (
@@ -504,13 +536,16 @@ export default function MarathonRegistrationsPage() {
             globalFilterFn={globalFilterFn}
             onRefresh={() => refetch()}
             tableTools={
-              <Button
-                size="sm"
-                className="gap-2"
-                onClick={() => setShowRegisterDialog(true)}
-              >
-                <Plus className="h-4 w-4" /> Add Registration
-              </Button>
+              access.canRegister ? (
+                <Button
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setShowRegisterDialog(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  {access.selfOnly ? 'Register for Event' : 'Add Registration'}
+                </Button>
+              ) : undefined
             }
           />
         )}

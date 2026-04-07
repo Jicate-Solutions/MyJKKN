@@ -1645,64 +1645,28 @@ export function GetPages(pathname: string): MenuGroup[] {
         const marathonMatch = pathname.match(/\/events\/marathon\/([^/]+)/);
         const activeMarathonId = marathonMatch?.[1] ? marathonMatch[1] : null;
 
+        // All marathon sub-pages (admin-only pages marked)
+        const allSubmenus = activeMarathonId ? [
+          { href: `/events/marathon/${activeMarathonId}/dashboard`, label: 'Dashboard', active: pathname.includes('/dashboard'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/registrations`, label: 'Registrations', active: pathname.includes('/registrations'), adminOnly: false },
+          { href: `/events/marathon/${activeMarathonId}/sponsors`, label: 'Sponsors', active: pathname.includes('/sponsors'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/committees`, label: 'Committees', active: pathname.includes('/committees'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/budget`, label: 'Budget', active: pathname.includes('/budget'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/live`, label: 'Live Ops', active: pathname.includes('/live'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/results`, label: 'Results', active: pathname.includes('/results'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/analytics`, label: 'Analytics', active: pathname.includes('/analytics'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/certificates`, label: 'Certificates', active: pathname.includes('/certificates'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/settings`, label: 'Settings', active: pathname.includes('/settings'), adminOnly: true },
+        ] : [];
+
         return [
           {
             href: '/events/marathon',
             label: 'Marathon Events',
             active: pathname.startsWith('/events'),
             icon: CalendarDays,
-            submenus: activeMarathonId ? [
-              {
-                href: `/events/marathon/${activeMarathonId}/dashboard`,
-                label: 'Dashboard',
-                active: pathname.includes('/dashboard')
-              },
-              {
-                href: `/events/marathon/${activeMarathonId}/registrations`,
-                label: 'Registrations',
-                active: pathname.includes('/registrations')
-              },
-              {
-                href: `/events/marathon/${activeMarathonId}/sponsors`,
-                label: 'Sponsors',
-                active: pathname.includes('/sponsors')
-              },
-              {
-                href: `/events/marathon/${activeMarathonId}/committees`,
-                label: 'Committees',
-                active: pathname.includes('/committees')
-              },
-              {
-                href: `/events/marathon/${activeMarathonId}/budget`,
-                label: 'Budget',
-                active: pathname.includes('/budget')
-              },
-              {
-                href: `/events/marathon/${activeMarathonId}/live`,
-                label: 'Live Ops',
-                active: pathname.includes('/live')
-              },
-              {
-                href: `/events/marathon/${activeMarathonId}/results`,
-                label: 'Results',
-                active: pathname.includes('/results')
-              },
-              {
-                href: `/events/marathon/${activeMarathonId}/analytics`,
-                label: 'Analytics',
-                active: pathname.includes('/analytics')
-              },
-              {
-                href: `/events/marathon/${activeMarathonId}/certificates`,
-                label: 'Certificates',
-                active: pathname.includes('/certificates')
-              },
-              {
-                href: `/events/marathon/${activeMarathonId}/settings`,
-                label: 'Settings',
-                active: pathname.includes('/settings')
-              },
-            ] : []
+            // Sub-menus will be filtered by GetRoleBasedPages based on adminOnly flag
+            submenus: allSubmenus
           }
         ];
       })()
@@ -2035,6 +1999,17 @@ export function GetRoleBasedPages(
               if (submenu.href.includes('/leaderboard')) return true;
               if (userRole.role_key === 'faculty' && submenu.href.includes('/checklists')) return true;
               return false;
+            }
+
+            // Marathon events: role-based submenu access
+            // Super admin / admin: all pages
+            // Principal / HOD / Faculty: only Registrations
+            // Student: only Registrations (will show own registration only on the page)
+            if (submenu.href.includes('/events/marathon/') && (submenu as any).adminOnly !== undefined) {
+              const isAdminRole = ['super_admin', 'admin', 'administrator'].includes(userRole.role_key || '');
+              if (isAdminRole) return true;
+              // Non-admin roles: only show non-adminOnly pages (Registrations)
+              return !(submenu as any).adminOnly;
             }
 
             const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
