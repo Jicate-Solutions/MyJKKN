@@ -8,12 +8,24 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { DataTable, type PermissionColumnDef } from '@/components/ui/data-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useMarathonEvents } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonEvents, useUpdateMarathonStatus } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import { Loader2, Plus, Calendar, MapPin } from 'lucide-react';
+import { Loader2, Plus, Calendar, MapPin, Eye, MoreHorizontal, ArrowRight, Settings, Users } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { format } from 'date-fns';
 import type { Event, EventStatus } from '@/types/events';
+import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
 
 // Status badge color mapping
 const STATUS_VARIANT: Record<
@@ -46,6 +58,7 @@ export default function MarathonEventsPage() {
   const { profile, isLoading: authLoading } = useAuth();
   const { selectedInstitutionId, loading: institutionLoading } = useUserInstitutionAccess();
   const institutionId = selectedInstitutionId || profile?.institution_id || '';
+  const updateStatus = useUpdateMarathonStatus();
 
   const {
     data: events,
@@ -117,8 +130,71 @@ export default function MarathonEventsPage() {
         header: 'Target',
         cell: ({ row }) => row.original.target_registrations ?? '-',
       },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => {
+          const event = row.original;
+          const allowedTransitions = EVENT_STATUS_TRANSITIONS[event.status] ?? [];
+
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => router.push(`/events/marathon/${event.id}/dashboard`)}
+                >
+                  <Eye className="mr-2 h-4 w-4" />
+                  View Dashboard
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => router.push(`/events/marathon/${event.id}/registrations`)}
+                >
+                  <Users className="mr-2 h-4 w-4" />
+                  Registrations
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => router.push(`/events/marathon/${event.id}/settings`)}
+                >
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
+                </DropdownMenuItem>
+                {allowedTransitions.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <ArrowRight className="mr-2 h-4 w-4" />
+                        Change Status
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        {allowedTransitions.map((s) => (
+                          <DropdownMenuItem
+                            key={s}
+                            onClick={() =>
+                              updateStatus.mutate({ id: event.id, status: s })
+                            }
+                          >
+                            → {STATUS_LABELS[s] ?? s}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+        },
+      },
     ],
-    []
+    [router, updateStatus]
   );
 
   // Global filter across name, venue, and year
