@@ -159,21 +159,30 @@ export class EventBaseService {
    */
   static async updateEvent(id: string, dto: UpdateEventDto): Promise<Event> {
     try {
+      const updatePayload = { ...dto, updated_at: new Date().toISOString() };
       const { data, error } = await (this.supabase as unknown as ReturnType<typeof createClientSupabaseClient>)
         .from('events')
-        .update(dto)
+        .update(updatePayload)
         .eq('id', id)
         .select()
         .single();
 
       if (error) {
-        logger.error('events/core', 'Failed to update event', { id, error });
-        throw error;
+        logger.error('events/core', 'Failed to update event', {
+          id,
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+        });
+        throw new Error(error.message || 'Failed to update event');
       }
 
       return data as unknown as Event;
     } catch (error) {
-      logger.error('events/core', 'Unexpected error in updateEvent', error);
+      if (error instanceof Error) {
+        logger.error('events/core', 'Unexpected error in updateEvent', { message: error.message });
+      }
       throw error;
     }
   }

@@ -618,6 +618,36 @@ function RouteTab({ event }: { event: any }) {
 // Registration Tab
 // ============================================================================
 
+// Convert ISO timestamp to datetime-local format (YYYY-MM-DDTHH:mm)
+function toDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    // Format as local time for the input
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  } catch {
+    return '';
+  }
+}
+
+// Convert datetime-local value to ISO string for Supabase
+function toISOString(datetimeLocal: string): string | undefined {
+  if (!datetimeLocal) return undefined;
+  try {
+    const d = new Date(datetimeLocal);
+    if (isNaN(d.getTime())) return undefined;
+    return d.toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
 function RegistrationTab({ event }: { event: any }) {
   const updateMutation = useUpdateRegistrationConfig();
   const [form, setForm] = useState({
@@ -629,8 +659,8 @@ function RegistrationTab({ event }: { event: any }) {
   useEffect(() => {
     if (event) {
       setForm({
-        registration_open_date: event.registration_open_date ?? '',
-        registration_close_date: event.registration_close_date ?? '',
+        registration_open_date: toDatetimeLocal(event.registration_open_date),
+        registration_close_date: toDatetimeLocal(event.registration_close_date),
         allow_external_registration:
           event.allow_external_registration ?? false,
       });
@@ -641,8 +671,8 @@ function RegistrationTab({ event }: { event: any }) {
     updateMutation.mutate({
       id: event.id,
       config: {
-        registration_open_date: form.registration_open_date || undefined,
-        registration_close_date: form.registration_close_date || undefined,
+        registration_open_date: toISOString(form.registration_open_date),
+        registration_close_date: toISOString(form.registration_close_date),
         allow_external_registration: form.allow_external_registration,
       },
     });
