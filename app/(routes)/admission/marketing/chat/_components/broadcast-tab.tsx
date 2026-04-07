@@ -72,6 +72,7 @@ interface BroadcastCampaign {
   campaign_id: string;
   campaign_name: string;
   template_name: string;
+  created_by: string;
   created_at: string;
   total: number;
   sent: number;
@@ -277,7 +278,7 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
         onSuccess: (result) => {
           setContacts(result.contacts);
           setUploadStats({ total: result.total + invalidCount, valid: result.valid_count, invalid: result.invalid_count + invalidCount });
-          setCampaignName(file.name.replace(/\.\w+$/, ''));
+          if (!campaignName) setCampaignName(file.name.replace(/\.\w+$/, ''));
         },
       });
     } else {
@@ -286,7 +287,7 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
         onSuccess: (result) => {
           setContacts(result.contacts);
           setUploadStats({ total: result.total, valid: result.valid_count, invalid: result.invalid_count });
-          setCampaignName(file.name.replace(/\.\w+$/, ''));
+          if (!campaignName) setCampaignName(file.name.replace(/\.\w+$/, ''));
         },
       });
     }
@@ -393,6 +394,7 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                       <p className="font-medium text-sm">{c.campaign_name}</p>
                     </div>
                     <span className="text-xs text-muted-foreground">
+                      {c.created_by && c.created_by !== 'Unknown' ? `by ${c.created_by} · ` : ''}
                       {new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                     </span>
                   </div>

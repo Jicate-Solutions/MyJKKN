@@ -182,11 +182,31 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch campaigns' }, { status: 500 });
     }
 
+    // Collect unique creator IDs to resolve names in one query
+    const creatorIds = new Set<string>();
+    for (const log of logs || []) {
+      const createdBy = (log.metadata as Record<string, string>)?.created_by;
+      if (createdBy) creatorIds.add(createdBy);
+    }
+
+    // Resolve creator names
+    const creatorNames: Record<string, string> = {};
+    if (creatorIds.size > 0) {
+      const { data: creators } = await serviceClient
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', Array.from(creatorIds));
+      for (const c of creators || []) {
+        creatorNames[c.id] = c.full_name || 'Unknown';
+      }
+    }
+
     // Group by campaign_id
     const campaignMap = new Map<string, {
       campaign_id: string;
       campaign_name: string;
       template_name: string;
+      created_by: string;
       created_at: string;
       total: number;
       sent: number;
@@ -198,10 +218,12 @@ export async function GET(request: NextRequest) {
 
     for (const log of logs || []) {
       if (!log.campaign_id) continue;
+      const createdById = (log.metadata as Record<string, string>)?.created_by || '';
       const existing = campaignMap.get(log.campaign_id) || {
         campaign_id: log.campaign_id,
         campaign_name: (log.metadata as Record<string, string>)?.campaign_name || 'Untitled',
         template_name: (log.metadata as Record<string, string>)?.template_name || '',
+        created_by: creatorNames[createdById] || 'Unknown',
         created_at: log.created_at,
         total: 0, sent: 0, delivered: 0, read: 0, failed: 0, pending: 0,
       };
