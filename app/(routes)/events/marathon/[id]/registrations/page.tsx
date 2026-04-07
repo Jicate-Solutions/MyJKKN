@@ -615,6 +615,13 @@ function RegisterParticipantDialog({
     }
   };
 
+  // Internal users pay ₹100 fixed fee, external users pay category fee
+  const INTERNAL_FEE = 100;
+  const selectedCategory = categories.find((c) => c.id === form.category_id);
+  const registrationFee = participantType === 'internal'
+    ? INTERNAL_FEE
+    : (selectedCategory?.fee_amount ?? 0);
+
   const handleSubmit = async () => {
     if (!form.participant_name.trim() || !form.category_id) return;
 
@@ -642,8 +649,10 @@ function RegisterParticipantDialog({
           emergency_contact_phone: form.emergency_contact_phone || undefined,
           blood_group: form.blood_group || undefined,
           organization: participantType === 'external' ? form.organization || undefined : undefined,
+          registration_fee_override: participantType === 'internal' ? INTERNAL_FEE : undefined,
         },
-        discount_code: form.discount_code || undefined,
+        // Only external users can use discount codes
+        discount_code: participantType === 'external' ? (form.discount_code || undefined) : undefined,
       },
       {
         onSuccess: () => {
@@ -707,11 +716,25 @@ function RegisterParticipantDialog({
               <SelectContent>
                 {categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
-                    {cat.name} {cat.distance_km ? `(${cat.distance_km} km)` : ''} — ₹{cat.fee_amount ?? 0}
+                    {cat.name} {cat.distance_km ? `(${cat.distance_km} km)` : ''}
+                    {participantType === 'internal'
+                      ? ' — ₹100'
+                      : ` — ₹${cat.fee_amount ?? 0}`}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {form.category_id && (
+              <div className="rounded-md bg-muted px-3 py-2 text-sm">
+                <span className="text-muted-foreground">Registration Fee: </span>
+                <span className="font-semibold">
+                  {participantType === 'internal' ? '₹100' : `₹${categories.find((c) => c.id === form.category_id)?.fee_amount ?? 0}`}
+                </span>
+                {participantType === 'internal' && (
+                  <span className="text-xs text-muted-foreground ml-2">(Fixed fee for JKKN members)</span>
+                )}
+              </div>
+            )}
           </div>
 
           <Separator />
@@ -810,7 +833,7 @@ function RegisterParticipantDialog({
           <Separator />
 
           {/* Event-Specific Fields */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className={`grid grid-cols-1 ${participantType === 'external' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-4`}>
             <div className="space-y-2">
               <Label>T-Shirt Size</Label>
               <Select
@@ -843,14 +866,17 @@ function RegisterParticipantDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Discount Code</Label>
-              <Input
-                placeholder="e.g. JKKN100"
-                value={form.discount_code}
-                onChange={(e) => updateField('discount_code', e.target.value)}
-              />
-            </div>
+            {/* Discount code — only for external users */}
+            {participantType === 'external' && (
+              <div className="space-y-2">
+                <Label>Discount Code</Label>
+                <Input
+                  placeholder="e.g. MARATHON50"
+                  value={form.discount_code}
+                  onChange={(e) => updateField('discount_code', e.target.value)}
+                />
+              </div>
+            )}
           </div>
 
           {/* Emergency Contact */}
