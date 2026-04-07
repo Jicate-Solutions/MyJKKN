@@ -352,12 +352,9 @@ export class TelephonyService {
     // Missed calls with no callback — approximate: missed calls where disposition IS NULL
     const missedNoCallback = missed.filter((c: any) => !c.call_disposition).length;
 
-    // Helper: convert a UTC ISO timestamp to IST (UTC+5:30) and return a Date object
-    const toIST = (isoStr: string): Date => {
-      const d = new Date(isoStr);
-      // Add 5 hours 30 minutes (IST offset) in milliseconds
-      return new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
-    };
+    // Exotel timestamps are already in IST but stored as UTC in Postgres.
+    // Do NOT add +5:30 — the raw value IS IST, just labeled as UTC.
+    const toIST = (isoStr: string): Date => new Date(isoStr);
 
     // Use started_at (when call happened) with fallback to created_at (when DB record was created).
     // This prevents sync-day spikes where bulk-imported records all share the same created_at date.
