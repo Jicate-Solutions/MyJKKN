@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { Search, Filter, CheckCheck, Check, X } from 'lucide-react';
 import { useConversations } from '@/hooks/admission/use-conversations';
+import { useAuth } from '@/hooks/use-auth';
 import type { Conversation } from '@/lib/services/whatsapp/whatsapp-chat-service';
 import { cn } from '@/lib/utils';
 
@@ -143,7 +144,9 @@ export function ConversationList({ activeId, onSelect }: ConversationListProps) 
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [funnelStageFilter, setFunnelStageFilter] = useState<string>('all');
+  const [assignedFilter, setAssignedFilter] = useState<string | undefined>(undefined);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const { profile } = useAuth();
 
   // Derive status filter from active tab
   const statusFilter =
@@ -157,6 +160,7 @@ export function ConversationList({ activeId, onSelect }: ConversationListProps) 
     search: search || undefined,
     status: statusFilter,
     funnel_stage: funnelStageFilter === 'all' ? undefined : funnelStageFilter,
+    assigned_to: assignedFilter,
     page: 1,
     limit: 50,
   });
@@ -245,13 +249,28 @@ export function ConversationList({ activeId, onSelect }: ConversationListProps) 
 
       {/* ─── Filter Tabs ─────────────────────────────────────────────── */}
       <div className="flex items-center overflow-x-auto border-b border-gray-100 dark:border-[#2a3942] bg-white dark:bg-[#111b21] flex-shrink-0 scrollbar-none">
+        {/* My Chats toggle */}
+        <button
+          onClick={() => {
+            setActiveTab('all');
+            setAssignedFilter(assignedFilter ? undefined : profile?.id);
+          }}
+          className={cn(
+            'flex-shrink-0 px-4 py-2.5 text-xs font-medium transition-colors whitespace-nowrap border-b-2',
+            assignedFilter
+              ? 'border-[#0b6d41] text-[#0b6d41] dark:text-[#00a884]'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-gray-50 dark:hover:bg-[#1f2c34]'
+          )}
+        >
+          My Chats
+        </button>
         {FILTER_TABS.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => { setActiveTab(tab.id); setAssignedFilter(undefined); }}
             className={cn(
               'flex-shrink-0 px-4 py-2.5 text-xs font-medium transition-colors whitespace-nowrap border-b-2',
-              activeTab === tab.id
+              activeTab === tab.id && !assignedFilter
                 ? 'border-[#0b6d41] text-[#0b6d41] dark:text-[#00a884]'
                 : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-gray-50 dark:hover:bg-[#1f2c34]'
             )}

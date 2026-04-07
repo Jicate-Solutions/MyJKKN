@@ -47,6 +47,8 @@ import { useTemplateMutations } from '@/hooks/admission/use-communication-templa
 import { useChatRealtimeMessages } from '@/hooks/admission/use-chat-realtime';
 import type { ChatMessage } from '@/lib/services/whatsapp/whatsapp-chat-service';
 import { cn } from '@/lib/utils';
+import { AudioPlayer } from './audio-player';
+import { EmojiPicker } from './emoji-picker';
 
 // ---------------------------------------------------------------------------
 // 24hr Window Status (client-side computation)
@@ -359,6 +361,11 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
                 <span className="ml-1.5 text-[#00a884]">• {conversation.status}</span>
               )}
             </p>
+            {conversation?.assigned_profile && (
+              <span className="text-xs text-muted-foreground truncate leading-tight">
+                Assigned to {conversation.assigned_profile.full_name}
+              </span>
+            )}
           </div>
         </button>
 
@@ -555,8 +562,13 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
                               <p className="mb-1 italic text-xs opacity-80">{msg.content.caption}</p>
                             )}
 
+                            {/* Audio message */}
+                            {msg.message_type === 'audio' && msg.content?.media_url && /^https?:\/\//i.test(msg.content.media_url) && (
+                              <AudioPlayer url={msg.content.media_url} isOutbound={msg.direction === 'outbound'} />
+                            )}
+
                             {/* Media URL */}
-                            {msg.content?.media_url && (
+                            {msg.content?.media_url && msg.message_type !== 'audio' && (
                               <a
                                 href={msg.content.media_url}
                                 target="_blank"
@@ -650,52 +662,19 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
       {/* ===== INPUT BAR ===== */}
       <div className="flex items-end gap-2 px-2 py-2 bg-[#f0f2f5] dark:bg-[#202c33] flex-shrink-0">
 
-        {/* Emoji / Quick Reply toggle */}
+        {/* Emoji picker */}
         {canSendFreeText ? (
-          <Popover open={showQuickReplies} onOpenChange={setShowQuickReplies}>
-            <PopoverTrigger asChild>
+          <EmojiPicker
+            onSelect={(emoji) => setMessageText(prev => prev + emoji)}
+            trigger={
               <button
                 className="h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-full text-[#54656f] dark:text-[#aebac1] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                aria-label="Quick replies or emoji"
+                aria-label="Emoji picker"
               >
                 <Smile className="h-6 w-6" />
               </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-80 p-0" align="start" side="top">
-              <div className="p-2 border-b">
-                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <Zap className="h-3.5 w-3.5" />
-                  Quick Replies
-                  <span className="text-[10px] opacity-60">(type / to trigger)</span>
-                </p>
-              </div>
-              <ScrollArea className="max-h-48">
-                {quickReplies.length === 0 ? (
-                  <p className="p-3 text-xs text-muted-foreground">
-                    No quick replies configured
-                  </p>
-                ) : (
-                  quickReplies.map((qr) => (
-                    <button
-                      key={qr.id}
-                      onClick={() => handleQuickReply(qr.content)}
-                      className="w-full text-left px-3 py-2 hover:bg-muted text-sm border-b last:border-0"
-                    >
-                      <span className="font-medium">{qr.title}</span>
-                      {qr.shortcut && (
-                        <span className="text-muted-foreground text-xs ml-2">
-                          /{qr.shortcut}
-                        </span>
-                      )}
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {qr.content}
-                      </p>
-                    </button>
-                  ))
-                )}
-              </ScrollArea>
-            </PopoverContent>
-          </Popover>
+            }
+          />
         ) : (
           /* No emoji when window is expired — just a spacer icon */
           <button
