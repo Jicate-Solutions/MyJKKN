@@ -31,18 +31,19 @@ export interface UniqueCallersSummary {
 
 export const uniqueCallersKeys = {
   all: ['unique-callers'] as const,
-  list: (institutionId?: string, fromDate?: string, toDate?: string) =>
-    [...uniqueCallersKeys.all, institutionId, fromDate, toDate] as const,
+  list: (institutionId?: string, fromDate?: string, toDate?: string, admissionOnly?: boolean) =>
+    [...uniqueCallersKeys.all, institutionId, fromDate, toDate, admissionOnly] as const,
 };
 
-export function useUniqueCallers(institutionId?: string, fromDate?: string, toDate?: string) {
+export function useUniqueCallers(institutionId?: string, fromDate?: string, toDate?: string, admissionOnly?: boolean) {
   const query = useQuery<{ callers: UniqueCaller[]; summary: UniqueCallersSummary }>({
-    queryKey: uniqueCallersKeys.list(institutionId, fromDate, toDate),
+    queryKey: uniqueCallersKeys.list(institutionId, fromDate, toDate, admissionOnly),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (institutionId) params.set('institution_id', institutionId);
       if (fromDate) params.set('from_date', fromDate);
       if (toDate) params.set('to_date', toDate);
+      if (admissionOnly !== undefined) params.set('admission_only', String(admissionOnly));
       const res = await fetch(`/api/admission/calls/unique-callers?${params.toString()}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

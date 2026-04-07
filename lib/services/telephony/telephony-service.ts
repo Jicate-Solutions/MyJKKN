@@ -9,7 +9,7 @@
 import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
 import { CallPipelineService } from './call-pipeline-service';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
-import { getCallContext, lookupAgent } from './exotel-agent-map';
+import { getCallContext, lookupAgent, isAdmissionCall } from './exotel-agent-map';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -59,6 +59,7 @@ export interface CallLogFilters {
   from_date?: string;
   to_date?: string;
   has_notes?: boolean;
+  admission_only?: boolean;
   page?: number;
   limit?: number;
   sort_by?: string;
@@ -205,6 +206,7 @@ export class TelephonyService {
     if (filters.to_date) query = query.lte('created_at', filters.to_date);
     if (filters.has_notes === true) query = query.not('call_notes', 'is', null);
     if (filters.has_notes === false) query = query.is('call_notes', null);
+    if (filters.admission_only) query = query.eq('is_admission_call', true);
 
     query = query
       .order(filters.sort_by || 'created_at', { ascending: filters.sort_order === 'asc' })
@@ -226,7 +228,8 @@ export class TelephonyService {
     institutionId: string | undefined,
     supabase: any,
     fromDate?: string,
-    toDate?: string
+    toDate?: string,
+    admissionOnly?: boolean
   ): Promise<CallStats> {
     let query = supabase
       .from('admission_call_logs')
@@ -238,6 +241,7 @@ export class TelephonyService {
 
     if (fromDate) query = query.gte('created_at', fromDate);
     if (toDate) query = query.lte('created_at', toDate);
+    if (admissionOnly) query = query.eq('is_admission_call', true);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -317,7 +321,8 @@ export class TelephonyService {
     institutionId: string | undefined,
     supabase: any,
     fromDate?: string,
-    toDate?: string
+    toDate?: string,
+    admissionOnly?: boolean
   ): Promise<InboundCallStats> {
     let query = supabase
       .from('admission_call_logs')
@@ -327,6 +332,7 @@ export class TelephonyService {
     if (institutionId) query = query.eq('institution_id', institutionId);
     if (fromDate) query = query.gte('created_at', fromDate);
     if (toDate) query = query.lte('created_at', toDate);
+    if (admissionOnly) query = query.eq('is_admission_call', true);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -786,6 +792,7 @@ export class TelephonyService {
           started_at: payload.StartTime || null,
           ended_at: payload.EndTime || null,
           answered_at: durationSec > 0 ? payload.StartTime || new Date().toISOString() : null,
+          is_admission_call: isAdmissionCall(agentPhone || exoPhone, exoPhone),
         })
         .select('id, status, institution_id, call_sid')
         .single();

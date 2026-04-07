@@ -26,7 +26,6 @@ import {
   useCallLogs,
   useInboundCallStats,
   useTelephonyHealth,
-  useBulkCallback,
   useUniqueCallers,
   useCallFunnel,
   formatDuration,
@@ -35,6 +34,7 @@ import {
   type FunnelStage,
 } from '@/hooks/admission';
 import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
 import {
   PhoneIncoming,
   PhoneCall,
@@ -53,6 +53,7 @@ import {
   MapPin,
   AlertCircle,
   ArrowRight,
+  ShieldCheck,
 } from 'lucide-react';
 import { CounselorAvailabilityCard } from './counselor-availability-card';
 import Link from 'next/link';
@@ -448,6 +449,9 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   // View mode: 'all' = individual calls, 'unique' = grouped by caller
   const [viewMode, setViewMode] = useState<'all' | 'unique'>('all');
 
+  // Admission-only filter: defaults to true (only show admission calls)
+  const [admissionOnly, setAdmissionOnly] = useState(true);
+
   // Filter state
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -480,7 +484,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
 
   // Unique callers hook
   const { callers, summary: callerSummary, isLoading: uniqueLoading, isError: uniqueError, error: uniqueErrorMsg, refetch: refetchUnique } = useUniqueCallers(
-    institutionId, effectiveFromDate || undefined, effectiveToDate || undefined
+    institutionId, effectiveFromDate || undefined, effectiveToDate || undefined, admissionOnly
   );
 
   // Data hooks
@@ -490,14 +494,14 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
     status: (statusFilter as CallStatus) || undefined,
     from_date: effectiveFromDate || undefined,
     to_date: effectiveToDate || undefined,
+    admission_only: admissionOnly,
     page,
     limit: 20,
   });
 
-  const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId);
-  const { funnel, isLoading: funnelLoading } = useCallFunnel(institutionId);
+  const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId, undefined, undefined, admissionOnly);
+  const { funnel, isLoading: funnelLoading } = useCallFunnel(institutionId, undefined, undefined, admissionOnly);
   const { data: health } = useTelephonyHealth();
-  const bulkCallback = useBulkCallback();
 
   const clearFilters = () => {
     setStatusFilter('');
@@ -541,6 +545,26 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
           <span>— {health.latest?.connectivity_status || 'Unknown issue'}. Miss rates may be elevated.</span>
         </div>
       )}
+
+      {/* Admission Filter Toggle */}
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className={cn("h-4 w-4", admissionOnly ? "text-green-600" : "text-muted-foreground")} />
+          <Label htmlFor="admission-filter" className="text-sm font-medium cursor-pointer">
+            {admissionOnly ? 'Admission calls only' : 'All calls (including non-admission)'}
+          </Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {admissionOnly ? 'Hiding dental, pharmacy, engineering & nursing office calls' : 'Showing all Exotel calls'}
+          </span>
+          <Switch
+            id="admission-filter"
+            checked={admissionOnly}
+            onCheckedChange={(checked) => { setAdmissionOnly(checked); setPage(1); }}
+          />
+        </div>
+      </div>
 
       {/* KPI Cards */}
       <InboundKpiCards stats={stats} isLoading={statsLoading} />
@@ -894,20 +918,15 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                         </span>
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        {(!log.cost_amount || log.cost_amount <= 0) && log.callback_queue_id && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => {
-                              if (!log.callback_queue_id) return;
-                              bulkCallback.mutate([log.callback_queue_id]);
-                            }}
-                            disabled={bulkCallback.isPending}
+                        {(!log.cost_amount || log.cost_amount <= 0) && log.from_number && (
+                          <a
+                            href={`tel:${log.from_number}`}
+                            className="inline-flex items-center h-7 px-2 text-xs border rounded-md hover:bg-accent"
+                            onClick={(e) => e.stopPropagation()}
                           >
                             <Phone className="h-3 w-3 mr-1" />
                             Call Back
-                          </Button>
+                          </a>
                         )}
                       </TableCell>
                     </TableRow>
