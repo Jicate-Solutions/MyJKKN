@@ -451,7 +451,7 @@ function CallDetailContent() {
                         new Date(call.started_at || call.created_at).toLocaleString('en-IN', {
                           weekday: 'short', month: 'short', day: 'numeric',
                           hour: '2-digit', minute: '2-digit', second: '2-digit',
-                          timeZone: 'Asia/Kolkata',
+                          timeZone: 'UTC',
                         })
                       } />
                       <InfoRow icon={Clock} label="Duration" value={
@@ -680,7 +680,7 @@ function CallDetailContent() {
                       <p className="text-xs text-muted-foreground mt-2">
                         Follow-up: {new Date(call.follow_up_date).toLocaleDateString('en-IN', {
                           weekday: 'short', month: 'short', day: 'numeric',
-                          timeZone: 'Asia/Kolkata',
+                          timeZone: 'UTC',
                         })}
                       </p>
                     )}
@@ -722,7 +722,7 @@ function CallDetailContent() {
                               <p className="text-[10px] text-muted-foreground">
                                 {new Date(c.created_at).toLocaleDateString('en-IN', {
                                   month: 'short', day: 'numeric',
-                                  timeZone: 'Asia/Kolkata',
+                                  timeZone: 'UTC',
                                 })}
                               </p>
                             </div>
