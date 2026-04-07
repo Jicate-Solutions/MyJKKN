@@ -19,8 +19,21 @@ import {
 import {
   useMarathonRegistrations,
   useRegistrationStats,
+  useRegisterParticipant,
 } from '@/hooks/events/marathon/use-marathon-registrations';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
 import {
   Loader2,
   Users,
@@ -28,10 +41,12 @@ import {
   IndianRupee,
   Building2,
   Eye,
+  Plus,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import type {
   EventRegistration,
+  EventCategory,
   RegistrationStatus,
   PaymentStatus,
   ParticipantType,
@@ -405,6 +420,8 @@ export default function MarathonRegistrationsPage() {
     );
   };
 
+  const [showRegisterDialog, setShowRegisterDialog] = useState(false);
+
   if (eventLoading) {
     return (
       <ContentLayout title="Registrations">
@@ -465,9 +482,372 @@ export default function MarathonRegistrationsPage() {
             searchPlaceholder="Search by name, phone, or BIB..."
             globalFilterFn={globalFilterFn}
             onRefresh={() => refetch()}
+            tableTools={
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={() => setShowRegisterDialog(true)}
+              >
+                <Plus className="h-4 w-4" /> Add Registration
+              </Button>
+            }
           />
         )}
+
+        {/* Register Participant Dialog */}
+        <RegisterParticipantDialog
+          eventId={eventId}
+          categories={categories}
+          open={showRegisterDialog}
+          onOpenChange={setShowRegisterDialog}
+          onSuccess={() => refetch()}
+        />
       </div>
     </ContentLayout>
+  );
+}
+
+// ============================================================================
+// Register Participant Dialog
+// ============================================================================
+
+const TSHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'] as const;
+
+function RegisterParticipantDialog({
+  eventId,
+  categories,
+  open,
+  onOpenChange,
+  onSuccess,
+}: {
+  eventId: string;
+  categories: EventCategory[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: () => void;
+}) {
+  const { profile } = useAuth();
+  const registerMutation = useRegisterParticipant();
+
+  const [participantType, setParticipantType] = useState<'internal' | 'external'>('internal');
+  const [form, setForm] = useState({
+    category_id: '',
+    participant_name: '',
+    participant_phone: '',
+    participant_email: '',
+    participant_age: '',
+    participant_gender: '',
+    institution_name: '',
+    department: '',
+    organization: '',
+    tshirt_size: '',
+    emergency_contact_name: '',
+    emergency_contact_phone: '',
+    blood_group: '',
+    discount_code: '',
+  });
+
+  const updateField = (field: string, value: string) => {
+    setForm((f) => ({ ...f, [field]: value }));
+  };
+
+  const resetForm = () => {
+    setForm({
+      category_id: '',
+      participant_name: '',
+      participant_phone: '',
+      participant_email: '',
+      participant_age: '',
+      participant_gender: '',
+      institution_name: '',
+      department: '',
+      organization: '',
+      tshirt_size: '',
+      emergency_contact_name: '',
+      emergency_contact_phone: '',
+      blood_group: '',
+      discount_code: '',
+    });
+    setParticipantType('internal');
+  };
+
+  const handleSubmit = async () => {
+    if (!form.participant_name.trim() || !form.category_id) return;
+
+    const selectedCategory = categories.find((c) => c.id === form.category_id);
+
+    registerMutation.mutate(
+      {
+        event_id: eventId,
+        category_id: form.category_id,
+        participant_type: participantType,
+        participant_name: form.participant_name.trim(),
+        participant_phone: form.participant_phone || undefined,
+        participant_email: form.participant_email || undefined,
+        participant_age: form.participant_age ? parseInt(form.participant_age, 10) : undefined,
+        participant_gender: form.participant_gender || undefined,
+        institution_id: participantType === 'internal' ? (profile?.institution_id ?? undefined) : undefined,
+        institution_name: participantType === 'internal' ? form.institution_name || undefined : undefined,
+        department: form.department || undefined,
+        source: 'admin',
+        custom_data: {
+          tshirt_size: form.tshirt_size || undefined,
+          emergency_contact_name: form.emergency_contact_name || undefined,
+          emergency_contact_phone: form.emergency_contact_phone || undefined,
+          blood_group: form.blood_group || undefined,
+          organization: participantType === 'external' ? form.organization || undefined : undefined,
+        },
+        discount_code: form.discount_code || undefined,
+      },
+      {
+        onSuccess: () => {
+          resetForm();
+          onOpenChange(false);
+          onSuccess();
+        },
+      }
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Register Participant</DialogTitle>
+          <DialogDescription>
+            Add a new participant to this marathon event. A BIB number will be auto-generated.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5 mt-2">
+          {/* Participant Type Toggle */}
+          <div className="space-y-2">
+            <Label>Participant Type</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={participantType === 'internal' ? 'default' : 'outline'}
+                onClick={() => setParticipantType('internal')}
+              >
+                JKKN (Internal)
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={participantType === 'external' ? 'default' : 'outline'}
+                onClick={() => setParticipantType('external')}
+              >
+                External
+              </Button>
+            </div>
+          </div>
+
+          {/* Category Selection */}
+          <div className="space-y-2">
+            <Label>Category <span className="text-destructive">*</span></Label>
+            <Select
+              value={form.category_id}
+              onValueChange={(v) => updateField('category_id', v)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select race category" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>
+                    {cat.name} {cat.distance_km ? `(${cat.distance_km} km)` : ''} — ₹{cat.fee_amount ?? 0}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Separator />
+
+          {/* Personal Details */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Full Name <span className="text-destructive">*</span></Label>
+              <Input
+                placeholder="Participant full name"
+                value={form.participant_name}
+                onChange={(e) => updateField('participant_name', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Phone</Label>
+              <Input
+                placeholder="e.g. 9876543210"
+                value={form.participant_phone}
+                onChange={(e) => updateField('participant_phone', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input
+                type="email"
+                placeholder="email@example.com"
+                value={form.participant_email}
+                onChange={(e) => updateField('participant_email', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Age</Label>
+              <Input
+                type="number"
+                min={1}
+                max={120}
+                placeholder="e.g. 25"
+                value={form.participant_age}
+                onChange={(e) => updateField('participant_age', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Gender</Label>
+              <Select
+                value={form.participant_gender}
+                onValueChange={(v) => updateField('participant_gender', v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="male">Male</SelectItem>
+                  <SelectItem value="female">Female</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Institution / Organization */}
+          {participantType === 'internal' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Institution Name</Label>
+                <Input
+                  placeholder="e.g. JKKN College of Engineering"
+                  value={form.institution_name}
+                  onChange={(e) => updateField('institution_name', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Department</Label>
+                <Input
+                  placeholder="e.g. Computer Science"
+                  value={form.department}
+                  onChange={(e) => updateField('department', e.target.value)}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label>Organization / College</Label>
+              <Input
+                placeholder="e.g. ABC Engineering College"
+                value={form.organization}
+                onChange={(e) => updateField('organization', e.target.value)}
+              />
+            </div>
+          )}
+
+          <Separator />
+
+          {/* Event-Specific Fields */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>T-Shirt Size</Label>
+              <Select
+                value={form.tshirt_size}
+                onValueChange={(v) => updateField('tshirt_size', v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select size" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TSHIRT_SIZES.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Blood Group</Label>
+              <Select
+                value={form.blood_group}
+                onValueChange={(v) => updateField('blood_group', v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => (
+                    <SelectItem key={bg} value={bg}>{bg}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Discount Code</Label>
+              <Input
+                placeholder="e.g. JKKN100"
+                value={form.discount_code}
+                onChange={(e) => updateField('discount_code', e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Emergency Contact */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Emergency Contact Name</Label>
+              <Input
+                placeholder="Contact person name"
+                value={form.emergency_contact_name}
+                onChange={(e) => updateField('emergency_contact_name', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Emergency Contact Phone</Label>
+              <Input
+                placeholder="Contact person phone"
+                value={form.emergency_contact_phone}
+                onChange={(e) => updateField('emergency_contact_phone', e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Submit */}
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                resetForm();
+                onOpenChange(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={
+                registerMutation.isPending ||
+                !form.participant_name.trim() ||
+                !form.category_id
+              }
+            >
+              {registerMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Register Participant
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
