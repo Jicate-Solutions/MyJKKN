@@ -72,47 +72,86 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 2. Get all WABAs the token has access to via the business
-    // First try listing WABAs from the app's subscriptions
-    const wabasRes = await fetch(
-      `${GRAPH_API}/${appId}/subscriptions?access_token=${accessToken}`
-    );
-    const wabasData = await wabasRes.json();
+    // 2. Discover ALL WABAs from the business portfolio
+    // Try multiple methods to find every WABA
+    const wabaIdSet = new Set<string>();
 
-    // 3. Get WABAs from the business portfolio
-    // The token's granular_scopes tell us which WABAs we can access
+    // Method A: Query the business portfolio for owned WABAs
+    // The business_id comes from the token's profile
+    const profileRes = await fetch(
+      `${GRAPH_API}/me?fields=id,name&access_token=${accessToken}`
+    );
+    const profileData = await profileRes.json();
+    const systemUserId = profileData.id;
+
+    if (systemUserId) {
+      // System user → get assigned WABAs
+      try {
+        const assignedRes = await fetch(
+          `${GRAPH_API}/${systemUserId}/assigned_whatsapp_business_accounts?access_token=${accessToken}`
+        );
+        const assignedData = await assignedRes.json();
+        for (const waba of assignedData.data || []) {
+          wabaIdSet.add(waba.id);
+        }
+      } catch {
+        // Not all tokens support this endpoint
+      }
+    }
+
+    // Method B: Check granular_scopes for explicitly listed WABAs
     const granularScopes = debugData.data?.granular_scopes || [];
     const wabaScope = granularScopes.find(
       (s: { scope: string; target_ids?: string[] }) => s.scope === 'whatsapp_business_management'
     );
-
-    let wabaIds: string[] = [];
-
     if (wabaScope?.target_ids?.length) {
-      wabaIds = wabaScope.target_ids;
-    } else {
-      // Fallback: use known WABA IDs from env or try business discovery
-      const businessId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
-      if (businessId) {
-        wabaIds = [businessId];
-      }
-
-      // Also try the app's whatsapp_business_account subscriptions
-      // to discover additional WABAs
-      const appToken = `${appId}|${process.env.WHATSAPP_WEBHOOK_SECRET || ''}`;
-      try {
-        const subsRes = await fetch(
-          `${GRAPH_API}/${appId}/subscriptions?access_token=${appToken}`
-        );
-        const subsData = await subsRes.json();
-        if (subsData.data) {
-          // subscriptions exist but don't directly list WABA IDs
-          // We'll rely on the known WABA IDs
-        }
-      } catch {
-        // Non-critical
+      for (const id of wabaScope.target_ids) {
+        wabaIdSet.add(id);
       }
     }
+
+    // Method C: Use the known WABA ID from env var
+    const envWabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+    if (envWabaId) {
+      wabaIdSet.add(envWabaId);
+    }
+
+    // Method D: Query the business for owned WABAs using business_id from Meta URL
+    // Business ID: check if we can get it from the app
+    try {
+      const appRes = await fetch(
+        `${GRAPH_API}/${appId}?fields=business&access_token=${accessToken}`
+      );
+      const appData = await appRes.json();
+      const businessId = appData.business?.id;
+      if (businessId) {
+        const ownedRes = await fetch(
+          `${GRAPH_API}/${businessId}/owned_whatsapp_business_accounts?access_token=${accessToken}`
+        );
+        const ownedData = await ownedRes.json();
+        for (const waba of ownedData.data || []) {
+          wabaIdSet.add(waba.id);
+        }
+      }
+    } catch {
+      // Business query may fail with some token types
+    }
+
+    // Method E: Check wa_phone_numbers table for any other WABA IDs already stored
+    try {
+      const supabase = getServiceClient();
+      const { data: existingNumbers } = await supabase
+        .from('wa_phone_numbers')
+        .select('business_account_id')
+        .not('business_account_id', 'is', null);
+      for (const num of existingNumbers || []) {
+        if (num.business_account_id) wabaIdSet.add(num.business_account_id);
+      }
+    } catch {
+      // Non-critical
+    }
+
+    const wabaIds = Array.from(wabaIdSet);
 
     // 4. For each WABA, fetch phone numbers
     const discovered: DiscoveredNumber[] = [];
