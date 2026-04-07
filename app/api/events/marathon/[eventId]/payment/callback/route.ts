@@ -64,17 +64,36 @@ async function handleCallback(request: NextRequest, paramsPromise: Promise<{ eve
       return NextResponse.redirect(failUrl, 303);
     }
 
+    // Check if user explicitly cancelled on HDFC page
+    const isCancelled = ['CANCELLED', 'CANCEL', 'ABORTED', 'USER_CANCELLED'].includes(
+      clientStatus.toUpperCase()
+    );
+
+    if (isCancelled) {
+      logger.info('events/payment-callback', 'User cancelled payment', {
+        transactionRef,
+        eventId: evId,
+      });
+      // Redirect back to registration page with cancelled status — no registration created
+      const cancelUrl = new URL(
+        `/events/marathon/${evId}/registrations?payment=cancelled`,
+        marathonAppUrl
+      );
+      return NextResponse.redirect(cancelUrl, 303);
+    }
+
     // Verify and process payment
     const result = await EventPaymentService.handleCallback(
       transactionRef,
       clientStatus || undefined
     );
 
-    // Build redirect URL — redirect to MyJKKN event registrations with payment result
-    const redirectPage = result.success
-      ? `/events/marathon/${evId}/registrations?payment=success&txn=${result.transactionId}`
-      : `/events/marathon/${evId}/registrations?payment=failed&txn=${result.transactionId}`;
-    const redirectUrl = new URL(redirectPage, marathonAppUrl);
+    // Build redirect URL
+    const paymentStatus = result.success ? 'success' : 'failed';
+    const redirectUrl = new URL(
+      `/events/marathon/${evId}/registrations?payment=${paymentStatus}&txn=${result.transactionId}`,
+      marathonAppUrl
+    );
 
     if (result.registrationId) {
       redirectUrl.searchParams.set('reg', result.registrationId);

@@ -278,11 +278,16 @@ export default function MarathonRegistrationsPage() {
   useEffect(() => {
     const paymentResult = searchParams.get('payment');
     if (paymentResult === 'success') {
-      toast.success('Payment successful! Registration confirmed.');
-      // Clean URL without reloading
+      toast.success('Payment successful! Registration confirmed.', { duration: 5000 });
+      router.replace(`/events/marathon/${eventId}/registrations`, { scroll: false });
+    } else if (paymentResult === 'cancelled') {
+      toast('Payment was cancelled. No registration was created. You can try again.', {
+        icon: '⚠️',
+        duration: 5000,
+      });
       router.replace(`/events/marathon/${eventId}/registrations`, { scroll: false });
     } else if (paymentResult === 'failed') {
-      toast.error('Payment failed. Registration saved — you can retry payment later.');
+      toast.error('Payment failed. No registration was created. Please try again.', { duration: 5000 });
       router.replace(`/events/marathon/${eventId}/registrations`, { scroll: false });
     }
   }, [searchParams, eventId, router]);
