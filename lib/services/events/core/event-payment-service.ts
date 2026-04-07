@@ -235,8 +235,75 @@ export class EventPaymentService {
         })
         .eq('id', transaction.id);
 
-      // Update registration payment status
-      if (transaction.registration_id) {
+      let registrationId = transaction.registration_id || '';
+
+      // Check if this is a pre-registration payment (registration not yet created)
+      const pendingRegData = transaction.gateway_response?.pending_registration_data;
+      if (!transaction.registration_id && pendingRegData) {
+        // Create registration now that payment succeeded
+        try {
+          const regData = pendingRegData as Record<string, unknown>;
+
+          // Generate BIB number
+          const { count: existingCount } = await supabase
+            .from('events_registrations')
+            .select('*', { count: 'exact', head: true })
+            .eq('event_id', transaction.event_id)
+            .eq('category_id', regData.category_id as string);
+
+          const seq = (existingCount ?? 0) + 1;
+          const catCode = (regData.category_code as string) || 'RUN';
+          const eventYear = (regData.event_year as number) || new Date().getFullYear();
+          const eventCode = (regData.event_code as string) || 'KBM';
+          const bibNumber = `${eventCode}-${eventYear}-${catCode}-${String(seq).padStart(4, '0')}`;
+
+          const { data: newReg, error: regError } = await supabase
+            .from('events_registrations')
+            .insert({
+              event_id: transaction.event_id,
+              category_id: regData.category_id,
+              participant_type: regData.participant_type || 'internal',
+              participant_name: regData.participant_name,
+              participant_phone: regData.participant_phone || null,
+              participant_email: regData.participant_email || null,
+              participant_age: regData.participant_age || null,
+              participant_gender: regData.participant_gender || null,
+              institution_id: regData.institution_id || null,
+              institution_name: regData.institution_name || null,
+              department: regData.department || null,
+              profile_id: regData.profile_id || null,
+              learner_id: regData.learner_id || null,
+              bib_number: bibNumber,
+              status: 'registered',
+              payment_status: 'paid',
+              payment_amount: transaction.amount,
+              payment_method: verification.paymentMethod || 'online',
+              payment_reference: transaction.transaction_ref,
+              custom_data: regData.custom_data || {},
+              source: (regData.source as string) || 'admin',
+            })
+            .select('id')
+            .single();
+
+          if (regError) {
+            logger.error('events/payment', 'Failed to create registration after payment', regError);
+          } else {
+            registrationId = newReg.id;
+            // Link the transaction to the new registration
+            await supabase
+              .from('event_payment_transactions')
+              .update({ registration_id: newReg.id })
+              .eq('id', transaction.id);
+            logger.info('events/payment', 'Registration created after successful payment', {
+              registrationId: newReg.id,
+              bibNumber,
+            });
+          }
+        } catch (regCreateError) {
+          logger.error('events/payment', 'Error creating registration after payment', regCreateError);
+        }
+      } else if (transaction.registration_id) {
+        // Existing registration — just update payment status
         await supabase
           .from('events_registrations')
           .update({
@@ -249,12 +316,12 @@ export class EventPaymentService {
 
       logger.info('events/payment', 'Payment verified and registration updated', {
         transactionId: transaction.id,
-        registrationId: transaction.registration_id,
+        registrationId,
       });
 
       return {
         success: true,
-        registrationId: transaction.registration_id || '',
+        registrationId,
         transactionId: transaction.id,
       };
     } else {

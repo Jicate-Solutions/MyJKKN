@@ -513,6 +513,7 @@ export default function MarathonRegistrationsPage() {
         {/* Register Participant Dialog */}
         <RegisterParticipantDialog
           eventId={eventId}
+          event={event}
           categories={categories}
           open={showRegisterDialog}
           onOpenChange={setShowRegisterDialog}
@@ -531,12 +532,14 @@ const TSHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'] as const;
 
 function RegisterParticipantDialog({
   eventId,
+  event,
   categories,
   open,
   onOpenChange,
   onSuccess,
 }: {
   eventId: string;
+  event: any;
   categories: EventCategory[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -639,57 +642,61 @@ function RegisterParticipantDialog({
 
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Build the registration data payload (used for both paid and free flows)
+  const buildRegistrationData = () => ({
+    event_id: eventId,
+    category_id: form.category_id,
+    category_code: selectedCategory?.code || 'RUN',
+    event_year: (event as any)?.year || new Date().getFullYear(),
+    event_code: (event as any)?.config?.event_code || (event as any)?.name?.substring(0, 3).toUpperCase() || 'KBM',
+    participant_type: participantType,
+    participant_name: form.participant_name.trim(),
+    participant_phone: form.participant_phone || undefined,
+    participant_email: form.participant_email || undefined,
+    participant_age: form.participant_age ? parseInt(form.participant_age, 10) : undefined,
+    participant_gender: form.participant_gender || undefined,
+    institution_id: participantType === 'internal'
+      ? (selectedInstitutionId || profile?.institution_id || undefined)
+      : undefined,
+    institution_name: form.institution_name || undefined,
+    department: form.department || undefined,
+    profile_id: participantType === 'internal' ? profile?.id : undefined,
+    learner_id: participantType === 'internal' ? (profile?.learner_id ?? undefined) : undefined,
+    source: 'admin',
+    custom_data: {
+      tshirt_size: form.tshirt_size || undefined,
+      emergency_contact_name: form.emergency_contact_name || undefined,
+      emergency_contact_phone: form.emergency_contact_phone || undefined,
+      blood_group: form.blood_group || undefined,
+      organization: participantType === 'external' ? form.organization || undefined : undefined,
+      registration_fee_override: participantType === 'internal' ? INTERNAL_FEE : undefined,
+    },
+    discount_code: participantType === 'external' ? (form.discount_code || undefined) : undefined,
+  });
+
   const handleSubmit = async () => {
     if (!form.participant_name.trim() || !form.category_id) return;
 
     setIsProcessing(true);
 
     try {
-      // Step 1: Create registration (status: pending)
-      const registration = await registerMutation.mutateAsync({
-        event_id: eventId,
-        category_id: form.category_id,
-        participant_type: participantType,
-        participant_name: form.participant_name.trim(),
-        participant_phone: form.participant_phone || undefined,
-        participant_email: form.participant_email || undefined,
-        participant_age: form.participant_age ? parseInt(form.participant_age, 10) : undefined,
-        participant_gender: form.participant_gender || undefined,
-        institution_id: participantType === 'internal'
-          ? (selectedInstitutionId || profile?.institution_id || undefined)
-          : undefined,
-        institution_name: form.institution_name || undefined,
-        department: form.department || undefined,
-        profile_id: participantType === 'internal' ? profile?.id : undefined,
-        learner_id: participantType === 'internal' ? (profile?.learner_id ?? undefined) : undefined,
-        source: 'admin',
-        custom_data: {
-          tshirt_size: form.tshirt_size || undefined,
-          emergency_contact_name: form.emergency_contact_name || undefined,
-          emergency_contact_phone: form.emergency_contact_phone || undefined,
-          blood_group: form.blood_group || undefined,
-          organization: participantType === 'external' ? form.organization || undefined : undefined,
-          registration_fee_override: participantType === 'internal' ? INTERNAL_FEE : undefined,
-        },
-        discount_code: participantType === 'external' ? (form.discount_code || undefined) : undefined,
-      });
+      if (registrationFee > 0) {
+        // ── PAID FLOW: Payment FIRST, registration created only after payment success ──
+        toast.loading('Opening payment gateway...', { id: 'payment-redirect' });
 
-      // Step 2: If fee > 0, initiate HDFC payment
-      if (registrationFee > 0 && registration?.id) {
-        toast.loading('Redirecting to payment gateway...', { id: 'payment-redirect' });
+        const registrationData = buildRegistrationData();
 
         const paymentResponse = await fetch(
-          `/api/events/marathon/${eventId}/payment/initiate`,
+          `/api/events/marathon/${eventId}/payment/pre-register`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              registration_id: registration.id,
               amount: registrationFee,
               payer_name: form.participant_name.trim(),
               payer_email: form.participant_email || profile?.email || 'noemail@jkkn.ac.in',
               payer_phone: form.participant_phone || profile?.phone_number || '0000000000',
-              discount_code: participantType === 'external' ? form.discount_code || undefined : undefined,
+              registration_data: registrationData,
             }),
           }
         );
@@ -697,34 +704,30 @@ function RegisterParticipantDialog({
         const paymentData = await paymentResponse.json();
 
         if (paymentData.success && paymentData.data?.payment_url) {
-          // Redirect to HDFC payment gateway
           toast.dismiss('payment-redirect');
           toast.success('Redirecting to HDFC payment gateway...');
           resetForm();
           onOpenChange(false);
-          // Open HDFC gateway — full page redirect
+          // Redirect to HDFC — registration will be created on successful callback
           window.location.href = paymentData.data.payment_url;
           return;
         } else {
-          // Payment initiation failed — registration still created but unpaid
           toast.dismiss('payment-redirect');
           toast.error(
-            paymentData.message || 'Payment gateway unavailable. Registration saved — collect payment later.'
+            paymentData.error || 'Payment gateway unavailable. Please try again later.'
           );
-          resetForm();
-          onOpenChange(false);
-          onSuccess();
         }
       } else {
-        // Free event — no payment needed
+        // ── FREE FLOW: No payment needed, create registration directly ──
+        await registerMutation.mutateAsync(buildRegistrationData());
         toast.success('Registration successful!');
         resetForm();
         onOpenChange(false);
         onSuccess();
       }
     } catch (error) {
-      // Registration creation itself failed
-      console.error('Registration failed:', error);
+      console.error('Registration/payment failed:', error);
+      toast.error('Something went wrong. Please try again.');
     } finally {
       setIsProcessing(false);
     }
