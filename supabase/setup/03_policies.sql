@@ -4566,6 +4566,14 @@ CREATE POLICY "events_auth_update" ON public.events
     )
   );
 
+-- Authenticated users can delete their institution's events
+CREATE POLICY "events_auth_delete" ON public.events
+  FOR DELETE TO authenticated USING (
+    institution_id IN (
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+    )
+  );
+
 -- ── event_categories ─────────────────────────────────────────────────────────
 
 ALTER TABLE public.event_categories ENABLE ROW LEVEL SECURITY;
@@ -4641,6 +4649,14 @@ CREATE POLICY "event_payments_public_read" ON public.event_payment_transactions
 -- Public update needed for gateway webhooks to update status
 CREATE POLICY "event_payments_public_update" ON public.event_payment_transactions
   FOR UPDATE USING (true);
+
+-- Authenticated users can read all payment transactions for their institution
+CREATE POLICY "event_payments_auth_read" ON public.event_payment_transactions
+  FOR SELECT TO authenticated USING (
+    institution_id IN (
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+    )
+  );
 
 -- ── marathon_sponsors ─────────────────────────────────────────────────────────
 
