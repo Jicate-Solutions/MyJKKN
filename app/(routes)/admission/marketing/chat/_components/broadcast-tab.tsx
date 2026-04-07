@@ -38,7 +38,23 @@ interface ApprovedTemplate {
   category: string;
   language: string;
   status: string;
-  components?: { type: string; text?: string; format?: string }[];
+  components?: { type: string; text?: string; format?: string; example?: { header_handle?: string[] } }[];
+}
+
+function getTemplateHeader(t: ApprovedTemplate): { type: string; format?: string } | null {
+  if (!t.components) return null;
+  const header = t.components.find(c => c.type === 'HEADER');
+  return header ? { type: header.type, format: header.format } : null;
+}
+
+function templateNeedsImage(t: ApprovedTemplate): boolean {
+  const header = getTemplateHeader(t);
+  return header?.format === 'IMAGE';
+}
+
+function templateNeedsVideo(t: ApprovedTemplate): boolean {
+  const header = getTemplateHeader(t);
+  return header?.format === 'VIDEO';
 }
 
 function getTemplateBody(t: ApprovedTemplate): string {
@@ -139,6 +155,7 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
   const [uploadStats, setUploadStats] = useState<{ total: number; valid: number; invalid: number } | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<ApprovedTemplate | null>(null);
   const [varMapping, setVarMapping] = useState<Record<string, string>>({});
+  const [headerMediaUrl, setHeaderMediaUrl] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
   const [contactSource, setContactSource] = useState<'csv' | 'leads'>('csv');
   const [scheduleDate, setScheduleDate] = useState('');
@@ -282,11 +299,23 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
       toast.error('No valid phone numbers to send to');
       return;
     }
+    // Apply varMapping: convert CSV columns to ordered {{1}}, {{2}}, ... values
+    const bodyVars = getTemplateVars(getTemplateBody(selectedTemplate));
+    const mappedRecipients = validContacts.map(c => {
+      const mappedVars: Record<string, string> = {};
+      for (const varNum of bodyVars) {
+        const csvCol = varMapping[varNum];
+        mappedVars[varNum] = csvCol ? (c.variables[csvCol] || '') : '';
+      }
+      return { phone: c.phone, variables: mappedVars };
+    });
+
     sendMutation.mutate({
       institution_id: institutionId,
       campaign_name: campaignName || `Broadcast ${new Date().toLocaleDateString('en-IN')}`,
       template_name: selectedTemplate.name,
-      recipients: validContacts.map(c => ({ phone: c.phone, variables: c.variables })),
+      recipients: mappedRecipients,
+      ...(headerMediaUrl ? { header_media_url: headerMediaUrl } : {}),
       ...(scheduleDate ? { scheduled_at: new Date(scheduleDate).toISOString() } : {}),
     } as Parameters<typeof sendMutation.mutate>[0]);
     setShowConfirm(false);
@@ -542,7 +571,7 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
                 className={`border rounded-lg p-3 cursor-pointer transition-all hover:border-orange-500 text-sm ${
                   selectedTemplate?.id === t.id ? 'border-orange-600 bg-orange-50 dark:bg-orange-950' : ''
                 }`}
-                onClick={() => { setSelectedTemplate(t); setVarMapping({}); }}
+                onClick={() => { setSelectedTemplate(t); setVarMapping({}); setHeaderMediaUrl(''); }}
               >
                 <p className="font-medium text-xs">{t.name}</p>
                 <Badge variant="outline" className="text-[10px] mt-1">{t.category}</Badge>
@@ -600,7 +629,42 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
                 </div>
               )}
 
-              <Button onClick={() => setStep(3)} className="w-full">
+              {/* Header Media URL (for templates with IMAGE/VIDEO headers) */}
+              {selectedTemplate && templateNeedsImage(selectedTemplate) && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Header image URL (required):</p>
+                  <Input
+                    type="url"
+                    placeholder="https://example.com/image.jpg"
+                    value={headerMediaUrl}
+                    onChange={e => setHeaderMediaUrl(e.target.value)}
+                    className="text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground">This template requires a header image. Paste a public image URL.</p>
+                </div>
+              )}
+              {selectedTemplate && templateNeedsVideo(selectedTemplate) && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Header video URL (required):</p>
+                  <Input
+                    type="url"
+                    placeholder="https://example.com/video.mp4"
+                    value={headerMediaUrl}
+                    onChange={e => setHeaderMediaUrl(e.target.value)}
+                    className="text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground">This template requires a header video. Paste a public video URL.</p>
+                </div>
+              )}
+
+              <Button
+                onClick={() => setStep(3)}
+                className="w-full"
+                disabled={
+                  (templateNeedsImage(selectedTemplate) && !headerMediaUrl) ||
+                  (templateNeedsVideo(selectedTemplate) && !headerMediaUrl)
+                }
+              >
                 Use &quot;{selectedTemplate.name}&quot; <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </div>

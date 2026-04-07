@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       template_id,
       recipients,
       scheduled_at,
+      header_media_url,
     } = body;
 
     const institution_id = body.institution_id || profile.institution_id;
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
       recipient_phone: r.phone,
       message_content: r.message_content || template_name || '',
       variables: r.variables || {},
+      header_media_url: header_media_url || undefined,
       campaign_id,
       metadata: {
         campaign_name: campaign_name || `Broadcast ${new Date().toLocaleDateString('en-IN')}`,

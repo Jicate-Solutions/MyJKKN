@@ -21,6 +21,7 @@ import {
   sendTemplateMessage,
   isWhatsAppConfigured,
   type WAMessageResponse,
+  type WATemplateComponent,
 } from '@/lib/services/whatsapp/whatsapp-api-client';
 
 // ============================================================================
@@ -59,6 +60,7 @@ export interface SendCampaignMessageInput {
   recipient_phone: string;
   message_content?: string;
   variables?: Record<string, string>;
+  header_media_url?: string;
   campaign_id?: string;
   workflow_execution_id?: string;
   metadata?: Record<string, unknown>;
@@ -215,11 +217,30 @@ export class WhatsAppCampaignService {
       try {
         const templateName = (input.metadata as Record<string, string>)?.template_name;
         if (templateName) {
-          // Send as template message (required for broadcast / marketing messages)
-          const components = input.variables && Object.keys(input.variables).length > 0
-            ? [{ type: 'body' as const, parameters: Object.values(input.variables).map(v => ({ type: 'text' as const, text: v })) }]
-            : undefined;
-          waResult = await sendTemplateMessage(formattedPhone, templateName, 'en', components);
+          // Build Meta template components from mapped variables
+          const components: WATemplateComponent[] = [];
+
+          // Header component (image/video if provided)
+          if (input.header_media_url) {
+            const isVideo = /\.(mp4|mov|avi|webm)$/i.test(input.header_media_url);
+            components.push({
+              type: 'header' as const,
+              parameters: isVideo
+                ? [{ type: 'video' as const, video: { link: input.header_media_url } }]
+                : [{ type: 'image' as const, image: { link: input.header_media_url } }],
+            });
+          }
+
+          // Body component — variables keyed as "1", "2", etc. from varMapping
+          if (input.variables && Object.keys(input.variables).length > 0) {
+            const sortedKeys = Object.keys(input.variables).sort((a, b) => Number(a) - Number(b));
+            const params = sortedKeys.map(k => ({ type: 'text' as const, text: input.variables![k] || '' }));
+            if (params.length > 0) {
+              components.push({ type: 'body' as const, parameters: params });
+            }
+          }
+
+          waResult = await sendTemplateMessage(formattedPhone, templateName, 'en', components.length > 0 ? components : undefined);
         } else {
           waResult = await sendTextMessage(formattedPhone, messageContent);
         }
