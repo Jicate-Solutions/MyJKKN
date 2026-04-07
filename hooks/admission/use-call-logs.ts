@@ -71,6 +71,9 @@ export function useCallLogs(filters: CallLogFilters) {
     },
     // Always fetch. Super admins have no institution_id (returns all); others always have one.
     enabled: true,
+    staleTime: 30000,
+    refetchInterval: 60000, // Auto-refresh every 60 seconds
+    refetchOnWindowFocus: true,
   });
 
   return {
