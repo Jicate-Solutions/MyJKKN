@@ -86,7 +86,10 @@ interface BroadcastCampaign {
 // =============================================================================
 
 function parseCSV(text: string): Record<string, string>[] {
-  const lines = text.trim().split('\n');
+  // Normalize line endings: \r\n (Windows/Excel) and \r (old Mac) → \n
+  // Strip BOM (byte order mark) from Excel exports
+  const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = normalized.trim().split('\n').filter(l => l.trim().length > 0);
   if (lines.length < 2) return [];
   const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
   return lines.slice(1).map(line => {
