@@ -26,7 +26,6 @@ import {
   useCallLogs,
   useInboundCallStats,
   useTelephonyHealth,
-  useBulkCallback,
   useUniqueCallers,
   useCallFunnel,
   formatDuration,
@@ -503,7 +502,6 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId, undefined, undefined, admissionOnly);
   const { funnel, isLoading: funnelLoading } = useCallFunnel(institutionId, undefined, undefined, admissionOnly);
   const { data: health } = useTelephonyHealth();
-  const bulkCallback = useBulkCallback();
 
   const clearFilters = () => {
     setStatusFilter('');
@@ -920,20 +918,15 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                         </span>
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        {(!log.cost_amount || log.cost_amount <= 0) && log.callback_queue_id && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => {
-                              if (!log.callback_queue_id) return;
-                              bulkCallback.mutate([log.callback_queue_id]);
-                            }}
-                            disabled={bulkCallback.isPending}
+                        {(!log.cost_amount || log.cost_amount <= 0) && log.from_number && (
+                          <a
+                            href={`tel:${log.from_number}`}
+                            className="inline-flex items-center h-7 px-2 text-xs border rounded-md hover:bg-accent"
+                            onClick={(e) => e.stopPropagation()}
                           >
                             <Phone className="h-3 w-3 mr-1" />
                             Call Back
-                          </Button>
+                          </a>
                         )}
                       </TableCell>
                     </TableRow>
