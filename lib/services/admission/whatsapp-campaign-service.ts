@@ -61,6 +61,7 @@ export interface SendCampaignMessageInput {
   message_content?: string;
   variables?: Record<string, string>;
   header_media_url?: string;
+  phone_number_id?: string;
   campaign_id?: string;
   workflow_execution_id?: string;
   metadata?: Record<string, unknown>;
@@ -240,7 +241,7 @@ export class WhatsAppCampaignService {
             }
           }
 
-          waResult = await sendTemplateMessage(formattedPhone, templateName, 'en', components.length > 0 ? components : undefined);
+          waResult = await sendTemplateMessage(formattedPhone, templateName, 'en', components.length > 0 ? components : undefined, input.phone_number_id);
         } else {
           waResult = await sendTextMessage(formattedPhone, messageContent);
         }

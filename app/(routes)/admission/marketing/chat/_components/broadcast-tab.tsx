@@ -160,6 +160,7 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
   const [selectedTemplate, setSelectedTemplate] = useState<ApprovedTemplate | null>(null);
   const [varMapping, setVarMapping] = useState<Record<string, string>>({});
   const [headerMediaUrl, setHeaderMediaUrl] = useState('');
+  const [selectedPhoneNumberId, setSelectedPhoneNumberId] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
   const [contactSource, setContactSource] = useState<'csv' | 'leads'>('csv');
   const [scheduleDate, setScheduleDate] = useState('');
@@ -174,6 +175,19 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
       if (!res.ok) return null;
       return res.json();
     },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Fetch all WABA phone numbers for sender selection
+  const { data: waNumbers } = useQuery({
+    queryKey: ['wa-phone-numbers', institutionId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admission/settings/whatsapp-numbers?institution_id=${institutionId}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.data || [];
+    },
+    enabled: !!institutionId,
     staleTime: 10 * 60 * 1000,
   });
 
@@ -320,6 +334,7 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
       template_name: selectedTemplate.name,
       recipients: mappedRecipients,
       ...(headerMediaUrl ? { header_media_url: headerMediaUrl } : {}),
+      ...(selectedPhoneNumberId ? { phone_number_id: selectedPhoneNumberId } : {}),
       ...(scheduleDate ? { scheduled_at: new Date(scheduleDate).toISOString() } : {}),
     } as Parameters<typeof sendMutation.mutate>[0]);
     setShowConfirm(false);
@@ -684,14 +699,26 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
       {/* Step 3: Review + Schedule */}
       {step === 3 && (
         <div className="space-y-3">
-          {/* Sender Number */}
-          {senderInfo?.dedicated_number && (
-            <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800 flex items-center gap-2">
-              <span className="text-green-600 text-xs font-medium">FROM:</span>
-              <span className="text-sm font-mono font-medium">{senderInfo.dedicated_number}</span>
-              <span className="text-[10px] text-muted-foreground">(JKKN WhatsApp Business)</span>
-            </div>
-          )}
+          {/* Sender Number Selection */}
+          <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800 space-y-2">
+            <span className="text-green-600 text-xs font-medium">SEND FROM:</span>
+            {waNumbers && waNumbers.length > 1 ? (
+              <select
+                className="w-full border rounded px-2 py-1.5 text-sm bg-background font-mono"
+                value={selectedPhoneNumberId}
+                onChange={e => setSelectedPhoneNumberId(e.target.value)}
+              >
+                <option value="">Default ({senderInfo?.dedicated_number || 'Primary'})</option>
+                {waNumbers.map((n: { id: string; phone_number_id: string; display_number: string; verified_name: string; is_primary: boolean }) => (
+                  <option key={n.id} value={n.phone_number_id}>
+                    {n.display_number} — {n.verified_name}{n.is_primary ? ' (Primary)' : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-sm font-mono font-medium">{senderInfo?.dedicated_number || 'Not configured'}</p>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 bg-muted rounded-lg">

@@ -319,9 +319,13 @@ export async function sendTemplateMessage(
   to: string,
   templateName: string,
   languageCode: string,
-  components?: WATemplateComponent[]
+  components?: WATemplateComponent[],
+  phoneNumberIdOverride?: string
 ) {
-  return getClient().sendTemplateMessage(to, templateName, languageCode, components);
+  const client = phoneNumberIdOverride
+    ? new WhatsAppCloudAPIClient(phoneNumberIdOverride)
+    : getClient();
+  return client.sendTemplateMessage(to, templateName, languageCode, components);
 }
 
 export async function sendMediaMessage(

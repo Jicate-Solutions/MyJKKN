@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       recipients,
       scheduled_at,
       header_media_url,
+      phone_number_id,
     } = body;
 
     const institution_id = body.institution_id || profile.institution_id;
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
       message_content: r.message_content || template_name || '',
       variables: r.variables || {},
       header_media_url: header_media_url || undefined,
+      phone_number_id: phone_number_id || undefined,
       campaign_id,
       metadata: {
         campaign_name: campaign_name || `Broadcast ${new Date().toLocaleDateString('en-IN')}`,
