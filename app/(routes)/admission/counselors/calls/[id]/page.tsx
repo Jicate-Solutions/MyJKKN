@@ -590,7 +590,7 @@ function CallDetailContent() {
                   {(intelligence?.extracted_name || intelligence?.extracted_course || intelligence?.extracted_location) && (
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Extracted Info</p>
-                      <div className="grid grid-cols-3 gap-2 mt-1 text-sm">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1 text-sm">
                         {intelligence.extracted_name && <div><span className="text-muted-foreground">Name:</span> {intelligence.extracted_name}</div>}
                         {intelligence.extracted_course && <div><span className="text-muted-foreground">Course:</span> {intelligence.extracted_course}</div>}
                         {intelligence.extracted_location && <div><span className="text-muted-foreground">Location:</span> {intelligence.extracted_location}</div>}
