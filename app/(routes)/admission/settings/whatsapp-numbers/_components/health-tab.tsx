@@ -233,9 +233,11 @@ export function HealthTab({ institutionId }: { institutionId: string }) {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div className="space-y-2">
                         <div className="flex items-center gap-3">
-                          <p className="text-lg font-semibold">{num.display_number}</p>
-                          <QualityBadge rating={num.quality_rating} />
-                          {!num.is_active && (
+                          <p className="text-lg font-semibold">{num.display_phone_number}</p>
+                          <QualityBadge rating={num.quality_rating || 'GREEN'} />
+                          {num.status === 'CONNECTED' ? (
+                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">Active</Badge>
+                          ) : (
                             <Badge variant="destructive" className="text-xs">Inactive</Badge>
                           )}
                         </div>
@@ -250,7 +252,7 @@ export function HealthTab({ institutionId }: { institutionId: string }) {
                           <span>
                             Platform:{' '}
                             <Badge variant="outline" className="text-xs ml-1">
-                              {num.platform_type === 'CLOUD_API' ? 'Cloud API' : num.platform_type}
+                              {num.platform_type === 'CLOUD_API' ? 'Cloud API' : num.platform_type || 'Unknown'}
                             </Badge>
                           </span>
                           <span>
@@ -258,12 +260,12 @@ export function HealthTab({ institutionId }: { institutionId: string }) {
                             <Badge
                               variant="outline"
                               className={`text-xs ml-1 ${
-                                num.verification_status === 'verified'
+                                num.code_verification_status === 'VERIFIED'
                                   ? 'bg-green-50 text-green-700 border-green-200'
                                   : 'bg-yellow-50 text-yellow-700 border-yellow-200'
                               }`}
                             >
-                              {num.verification_status === 'verified' ? 'Yes' : 'No'}
+                              {num.code_verification_status === 'VERIFIED' ? 'Yes' : num.code_verification_status || 'No'}
                             </Badge>
                           </span>
                           <span>
@@ -273,7 +275,7 @@ export function HealthTab({ institutionId }: { institutionId: string }) {
                       </div>
 
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {num.platform_type !== 'CLOUD_API' && (
+                        {num.platform_type && num.platform_type !== 'CLOUD_API' && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -288,7 +290,7 @@ export function HealthTab({ institutionId }: { institutionId: string }) {
                             Register on Cloud API
                           </Button>
                         )}
-                        {num.verification_status !== 'verified' && (
+                        {num.code_verification_status !== 'VERIFIED' && (
                           <Button
                             variant="outline"
                             size="sm"
