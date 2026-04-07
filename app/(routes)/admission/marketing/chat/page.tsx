@@ -30,6 +30,7 @@ import { useAuth } from '@/hooks/use-auth';
 import type { Conversation } from '@/lib/services/whatsapp/whatsapp-chat-service';
 
 type Channel = 'inbox' | 'personal' | 'broadcast' | 'segments' | 'reengage' | 'analytics';
+type MobileView = 'list' | 'chat' | 'profile';
 
 const TABS: { id: Channel; label: string; icon: React.ElementType; color: string }[] = [
   { id: 'inbox', label: 'Inbox', icon: MessageCircle, color: 'bg-blue-600' },
@@ -42,8 +43,9 @@ const TABS: { id: Channel; label: string; icon: React.ElementType; color: string
 
 function ChatInboxContent() {
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
-  const [showSidebar] = useState(true);
   const [channel, setChannel] = useState<Channel>('inbox');
+  const [mobileView, setMobileView] = useState<MobileView>('list');
+  const [showProfile, setShowProfile] = useState(false);
   const { profile } = useAuth();
   const institutionId = profile?.institution_id;
 
@@ -164,22 +166,97 @@ function ChatInboxContent() {
             })}
           </div>
 
-          {/* Content */}
+          {/* Inbox Tab — WhatsApp Web clone layout */}
           {channel === 'inbox' && (
-            <Card className="overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
-              <div className="flex h-full">
-                <div className="w-80 flex-shrink-0 h-full">
+            <Card className="overflow-hidden h-[calc(100vh-180px)]">
+              {/* Desktop: three-column layout */}
+              <div className="hidden md:flex h-full relative">
+                {/* Left panel: conversation list — fixed width */}
+                <div className="w-[380px] flex-shrink-0 h-full border-r">
                   <ConversationList
                     activeId={activeConversation?.id || null}
-                    onSelect={(conv: Conversation) => setActiveConversation(conv)}
+                    onSelect={(conv: Conversation) => {
+                      setActiveConversation(conv);
+                    }}
                   />
                 </div>
+
+                {/* Center panel: chat thread — fills remaining space */}
                 <div className="flex-1 h-full min-w-0">
-                  <ChatThread conversationId={activeConversation?.id || null} />
+                  {activeConversation ? (
+                    <ChatThread
+                      conversationId={activeConversation.id}
+                      onContactClick={() => setShowProfile(true)}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-muted/20">
+                      <div className="h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4">
+                        <MessageCircle className="h-10 w-10 text-muted-foreground" />
+                      </div>
+                      <h3 className="text-base font-semibold text-foreground mb-1">
+                        Select a conversation
+                      </h3>
+                      <p className="text-sm text-muted-foreground max-w-xs">
+                        Choose a conversation from the list to start messaging.
+                      </p>
+                    </div>
+                  )}
                 </div>
-                {showSidebar && (
-                  <div className="w-[300px] flex-shrink-0 h-full hidden lg:block">
-                    <LeadProfileSidebar conversationId={activeConversation?.id || null} />
+
+                {/* Right panel: lead profile — slides in from right */}
+                <div
+                  className={`
+                    absolute right-0 top-0 h-full w-[340px] bg-background border-l z-10
+                    transition-transform duration-300 ease-in-out
+                    ${showProfile ? 'translate-x-0' : 'translate-x-full'}
+                  `}
+                >
+                  <LeadProfileSidebar
+                    conversationId={activeConversation?.id || null}
+                    onClose={() => setShowProfile(false)}
+                  />
+                </div>
+              </div>
+
+              {/* Mobile: single-panel state machine */}
+              <div className="flex md:hidden h-full">
+                {/* List view */}
+                {mobileView === 'list' && (
+                  <div className="w-full h-full">
+                    <ConversationList
+                      activeId={activeConversation?.id || null}
+                      onSelect={(conv: Conversation) => {
+                        setActiveConversation(conv);
+                        setMobileView('chat');
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Chat view */}
+                {mobileView === 'chat' && (
+                  <div className="w-full h-full">
+                    <ChatThread
+                      conversationId={activeConversation?.id || null}
+                      onBack={() => setMobileView('list')}
+                      onContactClick={() => {
+                        setShowProfile(true);
+                        setMobileView('profile');
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Profile view */}
+                {mobileView === 'profile' && (
+                  <div className="w-full h-full">
+                    <LeadProfileSidebar
+                      conversationId={activeConversation?.id || null}
+                      onClose={() => {
+                        setShowProfile(false);
+                        setMobileView('chat');
+                      }}
+                    />
                   </div>
                 )}
               </div>
