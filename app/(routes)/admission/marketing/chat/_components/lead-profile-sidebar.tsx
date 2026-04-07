@@ -1,9 +1,24 @@
 'use client';
 
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Input } from '@/components/ui/input';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Phone,
   Mail,
@@ -22,6 +37,7 @@ import {
   Star,
   Radio,
   Plus,
+  UserPlus,
 } from 'lucide-react';
 import { useConversation } from '@/hooks/admission/use-conversation';
 import { useChatMutations } from '@/hooks/admission/use-chat-mutations';
@@ -180,11 +196,34 @@ function EmptyState({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── predefined tags ─────────────────────────────────────────────────────────
+
+const PREDEFINED_TAGS = [
+  'hot-lead', 'follow-up', 'docs-pending', 'callback-requested',
+  'enrolled', 'lost', 'scholarship', 'hostel-inquiry', 'parent-contact',
+  'neet-qualified', 'walk-in', 'expo-lead', 'referred',
+];
+
 // ─── main component ───────────────────────────────────────────────────────────
 
 export function LeadProfileSidebar({ conversationId, onClose }: LeadProfileSidebarProps) {
   const { conversation, isLoading } = useConversation(conversationId);
-  const { resolve, reopen, isResolving, isReopening } = useChatMutations();
+  const { resolve, reopen, assign, isResolving, isReopening } = useChatMutations();
+  const queryClient = useQueryClient();
+
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [tagSearch, setTagSearch] = useState('');
+
+  const { data: staffList } = useQuery({
+    queryKey: ['institution-staff', conversation?.institution_id],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/users?institution_id=${conversation?.institution_id}&role=admission`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.data || json || [];
+    },
+    enabled: !!conversation?.institution_id,
+  });
 
   if (!conversationId || (!conversation && !isLoading)) {
     return <EmptyState onClose={onClose} />;
@@ -227,6 +266,33 @@ export function LeadProfileSidebar({ conversationId, onClose }: LeadProfileSideb
   const phone = conversation.contact_phone || lead?.phone || '';
   const avatarSeed = displayName + phone;
   const statusInfo = getStatusBadge(conversation.status);
+
+  const currentTags: string[] = conversation.tags || [];
+
+  const filteredTags = PREDEFINED_TAGS
+    .filter(t => !currentTags.includes(t))
+    .filter(t => !tagSearch || t.includes(tagSearch.toLowerCase()));
+
+  const addTag = async (tag: string) => {
+    const newTags = [...currentTags, tag];
+    await fetch(`/api/admission/chat/conversations/${conversation.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags: newTags }),
+    });
+    queryClient.invalidateQueries({ queryKey: ['wa-conversation-detail'] });
+    setTagSearch('');
+  };
+
+  const removeTag = async (tag: string) => {
+    const newTags = currentTags.filter(t => t !== tag);
+    await fetch(`/api/admission/chat/conversations/${conversation.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags: newTags }),
+    });
+    queryClient.invalidateQueries({ queryKey: ['wa-conversation-detail'] });
+  };
 
   return (
     /* Outer wrapper — parent decides width; we fill it */
@@ -390,38 +456,71 @@ export function LeadProfileSidebar({ conversationId, onClose }: LeadProfileSideb
           </SectionCard>
 
           {/* ── 2c. Tags section ────────────────────────────────────── */}
-          {(conversation.tags && conversation.tags.length > 0) && (
-            <SectionCard>
-              <div className="px-4 pt-3 pb-3">
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                  Tags
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {conversation.tags.map((tag: string) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
-                                 text-[11px] font-medium bg-gray-100 text-gray-600
-                                 border border-gray-200"
-                    >
-                      <Tag className="h-2.5 w-2.5" />
-                      {tag}
-                    </span>
-                  ))}
-                  <button
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
-                               text-[11px] font-medium border border-dashed border-gray-300
-                               text-gray-400 hover:border-[#0b6d41] hover:text-[#0b6d41]
-                               transition-colors"
-                    aria-label="Add tag"
+          <SectionCard>
+            <div className="px-4 py-3">
+              <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                <Tag className="h-3 w-3" /> Tags
+              </p>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {currentTags.map(tag => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300"
                   >
-                    <Plus className="h-2.5 w-2.5" />
-                    Add tag
-                  </button>
-                </div>
+                    {tag}
+                    <button
+                      onClick={() => removeTag(tag)}
+                      className="hover:text-red-500"
+                      aria-label={`Remove tag ${tag}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
               </div>
-            </SectionCard>
-          )}
+              <Popover open={showTagInput} onOpenChange={setShowTagInput}>
+                <PopoverTrigger asChild>
+                  <button className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 border border-dashed rounded px-2 py-1">
+                    <Plus className="h-3 w-3" /> Add tag
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-2" align="start">
+                  <Input
+                    placeholder="Search or create tag..."
+                    value={tagSearch}
+                    onChange={e => setTagSearch(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && tagSearch.trim()) {
+                        addTag(tagSearch.trim().toLowerCase().replace(/\s+/g, '-'));
+                        setShowTagInput(false);
+                      }
+                    }}
+                    className="mb-2 h-8 text-sm"
+                    autoFocus
+                  />
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {filteredTags.map(tag => (
+                      <button
+                        key={tag}
+                        onClick={() => { addTag(tag); setShowTagInput(false); }}
+                        className="w-full text-left px-2 py-1 text-xs rounded hover:bg-muted"
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                    {tagSearch && !PREDEFINED_TAGS.includes(tagSearch.toLowerCase().replace(/\s+/g, '-')) && (
+                      <button
+                        onClick={() => { addTag(tagSearch.trim().toLowerCase().replace(/\s+/g, '-')); setShowTagInput(false); }}
+                        className="w-full text-left px-2 py-1 text-xs rounded hover:bg-muted text-green-600"
+                      >
+                        + Create &quot;{tagSearch.trim().toLowerCase().replace(/\s+/g, '-')}&quot;
+                      </button>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </SectionCard>
 
           {/* ── 2d. Action buttons ──────────────────────────────────── */}
           <SectionCard>
@@ -433,8 +532,25 @@ export function LeadProfileSidebar({ conversationId, onClose }: LeadProfileSideb
               />
             )}
 
-            {/* Assign placeholder — wire to your assign mutation as needed */}
-            <ActionRow icon={User} label="Assign to Counselor" />
+            {/* Assign to Counselor — functional Select */}
+            <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+              <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
+                <UserPlus className="h-3 w-3" /> Assigned Counselor
+              </p>
+              <Select
+                value={conversation?.assigned_to || ''}
+                onValueChange={(val) => assign.mutate({ conversationId: conversation!.id, counselorId: val })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Unassigned — click to assign" />
+                </SelectTrigger>
+                <SelectContent>
+                  {staffList?.map((staff: { id: string; full_name: string }) => (
+                    <SelectItem key={staff.id} value={staff.id}>{staff.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             {conversation.status !== 'resolved' ? (
               <ActionRow

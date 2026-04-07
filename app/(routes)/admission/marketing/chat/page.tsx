@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -48,6 +48,19 @@ function ChatInboxContent() {
   const [showProfile, setShowProfile] = useState(false);
   const { profile } = useAuth();
   const institutionId = profile?.institution_id;
+
+  // Reset mobile state on viewport resize
+  useEffect(() => {
+    const mql = window.matchMedia('(min-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => {
+      if (e.matches) {
+        // Switched to desktop — reset mobile state
+        setMobileView('list');
+      }
+    };
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
 
   const departmentId = profile?.department_id;
   const { data: personalStatus } = usePersonalWhatsAppStatus(
