@@ -4527,3 +4527,277 @@ CREATE POLICY "case_graduation_requirements_write" ON case_graduation_requiremen
       SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
     )
   );
+
+-- ============================================================================
+-- EVENTS MODULE — RLS Policies
+-- Created: 2026-04-07
+-- Note: events_registrations uses "events_" prefix (Startup Studio owns "event_registrations")
+-- ============================================================================
+
+-- ── events ───────────────────────────────────────────────────────────────────
+
+ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+
+-- Public can read active/public events (not draft or cancelled)
+CREATE POLICY "events_public_read" ON public.events
+  FOR SELECT USING (is_public = true AND status NOT IN ('draft','cancelled'));
+
+-- Authenticated users can read their institution's events
+CREATE POLICY "events_auth_read" ON public.events
+  FOR SELECT TO authenticated USING (
+    institution_id IN (
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+    )
+  );
+
+-- Authenticated users can create events for their institution
+CREATE POLICY "events_auth_insert" ON public.events
+  FOR INSERT TO authenticated WITH CHECK (
+    institution_id IN (
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+    )
+  );
+
+-- Authenticated users can update their institution's events
+CREATE POLICY "events_auth_update" ON public.events
+  FOR UPDATE TO authenticated USING (
+    institution_id IN (
+      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+    )
+  );
+
+-- ── event_categories ─────────────────────────────────────────────────────────
+
+ALTER TABLE public.event_categories ENABLE ROW LEVEL SECURITY;
+
+-- Public can read categories for public events
+CREATE POLICY "event_categories_public_read" ON public.event_categories
+  FOR SELECT USING (
+    event_id IN (SELECT id FROM public.events WHERE is_public = true AND status NOT IN ('draft','cancelled'))
+  );
+
+-- Authenticated users can manage categories for their institution's events
+CREATE POLICY "event_categories_auth_all" ON public.event_categories
+  FOR ALL TO authenticated USING (
+    event_id IN (
+      SELECT id FROM public.events WHERE institution_id IN (
+        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+      )
+    )
+  );
+
+-- ── event_external_participants ───────────────────────────────────────────────
+
+ALTER TABLE public.event_external_participants ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can insert (external registration)
+CREATE POLICY "ext_participants_public_insert" ON public.event_external_participants
+  FOR INSERT WITH CHECK (true);
+
+-- Public read needed for phone lookup during registration flow
+CREATE POLICY "ext_participants_public_read" ON public.event_external_participants
+  FOR SELECT USING (true);
+
+-- ── events_registrations ─────────────────────────────────────────────────────
+
+ALTER TABLE public.events_registrations ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can insert (external app can register participants)
+CREATE POLICY "events_reg_public_insert" ON public.events_registrations
+  FOR INSERT WITH CHECK (true);
+
+-- Authenticated users can read registrations for their institution's events
+CREATE POLICY "events_reg_auth_read" ON public.events_registrations
+  FOR SELECT TO authenticated USING (
+    event_id IN (
+      SELECT id FROM public.events WHERE institution_id IN (
+        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+      )
+    )
+  );
+
+-- Authenticated users can update registrations for their institution's events
+CREATE POLICY "events_reg_auth_update" ON public.events_registrations
+  FOR UPDATE TO authenticated USING (
+    event_id IN (
+      SELECT id FROM public.events WHERE institution_id IN (
+        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+      )
+    )
+  );
+
+-- ── event_payment_transactions ────────────────────────────────────────────────
+
+ALTER TABLE public.event_payment_transactions ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can insert (payment gateway initiates transactions)
+CREATE POLICY "event_payments_public_insert" ON public.event_payment_transactions
+  FOR INSERT WITH CHECK (true);
+
+-- Public read needed for status checks by external app and payers
+CREATE POLICY "event_payments_public_read" ON public.event_payment_transactions
+  FOR SELECT USING (true);
+
+-- Public update needed for gateway webhooks to update status
+CREATE POLICY "event_payments_public_update" ON public.event_payment_transactions
+  FOR UPDATE USING (true);
+
+-- ── marathon_sponsors ─────────────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_sponsors ENABLE ROW LEVEL SECURITY;
+
+-- Authenticated users can manage sponsors for their institution's events
+CREATE POLICY "marathon_sponsors_auth_all" ON public.marathon_sponsors
+  FOR ALL TO authenticated USING (
+    event_id IN (
+      SELECT id FROM public.events WHERE institution_id IN (
+        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+      )
+    )
+  );
+
+-- Public can read committed sponsors for public events
+CREATE POLICY "marathon_sponsors_public_read" ON public.marathon_sponsors
+  FOR SELECT USING (
+    pipeline_stage = 'committed' AND
+    event_id IN (SELECT id FROM public.events WHERE is_public = true)
+  );
+
+-- ── marathon_sponsor_deliverables ─────────────────────────────────────────────
+
+ALTER TABLE public.marathon_sponsor_deliverables ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "marathon_deliverables_auth_all" ON public.marathon_sponsor_deliverables
+  FOR ALL TO authenticated USING (true);
+
+-- ── marathon_sponsor_activity_log ─────────────────────────────────────────────
+
+ALTER TABLE public.marathon_sponsor_activity_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "marathon_activity_auth_all" ON public.marathon_sponsor_activity_log
+  FOR ALL TO authenticated USING (true);
+
+-- ── marathon_committees ───────────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_committees ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "marathon_committees_auth_all" ON public.marathon_committees
+  FOR ALL TO authenticated USING (
+    event_id IN (
+      SELECT id FROM public.events WHERE institution_id IN (
+        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+      )
+    )
+  );
+
+-- ── marathon_tasks ────────────────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_tasks ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "marathon_tasks_auth_all" ON public.marathon_tasks
+  FOR ALL TO authenticated USING (
+    event_id IN (
+      SELECT id FROM public.events WHERE institution_id IN (
+        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+      )
+    )
+  );
+
+-- ── marathon_budget_items ─────────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_budget_items ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "marathon_budget_auth_all" ON public.marathon_budget_items
+  FOR ALL TO authenticated USING (
+    event_id IN (
+      SELECT id FROM public.events WHERE institution_id IN (
+        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+      )
+    )
+  );
+
+-- ── marathon_checkpoints ──────────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_checkpoints ENABLE ROW LEVEL SECURITY;
+
+-- Public can read checkpoints (needed for QR scanning and runner app)
+CREATE POLICY "marathon_checkpoints_public_read" ON public.marathon_checkpoints
+  FOR SELECT USING (true);
+
+CREATE POLICY "marathon_checkpoints_auth_all" ON public.marathon_checkpoints
+  FOR ALL TO authenticated USING (true);
+
+-- ── marathon_checkpoint_scans ─────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_checkpoint_scans ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can insert scans (volunteer scanner app, self-scan)
+CREATE POLICY "marathon_scans_public_insert" ON public.marathon_checkpoint_scans
+  FOR INSERT WITH CHECK (true);
+
+-- Public can read scans (results and tracking)
+CREATE POLICY "marathon_scans_public_read" ON public.marathon_checkpoint_scans
+  FOR SELECT USING (true);
+
+CREATE POLICY "marathon_scans_auth_all" ON public.marathon_checkpoint_scans
+  FOR ALL TO authenticated USING (true);
+
+-- ── marathon_results ──────────────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_results ENABLE ROW LEVEL SECURITY;
+
+-- Public can read results (leaderboard, certificate lookup)
+CREATE POLICY "marathon_results_public_read" ON public.marathon_results
+  FOR SELECT USING (true);
+
+CREATE POLICY "marathon_results_auth_all" ON public.marathon_results
+  FOR ALL TO authenticated USING (true);
+
+-- ── marathon_incidents ────────────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_incidents ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "marathon_incidents_auth_all" ON public.marathon_incidents
+  FOR ALL TO authenticated USING (
+    event_id IN (
+      SELECT id FROM public.events WHERE institution_id IN (
+        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+      )
+    )
+  );
+
+-- ── marathon_volunteer_checkins ───────────────────────────────────────────────
+
+ALTER TABLE public.marathon_volunteer_checkins ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can insert (volunteer check-in kiosk)
+CREATE POLICY "marathon_volunteers_public_insert" ON public.marathon_volunteer_checkins
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "marathon_volunteers_auth_all" ON public.marathon_volunteer_checkins
+  FOR ALL TO authenticated USING (true);
+
+-- ── marathon_race_tracks ──────────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_race_tracks ENABLE ROW LEVEL SECURITY;
+
+-- Fully public — runners push GPS data without auth
+CREATE POLICY "marathon_tracks_public_insert" ON public.marathon_race_tracks
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "marathon_tracks_public_read" ON public.marathon_race_tracks
+  FOR SELECT USING (true);
+
+CREATE POLICY "marathon_tracks_public_update" ON public.marathon_race_tracks
+  FOR UPDATE USING (true);
+
+-- ── marathon_race_track_points ────────────────────────────────────────────────
+
+ALTER TABLE public.marathon_race_track_points ENABLE ROW LEVEL SECURITY;
+
+-- Fully public — GPS breadcrumbs appended without auth
+CREATE POLICY "marathon_points_public_insert" ON public.marathon_race_track_points
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "marathon_points_public_read" ON public.marathon_race_track_points
+  FOR SELECT USING (true);

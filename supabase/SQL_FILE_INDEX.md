@@ -51,7 +51,7 @@ When updating any SQL file:
 
 ## 📊 Current Database Objects
 
-### Tables (83 total in database - Updated 2026-02-09)
+### Tables (101 total in database - Updated 2026-04-07 — added 18 Events/Marathon tables)
 
 | Module          | Tables                                                                                                                                                                                                                  | Count | Status                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------- |
@@ -78,6 +78,8 @@ When updating any SQL file:
 | **Startup Studio** | **startup_events, event_registrations, event_team_members, event_venue_assignments, event_team_venue_allocations, event_staff_assignments, event_demo_slots, event_submissions, event_checklists, event_checklist_items, event_checklist_completions, event_team_attendance, appathon_role_cards, appathon_peer_tags, appathon_verifications** | **15** | **NEW - Generic event platform for hackathons/competitions** |
 | **Post-Demo Day Pipeline** | **track_declarations, progression_levels, case_studies** | **3** | **NEW 2026-03-09 — Post-demo-day team path declaration, learner identity progression (5 levels), and case study narratives** |
 | **Marketing**   | **marketing_leads_database** | **1** | **✅ NEW 2026-03-17 — Bulk-uploaded lead data for admission marketing campaigns** |
+| **Events (Core)** | **events, event_categories, event_external_participants, events_registrations, event_payment_transactions** | **5** | **NEW 2026-04-07 — Base event platform shared by all event types (marathon, cultural fest, seminar, etc.)** |
+| **Events (Marathon Extension)** | **marathon_sponsors, marathon_sponsor_deliverables, marathon_sponsor_activity_log, marathon_committees, marathon_tasks, marathon_budget_items, marathon_checkpoints, marathon_checkpoint_scans, marathon_results, marathon_incidents, marathon_volunteer_checkins, marathon_race_tracks, marathon_race_track_points** | **13** | **NEW 2026-04-07 — Marathon-specific tables: sponsor CRM, committees, budget, checkpoints, GPS live tracking, results** |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
 ### Functions (244 total - Updated 2026-02-09)

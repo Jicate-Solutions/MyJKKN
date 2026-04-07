@@ -3167,6 +3167,493 @@ CREATE TABLE IF NOT EXISTS case_graduation_requirements (
 CREATE INDEX IF NOT EXISTS idx_case_gr_programme ON case_graduation_requirements(programme_id);
 CREATE INDEX IF NOT EXISTS idx_case_gr_institution ON case_graduation_requirements(institution_id);
 
+-- ============================================================================
+-- EVENTS MODULE — Core Tables (shared by all event types)
+-- Created: 2026-04-07
+-- Note: Tables use "events_" prefix where collision exists with Startup Studio
+--       (Startup Studio already owns "event_registrations")
+-- ============================================================================
+
+-- Base event table — holds common fields for all event types
+CREATE TABLE IF NOT EXISTS public.events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  institution_id UUID NOT NULL REFERENCES public.institutions(id),
+  event_type TEXT NOT NULL,  -- 'marathon', 'cultural_fest', 'seminar', 'workshop', 'sports_day', 'conference'
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL, -- for public URLs: /public/events/kbm-marathon-2026
+  description TEXT,
+  theme TEXT,
+  tagline TEXT,
+
+  -- Dates
+  event_date DATE,
+  start_time TIME,
+  end_time TIME,
+  start_date TIMESTAMPTZ,
+  end_date TIMESTAMPTZ,
+  registration_open_date TIMESTAMPTZ,
+  registration_close_date TIMESTAMPTZ,
+
+  -- Status lifecycle
+  status TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft','planning','preparation','execution','live','post_event','archived','cancelled')),
+
+  -- Configuration (JSONB for type-specific settings)
+  config JSONB NOT NULL DEFAULT '{}',
+  registration_config JSONB NOT NULL DEFAULT '{}',
+  route_config JSONB NOT NULL DEFAULT '{}',
+  branding_config JSONB NOT NULL DEFAULT '{}',
+
+  -- Capacity
+  target_registrations INT,
+  max_registrations INT,
+
+  -- Visibility & Access
+  is_public BOOLEAN NOT NULL DEFAULT true,
+  allow_external_registration BOOLEAN NOT NULL DEFAULT false,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+
+  -- Recurrence
+  previous_event_id UUID REFERENCES public.events(id),
+  year INT,
+  edition_number INT,
+
+  -- Media
+  hero_image_url TEXT,
+  hero_video_url TEXT,
+  venue TEXT,
+  venue_address TEXT,
+  venue_coordinates JSONB,  -- {lat, lng}
+
+  -- Audit
+  created_by UUID REFERENCES public.profiles(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_institution ON public.events(institution_id);
+CREATE INDEX IF NOT EXISTS idx_events_type ON public.events(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_status ON public.events(status);
+CREATE INDEX IF NOT EXISTS idx_events_slug ON public.events(slug);
+CREATE INDEX IF NOT EXISTS idx_events_date ON public.events(event_date);
+
+-- Event categories (race categories for marathon, competition categories for cultural fest, etc.)
+CREATE TABLE IF NOT EXISTS public.event_categories (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  code TEXT,                 -- short code: '10K', '5K', '3K'
+  description TEXT,
+  distance_km NUMERIC(8,2), -- for marathon categories
+  max_participants INT,
+  min_age INT,
+  max_age INT,
+  fee_amount NUMERIC(10,2) DEFAULT 0,
+  early_bird_fee NUMERIC(10,2),
+  early_bird_deadline TIMESTAMPTZ,
+  config JSONB DEFAULT '{}',
+  sort_order INT DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_categories_event ON public.event_categories(event_id);
+
+-- External participants who don't have JKKN accounts
+CREATE TABLE IF NOT EXISTS public.event_external_participants (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  full_name TEXT NOT NULL,
+  email TEXT,
+  phone TEXT NOT NULL,
+  age INT,
+  gender TEXT,
+  date_of_birth DATE,
+  blood_group TEXT,
+  organization TEXT,         -- their school/college/company
+  city TEXT,
+  state TEXT,
+  id_proof_type TEXT,
+  id_proof_number TEXT,
+  photo_url TEXT,
+  linked_profile_id UUID REFERENCES public.profiles(id),  -- if they later become JKKN user
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(phone)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_ext_participants_phone ON public.event_external_participants(phone);
+
+-- Unified registration table for the Events module
+-- NOTE: Named "events_registrations" (with 's') to avoid collision with
+--       Startup Studio's "event_registrations" table
+CREATE TABLE IF NOT EXISTS public.events_registrations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  category_id UUID REFERENCES public.event_categories(id),
+
+  -- Participant identity (one of these will be set)
+  profile_id UUID REFERENCES public.profiles(id),
+  learner_id UUID,  -- references learners_profiles(id) but no FK for flexibility
+  external_participant_id UUID REFERENCES public.event_external_participants(id),
+
+  -- Participant type
+  participant_type TEXT NOT NULL DEFAULT 'internal'
+    CHECK (participant_type IN ('internal', 'external')),
+
+  -- Denormalized participant info (for quick display without joins)
+  participant_name TEXT NOT NULL,
+  participant_phone TEXT,
+  participant_email TEXT,
+  participant_age INT,
+  participant_gender TEXT,
+  institution_id UUID REFERENCES public.institutions(id),
+  institution_name TEXT,
+  department TEXT,
+
+  -- Registration identifiers
+  bib_number TEXT UNIQUE,
+  registration_number TEXT,
+
+  -- Status
+  status TEXT NOT NULL DEFAULT 'registered'
+    CHECK (status IN ('pending','registered','confirmed','checked_in','cancelled','disqualified','no_show','waitlisted')),
+  checked_in BOOLEAN DEFAULT false,
+  checked_in_at TIMESTAMPTZ,
+  checked_in_by UUID REFERENCES public.profiles(id),
+
+  -- Payment
+  payment_status TEXT DEFAULT 'not_required'
+    CHECK (payment_status IN ('not_required','pending','paid','refunded','waived','failed')),
+  payment_amount NUMERIC(10,2) DEFAULT 0,
+  payment_method TEXT,
+  payment_reference TEXT,
+  discount_code TEXT,
+  discount_amount NUMERIC(10,2) DEFAULT 0,
+
+  -- Event-specific custom data
+  custom_data JSONB DEFAULT '{}',  -- tshirt_size, emergency_contact, dietary_pref, etc.
+
+  -- Source tracking
+  source TEXT DEFAULT 'internal',  -- 'internal', 'external_app', 'bulk_upload', 'admin'
+  referral_source TEXT,
+
+  -- Audit
+  registered_by UUID REFERENCES public.profiles(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_registrations_event ON public.events_registrations(event_id);
+CREATE INDEX IF NOT EXISTS idx_events_registrations_category ON public.events_registrations(category_id);
+CREATE INDEX IF NOT EXISTS idx_events_registrations_profile ON public.events_registrations(profile_id);
+CREATE INDEX IF NOT EXISTS idx_events_registrations_phone ON public.events_registrations(participant_phone);
+CREATE INDEX IF NOT EXISTS idx_events_registrations_bib ON public.events_registrations(bib_number);
+CREATE INDEX IF NOT EXISTS idx_events_registrations_status ON public.events_registrations(status);
+CREATE INDEX IF NOT EXISTS idx_events_registrations_institution ON public.events_registrations(institution_id);
+
+-- Payment transactions for events (separate from billing payment_transactions)
+CREATE TABLE IF NOT EXISTS public.event_payment_transactions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id),
+  registration_id UUID REFERENCES public.events_registrations(id),
+  transaction_ref TEXT UNIQUE NOT NULL,  -- unique reference for HDFC
+
+  amount NUMERIC(10,2) NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'INR',
+  status TEXT NOT NULL DEFAULT 'initiated'
+    CHECK (status IN ('initiated','processing','success','failed','cancelled','expired','refunded')),
+
+  payment_method TEXT,
+  gateway_session_id TEXT UNIQUE,
+  gateway_transaction_id TEXT,
+  gateway_response JSONB,
+
+  payer_name TEXT,
+  payer_phone TEXT,
+  payer_email TEXT,
+
+  discount_code TEXT,
+  discount_amount NUMERIC(10,2) DEFAULT 0,
+
+  paid_at TIMESTAMPTZ,
+  refunded_at TIMESTAMPTZ,
+  refund_amount NUMERIC(10,2),
+  refund_reason TEXT,
+
+  institution_id UUID REFERENCES public.institutions(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_payments_event ON public.event_payment_transactions(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_payments_registration ON public.event_payment_transactions(registration_id);
+CREATE INDEX IF NOT EXISTS idx_event_payments_status ON public.event_payment_transactions(status);
+CREATE INDEX IF NOT EXISTS idx_event_payments_session ON public.event_payment_transactions(gateway_session_id);
+CREATE INDEX IF NOT EXISTS idx_event_payments_ref ON public.event_payment_transactions(transaction_ref);
+
+-- ============================================================================
+-- EVENTS MODULE — Marathon Extension Tables
+-- Created: 2026-04-07
+-- ============================================================================
+
+-- Sponsors with pipeline tracking (CRM)
+CREATE TABLE IF NOT EXISTS public.marathon_sponsors (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  company_name TEXT NOT NULL,
+  contact_person TEXT,
+  contact_email TEXT,
+  contact_phone TEXT,
+  website TEXT,
+  logo_url TEXT,
+  tier TEXT DEFAULT 'prospect'
+    CHECK (tier IN ('prospect','contacted','negotiating','committed','platinum','gold','silver','bronze','in_kind')),
+  amount_pledged NUMERIC(10,2) DEFAULT 0,
+  amount_received NUMERIC(10,2) DEFAULT 0,
+  benefits TEXT,              -- what we offer
+  expectations TEXT,          -- what they expect
+  notes TEXT,
+  pipeline_stage TEXT DEFAULT 'lead'
+    CHECK (pipeline_stage IN ('lead','contacted','proposal_sent','negotiating','committed','declined','churned')),
+  signed_date DATE,
+  institution_id UUID REFERENCES public.institutions(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_sponsors_event ON public.marathon_sponsors(event_id);
+
+-- Sponsor deliverables checklist
+CREATE TABLE IF NOT EXISTS public.marathon_sponsor_deliverables (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  sponsor_id UUID NOT NULL REFERENCES public.marathon_sponsors(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  category TEXT,              -- 'branding', 'logistics', 'media', 'activation'
+  status TEXT DEFAULT 'pending'
+    CHECK (status IN ('pending','in_progress','completed','cancelled')),
+  due_date DATE,
+  completed_at TIMESTAMPTZ,
+  assigned_to UUID REFERENCES public.profiles(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Sponsor interaction history
+CREATE TABLE IF NOT EXISTS public.marathon_sponsor_activity_log (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  sponsor_id UUID NOT NULL REFERENCES public.marathon_sponsors(id) ON DELETE CASCADE,
+  activity_type TEXT NOT NULL, -- 'call', 'email', 'meeting', 'payment', 'note'
+  description TEXT NOT NULL,
+  performed_by UUID REFERENCES public.profiles(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Committees for event organization
+CREATE TABLE IF NOT EXISTS public.marathon_committees (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,          -- 'Logistics', 'Medical', 'Marketing', 'Tech'
+  description TEXT,
+  lead_id UUID REFERENCES public.profiles(id),
+  lead_name TEXT,
+  member_ids UUID[] DEFAULT '{}',
+  member_names TEXT[] DEFAULT '{}',
+  status TEXT DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_committees_event ON public.marathon_committees(event_id);
+
+-- Tasks assigned to committees
+CREATE TABLE IF NOT EXISTS public.marathon_tasks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  committee_id UUID NOT NULL REFERENCES public.marathon_committees(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  status TEXT DEFAULT 'pending'
+    CHECK (status IN ('pending','in_progress','completed','cancelled','blocked')),
+  priority TEXT DEFAULT 'medium'
+    CHECK (priority IN ('low','medium','high','critical')),
+  assigned_to UUID REFERENCES public.profiles(id),
+  assigned_to_name TEXT,
+  due_date DATE,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_tasks_committee ON public.marathon_tasks(committee_id);
+CREATE INDEX IF NOT EXISTS idx_marathon_tasks_event ON public.marathon_tasks(event_id);
+
+-- Budget line items
+CREATE TABLE IF NOT EXISTS public.marathon_budget_items (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,     -- 'venue', 'logistics', 'marketing', 'prizes', 'food', 'medical', 'misc'
+  description TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'expense'
+    CHECK (type IN ('income','expense')),
+  estimated_amount NUMERIC(10,2) NOT NULL DEFAULT 0,
+  actual_amount NUMERIC(10,2) DEFAULT 0,
+  status TEXT DEFAULT 'planned'
+    CHECK (status IN ('planned','approved','spent','cancelled')),
+  approved_by UUID REFERENCES public.profiles(id),
+  vendor TEXT,
+  receipt_url TEXT,
+  notes TEXT,
+  institution_id UUID REFERENCES public.institutions(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_budget_event ON public.marathon_budget_items(event_id);
+
+-- Route checkpoints
+CREATE TABLE IF NOT EXISTS public.marathon_checkpoints (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,          -- 'Water Station 1', 'Medical Post 2', 'KM 5 Marker'
+  type TEXT DEFAULT 'waypoint'
+    CHECK (type IN ('start','finish','water','medical','waypoint','km_marker')),
+  distance_from_start_km NUMERIC(8,3),
+  lat NUMERIC(10,7),
+  lng NUMERIC(10,7),
+  qr_code_data TEXT,           -- QR code content for scanning
+  sort_order INT DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_checkpoints_event ON public.marathon_checkpoints(event_id);
+
+-- QR scan records at checkpoints
+CREATE TABLE IF NOT EXISTS public.marathon_checkpoint_scans (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  checkpoint_id UUID NOT NULL REFERENCES public.marathon_checkpoints(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL REFERENCES public.events(id),
+  registration_id UUID REFERENCES public.events_registrations(id),
+  bib_number TEXT NOT NULL,
+  scanned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  scanned_by TEXT,             -- volunteer name or 'self'
+  lat NUMERIC(10,7),
+  lng NUMERIC(10,7)
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_scans_checkpoint ON public.marathon_checkpoint_scans(checkpoint_id);
+CREATE INDEX IF NOT EXISTS idx_marathon_scans_event ON public.marathon_checkpoint_scans(event_id);
+CREATE INDEX IF NOT EXISTS idx_marathon_scans_bib ON public.marathon_checkpoint_scans(bib_number);
+
+-- Race results and rankings
+CREATE TABLE IF NOT EXISTS public.marathon_results (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  registration_id UUID UNIQUE NOT NULL REFERENCES public.events_registrations(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL REFERENCES public.events(id),
+  bib_number TEXT NOT NULL,
+  finish_time TEXT,            -- formatted: "01:42:15"
+  finish_time_seconds INT,    -- total seconds for sorting
+  pace_per_km_seconds INT,    -- seconds per km
+  rank_overall INT,
+  rank_category INT,
+  rank_gender INT,
+  rank_institution INT,
+  certificate_id TEXT UNIQUE,
+  certificate_url TEXT,
+  certificate_generated_at TIMESTAMPTZ,
+  is_dnf BOOLEAN DEFAULT false,        -- Did Not Finish
+  is_disqualified BOOLEAN DEFAULT false,
+  disqualification_reason TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_results_event ON public.marathon_results(event_id);
+CREATE INDEX IF NOT EXISTS idx_marathon_results_bib ON public.marathon_results(bib_number);
+CREATE INDEX IF NOT EXISTS idx_marathon_results_cert ON public.marathon_results(certificate_id);
+
+-- Race day incidents
+CREATE TABLE IF NOT EXISTS public.marathon_incidents (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  type TEXT NOT NULL
+    CHECK (type IN ('medical','logistics','security','weather','technical','other')),
+  severity TEXT NOT NULL DEFAULT 'low'
+    CHECK (severity IN ('low','medium','high','critical')),
+  title TEXT NOT NULL,
+  description TEXT,
+  location TEXT,
+  lat NUMERIC(10,7),
+  lng NUMERIC(10,7),
+  reported_by UUID REFERENCES public.profiles(id),
+  reported_by_name TEXT,
+  status TEXT DEFAULT 'reported'
+    CHECK (status IN ('reported','acknowledged','in_progress','resolved','closed')),
+  resolved_at TIMESTAMPTZ,
+  resolution_notes TEXT,
+  bib_number TEXT,             -- affected runner (if applicable)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_incidents_event ON public.marathon_incidents(event_id);
+
+-- Volunteer station check-ins
+CREATE TABLE IF NOT EXISTS public.marathon_volunteer_checkins (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+  checkpoint_id UUID REFERENCES public.marathon_checkpoints(id),
+  volunteer_name TEXT NOT NULL,
+  volunteer_phone TEXT,
+  station TEXT NOT NULL,       -- 'Water Station 1', 'Medical Post A'
+  role TEXT,                   -- 'water_distributor', 'medic', 'marshal', 'photographer'
+  checked_in_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  checked_out_at TIMESTAMPTZ,
+  notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_volunteers_event ON public.marathon_volunteer_checkins(event_id);
+
+-- GPS position — latest per runner (UPSERT pattern)
+CREATE TABLE IF NOT EXISTS public.marathon_race_tracks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL REFERENCES public.events(id),
+  bib TEXT NOT NULL,
+  lat NUMERIC(10,7) NOT NULL,
+  lng NUMERIC(10,7) NOT NULL,
+  distance_km NUMERIC(8,3) DEFAULT 0,
+  pace_per_km NUMERIC(8,2) DEFAULT 0,
+  elapsed_seconds INT DEFAULT 0,
+  altitude NUMERIC(8,2),
+  heading NUMERIC(6,2),
+  speed NUMERIC(6,2),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(event_id, bib)
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_race_tracks_event ON public.marathon_race_tracks(event_id);
+CREATE INDEX IF NOT EXISTS idx_marathon_race_tracks_bib ON public.marathon_race_tracks(bib);
+
+-- GPS breadcrumb trail (append-only for race replay)
+CREATE TABLE IF NOT EXISTS public.marathon_race_track_points (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  event_id UUID NOT NULL,
+  bib TEXT NOT NULL,
+  lat NUMERIC(10,7) NOT NULL,
+  lng NUMERIC(10,7) NOT NULL,
+  speed NUMERIC(6,2),
+  accuracy NUMERIC(6,2),
+  altitude NUMERIC(8,2),
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_marathon_track_points_event_bib ON public.marathon_race_track_points(event_id, bib);
+CREATE INDEX IF NOT EXISTS idx_marathon_track_points_timestamp ON public.marathon_race_track_points(timestamp);
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================
