@@ -158,16 +158,27 @@ class WhatsAppCloudAPIClient {
     languageCode: string,
     components?: WATemplateComponent[]
   ): Promise<WAMessageResponse> {
+    // Filter out components with empty/missing parameters to avoid Meta API rejection.
+    // Only include the `components` key if there are valid entries after filtering.
+    const validComponents = components?.filter(
+      (c) => c.parameters && c.parameters.length > 0
+    );
+
+    const template: Record<string, unknown> = {
+      name: templateName,
+      language: { code: languageCode },
+    };
+
+    if (validComponents && validComponents.length > 0) {
+      template.components = validComponents;
+    }
+
     const payload: Record<string, unknown> = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to,
       type: 'template',
-      template: {
-        name: templateName,
-        language: { code: languageCode },
-        ...(components && components.length > 0 ? { components } : {}),
-      },
+      template,
     };
 
     const { data } = await this.client.post<WAMessageResponse>(
@@ -300,13 +311,13 @@ class WhatsAppCloudAPIClient {
 // Singleton + exported convenience functions
 // =============================================================================
 
-let clientInstance: WhatsAppCloudAPIClient | null = null;
-
+/**
+ * Create a fresh client each call to avoid singleton cache poisoning.
+ * If env vars were missing on the first call, a cached instance would
+ * make ALL subsequent calls fail forever — even after env vars are fixed.
+ */
 function getClient(): WhatsAppCloudAPIClient {
-  if (!clientInstance) {
-    clientInstance = new WhatsAppCloudAPIClient();
-  }
-  return clientInstance;
+  return new WhatsAppCloudAPIClient();
 }
 
 export async function sendTextMessage(to: string, text: string, previewUrl = false) {
