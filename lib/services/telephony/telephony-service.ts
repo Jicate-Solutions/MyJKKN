@@ -993,14 +993,14 @@ export class TelephonyService {
         .maybeSingle();
 
       if (!existingLead) {
-        const priority = missedCount >= 3 ? 'hot' : missedCount >= 1 && !everConnected ? 'warm' : 'normal';
-        // FIX 1: Include phone-based location on auto-created lead
+        const priority = missedCount >= 3 ? 'hot' : missedCount >= 1 && !everConnected ? 'warm' : 'cold';
+        // Auto-create lead with first_name (full_name is a generated column)
         const leadInsert: Record<string, any> = {
           institution_id: institutionId,
           phone: callerPhone,
-          full_name: `Caller ${callerPhone.slice(-4)}`,
+          first_name: `Caller ${callerPhone.slice(-4)}`,
           source: 'inbound_call',
-          status: 'new',
+          funnel_stage: 'new',
           priority,
           notes: isMissed
             ? `Auto-created from inbound call (missed). Needs callback.`
