@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { phone_number_id, business_account_id, display_number, access_token } = body;
+    const { phone_number_id, business_account_id, display_number, access_token, verified_name, quality_rating } = body;
 
     if (!phone_number_id || !business_account_id || !display_number) {
       return NextResponse.json(
@@ -146,6 +146,8 @@ export async function POST(request: NextRequest) {
         phone_number_id,
         business_account_id,
         display_number,
+        verified_name: verified_name || null,
+        quality_rating: quality_rating || 'UNKNOWN',
         access_token_encrypted: access_token || null,
         is_primary: isFirst,
         is_active: true,

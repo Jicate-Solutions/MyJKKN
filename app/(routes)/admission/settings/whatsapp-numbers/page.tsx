@@ -353,12 +353,22 @@ function DiscoverDialog({
   const handleAdd = async (num: DiscoveredNumber) => {
     setAddingId(num.phone_number_id);
     try {
-      await addWANumber({
-        institution_id: institutionId,
-        phone_number_id: num.phone_number_id,
-        business_account_id: num.waba_id,
-        display_number: num.display_number,
+      const res = await fetch('/api/admission/settings/whatsapp-numbers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          institution_id: institutionId,
+          phone_number_id: num.phone_number_id,
+          business_account_id: num.waba_id,
+          display_number: num.display_number,
+          verified_name: num.verified_name,
+          quality_rating: num.quality_rating,
+        }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to add number');
+      }
       toast.success(`Added ${num.display_number} (${num.verified_name})`);
       // Mark as added in local state
       setDiscovered(prev =>
