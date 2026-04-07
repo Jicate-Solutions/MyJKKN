@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -36,7 +36,6 @@ import {
   AlertTriangle,
   HelpCircle,
   RefreshCw,
-  ChevronDown,
   Zap,
 } from 'lucide-react';
 import { useConversation, useConversationMessages } from '@/hooks/admission/use-conversation';
@@ -133,6 +132,28 @@ function isFirstInGroup(messages: ChatMessage[], idx: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Avatar color helper (matches conversation-list.tsx)
+// ---------------------------------------------------------------------------
+
+const AVATAR_COLORS = [
+  '#25D366', '#128C7E', '#075E54', '#34B7F1', '#00A884', '#667781', '#8696A0',
+];
+
+function getAvatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+// ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
@@ -152,7 +173,6 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
   const [messageText, setMessageText] = useState('');
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
-  const [showScrollFab, setShowScrollFab] = useState(false);
   const [windowInfo, setWindowInfo] = useState<WindowInfo>({
     withinWindow: false,
     expiresAt: null,
@@ -163,6 +183,7 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const prevMessagesLengthRef = useRef<number>(0);
 
   const { conversation } = useConversation(conversationId);
   const { messages, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } =
@@ -191,10 +212,19 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
 
   const canSendFreeText = windowInfo.status === 'open' || windowInfo.status === 'closing';
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom only when new messages are appended (not when older ones are prepended)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+    const prevLen = prevMessagesLengthRef.current;
+    const currLen = messages.length;
+    prevMessagesLengthRef.current = currLen;
+    // Only scroll on new messages appended at the end, not when older messages are prepended
+    if (currLen > prevLen && prevLen > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } else if (prevLen === 0 && currLen > 0) {
+      // Initial load — scroll to bottom without animation
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
+  }, [messages]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -205,7 +235,7 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
   }, [messageText]);
 
   const handleSend = () => {
-    if (!messageText.trim() || !conversationId) return;
+    if (isSending || !messageText.trim() || !conversationId) return;
     sendMessage.mutate(
       { conversationId, content: { text: messageText.trim() } },
       {
@@ -239,11 +269,6 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
       { conversationId, template_name: templateName, language_code: 'en' },
       { onSuccess: () => setShowTemplateSelector(false) }
     );
-  };
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    setShowScrollFab(false);
   };
 
   // Sort templates by quality rating (HIGH first, LOW last)
@@ -283,6 +308,7 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
     return new Date(dateStr).toLocaleTimeString('en-IN', {
       hour: '2-digit',
       minute: '2-digit',
+      hour12: true,
     });
   };
 
@@ -303,7 +329,8 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
 
   const contactName =
     conversation?.contact_name || conversation?.contact_phone || 'Loading...';
-  const contactInitial = contactName.charAt(0).toUpperCase();
+  const contactInitials = getInitials(contactName);
+  const contactAvatarColor = getAvatarColor(contactName);
 
   // ---------------------------------------------------------------------------
   // Empty / no-conversation state
@@ -346,8 +373,11 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
           onClick={onContactClick}
           className="flex items-center gap-3 flex-1 min-w-0 text-left"
         >
-          <div className="h-10 w-10 rounded-full bg-[#dfe5e7] dark:bg-[#6b7c85] flex items-center justify-center text-sm font-semibold text-[#516c77] dark:text-[#e9edef] flex-shrink-0 select-none">
-            {contactInitial}
+          <div
+            className="h-10 w-10 rounded-full flex items-center justify-center text-sm font-semibold text-white flex-shrink-0 select-none"
+            style={{ backgroundColor: contactAvatarColor }}
+          >
+            {contactInitials}
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-medium text-[15px] text-[#111b21] dark:text-[#e9edef] truncate leading-tight">
@@ -362,23 +392,29 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
           </div>
         </button>
 
-        {/* Action icons */}
+        {/* Action icons — not yet wired */}
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
-            className="h-9 w-9 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-[#54656f] dark:text-[#aebac1]"
-            aria-label="Search in chat"
+            disabled
+            title="Coming soon"
+            className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] opacity-50 cursor-not-allowed"
+            aria-label="Search in chat (coming soon)"
           >
             <Search className="h-5 w-5" />
           </button>
           <button
-            className="h-9 w-9 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-[#54656f] dark:text-[#aebac1]"
-            aria-label="Call"
+            disabled
+            title="Coming soon"
+            className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] opacity-50 cursor-not-allowed"
+            aria-label="Call (coming soon)"
           >
             <Phone className="h-5 w-5" />
           </button>
           <button
-            className="h-9 w-9 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors text-[#54656f] dark:text-[#aebac1]"
-            aria-label="More options"
+            disabled
+            title="Coming soon"
+            className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] opacity-50 cursor-not-allowed"
+            aria-label="More options (coming soon)"
           >
             <MoreVertical className="h-5 w-5" />
           </button>
@@ -555,8 +591,8 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
                               <p className="mb-1 italic text-xs opacity-80">{msg.content.caption}</p>
                             )}
 
-                            {/* Media URL */}
-                            {msg.content?.media_url && (
+                            {/* Media URL — only allow http(s) schemes to prevent XSS */}
+                            {msg.content?.media_url && /^https?:\/\//i.test(msg.content.media_url) && (
                               <a
                                 href={msg.content.media_url}
                                 target="_blank"
@@ -605,16 +641,7 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
           </div>
         </ScrollArea>
 
-        {/* Scroll-to-bottom FAB */}
-        {showScrollFab && (
-          <button
-            onClick={scrollToBottom}
-            className="absolute bottom-4 right-4 h-10 w-10 rounded-full bg-white dark:bg-[#202c33] shadow-md flex items-center justify-center text-[#54656f] dark:text-[#aebac1] hover:bg-gray-50 dark:hover:bg-[#2a3942] transition-colors z-10"
-            aria-label="Scroll to bottom"
-          >
-            <ChevronDown className="h-5 w-5" />
-          </button>
-        )}
+        {/* TODO: Wire up scroll-to-bottom FAB with scroll position detection */}
       </div>
 
       {/* ===== 24HR WINDOW BANNER ===== */}
@@ -738,22 +765,21 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
           )}
 
           {/* Attachment / Template selector — inside the pill, right side */}
+          <TooltipProvider>
           <Popover open={showTemplateSelector} onOpenChange={setShowTemplateSelector}>
-            <PopoverTrigger asChild>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      className="ml-1 mb-1 h-7 w-7 flex-shrink-0 flex items-center justify-center rounded-full text-[#54656f] dark:text-[#aebac1] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-                      aria-label="Send template"
-                    >
-                      <Paperclip className="h-5 w-5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Send Template</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </PopoverTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <button
+                    className="ml-1 mb-1 h-7 w-7 flex-shrink-0 flex items-center justify-center rounded-full text-[#54656f] dark:text-[#aebac1] hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                    aria-label="Send template"
+                  >
+                    <Paperclip className="h-5 w-5" />
+                  </button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Send Template</TooltipContent>
+            </Tooltip>
             <PopoverContent className="w-96 p-0" align="end" side="top">
               <div className="p-2 border-b flex items-center justify-between">
                 <p className="text-xs font-medium text-muted-foreground">WhatsApp Templates</p>
@@ -810,6 +836,7 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
               </ScrollArea>
             </PopoverContent>
           </Popover>
+          </TooltipProvider>
         </div>
 
         {/* Send / Mic button */}
