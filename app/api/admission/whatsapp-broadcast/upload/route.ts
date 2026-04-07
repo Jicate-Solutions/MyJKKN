@@ -21,9 +21,34 @@ function cleanPhone(raw: string): string {
   return cleaned;
 }
 
-function isValidPhone(phone: string): boolean {
-  const cleaned = phone.replace(/\D/g, '');
-  return cleaned.length >= 10 && cleaned.length <= 15;
+/**
+ * Validates a raw phone string before any cleaning.
+ * Rules:
+ *   - Must not contain alphabetic characters (rejects "abc123", "N/A", etc.)
+ *   - After stripping allowed separators (+, space, dash, parens, dots),
+ *     only digits may remain and there must be at least 10 of them.
+ *   - Rejects obvious placeholders (all-identical digits, e.g. "0000000000").
+ * Returns null when valid, or a human-readable error string when invalid.
+ */
+function validateRawPhone(raw: string): string | null {
+  if (!raw || raw.trim() === '') return 'Empty phone number';
+
+  // Reject anything containing letters
+  if (/[a-zA-Z]/.test(raw)) return 'Phone number contains letters';
+
+  // Strip allowed separators: +, space, dash, parentheses, dots
+  const digitsOnly = raw.replace(/[\s+\-().]/g, '');
+
+  // After stripping separators only digits should remain
+  if (!/^\d+$/.test(digitsOnly)) return 'Phone number contains invalid characters';
+
+  if (digitsOnly.length < 10) return 'Phone number too short (minimum 10 digits)';
+  if (digitsOnly.length > 15) return 'Phone number too long (maximum 15 digits)';
+
+  // Reject obvious placeholder values (all same digit, e.g. 0000000000)
+  if (/^(\d)\1+$/.test(digitsOnly)) return 'Phone number is a placeholder (all identical digits)';
+
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -65,8 +90,7 @@ export async function POST(request: NextRequest) {
     const seen = new Set<string>();
 
     for (const row of rows) {
-      const rawPhone = row[phoneCol] || '';
-      const phone = cleanPhone(rawPhone);
+      const rawPhone = (row[phoneCol] || '').trim();
       const name = nameCol ? (row[nameCol] || '') : '';
 
       // Build variables from all columns
@@ -78,10 +102,14 @@ export async function POST(request: NextRequest) {
       }
       if (name) variables.name = name;
 
-      if (!rawPhone || !isValidPhone(rawPhone)) {
-        contacts.push({ phone, name, variables, valid: false, error: 'Invalid phone number' });
+      // Validate raw phone before cleaning — catches letters, symbols, placeholders
+      const validationError = validateRawPhone(rawPhone);
+      if (validationError) {
+        contacts.push({ phone: rawPhone, name, variables, valid: false, error: validationError });
         continue;
       }
+
+      const phone = cleanPhone(rawPhone);
 
       if (seen.has(phone)) {
         contacts.push({ phone, name, variables, valid: false, error: 'Duplicate' });
@@ -116,13 +144,45 @@ export async function POST(request: NextRequest) {
   }
 }
 
+/**
+ * Detects which column in a CSV row maps to a given concept.
+ *
+ * Priority for each candidate keyword (checked in this order):
+ *   1. Exact match               "phone"  -> "phone"
+ *   2. Whole word/segment match  "phone"  -> "phone_number", "my_phone"
+ *   3. Starts with candidate     "phone"  -> "phonenum"
+ *   4. Ends with candidate       "phone"  -> "cell_phone"
+ *   5. Contains (last resort)    "phone"  -> "saxophone_phone_2"
+ *
+ * Candidates are evaluated left-to-right; all five levels are tried for
+ * each candidate before moving to the next, so a weaker match on an
+ * earlier candidate beats a stronger match on a later one.
+ */
 function autoDetectColumn(row: Record<string, string>, candidates: string[]): string | null {
-  const keys = Object.keys(row).map(k => k.toLowerCase().trim());
+  const originalKeys = Object.keys(row);
+  const normKeys = originalKeys.map(k => k.toLowerCase().trim());
+
   for (const candidate of candidates) {
-    const match = keys.find(k => k.includes(candidate));
-    if (match) {
-      return Object.keys(row).find(k => k.toLowerCase().trim() === match) || null;
-    }
+    // Level 1: exact match
+    let idx = normKeys.findIndex(k => k === candidate);
+    if (idx !== -1) return originalKeys[idx];
+
+    // Level 2: candidate is a whole segment (split on _, -, or whitespace)
+    idx = normKeys.findIndex(k => k.split(/[_\-\s]+/).includes(candidate));
+    if (idx !== -1) return originalKeys[idx];
+
+    // Level 3: starts with candidate (e.g. "phonenum")
+    idx = normKeys.findIndex(k => k.startsWith(candidate));
+    if (idx !== -1) return originalKeys[idx];
+
+    // Level 4: ends with candidate (e.g. "cell_phone" without separator boundary)
+    idx = normKeys.findIndex(k => k.endsWith(candidate));
+    if (idx !== -1) return originalKeys[idx];
+
+    // Level 5: substring anywhere — last resort
+    idx = normKeys.findIndex(k => k.includes(candidate));
+    if (idx !== -1) return originalKeys[idx];
   }
+
   return null;
 }

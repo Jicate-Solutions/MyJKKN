@@ -81,6 +81,13 @@ function parseCSV(text: string): Record<string, string>[] {
   });
 }
 
+/** Validate phone: must be numeric (after stripping +, spaces, dashes) and 10-15 digits */
+function isValidPhoneClient(raw: string): boolean {
+  const digits = raw.replace(/[\s+\-().]/g, '');
+  if (!/^\d+$/.test(digits)) return false;
+  return digits.length >= 10 && digits.length <= 15;
+}
+
 // =============================================================================
 // API Functions
 // =============================================================================
@@ -222,13 +229,47 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
     const text = await file.text();
     const rows = parseCSV(text);
     if (rows.length === 0) return;
-    uploadMutation.mutate(rows, {
-      onSuccess: (result) => {
-        setContacts(result.contacts);
-        setUploadStats({ total: result.total, valid: result.valid_count, invalid: result.invalid_count });
-        setCampaignName(file.name.replace(/\.\w+$/, ''));
-      },
+
+    // Client-side pre-validation: detect phone column and filter rows with invalid phone data
+    const headers = Object.keys(rows[0] || {});
+    const phoneColGuess = headers.find(h => {
+      const lc = h.toLowerCase().trim();
+      return lc === 'phone' || lc === 'mobile' || lc === 'whatsapp' || lc === 'contact' || lc.startsWith('phone') || lc.startsWith('mobile');
     });
+    let invalidCount = 0;
+    if (phoneColGuess) {
+      const validRows = rows.filter(row => {
+        const phoneVal = row[phoneColGuess];
+        if (!phoneVal || !isValidPhoneClient(phoneVal)) {
+          invalidCount++;
+          return false;
+        }
+        return true;
+      });
+      if (invalidCount > 0) {
+        toast.warning(`${invalidCount} row(s) skipped: invalid phone numbers`);
+      }
+      if (validRows.length === 0) {
+        toast.error('No valid phone numbers found in CSV');
+        return;
+      }
+      uploadMutation.mutate(validRows, {
+        onSuccess: (result) => {
+          setContacts(result.contacts);
+          setUploadStats({ total: result.total + invalidCount, valid: result.valid_count, invalid: result.invalid_count + invalidCount });
+          setCampaignName(file.name.replace(/\.\w+$/, ''));
+        },
+      });
+    } else {
+      // No phone column detected client-side — let server handle detection and validation
+      uploadMutation.mutate(rows, {
+        onSuccess: (result) => {
+          setContacts(result.contacts);
+          setUploadStats({ total: result.total, valid: result.valid_count, invalid: result.invalid_count });
+          setCampaignName(file.name.replace(/\.\w+$/, ''));
+        },
+      });
+    }
   }, [uploadMutation]);
 
   const handleSend = () => {
