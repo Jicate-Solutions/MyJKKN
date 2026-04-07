@@ -90,8 +90,7 @@ export async function POST(request: NextRequest) {
     const seen = new Set<string>();
 
     for (const row of rows) {
-      const rawPhone = row[phoneCol] || '';
-      const phone = cleanPhone(rawPhone);
+      const rawPhone = (row[phoneCol] || '').trim();
       const name = nameCol ? (row[nameCol] || '') : '';
 
       // Build variables from all columns
@@ -103,10 +102,14 @@ export async function POST(request: NextRequest) {
       }
       if (name) variables.name = name;
 
-      if (!rawPhone || !isValidPhone(rawPhone)) {
-        contacts.push({ phone, name, variables, valid: false, error: 'Invalid phone number' });
+      // Validate raw phone before cleaning — catches letters, symbols, placeholders
+      const validationError = validateRawPhone(rawPhone);
+      if (validationError) {
+        contacts.push({ phone: rawPhone, name, variables, valid: false, error: validationError });
         continue;
       }
+
+      const phone = cleanPhone(rawPhone);
 
       if (seen.has(phone)) {
         contacts.push({ phone, name, variables, valid: false, error: 'Duplicate' });
@@ -141,25 +144,43 @@ export async function POST(request: NextRequest) {
   }
 }
 
+/**
+ * Detects which column in a CSV row maps to a given concept.
+ *
+ * Priority for each candidate keyword (checked in this order):
+ *   1. Exact match               "phone"  -> "phone"
+ *   2. Whole word/segment match  "phone"  -> "phone_number", "my_phone"
+ *   3. Starts with candidate     "phone"  -> "phonenum"
+ *   4. Ends with candidate       "phone"  -> "cell_phone"
+ *   5. Contains (last resort)    "phone"  -> "saxophone_phone_2"
+ *
+ * Candidates are evaluated left-to-right; all five levels are tried for
+ * each candidate before moving to the next, so a weaker match on an
+ * earlier candidate beats a stronger match on a later one.
+ */
 function autoDetectColumn(row: Record<string, string>, candidates: string[]): string | null {
   const originalKeys = Object.keys(row);
-  const keys = originalKeys.map(k => k.toLowerCase().trim());
+  const normKeys = originalKeys.map(k => k.toLowerCase().trim());
 
-  // Pass 1: Exact match (e.g., "phone" matches "phone" but not "phonenum")
   for (const candidate of candidates) {
-    const idx = keys.findIndex(k => k === candidate);
+    // Level 1: exact match
+    let idx = normKeys.findIndex(k => k === candidate);
     if (idx !== -1) return originalKeys[idx];
-  }
 
-  // Pass 2: startsWith (e.g., "phone_number" matches "phone")
-  for (const candidate of candidates) {
-    const idx = keys.findIndex(k => k.startsWith(candidate));
+    // Level 2: candidate is a whole segment (split on _, -, or whitespace)
+    idx = normKeys.findIndex(k => k.split(/[_\-\s]+/).includes(candidate));
     if (idx !== -1) return originalKeys[idx];
-  }
 
-  // Pass 3: includes as loose fallback (e.g., "my_phone" matches "phone")
-  for (const candidate of candidates) {
-    const idx = keys.findIndex(k => k.includes(candidate));
+    // Level 3: starts with candidate (e.g. "phonenum")
+    idx = normKeys.findIndex(k => k.startsWith(candidate));
+    if (idx !== -1) return originalKeys[idx];
+
+    // Level 4: ends with candidate (e.g. "cell_phone" without separator boundary)
+    idx = normKeys.findIndex(k => k.endsWith(candidate));
+    if (idx !== -1) return originalKeys[idx];
+
+    // Level 5: substring anywhere — last resort
+    idx = normKeys.findIndex(k => k.includes(candidate));
     if (idx !== -1) return originalKeys[idx];
   }
 
