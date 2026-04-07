@@ -297,16 +297,18 @@ class WhatsAppCloudAPIClient {
 }
 
 // =============================================================================
-// Singleton + exported convenience functions
+// Client factory + exported convenience functions
 // =============================================================================
 
-let clientInstance: WhatsAppCloudAPIClient | null = null;
-
+/**
+ * Returns a fresh WhatsAppCloudAPIClient on every call so that env vars are
+ * always read at invocation time.  A module-level singleton would cache the
+ * first (possibly misconfigured) instance and poison all subsequent calls for
+ * the lifetime of the process.  WhatsAppCloudAPIClient construction is cheap
+ * (one axios.create call), so there is no meaningful performance cost.
+ */
 function getClient(): WhatsAppCloudAPIClient {
-  if (!clientInstance) {
-    clientInstance = new WhatsAppCloudAPIClient();
-  }
-  return clientInstance;
+  return new WhatsAppCloudAPIClient();
 }
 
 export async function sendTextMessage(to: string, text: string, previewUrl = false) {
