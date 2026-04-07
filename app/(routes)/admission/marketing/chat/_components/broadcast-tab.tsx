@@ -74,12 +74,14 @@ interface BroadcastCampaign {
   template_name: string;
   created_by: string;
   created_at: string;
+  sender_number: string;
   total: number;
   sent: number;
   delivered: number;
   read: number;
   failed: number;
   pending: number;
+  errors: string[];
 }
 
 // =============================================================================
@@ -398,28 +400,49 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
             {(campaigns || []).map(c => {
               const isExpanded = expandedCampaign === c.campaign_id;
               const deliveryPct = c.total > 0 ? Math.round(((c.delivered + c.read) / c.total) * 100) : 0;
+              const allFailed = c.failed === c.total && c.total > 0;
+              const dateStr = new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+              const timeStr = new Date(c.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
               return (
-                <div key={c.campaign_id} className="border rounded-lg p-3">
+                <div key={c.campaign_id} className={`border rounded-lg p-3 ${allFailed ? 'border-red-300 dark:border-red-800' : ''}`}>
                   <div
-                    className="flex items-center justify-between mb-1 cursor-pointer"
+                    className="flex items-center justify-between mb-2 cursor-pointer"
                     onClick={() => setExpandedCampaign(isExpanded ? null : c.campaign_id)}
                   >
                     <div className="flex items-center gap-2">
                       {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                       <p className="font-medium text-sm">{c.campaign_name}</p>
                     </div>
-                    <span className="text-xs text-muted-foreground">
-                      {c.created_by && c.created_by !== 'Unknown' ? `by ${c.created_by} · ` : ''}
-                      {new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                    </span>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">
+                        {c.created_by && c.created_by !== 'Unknown' ? `by ${c.created_by}` : ''}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">{dateStr}, {timeStr}</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <Badge variant="outline" className="text-xs">{c.template_name}</Badge>
-                    <span>{c.total} sent</span>
-                    <span className="text-green-600">{c.delivered + c.read} delivered</span>
+
+                  {/* Stats row */}
+                  <div className="flex items-center gap-2 text-xs flex-wrap">
+                    <Badge variant="outline" className="text-[10px]">{c.template_name}</Badge>
+                    {c.sender_number && <Badge variant="secondary" className="text-[10px] font-mono">{c.sender_number}</Badge>}
+                    <span className="text-blue-600">{c.sent} sent</span>
+                    <span className="text-green-600">{c.delivered} delivered</span>
+                    <span className="text-emerald-600">{c.read} read</span>
                     {c.failed > 0 && <span className="text-red-600">{c.failed} failed</span>}
+                    {c.pending > 0 && <span className="text-yellow-600">{c.pending} pending</span>}
                   </div>
-                  <Progress value={deliveryPct} className="h-1 mt-2" />
+
+                  {/* Delivery progress bar */}
+                  <Progress value={deliveryPct} className="h-1.5 mt-2" />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{deliveryPct}% delivery rate</p>
+
+                  {/* Error banner if all failed */}
+                  {allFailed && c.errors && c.errors.length > 0 && (
+                    <div className="mt-2 p-2 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-300">
+                      <p className="font-medium">All messages failed:</p>
+                      {c.errors.map((err, i) => <p key={i} className="text-[10px] mt-0.5">{err}</p>)}
+                    </div>
+                  )}
 
                   {/* Expanded Detail */}
                   {isExpanded && (
@@ -431,8 +454,17 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                         <div><p className="font-bold text-emerald-600">{c.read}</p><p className="text-muted-foreground">Read</p></div>
                         <div><p className="font-bold text-red-600">{c.failed}</p><p className="text-muted-foreground">Failed</p></div>
                       </div>
+
+                      {/* Error details in expanded view */}
+                      {c.errors && c.errors.length > 0 && !allFailed && (
+                        <div className="p-2 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded text-xs">
+                          <p className="font-medium text-red-700 dark:text-red-300">Failure reasons:</p>
+                          {c.errors.map((err, i) => <p key={i} className="text-[10px] text-red-600 mt-0.5">{err}</p>)}
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Delivery rate: {deliveryPct}%</span>
+                        <span className="text-muted-foreground">Campaign ID: {c.campaign_id.slice(0, 8)}...</span>
                         <Button variant="outline" size="sm" className="text-xs h-7" onClick={() => exportCampaignCSV(c)}>
                           <Download className="h-3 w-3 mr-1" /> Export CSV
                         </Button>

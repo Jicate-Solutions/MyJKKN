@@ -89,6 +89,7 @@ export async function POST(request: NextRequest) {
         campaign_name: campaign_name || `Broadcast ${new Date().toLocaleDateString('en-IN')}`,
         template_name,
         created_by: user.id,
+        sender_number: phone_number_id || process.env.WHATSAPP_DEDICATED_NUMBER || '',
       },
     }));
 
@@ -175,7 +176,7 @@ export async function GET(request: NextRequest) {
     // Get campaigns grouped by campaign_id with delivery stats
     const { data: logs, error } = await serviceClient
       .from('admission_whatsapp_logs')
-      .select('campaign_id, delivery_status, metadata, created_at')
+      .select('campaign_id, delivery_status, metadata, created_at, recipient_phone, error_message')
       .eq('institution_id', institution_id)
       .not('campaign_id', 'is', null)
       .order('created_at', { ascending: false });
@@ -210,12 +211,14 @@ export async function GET(request: NextRequest) {
       template_name: string;
       created_by: string;
       created_at: string;
+      sender_number: string;
       total: number;
       sent: number;
       delivered: number;
       read: number;
       failed: number;
       pending: number;
+      errors: string[];
     }>();
 
     for (const log of logs || []) {
@@ -227,7 +230,9 @@ export async function GET(request: NextRequest) {
         template_name: (log.metadata as Record<string, string>)?.template_name || '',
         created_by: creatorNames[createdById] || 'Unknown',
         created_at: log.created_at,
+        sender_number: (log.metadata as Record<string, string>)?.sender_number || '',
         total: 0, sent: 0, delivered: 0, read: 0, failed: 0, pending: 0,
+        errors: [],
       };
 
       existing.total++;
@@ -235,7 +240,12 @@ export async function GET(request: NextRequest) {
         case 'sent': existing.sent++; break;
         case 'delivered': existing.delivered++; break;
         case 'read': existing.read++; break;
-        case 'failed': existing.failed++; break;
+        case 'failed':
+          existing.failed++;
+          if (log.error_message && !existing.errors.includes(log.error_message)) {
+            existing.errors.push(log.error_message);
+          }
+          break;
         case 'pending': existing.pending++; break;
       }
 
