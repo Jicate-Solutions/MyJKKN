@@ -73,7 +73,7 @@ const PERFORMANCE_TIERS = {
 function CounselorSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         {[1, 2, 3, 4].map((i) => (
           <Card key={i}>
             <CardHeader className="pb-2">
@@ -198,6 +198,98 @@ function formatResponseTime(minutes: number): string {
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
+// Rank accent colors for top 3 on mobile cards
+const RANK_ACCENTS: Record<number, { border: string; bg: string; text: string; ring: string }> = {
+  1: { border: 'border-yellow-400', bg: 'bg-yellow-50', text: 'text-yellow-700', ring: 'ring-yellow-400/30' },
+  2: { border: 'border-gray-300', bg: 'bg-gray-50', text: 'text-gray-600', ring: 'ring-gray-300/30' },
+  3: { border: 'border-amber-500', bg: 'bg-amber-50', text: 'text-amber-700', ring: 'ring-amber-400/30' },
+};
+
+function MobileLeaderboardCard({
+  counselor,
+  rank,
+  avgConversion,
+}: {
+  counselor: {
+    counselorId: string;
+    counselorName: string;
+    leadsAssigned: number;
+    conversions: number;
+    conversionRate: number;
+    avgResponseTime: number;
+    messagesSent: number;
+  };
+  rank: number;
+  avgConversion: number;
+}) {
+  const isTop3 = rank <= 3;
+  const accent = RANK_ACCENTS[rank];
+  const isAboveAvg = counselor.conversionRate > avgConversion;
+  const initials = counselor.counselorName.split(' ').map(n => n[0]).join('').toUpperCase();
+
+  return (
+    <div
+      className={`relative rounded-xl border p-4 transition-all ${
+        isTop3
+          ? `${accent.border} ${accent.bg} border-2 ring-2 ${accent.ring}`
+          : 'border-border bg-card'
+      }`}
+    >
+      {/* Top row: rank + name + badge */}
+      <div className="flex items-center gap-3">
+        <RankBadge rank={rank} />
+        <Avatar className={`h-10 w-10 ${isTop3 ? 'ring-2 ring-offset-1 ' + accent.border.replace('border-', 'ring-') : ''}`}>
+          <AvatarFallback className={`text-sm font-semibold ${isTop3 ? accent.bg + ' ' + accent.text : ''}`}>
+            {initials}
+          </AvatarFallback>
+        </Avatar>
+        <div className="flex-1 min-w-0">
+          <p className={`font-semibold truncate ${isTop3 ? 'text-base' : 'text-sm'}`}>
+            {counselor.counselorName}
+          </p>
+          {isAboveAvg && (
+            <p className="text-xs text-green-600 flex items-center gap-1">
+              <TrendingUp className="h-3 w-3 flex-shrink-0" />
+              Above average
+            </p>
+          )}
+        </div>
+        <PerformanceBadge conversionRate={counselor.conversionRate} />
+      </div>
+
+      {/* Conversion rate - hero stat */}
+      <div className="mt-3 flex items-end gap-2">
+        <span className={`text-3xl font-extrabold tracking-tight ${isTop3 ? accent.text : 'text-foreground'}`}>
+          {counselor.conversionRate.toFixed(1)}%
+        </span>
+        <span className="text-xs text-muted-foreground mb-1">conversion</span>
+      </div>
+      <Progress
+        value={Math.min(counselor.conversionRate, 100)}
+        className="mt-1.5 h-1.5"
+      />
+
+      {/* Secondary stats row */}
+      <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+        <div className="flex items-center gap-1">
+          <Target className="h-3 w-3" />
+          <span className="font-medium text-foreground">{counselor.leadsAssigned}</span> leads
+        </div>
+        <div className="flex items-center gap-1">
+          <TrendingUp className="h-3 w-3 text-green-600" />
+          <span className="font-medium text-green-600">{counselor.conversions}</span> converted
+        </div>
+        <div className="flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          <span className={`font-medium ${counselor.avgResponseTime <= 30 ? 'text-green-600' : counselor.avgResponseTime <= 60 ? 'text-yellow-600' : 'text-red-600'}`}>
+            {formatResponseTime(counselor.avgResponseTime)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CounselorLeaderboard({
   counselors,
   dateRange
@@ -266,7 +358,8 @@ function CounselorLeaderboard({
           </div>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="h-4 w-4 mr-2" />
-            Export CSV
+            <span className="hidden sm:inline">Export CSV</span>
+            <span className="sm:hidden">CSV</span>
           </Button>
         </div>
       </CardHeader>
@@ -279,23 +372,35 @@ function CounselorLeaderboard({
         ) : (
           <>
             {/* Team Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-muted/50 rounded-lg">
+            <div className="grid grid-cols-3 gap-3 mb-6 p-3 md:p-4 bg-muted/50 rounded-lg">
               <div className="text-center">
-                <p className="text-sm text-muted-foreground">Team Total Leads</p>
-                <p className="text-2xl font-bold">{totalLeads}</p>
+                <p className="text-xs md:text-sm text-muted-foreground">Total Leads</p>
+                <p className="text-lg md:text-2xl font-bold">{totalLeads}</p>
               </div>
               <div className="text-center">
-                <p className="text-sm text-muted-foreground">Team Avg Conversion</p>
-                <p className="text-2xl font-bold">{avgConversion.toFixed(1)}%</p>
+                <p className="text-xs md:text-sm text-muted-foreground">Avg Conversion</p>
+                <p className="text-lg md:text-2xl font-bold">{avgConversion.toFixed(1)}%</p>
               </div>
               <div className="text-center">
-                <p className="text-sm text-muted-foreground">Team Avg Response</p>
-                <p className="text-2xl font-bold">{formatResponseTime(avgResponseTime)}</p>
+                <p className="text-xs md:text-sm text-muted-foreground">Avg Response</p>
+                <p className="text-lg md:text-2xl font-bold">{formatResponseTime(avgResponseTime)}</p>
               </div>
             </div>
 
-            {/* Leaderboard Table */}
-            <div className="overflow-x-auto -mx-6 px-6">
+            {/* Mobile: Card-based leaderboard */}
+            <div className="md:hidden space-y-3">
+              {sortedCounselors.map((counselor, index) => (
+                <MobileLeaderboardCard
+                  key={counselor.counselorId}
+                  counselor={counselor}
+                  rank={index + 1}
+                  avgConversion={avgConversion}
+                />
+              ))}
+            </div>
+
+            {/* Desktop: Table-based leaderboard */}
+            <div className="hidden md:block overflow-x-auto">
             <Table className="min-w-[700px]">
               <TableHeader>
                 <TableRow>
@@ -457,7 +562,7 @@ function CounselorPerformancePageContent() {
                 Track and compare counselor performance metrics
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col sm:flex-row w-full sm:w-auto gap-2">
               {/* Institution selector for global users (super admins / admission role) / multi-institution users */}
               {(isGlobalUser || institutions.length > 1) && (
                 <Select value={chosenInstitutionId} onValueChange={setChosenInstitutionId}>
@@ -476,25 +581,27 @@ function CounselorPerformancePageContent() {
                   </SelectContent>
                 </Select>
               )}
-              <Select value={dateRange} onValueChange={setDateRange}>
-                <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue placeholder="Select period" />
-                </SelectTrigger>
-                <SelectContent>
-                  {DATE_RANGES.map((range) => (
-                    <SelectItem key={range.value} value={range.value}>
-                      {range.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="icon" onClick={handleRefresh} disabled={isRefetching}>
-                {isRefetching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
-              </Button>
+              <div className="flex gap-2">
+                <Select value={dateRange} onValueChange={setDateRange}>
+                  <SelectTrigger className="w-full sm:w-40">
+                    <SelectValue placeholder="Select period" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DATE_RANGES.map((range) => (
+                      <SelectItem key={range.value} value={range.value}>
+                        {range.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button variant="outline" size="icon" className="flex-shrink-0" onClick={handleRefresh} disabled={isRefetching}>
+                  {isRefetching ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -521,7 +628,7 @@ function CounselorPerformancePageContent() {
           ) : (
             <>
               {/* Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
                 <MetricCard
                   title="Active Counselors"
                   value={counselors.length}
@@ -556,18 +663,20 @@ function CounselorPerformancePageContent() {
               {topPerformer && (
                 <Card className="bg-gradient-to-r from-yellow-50 to-amber-50 border-yellow-200">
                   <CardContent className="pt-6">
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center justify-center w-16 h-16 rounded-full bg-yellow-500 text-white">
-                        <Star className="h-8 w-8" />
+                    <div className="flex items-center gap-3 md:gap-4">
+                      <div className="flex items-center justify-center w-12 h-12 md:w-16 md:h-16 rounded-full bg-yellow-500 text-white flex-shrink-0">
+                        <Star className="h-6 w-6 md:h-8 md:w-8" />
                       </div>
-                      <div className="flex-1">
-                        <p className="text-sm text-yellow-700 font-medium">Top Performer</p>
-                        <p className="text-xl font-bold">{topPerformer.counselorName}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {topPerformer.conversions} conversions • {topPerformer.conversionRate.toFixed(1)}% rate • {formatResponseTime(topPerformer.avgResponseTime)} avg response
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs md:text-sm text-yellow-700 font-medium">Top Performer</p>
+                        <p className="text-lg md:text-xl font-bold truncate">{topPerformer.counselorName}</p>
+                        <p className="text-xs md:text-sm text-muted-foreground">
+                          {topPerformer.conversions} conversions · {topPerformer.conversionRate.toFixed(1)}% · {formatResponseTime(topPerformer.avgResponseTime)} response
                         </p>
                       </div>
-                      <PerformanceBadge conversionRate={topPerformer.conversionRate} />
+                      <div className="hidden sm:block">
+                        <PerformanceBadge conversionRate={topPerformer.conversionRate} />
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

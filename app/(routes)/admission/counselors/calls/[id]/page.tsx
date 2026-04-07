@@ -127,8 +127,10 @@ function AudioPlayer({ url }: { url: string }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
+  const proxyUrl = `/api/admission/calls/recording?url=${encodeURIComponent(url)}`;
+
   useEffect(() => {
-    const audio = new Audio(url);
+    const audio = new Audio(proxyUrl);
     audioRef.current = audio;
 
     audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
@@ -139,14 +141,14 @@ function AudioPlayer({ url }: { url: string }) {
       audio.pause();
       audio.removeAttribute('src');
     };
-  }, [url]);
+  }, [proxyUrl]);
 
   const toggle = () => {
     if (!audioRef.current) return;
     if (playing) {
       audioRef.current.pause();
     } else {
-      audioRef.current.play().catch(() => window.open(url, '_blank'));
+      audioRef.current.play().catch(() => window.open(proxyUrl, '_blank'));
     }
     setPlaying(!playing);
   };

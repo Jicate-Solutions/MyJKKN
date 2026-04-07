@@ -184,8 +184,8 @@ function CounselorViewPageContent() {
   return (
     <ContentLayout title="Counselor View">
       <div className="p-4 sm:p-6 space-y-4 mx-auto">
-      {/* Breadcrumb */}
-      <Breadcrumb>
+      {/* Breadcrumb — hidden on mobile to save vertical space */}
+      <Breadcrumb className="hidden sm:block">
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
@@ -241,9 +241,9 @@ function CounselorViewPageContent() {
 
       {/* Filters row */}
       {showFilters && (
-        <div className="flex flex-wrap items-center gap-2 p-3 bg-muted/50 rounded-lg">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 sm:gap-3 p-3 bg-muted/50 rounded-lg">
           <Select value={stageFilter} onValueChange={setStageFilter}>
-            <SelectTrigger className="h-8 w-full sm:w-[180px] text-xs">
+            <SelectTrigger className="h-10 sm:h-8 w-full text-sm sm:text-xs">
               <SelectValue placeholder="Filter by stage" />
             </SelectTrigger>
             <SelectContent>
@@ -256,7 +256,7 @@ function CounselorViewPageContent() {
           </Select>
 
           <Select value={academicYearFilter} onValueChange={setAcademicYearFilter}>
-            <SelectTrigger className="h-8 w-full sm:w-[150px] text-xs">
+            <SelectTrigger className="h-10 sm:h-8 w-full text-sm sm:text-xs">
               <SelectValue placeholder="Academic Year" />
             </SelectTrigger>
             <SelectContent>
@@ -273,7 +273,7 @@ function CounselorViewPageContent() {
             <Button
               size="sm"
               variant="ghost"
-              className="h-8 text-xs"
+              className="h-10 sm:h-8 text-sm sm:text-xs w-full sm:w-auto"
               onClick={() => {
                 setStageFilter('all');
                 setAcademicYearFilter('all');
@@ -287,68 +287,76 @@ function CounselorViewPageContent() {
 
       {/* Institution picker — only shown when user has access to multiple institutions */}
       {institutions.length > 1 && (
-        <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
-          <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Institution:</span>
-          <Select
-            value={chosenInstitutionId}
-            onValueChange={(val) => {
-              setChosenInstitutionId(val === '__all__' ? '' : val);
-              setSelectedCounselorUserId('');
-            }}
-          >
-            <SelectTrigger className="h-8 w-full sm:w-[280px] text-xs">
-              <SelectValue placeholder="Select an institution" />
-            </SelectTrigger>
-            <SelectContent>
-              {institutions.map((inst) => (
-                <SelectItem key={inst.id} value={inst.id} className="text-xs">
-                  {inst.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {chosenInstitutionId && (
-            <button
-              onClick={() => { setChosenInstitutionId(''); setSelectedCounselorUserId(''); }}
-              className="text-xs text-muted-foreground hover:text-foreground"
+        <div className="p-3 bg-muted/30 rounded-lg border space-y-2 sm:space-y-0">
+          <div className="flex items-center gap-2 mb-2 sm:mb-0">
+            <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Institution:</span>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <Select
+              value={chosenInstitutionId}
+              onValueChange={(val) => {
+                setChosenInstitutionId(val === '__all__' ? '' : val);
+                setSelectedCounselorUserId('');
+              }}
             >
-              ← Clear
-            </button>
-          )}
+              <SelectTrigger className="h-10 sm:h-8 w-full sm:w-[280px] text-sm sm:text-xs">
+                <SelectValue placeholder="Select an institution" />
+              </SelectTrigger>
+              <SelectContent>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id} className="text-xs">
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {chosenInstitutionId && (
+              <button
+                onClick={() => { setChosenInstitutionId(''); setSelectedCounselorUserId(''); }}
+                className="text-xs text-muted-foreground hover:text-foreground py-2 sm:py-0"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       )}
 
       {/* Counselor picker — manager/super_admin only */}
       {isManager && counselors.length > 0 && (
-        <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
-          <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">View as:</span>
-          <Select
-            value={selectedCounselorUserId}
-            onValueChange={(val) => setSelectedCounselorUserId(val === '_all' ? '' : val)}
-          >
-            <SelectTrigger className="h-8 w-[220px] text-xs">
-              <SelectValue placeholder="All counselors (overview)" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="_all" className="text-xs">All counselors (overview)</SelectItem>
-              {counselors.map((c) => (
-                <SelectItem key={c.id} value={c.user_id ?? c.id} className="text-xs">
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {selectedCounselorUserId && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 text-xs"
-              onClick={() => setSelectedCounselorUserId('')}
+        <div className="p-3 bg-muted/30 rounded-lg border space-y-2 sm:space-y-0">
+          <div className="flex items-center gap-2 mb-2 sm:mb-0">
+            <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">View as:</span>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <Select
+              value={selectedCounselorUserId}
+              onValueChange={(val) => setSelectedCounselorUserId(val === '_all' ? '' : val)}
             >
-              ← Back to overview
-            </Button>
-          )}
+              <SelectTrigger className="h-10 sm:h-8 w-full sm:w-[220px] text-sm sm:text-xs">
+                <SelectValue placeholder="All counselors (overview)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all" className="text-xs">All counselors (overview)</SelectItem>
+                {counselors.map((c) => (
+                  <SelectItem key={c.id} value={c.user_id ?? c.id} className="text-xs">
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedCounselorUserId && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-10 sm:h-8 text-sm sm:text-xs w-full sm:w-auto"
+                onClick={() => setSelectedCounselorUserId('')}
+              >
+                Back to overview
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
