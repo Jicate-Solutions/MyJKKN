@@ -3,10 +3,15 @@ export const dynamic = 'force-dynamic';
 // POST /api/events/marathon/[eventId]/register
 // Public endpoint — creates a new registration for the marathon.
 // No auth required. Generates BIB number automatically.
+//
+// External users  → identified by phone; upserted into event_external_participants.
+//                   Returning participants get auto-filled profile data.
+// Internal users  → require profile_id or learner_id.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { publicRegistrationSchema } from '@/lib/validations/events';
+import { ExternalParticipantService } from '@/lib/services/events/core/external-participant-service';
 
 export async function POST(
   request: NextRequest,
@@ -38,6 +43,14 @@ export async function POST(
     if (data.event_id !== eventId) {
       return NextResponse.json(
         { error: 'event_id in body does not match URL' },
+        { status: 400 }
+      );
+    }
+
+    // Internal users must supply at least one identity anchor
+    if (data.participant_type === 'internal' && !data.profile_id && !data.learner_id) {
+      return NextResponse.json(
+        { error: 'Internal registrations require profile_id or learner_id' },
         { status: 400 }
       );
     }
@@ -104,7 +117,34 @@ export async function POST(
       );
     }
 
+    // =========================================================================
+    // External participant: upsert profile and resolve ID
+    // =========================================================================
+    let external_participant_id: string | null = null;
+
+    if (data.participant_type === 'external') {
+      try {
+        const extParticipant = await ExternalParticipantService.createOrUpdate({
+          full_name: data.participant_name,
+          phone: data.participant_phone,
+          email: data.participant_email,
+          age: data.participant_age,
+          gender: data.participant_gender,
+          organization: data.organization ?? data.institution_name,
+          city: data.city,
+        });
+        external_participant_id = extParticipant.id;
+      } catch {
+        // Non-fatal — we still create the registration without linking
+        console.warn(
+          '[marathon-api/register] External participant upsert failed; continuing without link'
+        );
+      }
+    }
+
+    // =========================================================================
     // Generate BIB number: {EVENT_CODE}-{YEAR}-{CAT_CODE}-{SEQ}
+    // =========================================================================
     const { count: seqCount } = await supabase
       .from('events_registrations')
       .select('id', { count: 'exact', head: true })
@@ -114,11 +154,12 @@ export async function POST(
     const seq = ((seqCount ?? 0) + 1).toString().padStart(4, '0');
     const eventYear = event.year ?? new Date().getFullYear();
     const catCode = (category.code ?? category.name.substring(0, 3)).toUpperCase();
-    // Use a short event code derived from event id (first 3 chars uppercased) or institution
-    const eventCode = 'KBM'; // Standard prefix — can be made configurable via event.config
+    const eventCode = 'KBM'; // Standard prefix — configurable via event.config in future
     const bib_number = `${eventCode}-${eventYear}-${catCode}-${seq}`;
 
+    // =========================================================================
     // Insert registration
+    // =========================================================================
     const { data: registration, error: insertError } = await supabase
       .from('events_registrations')
       .insert({
@@ -137,9 +178,12 @@ export async function POST(
         discount_code: data.discount_code ?? null,
         source: data.source ?? 'external_app',
         referral_source: data.referral_source ?? null,
-        profile_id: data.profile_id ?? null,
-        learner_id: data.learner_id ?? null,
-        institution_id: data.institution_id ?? null,
+        // Internal user anchors
+        profile_id: data.participant_type === 'internal' ? (data.profile_id ?? null) : null,
+        learner_id: data.participant_type === 'internal' ? (data.learner_id ?? null) : null,
+        institution_id: data.participant_type === 'internal' ? (data.institution_id ?? null) : null,
+        // External participant link
+        external_participant_id,
         organization: data.organization ?? null,
         city: data.city ?? null,
         status: 'registered',
@@ -150,28 +194,6 @@ export async function POST(
     if (insertError) {
       console.error('[marathon-api/register] Insert error:', insertError);
       return NextResponse.json({ error: 'Failed to create registration' }, { status: 500 });
-    }
-
-    // If external participant, upsert into event_external_participants by phone
-    if (data.participant_type === 'external') {
-      const { error: extError } = await supabase
-        .from('event_external_participants')
-        .upsert(
-          {
-            phone: data.participant_phone,
-            name: data.participant_name,
-            email: data.participant_email ?? null,
-            organization: data.organization ?? data.institution_name ?? null,
-            city: data.city ?? null,
-            last_event_id: eventId,
-          },
-          { onConflict: 'phone', ignoreDuplicates: false }
-        );
-
-      if (extError) {
-        // Non-fatal — registration already created
-        console.warn('[marathon-api/register] External participant upsert failed:', extError);
-      }
     }
 
     return NextResponse.json({ data: registration }, { status: 201 });
