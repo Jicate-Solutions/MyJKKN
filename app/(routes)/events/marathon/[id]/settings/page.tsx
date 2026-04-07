@@ -675,62 +675,358 @@ function CategoryForm({
 }
 
 // ============================================================================
-// Route Tab (Placeholder for Phase 9)
+// Route Tab — Route details + Checkpoint management
 // ============================================================================
+
+interface RouteCheckpoint {
+  name: string;
+  type: 'start' | 'finish' | 'water' | 'medical' | 'waypoint' | 'km_marker';
+  distance_km: string;
+  lat: string;
+  lng: string;
+}
+
+const CHECKPOINT_TYPES = [
+  { value: 'start', label: 'Start Line' },
+  { value: 'finish', label: 'Finish Line' },
+  { value: 'water', label: 'Water Station' },
+  { value: 'medical', label: 'Medical Post' },
+  { value: 'waypoint', label: 'Waypoint' },
+  { value: 'km_marker', label: 'KM Marker' },
+] as const;
+
+const CHECKPOINT_TYPE_LABELS: Record<string, string> = {
+  start: 'Start',
+  finish: 'Finish',
+  water: 'Water',
+  medical: 'Medical',
+  waypoint: 'Waypoint',
+  km_marker: 'KM',
+};
 
 function RouteTab({ event }: { event: any }) {
   const updateMutation = useUpdateRouteConfig();
-  const [routeJson, setRouteJson] = useState('');
 
+  // Route details
+  const [routeForm, setRouteForm] = useState({
+    total_distance_km: '',
+    start_location: '',
+    finish_location: '',
+    map_center_lat: '',
+    map_center_lng: '',
+    elevation_gain_m: '',
+    route_description: '',
+  });
+
+  // Checkpoints list
+  const [checkpoints, setCheckpoints] = useState<RouteCheckpoint[]>([]);
+  const [showAddCheckpoint, setShowAddCheckpoint] = useState(false);
+  const [newCheckpoint, setNewCheckpoint] = useState<RouteCheckpoint>({
+    name: '',
+    type: 'water',
+    distance_km: '',
+    lat: '',
+    lng: '',
+  });
+
+  // Load existing config
   useEffect(() => {
     if (event?.route_config) {
-      setRouteJson(JSON.stringify(event.route_config, null, 2));
+      const rc = event.route_config;
+      setRouteForm({
+        total_distance_km: rc.total_distance_km?.toString() ?? '',
+        start_location: rc.start_location ?? '',
+        finish_location: rc.finish_location ?? '',
+        map_center_lat: rc.map_center?.lat?.toString() ?? '',
+        map_center_lng: rc.map_center?.lng?.toString() ?? '',
+        elevation_gain_m: rc.elevation_gain_m?.toString() ?? '',
+        route_description: rc.route_description ?? '',
+      });
+      if (Array.isArray(rc.checkpoints)) {
+        setCheckpoints(
+          rc.checkpoints.map((cp: any) => ({
+            name: cp.name ?? '',
+            type: cp.type ?? 'waypoint',
+            distance_km: cp.distance_km?.toString() ?? '',
+            lat: cp.lat?.toString() ?? '',
+            lng: cp.lng?.toString() ?? '',
+          }))
+        );
+      }
     }
   }, [event]);
 
   const handleSave = () => {
-    try {
-      const parsed = routeJson.trim() ? JSON.parse(routeJson) : {};
-      updateMutation.mutate({ id: event.id, config: parsed });
-    } catch {
-      // toast handled by mutation
+    const config: Record<string, unknown> = {
+      total_distance_km: routeForm.total_distance_km ? parseFloat(routeForm.total_distance_km) : undefined,
+      start_location: routeForm.start_location || undefined,
+      finish_location: routeForm.finish_location || undefined,
+      elevation_gain_m: routeForm.elevation_gain_m ? parseFloat(routeForm.elevation_gain_m) : undefined,
+      route_description: routeForm.route_description || undefined,
+      map_center:
+        routeForm.map_center_lat && routeForm.map_center_lng
+          ? { lat: parseFloat(routeForm.map_center_lat), lng: parseFloat(routeForm.map_center_lng) }
+          : undefined,
+      checkpoints: checkpoints.map((cp, i) => ({
+        name: cp.name,
+        type: cp.type,
+        distance_km: cp.distance_km ? parseFloat(cp.distance_km) : 0,
+        lat: cp.lat ? parseFloat(cp.lat) : undefined,
+        lng: cp.lng ? parseFloat(cp.lng) : undefined,
+        sort_order: i + 1,
+      })),
+    };
+    updateMutation.mutate({ id: event.id, config });
+  };
+
+  const addCheckpoint = () => {
+    if (!newCheckpoint.name.trim()) {
+      toast.error('Checkpoint name is required');
+      return;
     }
+    setCheckpoints((prev) =>
+      [...prev, { ...newCheckpoint }].sort(
+        (a, b) => (parseFloat(a.distance_km) || 0) - (parseFloat(b.distance_km) || 0)
+      )
+    );
+    setNewCheckpoint({ name: '', type: 'water', distance_km: '', lat: '', lng: '' });
+    setShowAddCheckpoint(false);
+  };
+
+  const removeCheckpoint = (index: number) => {
+    setCheckpoints((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Route Configuration</CardTitle>
-        <CardDescription>
-          Configure race route and checkpoints. Full checkpoint management will
-          be available in a future update.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label>Route Config (JSON)</Label>
-          <Textarea
-            rows={10}
-            className="font-mono text-sm"
-            value={routeJson}
-            onChange={(e) => setRouteJson(e.target.value)}
-            placeholder='{"checkpoints": [], "map_center": {"lat": 0, "lng": 0}}'
-          />
-        </div>
-        <Button
-          onClick={handleSave}
-          disabled={updateMutation.isPending}
-          className="gap-2"
-        >
-          {updateMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="h-4 w-4" />
+    <div className="space-y-4">
+      {/* Route Details */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Route Details</CardTitle>
+          <CardDescription>
+            Configure the race route — distance, start/finish locations, and map center coordinates.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Total Distance (km)</Label>
+              <Input
+                type="number"
+                step="0.1"
+                placeholder="e.g. 10"
+                value={routeForm.total_distance_km}
+                onChange={(e) => setRouteForm((f) => ({ ...f, total_distance_km: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Elevation Gain (m)</Label>
+              <Input
+                type="number"
+                placeholder="e.g. 120"
+                value={routeForm.elevation_gain_m}
+                onChange={(e) => setRouteForm((f) => ({ ...f, elevation_gain_m: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Start Location</Label>
+              <Input
+                placeholder="e.g. JKKN College Main Gate"
+                value={routeForm.start_location}
+                onChange={(e) => setRouteForm((f) => ({ ...f, start_location: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Finish Location</Label>
+              <Input
+                placeholder="e.g. JKKN College Ground"
+                value={routeForm.finish_location}
+                onChange={(e) => setRouteForm((f) => ({ ...f, finish_location: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Map Center — Latitude</Label>
+              <Input
+                type="number"
+                step="0.0000001"
+                placeholder="e.g. 11.4520"
+                value={routeForm.map_center_lat}
+                onChange={(e) => setRouteForm((f) => ({ ...f, map_center_lat: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Map Center — Longitude</Label>
+              <Input
+                type="number"
+                step="0.0000001"
+                placeholder="e.g. 77.5830"
+                value={routeForm.map_center_lng}
+                onChange={(e) => setRouteForm((f) => ({ ...f, map_center_lng: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Route Description</Label>
+            <Textarea
+              rows={3}
+              placeholder="Brief description of the route — terrain, key turns, landmarks..."
+              value={routeForm.route_description}
+              onChange={(e) => setRouteForm((f) => ({ ...f, route_description: e.target.value }))}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Checkpoints */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">Checkpoints</CardTitle>
+              <CardDescription>
+                Add water stations, medical posts, and km markers along the route.
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setShowAddCheckpoint(true)}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Checkpoint
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* Add Checkpoint Form */}
+          {showAddCheckpoint && (
+            <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Name *</Label>
+                  <Input
+                    placeholder="e.g. Water Station 1"
+                    value={newCheckpoint.name}
+                    onChange={(e) => setNewCheckpoint((c) => ({ ...c, name: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Type</Label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    value={newCheckpoint.type}
+                    onChange={(e) => setNewCheckpoint((c) => ({ ...c, type: e.target.value as RouteCheckpoint['type'] }))}
+                  >
+                    {CHECKPOINT_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Distance from Start (km)</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    placeholder="e.g. 2.5"
+                    value={newCheckpoint.distance_km}
+                    onChange={(e) => setNewCheckpoint((c) => ({ ...c, distance_km: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Latitude (optional)</Label>
+                  <Input
+                    type="number"
+                    step="0.0000001"
+                    placeholder="e.g. 11.4523"
+                    value={newCheckpoint.lat}
+                    onChange={(e) => setNewCheckpoint((c) => ({ ...c, lat: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Longitude (optional)</Label>
+                  <Input
+                    type="number"
+                    step="0.0000001"
+                    placeholder="e.g. 77.5834"
+                    value={newCheckpoint.lng}
+                    onChange={(e) => setNewCheckpoint((c) => ({ ...c, lng: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={addCheckpoint} className="gap-1.5">
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setShowAddCheckpoint(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
           )}
-          Save Route Config
-        </Button>
-      </CardContent>
-    </Card>
+
+          {/* Checkpoint List */}
+          {checkpoints.length === 0 && !showAddCheckpoint ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              No checkpoints added yet. Click &quot;Add Checkpoint&quot; to get started.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {checkpoints.map((cp, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between border rounded-md px-3 py-2"
+                >
+                  <div className="flex items-center gap-3">
+                    <Badge variant="outline" className="text-xs min-w-[50px] justify-center">
+                      {CHECKPOINT_TYPE_LABELS[cp.type] ?? cp.type}
+                    </Badge>
+                    <div>
+                      <p className="text-sm font-medium">{cp.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {cp.distance_km ? `${cp.distance_km} km` : 'No distance set'}
+                        {cp.lat && cp.lng ? ` · ${cp.lat}, ${cp.lng}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-destructive"
+                    onClick={() => removeCheckpoint(index)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Save Button */}
+      <Button
+        onClick={handleSave}
+        disabled={updateMutation.isPending}
+        className="gap-2"
+      >
+        {updateMutation.isPending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Save className="h-4 w-4" />
+        )}
+        Save Route Configuration
+      </Button>
+    </div>
   );
 }
 
