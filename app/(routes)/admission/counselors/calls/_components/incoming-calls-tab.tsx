@@ -79,6 +79,8 @@ function RecordingPlayer({ url }: { url: string | null }) {
   const [playing, setPlaying] = useState(false);
   if (!url) return <span className="text-xs text-muted-foreground">-</span>;
 
+  const proxyUrl = `/api/admission/calls/recording?url=${encodeURIComponent(url)}`;
+
   return (
     <Button
       variant="ghost"
@@ -86,12 +88,12 @@ function RecordingPlayer({ url }: { url: string | null }) {
       className="h-7 px-2 text-xs"
       onClick={(e) => {
         e.stopPropagation();
-        const audio = new Audio(url);
+        const audio = new Audio(proxyUrl);
         if (playing) {
           audio.pause();
           setPlaying(false);
         } else {
-          audio.play().catch(() => window.open(url, '_blank'));
+          audio.play().catch(() => window.open(proxyUrl, '_blank'));
           audio.onended = () => setPlaying(false);
           setPlaying(true);
         }

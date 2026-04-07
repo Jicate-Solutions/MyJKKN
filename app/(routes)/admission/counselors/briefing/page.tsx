@@ -80,33 +80,35 @@ function MetricCard({
 }) {
   return (
     <Card>
-      <CardContent className="pt-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">{label}</p>
-            <p className="text-2xl font-bold mt-1">{value}</p>
+      <CardContent className="pt-4 sm:pt-6 pb-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-muted-foreground truncate">{label}</p>
+            <p className="text-xl sm:text-2xl font-bold mt-0.5 sm:mt-1">{value}</p>
             {description && (
-              <p className="text-xs text-muted-foreground mt-1">{description}</p>
+              <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1 truncate">{description}</p>
             )}
             {trend && (
               <div
                 className={cn(
-                  'flex items-center gap-1 text-xs mt-1',
+                  'flex items-center gap-1 text-[11px] sm:text-xs mt-0.5 sm:mt-1',
                   trend.isPositive ? 'text-green-600' : 'text-red-600'
                 )}
               >
                 {trend.isPositive ? (
-                  <TrendingUp className="h-3 w-3" />
+                  <TrendingUp className="h-3 w-3 flex-shrink-0" />
                 ) : (
-                  <TrendingDown className="h-3 w-3" />
+                  <TrendingDown className="h-3 w-3 flex-shrink-0" />
                 )}
-                {trend.isPositive ? '+' : ''}
-                {trend.value}% vs yesterday
+                <span className="truncate">
+                  {trend.isPositive ? '+' : ''}
+                  {trend.value}% vs yesterday
+                </span>
               </div>
             )}
           </div>
-          <div className={cn('h-12 w-12 rounded-full flex items-center justify-center bg-muted')}>
-            <Icon className={cn('h-6 w-6', color)} />
+          <div className={cn('h-9 w-9 sm:h-12 sm:w-12 rounded-full flex items-center justify-center bg-muted flex-shrink-0')}>
+            <Icon className={cn('h-4 w-4 sm:h-6 sm:w-6', color)} />
           </div>
         </div>
       </CardContent>
@@ -142,20 +144,20 @@ function ActionItemCard({ action }: { action: ActionItem }) {
   const Icon = getActionIcon(action.type);
 
   return (
-    <div className="flex items-start gap-4 p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors">
-      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-        <Icon className="h-5 w-5 text-primary" />
+    <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg border bg-card hover:bg-muted/50 transition-colors active:bg-muted/70">
+      <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+        <Icon className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <h4 className="font-medium text-sm">{action.title}</h4>
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-1">
+          <h4 className="font-medium text-sm leading-tight">{action.title}</h4>
           {getPriorityBadge(action.priority)}
         </div>
-        <p className="text-sm text-muted-foreground">{action.description}</p>
+        <p className="text-xs sm:text-sm text-muted-foreground">{action.description}</p>
         {action.link && (
           <Link
             href={action.link}
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-2"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-2 py-2 sm:py-0"
           >
             Take Action
             <ChevronRight className="h-3 w-3" />
@@ -203,13 +205,13 @@ function HighlightCard({
   const { icon: Icon, color, bg } = getTypeStyles(highlight.type);
 
   return (
-    <div className="flex items-start gap-3 p-3 rounded-lg border">
-      <div className={cn('h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0', bg)}>
-        <Icon className={cn('h-4 w-4', color)} />
+    <div className="flex items-start gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-lg border">
+      <div className={cn('h-7 w-7 sm:h-8 sm:w-8 rounded-full flex items-center justify-center flex-shrink-0', bg)}>
+        <Icon className={cn('h-3.5 w-3.5 sm:h-4 sm:w-4', color)} />
       </div>
-      <div>
-        <p className="font-medium text-sm">{highlight.title}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{highlight.description}</p>
+      <div className="min-w-0">
+        <p className="font-medium text-xs sm:text-sm leading-tight">{highlight.title}</p>
+        <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5">{highlight.description}</p>
       </div>
     </div>
   );
@@ -272,8 +274,9 @@ function BriefingPageContent() {
                   Your daily briefing has not been generated yet. Generate one now to see
                   your admission pipeline summary, hot leads, and action items for today.
                 </p>
-                <div className="flex gap-3 mt-6">
+                <div className="flex flex-col sm:flex-row gap-3 mt-6 w-full sm:w-auto">
                   <Button
+                    className="w-full sm:w-auto"
                     onClick={handleGenerate}
                     disabled={generateBriefing.isPending || !institutionId}
                   >
@@ -284,7 +287,7 @@ function BriefingPageContent() {
                     )}
                     Generate Today&apos;s Briefing
                   </Button>
-                  <Button variant="outline" asChild>
+                  <Button variant="outline" className="w-full sm:w-auto" asChild>
                     <Link href="/admission/dashboard">Go to Dashboard</Link>
                   </Button>
                 </div>
@@ -299,7 +302,7 @@ function BriefingPageContent() {
   return (
     <PermissionGuard module="admission" action="view">
       <ContentLayout title="Daily Briefing">
-        <div className="space-y-6 print:space-y-4">
+        <div className="space-y-4 sm:space-y-6 print:space-y-4">
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -319,36 +322,38 @@ function BriefingPageContent() {
                 </BreadcrumbList>
               </Breadcrumb>
 
-              <div className="flex items-center gap-3 mt-2">
-                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Sparkles className="h-5 w-5 text-primary" />
+              <div className="flex items-center gap-2.5 sm:gap-3 mt-2">
+                <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Sparkles className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                 </div>
-                <div>
-                  <h1 className="text-2xl font-bold">{briefing.title}</h1>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
-                    {new Date(briefing.briefing_date).toLocaleDateString('en-US', {
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric'
-                    })}
+                <div className="min-w-0">
+                  <h1 className="text-lg sm:text-2xl font-bold truncate">{briefing.title}</h1>
+                  <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-muted-foreground">
+                    <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 flex-shrink-0" />
+                    <span className="truncate">
+                      {new Date(briefing.briefing_date).toLocaleDateString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex gap-2 print:hidden">
+            <div className="flex gap-2 print:hidden w-full sm:w-auto">
               <Button
                 variant="outline"
                 size="sm"
+                className="flex-1 sm:flex-initial"
                 onClick={() => refetch()}
                 disabled={isRefetching}
               >
                 <RefreshCw className={cn('h-4 w-4 mr-2', isRefetching && 'animate-spin')} />
                 Refresh
               </Button>
-              <Button variant="outline" size="sm" onClick={handlePrint}>
+              <Button variant="outline" size="sm" className="flex-1 sm:flex-initial" onClick={handlePrint}>
                 <Printer className="h-4 w-4 mr-2" />
                 Print
               </Button>
@@ -357,15 +362,15 @@ function BriefingPageContent() {
 
           {/* Executive Summary */}
           <Card className="border-primary/20 bg-primary/5">
-            <CardContent className="pt-6">
-              <p className="text-foreground leading-relaxed">
+            <CardContent className="pt-4 sm:pt-6 pb-4">
+              <p className="text-sm sm:text-base text-foreground leading-relaxed">
                 {briefing.content.executive_summary}
               </p>
             </CardContent>
           </Card>
 
           {/* Key Metrics */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 print:grid-cols-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4 print:grid-cols-4">
             <MetricCard
               label="Total Leads"
               value={briefing.content.key_metrics.total_leads}
@@ -401,17 +406,17 @@ function BriefingPageContent() {
 
           {/* Conversion Rate Banner */}
           <Card>
-            <CardContent className="py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Target className="h-6 w-6 text-primary" />
-                  <div>
-                    <p className="font-medium">Overall Conversion Rate</p>
-                    <p className="text-sm text-muted-foreground">Lead to enrollment</p>
+            <CardContent className="py-3 sm:py-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                  <Target className="h-5 w-5 sm:h-6 sm:w-6 text-primary flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm sm:text-base">Conversion Rate</p>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Lead to enrollment</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-3xl font-bold text-primary">
+                <div className="text-right flex-shrink-0">
+                  <p className="text-2xl sm:text-3xl font-bold text-primary">
                     {briefing.content.key_metrics.conversion_rate.toFixed(1)}%
                   </p>
                 </div>
@@ -487,9 +492,10 @@ function BriefingPageContent() {
                 <CardContent className="space-y-4">
                   {briefing.content.predictions.map((prediction, index) => (
                     <div key={index} className="p-3 rounded-lg border">
-                      <div className="flex items-center justify-between mb-1">
+                      <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
                         <p className="font-medium text-sm">{prediction.metric}</p>
                         <Badge
+                          className="text-[10px] sm:text-xs"
                           variant={
                             prediction.confidence === 'high'
                               ? 'default'
@@ -498,10 +504,10 @@ function BriefingPageContent() {
                               : 'outline'
                           }
                         >
-                          {prediction.confidence} confidence
+                          {prediction.confidence}
                         </Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground">{prediction.prediction}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">{prediction.prediction}</p>
                     </div>
                   ))}
                 </CardContent>
@@ -524,11 +530,11 @@ function BriefingPageContent() {
                   {briefing.content.recommendations.map((rec, index) => (
                     <div key={index} className="p-3 rounded-lg border">
                       <div className="flex items-center gap-2 mb-1">
-                        <Badge variant="outline">{rec.category}</Badge>
+                        <Badge variant="outline" className="text-[10px] sm:text-xs">{rec.category}</Badge>
                       </div>
-                      <p className="text-sm font-medium">{rec.recommendation}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Expected impact: {rec.impact}
+                      <p className="text-xs sm:text-sm font-medium">{rec.recommendation}</p>
+                      <p className="text-[11px] sm:text-xs text-muted-foreground mt-1">
+                        Impact: {rec.impact}
                       </p>
                     </div>
                   ))}
@@ -551,17 +557,20 @@ function BriefingPageContent() {
                       const total = briefing.content.key_metrics.total_leads || 1;
                       const percentage = ((count as number) / total) * 100;
                       return (
-                        <div key={stage} className="flex items-center gap-3">
-                          <div className="w-32 text-sm capitalize truncate">
+                        <div key={stage} className="flex items-center gap-2 sm:gap-3">
+                          <div
+                            className="w-20 sm:w-32 text-xs sm:text-sm capitalize truncate flex-shrink-0"
+                            title={stage.replace(/_/g, ' ')}
+                          >
                             {stage.replace(/_/g, ' ')}
                           </div>
-                          <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">
+                          <div className="flex-1 h-3 sm:h-4 bg-muted rounded-full overflow-hidden">
                             <div
                               className="h-full bg-primary transition-all"
                               style={{ width: `${percentage}%` }}
                             />
                           </div>
-                          <div className="w-16 text-sm font-medium text-right">{count}</div>
+                          <div className="w-10 sm:w-16 text-xs sm:text-sm font-medium text-right flex-shrink-0">{count}</div>
                         </div>
                       );
                     }
