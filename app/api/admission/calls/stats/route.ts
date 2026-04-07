@@ -26,6 +26,8 @@ export async function GET(request: NextRequest) {
     const fromDate = searchParams.get('from') || searchParams.get('from_date') || undefined;
     const toDate = searchParams.get('to') || searchParams.get('to_date') || undefined;
     const direction = searchParams.get('direction') as CallDirection | null;
+    const admissionOnlyParam = searchParams.get('admission_only');
+    const admissionOnly = admissionOnlyParam === 'false' ? false : true; // default to true
 
     const supabase = createServiceRoleClient();
 
@@ -35,7 +37,8 @@ export async function GET(request: NextRequest) {
         institution_id,
         supabase,
         fromDate,
-        toDate
+        toDate,
+        admissionOnly
       );
       return NextResponse.json({ success: true, data: inboundStats });
     }
@@ -46,7 +49,7 @@ export async function GET(request: NextRequest) {
       supabase,
       fromDate,
       toDate,
-      direction || undefined
+      admissionOnly
     );
 
     return NextResponse.json({

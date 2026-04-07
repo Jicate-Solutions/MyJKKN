@@ -26,8 +26,8 @@ export interface CallFunnelData {
 
 export const callFunnelKeys = {
   all: ['call-funnel'] as const,
-  funnel: (institutionId?: string, fromDate?: string, toDate?: string) =>
-    [...callFunnelKeys.all, institutionId, fromDate, toDate] as const,
+  funnel: (institutionId?: string, fromDate?: string, toDate?: string, admissionOnly?: boolean) =>
+    [...callFunnelKeys.all, institutionId, fromDate, toDate, admissionOnly] as const,
 };
 
 // ============================================================================
@@ -54,14 +54,16 @@ export function useCallFunnel(
   institutionId?: string,
   fromDate?: string,
   toDate?: string,
+  admissionOnly?: boolean,
 ) {
   const query = useQuery({
-    queryKey: callFunnelKeys.funnel(institutionId, fromDate, toDate),
+    queryKey: callFunnelKeys.funnel(institutionId, fromDate, toDate, admissionOnly),
     queryFn: async (): Promise<CallFunnelData> => {
       const params = new URLSearchParams();
       if (institutionId) params.set('institution_id', institutionId);
       if (fromDate) params.set('from_date', fromDate);
       if (toDate) params.set('to_date', toDate);
+      if (admissionOnly !== undefined) params.set('admission_only', String(admissionOnly));
 
       const url = `/api/admission/calls/funnel${params.toString() ? `?${params}` : ''}`;
       const res = await fetch(url);

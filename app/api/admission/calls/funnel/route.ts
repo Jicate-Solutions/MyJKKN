@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
     const institution_id = searchParams.get('institution_id') || undefined;
     const fromDate = searchParams.get('from_date') || undefined;
     const toDate = searchParams.get('to_date') || undefined;
+    const admissionOnlyParam = searchParams.get('admission_only');
+    const admissionOnly = admissionOnlyParam === 'false' ? false : true; // default to true
 
     const supabase = createServiceRoleClient();
 
@@ -46,6 +48,7 @@ export async function GET(request: NextRequest) {
     if (institution_id) callsQuery = callsQuery.eq('institution_id', institution_id);
     if (fromDate) callsQuery = callsQuery.gte('created_at', fromDate);
     if (toDate) callsQuery = callsQuery.lte('created_at', toDate);
+    if (admissionOnly) callsQuery = callsQuery.eq('is_admission_call', true);
 
     const { data: callsData, count: totalCalls, error: callsError } = await callsQuery;
     if (callsError) throw new Error(`Calls query error: ${callsError.message}`);
