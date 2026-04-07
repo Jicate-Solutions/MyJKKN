@@ -832,10 +832,10 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               </>
             )
           ) : (
-          /* ======= ALL CALLS VIEW (original) ======= */
+          /* ======= ALL CALLS VIEW — mobile cards + desktop table ======= */
           logsLoading ? (
             <div className="space-y-3">
-              {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+              {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
             </div>
           ) : logs.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
@@ -847,92 +847,176 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
             </div>
           ) : (
             <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Caller</TableHead>
-                    <TableHead>ExoPhone</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Follow-up</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Recording</TableHead>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {logs.map((log: any) => (
-                    <TableRow key={log.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}>
-                      <TableCell>
-                        <div>
-                          {log.lead ? (
-                            <Link
-                              href={`/admission/leads/${log.lead.id}`}
-                              className="text-sm font-medium hover:underline text-primary"
-                            >
-                              {log.lead.full_name}
-                            </Link>
-                          ) : (
-                            <span className="text-sm font-medium text-muted-foreground italic">Unknown Caller</span>
-                          )}
-                          <p className="text-xs text-muted-foreground font-mono">
-                            {log.from_number ? maskPhone(log.from_number) : '-'}
-                          </p>
+              {/* ── MOBILE: Card-based layout (< md) ── */}
+              <div className="md:hidden space-y-2">
+                {logs.map((log: any) => {
+                  const isMissed = !log.cost_amount || log.cost_amount <= 0;
+                  const callTime = new Date(log.started_at || log.created_at);
+                  const now = new Date();
+                  const diffMs = now.getTime() - callTime.getTime();
+                  const diffMins = Math.floor(diffMs / 60000);
+                  const relativeTime = diffMins < 1 ? 'Just now'
+                    : diffMins < 60 ? `${diffMins}m ago`
+                    : diffMins < 1440 ? `${Math.floor(diffMins / 60)}h ago`
+                    : `${Math.floor(diffMins / 1440)}d ago`;
+
+                  return (
+                    <div
+                      key={log.id}
+                      className={cn(
+                        "relative rounded-lg border overflow-hidden transition-colors active:bg-muted/50",
+                        isMissed
+                          ? "border-l-[3px] border-l-red-500 bg-red-50/30 dark:bg-red-950/10"
+                          : "border-l-[3px] border-l-emerald-500"
+                      )}
+                      onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}
+                    >
+                      <div className="p-3">
+                        {/* Row 1: Caller + Time */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            {log.lead ? (
+                              <p className="text-sm font-semibold truncate">{log.lead.full_name}</p>
+                            ) : (
+                              <p className="text-sm font-medium text-muted-foreground">Unknown Caller</p>
+                            )}
+                            <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                              {log.from_number ? maskPhone(log.from_number) : '-'}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs font-medium text-muted-foreground">{relativeTime}</p>
+                            <p className="text-[10px] text-muted-foreground/70">
+                              {callTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'UTC' })}
+                            </p>
+                          </div>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-xs text-muted-foreground font-mono">
-                          {log.to_number ? `...${log.to_number.slice(-4)}` : '-'}
-                        </span>
-                      </TableCell>
-                      <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-wrap gap-1">
-                          {log.auto_sms_sent && (
-                            <Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">SMS</Badge>
-                          )}
-                          {log.callback_queued && (
-                            <Badge variant="outline" className="text-[10px] px-1 py-0 bg-purple-50 text-purple-700 border-purple-200">Callback</Badge>
-                          )}
+
+                        {/* Row 2: Status + Duration + Tags + Action */}
+                        <div className="flex items-center justify-between mt-2.5 gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {isMissed
+                              ? <span className="inline-flex items-center text-[11px] font-semibold text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 rounded-full"><PhoneMissed className="h-3 w-3 mr-1" />Missed</span>
+                              : <span className="inline-flex items-center text-[11px] font-semibold text-emerald-700 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-0.5 rounded-full"><PhoneCall className="h-3 w-3 mr-1" />Answered</span>
+                            }
+                            {log.duration_seconds > 0 && (
+                              <span className="text-xs text-muted-foreground font-mono">{formatDuration(log.duration_seconds)}</span>
+                            )}
+                            {log.auto_sms_sent && (
+                              <span className="text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded">SMS</span>
+                            )}
+                          </div>
+
+                          {/* Primary action */}
+                          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                            {isMissed && log.from_number ? (
+                              <a
+                                href={`tel:${log.from_number}`}
+                                className="inline-flex items-center gap-1.5 h-9 px-4 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-full shadow-sm transition-colors"
+                              >
+                                <Phone className="h-4 w-4" />
+                                Call Back
+                              </a>
+                            ) : log.recording_url ? (
+                              <RecordingPlayer url={log.recording_url} />
+                            ) : null}
+                          </div>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        {log.duration_seconds > 0 ? (
-                          <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">--</span>
-                        )}
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <RecordingPlayer url={log.recording_url} />
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            timeZone: 'UTC',
-                          })}
-                        </span>
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        {(!log.cost_amount || log.cost_amount <= 0) && log.from_number && (
-                          <a
-                            href={`tel:${log.from_number}`}
-                            className="inline-flex items-center h-7 px-2 text-xs border rounded-md hover:bg-accent"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <Phone className="h-3 w-3 mr-1" />
-                            Call Back
-                          </a>
-                        )}
-                      </TableCell>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── DESKTOP: Table layout (≥ md) ── */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Caller</TableHead>
+                      <TableHead>ExoPhone</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Follow-up</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead>Recording</TableHead>
+                      <TableHead>Time</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {logs.map((log: any) => (
+                      <TableRow key={log.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}>
+                        <TableCell>
+                          <div>
+                            {log.lead ? (
+                              <Link
+                                href={`/admission/leads/${log.lead.id}`}
+                                className="text-sm font-medium hover:underline text-primary"
+                              >
+                                {log.lead.full_name}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-medium text-muted-foreground italic">Unknown Caller</span>
+                            )}
+                            <p className="text-xs text-muted-foreground font-mono">
+                              {log.from_number ? maskPhone(log.from_number) : '-'}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground font-mono">
+                            {log.to_number ? `...${log.to_number.slice(-4)}` : '-'}
+                          </span>
+                        </TableCell>
+                        <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-wrap gap-1">
+                            {log.auto_sms_sent && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">SMS</Badge>
+                            )}
+                            {log.callback_queued && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 bg-purple-50 text-purple-700 border-purple-200">Callback</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {log.duration_seconds > 0 ? (
+                            <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">--</span>
+                          )}
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <RecordingPlayer url={log.recording_url} />
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              timeZone: 'UTC',
+                            })}
+                          </span>
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          {(!log.cost_amount || log.cost_amount <= 0) && log.from_number && (
+                            <a
+                              href={`tel:${log.from_number}`}
+                              className="inline-flex items-center h-7 px-2 text-xs border rounded-md hover:bg-accent"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Phone className="h-3 w-3 mr-1" />
+                              Call Back
+                            </a>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
               {/* Pagination */}
               {totalPages > 1 && (
