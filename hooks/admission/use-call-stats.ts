@@ -75,7 +75,9 @@ export function useCallStats(
       return json.data;
     },
     enabled: true,
-    staleTime: 60000,
+    staleTime: 30000,
+    refetchInterval: 60000, // Auto-refresh every 60 seconds
+    refetchOnWindowFocus: true,
   });
 
   return {
@@ -114,7 +116,9 @@ export function useInboundCallStats(
       return json.data;
     },
     enabled: true,
-    staleTime: 60000,
+    staleTime: 30000,
+    refetchInterval: 60000, // Auto-refresh every 60 seconds
+    refetchOnWindowFocus: true,
   });
 
   return {

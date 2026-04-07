@@ -448,9 +448,10 @@ function CallDetailContent() {
                     </div>
                     <div className="divide-y">
                       <InfoRow icon={Calendar} label="Date & Time" value={
-                        new Date(call.started_at || call.created_at).toLocaleString(undefined, {
+                        new Date(call.started_at || call.created_at).toLocaleString('en-IN', {
                           weekday: 'short', month: 'short', day: 'numeric',
                           hour: '2-digit', minute: '2-digit', second: '2-digit',
+                          timeZone: 'Asia/Kolkata',
                         })
                       } />
                       <InfoRow icon={Clock} label="Duration" value={
@@ -677,8 +678,9 @@ function CallDetailContent() {
                     </Badge>
                     {call.follow_up_date && (
                       <p className="text-xs text-muted-foreground mt-2">
-                        Follow-up: {new Date(call.follow_up_date).toLocaleDateString(undefined, {
-                          weekday: 'short', month: 'short', day: 'numeric'
+                        Follow-up: {new Date(call.follow_up_date).toLocaleDateString('en-IN', {
+                          weekday: 'short', month: 'short', day: 'numeric',
+                          timeZone: 'Asia/Kolkata',
                         })}
                       </p>
                     )}
@@ -718,8 +720,9 @@ function CallDetailContent() {
                             <div className="text-right">
                               <span className="text-xs font-mono">{formatDuration(c.duration_seconds)}</span>
                               <p className="text-[10px] text-muted-foreground">
-                                {new Date(c.created_at).toLocaleDateString(undefined, {
+                                {new Date(c.created_at).toLocaleDateString('en-IN', {
                                   month: 'short', day: 'numeric',
+                                  timeZone: 'Asia/Kolkata',
                                 })}
                               </p>
                             </div>
