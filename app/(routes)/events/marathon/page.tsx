@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -8,11 +8,21 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { DataTable, type PermissionColumnDef } from '@/components/ui/data-table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useMarathonEvents, useUpdateMarathonStatus } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonEvents, useUpdateMarathonStatus, useDeleteMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
-import { Loader2, Plus, Calendar, MapPin, Eye, MoreHorizontal, ArrowRight, Settings, Users } from 'lucide-react';
+import { Loader2, Plus, Calendar, MapPin, Eye, MoreHorizontal, ArrowRight, Settings, Users, Trash2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,6 +71,9 @@ export default function MarathonEventsPage() {
   const institutionId = selectedInstitutionId || profile?.institution_id || '';
   const access = useMarathonAccess();
   const updateStatus = useUpdateMarathonStatus();
+  const deleteMutation = useDeleteMarathonEvent();
+  const [deleteEventId, setDeleteEventId] = useState<string | null>(null);
+  const [deleteEventName, setDeleteEventName] = useState('');
 
   const {
     data: events,
@@ -198,6 +211,22 @@ export default function MarathonEventsPage() {
                     </DropdownMenuSub>
                   </>
                 )}
+                {/* Delete — super admin only */}
+                {access.isSuperAdmin && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => {
+                        setDeleteEventId(event.id);
+                        setDeleteEventName(event.name);
+                      }}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Event
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           );
@@ -283,6 +312,44 @@ export default function MarathonEventsPage() {
           />
         )}
       </div>
+
+      {/* Delete Event Confirmation Dialog — Super Admin Only */}
+      <AlertDialog
+        open={!!deleteEventId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteEventId(null);
+            setDeleteEventName('');
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Marathon Event</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>&quot;{deleteEventName}&quot;</strong>?
+              This will permanently delete the event and all associated data including
+              registrations, sponsors, committees, budget items, results, and GPS data.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteEventId) {
+                  deleteMutation.mutate(deleteEventId);
+                  setDeleteEventId(null);
+                  setDeleteEventName('');
+                }
+              }}
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete Permanently'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }

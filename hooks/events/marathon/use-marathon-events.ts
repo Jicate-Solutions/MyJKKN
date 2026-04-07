@@ -7,6 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { MarathonEventService } from '@/lib/services/events/marathon/marathon-event-service';
+import { EventBaseService } from '@/lib/services/events/core/event-base-service';
 import type {
   Event,
   EventCategory,
@@ -224,6 +225,25 @@ export function useUpdateCategory() {
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update category');
+    },
+  });
+}
+
+/**
+ * Delete a marathon event. Super admin only.
+ */
+export function useDeleteMarathonEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) =>
+      EventBaseService.deleteEvent(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: KEYS.lists() });
+      toast.success('Marathon event deleted successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete event');
     },
   });
 }
