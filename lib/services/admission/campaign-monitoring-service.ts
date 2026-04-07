@@ -580,6 +580,117 @@ export class CampaignMonitoringService {
     };
   }
 
+  // ============================================================================
+  // BROADCAST CAMPAIGN STATS
+  // ============================================================================
+
+  /**
+   * Get delivery stats for WhatsApp broadcast campaigns.
+   *
+   * Broadcast campaigns are sent via POST /api/admission/whatsapp-broadcast and
+   * logged to `admission_whatsapp_logs` with a `campaign_id` UUID.  They are
+   * NOT stored in `re_engagement_campaigns`, so none of the methods above
+   * (getCampaignStats, getCampaigns, getActiveSequences) surface them.
+   *
+   * This method queries `admission_whatsapp_logs` directly, grouped in-process
+   * by campaign_id, and returns per-campaign delivery breakdowns.  The query is
+   * covered by the composite index added in migration
+   * 015_whatsapp_broadcast_indexes.sql:
+   *   idx_admission_whatsapp_logs_institution_campaign (institution_id, campaign_id)
+   *
+   * NOTE: If broadcast volume grows beyond ~50k rows per institution, consider
+   * pushing the GROUP BY into the database via a Postgres function or a
+   * materialized view rather than aggregating in application code.
+   */
+  static async getBroadcastCampaignStats(institutionId: string): Promise<
+    Array<{
+      campaign_id: string;
+      campaign_name: string;
+      template_name: string;
+      created_at: string;
+      total: number;
+      sent: number;
+      delivered: number;
+      read: number;
+      failed: number;
+      pending: number;
+    }>
+  > {
+    const { data: logs, error } = await getSupabase()
+      .from('admission_whatsapp_logs')
+      .select('campaign_id, delivery_status, metadata, created_at')
+      .eq('institution_id', institutionId)
+      .not('campaign_id', 'is', null)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error(
+        '[admission/campaign-monitoring] Failed to fetch broadcast campaign stats:',
+        error
+      );
+      throw new Error('Failed to fetch broadcast campaign stats');
+    }
+
+    const campaignMap = new Map<
+      string,
+      {
+        campaign_id: string;
+        campaign_name: string;
+        template_name: string;
+        created_at: string;
+        total: number;
+        sent: number;
+        delivered: number;
+        read: number;
+        failed: number;
+        pending: number;
+      }
+    >();
+
+    for (const log of logs || []) {
+      if (!log.campaign_id) continue;
+
+      const meta = (log.metadata as Record<string, string>) || {};
+      const existing = campaignMap.get(log.campaign_id) ?? {
+        campaign_id: log.campaign_id,
+        campaign_name: meta.campaign_name || 'Untitled Broadcast',
+        template_name: meta.template_name || '',
+        created_at: log.created_at,
+        total: 0,
+        sent: 0,
+        delivered: 0,
+        read: 0,
+        failed: 0,
+        pending: 0,
+      };
+
+      existing.total++;
+      switch (log.delivery_status) {
+        case 'sent':
+          existing.sent++;
+          break;
+        case 'delivered':
+          existing.delivered++;
+          break;
+        case 'read':
+          existing.read++;
+          break;
+        case 'failed':
+          existing.failed++;
+          break;
+        case 'pending':
+          existing.pending++;
+          break;
+      }
+
+      campaignMap.set(log.campaign_id, existing);
+    }
+
+    return Array.from(campaignMap.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }
+
   /**
    * Get all campaigns for listing
    */
