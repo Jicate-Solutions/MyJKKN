@@ -139,6 +139,16 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
+  const { data: senderInfo } = useQuery({
+    queryKey: ['wa-sender-info'],
+    queryFn: async () => {
+      const res = await fetch('/api/admission/chat/sender-info');
+      if (!res.ok) return null;
+      return res.json();
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
   const { data: campaigns, isLoading } = useQuery({
     queryKey: ['wa-broadcast-campaigns', institutionId],
     queryFn: () => fetchCampaigns(institutionId),
@@ -549,6 +559,15 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
       {/* Step 3: Review + Schedule */}
       {step === 3 && (
         <div className="space-y-3">
+          {/* Sender Number */}
+          {senderInfo?.dedicated_number && (
+            <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800 flex items-center gap-2">
+              <span className="text-green-600 text-xs font-medium">FROM:</span>
+              <span className="text-sm font-mono font-medium">{senderInfo.dedicated_number}</span>
+              <span className="text-[10px] text-muted-foreground">(JKKN WhatsApp Business)</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 bg-muted rounded-lg">
               <p className="text-xs text-muted-foreground">Campaign</p>
