@@ -160,10 +160,10 @@ export class WhatsAppCampaignService {
         .from('admission_whatsapp_logs')
         .insert({
           institution_id: input.institution_id,
-          lead_id: input.lead_id,
+          lead_id: input.lead_id || null,
           template_id: input.template_id || null,
           recipient_phone: formattedPhone,
-          message_content: messageContent,
+          message_content: messageContent || '(template message)',
           delivery_status: 'pending',
           campaign_id: input.campaign_id || null,
           workflow_execution_id: input.workflow_execution_id || null,

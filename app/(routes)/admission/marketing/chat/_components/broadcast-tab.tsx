@@ -201,7 +201,10 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
       setView('list');
       resetWizard();
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => {
+      toast.error(err.message || 'Broadcast failed');
+      setShowConfirm(false);
+    },
   });
 
   const resetWizard = () => {
@@ -229,12 +232,20 @@ export function BroadcastTab({ institutionId }: { institutionId: string }) {
   }, [uploadMutation]);
 
   const handleSend = () => {
-    if (!selectedTemplate || contacts.length === 0) return;
+    if (!selectedTemplate || contacts.length === 0) {
+      toast.error('Missing template or contacts');
+      return;
+    }
+    const validContacts = contacts.filter(c => c.phone && c.valid);
+    if (validContacts.length === 0) {
+      toast.error('No valid phone numbers to send to');
+      return;
+    }
     sendMutation.mutate({
       institution_id: institutionId,
       campaign_name: campaignName || `Broadcast ${new Date().toLocaleDateString('en-IN')}`,
       template_name: selectedTemplate.name,
-      recipients: contacts.map(c => ({ phone: c.phone, variables: c.variables })),
+      recipients: validContacts.map(c => ({ phone: c.phone, variables: c.variables })),
       ...(scheduleDate ? { scheduled_at: new Date(scheduleDate).toISOString() } : {}),
     } as Parameters<typeof sendMutation.mutate>[0]);
     setShowConfirm(false);

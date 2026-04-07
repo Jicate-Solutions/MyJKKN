@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     // Build message inputs
     const messages = recipients.map((r: { phone: string; lead_id?: string; variables?: Record<string, string>; message_content?: string }) => ({
       institution_id,
-      lead_id: r.lead_id || '',
+      lead_id: r.lead_id || null,
       template_id: template_id || undefined,
       recipient_phone: r.phone,
       message_content: r.message_content || template_name || '',
