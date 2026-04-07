@@ -17,13 +17,15 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useCreateMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { EventBaseService } from '@/lib/services/events/core/event-base-service';
 import { Loader2 } from 'lucide-react';
 
 export default function CreateMarathonEventPage() {
   const router = useRouter();
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id ?? '';
+  const { selectedInstitutionId, loading: institutionLoading } = useUserInstitutionAccess();
+  const institutionId = selectedInstitutionId || profile?.institution_id || '';
   const createMutation = useCreateMarathonEvent();
 
   const currentYear = new Date().getFullYear();
@@ -92,7 +94,7 @@ export default function CreateMarathonEventPage() {
         ]}
       />
 
-      <div className="max-w-2xl mx-auto mt-6">
+      <div className="mx-auto mt-6">
         <Card>
           <CardHeader>
             <CardTitle>Create Marathon Event</CardTitle>
@@ -237,13 +239,13 @@ export default function CreateMarathonEventPage() {
                 <Button
                   type="submit"
                   disabled={
-                    createMutation.isPending || !form.name.trim() || !institutionId
+                    createMutation.isPending || !form.name.trim() || institutionLoading
                   }
                 >
-                  {createMutation.isPending && (
+                  {(createMutation.isPending || institutionLoading) && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}
-                  Create Event
+                  {institutionLoading ? 'Loading...' : 'Create Event'}
                 </Button>
                 <Button
                   type="button"

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useMarathonEvents } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { Loader2, Plus, Calendar, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Event, EventStatus } from '@/types/events';
@@ -43,7 +44,8 @@ const STATUS_LABELS: Record<EventStatus, string> = {
 export default function MarathonEventsPage() {
   const router = useRouter();
   const { profile, isLoading: authLoading } = useAuth();
-  const institutionId = profile?.institution_id ?? '';
+  const { selectedInstitutionId, loading: institutionLoading } = useUserInstitutionAccess();
+  const institutionId = selectedInstitutionId || profile?.institution_id || '';
 
   const {
     data: events,
@@ -134,7 +136,7 @@ export default function MarathonEventsPage() {
     );
   };
 
-  if (authLoading) {
+  if (authLoading || institutionLoading) {
     return (
       <ContentLayout title="Marathon Events">
         <div className="flex items-center justify-center py-20">
