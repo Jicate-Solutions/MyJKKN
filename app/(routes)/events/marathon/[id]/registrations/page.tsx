@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -23,6 +23,7 @@ import {
 } from '@/hooks/events/marathon/use-marathon-registrations';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
   Dialog,
   DialogContent,
@@ -527,6 +528,7 @@ function RegisterParticipantDialog({
   onSuccess: () => void;
 }) {
   const { profile } = useAuth();
+  const { selectedInstitutionId, institutions } = useUserInstitutionAccess();
   const registerMutation = useRegisterParticipant();
 
   const [participantType, setParticipantType] = useState<'internal' | 'external'>('internal');
@@ -546,6 +548,30 @@ function RegisterParticipantDialog({
     blood_group: '',
     discount_code: '',
   });
+
+  // Auto-fill from profile when switching to internal
+  const fillFromProfile = () => {
+    if (!profile) return;
+    const inst = institutions?.find(
+      (i) => i.institution_id === (selectedInstitutionId || profile.institution_id)
+    );
+    setForm((f) => ({
+      ...f,
+      participant_name: profile.full_name ?? '',
+      participant_phone: profile.phone_number ?? '',
+      participant_email: profile.email ?? '',
+      participant_gender: profile.gender ?? '',
+      institution_name: inst?.institution_name ?? '',
+      department: (profile as any).departments?.department_name ?? '',
+    }));
+  };
+
+  // When dialog opens or type changes to internal, auto-fill
+  useEffect(() => {
+    if (open && participantType === 'internal' && profile) {
+      fillFromProfile();
+    }
+  }, [open, participantType, profile]);
 
   const updateField = (field: string, value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
@@ -571,10 +597,26 @@ function RegisterParticipantDialog({
     setParticipantType('internal');
   };
 
+  const handleTypeChange = (type: 'internal' | 'external') => {
+    setParticipantType(type);
+    if (type === 'internal') {
+      fillFromProfile();
+    } else {
+      // Clear auto-filled fields for external
+      setForm((f) => ({
+        ...f,
+        participant_name: '',
+        participant_phone: '',
+        participant_email: '',
+        participant_gender: '',
+        institution_name: '',
+        department: '',
+      }));
+    }
+  };
+
   const handleSubmit = async () => {
     if (!form.participant_name.trim() || !form.category_id) return;
-
-    const selectedCategory = categories.find((c) => c.id === form.category_id);
 
     registerMutation.mutate(
       {
@@ -586,9 +628,13 @@ function RegisterParticipantDialog({
         participant_email: form.participant_email || undefined,
         participant_age: form.participant_age ? parseInt(form.participant_age, 10) : undefined,
         participant_gender: form.participant_gender || undefined,
-        institution_id: participantType === 'internal' ? (profile?.institution_id ?? undefined) : undefined,
-        institution_name: participantType === 'internal' ? form.institution_name || undefined : undefined,
+        institution_id: participantType === 'internal'
+          ? (selectedInstitutionId || profile?.institution_id || undefined)
+          : undefined,
+        institution_name: form.institution_name || undefined,
         department: form.department || undefined,
+        profile_id: participantType === 'internal' ? profile?.id : undefined,
+        learner_id: participantType === 'internal' ? (profile?.learner_id ?? undefined) : undefined,
         source: 'admin',
         custom_data: {
           tshirt_size: form.tshirt_size || undefined,
@@ -628,7 +674,7 @@ function RegisterParticipantDialog({
                 type="button"
                 size="sm"
                 variant={participantType === 'internal' ? 'default' : 'outline'}
-                onClick={() => setParticipantType('internal')}
+                onClick={() => handleTypeChange('internal')}
               >
                 JKKN (Internal)
               </Button>
@@ -636,11 +682,16 @@ function RegisterParticipantDialog({
                 type="button"
                 size="sm"
                 variant={participantType === 'external' ? 'default' : 'outline'}
-                onClick={() => setParticipantType('external')}
+                onClick={() => handleTypeChange('external')}
               >
                 External
               </Button>
             </div>
+            {participantType === 'internal' && profile && (
+              <p className="text-xs text-muted-foreground">
+                Auto-filled from your profile. You can edit fields if registering someone else.
+              </p>
+            )}
           </div>
 
           {/* Category Selection */}
@@ -728,19 +779,20 @@ function RegisterParticipantDialog({
           {participantType === 'internal' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Institution Name</Label>
+                <Label>Institution</Label>
                 <Input
-                  placeholder="e.g. JKKN College of Engineering"
                   value={form.institution_name}
-                  onChange={(e) => updateField('institution_name', e.target.value)}
+                  readOnly
+                  className="bg-muted cursor-not-allowed"
                 />
+                <p className="text-xs text-muted-foreground">Auto-filled from profile</p>
               </div>
               <div className="space-y-2">
                 <Label>Department</Label>
                 <Input
-                  placeholder="e.g. Computer Science"
                   value={form.department}
-                  onChange={(e) => updateField('department', e.target.value)}
+                  readOnly
+                  className="bg-muted cursor-not-allowed"
                 />
               </div>
             </div>
