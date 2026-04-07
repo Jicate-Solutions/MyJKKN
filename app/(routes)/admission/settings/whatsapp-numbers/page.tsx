@@ -68,6 +68,9 @@ import { PersonalConnectionTab } from './_components/personal-connection-tab';
 import { NumberDetailSheet } from './_components/number-detail-sheet';
 import { PersonalTemplatesTab } from './_components/personal-templates-tab';
 import { AutoTriggerTab } from './_components/auto-trigger-tab';
+import { TemplateManagerTab } from './_components/template-manager-tab';
+import { AnalyticsTab } from './_components/analytics-tab';
+import { HealthTab } from './_components/health-tab';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -607,6 +610,9 @@ function WhatsAppNumbersContent() {
               <TabsTrigger value="business">Business Numbers</TabsTrigger>
               <TabsTrigger value="personal">Personal WhatsApp</TabsTrigger>
               <TabsTrigger value="templates">Message Templates</TabsTrigger>
+              <TabsTrigger value="template-manager">Template Manager</TabsTrigger>
+              <TabsTrigger value="analytics">Analytics</TabsTrigger>
+              <TabsTrigger value="health">Account Health</TabsTrigger>
               <TabsTrigger value="auto-triggers">Auto-Triggers</TabsTrigger>
             </TabsList>
 
@@ -779,6 +785,30 @@ function WhatsAppNumbersContent() {
                 <p className="text-sm text-muted-foreground py-8 text-center">
                   No institution selected.
                 </p>
+              )}
+            </TabsContent>
+
+            <TabsContent value="template-manager" className="space-y-6">
+              {institutionId ? (
+                <TemplateManagerTab institutionId={institutionId} />
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">No institution selected.</p>
+              )}
+            </TabsContent>
+
+            <TabsContent value="analytics" className="space-y-6">
+              {institutionId ? (
+                <AnalyticsTab institutionId={institutionId} />
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">No institution selected.</p>
+              )}
+            </TabsContent>
+
+            <TabsContent value="health" className="space-y-6">
+              {institutionId ? (
+                <HealthTab institutionId={institutionId} />
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">No institution selected.</p>
               )}
             </TabsContent>
 
