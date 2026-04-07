@@ -121,12 +121,15 @@ export class WhatsAppCampaignService {
   static async sendCampaignMessage(input: SendCampaignMessageInput): Promise<SendCampaignMessageResult> {
     try {
       // Consent check — DPDPA 2023 / TCCCPR / Meta Policy compliance
-      const consent = await WhatsAppConsentService.checkConsent(input.lead_id);
-      if (!consent.hasConsent) {
-        return {
-          success: false,
-          error: 'Lead has not opted in to WhatsApp messages',
-        };
+      // Skip for CSV broadcasts (no lead_id) — user explicitly uploaded these numbers
+      if (input.lead_id) {
+        const consent = await WhatsAppConsentService.checkConsent(input.lead_id);
+        if (!consent.hasConsent) {
+          return {
+            success: false,
+            error: 'Lead has not opted in to WhatsApp messages',
+          };
+        }
       }
 
       // Format and validate phone number
