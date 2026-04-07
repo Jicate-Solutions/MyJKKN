@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -270,7 +271,21 @@ function FilterBar({
 export default function MarathonRegistrationsPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const eventId = params.id as string;
+
+  // Handle payment callback — show toast when redirected back from HDFC
+  useEffect(() => {
+    const paymentResult = searchParams.get('payment');
+    if (paymentResult === 'success') {
+      toast.success('Payment successful! Registration confirmed.');
+      // Clean URL without reloading
+      router.replace(`/events/marathon/${eventId}/registrations`, { scroll: false });
+    } else if (paymentResult === 'failed') {
+      toast.error('Payment failed. Registration saved — you can retry payment later.');
+      router.replace(`/events/marathon/${eventId}/registrations`, { scroll: false });
+    }
+  }, [searchParams, eventId, router]);
 
   const [filters, setFilters] = useState<Partial<RegistrationFilters>>({});
 
@@ -622,11 +637,16 @@ function RegisterParticipantDialog({
     ? INTERNAL_FEE
     : (selectedCategory?.fee_amount ?? 0);
 
+  const [isProcessing, setIsProcessing] = useState(false);
+
   const handleSubmit = async () => {
     if (!form.participant_name.trim() || !form.category_id) return;
 
-    registerMutation.mutate(
-      {
+    setIsProcessing(true);
+
+    try {
+      // Step 1: Create registration (status: pending)
+      const registration = await registerMutation.mutateAsync({
         event_id: eventId,
         category_id: form.category_id,
         participant_type: participantType,
@@ -651,17 +671,63 @@ function RegisterParticipantDialog({
           organization: participantType === 'external' ? form.organization || undefined : undefined,
           registration_fee_override: participantType === 'internal' ? INTERNAL_FEE : undefined,
         },
-        // Only external users can use discount codes
         discount_code: participantType === 'external' ? (form.discount_code || undefined) : undefined,
-      },
-      {
-        onSuccess: () => {
+      });
+
+      // Step 2: If fee > 0, initiate HDFC payment
+      if (registrationFee > 0 && registration?.id) {
+        toast.loading('Redirecting to payment gateway...', { id: 'payment-redirect' });
+
+        const paymentResponse = await fetch(
+          `/api/events/marathon/${eventId}/payment/initiate`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              registration_id: registration.id,
+              amount: registrationFee,
+              payer_name: form.participant_name.trim(),
+              payer_email: form.participant_email || profile?.email || 'noemail@jkkn.ac.in',
+              payer_phone: form.participant_phone || profile?.phone_number || '0000000000',
+              discount_code: participantType === 'external' ? form.discount_code || undefined : undefined,
+            }),
+          }
+        );
+
+        const paymentData = await paymentResponse.json();
+
+        if (paymentData.success && paymentData.data?.payment_url) {
+          // Redirect to HDFC payment gateway
+          toast.dismiss('payment-redirect');
+          toast.success('Redirecting to HDFC payment gateway...');
+          resetForm();
+          onOpenChange(false);
+          // Open HDFC gateway — full page redirect
+          window.location.href = paymentData.data.payment_url;
+          return;
+        } else {
+          // Payment initiation failed — registration still created but unpaid
+          toast.dismiss('payment-redirect');
+          toast.error(
+            paymentData.message || 'Payment gateway unavailable. Registration saved — collect payment later.'
+          );
           resetForm();
           onOpenChange(false);
           onSuccess();
-        },
+        }
+      } else {
+        // Free event — no payment needed
+        toast.success('Registration successful!');
+        resetForm();
+        onOpenChange(false);
+        onSuccess();
       }
-    );
+    } catch (error) {
+      // Registration creation itself failed
+      console.error('Registration failed:', error);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -900,29 +966,46 @@ function RegisterParticipantDialog({
           </div>
 
           {/* Submit */}
-          <div className="flex justify-end gap-3 pt-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                resetForm();
-                onOpenChange(false);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={
-                registerMutation.isPending ||
-                !form.participant_name.trim() ||
-                !form.category_id
-              }
-            >
-              {registerMutation.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          <Separator />
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-sm text-muted-foreground">
+              {registrationFee > 0 ? (
+                <span>
+                  Amount: <span className="font-semibold text-foreground">₹{registrationFee}</span>
+                  {' '}— Payment gateway will open after registration
+                </span>
+              ) : (
+                <span>Free registration — no payment required</span>
               )}
-              Register Participant
-            </Button>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  resetForm();
+                  onOpenChange(false);
+                }}
+                disabled={isProcessing}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={
+                  isProcessing ||
+                  registerMutation.isPending ||
+                  !form.participant_name.trim() ||
+                  !form.category_id
+                }
+              >
+                {isProcessing && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                {registrationFee > 0
+                  ? `Register & Pay ₹${registrationFee}`
+                  : 'Register Participant'}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

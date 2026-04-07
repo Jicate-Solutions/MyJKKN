@@ -12,16 +12,16 @@ import { logger } from '@/lib/utils/enhanced-logger';
  * Common callback handler for both GET and POST.
  * HDFC may redirect via GET or POST depending on configuration.
  */
-async function handleCallback(request: NextRequest) {
+async function handleCallback(request: NextRequest, paramsPromise: Promise<{ eventId: string }>) {
   try {
-    const searchParams = request.nextUrl.searchParams;
+    const urlParams = request.nextUrl.searchParams;
 
     // Extract transaction_ref from URL params (set when creating session)
-    let transactionRef = searchParams.get('transaction_ref');
+    let transactionRef = urlParams.get('transaction_ref');
 
     // Also try to extract from form data (HDFC may POST form data)
-    let clientStatus = searchParams.get('order_status') || '';
-    let hdfcOrderId = searchParams.get('order_id') || '';
+    let clientStatus = urlParams.get('order_status') || '';
+    let hdfcOrderId = urlParams.get('order_id') || '';
 
     if (request.method === 'POST') {
       try {
@@ -50,17 +50,17 @@ async function handleCallback(request: NextRequest) {
       method: request.method,
     });
 
-    // Determine redirect base URL for the external marathon app
-    const marathonAppUrl =
-      process.env.NEXT_PUBLIC_MARATHON_APP_URL ||
-      request.headers.get('referer')?.split('/').slice(0, 3).join('/') ||
+    // Determine redirect base URL — use MyJKKN app URL (works for both internal and external)
+    const appUrl =
       process.env.NEXT_PUBLIC_APP_URL ||
+      request.headers.get('referer')?.split('/').slice(0, 3).join('/') ||
       'http://localhost:3000';
+    const { eventId: evId } = await paramsPromise;
+    const marathonAppUrl = appUrl;
 
     if (!transactionRef) {
       logger.warn('events/payment-callback', 'No transaction_ref in callback');
-      const failUrl = new URL('/payment/failed', marathonAppUrl);
-      failUrl.searchParams.set('error', 'missing_transaction');
+      const failUrl = new URL(`/events/marathon/${evId}/registrations?payment=failed&error=missing_transaction`, marathonAppUrl);
       return NextResponse.redirect(failUrl, 303);
     }
 
@@ -70,10 +70,11 @@ async function handleCallback(request: NextRequest) {
       clientStatus || undefined
     );
 
-    // Build redirect URL
-    const redirectPage = result.success ? '/payment/success' : '/payment/failed';
+    // Build redirect URL — redirect to MyJKKN event registrations with payment result
+    const redirectPage = result.success
+      ? `/events/marathon/${evId}/registrations?payment=success&txn=${result.transactionId}`
+      : `/events/marathon/${evId}/registrations?payment=failed&txn=${result.transactionId}`;
     const redirectUrl = new URL(redirectPage, marathonAppUrl);
-    redirectUrl.searchParams.set('txn', result.transactionId);
 
     if (result.registrationId) {
       redirectUrl.searchParams.set('reg', result.registrationId);
@@ -90,29 +91,22 @@ async function handleCallback(request: NextRequest) {
   } catch (error) {
     logger.error('events/payment-callback', 'Callback processing failed', error);
 
-    const marathonAppUrl =
-      process.env.NEXT_PUBLIC_MARATHON_APP_URL ||
-      process.env.NEXT_PUBLIC_APP_URL ||
-      'http://localhost:3000';
-
-    const failUrl = new URL('/payment/failed', marathonAppUrl);
-    failUrl.searchParams.set('error', 'processing_failed');
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const failUrl = new URL('/events?payment=failed&error=processing_failed', appUrl);
     return NextResponse.redirect(failUrl, 303);
   }
 }
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ eventId: string }> }
+  context: { params: Promise<{ eventId: string }> }
 ) {
-  await params; // consume params to avoid Next.js warning
-  return handleCallback(request);
+  return handleCallback(request, context.params);
 }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ eventId: string }> }
+  context: { params: Promise<{ eventId: string }> }
 ) {
-  await params;
-  return handleCallback(request);
+  return handleCallback(request, context.params);
 }
