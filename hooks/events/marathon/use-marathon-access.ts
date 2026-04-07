@@ -43,7 +43,7 @@ const SELF_ONLY_ROLES = ['student'];
 
 export function useMarathonAccess(): MarathonAccess {
   const { profile, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin, isLoading: permLoading } = usePermissions();
+  const { isSuperAdmin, canAccess, isLoading: permLoading } = usePermissions();
 
   return useMemo(() => {
     const isLoading = authLoading || permLoading;
@@ -63,6 +63,22 @@ export function useMarathonAccess(): MarathonAccess {
         institutionId,
         role,
         isSuperAdmin,
+        isLoading,
+      };
+    }
+
+    // Custom roles with explicit events.marathon.view permission — full access (admin granted)
+    if (canAccess('events.marathon', 'view')) {
+      return {
+        level: 'full',
+        canManage: true,
+        canViewRegistrations: true,
+        canRegister: true,
+        selfOnly: false,
+        profileId,
+        institutionId,
+        role,
+        isSuperAdmin: false,
         isLoading,
       };
     }
@@ -99,18 +115,19 @@ export function useMarathonAccess(): MarathonAccess {
       };
     }
 
-    // Unknown role — minimal access (can register self)
+    // Custom/unknown roles — default to institution-level access (can see their institution's registrations)
+    // This ensures custom roles like 'coordinator', 'counselor', etc. can at least register and view
     return {
-      level: 'self',
+      level: institutionId ? 'institution' : 'self',
       canManage: false,
       canViewRegistrations: true,
       canRegister: true,
-      selfOnly: true,
+      selfOnly: !institutionId,
       profileId,
       institutionId,
       role,
       isSuperAdmin: false,
       isLoading,
     };
-  }, [profile, isSuperAdmin, authLoading, permLoading]);
+  }, [profile, isSuperAdmin, canAccess, authLoading, permLoading]);
 }

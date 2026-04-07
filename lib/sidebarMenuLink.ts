@@ -1916,6 +1916,12 @@ export function GetRoleBasedPages(
             return true;
           }
 
+          // Events module is always visible for all authenticated users
+          // Role-based access is handled at the submenu and page level
+          if (menu.href === '/events/marathon' || menu.href === '/events') {
+            return true;
+          }
+
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {
             return false; // Hide from non-super admin users
@@ -2003,12 +2009,19 @@ export function GetRoleBasedPages(
 
             // Marathon events: role-based submenu access
             // Super admin / admin: all pages
-            // Principal / HOD / Faculty: only Registrations
-            // Student: only Registrations (will show own registration only on the page)
+            // Custom roles with events.marathon.* permissions: matching pages
+            // All other roles: only Registrations (non-adminOnly pages)
             if (submenu.href.includes('/events/marathon/') && (submenu as any).adminOnly !== undefined) {
               const isAdminRole = ['super_admin', 'admin', 'administrator'].includes(userRole.role_key || '');
               if (isAdminRole) return true;
-              // Non-admin roles: only show non-adminOnly pages (Registrations)
+
+              // Check if custom role has explicit marathon permissions
+              const submenuPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
+              if (submenuPermission && userRole.permissions[submenuPermission] === true) {
+                return true;
+              }
+
+              // Non-admin roles without explicit permission: only show non-adminOnly pages (Registrations)
               return !(submenu as any).adminOnly;
             }
 
