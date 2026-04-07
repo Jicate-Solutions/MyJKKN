@@ -2,11 +2,12 @@
 // WhatsApp Campaign Service for Admission CRM
 // Integrates with WhatsApp MCP server for sending campaign messages
 
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { CommunicationTemplatesService } from './communication-templates-service';
 import { WhatsAppConsentService } from '@/lib/services/whatsapp/whatsapp-consent-service';
 import {
   sendTextMessage,
+  sendTemplateMessage,
   isWhatsAppConfigured,
   type WAMessageResponse,
 } from '@/lib/services/whatsapp/whatsapp-api-client';
@@ -94,8 +95,9 @@ export interface WebhookPayload {
 // ============================================================================
 
 export class WhatsAppCampaignService {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private static supabase: any = createClientSupabaseClient();
+  private static get supabase() {
+    return createServiceRoleClient();
+  }
 
   // ============================================================================
   // MESSAGE SENDING
@@ -158,10 +160,10 @@ export class WhatsAppCampaignService {
         .from('admission_whatsapp_logs')
         .insert({
           institution_id: input.institution_id,
-          lead_id: input.lead_id,
+          lead_id: input.lead_id || null,
           template_id: input.template_id || null,
           recipient_phone: formattedPhone,
-          message_content: messageContent,
+          message_content: messageContent || '(template message)',
           delivery_status: 'pending',
           campaign_id: input.campaign_id || null,
           workflow_execution_id: input.workflow_execution_id || null,
@@ -199,7 +201,16 @@ export class WhatsAppCampaignService {
       // Send via Meta WhatsApp Cloud API
       let waResult: WAMessageResponse;
       try {
-        waResult = await sendTextMessage(formattedPhone, messageContent);
+        const templateName = (input.metadata as Record<string, string>)?.template_name;
+        if (templateName) {
+          // Send as template message (required for broadcast / marketing messages)
+          const components = input.variables && Object.keys(input.variables).length > 0
+            ? [{ type: 'body' as const, parameters: Object.values(input.variables).map(v => ({ type: 'text' as const, text: v })) }]
+            : undefined;
+          waResult = await sendTemplateMessage(formattedPhone, templateName, 'en', components);
+        } else {
+          waResult = await sendTextMessage(formattedPhone, messageContent);
+        }
       } catch (apiError) {
         console.error('[admission/whatsapp-campaign] Meta API error:', apiError);
         await this.supabase
@@ -259,18 +270,24 @@ export class WhatsAppCampaignService {
     let succeeded = 0;
     let failed = 0;
 
-    // Pre-filter: only send to leads who have opted in
+    // Pre-filter: check consent for leads that have a lead_id
+    // CSV broadcasts without lead_id skip consent check (user explicitly uploaded these numbers)
     const filteredMessages: SendCampaignMessageInput[] = [];
     for (const message of messages) {
-      const consent = await WhatsAppConsentService.checkConsent(message.lead_id);
-      if (consent.hasConsent) {
-        filteredMessages.push(message);
+      if (message.lead_id && message.lead_id.length > 0) {
+        const consent = await WhatsAppConsentService.checkConsent(message.lead_id);
+        if (consent.hasConsent) {
+          filteredMessages.push(message);
+        } else {
+          results.push({
+            success: false,
+            error: 'Lead has not opted in to WhatsApp messages',
+          });
+          failed++;
+        }
       } else {
-        results.push({
-          success: false,
-          error: 'Lead has not opted in to WhatsApp messages',
-        });
-        failed++;
+        // No lead_id = CSV upload broadcast, user has explicit consent responsibility
+        filteredMessages.push(message);
       }
     }
 

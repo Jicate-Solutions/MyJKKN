@@ -28,9 +28,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Get institution_id from user's profile (same pattern as chat routes)
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('institution_id, role')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile?.institution_id) {
+      return NextResponse.json({ error: 'No institution found for user' }, { status: 403 });
+    }
+
     const body = await request.json();
     const {
-      institution_id,
       campaign_name,
       template_name,
       template_id,
@@ -38,9 +48,7 @@ export async function POST(request: NextRequest) {
       scheduled_at,
     } = body;
 
-    if (!institution_id) {
-      return NextResponse.json({ error: 'Missing institution_id' }, { status: 400 });
-    }
+    const institution_id = body.institution_id || profile.institution_id;
 
     if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
       return NextResponse.json({ error: 'Missing or empty recipients array' }, { status: 400 });
@@ -53,25 +61,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify institution access
-    const { data: access } = await supabase
-      .from('user_institution_access')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('institution_id', institution_id)
-      .maybeSingle();
-
-    if (!access) {
-      return NextResponse.json({ error: 'No access to this institution' }, { status: 403 });
-    }
-
     // Generate campaign ID
     const campaign_id = crypto.randomUUID();
 
     // Build message inputs
     const messages = recipients.map((r: { phone: string; lead_id?: string; variables?: Record<string, string>; message_content?: string }) => ({
       institution_id,
-      lead_id: r.lead_id || '',
+      lead_id: r.lead_id || null,
       template_id: template_id || undefined,
       recipient_phone: r.phone,
       message_content: r.message_content || template_name || '',

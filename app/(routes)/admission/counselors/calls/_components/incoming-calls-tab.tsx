@@ -314,7 +314,7 @@ function InboundVolumeChart({
             onClick={() => onDateClick?.(day.date)}
           >
             <span className={cn("text-xs w-20 shrink-0", isSelected ? "font-bold text-blue-600" : "text-muted-foreground")}>
-              {new Date(day.date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              {new Date(day.date + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' })}
             </span>
             <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden flex">
               <div
@@ -597,7 +597,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
           <span>
             Showing calls
             {drilldownDate && (
-              <> from <span className="font-semibold">{new Date(drilldownDate + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span></>
+              <> from <span className="font-semibold">{new Date(drilldownDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' })}</span></>
             )}
             {drilldownHour != null && (
               <> between <span className="font-semibold">
@@ -797,7 +797,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           </TableCell>
                           <TableCell>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(caller.last_call_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              {new Date(caller.last_call_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                             </span>
                           </TableCell>
                         </TableRow>
@@ -884,11 +884,12 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                       </TableCell>
                       <TableCell>
                         <span className="text-xs text-muted-foreground">
-                          {new Date(log.started_at || log.created_at).toLocaleDateString(undefined, {
+                          {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', {
                             month: 'short',
                             day: 'numeric',
                             hour: '2-digit',
                             minute: '2-digit',
+                            timeZone: 'Asia/Kolkata',
                           })}
                         </span>
                       </TableCell>

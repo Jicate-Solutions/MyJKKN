@@ -25,7 +25,7 @@
     },
     {
       "path": "/api/admission/calls/sync",
-      "schedule": "*/5 8-20 * * 1-6"
+      "schedule": "*/5 2-16 * * 1-6"
     },
     {
       "path": "/api/cron/sync-inbound-calls",
