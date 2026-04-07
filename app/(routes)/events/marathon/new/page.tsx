@@ -18,15 +18,35 @@ import { Textarea } from '@/components/ui/textarea';
 import { useCreateMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import { EventBaseService } from '@/lib/services/events/core/event-base-service';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ShieldAlert } from 'lucide-react';
 
 export default function CreateMarathonEventPage() {
   const router = useRouter();
   const { profile } = useAuth();
   const { selectedInstitutionId, loading: institutionLoading } = useUserInstitutionAccess();
+  const access = useMarathonAccess();
   const institutionId = selectedInstitutionId || profile?.institution_id || '';
   const createMutation = useCreateMarathonEvent();
+
+  // Block non-admin users from creating events
+  if (!access.isLoading && !access.canManage) {
+    return (
+      <ContentLayout title="Access Denied">
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <ShieldAlert className="h-12 w-12 text-muted-foreground" />
+          <h2 className="text-lg font-semibold">Access Denied</h2>
+          <p className="text-sm text-muted-foreground">
+            You don&apos;t have permission to create marathon events.
+          </p>
+          <Button variant="outline" onClick={() => router.push('/events/marathon')}>
+            Go Back
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   const currentYear = new Date().getFullYear();
 

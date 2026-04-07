@@ -50,6 +50,7 @@ import {
 import Image from 'next/image';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
 import toast from 'react-hot-toast';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import type { EventCategory } from '@/types/events';
 
 // ============================================================================
@@ -1177,8 +1178,26 @@ function RegistrationTab({ event }: { event: any }) {
 
 export default function MarathonSettingsPage() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id as string;
   const { data: event, isLoading, error } = useMarathonEvent(id);
+  const access = useMarathonAccess();
+
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return (
+      <ContentLayout title="Access Denied">
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <p className="text-sm text-muted-foreground">
+            You don&apos;t have permission to access event settings.
+          </p>
+          <Button variant="outline" onClick={() => router.push('/events/marathon')}>
+            Go Back
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (isLoading) {
     return (

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { useMarathonEvents, useUpdateMarathonStatus } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import { Loader2, Plus, Calendar, MapPin, Eye, MoreHorizontal, ArrowRight, Settings, Users } from 'lucide-react';
 import {
   DropdownMenu,
@@ -58,6 +59,7 @@ export default function MarathonEventsPage() {
   const { profile, isLoading: authLoading } = useAuth();
   const { selectedInstitutionId, loading: institutionLoading } = useUserInstitutionAccess();
   const institutionId = selectedInstitutionId || profile?.institution_id || '';
+  const access = useMarathonAccess();
   const updateStatus = useUpdateMarathonStatus();
 
   const {
@@ -147,25 +149,33 @@ export default function MarathonEventsPage() {
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => router.push(`/events/marathon/${event.id}/dashboard`)}
-                >
-                  <Eye className="mr-2 h-4 w-4" />
-                  View Dashboard
-                </DropdownMenuItem>
+                {/* Dashboard — admin only */}
+                {access.canManage && (
+                  <DropdownMenuItem
+                    onClick={() => router.push(`/events/marathon/${event.id}/dashboard`)}
+                  >
+                    <Eye className="mr-2 h-4 w-4" />
+                    View Dashboard
+                  </DropdownMenuItem>
+                )}
+                {/* Registrations — all roles */}
                 <DropdownMenuItem
                   onClick={() => router.push(`/events/marathon/${event.id}/registrations`)}
                 >
                   <Users className="mr-2 h-4 w-4" />
-                  Registrations
+                  {access.selfOnly ? 'My Registration' : 'Registrations'}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => router.push(`/events/marathon/${event.id}/settings`)}
-                >
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </DropdownMenuItem>
-                {allowedTransitions.length > 0 && (
+                {/* Settings — admin only */}
+                {access.canManage && (
+                  <DropdownMenuItem
+                    onClick={() => router.push(`/events/marathon/${event.id}/settings`)}
+                  >
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </DropdownMenuItem>
+                )}
+                {/* Status change — admin only */}
+                {access.canManage && allowedTransitions.length > 0 && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuSub>
@@ -194,7 +204,7 @@ export default function MarathonEventsPage() {
         },
       },
     ],
-    [router, updateStatus]
+    [router, updateStatus, access.canManage, access.selfOnly]
   );
 
   // Global filter across name, venue, and year
@@ -262,11 +272,13 @@ export default function MarathonEventsPage() {
             globalFilterFn={globalFilterFn}
             onRefresh={() => refetch()}
             tableTools={
-              <Link href="/events/marathon/new">
-                <Button size="sm" className="gap-2">
-                  <Plus className="h-4 w-4" /> Create Event
-                </Button>
-              </Link>
+              access.canManage ? (
+                <Link href="/events/marathon/new">
+                  <Button size="sm" className="gap-2">
+                    <Plus className="h-4 w-4" /> Create Event
+                  </Button>
+                </Link>
+              ) : undefined
             }
           />
         )}
