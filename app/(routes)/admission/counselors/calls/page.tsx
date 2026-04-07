@@ -465,7 +465,7 @@ function CallLogDashboardContent() {
                       return (
                         <div key={day.date} className="flex items-center gap-3">
                           <span className="text-xs text-muted-foreground w-20 shrink-0">
-                            {new Date(day.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' })}
+                            {new Date(day.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
                           </span>
                           <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden">
                             <div
@@ -677,7 +677,7 @@ function CallLogDashboardContent() {
                                 day: 'numeric',
                                 hour: '2-digit',
                                 minute: '2-digit',
-                                timeZone: 'Asia/Kolkata',
+                                timeZone: 'UTC',
                               })}
                             </span>
                           </TableCell>
