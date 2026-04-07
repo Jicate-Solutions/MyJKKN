@@ -2,7 +2,18 @@
 // WhatsApp Campaign Service for Admission CRM
 // Integrates with WhatsApp MCP server for sending campaign messages
 
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
+
+// Inline service role client — cannot import from server.ts because
+// this file is also imported in client-side hooks (via hooks/admission/index.ts).
+// server.ts exports use cookies() which breaks client bundles.
+function getServiceRoleSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
 import { CommunicationTemplatesService } from './communication-templates-service';
 import { WhatsAppConsentService } from '@/lib/services/whatsapp/whatsapp-consent-service';
 import {
@@ -96,7 +107,7 @@ export interface WebhookPayload {
 
 export class WhatsAppCampaignService {
   private static get supabase() {
-    return createServiceRoleClient();
+    return getServiceRoleSupabase();
   }
 
   // ============================================================================
