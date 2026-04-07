@@ -531,7 +531,7 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
               onClick={() => {
                 setContactSource('leads');
                 // Fetch all leads with wa_opt_in
-                fetch(`/api/admission/leads?institution_id=${institutionId}&wa_opt_in=true&limit=500`)
+                fetch(`/api/admission/leads/list?institution_id=${institutionId}&wa_opt_in=true&limit=500`)
                   .then(r => r.json())
                   .then(data => {
                     const leads = (data.data || data || []).map((l: Record<string, string>) => ({
