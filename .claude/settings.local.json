@@ -245,7 +245,9 @@
       "mcp__exotel__getNumberMetadata",
       "WebFetch(domain:developer.exotel.com)",
       "mcp__exotel__getVoiceCallCallbacks",
-      "mcp__exotel__getBulkCallDetails"
+      "mcp__exotel__getBulkCallDetails",
+      "mcp__plugin_vercel_vercel__list_teams",
+      "mcp__plugin_vercel_vercel__list_projects"
     ],
     "deny": [],
     "ask": []
