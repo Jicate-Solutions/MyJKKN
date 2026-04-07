@@ -135,13 +135,21 @@ export class EventBaseService {
         .single();
 
       if (error) {
-        logger.error('events/core', 'Failed to create event', error);
-        throw error;
+        logger.error('events/core', 'Failed to create event', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          dto_keys: Object.keys(dto),
+        });
+        throw new Error(error.message || 'Failed to create event');
       }
 
       return data as unknown as Event;
     } catch (error) {
-      logger.error('events/core', 'Unexpected error in createEvent', error);
+      if (error instanceof Error) {
+        logger.error('events/core', 'Unexpected error in createEvent', { message: error.message });
+      }
       throw error;
     }
   }
