@@ -113,6 +113,8 @@ async function addWANumber(data: {
   phone_number_id: string;
   business_account_id: string;
   display_number: string;
+  verified_name?: string;
+  quality_rating?: string;
   access_token?: string;
 }): Promise<WAPhoneNumber> {
   const res = await fetch('/api/admission/settings/whatsapp-numbers', {
