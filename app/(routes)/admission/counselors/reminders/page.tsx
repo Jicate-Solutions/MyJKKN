@@ -895,104 +895,107 @@ function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss,
   return (
     <Card className={cn(
       "transition-all hover:shadow-md",
-      isOverdue && "border-red-300 dark:border-red-800"
+      isOverdue && "border-red-300 dark:border-red-800 border-l-4 border-l-red-500"
     )}>
       <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className={cn(
-              "p-2 rounded-lg",
-              reminder.action === 'call' && "bg-green-100 dark:bg-green-900/30",
-              reminder.action === 'whatsapp' && "bg-emerald-100 dark:bg-emerald-900/30",
-              reminder.action === 'email' && "bg-blue-100 dark:bg-blue-900/30",
-              reminder.action === 'task' && "bg-purple-100 dark:bg-purple-900/30"
-            )}>
-              {getActionIcon(reminder.action)}
+        {/* Top row: icon + lead info */}
+        <div className="flex items-start gap-3">
+          <div className={cn(
+            "p-2 rounded-lg shrink-0",
+            reminder.action === 'call' && "bg-green-100 dark:bg-green-900/30",
+            reminder.action === 'whatsapp' && "bg-emerald-100 dark:bg-emerald-900/30",
+            reminder.action === 'email' && "bg-blue-100 dark:bg-blue-900/30",
+            reminder.action === 'task' && "bg-purple-100 dark:bg-purple-900/30"
+          )}>
+            {getActionIcon(reminder.action)}
+          </div>
+          <div className="flex-1 min-w-0">
+            {/* Lead name + badges — wrap on mobile */}
+            <div className="flex flex-wrap items-center gap-1.5 mb-1">
+              <h4 className="font-medium truncate max-w-[200px] sm:max-w-none">{reminder.leadName}</h4>
+              <Badge variant="outline" className="text-xs shrink-0">
+                {reminder.leadStage}
+              </Badge>
+              {reminder.isHotLead && (
+                <Badge variant="destructive" className="text-xs shrink-0">Hot</Badge>
+              )}
+              <Badge className={cn("text-xs shrink-0", getPriorityColor(reminder.priority))}>
+                {reminder.priority}
+              </Badge>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-medium truncate">{reminder.leadName}</h4>
-                <Badge variant="outline" className="text-xs">
-                  {reminder.leadStage}
-                </Badge>
-                {reminder.isHotLead && (
-                  <Badge variant="destructive" className="text-xs">Hot</Badge>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground mb-2">
-                {reminder.message}
-              </p>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                {reminder.leadPhone && (
-                  <span className="flex items-center gap-1">
-                    <Phone className="h-3 w-3" />
-                    {reminder.leadPhone}
-                  </span>
-                )}
-                <span className="flex items-center gap-1 text-muted-foreground">
-                  Counselor: {reminder.counselorName}
+            <p className="text-sm text-muted-foreground mb-2 line-clamp-2">
+              {reminder.message}
+            </p>
+            {/* Meta row — wraps naturally */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {reminder.leadPhone && (
+                <span className="flex items-center gap-1">
+                  <Phone className="h-3 w-3" />
+                  {reminder.leadPhone}
                 </span>
-                <span className={cn("px-2 py-0.5 rounded-full", dueStatus.bg, dueStatus.color)}>
-                  {dueStatus.label}
-                </span>
-              </div>
+              )}
+              <span className="flex items-center gap-1 text-muted-foreground">
+                Counselor: {reminder.counselorName}
+              </span>
+              <span className={cn("px-2 py-0.5 rounded-full font-medium", dueStatus.bg, dueStatus.color)}>
+                {dueStatus.label}
+              </span>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <Badge className={cn("text-xs", getPriorityColor(reminder.priority))}>
-              {reminder.priority}
-            </Badge>
-            <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onSnooze}
-                disabled={isSnoozing || isCompleting}
-              >
-                {isSnoozing ? (
-                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                ) : (
-                  <Clock className="h-3 w-3 mr-1" />
-                )}
-                Snooze
+        </div>
+
+        {/* Action buttons row — full-width tappable on mobile */}
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onSnooze}
+            disabled={isSnoozing || isCompleting}
+            className="flex-1 sm:flex-none min-h-[44px]"
+          >
+            {isSnoozing ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <Clock className="h-4 w-4 mr-1.5" />
+            )}
+            Snooze
+          </Button>
+          <Button
+            size="sm"
+            onClick={onComplete}
+            disabled={isCompleting || isSnoozing}
+            className="flex-1 sm:flex-none min-h-[44px]"
+          >
+            {isCompleting ? (
+              <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+            ) : (
+              <CheckCircle className="h-4 w-4 mr-1.5" />
+            )}
+            Done
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="ghost" className="min-h-[44px] min-w-[44px] shrink-0">
+                <MoreHorizontal className="h-4 w-4" />
               </Button>
-              <Button
-                size="sm"
-                onClick={onComplete}
-                disabled={isCompleting || isSnoozing}
-              >
-                {isCompleting ? (
-                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                ) : (
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                )}
-                Done
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="ghost">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => {
-                    window.open(`/admission/leads/${reminder.leadId}`, '_blank');
-                  }}>
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    View Lead
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onReschedule}>
-                    <Calendar className="h-4 w-4 mr-2" />
-                    Reschedule
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-600" onClick={onDismiss}>
-                    <AlertCircle className="h-4 w-4 mr-2" />
-                    Dismiss
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => {
+                window.open(`/admission/leads/${reminder.leadId}`, '_blank');
+              }}>
+                <ExternalLink className="h-4 w-4 mr-2" />
+                View Lead
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onReschedule}>
+                <Calendar className="h-4 w-4 mr-2" />
+                Reschedule
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-red-600" onClick={onDismiss}>
+                <AlertCircle className="h-4 w-4 mr-2" />
+                Dismiss
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </CardContent>
     </Card>
@@ -1011,10 +1014,11 @@ function RuleCard({ rule, onToggle, onSettings }: {
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {/* Left: icon + rule info */}
+          <div className="flex items-start gap-3 min-w-0">
             <div className={cn(
-              "p-2 rounded-lg",
+              "p-2 rounded-lg shrink-0",
               rule.isActive ? "bg-green-100 dark:bg-green-900/30" : "bg-gray-100 dark:bg-gray-900/30"
             )}>
               <Zap className={cn(
@@ -1022,10 +1026,10 @@ function RuleCard({ rule, onToggle, onSettings }: {
                 rule.isActive ? "text-green-600" : "text-gray-400"
               )} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="font-medium">{rule.name}</h4>
-                <Badge variant={rule.isActive ? "default" : "secondary"}>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h4 className="font-medium truncate">{rule.name}</h4>
+                <Badge variant={rule.isActive ? "default" : "secondary"} className="shrink-0">
                   {rule.isActive ? 'Active' : 'Paused'}
                 </Badge>
               </div>
@@ -1039,13 +1043,14 @@ function RuleCard({ rule, onToggle, onSettings }: {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 mr-4">
+          {/* Right: action type + switch + settings */}
+          <div className="flex items-center gap-2 pl-11 sm:pl-0 shrink-0">
+            <div className="flex items-center gap-1.5 mr-2 sm:mr-4">
               {getActionIcon(rule.action)}
               <span className="text-sm text-muted-foreground capitalize">{rule.action}</span>
             </div>
             <Switch checked={rule.isActive} onCheckedChange={onToggle} />
-            <Button variant="ghost" size="icon" onClick={onSettings}>
+            <Button variant="ghost" size="icon" onClick={onSettings} className="min-h-[44px] min-w-[44px]">
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -1211,8 +1216,8 @@ function AdmissionRemindersPageContent() {
     <PermissionGuard module="admission" action="view">
       <ContentLayout title="Follow-up Reminders">
         <div className="space-y-6">
-          {/* Breadcrumb */}
-          <div className="flex items-center justify-between">
+          {/* Breadcrumb + Actions — stacked on mobile */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -1225,11 +1230,12 @@ function AdmissionRemindersPageContent() {
               </BreadcrumbList>
             </Breadcrumb>
 
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:w-auto">
               <Button
                 variant="outline"
                 onClick={handleRefresh}
                 disabled={isRefreshing || dataLoading}
+                className="w-full sm:w-auto min-h-[44px]"
               >
                 {isRefreshing ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1238,9 +1244,9 @@ function AdmissionRemindersPageContent() {
                 )}
                 Refresh
               </Button>
-              <Button onClick={() => setCreateDialogOpen(true)}>
+              <Button onClick={() => setCreateDialogOpen(true)} className="w-full sm:w-auto min-h-[44px]">
                 <Bell className="h-4 w-4 mr-2" />
-                Create Reminder
+                <span className="sm:inline">Create Reminder</span>
               </Button>
             </div>
           </div>
@@ -1257,7 +1263,7 @@ function AdmissionRemindersPageContent() {
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
             <Card className={cn(
               "cursor-pointer transition-all",
               filter === 'all' && "ring-2 ring-primary"
@@ -1342,15 +1348,17 @@ function AdmissionRemindersPageContent() {
 
           {/* Tabs */}
           <Tabs defaultValue="reminders" className="space-y-6">
-            <TabsList>
-              <TabsTrigger value="reminders">
+            <TabsList className="w-full sm:w-auto grid grid-cols-3 sm:inline-flex">
+              <TabsTrigger value="reminders" className="min-h-[44px]">
                 Reminders
                 {(overdueCount > 0) && (
                   <Badge variant="destructive" className="ml-2">{overdueCount}</Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="rules">Automation Rules</TabsTrigger>
-              <TabsTrigger value="history">History</TabsTrigger>
+              <TabsTrigger value="rules" className="min-h-[44px]">
+                <span className="hidden sm:inline">Automation </span>Rules
+              </TabsTrigger>
+              <TabsTrigger value="history" className="min-h-[44px]">History</TabsTrigger>
             </TabsList>
 
             {/* Reminders Tab */}
@@ -1394,14 +1402,14 @@ function AdmissionRemindersPageContent() {
 
             {/* Automation Rules Tab */}
             <TabsContent value="rules" className="space-y-4">
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                 <div>
                   <h3 className="text-lg font-medium">Automation Rules</h3>
                   <p className="text-sm text-muted-foreground">
                     Configure rules to automatically generate follow-up reminders
                   </p>
                 </div>
-                <Button onClick={() => setAddRuleDialogOpen(true)}>
+                <Button onClick={() => setAddRuleDialogOpen(true)} className="w-full sm:w-auto min-h-[44px]">
                   <Zap className="h-4 w-4 mr-2" />
                   Add Rule
                 </Button>

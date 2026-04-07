@@ -1107,6 +1107,40 @@ export class TelephonyService {
         .eq('id', callLogId);
     }
 
+    // ── 7. Auto-advance funnel stage on answered call (>30s) ──
+    if (finalLeadId && isConnected && durationSec >= 30) {
+      // Only advance if currently 'new' — don't regress leads already further along
+      const { data: currentLead } = await supabase
+        .from('admission_leads')
+        .select('funnel_stage')
+        .eq('id', finalLeadId)
+        .single();
+
+      if (currentLead?.funnel_stage === 'new') {
+        await supabase
+          .from('admission_leads')
+          .update({
+            funnel_stage: 'contacted',
+            stage: 'contacted',
+            last_contact_at: new Date().toISOString(),
+          })
+          .eq('id', finalLeadId);
+
+        logger.info('telephony/intelligence', 'Auto-advanced lead to contacted', {
+          leadId: finalLeadId,
+          durationSec,
+        });
+      }
+    }
+
+    // ── 8. Update last_contact_at on every connected call ──
+    if (finalLeadId && isConnected) {
+      await supabase
+        .from('admission_leads')
+        .update({ last_contact_at: new Date().toISOString() })
+        .eq('id', finalLeadId);
+    }
+
     logger.info('telephony/intelligence', 'Call intelligence processed', {
       callLogId,
       callerPhone: callerPhone.slice(-4),
