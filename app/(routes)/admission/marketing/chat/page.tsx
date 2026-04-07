@@ -187,7 +187,7 @@ function ChatInboxContent() {
                 {/* Left panel: conversation list — fixed width */}
                 <div className="w-[380px] flex-shrink-0 h-full border-r">
                   <ConversationList
-                    activeId={activeConversation?.id || null}
+                    activeId={activeConversation?.id ?? undefined}
                     onSelect={(conv: Conversation) => {
                       setActiveConversation(conv);
                     }}
@@ -237,7 +237,7 @@ function ChatInboxContent() {
                 {mobileView === 'list' && (
                   <div className="w-full h-full">
                     <ConversationList
-                      activeId={activeConversation?.id || null}
+                      activeId={activeConversation?.id ?? undefined}
                       onSelect={(conv: Conversation) => {
                         setActiveConversation(conv);
                         setMobileView('chat');

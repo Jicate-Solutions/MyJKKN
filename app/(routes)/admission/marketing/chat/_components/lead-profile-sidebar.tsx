@@ -56,7 +56,7 @@ function getInitials(name: string | null | undefined, phone: string | null | und
     if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     return name[0].toUpperCase();
   }
-  return (phone ?? '?')[0].toUpperCase();
+  return ((phone ?? '?')[0] || '?').toUpperCase();
 }
 
 function getAvatarBg(seed: string): string {
@@ -78,9 +78,10 @@ function getAvatarBg(seed: string): string {
 function getStagePill(stage: string): string {
   switch (stage?.toLowerCase()) {
     case 'new':       return 'bg-blue-100 text-blue-800 border-blue-200';
-    case 'contacted': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'contacted': return 'bg-cyan-100 text-cyan-800 border-cyan-200';
     case 'qualified': return 'bg-green-100 text-green-800 border-green-200';
     case 'applied':   return 'bg-purple-100 text-purple-800 border-purple-200';
+    case 'offered':   return 'bg-orange-100 text-orange-800 border-orange-200';
     case 'enrolled':  return 'bg-emerald-100 text-emerald-800 border-emerald-200';
     case 'lost':      return 'bg-red-100 text-red-800 border-red-200';
     default:          return 'bg-gray-100 text-gray-700 border-gray-200';
@@ -108,11 +109,11 @@ function InfoRow({
   value: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
-      <Icon className="h-4 w-4 text-gray-400 mt-0.5 flex-shrink-0" />
+    <div className="flex items-start gap-3 py-3 border-b border-gray-100 dark:border-[#2a3942] last:border-0">
+      <Icon className="h-4 w-4 text-gray-400 dark:text-gray-500 mt-0.5 flex-shrink-0" />
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] text-gray-400 leading-none mb-0.5">{label}</p>
-        <div className="text-[13px] text-gray-800 break-words">{value}</div>
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-none mb-0.5">{label}</p>
+        <div className="text-[13px] text-gray-800 dark:text-[#e9edef] break-words">{value}</div>
       </div>
     </div>
   );
@@ -120,7 +121,7 @@ function InfoRow({
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-100 rounded-lg overflow-hidden mx-3 my-2">
+    <div className="bg-white dark:bg-[#202c33] border border-gray-100 dark:border-[#2a3942] rounded-lg overflow-hidden mx-3 my-2">
       {children}
     </div>
   );
@@ -145,12 +146,12 @@ function ActionRow({
       disabled={disabled}
       className={[
         'w-full flex items-center gap-3 px-4 py-3.5',
-        'border-b border-gray-100 last:border-0',
+        'border-b border-gray-100 dark:border-[#2a3942] last:border-0',
         'text-[13px] font-medium text-left',
         'transition-colors duration-150',
         danger
-          ? 'text-red-500 hover:bg-red-50 active:bg-red-100'
-          : 'text-gray-700 hover:bg-gray-50 active:bg-gray-100',
+          ? 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 active:bg-red-100'
+          : 'text-gray-700 dark:text-[#e9edef] hover:bg-gray-50 dark:hover:bg-[#2a3942] active:bg-gray-100',
         disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
       ].join(' ')}
     >
@@ -295,7 +296,7 @@ export function LeadProfileSidebar({ conversationId, onClose }: LeadProfileSideb
 
   return (
     /* Outer wrapper — parent decides width; we fill it */
-    <div className="flex flex-col h-full bg-[#f0f2f5]">
+    <div className="flex flex-col h-full bg-[#f0f2f5] dark:bg-[#111b21]">
 
       {/* ── 1. Header bar ─────────────────────────────────────────────── */}
       <div className="bg-[#0b6d41] px-4 py-3 flex items-center gap-3 flex-shrink-0">
@@ -323,7 +324,7 @@ export function LeadProfileSidebar({ conversationId, onClose }: LeadProfileSideb
         <div className="pb-6">
 
           {/* ── 2a. Avatar section ──────────────────────────────────── */}
-          <div className="bg-white border-b border-gray-100 py-6 flex flex-col items-center gap-1">
+          <div className="bg-white dark:bg-[#202c33] border-b border-gray-100 dark:border-[#2a3942] py-6 flex flex-col items-center gap-1">
             {/* avatar */}
             <div
               className={[
@@ -337,7 +338,7 @@ export function LeadProfileSidebar({ conversationId, onClose }: LeadProfileSideb
             </div>
 
             {/* name */}
-            <h2 className="mt-3 text-xl font-bold text-gray-900 text-center px-4 leading-tight">
+            <h2 className="mt-3 text-xl font-bold text-gray-900 dark:text-[#e9edef] text-center px-4 leading-tight">
               {displayName}
             </h2>
 
@@ -410,7 +411,7 @@ export function LeadProfileSidebar({ conversationId, onClose }: LeadProfileSideb
                 <InfoRow icon={Tag} label="Source" value={lead.source} />
               )}
 
-              {lead?.interested_programs && lead.interested_programs.length > 0 && (
+              {Array.isArray(lead?.interested_programs) && lead.interested_programs.length > 0 && (
                 <InfoRow icon={Layers} label="Interested Programs" value={
                   <div className="flex flex-wrap gap-1 mt-0.5">
                     {lead.interested_programs.map((prog: string) => (
@@ -524,13 +525,11 @@ export function LeadProfileSidebar({ conversationId, onClose }: LeadProfileSideb
           {/* ── 2d. Action buttons ──────────────────────────────────── */}
           <SectionCard>
             {lead && (
-              <a
-                href={`/admission/leads/${lead.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <ActionRow icon={ExternalLink} label="View Lead Profile" />
-              </a>
+              <ActionRow
+                icon={ExternalLink}
+                label="View Lead Profile"
+                onClick={() => window.open(`/admission/leads/${lead.id}`, '_blank', 'noopener,noreferrer')}
+              />
             )}
 
             {/* Assign to Counselor — functional Select */}
