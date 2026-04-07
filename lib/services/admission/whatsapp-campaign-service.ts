@@ -118,8 +118,14 @@ export class WhatsAppCampaignService {
         };
       }
 
-      // Format phone number (remove + and spaces)
+      // Format and validate phone number
       const formattedPhone = this.formatPhoneNumber(input.recipient_phone);
+      if (formattedPhone === null) {
+        return {
+          success: false,
+          error: `Invalid phone number: "${input.recipient_phone}" contains non-numeric characters`,
+        };
+      }
 
       // Get message content
       let messageContent = input.message_content || '';
@@ -155,6 +161,16 @@ export class WhatsAppCampaignService {
         };
       }
 
+      // Check if WhatsApp Cloud API is configured BEFORE creating a DB log entry.
+      // Previously this check happened after the insert, which created a "pending"
+      // log that was immediately marked "failed" — misleading and noisy.
+      if (!isWhatsAppConfigured()) {
+        return {
+          success: false,
+          error: 'WhatsApp Cloud API not configured',
+        };
+      }
+
       // Create log entry with pending status
       const { data: logEntry, error: insertError } = await this.supabase
         .from('admission_whatsapp_logs')
@@ -177,24 +193,6 @@ export class WhatsAppCampaignService {
         return {
           success: false,
           error: 'Failed to create message log',
-        };
-      }
-
-      // Check if WhatsApp Cloud API is configured
-      if (!isWhatsAppConfigured()) {
-        await this.supabase
-          .from('admission_whatsapp_logs')
-          .update({
-            delivery_status: 'failed',
-            failed_at: new Date().toISOString(),
-            error_message: 'WhatsApp Cloud API not configured (missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID)',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', logEntry.id);
-
-        return {
-          success: false,
-          error: 'WhatsApp Cloud API not configured',
         };
       }
 
@@ -629,12 +627,22 @@ export class WhatsAppCampaignService {
   // ============================================================================
 
   /**
-   * Format phone number for WhatsApp
-   * Removes + and spaces, ensures country code
+   * Format phone number for WhatsApp.
+   * Strips allowed separator characters (+ space - .) then validates that only
+   * digits remain.  Returns null for strings that still contain non-digit chars
+   * after stripping (e.g. "abc123") so the caller can reject them early rather
+   * than silently producing a malformed number like "91123".
    */
-  private static formatPhoneNumber(phone: string): string {
-    // Remove all non-digit characters
-    let cleaned = phone.replace(/\D/g, '');
+  private static formatPhoneNumber(phone: string): string | null {
+    // Strip the separator characters that are legitimately part of phone strings
+    const stripped = phone.replace(/[\s+\-.()\u00A0]/g, '');
+
+    // Reject anything that still has non-digit characters
+    if (/\D/.test(stripped)) {
+      return null;
+    }
+
+    let cleaned = stripped;
 
     // If starts with 0, remove it and add India country code
     if (cleaned.startsWith('0')) {
