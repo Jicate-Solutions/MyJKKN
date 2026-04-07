@@ -133,7 +133,11 @@ function ChatInboxContent() {
 
           {/* Tab Bar */}
           <div className="flex items-center rounded-lg border p-0.5 gap-0.5 overflow-x-auto">
-            {TABS.map(tab => {
+            {TABS.filter(tab => {
+              // Hide Broadcast tab for non-super-admins
+              if (tab.id === 'broadcast' && profile?.role !== 'super_admin' && profile?.is_super_admin !== true) return false;
+              return true;
+            }).map(tab => {
               const Icon = tab.icon;
               const isActive = channel === tab.id;
               const isPersonal = tab.id === 'personal';
@@ -185,7 +189,7 @@ function ChatInboxContent() {
           {channel === 'broadcast' && (
             <Card className="overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
               <div className="h-full overflow-y-auto p-6">
-                <BroadcastTab institutionId={institutionId || ''} />
+                <BroadcastTab institutionId={institutionId || ''} isSuperAdmin={profile?.role === 'super_admin' || profile?.is_super_admin === true} />
               </div>
             </Card>
           )}

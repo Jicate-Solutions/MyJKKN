@@ -39,6 +39,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No institution found for user' }, { status: 403 });
     }
 
+    // Only super_admin can launch broadcast campaigns
+    if (profile.role !== 'super_admin') {
+      return NextResponse.json(
+        { error: 'Only super admins can send broadcast campaigns' },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const {
       campaign_name,
@@ -140,6 +148,17 @@ export async function GET(request: NextRequest) {
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Only super_admin can view broadcast campaigns
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('institution_id, role')
+      .eq('id', user.id)
+      .single();
+
+    if (profile?.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Only super admins can access broadcasts' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
