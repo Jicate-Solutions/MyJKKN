@@ -552,7 +552,7 @@ function BriefingPageContent() {
                       const percentage = ((count as number) / total) * 100;
                       return (
                         <div key={stage} className="flex items-center gap-3">
-                          <div className="w-32 text-sm capitalize truncate">
+                          <div className="w-24 sm:w-32 text-sm capitalize truncate">
                             {stage.replace(/_/g, ' ')}
                           </div>
                           <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden">

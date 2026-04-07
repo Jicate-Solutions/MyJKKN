@@ -241,9 +241,9 @@ function CounselorViewPageContent() {
 
       {/* Filters row */}
       {showFilters && (
-        <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+        <div className="flex flex-wrap items-center gap-2 p-3 bg-muted/50 rounded-lg">
           <Select value={stageFilter} onValueChange={setStageFilter}>
-            <SelectTrigger className="h-8 w-[180px] text-xs">
+            <SelectTrigger className="h-8 w-full sm:w-[180px] text-xs">
               <SelectValue placeholder="Filter by stage" />
             </SelectTrigger>
             <SelectContent>
@@ -256,7 +256,7 @@ function CounselorViewPageContent() {
           </Select>
 
           <Select value={academicYearFilter} onValueChange={setAcademicYearFilter}>
-            <SelectTrigger className="h-8 w-[150px] text-xs">
+            <SelectTrigger className="h-8 w-full sm:w-[150px] text-xs">
               <SelectValue placeholder="Academic Year" />
             </SelectTrigger>
             <SelectContent>
@@ -297,7 +297,7 @@ function CounselorViewPageContent() {
               setSelectedCounselorUserId('');
             }}
           >
-            <SelectTrigger className="h-8 w-[280px] text-xs">
+            <SelectTrigger className="h-8 w-full sm:w-[280px] text-xs">
               <SelectValue placeholder="Select an institution" />
             </SelectTrigger>
             <SelectContent>

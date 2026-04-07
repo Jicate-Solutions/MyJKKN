@@ -910,7 +910,7 @@ function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss,
               {getActionIcon(reminder.action)}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-1.5 mb-1">
                 <h4 className="font-medium truncate">{reminder.leadName}</h4>
                 <Badge variant="outline" className="text-xs">
                   {reminder.leadStage}
@@ -922,7 +922,7 @@ function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss,
               <p className="text-sm text-muted-foreground mb-2">
                 {reminder.message}
               </p>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+              <div className="flex flex-wrap items-center gap-1.5 mb-1 text-xs text-muted-foreground">
                 {reminder.leadPhone && (
                   <span className="flex items-center gap-1">
                     <Phone className="h-3 w-3" />
@@ -1212,7 +1212,7 @@ function AdmissionRemindersPageContent() {
       <ContentLayout title="Follow-up Reminders">
         <div className="space-y-6">
           {/* Breadcrumb */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>

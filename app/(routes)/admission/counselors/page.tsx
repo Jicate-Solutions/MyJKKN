@@ -295,7 +295,8 @@ function CounselorLeaderboard({
             </div>
 
             {/* Leaderboard Table */}
-            <Table>
+            <div className="overflow-x-auto -mx-6 px-6">
+            <Table className="min-w-[700px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-16">Rank</TableHead>
@@ -376,6 +377,7 @@ function CounselorLeaderboard({
                 })}
               </TableBody>
             </Table>
+            </div>
           </>
         )}
       </CardContent>
@@ -455,11 +457,11 @@ function CounselorPerformancePageContent() {
                 Track and compare counselor performance metrics
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {/* Institution selector for global users (super admins / admission role) / multi-institution users */}
               {(isGlobalUser || institutions.length > 1) && (
                 <Select value={chosenInstitutionId} onValueChange={setChosenInstitutionId}>
-                  <SelectTrigger className="w-56">
+                  <SelectTrigger className="w-full sm:w-56">
                     <SelectValue placeholder={isGlobalUser ? 'All Institutions' : 'Select institution'} />
                   </SelectTrigger>
                   <SelectContent>
@@ -475,7 +477,7 @@ function CounselorPerformancePageContent() {
                 </Select>
               )}
               <Select value={dateRange} onValueChange={setDateRange}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-full sm:w-40">
                   <SelectValue placeholder="Select period" />
                 </SelectTrigger>
                 <SelectContent>
