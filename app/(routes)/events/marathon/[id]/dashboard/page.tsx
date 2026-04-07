@@ -31,7 +31,16 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useMarathonDashboard } from '@/hooks/events/marathon/use-marathon-dashboard';
-import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonEvent, useUpdateMarathonStatus } from '@/hooks/events/marathon/use-marathon-events';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import type { EventStatus } from '@/types/events';
+import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
 
 // ============================================================================
 // Helpers
@@ -70,20 +79,63 @@ const STATUS_MAP: Record<
   { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }
 > = {
   draft: { label: 'Draft', variant: 'outline' },
-  published: { label: 'Published', variant: 'default' },
-  registration_open: { label: 'Registration Open', variant: 'default' },
-  registration_closed: { label: 'Registration Closed', variant: 'secondary' },
-  ongoing: { label: 'Ongoing', variant: 'default' },
-  completed: { label: 'Completed', variant: 'secondary' },
+  planning: { label: 'Planning', variant: 'outline' },
+  preparation: { label: 'Preparation', variant: 'secondary' },
+  execution: { label: 'Execution', variant: 'default' },
+  live: { label: 'Live', variant: 'default' },
+  post_event: { label: 'Post Event', variant: 'secondary' },
+  archived: { label: 'Archived', variant: 'secondary' },
   cancelled: { label: 'Cancelled', variant: 'destructive' },
 };
 
-function EventStatusBadge({ status }: { status: string }) {
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Draft',
+  planning: 'Planning',
+  preparation: 'Preparation',
+  execution: 'Execution',
+  live: 'Live',
+  post_event: 'Post Event',
+  archived: 'Archived',
+  cancelled: 'Cancelled',
+};
+
+function EventStatusControl({ eventId, status }: { eventId: string; status: EventStatus }) {
+  const updateStatus = useUpdateMarathonStatus();
   const config = STATUS_MAP[status] ?? { label: status, variant: 'outline' as const };
+  const allowedTransitions = EVENT_STATUS_TRANSITIONS[status] ?? [];
+
+  if (allowedTransitions.length === 0) {
+    // No transitions available — show read-only badge
+    return (
+      <Badge variant={config.variant} className="text-sm px-3 py-1">
+        {config.label}
+      </Badge>
+    );
+  }
+
   return (
-    <Badge variant={config.variant} className="text-sm px-3 py-1">
-      {config.label}
-    </Badge>
+    <div className="flex items-center gap-2">
+      <Badge variant={config.variant} className="text-sm px-3 py-1">
+        {config.label}
+      </Badge>
+      <Select
+        onValueChange={(newStatus) => {
+          updateStatus.mutate({ id: eventId, status: newStatus as EventStatus });
+        }}
+        disabled={updateStatus.isPending}
+      >
+        <SelectTrigger className="w-[160px] h-8 text-xs">
+          <SelectValue placeholder="Change status..." />
+        </SelectTrigger>
+        <SelectContent>
+          {allowedTransitions.map((s) => (
+            <SelectItem key={s} value={s}>
+              → {STATUS_LABELS[s] ?? s}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 
@@ -450,7 +502,7 @@ export default function MarathonDashboardPage() {
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {event?.status && <EventStatusBadge status={event.status} />}
+            {event?.status && <EventStatusControl eventId={eventId} status={event.status as EventStatus} />}
             <Button
               variant="ghost"
               size="icon"
