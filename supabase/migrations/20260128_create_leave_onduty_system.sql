@@ -361,6 +361,18 @@ USING (
     AND status = 'pending'
 );
 
+-- Updated: 2026-04-07 - Added delete policy for cancelled applications
+CREATE POLICY "learners_delete_own_cancelled"
+ON leave_onduty_applications FOR DELETE
+USING (
+    status = 'cancelled'
+    AND learner_id IN (
+        SELECT id FROM learners_profiles WHERE id = (
+            SELECT learner_id FROM profiles WHERE id = auth.uid()
+        )
+    )
+);
+
 CREATE POLICY "approvers_view_assigned"
 ON leave_onduty_applications FOR SELECT
 USING (

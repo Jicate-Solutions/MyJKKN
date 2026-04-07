@@ -826,6 +826,28 @@ export class LeaveOndutyService {
   }
 
   /**
+   * Delete a cancelled application permanently
+   */
+  static async deleteApplication(
+    applicationId: string,
+    learnerId: string
+  ): Promise<void> {
+    const supabase = getSupabase();
+
+    // Only allow deleting cancelled applications
+    const { error } = await supabase
+      .from('leave_onduty_applications')
+      .delete()
+      .eq('id', applicationId)
+      .eq('learner_id', learnerId)
+      .eq('status', 'cancelled');
+
+    if (error) {
+      throw new Error(`Failed to delete application: ${error.message}`);
+    }
+  }
+
+  /**
    * Validate application data before submission
    */
   static async validateApplicationData(
@@ -936,14 +958,11 @@ export class LeaveOndutyService {
   ): FileRequirements {
     const required =
       subCategory === 'medical' ||
-      category === 'onduty' ||
       dayCount > 3;
 
     let reason = '';
     if (subCategory === 'medical') {
       reason = 'Medical certificate is required for medical leave';
-    } else if (category === 'onduty') {
-      reason = 'Supporting document is required for onduty applications';
     } else if (dayCount > 3) {
       reason = 'Supporting document is required for leave exceeding 3 days';
     }

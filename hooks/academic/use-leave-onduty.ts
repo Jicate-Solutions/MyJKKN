@@ -229,6 +229,37 @@ export function useCancelLeaveOndutyApplication() {
 }
 
 /**
+ * Delete a cancelled application
+ */
+export function useDeleteLeaveOndutyApplication() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      applicationId,
+      learnerId,
+    }: {
+      applicationId: string;
+      learnerId: string;
+    }) => {
+      return await LeaveOndutyApplicationService.deleteApplication(
+        applicationId,
+        learnerId
+      );
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: KEYS.applications.learner(variables.learnerId),
+      });
+      toast.success('Application deleted successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to delete application: ${error.message}`);
+    },
+  });
+}
+
+/**
  * Validate application data
  */
 export function useValidateApplicationData() {

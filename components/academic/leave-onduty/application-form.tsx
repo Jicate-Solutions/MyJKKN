@@ -69,8 +69,7 @@ const formSchema = z.object({
   selected_periods: z.array(z.string()),
   reason: z
     .string()
-    .min(10, 'Reason must be at least 10 characters')
-    .max(500, 'Reason cannot exceed 500 characters'),
+    .min(1, 'Please provide a reason'),
 });
 
 interface ApplicationFormProps {
@@ -214,7 +213,7 @@ export function ApplicationForm({
       return;
     }
 
-    if (reason.length < 10) {
+    if (reason.length < 1) {
       return;
     }
 
@@ -271,7 +270,7 @@ export function ApplicationForm({
       startDate &&
       endDate &&
       periodType &&
-      reason.length >= 10 &&
+      reason.length >= 1 &&
       (periodType !== 'periodwise' || selectedPeriods.length > 0) &&
       (!getFileRequirements().required || attachmentFile !== null)
     );
@@ -455,14 +454,7 @@ export function ApplicationForm({
           onChange={(e) => setReason(e.target.value)}
           placeholder="Please provide a detailed reason for your application..."
           className="min-h-[100px] sm:min-h-[120px] resize-none text-sm"
-          maxLength={500}
         />
-        <div className="flex justify-between text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
-          <span>Min 10 characters</span>
-          <span className={cn(reason.length < 10 && 'text-red-500')}>
-            {reason.length}/500
-          </span>
-        </div>
       </div>
 
       {/* File Attachment */}

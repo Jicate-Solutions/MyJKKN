@@ -20,6 +20,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import {
   useMyLeaveOndutyApplications,
   useCancelLeaveOndutyApplication,
+  useDeleteLeaveOndutyApplication,
 } from '@/hooks/academic/use-leave-onduty';
 import { ApplicationStatus, APPLICATION_STATUS_COLORS } from '@/types/leave-onduty';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -51,6 +52,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ApprovalTimeline } from '@/components/academic/leave-onduty/approval-timeline';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -62,6 +73,8 @@ import {
   AlertCircle,
   ExternalLink,
   XCircle,
+  Trash2,
+  Loader2,
   ChevronRight,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -73,10 +86,14 @@ function ApplicationDetailsContent({
   application,
   onCancel,
   isCancelling,
+  onDelete,
+  isDeleting,
 }: {
   application: any;
   onCancel: () => void;
   isCancelling: boolean;
+  onDelete: () => void;
+  isDeleting: boolean;
 }) {
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -151,6 +168,19 @@ function ApplicationDetailsContent({
           </Button>
         </div>
       )}
+      {application.status === 'cancelled' && (
+        <div className="flex gap-3 pt-4 border-t">
+          <Button
+            variant="destructive"
+            onClick={onDelete}
+            disabled={isDeleting}
+            className="flex-1"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete Application
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -161,6 +191,10 @@ export default function MyApplicationsPage() {
   const { can, isLoading: permissionsLoading } = usePermissions();
   const [selectedStatus, setSelectedStatus] = useState<ApplicationStatus | 'all'>('all');
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    type: 'cancel' | 'delete';
+    applicationId: string;
+  } | null>(null);
   const isMobile = useMediaQuery('(max-width: 768px)');
 
   // Permission check - redirect if unauthorized
@@ -177,23 +211,46 @@ export default function MyApplicationsPage() {
   );
 
   const cancelApplication = useCancelLeaveOndutyApplication();
+  const deleteApplication = useDeleteLeaveOndutyApplication();
 
-  const handleCancelApplication = async (applicationId: string) => {
-    if (!confirm('Are you sure you want to cancel this application?')) {
-      return;
-    }
+  const handleCancelApplication = (applicationId: string) => {
+    setConfirmAction({ type: 'cancel', applicationId });
+  };
 
-    cancelApplication.mutate(
-      {
-        applicationId,
-        learnerId: profile?.learner_id || '',
-      },
-      {
-        onSuccess: () => {
-          setSelectedApplicationId(null);
+  const handleDeleteApplication = (applicationId: string) => {
+    setConfirmAction({ type: 'delete', applicationId });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmAction) return;
+
+    if (confirmAction.type === 'cancel') {
+      cancelApplication.mutate(
+        {
+          applicationId: confirmAction.applicationId,
+          learnerId: profile?.learner_id || '',
         },
-      }
-    );
+        {
+          onSuccess: () => {
+            setSelectedApplicationId(null);
+            setConfirmAction(null);
+          },
+        }
+      );
+    } else {
+      deleteApplication.mutate(
+        {
+          applicationId: confirmAction.applicationId,
+          learnerId: profile?.learner_id || '',
+        },
+        {
+          onSuccess: () => {
+            setSelectedApplicationId(null);
+            setConfirmAction(null);
+          },
+        }
+      );
+    }
   };
 
   // Client-side filtering for instant tab switching
@@ -424,6 +481,21 @@ export default function MyApplicationsPage() {
                             <span className="hidden sm:inline">Cancel</span>
                           </Button>
                         )}
+                        {application.status === 'cancelled' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 sm:px-3 text-xs sm:text-sm text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteApplication(application.id);
+                            }}
+                            disabled={deleteApplication.isPending}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 sm:mr-1" />
+                            <span className="hidden sm:inline">Delete</span>
+                          </Button>
+                        )}
                         <ChevronRight className="h-5 w-5 text-gray-400 mt-auto" />
                       </div>
                     </div>
@@ -454,6 +526,8 @@ export default function MyApplicationsPage() {
                   application={selectedApplication}
                   onCancel={() => handleCancelApplication(selectedApplication.id)}
                   isCancelling={cancelApplication.isPending}
+                  onDelete={() => handleDeleteApplication(selectedApplication.id)}
+                  isDeleting={deleteApplication.isPending}
                 />
               )}
             </div>
@@ -476,11 +550,56 @@ export default function MyApplicationsPage() {
                 application={selectedApplication}
                 onCancel={() => handleCancelApplication(selectedApplication.id)}
                 isCancelling={cancelApplication.isPending}
+                onDelete={() => handleDeleteApplication(selectedApplication.id)}
+                isDeleting={deleteApplication.isPending}
               />
             )}
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Confirmation Modal */}
+      <AlertDialog
+        open={!!confirmAction}
+        onOpenChange={(open) => !open && setConfirmAction(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction?.type === 'cancel'
+                ? 'Cancel Application'
+                : 'Delete Application'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction?.type === 'cancel'
+                ? 'Are you sure you want to cancel this application? This action cannot be undone.'
+                : 'Are you sure you want to permanently delete this cancelled application? This action cannot be undone.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelApplication.isPending || deleteApplication.isPending}>
+              No, go back
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmAction();
+              }}
+              disabled={cancelApplication.isPending || deleteApplication.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {(cancelApplication.isPending || deleteApplication.isPending) ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : confirmAction?.type === 'cancel' ? (
+                <XCircle className="h-4 w-4 mr-2" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              {confirmAction?.type === 'cancel' ? 'Yes, cancel it' : 'Yes, delete it'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Mobile Floating Apply Button */}
       <div className="fixed bottom-20 left-0 right-0 p-4 sm:hidden z-40">
