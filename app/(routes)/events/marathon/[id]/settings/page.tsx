@@ -44,8 +44,136 @@ import {
   ListChecks,
   MapPin,
   ClipboardList,
+  ImagePlus,
+  Upload,
 } from 'lucide-react';
+import Image from 'next/image';
+import { StorageUtils } from '@/lib/supabase/storage-utils';
+import toast from 'react-hot-toast';
 import type { EventCategory } from '@/types/events';
+
+// ============================================================================
+// Hero Image Upload Component
+// ============================================================================
+
+function HeroImageUpload({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be under 5MB');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const publicUrl = await StorageUtils.uploadFile(
+        'event-images',
+        file,
+        'marathon/hero'
+      );
+      onChange(publicUrl);
+      toast.success('Hero image uploaded');
+    } catch (error) {
+      console.error('Upload failed:', error);
+      toast.error('Failed to upload image. Make sure the "event-images" storage bucket exists in Supabase.');
+    } finally {
+      setIsUploading(false);
+      // Reset the input so the same file can be re-selected
+      e.target.value = '';
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>Hero Image</Label>
+      {value ? (
+        <div className="relative w-full max-w-md">
+          <div className="relative w-full h-48 rounded-lg overflow-hidden border">
+            <Image
+              src={value}
+              alt="Hero image"
+              fill
+              className="object-cover"
+              unoptimized
+            />
+          </div>
+          <div className="flex gap-2 mt-2">
+            <label className="cursor-pointer">
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={handleUpload}
+                disabled={isUploading}
+                className="hidden"
+              />
+              <Button type="button" variant="outline" size="sm" className="gap-1.5" asChild>
+                <span>
+                  {isUploading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="h-3.5 w-3.5" />
+                  )}
+                  {isUploading ? 'Uploading...' : 'Change Image'}
+                </span>
+              </Button>
+            </label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-destructive gap-1.5"
+              onClick={() => onChange('')}
+            >
+              <X className="h-3.5 w-3.5" />
+              Remove
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <label className="cursor-pointer">
+          <Input
+            type="file"
+            accept="image/*"
+            onChange={handleUpload}
+            disabled={isUploading}
+            className="hidden"
+          />
+          <div className="flex flex-col items-center justify-center w-full max-w-md h-48 border-2 border-dashed rounded-lg hover:border-primary/50 hover:bg-muted/50 transition-colors">
+            {isUploading ? (
+              <>
+                <Loader2 className="h-8 w-8 text-muted-foreground animate-spin" />
+                <span className="text-sm text-muted-foreground mt-2">Uploading...</span>
+              </>
+            ) : (
+              <>
+                <ImagePlus className="h-8 w-8 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground mt-2">Click to upload hero image</span>
+                <span className="text-xs text-muted-foreground mt-1">PNG, JPG up to 5MB</span>
+              </>
+            )}
+          </div>
+        </label>
+      )}
+    </div>
+  );
+}
 
 // ============================================================================
 // General Settings Tab
@@ -183,18 +311,10 @@ function GeneralTab({ event }: { event: any }) {
           />
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="gen-hero">Hero Image URL</Label>
-          <Input
-            id="gen-hero"
-            type="url"
-            placeholder="https://..."
-            value={form.hero_image_url}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, hero_image_url: e.target.value }))
-            }
-          />
-        </div>
+        <HeroImageUpload
+          value={form.hero_image_url}
+          onChange={(url) => setForm((f) => ({ ...f, hero_image_url: url }))}
+        />
 
         <div className="space-y-2">
           <Label htmlFor="gen-desc">Description</Label>
