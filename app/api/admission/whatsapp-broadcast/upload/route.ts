@@ -21,9 +21,34 @@ function cleanPhone(raw: string): string {
   return cleaned;
 }
 
-function isValidPhone(phone: string): boolean {
-  const cleaned = phone.replace(/\D/g, '');
-  return cleaned.length >= 10 && cleaned.length <= 15;
+/**
+ * Validates a raw phone string before any cleaning.
+ * Rules:
+ *   - Must not contain alphabetic characters (rejects "abc123", "N/A", etc.)
+ *   - After stripping allowed separators (+, space, dash, parens, dots),
+ *     only digits may remain and there must be at least 10 of them.
+ *   - Rejects obvious placeholders (all-identical digits, e.g. "0000000000").
+ * Returns null when valid, or a human-readable error string when invalid.
+ */
+function validateRawPhone(raw: string): string | null {
+  if (!raw || raw.trim() === '') return 'Empty phone number';
+
+  // Reject anything containing letters
+  if (/[a-zA-Z]/.test(raw)) return 'Phone number contains letters';
+
+  // Strip allowed separators: +, space, dash, parentheses, dots
+  const digitsOnly = raw.replace(/[\s+\-().]/g, '');
+
+  // After stripping separators only digits should remain
+  if (!/^\d+$/.test(digitsOnly)) return 'Phone number contains invalid characters';
+
+  if (digitsOnly.length < 10) return 'Phone number too short (minimum 10 digits)';
+  if (digitsOnly.length > 15) return 'Phone number too long (maximum 15 digits)';
+
+  // Reject obvious placeholder values (all same digit, e.g. 0000000000)
+  if (/^(\d)\1+$/.test(digitsOnly)) return 'Phone number is a placeholder (all identical digits)';
+
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -117,12 +142,26 @@ export async function POST(request: NextRequest) {
 }
 
 function autoDetectColumn(row: Record<string, string>, candidates: string[]): string | null {
-  const keys = Object.keys(row).map(k => k.toLowerCase().trim());
+  const originalKeys = Object.keys(row);
+  const keys = originalKeys.map(k => k.toLowerCase().trim());
+
+  // Pass 1: Exact match (e.g., "phone" matches "phone" but not "phonenum")
   for (const candidate of candidates) {
-    const match = keys.find(k => k.includes(candidate));
-    if (match) {
-      return Object.keys(row).find(k => k.toLowerCase().trim() === match) || null;
-    }
+    const idx = keys.findIndex(k => k === candidate);
+    if (idx !== -1) return originalKeys[idx];
   }
+
+  // Pass 2: startsWith (e.g., "phone_number" matches "phone")
+  for (const candidate of candidates) {
+    const idx = keys.findIndex(k => k.startsWith(candidate));
+    if (idx !== -1) return originalKeys[idx];
+  }
+
+  // Pass 3: includes as loose fallback (e.g., "my_phone" matches "phone")
+  for (const candidate of candidates) {
+    const idx = keys.findIndex(k => k.includes(candidate));
+    if (idx !== -1) return originalKeys[idx];
+  }
+
   return null;
 }
