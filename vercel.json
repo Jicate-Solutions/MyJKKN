@@ -2,6 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "regions": ["bom1"],
+  "git": {
+    "deploymentEnabled": false
+  },
   "crons": [
     {
       "path": "/api/academic/privileges/cron/auto-pause",
