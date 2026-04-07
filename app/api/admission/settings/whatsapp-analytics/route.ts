@@ -65,14 +65,23 @@ export async function GET(request: NextRequest) {
     // Run all queries in parallel
     const [dailyStatsResult, conversationStatsResult, templateStatsResult, costResult] =
       await Promise.all([
-        // 1. Daily message stats from wa_messages
-        serviceClient
-          .from('wa_messages')
-          .select('status, created_at')
-          .eq('institution_id', institutionId)
-          .eq('direction', 'outbound')
-          .gte('created_at', sinceDateStr)
-          .order('created_at', { ascending: true }),
+        // 1. Daily message stats — join wa_messages via wa_conversations (messages don't have institution_id)
+        (async () => {
+          // Get conversation IDs for this institution
+          const { data: convos } = await serviceClient
+            .from('wa_conversations')
+            .select('id')
+            .eq('institution_id', institutionId);
+          const convoIds = (convos || []).map((c: { id: string }) => c.id);
+          if (convoIds.length === 0) return { data: [], error: null };
+          return serviceClient
+            .from('wa_messages')
+            .select('status, created_at')
+            .in('conversation_id', convoIds)
+            .eq('direction', 'outbound')
+            .gte('created_at', sinceDateStr)
+            .order('created_at', { ascending: true });
+        })(),
 
         // 2. Conversation stats from wa_conversations
         serviceClient

@@ -41,7 +41,7 @@ async function fetchHealth(institutionId: string): Promise<HealthResponse> {
     throw new Error(err.error || 'Failed to fetch health data');
   }
   const json = await res.json();
-  return json.data || { overall_status: 'unknown', numbers: [] };
+  return json.data || { phone_health: [], summary: { total: 0, all_green: true, any_warnings: false, any_critical: false } };
 }
 
 async function registerCloudApi(data: {
@@ -191,8 +191,9 @@ export function HealthTab({ institutionId }: { institutionId: string }) {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const overallStatus = data?.overall_status || 'unknown';
-  const numbers = data?.numbers || [];
+  const summary = data?.summary || { all_green: true, any_warnings: false, any_critical: false };
+  const overallStatus = summary.any_critical ? 'critical' : summary.any_warnings ? 'warning' : summary.all_green ? 'healthy' : 'unknown';
+  const numbers = data?.phone_health || [];
 
   return (
     <div className="space-y-6">
