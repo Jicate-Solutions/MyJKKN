@@ -33,6 +33,13 @@ interface ParsedContact {
   error?: string;
 }
 
+interface EligibleNumber {
+  phone_number_id: string;
+  display_number: string;
+  verified_name: string;
+  is_primary: boolean;
+}
+
 interface ApprovedTemplate {
   id: string;
   name: string;
@@ -40,6 +47,8 @@ interface ApprovedTemplate {
   language: string;
   status: string;
   components?: { type: string; text?: string; format?: string; example?: { header_handle?: string[] } }[];
+  business_account_id?: string;
+  eligible_numbers?: EligibleNumber[];
 }
 
 function getTemplateHeader(t: ApprovedTemplate): { type: string; format?: string } | null {
@@ -223,21 +232,11 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
     refetchInterval: 10000,
   });
 
-  // Resolve the selected sender's WABA ID for template filtering
-  const selectedWabaId = (() => {
-    if (!selectedPhoneNumberId || !waNumbers) return '';
-    const found = (waNumbers as { phone_number_id: string; business_account_id: string }[])
-      .find(n => n.phone_number_id === selectedPhoneNumberId);
-    return found?.business_account_id || '';
-  })();
-
   const { data: templates } = useQuery({
-    queryKey: ['wa-broadcast-templates', selectedWabaId],
+    queryKey: ['wa-broadcast-templates'],
     queryFn: async () => {
-      // Fetch templates from Meta Graph API for the selected WABA.
-      // If a sender number is selected, fetch templates for that number's WABA only.
-      const params = selectedWabaId ? `?business_account_id=${selectedWabaId}` : '';
-      const res = await fetch(`/api/admission/chat/templates${params}`);
+      // Fetch templates from ALL WABAs — each tagged with eligible sender numbers
+      const res = await fetch('/api/admission/chat/templates');
       if (!res.ok) throw new Error('Failed to load templates');
       const json = await res.json();
       return (json.data || []).filter((t: ApprovedTemplate) => t.status === 'APPROVED');
@@ -693,46 +692,29 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
       {/* Step 2: Sender Number + Template + Variable Mapping */}
       {step === 2 && (
         <div className="space-y-3">
-          {/* Sender Number Selection — determines which templates are available */}
-          {waNumbers && waNumbers.length > 1 && (
-            <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800 space-y-1.5">
-              <span className="text-green-600 text-xs font-medium">SEND FROM:</span>
-              <select
-                className="w-full border rounded px-2 py-1.5 text-sm bg-background font-mono"
-                value={selectedPhoneNumberId}
-                onChange={e => {
-                  setSelectedPhoneNumberId(e.target.value);
-                  setSelectedTemplate(null); // Reset template when sender changes (different WABA = different templates)
-                  setHeaderMediaUrl('');
-                  setUploadedFileName('');
-                  setVarMapping({});
-                }}
-              >
-                <option value="">Default ({senderInfo?.dedicated_number || 'Primary'})</option>
-                {(waNumbers as { id: string; phone_number_id: string; display_number: string; verified_name: string; is_primary: boolean }[]).map((n) => (
-                  <option key={n.id} value={n.phone_number_id}>
-                    {n.display_number} — {n.verified_name}{n.is_primary ? ' (Primary)' : ''}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[10px] text-green-600/70">Templates shown below are approved for this sender number</p>
-            </div>
-          )}
-
           <p className="text-sm font-medium">Select a template</p>
-          <div className="grid grid-cols-2 gap-2 max-h-[30vh] overflow-y-auto">
+          <div className="grid grid-cols-2 gap-2 max-h-[40vh] overflow-y-auto">
             {(templates || []).map((t: ApprovedTemplate) => {
               const header = getTemplateHeader(t);
               const bodyText = getTemplateBody(t);
               const paramCount = (bodyText.match(/\{\{\d+\}\}/g) || []).length;
               const isMarketing = t.category === 'MARKETING';
+              const eligible = t.eligible_numbers || [];
               return (
               <div
                 key={t.id}
                 className={`border rounded-lg p-3 cursor-pointer transition-all hover:border-orange-500 text-sm ${
                   selectedTemplate?.id === t.id ? 'border-orange-600 bg-orange-50 dark:bg-orange-950' : ''
                 }`}
-                onClick={() => { setSelectedTemplate(t); setVarMapping({}); setHeaderMediaUrl(''); setUploadedFileName(''); }}
+                onClick={() => {
+                  setSelectedTemplate(t);
+                  setVarMapping({});
+                  setHeaderMediaUrl('');
+                  setUploadedFileName('');
+                  // Auto-select sender: pick primary from eligible, or first
+                  const primary = eligible.find(n => n.is_primary);
+                  setSelectedPhoneNumberId((primary || eligible[0])?.phone_number_id || '');
+                }}
               >
                 <p className="font-medium text-xs">{t.name}</p>
                 <div className="flex flex-wrap gap-1 mt-1.5">
@@ -750,6 +732,17 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                     </Badge>
                   )}
                 </div>
+                {/* Eligible sender numbers */}
+                {eligible.length > 0 && (
+                  <div className="mt-2 pt-1.5 border-t border-dashed">
+                    <p className="text-[9px] text-muted-foreground mb-0.5">Can send from:</p>
+                    {eligible.map(n => (
+                      <p key={n.phone_number_id} className="text-[10px] font-mono text-green-700 dark:text-green-400 leading-tight">
+                        {n.display_number}{n.is_primary ? ' *' : ''}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
               );
             })}
@@ -795,6 +788,29 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                     <p className="text-[10px] text-muted-foreground">{parts.join(' · ')}</p>
                   ) : null;
                 })()}
+                {/* Sender selection for this template */}
+                {(selectedTemplate.eligible_numbers?.length || 0) > 0 && (
+                  <div className="flex items-center gap-2 pt-1 border-t border-dashed mt-1">
+                    <span className="text-[10px] text-muted-foreground shrink-0">Send from:</span>
+                    {(selectedTemplate.eligible_numbers?.length || 0) > 1 ? (
+                      <select
+                        className="border rounded px-1.5 py-0.5 text-[11px] bg-background font-mono flex-1"
+                        value={selectedPhoneNumberId}
+                        onChange={e => setSelectedPhoneNumberId(e.target.value)}
+                      >
+                        {selectedTemplate.eligible_numbers!.map(n => (
+                          <option key={n.phone_number_id} value={n.phone_number_id}>
+                            {n.display_number}{n.is_primary ? ' (Primary)' : ''} — {n.verified_name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-[11px] font-mono font-medium">
+                        {selectedTemplate.eligible_numbers![0].display_number}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Body Preview */}
