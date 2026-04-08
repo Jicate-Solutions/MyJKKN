@@ -210,6 +210,19 @@ export class TelephonyService {
       const toVal = filters.to_date.length === 10 ? `${filters.to_date}T23:59:59` : filters.to_date;
       query = query.lte('started_at', toVal);
     }
+    // Status filter: Exotel marks all IVR calls as 'completed', so use cost_amount
+    // cost_amount > 0 = answered (billed), cost_amount = 0/null = missed
+    if (filters.status) {
+      if (filters.status === 'completed') {
+        // "Answered" = cost_amount > 0
+        query = query.gt('cost_amount', 0);
+      } else if (filters.status === 'no-answer') {
+        // "Missed" = cost_amount is 0 or null
+        query = query.or('cost_amount.is.null,cost_amount.eq.0');
+      } else {
+        query = query.eq('status', filters.status);
+      }
+    }
     if (filters.has_notes === true) query = query.not('call_notes', 'is', null);
     if (filters.has_notes === false) query = query.is('call_notes', null);
     if (filters.admission_only) query = query.eq('is_admission_call', true);
