@@ -206,12 +206,44 @@ interface AutoTriggerTabProps {
   institutionId: string;
 }
 
-const EVENT_TYPE_LABELS: Record<AutoTriggerEventType, { label: string; description: string }> = {
-  lead_created: { label: 'Lead Created', description: 'When a new lead is added' },
-  expo_lead_captured: { label: 'Expo Lead Captured', description: 'When a lead is captured at an expo' },
-  stage_changed: { label: 'Stage Changed', description: 'When lead funnel stage changes' },
-  followup_due: { label: 'Follow-up Due', description: 'When a scheduled follow-up is due' },
+const EVENT_TYPE_GROUPS: Record<string, { value: AutoTriggerEventType; label: string; description: string }[]> = {
+  'Admission Calls': [
+    { value: 'missed_call', label: 'Missed Call', description: 'Call to admission line goes unanswered' },
+    { value: 'after_hours_call', label: 'After-Hours Call', description: 'Call outside 8 AM - 8 PM IST' },
+    { value: 'repeat_caller', label: 'Repeat Caller', description: 'Same number calls 3+ times' },
+  ],
+  'Lead Lifecycle': [
+    { value: 'lead_created', label: 'New Lead', description: 'New lead created from any source' },
+    { value: 'stage_changed', label: 'Stage Changed', description: 'Lead funnel stage advances' },
+    { value: 'followup_due', label: 'Follow-up Due', description: 'Scheduled follow-up arrives' },
+    { value: 'dormant_lead', label: 'Dormant Lead', description: 'No activity for 7+ days' },
+    { value: 'expo_lead_captured', label: 'Expo Lead', description: 'Lead captured at education fair' },
+  ],
+  'Application Flow': [
+    { value: 'application_started', label: 'Application Started', description: 'Lead begins application' },
+    { value: 'application_submitted', label: 'Application Submitted', description: 'Application fully submitted' },
+    { value: 'documents_pending', label: 'Documents Missing', description: 'Missing documents identified' },
+    { value: 'documents_verified', label: 'Documents Verified', description: 'All documents approved' },
+    { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'GDPI date set' },
+    { value: 'offer_sent', label: 'Offer Sent', description: 'Admission offer issued' },
+    { value: 'offer_accepted', label: 'Offer Accepted', description: 'Student accepts offer' },
+  ],
+  'Enrollment': [
+    { value: 'enrolled', label: 'Enrolled', description: 'Fee paid, enrollment confirmed' },
+    { value: 'fee_reminder', label: 'Fee Reminder', description: 'Payment deadline approaching' },
+    { value: 'welcome_message', label: 'Welcome Message', description: 'First message to new student' },
+    { value: 'visit_scheduled', label: 'Visit Scheduled', description: 'Campus visit booked' },
+    { value: 'visit_reminder', label: 'Visit Reminder', description: '24h before campus visit' },
+  ],
 };
+
+// Flat lookup for display
+const EVENT_TYPE_LABELS: Record<string, { label: string; description: string }> = {};
+for (const events of Object.values(EVENT_TYPE_GROUPS)) {
+  for (const evt of events) {
+    EVENT_TYPE_LABELS[evt.value] = { label: evt.label, description: evt.description };
+  }
+}
 
 const CHANNEL_LABELS: Record<WAChannelType, string> = {
   personal: 'Personal WhatsApp',
@@ -443,13 +475,18 @@ export function AutoTriggerTab({ institutionId }: AutoTriggerTabProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(EVENT_TYPE_LABELS).map(([key, val]) => (
-                    <SelectItem key={key} value={key}>
-                      <div>
-                        <span className="font-medium">{val.label}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{val.description}</span>
-                      </div>
-                    </SelectItem>
+                  {Object.entries(EVENT_TYPE_GROUPS).map(([group, events]) => (
+                    <div key={group}>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">{group}</div>
+                      {events.map((evt) => (
+                        <SelectItem key={evt.value} value={evt.value}>
+                          <div>
+                            <span className="font-medium">{evt.label}</span>
+                            <span className="ml-2 text-xs text-muted-foreground">{evt.description}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </div>
                   ))}
                 </SelectContent>
               </Select>

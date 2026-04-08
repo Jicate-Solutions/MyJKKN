@@ -12,6 +12,7 @@ import { PhoneNumberIntelligence } from './phone-number-intelligence';
 import { getCallContext, lookupAgent, isAdmissionCall } from './exotel-agent-map';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -1036,6 +1037,14 @@ export class TelephonyService {
             callCount,
             isFirstCall: callCount === 1,
           });
+
+          // Dispatch lead_created event through unified WA automation engine
+          WAEventDispatcher.dispatch({
+            eventType: 'lead_created',
+            institutionId,
+            leadId: newLead.id,
+            leadPhone: callerPhone,
+          }).catch(() => {});
         }
       }
     }
@@ -1089,6 +1098,15 @@ export class TelephonyService {
       if (missedCount >= 3 && !everConnected) {
         leadUpdate.priority = 'hot';
         leadUpdate.notes = `[Auto ${new Date().toISOString().slice(0, 10)}] Called ${missedCount} times, never connected — URGENT callback needed`;
+
+        // Dispatch repeat_caller event through unified WA automation engine
+        WAEventDispatcher.dispatch({
+          eventType: 'repeat_caller',
+          institutionId,
+          leadId: finalLeadId,
+          leadPhone: callerPhone,
+          metadata: { call_count: String(callCount), missed_count: String(missedCount) },
+        }).catch(() => {});
       }
 
       await supabase

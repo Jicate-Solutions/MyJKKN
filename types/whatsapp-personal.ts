@@ -204,7 +204,23 @@ export type AutoTriggerEventType =
   | 'lead_created'
   | 'stage_changed'
   | 'followup_due'
-  | 'expo_lead_captured';
+  | 'expo_lead_captured'
+  | 'missed_call'
+  | 'after_hours_call'
+  | 'repeat_caller'
+  | 'application_started'
+  | 'application_submitted'
+  | 'documents_pending'
+  | 'documents_verified'
+  | 'interview_scheduled'
+  | 'offer_sent'
+  | 'offer_accepted'
+  | 'enrolled'
+  | 'visit_scheduled'
+  | 'visit_reminder'
+  | 'dormant_lead'
+  | 'fee_reminder'
+  | 'welcome_message';
 
 export type WAChannelType = 'personal' | 'meta_waba';
 

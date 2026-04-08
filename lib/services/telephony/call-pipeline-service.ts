@@ -2,6 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { ExotelClient } from './exotel-client';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
 import { sendTextMessage as waSendText, isWhatsAppConfigured } from '@/lib/services/whatsapp/whatsapp-api-client';
+import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
 
 const PIPELINE_STAGES = ['captured', 'classified', 'matched', 'intelligence', 'enriched', 'responded', 'complete'] as const;
 type PipelineStage = typeof PIPELINE_STAGES[number];
@@ -116,6 +117,15 @@ export class CallPipelineService {
         // Auto-WhatsApp (higher engagement than SMS)
         if (settings.auto_whatsapp_enabled && ctx.fromNumber) {
           autoWhatsAppSent = await this.sendMissedCallWhatsApp(ctx, settings, supabase);
+        }
+        // Also dispatch through unified trigger engine (for rule-based messaging)
+        if (ctx.leadId) {
+          WAEventDispatcher.dispatch({
+            eventType: 'missed_call',
+            institutionId: ctx.institutionId || '',
+            leadId: ctx.leadId,
+            leadPhone: ctx.fromNumber || '',
+          }).catch(() => {});
         }
         // Callback queue
         callbackQueueId = await this.queueCallback(ctx, settings, supabase);
