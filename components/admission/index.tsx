@@ -42,6 +42,12 @@ export {
   ActionConfirmDialog,
 } from './actions';
 
+// Re-export Program Funnel Card
+export { ProgramFunnelCard } from './program-funnel-card';
+
+// Re-export Analytics components (dropoff, time-to-convert, etc.)
+export { DropoffAnalysisCard } from './analytics';
+
 // ============================================
 // ADMISSION ERROR BOUNDARY
 // ============================================

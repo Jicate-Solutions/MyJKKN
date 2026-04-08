@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,10 +28,12 @@ import {
   useTelephonyHealth,
   useUniqueCallers,
   useCallFunnel,
+  useCounselorFunnel,
   formatDuration,
   type CallStatus,
   type UniqueCaller,
   type FunnelStage,
+  type CounselorFunnelRow,
 } from '@/hooks/admission';
 import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
@@ -77,6 +79,7 @@ function getInboundStatusBadge(costAmount: number | null | undefined) {
 
 function RecordingPlayer({ url }: { url: string | null }) {
   const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   if (!url) return <span className="text-xs text-muted-foreground">-</span>;
 
   const proxyUrl = `/api/admission/calls/recording?url=${encodeURIComponent(url)}`;
@@ -88,11 +91,14 @@ function RecordingPlayer({ url }: { url: string | null }) {
       className="h-7 px-2 text-xs"
       onClick={(e) => {
         e.stopPropagation();
-        const audio = new Audio(proxyUrl);
-        if (playing) {
-          audio.pause();
+        if (playing && audioRef.current) {
+          audioRef.current.pause();
           setPlaying(false);
         } else {
+          // Stop any previous playback before starting new
+          audioRef.current?.pause();
+          const audio = new Audio(proxyUrl);
+          audioRef.current = audio;
           audio.play().catch(() => window.open(proxyUrl, '_blank'));
           audio.onended = () => setPlaying(false);
           setPlaying(true);
@@ -295,6 +301,139 @@ function CallFunnelView({ stages, isLoading, onStageClick }: {
             </div>
           ))}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================================
+// COUNSELOR PERFORMANCE FUNNEL
+// ============================================================================
+
+function CounselorInitials({ name }: { name: string }) {
+  const initials = name
+    .split(' ')
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+  return (
+    <span className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-violet-100 text-violet-700 text-xs font-bold shrink-0">
+      {initials || '?'}
+    </span>
+  );
+}
+
+function CounselorFunnelBar({
+  value,
+  max,
+  colorClass,
+  label,
+}: {
+  value: number;
+  max: number;
+  colorClass: string;
+  label: string;
+}) {
+  const pct = max > 0 ? Math.max((value / max) * 100, value > 0 ? 2 : 0) : 0;
+  return (
+    <div className="flex items-center gap-2 w-full">
+      <span className="text-[10px] text-muted-foreground w-[4.5rem] shrink-0 text-right">{label}</span>
+      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+        <div
+          className={cn('h-full rounded-full transition-all', colorClass)}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-xs font-mono font-medium tabular-nums w-7 text-right">{value}</span>
+    </div>
+  );
+}
+
+function CounselorFunnelCard({ institutionId }: { institutionId?: string }) {
+  const { counselors, isLoading, error, refetch } = useCounselorFunnel(institutionId);
+
+  const BAR_DEFS: Array<{ key: keyof CounselorFunnelRow; label: string; color: string }> = [
+    { key: 'assigned', label: 'Assigned', color: 'bg-blue-400' },
+    { key: 'contacted', label: 'Contacted', color: 'bg-emerald-400' },
+    { key: 'qualified', label: 'Qualified', color: 'bg-violet-400' },
+    { key: 'applied', label: 'Applied', color: 'bg-amber-400' },
+    { key: 'enrolled', label: 'Enrolled', color: 'bg-green-600' },
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Users className="h-4 w-4" />
+          Counselor Performance Funnel
+        </CardTitle>
+        <CardDescription>Individual conversion pipelines — best performers first</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}
+          </div>
+        ) : error ? (
+          <div className="text-center py-6">
+            <p className="text-sm text-muted-foreground">Failed to load counselor funnel</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>Retry</Button>
+          </div>
+        ) : counselors.length === 0 ? (
+          <p className="text-center text-sm text-muted-foreground py-6">No active counselors found</p>
+        ) : (
+          <>
+            {(() => {
+              const maxAssigned = Math.max(...counselors.map((c: CounselorFunnelRow) => c.assigned), 1);
+              return (
+                <div className="space-y-5">
+                  {counselors.map((c: CounselorFunnelRow) => (
+                    <div key={c.counselor_id} className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <CounselorInitials name={c.name} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold truncate">{c.name}</p>
+                          <p className="text-[10px] text-muted-foreground">{c.assigned} leads assigned</p>
+                        </div>
+                        <span
+                          className={cn(
+                            'text-xs font-bold px-2 py-0.5 rounded-full shrink-0',
+                            c.conversion_rate >= 10
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : c.conversion_rate >= 5
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-red-100 text-red-600'
+                          )}
+                        >
+                          {c.conversion_rate}%
+                        </span>
+                      </div>
+                      <div className="pl-10 space-y-1">
+                        {BAR_DEFS.map(({ key, label, color }) => (
+                          <CounselorFunnelBar
+                            key={key as string}
+                            value={c[key] as number}
+                            max={maxAssigned}
+                            colorClass={color}
+                            label={label}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-4 border-t mt-4">
+              {BAR_DEFS.map(({ label, color }) => (
+                <div key={label} className="flex items-center gap-1">
+                  <div className={cn('w-2.5 h-2.5 rounded-sm', color)} />
+                  <span className="text-[10px] text-muted-foreground">{label}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -628,6 +767,9 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
           }
         }}
       />
+
+      {/* Counselor Performance Funnel */}
+      <CounselorFunnelCard institutionId={institutionId} />
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1058,7 +1200,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           {(!log.cost_amount || log.cost_amount <= 0) && log.from_number && (
                             <a
                               href={`tel:${log.from_number}`}
-                              className="inline-flex items-center h-7 px-2 text-xs border rounded-md hover:bg-accent"
+                              className="inline-flex items-center h-8 px-2.5 text-xs border rounded-md hover:bg-accent"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Phone className="h-3 w-3 mr-1" />

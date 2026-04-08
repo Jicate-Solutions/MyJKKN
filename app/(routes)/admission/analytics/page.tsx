@@ -54,7 +54,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { AdmissionErrorBoundary, CounselorPerformanceDashboard, SourceROIDashboard } from '@/components/admission';
+import { AdmissionErrorBoundary, CounselorPerformanceDashboard, SourceROIDashboard, ProgramFunnelCard, DropoffAnalysisCard } from '@/components/admission';
 
 const FUNNEL_STAGES = [
   { key: 'new', label: 'New', color: 'bg-blue-500' },
@@ -567,17 +567,21 @@ function AdmissionAnalyticsPageContent() {
 
           {/* Main Content */}
           <Tabs defaultValue="funnel" className="w-full">
-            <TabsList>
-              <TabsTrigger value="funnel">Conversion Funnel</TabsTrigger>
-              <TabsTrigger value="stuck">
-                Stuck Leads
-                {stuckLeads.length > 0 && (
-                  <Badge variant="secondary" className="ml-2">{stuckLeads.length}</Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="counselors">Leaderboard</TabsTrigger>
-              <TabsTrigger value="sources">Source ROI</TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
+              <TabsList className="w-max">
+                <TabsTrigger value="funnel">Conversion Funnel</TabsTrigger>
+                <TabsTrigger value="stuck">
+                  Stuck Leads
+                  {stuckLeads.length > 0 && (
+                    <Badge variant="secondary" className="ml-2">{stuckLeads.length}</Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="dropoff">Drop-off</TabsTrigger>
+                <TabsTrigger value="programs">Programs</TabsTrigger>
+                <TabsTrigger value="counselors">Leaderboard</TabsTrigger>
+                <TabsTrigger value="sources">Source ROI</TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="funnel" className="mt-4">
               <Card>
@@ -611,6 +615,14 @@ function AdmissionAnalyticsPageContent() {
                   <StuckLeadsTable stuckLeads={stuckLeads} />
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="dropoff" className="mt-4">
+              <DropoffAnalysisCard institutionId={institutionId} />
+            </TabsContent>
+
+            <TabsContent value="programs" className="mt-4">
+              <ProgramFunnelCard institutionId={institutionId} />
             </TabsContent>
 
             <TabsContent value="counselors" className="mt-4">

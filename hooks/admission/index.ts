@@ -251,13 +251,20 @@ export {
   callFunnelKeys,
 } from './use-call-funnel';
 export type {
-  FunnelStage,
+  FunnelStage as CallFunnelStage,
   CallFunnelData,
 } from './use-call-funnel';
 export type {
   UniqueCaller,
   UniqueCallersSummary,
 } from './use-unique-callers';
+
+// Re-export counselor funnel hook
+export {
+  useCounselorFunnel,
+  counselorFunnelKeys,
+} from './use-counselor-funnel';
+export type { CounselorFunnelRow } from './use-counselor-funnel';
 
 // Re-export counselor status hook (Exotel CCM)
 export {
@@ -1358,3 +1365,21 @@ export {
   useExpoTeamAccess,
   expoCaptureKeys,
 } from './use-expo-capture';
+
+// Drop-off Analysis
+export {
+  useDropoffAnalysis,
+  dropoffAnalysisKeys,
+} from './use-dropoff-analysis';
+export type { DropoffStage, DropoffAnalyticsResponse } from './use-dropoff-analysis';
+
+// Re-export time-to-convert hook
+export { useTimeToConvert, timeToConvertKeys, formatHours, getSpeedColor, formatStageName } from './use-time-to-convert';
+export type { TimeToConvertData, StageTransition } from './use-time-to-convert';
+
+// Re-export program funnel hook
+export { useProgramFunnel, programFunnelKeys } from './use-program-funnel';
+export type { ProgramFunnelRow, ProgramFunnelResponse } from './use-program-funnel';
+
+// Re-export re-engagement hook (full export)
+export { useReengagement, reengagementAnalyticsKeys as reengagementKeys } from './use-reengagement';
