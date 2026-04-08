@@ -68,6 +68,7 @@ import { PersonalConnectionTab } from './_components/personal-connection-tab';
 import { NumberDetailSheet } from './_components/number-detail-sheet';
 import { PersonalTemplatesTab } from './_components/personal-templates-tab';
 import { AutoTriggerTab } from './_components/auto-trigger-tab';
+import { MissedCallSettings } from './_components/missed-call-settings';
 import { TemplateManagerTab } from './_components/template-manager-tab';
 import { AnalyticsTab } from './_components/analytics-tab';
 import { HealthTab } from './_components/health-tab';
@@ -826,7 +827,10 @@ function WhatsAppNumbersContent() {
 
             <TabsContent value="auto-triggers" className="space-y-6">
               {institutionId ? (
-                <AutoTriggerTab institutionId={institutionId} />
+                <>
+                  <MissedCallSettings institutionId={institutionId} />
+                  <AutoTriggerTab institutionId={institutionId} />
+                </>
               ) : (
                 <p className="text-sm text-muted-foreground py-8 text-center">
                   No institution selected.
