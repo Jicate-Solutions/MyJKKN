@@ -742,3 +742,12 @@ CREATE TRIGGER update_case_progress_on_track_complete
 -- End of Triggers File
 -- Total Triggers: 103 (Updated: 2026-04-02) — Added 11 VAC/CASE triggers
 -- ================================================================================
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ADMISSION FORM BUILDER TRIGGERS
+-- Added: 2026-04-08
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Auto-update updated_at on admission_forms
+CREATE TRIGGER trg_admission_forms_updated
+  BEFORE UPDATE ON admission_forms
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

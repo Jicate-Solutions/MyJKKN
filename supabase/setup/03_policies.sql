@@ -4817,3 +4817,65 @@ CREATE POLICY "marathon_points_public_insert" ON public.marathon_race_track_poin
 
 CREATE POLICY "marathon_points_public_read" ON public.marathon_race_track_points
   FOR SELECT USING (true);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ADMISSION FORM BUILDER POLICIES
+-- Added: 2026-04-08 — Dynamic public admission forms
+-- ═══════════════════════════════════════════════════════════════════════════
+
+ALTER TABLE admission_forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admission_form_sections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admission_form_fields ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admission_form_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admission_form_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admission_form_templates ENABLE ROW LEVEL SECURITY;
+
+-- Templates: anyone authenticated can read (system templates are shared)
+CREATE POLICY "admission_form_templates_select" ON admission_form_templates
+  FOR SELECT USING (is_system = true OR auth.uid() IS NOT NULL);
+
+-- Forms: institution-scoped CRUD via profiles.institution_id
+CREATE POLICY "admission_forms_select" ON admission_forms
+  FOR SELECT USING (
+    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  );
+
+CREATE POLICY "admission_forms_insert" ON admission_forms
+  FOR INSERT WITH CHECK (
+    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  );
+
+CREATE POLICY "admission_forms_update" ON admission_forms
+  FOR UPDATE USING (
+    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  );
+
+CREATE POLICY "admission_forms_delete" ON admission_forms
+  FOR DELETE USING (
+    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  );
+
+-- Sections & Fields: cascade from form access
+CREATE POLICY "admission_form_sections_all" ON admission_form_sections
+  FOR ALL USING (form_id IN (SELECT id FROM admission_forms));
+
+CREATE POLICY "admission_form_fields_all" ON admission_form_fields
+  FOR ALL USING (form_id IN (SELECT id FROM admission_forms));
+
+-- Submissions: institution-scoped read. Public inserts happen via service role.
+CREATE POLICY "admission_form_submissions_select" ON admission_form_submissions
+  FOR SELECT USING (
+    institution_id IN (SELECT institution_id FROM profiles WHERE id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  );
+
+-- Events: admin read, public insert (anonymous analytics tracking)
+CREATE POLICY "admission_form_events_select" ON admission_form_events
+  FOR SELECT USING (form_id IN (SELECT id FROM admission_forms));
+
+CREATE POLICY "admission_form_events_insert" ON admission_form_events
+  FOR INSERT WITH CHECK (true);

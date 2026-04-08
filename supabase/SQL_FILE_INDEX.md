@@ -1302,3 +1302,8 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - **Event record**: `startup_events.id = ad357482-7087-4390-ac75-ad4c13838d4f` (config.registration_type = 'sarvam_galatta')
 
 | 2026-03-19 | Added `sarvam_galatta_registrations` table + RLS for Sarvam Galatta startup event registration |
+
+### Admission Form Builder (2026-04-08)
+- Tables: `admission_form_templates`, `admission_forms`, `admission_form_sections`, `admission_form_fields`, `admission_form_submissions`, `admission_form_events`
+- Location: `supabase/setup/01_tables.sql` (appended)
+- Purpose: Dynamic public admission form builder with submissions flowing to leads

@@ -15,7 +15,7 @@ import type { LeadSource } from '@/types/admission';
 
 // Fix 3: runtime list of valid source values (union types don't exist at runtime)
 const VALID_SOURCES: LeadSource[] = [
-  'website', 'walk_in', 'referral', 'social_media', 'newspaper',
+  'website', 'admission_form', 'walk_in', 'referral', 'social_media', 'newspaper',
   'education_fair', 'agent', 'publisher', 'google_ads', 'facebook_ads', 'other',
 ];
 

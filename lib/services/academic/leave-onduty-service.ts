@@ -891,10 +891,10 @@ export class LeaveOndutyService {
       };
     }
 
-    if (data.reason.trim().length < 10) {
+    if (data.reason.trim().length < 1) {
       return {
         valid: false,
-        error: 'Reason must be at least 10 characters',
+        error: 'Please provide a reason',
       };
     }
 

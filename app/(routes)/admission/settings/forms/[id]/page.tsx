@@ -1,0 +1,703 @@
+'use client';
+
+// app/(routes)/admission/settings/forms/[id]/page.tsx
+// Form builder with drag-and-drop, field config, and publish controls
+// Added: 2026-04-08
+
+import { useState, useEffect, use as usePromise } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { AdmissionErrorBoundary } from '@/components/admission';
+import { useAdmissionForm, useFormMutations } from '@/hooks/admission/use-admission-forms';
+import { FormBuilderService } from '@/lib/services/admission/form-builder-service';
+import type { FormFieldType, AdmissionFormField } from '@/types/admission';
+import {
+  Plus,
+  Trash2,
+  GripVertical,
+  Save,
+  Eye,
+  Send,
+  Type,
+  Hash,
+  Phone,
+  Mail,
+  ChevronDown,
+  CheckSquare,
+  Calendar,
+  AlignLeft,
+  Upload,
+  CheckCircle,
+  Circle,
+  GraduationCap,
+  Link2,
+  ArrowLeft,
+  Settings as SettingsIcon,
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+const FIELD_TYPE_META: Record<FormFieldType, { label: string; icon: any }> = {
+  text: { label: 'Text Input', icon: Type },
+  number: { label: 'Number', icon: Hash },
+  phone: { label: 'Phone', icon: Phone },
+  email: { label: 'Email', icon: Mail },
+  select: { label: 'Dropdown', icon: ChevronDown },
+  multi_select: { label: 'Multi-Select', icon: CheckSquare },
+  date: { label: 'Date', icon: Calendar },
+  textarea: { label: 'Text Area', icon: AlignLeft },
+  file: { label: 'File Upload', icon: Upload },
+  checkbox: { label: 'Checkbox', icon: CheckCircle },
+  radio: { label: 'Radio Group', icon: Circle },
+  institution_program_selector: { label: 'Institution & Program', icon: GraduationCap },
+};
+
+const LEAD_FIELD_OPTIONS = [
+  { value: 'first_name', label: 'First Name' },
+  { value: 'last_name', label: 'Last Name' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'alternate_phone', label: 'Alternate Phone' },
+  { value: 'email', label: 'Email' },
+  { value: 'gender', label: 'Gender' },
+  { value: 'date_of_birth', label: 'Date of Birth' },
+  { value: 'parent_name', label: 'Parent Name' },
+  { value: 'parent_phone', label: 'Parent Phone' },
+  { value: 'parent_email', label: 'Parent Email' },
+  { value: 'address_line1', label: 'Address' },
+  { value: 'city', label: 'City' },
+  { value: 'district', label: 'District' },
+  { value: 'state', label: 'State' },
+  { value: 'pincode', label: 'Pincode' },
+  { value: 'notes', label: 'Notes' },
+];
+
+// ─── Sortable Field Block ───────────────────────────────────────────────────
+
+function FieldBlock({
+  field,
+  isSelected,
+  onSelect,
+  onDelete,
+}: {
+  field: AdmissionFormField;
+  isSelected: boolean;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: field.id,
+  });
+
+  const Icon = FIELD_TYPE_META[field.field_type]?.icon || Type;
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      onClick={onSelect}
+      className={`flex items-center gap-2 p-3 rounded-md border cursor-pointer transition-colors ${
+        isSelected ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
+      }`}
+    >
+      <button
+        {...attributes}
+        {...listeners}
+        className="cursor-grab touch-none p-1"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical className="h-4 w-4 text-muted-foreground" />
+      </button>
+      <Icon className="h-4 w-4 text-muted-foreground" />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium truncate">{field.field_label}</div>
+        <div className="text-xs text-muted-foreground truncate">
+          {FIELD_TYPE_META[field.field_type]?.label}
+          {field.is_required && ' · required'}
+        </div>
+      </div>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        className="p-1 opacity-0 group-hover:opacity-100 hover:text-red-500"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// ─── Field Config Panel ─────────────────────────────────────────────────────
+
+function FieldConfigPanel({
+  field,
+  onUpdate,
+}: {
+  field: AdmissionFormField;
+  onUpdate: (updates: Partial<AdmissionFormField>) => void;
+}) {
+  const [localOptions, setLocalOptions] = useState(
+    field.options ? field.options.map((o) => `${o.label}|${o.value}`).join('\n') : ''
+  );
+
+  useEffect(() => {
+    setLocalOptions(field.options ? field.options.map((o) => `${o.label}|${o.value}`).join('\n') : '');
+  }, [field.id]);
+
+  const hasOptions = ['select', 'multi_select', 'radio'].includes(field.field_type);
+
+  const handleOptionsBlur = () => {
+    const parsed = localOptions
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [label, value] = line.split('|').map((s) => s.trim());
+        return { label, value: value || label.toLowerCase().replace(/\s+/g, '_') };
+      });
+    onUpdate({ options: parsed });
+  };
+
+  return (
+    <div className="space-y-4 text-sm">
+      <div>
+        <Label htmlFor="cfg-label">Field Label</Label>
+        <Input
+          id="cfg-label"
+          value={field.field_label}
+          onChange={(e) => onUpdate({ field_label: e.target.value })}
+        />
+      </div>
+      <div>
+        <Label htmlFor="cfg-key">Field Key</Label>
+        <Input
+          id="cfg-key"
+          value={field.field_key}
+          onChange={(e) => onUpdate({ field_key: e.target.value })}
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          Used internally. Lowercase letters, digits, underscores only.
+        </p>
+      </div>
+      <div>
+        <Label htmlFor="cfg-placeholder">Placeholder</Label>
+        <Input
+          id="cfg-placeholder"
+          value={field.placeholder ?? ''}
+          onChange={(e) => onUpdate({ placeholder: e.target.value })}
+        />
+      </div>
+      <div>
+        <Label htmlFor="cfg-help">Help Text</Label>
+        <Input
+          id="cfg-help"
+          value={field.help_text ?? ''}
+          onChange={(e) => onUpdate({ help_text: e.target.value })}
+        />
+      </div>
+      <div className="flex items-center justify-between">
+        <Label htmlFor="cfg-required">Required field</Label>
+        <Switch
+          id="cfg-required"
+          checked={field.is_required}
+          onCheckedChange={(checked) => onUpdate({ is_required: checked })}
+        />
+      </div>
+      <div>
+        <Label htmlFor="cfg-leadmap">Map to Lead Field</Label>
+        <Select
+          value={field.lead_field_map ?? 'none'}
+          onValueChange={(v) => onUpdate({ lead_field_map: v === 'none' ? null : v })}
+        >
+          <SelectTrigger id="cfg-leadmap">
+            <SelectValue placeholder="Custom field (not mapped)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Custom field (not mapped)</SelectItem>
+            {LEAD_FIELD_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {hasOptions && (
+        <div>
+          <Label htmlFor="cfg-options">Options (one per line: label|value)</Label>
+          <Textarea
+            id="cfg-options"
+            rows={6}
+            value={localOptions}
+            onChange={(e) => setLocalOptions(e.target.value)}
+            onBlur={handleOptionsBlur}
+            placeholder={'Male|male\nFemale|female\nOther|other'}
+          />
+        </div>
+      )}
+      {field.field_type === 'number' && (
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <Label htmlFor="cfg-min">Min</Label>
+            <Input
+              id="cfg-min"
+              type="number"
+              value={field.min_value ?? ''}
+              onChange={(e) =>
+                onUpdate({ min_value: e.target.value === '' ? null : Number(e.target.value) })
+              }
+            />
+          </div>
+          <div>
+            <Label htmlFor="cfg-max">Max</Label>
+            <Input
+              id="cfg-max"
+              type="number"
+              value={field.max_value ?? ''}
+              onChange={(e) =>
+                onUpdate({ max_value: e.target.value === '' ? null : Number(e.target.value) })
+              }
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Form Settings Panel ────────────────────────────────────────────────────
+
+function FormSettingsPanel({ form, onUpdate }: { form: any; onUpdate: (updates: any) => void }) {
+  return (
+    <div className="space-y-4 text-sm">
+      <div>
+        <Label htmlFor="set-name">Form Name</Label>
+        <Input
+          id="set-name"
+          value={form.name}
+          onChange={(e) => onUpdate({ name: e.target.value })}
+        />
+      </div>
+      <div>
+        <Label htmlFor="set-desc">Description</Label>
+        <Textarea
+          id="set-desc"
+          rows={3}
+          value={form.description ?? ''}
+          onChange={(e) => onUpdate({ description: e.target.value })}
+        />
+      </div>
+      <div>
+        <Label htmlFor="set-color">Primary Color</Label>
+        <div className="flex gap-2 items-center">
+          <Input
+            id="set-color"
+            type="color"
+            value={form.primary_color || '#1a73e8'}
+            onChange={(e) => onUpdate({ primary_color: e.target.value })}
+            className="w-16 h-10 p-1"
+          />
+          <Input
+            value={form.primary_color || '#1a73e8'}
+            onChange={(e) => onUpdate({ primary_color: e.target.value })}
+            className="flex-1"
+          />
+        </div>
+      </div>
+      <div>
+        <Label htmlFor="set-logo">Logo URL</Label>
+        <Input
+          id="set-logo"
+          value={form.logo_url ?? ''}
+          onChange={(e) => onUpdate({ logo_url: e.target.value })}
+          placeholder="https://..."
+        />
+      </div>
+      <div>
+        <Label htmlFor="set-thank-title">Thank You Title</Label>
+        <Input
+          id="set-thank-title"
+          value={form.thank_you_title}
+          onChange={(e) => onUpdate({ thank_you_title: e.target.value })}
+        />
+      </div>
+      <div>
+        <Label htmlFor="set-thank-msg">Thank You Message</Label>
+        <Textarea
+          id="set-thank-msg"
+          rows={3}
+          value={form.thank_you_message}
+          onChange={(e) => onUpdate({ thank_you_message: e.target.value })}
+        />
+      </div>
+      <div className="flex items-center justify-between">
+        <div>
+          <Label htmlFor="set-wa">Auto WhatsApp</Label>
+          <p className="text-xs text-muted-foreground">Send welcome message on submission</p>
+        </div>
+        <Switch
+          id="set-wa"
+          checked={!!form.auto_whatsapp}
+          onCheckedChange={(checked) => onUpdate({ auto_whatsapp: checked })}
+        />
+      </div>
+      <div className="flex items-center justify-between">
+        <div>
+          <Label htmlFor="set-dup">Allow Duplicate Submissions</Label>
+          <p className="text-xs text-muted-foreground">Same phone can apply multiple times</p>
+        </div>
+        <Switch
+          id="set-dup"
+          checked={!!form.allow_duplicate}
+          onCheckedChange={(checked) => onUpdate({ allow_duplicate: checked })}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Main builder ───────────────────────────────────────────────────────────
+
+function FormBuilderContent({ formId }: { formId: string }) {
+  const router = useRouter();
+  const { data: form, isLoading } = useAdmissionForm(formId);
+  const {
+    updateForm,
+    createField,
+    updateField,
+    deleteField,
+    reorderFields,
+    createSection,
+  } = useFormMutations();
+
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [rightTab, setRightTab] = useState<'field' | 'settings'>('field');
+  const [localFormState, setLocalFormState] = useState<any>(null);
+
+  useEffect(() => {
+    if (form) setLocalFormState(form);
+  }, [form?.id]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  if (isLoading || !form || !localFormState) {
+    return (
+      <ContentLayout title="Loading...">
+        <div className="p-8 text-center text-muted-foreground">Loading form...</div>
+      </ContentLayout>
+    );
+  }
+
+  const allFields = (form.sections || []).flatMap((s: any) => s.fields ?? []);
+  const selectedField = allFields.find((f: any) => f.id === selectedFieldId) || null;
+
+  const handleAddField = async (fieldType: FormFieldType) => {
+    let sectionId: string | null = null;
+    let displayOrder = 0;
+
+    if (form.sections && form.sections.length > 0) {
+      const realSection = form.sections.find((s: any) => s.id !== 'unsectioned');
+      if (realSection) {
+        sectionId = realSection.id;
+        displayOrder = (realSection.fields?.length ?? 0);
+      }
+    }
+
+    if (!sectionId) {
+      const section = await createSection.mutateAsync({
+        formId,
+        section: { title: 'General', display_order: 0 },
+      });
+      sectionId = section.id;
+    }
+
+    const fieldKey = `${fieldType}_${Date.now()}`;
+    await createField.mutateAsync({
+      formId,
+      field: {
+        section_id: sectionId,
+        field_key: fieldKey,
+        field_label: `New ${FIELD_TYPE_META[fieldType].label}`,
+        field_type: fieldType,
+        placeholder: null,
+        help_text: null,
+        is_required: false,
+        display_order: displayOrder,
+        min_length: null,
+        max_length: null,
+        min_value: null,
+        max_value: null,
+        pattern: null,
+        options: hasOptions(fieldType) ? [] : null,
+        condition: null,
+        lead_field_map: null,
+      },
+    });
+  };
+
+  const hasOptions = (t: FormFieldType) => ['select', 'multi_select', 'radio'].includes(t);
+
+  const handleFieldUpdate = async (fieldId: string, updates: Partial<AdmissionFormField>) => {
+    await updateField.mutateAsync({ fieldId, updates });
+  };
+
+  const handleFieldDelete = async (fieldId: string) => {
+    if (!confirm('Delete this field?')) return;
+    await deleteField.mutateAsync(fieldId);
+    if (selectedFieldId === fieldId) setSelectedFieldId(null);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const fieldsInSection = allFields;
+    const oldIndex = fieldsInSection.findIndex((f: any) => f.id === active.id);
+    const newIndex = fieldsInSection.findIndex((f: any) => f.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    const reordered = arrayMove(fieldsInSection, oldIndex, newIndex);
+    const updates = reordered.map((f: any, idx: number) => ({
+      id: f.id,
+      display_order: idx,
+      section_id: f.section_id,
+    }));
+    await reorderFields.mutateAsync(updates);
+  };
+
+  const handleSaveSettings = async () => {
+    await updateForm.mutateAsync({
+      formId,
+      updates: {
+        name: localFormState.name,
+        description: localFormState.description,
+        primary_color: localFormState.primary_color,
+        logo_url: localFormState.logo_url,
+        thank_you_title: localFormState.thank_you_title,
+        thank_you_message: localFormState.thank_you_message,
+        auto_whatsapp: localFormState.auto_whatsapp,
+        allow_duplicate: localFormState.allow_duplicate,
+      },
+    });
+  };
+
+  const handlePublish = async () => {
+    await handleSaveSettings();
+    await updateForm.mutateAsync({ formId, updates: { status: 'published' } });
+    toast.success('Form published! Share the public link.');
+  };
+
+  const handleCopyLink = () => {
+    const url = `${window.location.origin}/apply/${form.slug}`;
+    navigator.clipboard.writeText(url);
+    toast.success('Public link copied');
+  };
+
+  return (
+    <ContentLayout title={`Edit: ${form.name}`}>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink href="/admission/settings/forms">Forms</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{form.name}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => router.push('/admission/settings/forms')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleCopyLink}>
+              <Link2 className="h-4 w-4 mr-2" />
+              Copy Link
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleSaveSettings}>
+              <Save className="h-4 w-4 mr-2" />
+              Save Draft
+            </Button>
+            {form.status === 'published' ? (
+              <Badge className="bg-green-100 text-green-700 px-3 py-1.5">Published</Badge>
+            ) : (
+              <Button size="sm" onClick={handlePublish}>
+                <Send className="h-4 w-4 mr-2" />
+                Publish
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-12 gap-4">
+          {/* Field palette */}
+          <Card className="col-span-12 md:col-span-2">
+            <CardContent className="pt-4">
+              <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2">
+                Add Field
+              </h3>
+              <div className="space-y-1">
+                {Object.entries(FIELD_TYPE_META).map(([type, meta]) => {
+                  const Icon = meta.icon;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => handleAddField(type as FormFieldType)}
+                      className="w-full flex items-center gap-2 p-2 rounded text-xs hover:bg-muted transition-colors"
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {meta.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Canvas */}
+          <Card className="col-span-12 md:col-span-6">
+            <CardContent className="pt-4">
+              <div className="mb-3">
+                <h3 className="text-sm font-semibold">{form.name}</h3>
+                <p className="text-xs text-muted-foreground">/apply/{form.slug}</p>
+              </div>
+
+              {allFields.length === 0 ? (
+                <div className="border-2 border-dashed rounded-md p-8 text-center text-sm text-muted-foreground">
+                  Click a field type on the left to start building
+                </div>
+              ) : (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={allFields.map((f: any) => f.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-2">
+                      {allFields.map((field: any) => (
+                        <FieldBlock
+                          key={field.id}
+                          field={field}
+                          isSelected={selectedFieldId === field.id}
+                          onSelect={() => {
+                            setSelectedFieldId(field.id);
+                            setRightTab('field');
+                          }}
+                          onDelete={() => handleFieldDelete(field.id)}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Right panel: Field config or Form settings */}
+          <Card className="col-span-12 md:col-span-4">
+            <CardContent className="pt-4">
+              <Tabs value={rightTab} onValueChange={(v) => setRightTab(v as 'field' | 'settings')}>
+                <TabsList className="w-full">
+                  <TabsTrigger value="field" className="flex-1">
+                    Field
+                  </TabsTrigger>
+                  <TabsTrigger value="settings" className="flex-1">
+                    <SettingsIcon className="h-3.5 w-3.5 mr-1" />
+                    Settings
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="field" className="mt-4">
+                  {selectedField ? (
+                    <FieldConfigPanel
+                      field={selectedField}
+                      onUpdate={(updates) => handleFieldUpdate(selectedField.id, updates)}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-8">
+                      Select a field on the canvas to edit
+                    </p>
+                  )}
+                </TabsContent>
+                <TabsContent value="settings" className="mt-4">
+                  <FormSettingsPanel
+                    form={localFormState}
+                    onUpdate={(updates) =>
+                      setLocalFormState((prev: any) => ({ ...prev, ...updates }))
+                    }
+                  />
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </ContentLayout>
+  );
+}
+
+export default function FormBuilderPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = usePromise(params);
+  return (
+    <AdmissionErrorBoundary>
+      <PermissionGuard module="admission" action="view">
+        <FormBuilderContent formId={id} />
+      </PermissionGuard>
+    </AdmissionErrorBoundary>
+  );
+}

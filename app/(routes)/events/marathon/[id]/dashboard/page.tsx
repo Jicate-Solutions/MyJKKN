@@ -548,11 +548,202 @@ export default function MarathonDashboardPage() {
           </div>
         ) : null}
 
+        {/* ── Registration Statistics ──────────────────────────────── */}
+        {data && <RegistrationStatistics data={data} />}
+
         <Separator />
 
         {/* ── Quick Navigation ────────────────────────────────────────── */}
         <QuickNav eventId={eventId} />
       </div>
     </ContentLayout>
+  );
+}
+
+// ============================================================================
+// Registration Statistics Section
+// ============================================================================
+
+function RegistrationStatistics({
+  data,
+}: {
+  data: NonNullable<ReturnType<typeof useMarathonDashboard>['data']>;
+}) {
+  const total = data.total_registrations;
+  if (total === 0) return null;
+
+  const genderData = [
+    { label: 'Male', count: data.male_count, color: 'bg-blue-500' },
+    { label: 'Female', count: data.female_count, color: 'bg-pink-500' },
+    {
+      label: 'Other',
+      count: total - data.male_count - data.female_count,
+      color: 'bg-gray-400',
+    },
+  ].filter((g) => g.count > 0);
+
+  const institutionData = [...data.registrations_by_institution]
+    .sort((a, b) => b.count - a.count);
+
+  const categoryData = [...data.registrations_by_category]
+    .sort((a, b) => b.count - a.count);
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold">Registration Statistics</h2>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Overview Stats */}
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              Overview
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg bg-muted/50 p-3 text-center">
+                <div className="text-2xl font-bold">{total}</div>
+                <div className="text-xs text-muted-foreground">Total</div>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-3 text-center">
+                <div className="text-2xl font-bold">{data.checked_in_count}</div>
+                <div className="text-xs text-muted-foreground">Checked In</div>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-3 text-center">
+                <div className="text-2xl font-bold">{data.internal_count}</div>
+                <div className="text-xs text-muted-foreground">Internal</div>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-3 text-center">
+                <div className="text-2xl font-bold">{data.external_count}</div>
+                <div className="text-xs text-muted-foreground">External</div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Payment Summary */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Payment Collected</span>
+                <span className="font-semibold text-green-600">{formatINR(data.payment_collected)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Pending Payments</span>
+                <span className="font-semibold text-orange-500">{data.payment_pending}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Gender Distribution */}
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              Gender Distribution
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Visual bar */}
+            <div className="flex h-4 w-full rounded-full overflow-hidden">
+              {genderData.map((g) => {
+                const pct = total > 0 ? (g.count / total) * 100 : 0;
+                return (
+                  <div
+                    key={g.label}
+                    className={`${g.color} transition-all`}
+                    style={{ width: `${pct}%` }}
+                    title={`${g.label}: ${g.count} (${Math.round(pct)}%)`}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Legend */}
+            <div className="space-y-2">
+              {genderData.map((g) => {
+                const pct = total > 0 ? Math.round((g.count / total) * 100) : 0;
+                return (
+                  <div key={g.label} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className={`h-3 w-3 rounded-full ${g.color}`} />
+                      <span>{g.label}</span>
+                    </div>
+                    <span className="font-medium">{g.count} <span className="text-muted-foreground text-xs">({pct}%)</span></span>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Category Breakdown */}
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              By Category
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2.5">
+            {categoryData.map((c) => {
+              const pct = total > 0 ? Math.round((c.count / total) * 100) : 0;
+              return (
+                <div key={c.category_name} className="space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span>{c.category_name}</span>
+                    <span className="font-medium">{c.count} <span className="text-muted-foreground text-xs">({pct}%)</span></span>
+                  </div>
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 rounded-full transition-all"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Institution-wise Registrations */}
+      {institutionData.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              Institution-wise Registrations
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {institutionData.map((inst, index) => {
+                const pct = total > 0 ? Math.round((inst.count / total) * 100) : 0;
+                return (
+                  <div key={inst.institution_name} className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground w-5 text-right shrink-0">
+                      {index + 1}.
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="truncate">{inst.institution_name}</span>
+                        <span className="font-medium shrink-0 ml-2">
+                          {inst.count} <span className="text-muted-foreground text-xs">({pct}%)</span>
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-emerald-500 rounded-full transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }

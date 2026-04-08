@@ -59,6 +59,7 @@ import { indianStates, getDistrictsByState } from '@/lib/data/locations';
 // Must match LeadSource type from types/admission.ts
 const LEAD_SOURCES = [
   { value: 'website', label: 'Website' },
+  { value: 'admission_form', label: 'Admission Form' },
   { value: 'walk_in', label: 'Walk-in' },
   { value: 'referral', label: 'Referral' },
   { value: 'social_media', label: 'Social Media' },

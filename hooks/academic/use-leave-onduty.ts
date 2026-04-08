@@ -318,6 +318,8 @@ export function usePeriodsForDate(
     queryFn: () =>
       LeaveOndutyApplicationService.getPeriodsForDate(sectionId, semesterId, date, periodType),
     enabled: !!sectionId && !!semesterId && !!date && !!periodType,
+    staleTime: 5 * 60 * 1000, // 5 min — timetable doesn't change mid-session
+    refetchOnWindowFocus: false, // Prevent refetch when returning from file picker on mobile
   });
 }
 
