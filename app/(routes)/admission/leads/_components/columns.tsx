@@ -295,6 +295,14 @@ export function getLeadColumns(
     ),
     cell: ({ row }) => {
       const source = row.getValue('source') as string | null;
+      if (source === 'admission_form') {
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+            Admission Form
+          </span>
+        );
+      }
       return (
         <span className="text-sm text-muted-foreground">
           {source?.replace(/_/g, ' ') || '-'}

@@ -439,6 +439,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/workflow-config': 'admission.settings.workflows.manage',
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
+  '/admission/settings/forms': 'admission.settings.forms.view',
+  '/admission/settings/forms/new': 'admission.settings.forms.manage',
 
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',
@@ -1084,6 +1086,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/settings/sources',
               label: 'Lead Sources',
               active: pathname === '/admission/settings/sources'
+            },
+            {
+              href: '/admission/settings/forms',
+              label: 'Form Builder',
+              active: pathname.startsWith('/admission/settings/forms')
             },
             {
               href: '/admission/settings/templates',
