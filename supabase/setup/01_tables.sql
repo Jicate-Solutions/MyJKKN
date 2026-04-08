@@ -3654,6 +3654,134 @@ CREATE TABLE IF NOT EXISTS public.marathon_race_track_points (
 CREATE INDEX IF NOT EXISTS idx_marathon_track_points_event_bib ON public.marathon_race_track_points(event_id, bib);
 CREATE INDEX IF NOT EXISTS idx_marathon_track_points_timestamp ON public.marathon_race_track_points(timestamp);
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ADMISSION FORM BUILDER TABLES
+-- Added: 2026-04-08 — Dynamic public admission forms
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Pre-built form templates (system + user-created)
+CREATE TABLE IF NOT EXISTS admission_form_templates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  description text,
+  form_type text NOT NULL DEFAULT 'admission',
+  template_data jsonb NOT NULL DEFAULT '{}',
+  is_system boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Main form configuration
+CREATE TABLE IF NOT EXISTS admission_forms (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  slug text NOT NULL UNIQUE,
+  description text,
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+  form_type text NOT NULL DEFAULT 'admission',
+  institution_ids uuid[] DEFAULT '{}',
+  program_ids uuid[] DEFAULT '{}',
+  logo_url text,
+  banner_url text,
+  primary_color text DEFAULT '#1a73e8',
+  thank_you_title text DEFAULT 'Application Received!',
+  thank_you_message text DEFAULT 'Thank you for your interest. Our team will contact you shortly.',
+  is_active boolean NOT NULL DEFAULT true,
+  allow_duplicate boolean NOT NULL DEFAULT false,
+  auto_whatsapp boolean NOT NULL DEFAULT true,
+  wa_template_id uuid,
+  max_submissions integer,
+  starts_at timestamptz,
+  expires_at timestamptz,
+  created_by uuid REFERENCES profiles(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Form sections (group fields visually)
+CREATE TABLE IF NOT EXISTS admission_form_sections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id uuid NOT NULL REFERENCES admission_forms(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  description text,
+  display_order integer NOT NULL DEFAULT 0,
+  is_collapsible boolean NOT NULL DEFAULT false,
+  condition jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Individual form fields
+CREATE TABLE IF NOT EXISTS admission_form_fields (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id uuid NOT NULL REFERENCES admission_forms(id) ON DELETE CASCADE,
+  section_id uuid REFERENCES admission_form_sections(id) ON DELETE SET NULL,
+  field_key text NOT NULL,
+  field_label text NOT NULL,
+  field_type text NOT NULL CHECK (field_type IN (
+    'text', 'number', 'phone', 'email', 'select', 'multi_select',
+    'date', 'textarea', 'file', 'checkbox', 'radio',
+    'institution_program_selector'
+  )),
+  placeholder text,
+  help_text text,
+  is_required boolean NOT NULL DEFAULT false,
+  display_order integer NOT NULL DEFAULT 0,
+  min_length integer,
+  max_length integer,
+  min_value numeric,
+  max_value numeric,
+  pattern text,
+  options jsonb DEFAULT '[]',
+  condition jsonb,
+  lead_field_map text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Raw form submissions
+CREATE TABLE IF NOT EXISTS admission_form_submissions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id uuid NOT NULL REFERENCES admission_forms(id) ON DELETE CASCADE,
+  lead_id uuid REFERENCES admission_leads(id) ON DELETE SET NULL,
+  institution_id uuid REFERENCES institutions(id),
+  submission_data jsonb NOT NULL DEFAULT '{}',
+  ip_address text,
+  user_agent text,
+  utm_source text,
+  utm_medium text,
+  utm_campaign text,
+  referrer_url text,
+  device_type text,
+  submitted_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Analytics events
+CREATE TABLE IF NOT EXISTS admission_form_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id uuid NOT NULL REFERENCES admission_forms(id) ON DELETE CASCADE,
+  event_type text NOT NULL CHECK (event_type IN (
+    'form_viewed', 'form_started', 'field_focused', 'field_completed',
+    'form_submitted', 'form_abandoned'
+  )),
+  field_key text,
+  session_id text,
+  metadata jsonb DEFAULT '{}',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_admission_forms_institution ON admission_forms(institution_id);
+CREATE INDEX IF NOT EXISTS idx_admission_forms_slug ON admission_forms(slug);
+CREATE INDEX IF NOT EXISTS idx_admission_forms_status ON admission_forms(status);
+CREATE INDEX IF NOT EXISTS idx_admission_form_fields_form ON admission_form_fields(form_id);
+CREATE INDEX IF NOT EXISTS idx_admission_form_fields_section ON admission_form_fields(section_id);
+CREATE INDEX IF NOT EXISTS idx_admission_form_sections_form ON admission_form_sections(form_id);
+CREATE INDEX IF NOT EXISTS idx_admission_form_submissions_form ON admission_form_submissions(form_id);
+CREATE INDEX IF NOT EXISTS idx_admission_form_submissions_lead ON admission_form_submissions(lead_id);
+CREATE INDEX IF NOT EXISTS idx_admission_form_events_form ON admission_form_events(form_id);
+CREATE INDEX IF NOT EXISTS idx_admission_form_events_session ON admission_form_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_admission_form_events_type ON admission_form_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_admission_form_events_created ON admission_form_events(created_at);
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================
