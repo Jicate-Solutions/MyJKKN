@@ -721,23 +721,82 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
 
           <p className="text-sm font-medium">Select a template</p>
           <div className="grid grid-cols-2 gap-2 max-h-[30vh] overflow-y-auto">
-            {(templates || []).map((t: ApprovedTemplate) => (
+            {(templates || []).map((t: ApprovedTemplate) => {
+              const header = getTemplateHeader(t);
+              const bodyText = getTemplateBody(t);
+              const paramCount = (bodyText.match(/\{\{\d+\}\}/g) || []).length;
+              const isMarketing = t.category === 'MARKETING';
+              return (
               <div
                 key={t.id}
                 className={`border rounded-lg p-3 cursor-pointer transition-all hover:border-orange-500 text-sm ${
                   selectedTemplate?.id === t.id ? 'border-orange-600 bg-orange-50 dark:bg-orange-950' : ''
                 }`}
-                onClick={() => { setSelectedTemplate(t); setVarMapping({}); setHeaderMediaUrl(''); }}
+                onClick={() => { setSelectedTemplate(t); setVarMapping({}); setHeaderMediaUrl(''); setUploadedFileName(''); }}
               >
                 <p className="font-medium text-xs">{t.name}</p>
-                <Badge variant="outline" className="text-[10px] mt-1">{t.category}</Badge>
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  <Badge variant="outline" className={`text-[10px] ${isMarketing ? 'border-amber-400 text-amber-700 bg-amber-50' : 'border-blue-400 text-blue-700 bg-blue-50'}`}>
+                    {t.category}
+                  </Badge>
+                  {header?.format && header.format !== 'TEXT' && (
+                    <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-600 bg-purple-50">
+                      {header.format}
+                    </Badge>
+                  )}
+                  {paramCount > 0 && (
+                    <Badge variant="outline" className="text-[10px] border-gray-300 text-gray-500">
+                      {paramCount} var{paramCount > 1 ? 's' : ''}
+                    </Badge>
+                  )}
+                </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Template Preview + Variable Mapping */}
           {selectedTemplate && (
             <div className="space-y-3">
+              {/* Template Info Banner */}
+              <div className={`p-2.5 rounded-lg border text-xs space-y-1 ${
+                selectedTemplate.category === 'MARKETING'
+                  ? 'bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-800'
+                  : 'bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{selectedTemplate.name}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                    selectedTemplate.category === 'MARKETING'
+                      ? 'bg-amber-200 text-amber-800'
+                      : 'bg-blue-200 text-blue-800'
+                  }`}>
+                    {selectedTemplate.category}
+                  </span>
+                </div>
+                {selectedTemplate.category === 'MARKETING' && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                    Meta limits marketing messages per user. Some recipients may not receive this if they&apos;ve had recent marketing messages.
+                  </p>
+                )}
+                {selectedTemplate.category === 'UTILITY' && (
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400">
+                    Utility messages deliver reliably — no frequency caps.
+                  </p>
+                )}
+                {(() => {
+                  const h = getTemplateHeader(selectedTemplate);
+                  const bp = (getTemplateBody(selectedTemplate).match(/\{\{\d+\}\}/g) || []).length;
+                  const parts: string[] = [];
+                  if (h?.format && h.format !== 'TEXT') parts.push(`Requires ${h.format.toLowerCase()} header`);
+                  if (bp > 0) parts.push(`${bp} variable${bp > 1 ? 's' : ''} to map`);
+                  parts.push(`Language: ${selectedTemplate.language}`);
+                  return parts.length > 0 ? (
+                    <p className="text-[10px] text-muted-foreground">{parts.join(' · ')}</p>
+                  ) : null;
+                })()}
+              </div>
+
               {/* Body Preview */}
               {getTemplateBody(selectedTemplate) && (
                 <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
