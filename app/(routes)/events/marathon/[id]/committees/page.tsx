@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { Separator } from '@/components/ui/separator';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
@@ -401,6 +403,15 @@ function CommitteeItem({
 // Add / Edit Committee Dialog
 // ============================================================================
 
+type UserType = 'staff' | 'learner';
+
+interface PersonOption {
+  id: string;
+  name: string;
+  subtitle: string; // role, department, etc.
+  type: UserType;
+}
+
 function CommitteeDialog({
   open,
   onClose,
@@ -423,26 +434,176 @@ function CommitteeDialog({
     member_names: initial?.member_names ?? [],
   });
 
-  // Raw text for member_names input
-  const [membersText, setMembersText] = useState(
-    (initial?.member_names ?? []).join(', ')
-  );
+  // Member selector state
+  const [userType, setUserType] = useState<UserType>('staff');
+  const [selectedLead, setSelectedLead] = useState<PersonOption | null>(null);
+  const [selectedMembers, setSelectedMembers] = useState<PersonOption[]>([]);
+
+  // Filters
+  const [filters, setFilters] = useState({
+    institution_id: '',
+    department_id: '',
+    degree_id: '',
+    program_id: '',
+    semester_id: '',
+    section_id: '',
+    search: '',
+  });
+
+  // Hierarchy data
+  const [institutions, setInstitutions] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [degrees, setDegrees] = useState<any[]>([]);
+  const [programs, setPrograms] = useState<any[]>([]);
+  const [semesters, setSemesters] = useState<any[]>([]);
+  const [sections, setSections] = useState<any[]>([]);
+
+  // People data
+  const [people, setPeople] = useState<PersonOption[]>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
 
   const isEdit = !!initial;
+
+  // Load hierarchy options
+  useEffect(() => {
+    if (!open) return;
+    const supabase = createClientSupabaseClient();
+
+    (async () => {
+      const [instRes, deptRes, degRes] = await Promise.all([
+        supabase.from('institutions').select('id, name').order('name'),
+        supabase.from('departments').select('id, department_name, institution_id').order('department_name'),
+        supabase.from('degrees').select('id, degree_name').order('degree_name'),
+      ]);
+      setInstitutions(instRes.data ?? []);
+      setDepartments(deptRes.data ?? []);
+      setDegrees(degRes.data ?? []);
+    })();
+  }, [open]);
+
+  // Load programs when degree or department changes
+  useEffect(() => {
+    if (userType !== 'learner') return;
+    const supabase = createClientSupabaseClient();
+    let query = supabase.from('programs').select('id, program_name, department_id, degree_id');
+    if (filters.department_id) query = query.eq('department_id', filters.department_id);
+    if (filters.degree_id) query = query.eq('degree_id', filters.degree_id);
+    query.order('program_name').then(({ data }) => setPrograms(data ?? []));
+  }, [filters.department_id, filters.degree_id, userType]);
+
+  // Load semesters when program changes
+  useEffect(() => {
+    if (userType !== 'learner' || !filters.program_id) {
+      setSemesters([]);
+      return;
+    }
+    const supabase = createClientSupabaseClient();
+    supabase
+      .from('semesters')
+      .select('id, semester_name, program_id')
+      .eq('program_id', filters.program_id)
+      .order('semester_name')
+      .then(({ data }) => setSemesters(data ?? []));
+  }, [filters.program_id, userType]);
+
+  // Load sections when semester changes
+  useEffect(() => {
+    if (userType !== 'learner' || !filters.semester_id) {
+      setSections([]);
+      return;
+    }
+    const supabase = createClientSupabaseClient();
+    supabase
+      .from('sections')
+      .select('id, section_name, semester_id')
+      .eq('semester_id', filters.semester_id)
+      .order('section_name')
+      .then(({ data }) => setSections(data ?? []));
+  }, [filters.semester_id, userType]);
+
+  // Fetch people based on user type and filters
+  useEffect(() => {
+    if (!open) return;
+    setPeopleLoading(true);
+    const supabase = createClientSupabaseClient();
+
+    if (userType === 'staff') {
+      let query = supabase
+        .from('staff')
+        .select('id, first_name, last_name, designation, email, institution_id, department_id, department:departments(department_name)')
+        .eq('is_active', true);
+
+      if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
+      if (filters.department_id) query = query.eq('department_id', filters.department_id);
+      if (filters.search) query = query.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%`);
+
+      query.order('first_name').limit(100).then(({ data }) => {
+        setPeople(
+          (data ?? []).map((s: any) => ({
+            id: s.id,
+            name: `${s.first_name} ${s.last_name}`.trim(),
+            subtitle: `${s.designation}${s.department?.department_name ? ' · ' + s.department.department_name : ''}`,
+            type: 'staff' as const,
+          }))
+        );
+        setPeopleLoading(false);
+      });
+    } else {
+      let query = supabase
+        .from('learners_profiles')
+        .select('id, first_name, last_name, student_email, roll_number, institution_id, department_id, program_id, semester_id, section_id, department:departments(department_name), program:programs(program_name)');
+
+      if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
+      if (filters.department_id) query = query.eq('department_id', filters.department_id);
+      if (filters.degree_id) query = query.eq('degree_id', filters.degree_id);
+      if (filters.program_id) query = query.eq('program_id', filters.program_id);
+      if (filters.semester_id) query = query.eq('semester_id', filters.semester_id);
+      if (filters.section_id) query = query.eq('section_id', filters.section_id);
+      if (filters.search) query = query.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,roll_number.ilike.%${filters.search}%`);
+
+      query.order('first_name').limit(100).then(({ data }) => {
+        setPeople(
+          (data ?? []).map((l: any) => ({
+            id: l.id,
+            name: `${l.first_name} ${l.last_name ?? ''}`.trim(),
+            subtitle: `${l.roll_number ?? ''}${l.program?.program_name ? ' · ' + l.program.program_name : ''}${l.department?.department_name ? ' · ' + l.department.department_name : ''}`,
+            type: 'learner' as const,
+          }))
+        );
+        setPeopleLoading(false);
+      });
+    }
+  }, [open, userType, filters]);
+
+  // Filter departments based on selected institution
+  const filteredDepartments = filters.institution_id
+    ? departments.filter((d) => d.institution_id === filters.institution_id)
+    : departments;
+
+  const toggleMember = (person: PersonOption) => {
+    setSelectedMembers((prev) => {
+      const exists = prev.find((p) => p.id === person.id);
+      if (exists) return prev.filter((p) => p.id !== person.id);
+      return [...prev, person];
+    });
+  };
+
+  const setAsLead = (person: PersonOption) => {
+    setSelectedLead(person);
+    setForm((f) => ({ ...f, lead_name: person.name }));
+  };
 
   const handleSubmit = () => {
     if (!form.name?.trim()) return;
 
-    const member_names = membersText
-      .split(',')
-      .map((m) => m.trim())
-      .filter(Boolean);
+    const member_names = selectedMembers.map((m) => m.name);
+    const lead_name = selectedLead?.name || form.lead_name;
 
     const payload = {
       event_id: eventId,
       name: form.name,
       description: form.description || undefined,
-      lead_name: form.lead_name || undefined,
+      lead_name: lead_name || undefined,
       member_names,
     };
 
@@ -463,51 +624,237 @@ function CommitteeDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Committee' : 'Add Committee'}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3 py-1">
-          <div className="space-y-1">
-            <Label className="text-xs">Committee Name *</Label>
-            <Input
-              placeholder="e.g. Registration Committee"
-              value={form.name ?? ''}
-              onChange={(e) => set('name', e.target.value)}
-            />
+        <div className="space-y-4 py-1">
+          {/* Committee Name + Description */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Committee Name *</Label>
+              <Input
+                placeholder="e.g. Registration Committee"
+                value={form.name ?? ''}
+                onChange={(e) => set('name', e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Description</Label>
+              <Input
+                placeholder="Short description"
+                value={form.description ?? ''}
+                onChange={(e) => set('description', e.target.value)}
+              />
+            </div>
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs">Description</Label>
-            <Textarea
-              placeholder="What does this committee handle?"
-              rows={2}
-              value={form.description ?? ''}
-              onChange={(e) => set('description', e.target.value)}
-            />
+          <Separator />
+
+          {/* User Type Selector */}
+          <div className="space-y-2">
+            <Label className="text-xs">Select Members From</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={userType === 'staff' ? 'default' : 'outline'}
+                onClick={() => {
+                  setUserType('staff');
+                  setFilters((f) => ({ ...f, degree_id: '', program_id: '', semester_id: '', section_id: '' }));
+                }}
+              >
+                Staff (Facilitator)
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={userType === 'learner' ? 'default' : 'outline'}
+                onClick={() => setUserType('learner')}
+              >
+                Learners (Student)
+              </Button>
+            </div>
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs">Lead Name</Label>
-            <Input
-              placeholder="e.g. Priya Sharma"
-              value={form.lead_name ?? ''}
-              onChange={(e) => set('lead_name', e.target.value)}
-            />
+          {/* Filters */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label className="text-[11px] text-muted-foreground">Institution</Label>
+              <select
+                className="w-full h-9 rounded-md border border-input bg-background px-2 text-xs"
+                value={filters.institution_id}
+                onChange={(e) => setFilters((f) => ({ ...f, institution_id: e.target.value, department_id: '', program_id: '', semester_id: '', section_id: '' }))}
+              >
+                <option value="">All Institutions</option>
+                {institutions.map((i) => (
+                  <option key={i.id} value={i.id}>{i.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {userType === 'learner' && (
+              <div className="space-y-1">
+                <Label className="text-[11px] text-muted-foreground">Degree</Label>
+                <select
+                  className="w-full h-9 rounded-md border border-input bg-background px-2 text-xs"
+                  value={filters.degree_id}
+                  onChange={(e) => setFilters((f) => ({ ...f, degree_id: e.target.value, program_id: '', semester_id: '', section_id: '' }))}
+                >
+                  <option value="">All Degrees</option>
+                  {degrees.map((d) => (
+                    <option key={d.id} value={d.id}>{d.degree_name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <Label className="text-[11px] text-muted-foreground">Department</Label>
+              <select
+                className="w-full h-9 rounded-md border border-input bg-background px-2 text-xs"
+                value={filters.department_id}
+                onChange={(e) => setFilters((f) => ({ ...f, department_id: e.target.value, program_id: '', semester_id: '', section_id: '' }))}
+              >
+                <option value="">All Departments</option>
+                {filteredDepartments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.department_name}</option>
+                ))}
+              </select>
+            </div>
+
+            {userType === 'learner' && (
+              <>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Program</Label>
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-2 text-xs"
+                    value={filters.program_id}
+                    onChange={(e) => setFilters((f) => ({ ...f, program_id: e.target.value, semester_id: '', section_id: '' }))}
+                  >
+                    <option value="">All Programs</option>
+                    {programs.map((p) => (
+                      <option key={p.id} value={p.id}>{p.program_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Semester</Label>
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-2 text-xs"
+                    value={filters.semester_id}
+                    onChange={(e) => setFilters((f) => ({ ...f, semester_id: e.target.value, section_id: '' }))}
+                    disabled={!filters.program_id}
+                  >
+                    <option value="">All Semesters</option>
+                    {semesters.map((s) => (
+                      <option key={s.id} value={s.id}>{s.semester_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Section</Label>
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-2 text-xs"
+                    value={filters.section_id}
+                    onChange={(e) => setFilters((f) => ({ ...f, section_id: e.target.value }))}
+                    disabled={!filters.semester_id}
+                  >
+                    <option value="">All Sections</option>
+                    {sections.map((s) => (
+                      <option key={s.id} value={s.id}>{s.section_name}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs">Members (comma-separated)</Label>
-            <Textarea
-              placeholder="e.g. Ravi Kumar, Anita Singh, Suresh Babu"
-              rows={2}
-              value={membersText}
-              onChange={(e) => setMembersText(e.target.value)}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Enter member names separated by commas.
-            </p>
+          {/* Search */}
+          <Input
+            placeholder={`Search ${userType === 'staff' ? 'staff by name or email' : 'learners by name or roll number'}...`}
+            value={filters.search}
+            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+            className="h-9"
+          />
+
+          {/* People List */}
+          <div className="border rounded-md max-h-64 overflow-y-auto">
+            {peopleLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : people.length === 0 ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">
+                No {userType === 'staff' ? 'staff' : 'learners'} found. Try adjusting filters.
+              </div>
+            ) : (
+              <div className="divide-y">
+                {people.map((person) => {
+                  const isSelected = selectedMembers.some((m) => m.id === person.id);
+                  const isLead = selectedLead?.id === person.id;
+                  return (
+                    <div
+                      key={person.id}
+                      className="flex items-center justify-between p-2 hover:bg-muted/50"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{person.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{person.subtitle}</p>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={isLead ? 'default' : 'outline'}
+                          className="h-7 text-xs"
+                          onClick={() => setAsLead(person)}
+                        >
+                          {isLead ? '★ Lead' : 'Set Lead'}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={isSelected ? 'default' : 'outline'}
+                          className="h-7 text-xs"
+                          onClick={() => toggleMember(person)}
+                        >
+                          {isSelected ? 'Added' : 'Add'}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Selected Summary */}
+          <div className="rounded-md bg-muted/50 p-3 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Lead:</span>
+              <span className="font-medium">{selectedLead?.name || form.lead_name || 'Not selected'}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Members ({selectedMembers.length}):</span>
+            </div>
+            {selectedMembers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedMembers.map((m) => (
+                  <Badge key={m.id} variant="secondary" className="text-xs gap-1">
+                    {m.name}
+                    <button
+                      type="button"
+                      onClick={() => toggleMember(m)}
+                      className="hover:text-destructive ml-0.5"
+                    >
+                      ×
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
