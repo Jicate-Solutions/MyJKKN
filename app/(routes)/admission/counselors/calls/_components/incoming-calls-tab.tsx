@@ -109,19 +109,25 @@ function RecordingPlayer({ url }: { url: string | null }) {
 // KPI CARDS
 // ============================================================================
 
-function InboundKpiCards({ stats, isLoading }: { stats: any; isLoading: boolean }) {
+function InboundKpiCards({ stats, isLoading, onFilter }: {
+  stats: any;
+  isLoading: boolean;
+  onFilter: (status: string) => void;
+}) {
   const cards = [
     {
       title: 'Total Incoming',
       value: stats.total_incoming,
       icon: PhoneIncoming,
       iconColor: 'text-blue-600',
+      filterValue: '',
     },
     {
       title: 'Answered',
       value: stats.answered,
       icon: PhoneCall,
       iconColor: 'text-green-600',
+      filterValue: 'completed',
     },
     {
       title: 'Missed',
@@ -129,12 +135,14 @@ function InboundKpiCards({ stats, isLoading }: { stats: any; isLoading: boolean 
       icon: PhoneMissed,
       iconColor: 'text-red-500',
       highlight: stats.missed > 0,
+      filterValue: 'no-answer',
     },
     {
       title: 'Answer Rate',
       value: `${stats.answer_rate}%`,
       icon: TrendingUp,
       iconColor: stats.answer_rate >= 80 ? 'text-green-600' : stats.answer_rate >= 50 ? 'text-yellow-600' : 'text-red-600',
+      filterValue: '',
     },
     {
       title: 'Missed (No Callback)',
@@ -142,19 +150,24 @@ function InboundKpiCards({ stats, isLoading }: { stats: any; isLoading: boolean 
       icon: AlertTriangle,
       iconColor: 'text-orange-600',
       highlight: stats.missed_without_callback > 0,
+      filterValue: 'no-answer',
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
       {cards.map((card) => (
-        <Card key={card.title}>
+        <Card
+          key={card.title}
+          className="cursor-pointer hover:shadow-md active:scale-[0.98] transition-all"
+          onClick={() => onFilter(card.filterValue)}
+        >
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
+            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
             <card.icon className={`h-4 w-4 ${card.iconColor}`} />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${card.highlight ? 'text-red-600' : ''}`}>
+            <div className={`text-xl sm:text-2xl font-bold ${card.highlight ? 'text-red-600' : ''}`}>
               {isLoading ? <Skeleton className="h-7 w-12" /> : card.value}
             </div>
           </CardContent>
@@ -186,7 +199,11 @@ function getFunnelBarColor(index: number): string {
   return colors[index] || 'bg-gray-400';
 }
 
-function CallFunnelView({ stages, isLoading }: { stages: FunnelStage[]; isLoading: boolean }) {
+function CallFunnelView({ stages, isLoading, onStageClick }: {
+  stages: FunnelStage[];
+  isLoading: boolean;
+  onStageClick?: (stageKey: string) => void;
+}) {
   if (isLoading) {
     return (
       <Card>
@@ -217,7 +234,10 @@ function CallFunnelView({ stages, isLoading }: { stages: FunnelStage[]; isLoadin
         <div className="hidden md:flex items-center gap-1">
           {stages.map((stage, i) => (
             <div key={stage.key} className="flex items-center gap-1 flex-1 min-w-0">
-              <div className="flex-1 min-w-0">
+              <div
+                className="flex-1 min-w-0 cursor-pointer hover:bg-muted/50 rounded-lg p-1.5 transition-colors"
+                onClick={() => onStageClick?.(stage.key)}
+              >
                 <div className="text-center">
                   <p className="text-xs text-muted-foreground truncate">{stage.name}</p>
                   <p className="text-2xl font-bold tabular-nums">{stage.count.toLocaleString()}</p>
@@ -245,7 +265,11 @@ function CallFunnelView({ stages, isLoading }: { stages: FunnelStage[]; isLoadin
         {/* Vertical funnel for small screens */}
         <div className="md:hidden space-y-3">
           {stages.map((stage, i) => (
-            <div key={stage.key}>
+            <div
+              key={stage.key}
+              className="cursor-pointer hover:bg-muted/50 rounded-lg p-2 -mx-2 transition-colors active:scale-[0.98]"
+              onClick={() => onStageClick?.(stage.key)}
+            >
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">{stage.name}</span>
                 <div className="flex items-center gap-2">
@@ -568,14 +592,42 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <InboundKpiCards stats={stats} isLoading={statsLoading} />
+      {/* KPI Cards — clickable to filter call list */}
+      <InboundKpiCards
+        stats={stats}
+        isLoading={statsLoading}
+        onFilter={(status) => {
+          setStatusFilter(status);
+          setPage(1);
+          // Scroll to call list
+          document.getElementById('call-history')?.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
 
       {/* Counselor Availability */}
       <CounselorAvailabilityCard />
 
-      {/* Call-to-Enrollment Funnel */}
-      <CallFunnelView stages={funnel.stages} isLoading={funnelLoading} />
+      {/* Call-to-Enrollment Funnel — clickable stages */}
+      <CallFunnelView
+        stages={funnel.stages}
+        isLoading={funnelLoading}
+        onStageClick={(stageKey) => {
+          // Navigate to relevant page based on funnel stage
+          if (stageKey === 'total_calls') {
+            setStatusFilter(''); setPage(1);
+            document.getElementById('call-history')?.scrollIntoView({ behavior: 'smooth' });
+          } else if (stageKey === 'answered') {
+            setStatusFilter('completed'); setPage(1);
+            document.getElementById('call-history')?.scrollIntoView({ behavior: 'smooth' });
+          } else if (stageKey === 'leads_created') {
+            router.push('/admission/leads');
+          } else if (stageKey === 'applications') {
+            router.push('/admission/applications');
+          } else if (stageKey === 'enrolled') {
+            router.push('/admission/applications?status=enrolled');
+          }
+        }}
+      />
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -645,7 +697,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
       )}
 
       {/* Call Log Table */}
-      <Card>
+      <Card id="call-history">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
