@@ -15,11 +15,15 @@ export async function GET(request: NextRequest) {
     }
 
     const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+    const defaultWabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
 
-    if (!accessToken || !businessAccountId) {
+    if (!accessToken || !defaultWabaId) {
       return NextResponse.json({ error: 'Meta API not configured' }, { status: 500 });
     }
+
+    // Allow filtering by specific WABA (for multi-number sender selection)
+    const { searchParams } = new URL(request.url);
+    const businessAccountId = searchParams.get('business_account_id') || defaultWabaId;
 
     const { data: metaResponse } = await axios.get(
       `https://graph.facebook.com/v21.0/${businessAccountId}/message_templates`,
@@ -40,7 +44,7 @@ export async function GET(request: NextRequest) {
         components: t.components || [],
       }));
 
-    return NextResponse.json({ data: templates });
+    return NextResponse.json({ data: templates, business_account_id: businessAccountId });
   } catch (error) {
     console.error('[chat/templates] GET Error:', error);
     return NextResponse.json(

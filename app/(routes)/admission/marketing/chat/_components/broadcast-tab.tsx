@@ -223,12 +223,21 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
     refetchInterval: 10000,
   });
 
+  // Resolve the selected sender's WABA ID for template filtering
+  const selectedWabaId = (() => {
+    if (!selectedPhoneNumberId || !waNumbers) return '';
+    const found = (waNumbers as { phone_number_id: string; business_account_id: string }[])
+      .find(n => n.phone_number_id === selectedPhoneNumberId);
+    return found?.business_account_id || '';
+  })();
+
   const { data: templates } = useQuery({
-    queryKey: ['wa-broadcast-templates'],
+    queryKey: ['wa-broadcast-templates', selectedWabaId],
     queryFn: async () => {
-      // Fetch templates from Meta Graph API and return only APPROVED ones.
-      // No hardcoded fallback — stale template names cause 404s on send.
-      const res = await fetch('/api/admission/chat/templates');
+      // Fetch templates from Meta Graph API for the selected WABA.
+      // If a sender number is selected, fetch templates for that number's WABA only.
+      const params = selectedWabaId ? `?business_account_id=${selectedWabaId}` : '';
+      const res = await fetch(`/api/admission/chat/templates${params}`);
       if (!res.ok) throw new Error('Failed to load templates');
       const json = await res.json();
       return (json.data || []).filter((t: ApprovedTemplate) => t.status === 'APPROVED');
@@ -681,9 +690,35 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
         </div>
       )}
 
-      {/* Step 2: Template + Variable Mapping */}
+      {/* Step 2: Sender Number + Template + Variable Mapping */}
       {step === 2 && (
         <div className="space-y-3">
+          {/* Sender Number Selection — determines which templates are available */}
+          {waNumbers && waNumbers.length > 1 && (
+            <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800 space-y-1.5">
+              <span className="text-green-600 text-xs font-medium">SEND FROM:</span>
+              <select
+                className="w-full border rounded px-2 py-1.5 text-sm bg-background font-mono"
+                value={selectedPhoneNumberId}
+                onChange={e => {
+                  setSelectedPhoneNumberId(e.target.value);
+                  setSelectedTemplate(null); // Reset template when sender changes (different WABA = different templates)
+                  setHeaderMediaUrl('');
+                  setUploadedFileName('');
+                  setVarMapping({});
+                }}
+              >
+                <option value="">Default ({senderInfo?.dedicated_number || 'Primary'})</option>
+                {(waNumbers as { id: string; phone_number_id: string; display_number: string; verified_name: string; is_primary: boolean }[]).map((n) => (
+                  <option key={n.id} value={n.phone_number_id}>
+                    {n.display_number} — {n.verified_name}{n.is_primary ? ' (Primary)' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-green-600/70">Templates shown below are approved for this sender number</p>
+            </div>
+          )}
+
           <p className="text-sm font-medium">Select a template</p>
           <div className="grid grid-cols-2 gap-2 max-h-[30vh] overflow-y-auto">
             {(templates || []).map((t: ApprovedTemplate) => (
@@ -845,25 +880,16 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
       {/* Step 3: Review + Schedule */}
       {step === 3 && (
         <div className="space-y-3">
-          {/* Sender Number Selection */}
-          <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800 space-y-2">
+          {/* Sender Number (read-only summary — selection is in Step 2) */}
+          <div className="p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800 space-y-1">
             <span className="text-green-600 text-xs font-medium">SEND FROM:</span>
-            {waNumbers && waNumbers.length > 1 ? (
-              <select
-                className="w-full border rounded px-2 py-1.5 text-sm bg-background font-mono"
-                value={selectedPhoneNumberId}
-                onChange={e => setSelectedPhoneNumberId(e.target.value)}
-              >
-                <option value="">Default ({senderInfo?.dedicated_number || 'Primary'})</option>
-                {waNumbers.map((n: { id: string; phone_number_id: string; display_number: string; verified_name: string; is_primary: boolean }) => (
-                  <option key={n.id} value={n.phone_number_id}>
-                    {n.display_number} — {n.verified_name}{n.is_primary ? ' (Primary)' : ''}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="text-sm font-mono font-medium">{senderInfo?.dedicated_number || 'Not configured'}</p>
-            )}
+            <p className="text-sm font-mono font-medium">
+              {selectedPhoneNumberId
+                ? (waNumbers as { phone_number_id: string; display_number: string; verified_name: string }[])
+                    ?.find(n => n.phone_number_id === selectedPhoneNumberId)
+                    ?.display_number || selectedPhoneNumberId
+                : senderInfo?.dedicated_number || 'Default (Primary)'}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
