@@ -18,8 +18,9 @@ import {
 import {
   useCheckinVolunteer,
   useCheckoutVolunteer,
+  useDeleteVolunteer,
 } from '@/hooks/events/marathon/use-marathon-live-ops';
-import { UserPlus, LogOut, Users2 } from 'lucide-react';
+import { UserPlus, LogOut, Users2, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { MarathonVolunteerCheckin } from '@/types/events-marathon';
 
@@ -37,6 +38,7 @@ export function VolunteerPanel({ eventId, volunteers }: VolunteerPanelProps) {
 
   const checkinVolunteer = useCheckinVolunteer();
   const checkoutVolunteer = useCheckoutVolunteer();
+  const deleteVolunteer = useDeleteVolunteer();
 
   const activeCount = volunteers.filter((v) => !v.checked_out_at).length;
 
@@ -65,6 +67,11 @@ export function VolunteerPanel({ eventId, volunteers }: VolunteerPanelProps) {
 
   const handleCheckout = (id: string) => {
     checkoutVolunteer.mutate({ id, eventId });
+  };
+
+  const handleDelete = (id: string, volunteerName: string) => {
+    if (!confirm(`Delete volunteer "${volunteerName}"? This cannot be undone.`)) return;
+    deleteVolunteer.mutate({ id, eventId });
   };
 
   return (
@@ -156,13 +163,14 @@ export function VolunteerPanel({ eventId, volunteers }: VolunteerPanelProps) {
                 <th className="py-2 pr-2 font-medium text-xs text-muted-foreground">Station</th>
                 <th className="py-2 pr-2 font-medium text-xs text-muted-foreground">Role</th>
                 <th className="py-2 pr-2 font-medium text-xs text-muted-foreground">Checked In</th>
-                <th className="py-2 font-medium text-xs text-muted-foreground">Status</th>
+                <th className="py-2 pr-2 font-medium text-xs text-muted-foreground">Status</th>
+                <th className="py-2 font-medium text-xs text-muted-foreground text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {volunteers.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-muted-foreground text-sm">
+                  <td colSpan={6} className="py-8 text-center text-muted-foreground text-sm">
                     No volunteers checked in yet
                   </td>
                 </tr>
@@ -177,7 +185,7 @@ export function VolunteerPanel({ eventId, volunteers }: VolunteerPanelProps) {
                     <td className="py-2 pr-2 text-xs text-muted-foreground">
                       {format(new Date(v.checked_in_at), 'HH:mm')}
                     </td>
-                    <td className="py-2">
+                    <td className="py-2 pr-2">
                       {isActive ? (
                         <Button
                           size="sm"
@@ -194,6 +202,18 @@ export function VolunteerPanel({ eventId, volunteers }: VolunteerPanelProps) {
                           Checked Out
                         </Badge>
                       )}
+                    </td>
+                    <td className="py-2 text-right">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDelete(v.id, v.volunteer_name)}
+                        disabled={deleteVolunteer.isPending}
+                        title="Delete volunteer"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </td>
                   </tr>
                 );

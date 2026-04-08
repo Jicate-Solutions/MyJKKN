@@ -144,3 +144,24 @@ export function useCheckoutVolunteer() {
     },
   });
 }
+
+/**
+ * Delete a volunteer check-in record permanently.
+ */
+export function useDeleteVolunteer() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, eventId }: { id: string; eventId: string }) =>
+      MarathonLiveOpsService.deleteVolunteer(id),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: KEYS.liveData(variables.eventId),
+      });
+      toast.success('Volunteer deleted');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete volunteer');
+    },
+  });
+}

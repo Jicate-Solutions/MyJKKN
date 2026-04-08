@@ -526,6 +526,35 @@ export class MarathonLiveOpsService {
     }
   }
 
+  /**
+   * Delete a volunteer check-in record permanently.
+   */
+  static async deleteVolunteer(id: string): Promise<void> {
+    try {
+      const { error } = await (this.supabase as any)
+        .from('marathon_volunteer_checkins')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        logger.error('events/marathon-live-ops', 'Failed to delete volunteer', {
+          id,
+          message: error.message,
+          code: error.code,
+          details: error.details,
+        });
+        throw new Error(error.message || 'Failed to delete volunteer');
+      }
+
+      logger.info('events/marathon-live-ops', 'Volunteer deleted', { id });
+    } catch (error) {
+      if (error instanceof Error) {
+        logger.error('events/marathon-live-ops', 'Unexpected error in deleteVolunteer', { message: error.message });
+      }
+      throw error;
+    }
+  }
+
   // --------------------------------------------------------------------------
   // Runner Detail
   // --------------------------------------------------------------------------
