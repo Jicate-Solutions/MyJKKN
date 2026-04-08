@@ -27,6 +27,7 @@ import {
 } from '@/hooks/events/marathon/use-marathon-registrations';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import {
   Loader2,
   User,
@@ -117,6 +118,7 @@ export default function RegistrationDetailPage() {
 
   const { data: event } = useMarathonEvent(eventId);
   const { data: registration, isLoading, error } = useMarathonRegistration(regId);
+  const access = useMarathonAccess();
 
   const statusMutation = useUpdateRegistrationStatus();
   const checkInMutation = useCheckInParticipant();
@@ -311,9 +313,13 @@ export default function RegistrationDetailPage() {
                     : '-'
                 }
               />
-              <Field label="Source" value={registration.source} />
-              <Field label="Referral" value={registration.referral_source} />
-              <Field label="Discount Code" value={registration.discount_code} />
+              {access.canManage && (
+                <>
+                  <Field label="Source" value={registration.source} />
+                  {registration.referral_source && <Field label="Referral" value={registration.referral_source} />}
+                  {registration.discount_code && <Field label="Discount Code" value={registration.discount_code} />}
+                </>
+              )}
               {registration.checked_in_at && (
                 <Field
                   label="Checked In At"
@@ -341,15 +347,17 @@ export default function RegistrationDetailPage() {
                     : null
                 }
               />
-              <Field label="Medical Conditions" value={custom.medical_conditions} />
-              <Field
-                label="Previous Experience"
-                value={custom.previous_marathon_experience}
-              />
+              {access.canManage && custom.medical_conditions && (
+                <Field label="Medical Conditions" value={custom.medical_conditions} />
+              )}
+              {access.canManage && custom.previous_marathon_experience && (
+                <Field label="Previous Experience" value={custom.previous_marathon_experience} />
+              )}
             </CardContent>
           </Card>
 
-          {/* Actions Card */}
+          {/* Actions Card — Admin only */}
+          {access.canManage && (
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Actions</CardTitle>
@@ -430,6 +438,7 @@ export default function RegistrationDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
         </div>
       </div>
     </ContentLayout>
