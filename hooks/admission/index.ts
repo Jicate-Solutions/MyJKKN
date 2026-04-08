@@ -1365,3 +1365,10 @@ export {
   useExpoTeamAccess,
   expoCaptureKeys,
 } from './use-expo-capture';
+
+// Drop-off Analysis
+export {
+  useDropoffAnalysis,
+  dropoffAnalysisKeys,
+} from './use-dropoff-analysis';
+export type { DropoffStage, DropoffAnalyticsResponse } from './use-dropoff-analysis';
