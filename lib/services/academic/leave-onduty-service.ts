@@ -956,20 +956,12 @@ export class LeaveOndutyService {
     subCategory: string,
     dayCount: number
   ): FileRequirements {
-    const required =
-      subCategory === 'medical' ||
-      dayCount > 3;
-
-    let reason = '';
-    if (subCategory === 'medical') {
-      reason = 'Medical certificate is required for medical leave';
-    } else if (dayCount > 3) {
-      reason = 'Supporting document is required for leave exceeding 3 days';
-    }
-
+    // File attachments are optional for both leave and on-duty applications.
+    // Students may optionally upload a supporting document (e.g., medical certificate),
+    // but it is no longer enforced as a required field.
     return {
-      required,
-      reason,
+      required: false,
+      reason: '',
       maxSize: DEFAULT_VALIDATION_RULES.attachment.maxSize,
       allowedTypes: DEFAULT_VALIDATION_RULES.attachment.allowedTypes,
     };
