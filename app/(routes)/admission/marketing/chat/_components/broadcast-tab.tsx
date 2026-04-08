@@ -139,15 +139,15 @@ async function parseSpreadsheet(file: File): Promise<Record<string, string>[]> {
     return parseCSV(text);
   }
 
-  // Excel/Numbers (.xlsx, .xls) — parse with SheetJS
+  // Excel (.xlsx/.xls) and Numbers (.numbers) — parse with SheetJS
   const XLSX = (await import('xlsx')).default;
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!firstSheet) return [];
 
-  // Convert to JSON rows, all values as strings
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: '' });
+  // Force all cells to string to prevent phone numbers becoming scientific notation
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: '', raw: false });
   return rows.map(row => {
     const stringRow: Record<string, string> = {};
     for (const [key, value] of Object.entries(row)) {
@@ -344,8 +344,8 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
     if (!file) return;
 
     const ext = file.name.split('.').pop()?.toLowerCase();
-    if (!['csv', 'xlsx', 'xls'].includes(ext || '')) {
-      toast.error('Please upload a CSV or Excel file (.csv, .xlsx, .xls)');
+    if (!['csv', 'xlsx', 'xls', 'numbers'].includes(ext || '')) {
+      toast.error('Please upload a CSV, Excel, or Numbers file (.csv, .xlsx, .numbers)');
       return;
     }
 
@@ -673,16 +673,16 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                 onClick={() => fileInputRef.current?.click()}
               >
                 <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm font-medium">Click to upload CSV or Excel</p>
-                <p className="text-xs text-muted-foreground">.csv, .xlsx, .xls — with Phone, Name, Variables</p>
-                <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileUpload} />
+                <p className="text-sm font-medium">Click to upload contacts</p>
+                <p className="text-xs text-muted-foreground">CSV, Excel, or Numbers — with Phone, Name columns</p>
+                <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.numbers" className="hidden" onChange={handleFileUpload} />
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 className="w-full text-xs"
                 onClick={() => {
-                  const csv = 'phone,name,program\n919894116664,Rahul Kumar,B.Pharm\n918056650788,Priya S,B.Tech CSE\n919080393732,Arun M,BDS';
+                  const csv = 'phone,name,program\n9894116664,Ommsharravana,B.Pharm\n6381554393,Test User,BDS';
                   const blob = new Blob([csv], { type: 'text/csv' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
