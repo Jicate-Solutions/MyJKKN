@@ -37,16 +37,6 @@ const DEFAULT_MARATHON_CATEGORIES: Omit<
     is_active: true,
     config: {},
   },
-  {
-    name: '3 KM Fun Run',
-    code: '3K',
-    distance_km: 3,
-    fee_amount: 200,
-    early_bird_fee: 150,
-    sort_order: 3,
-    is_active: true,
-    config: {},
-  },
 ];
 
 // Valid status transitions (imported logic from types)
