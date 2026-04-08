@@ -63,11 +63,20 @@ export function PeriodSelector({
   });
 
   // Auto-update selected periods when period type changes
+  // Guard against redundant updates to prevent re-render cascades on mobile
   useEffect(() => {
     if (periodDetection?.valid && periodType !== 'periodwise') {
-      onPeriodsChange(periodDetection.periods);
+      const newPeriods = periodDetection.periods;
+      // Only update if periods actually changed (avoid new array reference triggering re-renders)
+      if (
+        newPeriods.length !== selectedPeriods.length ||
+        newPeriods.some((id, i) => id !== selectedPeriods[i])
+      ) {
+        onPeriodsChange(newPeriods);
+      }
     }
-  }, [periodType, periodDetection, onPeriodsChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodType, periodDetection]);
 
   const handlePeriodTypeChange = (value: string) => {
     const newType = value as PeriodType;

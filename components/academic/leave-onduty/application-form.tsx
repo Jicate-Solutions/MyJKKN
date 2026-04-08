@@ -38,6 +38,33 @@ interface StoredFormData {
   selectedPeriods: string[];
   reason: string;
   savedAt: number;
+  // Persisted file as base64 for recovery after mobile page reload
+  attachmentData?: {
+    name: string;
+    type: string;
+    size: number;
+    base64: string;
+  } | null;
+}
+
+// Convert File to base64 data URL for sessionStorage persistence
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Reconstruct File from base64 data URL
+function base64ToFile(data: { name: string; type: string; base64: string }): File {
+  const arr = data.base64.split(',');
+  const mime = arr[0].match(/:(.*?);/)?.[1] || data.type;
+  const bstr = atob(arr[1]);
+  const u8arr = new Uint8Array(bstr.length);
+  for (let i = 0; i < bstr.length; i++) u8arr[i] = bstr.charCodeAt(i);
+  return new File([u8arr], data.name, { type: mime });
 }
 import { LeaveOndutyApplicationService } from '@/lib/services/academic/leave-onduty-application-service';
 import { useCreateLeaveOndutyApplication } from '@/hooks/academic/use-leave-onduty';
@@ -128,6 +155,15 @@ export function ApplicationForm({
           setPeriodType(data.periodType);
           setSelectedPeriods(data.selectedPeriods);
           setReason(data.reason);
+          // Restore file from base64 if available (survives mobile page reload)
+          if (data.attachmentData) {
+            try {
+              const restoredFile = base64ToFile(data.attachmentData);
+              setAttachmentFile(restoredFile);
+            } catch {
+              // Ignore corrupt data — user can re-upload
+            }
+          }
         } else {
           // Clear old data
           sessionStorage.removeItem(FORM_STORAGE_KEY);
@@ -155,10 +191,41 @@ export function ApplicationForm({
         savedAt: Date.now(),
       };
       sessionStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(dataToSave));
+
+      // Persist file as base64 asynchronously (survives mobile page reload)
+      if (attachmentFile && attachmentFile.size <= 5 * 1024 * 1024) {
+        fileToBase64(attachmentFile).then(base64 => {
+          try {
+            const current = sessionStorage.getItem(FORM_STORAGE_KEY);
+            if (current) {
+              const parsed = JSON.parse(current);
+              parsed.attachmentData = {
+                name: attachmentFile.name,
+                type: attachmentFile.type,
+                size: attachmentFile.size,
+                base64,
+              };
+              sessionStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(parsed));
+            }
+          } catch { /* quota exceeded — skip file persistence */ }
+        }).catch(() => {});
+      } else if (!attachmentFile) {
+        // Clear stored file if removed
+        try {
+          const current = sessionStorage.getItem(FORM_STORAGE_KEY);
+          if (current) {
+            const parsed = JSON.parse(current);
+            if (parsed.attachmentData) {
+              parsed.attachmentData = null;
+              sessionStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(parsed));
+            }
+          }
+        } catch { /* ignore */ }
+      }
     } catch (err) {
       console.warn('[ApplicationForm] Failed to save form data:', err);
     }
-  }, [category, subCategory, startDate, endDate, periodType, selectedPeriods, reason, isInitialized]);
+  }, [category, subCategory, startDate, endDate, periodType, selectedPeriods, reason, attachmentFile, isInitialized]);
 
   // Clear saved form data
   const clearSavedFormData = useCallback(() => {
