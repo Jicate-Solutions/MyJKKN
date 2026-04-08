@@ -203,14 +203,19 @@ export class TelephonyService {
     if (filters.lead_id) query = query.eq('lead_id', filters.lead_id);
     if (filters.counselor_id) query = query.eq('counselor_id', filters.counselor_id);
     if (filters.direction) query = query.eq('direction', filters.direction);
-    if (filters.from_date) query = query.gte('created_at', filters.from_date);
-    if (filters.to_date) query = query.lte('created_at', filters.to_date);
+    // Use started_at (actual call time) not created_at (DB sync time)
+    if (filters.from_date) query = query.gte('started_at', filters.from_date);
+    if (filters.to_date) {
+      // If date-only (no time), add end-of-day so the entire day is included
+      const toVal = filters.to_date.length === 10 ? `${filters.to_date}T23:59:59` : filters.to_date;
+      query = query.lte('started_at', toVal);
+    }
     if (filters.has_notes === true) query = query.not('call_notes', 'is', null);
     if (filters.has_notes === false) query = query.is('call_notes', null);
     if (filters.admission_only) query = query.eq('is_admission_call', true);
 
     query = query
-      .order(filters.sort_by || 'created_at', { ascending: filters.sort_order === 'asc' })
+      .order(filters.sort_by || 'started_at', { ascending: filters.sort_order === 'asc' })
       .range(offset, offset + limit - 1);
 
     const { data, count, error } = await query;
