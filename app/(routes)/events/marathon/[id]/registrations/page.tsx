@@ -24,8 +24,10 @@ import {
 } from '@/hooks/events/marathon/use-marathon-registrations';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -587,6 +589,7 @@ function RegisterParticipantDialog({
 }) {
   const { profile } = useAuth();
   const { selectedInstitutionId, institutions } = useUserInstitutionAccess();
+  const { isStudent } = usePermissions();
   const registerMutation = useRegisterParticipant();
 
   // Internal-only registration inside MyJKKN (external users register via the external app)
@@ -600,29 +603,83 @@ function RegisterParticipantDialog({
     participant_gender: '',
     institution_name: '',
     department: '',
+    program: '',
+    semester: '',
+    section: '',
+    roll_number: '',
     tshirt_size: '',
     emergency_contact_name: '',
     emergency_contact_phone: '',
     blood_group: '',
   });
+  const [learnerLoading, setLearnerLoading] = useState(false);
 
-  // Auto-fill from logged-in user's profile
+  // Auto-fill from logged-in user's profile + learner details for students
   useEffect(() => {
-    if (open && profile) {
-      const inst = institutions?.find(
-        (i) => i.institution_id === (selectedInstitutionId || profile.institution_id)
-      );
-      setForm((f) => ({
-        ...f,
-        participant_name: profile.full_name ?? '',
-        participant_phone: profile.phone_number ?? '',
-        participant_email: profile.email ?? '',
-        participant_gender: profile.gender ?? '',
-        institution_name: inst?.institution_name ?? '',
-        department: (profile as any).departments?.department_name ?? '',
-      }));
+    if (!open || !profile) return;
+
+    const inst = institutions?.find(
+      (i) => i.institution_id === (selectedInstitutionId || profile.institution_id)
+    );
+
+    // Base profile data (all roles)
+    setForm((f) => ({
+      ...f,
+      participant_name: profile.full_name ?? '',
+      participant_phone: profile.phone_number ?? '',
+      participant_email: profile.email ?? '',
+      participant_gender: profile.gender ?? '',
+      institution_name: inst?.institution_name ?? '',
+      department: (profile as any).departments?.department_name ?? '',
+    }));
+
+    // Student role: fetch additional details from learners_profiles
+    if (isStudent && profile.learner_id) {
+      setLearnerLoading(true);
+      const supabase = createClientSupabaseClient();
+      supabase
+        .from('learners_profiles')
+        .select(`
+          first_name, last_name, student_mobile, student_email, gender, date_of_birth,
+          roll_number, father_name, father_mobile,
+          institution:institutions(id, name),
+          department:departments(id, department_name),
+          program:programs(id, program_name),
+          semester:semesters(id, semester_name),
+          section:sections(id, section_name)
+        `)
+        .eq('id', profile.learner_id)
+        .single()
+        .then(({ data: learner }) => {
+          if (learner) {
+            // Calculate age from date_of_birth
+            let age = '';
+            if (learner.date_of_birth) {
+              const dob = new Date(learner.date_of_birth);
+              age = String(Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000)));
+            }
+
+            setForm((f) => ({
+              ...f,
+              participant_name: `${learner.first_name ?? ''} ${learner.last_name ?? ''}`.trim() || f.participant_name,
+              participant_phone: learner.student_mobile || f.participant_phone,
+              participant_email: learner.student_email || f.participant_email,
+              participant_gender: learner.gender || f.participant_gender,
+              participant_age: age || f.participant_age,
+              institution_name: (learner.institution as any)?.name || f.institution_name,
+              department: (learner.department as any)?.department_name || f.department,
+              program: (learner.program as any)?.program_name || '',
+              semester: (learner.semester as any)?.semester_name || '',
+              section: (learner.section as any)?.section_name || '',
+              roll_number: learner.roll_number || '',
+              emergency_contact_name: learner.father_name || '',
+              emergency_contact_phone: learner.father_mobile || '',
+            }));
+          }
+        })
+        .finally(() => setLearnerLoading(false));
     }
-  }, [open, profile, institutions, selectedInstitutionId]);
+  }, [open, profile, isStudent, institutions, selectedInstitutionId]);
 
   const updateField = (field: string, value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
@@ -638,6 +695,10 @@ function RegisterParticipantDialog({
       participant_gender: '',
       institution_name: '',
       department: '',
+      program: '',
+      semester: '',
+      section: '',
+      roll_number: '',
       tshirt_size: '',
       emergency_contact_name: '',
       emergency_contact_phone: '',
@@ -677,6 +738,11 @@ function RegisterParticipantDialog({
       emergency_contact_phone: form.emergency_contact_phone || undefined,
       blood_group: form.blood_group || undefined,
       registration_fee_override: INTERNAL_FEE,
+      // Student-specific academic details
+      program: form.program || undefined,
+      semester: form.semester || undefined,
+      section: form.section || undefined,
+      roll_number: form.roll_number || undefined,
     },
   });
 
@@ -845,25 +911,72 @@ function RegisterParticipantDialog({
             </div>
           </div>
 
-          {/* Institution & Department (auto-filled from profile) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Institution</Label>
-              <Input
-                value={form.institution_name}
-                readOnly
-                className="bg-muted cursor-not-allowed"
-              />
+          {/* Academic Details (auto-filled) */}
+          {learnerLoading ? (
+            <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading academic details...
             </div>
-            <div className="space-y-2">
-              <Label>Department</Label>
-              <Input
-                value={form.department}
-                readOnly
-                className="bg-muted cursor-not-allowed"
-              />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Institution</Label>
+                  <Input
+                    value={form.institution_name}
+                    readOnly
+                    className="bg-muted cursor-not-allowed"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Department</Label>
+                  <Input
+                    value={form.department}
+                    readOnly
+                    className="bg-muted cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
+              {/* Student-specific: Program, Semester, Section, Roll Number */}
+              {isStudent && (form.program || form.semester || form.section || form.roll_number) && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <Label>Program</Label>
+                    <Input
+                      value={form.program}
+                      readOnly
+                      className="bg-muted cursor-not-allowed text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Semester</Label>
+                    <Input
+                      value={form.semester}
+                      readOnly
+                      className="bg-muted cursor-not-allowed text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Section</Label>
+                    <Input
+                      value={form.section}
+                      readOnly
+                      className="bg-muted cursor-not-allowed text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Roll No.</Label>
+                    <Input
+                      value={form.roll_number}
+                      readOnly
+                      className="bg-muted cursor-not-allowed text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           <Separator />
 
