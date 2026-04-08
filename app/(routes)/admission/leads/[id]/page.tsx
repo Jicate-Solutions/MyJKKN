@@ -387,6 +387,7 @@ function LeadDetailPageContent() {
   const [showActivityDialog, setShowActivityDialog] = useState(false);
   const [showFollowupDialog, setShowFollowupDialog] = useState(false);
   const [showCreateAppDialog, setShowCreateAppDialog] = useState(false);
+  const [showLogCallDialog, setShowLogCallDialog] = useState(false);
 
   // Activity form state
   const [activityType, setActivityType] = useState<string>('note');
