@@ -259,6 +259,13 @@ export type {
   UniqueCallersSummary,
 } from './use-unique-callers';
 
+// Re-export counselor funnel hook
+export {
+  useCounselorFunnel,
+  counselorFunnelKeys,
+} from './use-counselor-funnel';
+export type { CounselorFunnelRow } from './use-counselor-funnel';
+
 // Re-export counselor status hook (Exotel CCM)
 export {
   useCounselorStatus,
