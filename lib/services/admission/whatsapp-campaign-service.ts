@@ -61,6 +61,7 @@ export interface SendCampaignMessageInput {
   message_content?: string;
   variables?: Record<string, string>;
   header_media_url?: string;
+  phone_number_id?: string;
   campaign_id?: string;
   workflow_execution_id?: string;
   metadata?: Record<string, unknown>;
@@ -220,14 +221,23 @@ export class WhatsAppCampaignService {
           // Build Meta template components from mapped variables
           const components: WATemplateComponent[] = [];
 
-          // Header component (image/video if provided)
+          // Header component (image/video/document if provided)
           if (input.header_media_url) {
-            const isVideo = /\.(mp4|mov|avi|webm)$/i.test(input.header_media_url);
+            const url = input.header_media_url;
+            const isVideo = /\.(mp4|mov|avi|webm)$/i.test(url);
+            const isDocument = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx)$/i.test(url);
+            let headerParam: { type: string; [key: string]: unknown };
+            if (isVideo) {
+              headerParam = { type: 'video' as const, video: { link: url } };
+            } else if (isDocument) {
+              const filename = url.split('/').pop()?.split('?')[0] || 'document.pdf';
+              headerParam = { type: 'document' as const, document: { link: url, filename } };
+            } else {
+              headerParam = { type: 'image' as const, image: { link: url } };
+            }
             components.push({
               type: 'header' as const,
-              parameters: isVideo
-                ? [{ type: 'video' as const, video: { link: input.header_media_url } }]
-                : [{ type: 'image' as const, image: { link: input.header_media_url } }],
+              parameters: [headerParam as WATemplateComponent['parameters'][0]],
             });
           }
 
@@ -240,25 +250,33 @@ export class WhatsAppCampaignService {
             }
           }
 
-          waResult = await sendTemplateMessage(formattedPhone, templateName, 'en', components.length > 0 ? components : undefined);
+          waResult = await sendTemplateMessage(formattedPhone, templateName, 'en', components.length > 0 ? components : undefined, input.phone_number_id);
         } else {
           waResult = await sendTextMessage(formattedPhone, messageContent);
         }
       } catch (apiError) {
-        console.error('[admission/whatsapp-campaign] Meta API error:', apiError);
+        // Extract Meta's actual error message, not just the generic axios "Request failed with status code 400"
+        const axiosErr = apiError as { response?: { data?: { error?: { message?: string; error_data?: { details?: string } } } } };
+        const metaMessage = axiosErr?.response?.data?.error?.message;
+        const metaDetails = axiosErr?.response?.data?.error?.error_data?.details;
+        const humanError = metaDetails
+          ? `${metaMessage}: ${metaDetails}`
+          : metaMessage || (apiError instanceof Error ? apiError.message : 'Meta API call failed');
+
+        console.error('[admission/whatsapp-campaign] Meta API error:', humanError);
         await this.supabase
           .from('admission_whatsapp_logs')
           .update({
             delivery_status: 'failed',
             failed_at: new Date().toISOString(),
-            error_message: apiError instanceof Error ? apiError.message : 'Meta API call failed',
+            error_message: humanError,
             updated_at: new Date().toISOString(),
           })
           .eq('id', logEntry.id);
 
         return {
           success: false,
-          error: apiError instanceof Error ? apiError.message : 'Meta API call failed',
+          error: humanError,
         };
       }
 

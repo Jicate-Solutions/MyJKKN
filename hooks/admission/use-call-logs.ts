@@ -51,6 +51,7 @@ export function useCallLogs(filters: CallLogFilters) {
       if (filters.to_date) params.set('to_date', filters.to_date);
       if (filters.has_notes !== undefined) params.set('has_notes', String(filters.has_notes));
       if (filters.search) params.set('search', filters.search);
+      if (filters.admission_only !== undefined) params.set('admission_only', String(filters.admission_only));
       if (filters.page) params.set('page', String(filters.page));
       if (filters.limit) params.set('limit', String(filters.limit));
 

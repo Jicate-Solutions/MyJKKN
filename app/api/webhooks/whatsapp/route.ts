@@ -382,6 +382,30 @@ async function processStatusUpdate(status: MetaStatus) {
     });
   }
 
+  // Also update broadcast campaign logs (admission_whatsapp_logs)
+  // Broadcast messages store the Meta message ID in whatsapp_message_id
+  const deliveryStatusMap: Record<string, string> = {
+    sent: 'sent',
+    delivered: 'delivered',
+    read: 'read',
+    failed: 'failed',
+  };
+  const broadcastStatus = deliveryStatusMap[status.status];
+  if (broadcastStatus) {
+    const updateData: Record<string, string> = {
+      delivery_status: broadcastStatus,
+      updated_at: new Date().toISOString(),
+    };
+    if (broadcastStatus === 'delivered') updateData.delivered_at = new Date().toISOString();
+    if (broadcastStatus === 'read') updateData.read_at = new Date().toISOString();
+    if (broadcastStatus === 'failed') updateData.failed_at = new Date().toISOString();
+
+    await supabase
+      .from('admission_whatsapp_logs')
+      .update(updateData)
+      .eq('whatsapp_message_id', status.id);
+  }
+
   // Log delivery errors
   if (status.status === 'failed' && status.errors?.length) {
     for (const err of status.errors) {

@@ -127,8 +127,10 @@ function AudioPlayer({ url }: { url: string }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
+  const proxyUrl = `/api/admission/calls/recording?url=${encodeURIComponent(url)}`;
+
   useEffect(() => {
-    const audio = new Audio(url);
+    const audio = new Audio(proxyUrl);
     audioRef.current = audio;
 
     audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
@@ -139,14 +141,14 @@ function AudioPlayer({ url }: { url: string }) {
       audio.pause();
       audio.removeAttribute('src');
     };
-  }, [url]);
+  }, [proxyUrl]);
 
   const toggle = () => {
     if (!audioRef.current) return;
     if (playing) {
       audioRef.current.pause();
     } else {
-      audioRef.current.play().catch(() => window.open(url, '_blank'));
+      audioRef.current.play().catch(() => window.open(proxyUrl, '_blank'));
     }
     setPlaying(!playing);
   };
@@ -451,7 +453,7 @@ function CallDetailContent() {
                         new Date(call.started_at || call.created_at).toLocaleString('en-IN', {
                           weekday: 'short', month: 'short', day: 'numeric',
                           hour: '2-digit', minute: '2-digit', second: '2-digit',
-                          timeZone: 'Asia/Kolkata',
+                          timeZone: 'UTC',
                         })
                       } />
                       <InfoRow icon={Clock} label="Duration" value={
@@ -590,7 +592,7 @@ function CallDetailContent() {
                   {(intelligence?.extracted_name || intelligence?.extracted_course || intelligence?.extracted_location) && (
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Extracted Info</p>
-                      <div className="grid grid-cols-3 gap-2 mt-1 text-sm">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1 text-sm">
                         {intelligence.extracted_name && <div><span className="text-muted-foreground">Name:</span> {intelligence.extracted_name}</div>}
                         {intelligence.extracted_course && <div><span className="text-muted-foreground">Course:</span> {intelligence.extracted_course}</div>}
                         {intelligence.extracted_location && <div><span className="text-muted-foreground">Location:</span> {intelligence.extracted_location}</div>}
@@ -680,7 +682,7 @@ function CallDetailContent() {
                       <p className="text-xs text-muted-foreground mt-2">
                         Follow-up: {new Date(call.follow_up_date).toLocaleDateString('en-IN', {
                           weekday: 'short', month: 'short', day: 'numeric',
-                          timeZone: 'Asia/Kolkata',
+                          timeZone: 'UTC',
                         })}
                       </p>
                     )}
@@ -722,7 +724,7 @@ function CallDetailContent() {
                               <p className="text-[10px] text-muted-foreground">
                                 {new Date(c.created_at).toLocaleDateString('en-IN', {
                                   month: 'short', day: 'numeric',
-                                  timeZone: 'Asia/Kolkata',
+                                  timeZone: 'UTC',
                                 })}
                               </p>
                             </div>

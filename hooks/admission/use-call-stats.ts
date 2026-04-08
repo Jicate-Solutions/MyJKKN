@@ -10,10 +10,10 @@ import type { CallStats, InboundCallStats, CallDirection } from '@/lib/services/
 
 export const callStatsKeys = {
   all: ['call-stats'] as const,
-  stats: (institutionId: string, fromDate?: string, toDate?: string, direction?: string) =>
-    [...callStatsKeys.all, institutionId, fromDate, toDate, direction] as const,
-  inbound: (institutionId: string, fromDate?: string, toDate?: string) =>
-    [...callStatsKeys.all, 'inbound', institutionId, fromDate, toDate] as const,
+  stats: (institutionId: string, fromDate?: string, toDate?: string, direction?: string, admissionOnly?: boolean) =>
+    [...callStatsKeys.all, institutionId, fromDate, toDate, direction, admissionOnly] as const,
+  inbound: (institutionId: string, fromDate?: string, toDate?: string, admissionOnly?: boolean) =>
+    [...callStatsKeys.all, 'inbound', institutionId, fromDate, toDate, admissionOnly] as const,
 };
 
 // ============================================================================
@@ -54,16 +54,18 @@ export function useCallStats(
   institutionId?: string,
   fromDate?: string,
   toDate?: string,
-  direction?: CallDirection
+  direction?: CallDirection,
+  admissionOnly?: boolean
 ) {
   const query = useQuery<CallStats>({
-    queryKey: callStatsKeys.stats(institutionId || '', fromDate, toDate, direction),
+    queryKey: callStatsKeys.stats(institutionId || '', fromDate, toDate, direction, admissionOnly),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (institutionId) params.set('institution_id', institutionId);
       if (fromDate) params.set('from', fromDate);
       if (toDate) params.set('to', toDate);
       if (direction) params.set('direction', direction);
+      if (admissionOnly !== undefined) params.set('admission_only', String(admissionOnly));
 
       const res = await fetch(`/api/admission/calls/stats?${params.toString()}`);
       if (!res.ok) {
@@ -95,16 +97,18 @@ export function useCallStats(
 export function useInboundCallStats(
   institutionId?: string,
   fromDate?: string,
-  toDate?: string
+  toDate?: string,
+  admissionOnly?: boolean
 ) {
   const query = useQuery<InboundCallStats>({
-    queryKey: callStatsKeys.inbound(institutionId || '', fromDate, toDate),
+    queryKey: callStatsKeys.inbound(institutionId || '', fromDate, toDate, admissionOnly),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (institutionId) params.set('institution_id', institutionId);
       if (fromDate) params.set('from', fromDate);
       if (toDate) params.set('to', toDate);
       params.set('direction', 'inbound');
+      if (admissionOnly !== undefined) params.set('admission_only', String(admissionOnly));
 
       const res = await fetch(`/api/admission/calls/stats?${params.toString()}`);
       if (!res.ok) {

@@ -9,9 +9,10 @@
 import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
 import { CallPipelineService } from './call-pipeline-service';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
-import { getCallContext, lookupAgent } from './exotel-agent-map';
+import { getCallContext, lookupAgent, isAdmissionCall } from './exotel-agent-map';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -59,6 +60,7 @@ export interface CallLogFilters {
   from_date?: string;
   to_date?: string;
   has_notes?: boolean;
+  admission_only?: boolean;
   page?: number;
   limit?: number;
   sort_by?: string;
@@ -205,6 +207,7 @@ export class TelephonyService {
     if (filters.to_date) query = query.lte('created_at', filters.to_date);
     if (filters.has_notes === true) query = query.not('call_notes', 'is', null);
     if (filters.has_notes === false) query = query.is('call_notes', null);
+    if (filters.admission_only) query = query.eq('is_admission_call', true);
 
     query = query
       .order(filters.sort_by || 'created_at', { ascending: filters.sort_order === 'asc' })
@@ -226,7 +229,8 @@ export class TelephonyService {
     institutionId: string | undefined,
     supabase: any,
     fromDate?: string,
-    toDate?: string
+    toDate?: string,
+    admissionOnly?: boolean
   ): Promise<CallStats> {
     let query = supabase
       .from('admission_call_logs')
@@ -238,6 +242,7 @@ export class TelephonyService {
 
     if (fromDate) query = query.gte('created_at', fromDate);
     if (toDate) query = query.lte('created_at', toDate);
+    if (admissionOnly) query = query.eq('is_admission_call', true);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -317,7 +322,8 @@ export class TelephonyService {
     institutionId: string | undefined,
     supabase: any,
     fromDate?: string,
-    toDate?: string
+    toDate?: string,
+    admissionOnly?: boolean
   ): Promise<InboundCallStats> {
     let query = supabase
       .from('admission_call_logs')
@@ -327,6 +333,7 @@ export class TelephonyService {
     if (institutionId) query = query.eq('institution_id', institutionId);
     if (fromDate) query = query.gte('created_at', fromDate);
     if (toDate) query = query.lte('created_at', toDate);
+    if (admissionOnly) query = query.eq('is_admission_call', true);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -352,12 +359,9 @@ export class TelephonyService {
     // Missed calls with no callback — approximate: missed calls where disposition IS NULL
     const missedNoCallback = missed.filter((c: any) => !c.call_disposition).length;
 
-    // Helper: convert a UTC ISO timestamp to IST (UTC+5:30) and return a Date object
-    const toIST = (isoStr: string): Date => {
-      const d = new Date(isoStr);
-      // Add 5 hours 30 minutes (IST offset) in milliseconds
-      return new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
-    };
+    // Exotel timestamps are already IST but stored as +00 in Postgres.
+    // Do NOT add +5:30 — the raw value IS the correct IST time.
+    const toIST = (isoStr: string): Date => new Date(isoStr);
 
     // Use started_at (when call happened) with fallback to created_at (when DB record was created).
     // This prevents sync-day spikes where bulk-imported records all share the same created_at date.
@@ -789,6 +793,7 @@ export class TelephonyService {
           started_at: payload.StartTime || null,
           ended_at: payload.EndTime || null,
           answered_at: durationSec > 0 ? payload.StartTime || new Date().toISOString() : null,
+          is_admission_call: isAdmissionCall(agentPhone || exoPhone, exoPhone),
         })
         .select('id, status, institution_id, call_sid')
         .single();
@@ -989,14 +994,14 @@ export class TelephonyService {
         .maybeSingle();
 
       if (!existingLead) {
-        const priority = missedCount >= 3 ? 'hot' : missedCount >= 1 && !everConnected ? 'warm' : 'normal';
-        // FIX 1: Include phone-based location on auto-created lead
+        const priority = missedCount >= 3 ? 'hot' : missedCount >= 1 && !everConnected ? 'warm' : 'cold';
+        // Auto-create lead with first_name (full_name is a generated column)
         const leadInsert: Record<string, any> = {
           institution_id: institutionId,
           phone: callerPhone,
-          full_name: `Caller ${callerPhone.slice(-4)}`,
+          first_name: `Caller ${callerPhone.slice(-4)}`,
           source: 'inbound_call',
-          status: 'new',
+          funnel_stage: 'new',
           priority,
           notes: isMissed
             ? `Auto-created from inbound call (missed). Needs callback.`
@@ -1032,6 +1037,14 @@ export class TelephonyService {
             callCount,
             isFirstCall: callCount === 1,
           });
+
+          // Dispatch lead_created event through unified WA automation engine
+          WAEventDispatcher.dispatch({
+            eventType: 'lead_created',
+            institutionId,
+            leadId: newLead.id,
+            leadPhone: callerPhone,
+          }).catch(() => {});
         }
       }
     }
@@ -1085,6 +1098,15 @@ export class TelephonyService {
       if (missedCount >= 3 && !everConnected) {
         leadUpdate.priority = 'hot';
         leadUpdate.notes = `[Auto ${new Date().toISOString().slice(0, 10)}] Called ${missedCount} times, never connected — URGENT callback needed`;
+
+        // Dispatch repeat_caller event through unified WA automation engine
+        WAEventDispatcher.dispatch({
+          eventType: 'repeat_caller',
+          institutionId,
+          leadId: finalLeadId,
+          leadPhone: callerPhone,
+          metadata: { call_count: String(callCount), missed_count: String(missedCount) },
+        }).catch(() => {});
       }
 
       await supabase
@@ -1101,6 +1123,40 @@ export class TelephonyService {
           call_disposition: 'callback',
         })
         .eq('id', callLogId);
+    }
+
+    // ── 7. Auto-advance funnel stage on answered call (>30s) ──
+    if (finalLeadId && isConnected && durationSec >= 30) {
+      // Only advance if currently 'new' — don't regress leads already further along
+      const { data: currentLead } = await supabase
+        .from('admission_leads')
+        .select('funnel_stage')
+        .eq('id', finalLeadId)
+        .single();
+
+      if (currentLead?.funnel_stage === 'new') {
+        await supabase
+          .from('admission_leads')
+          .update({
+            funnel_stage: 'contacted',
+            stage: 'contacted',
+            last_contact_at: new Date().toISOString(),
+          })
+          .eq('id', finalLeadId);
+
+        logger.info('telephony/intelligence', 'Auto-advanced lead to contacted', {
+          leadId: finalLeadId,
+          durationSec,
+        });
+      }
+    }
+
+    // ── 8. Update last_contact_at on every connected call ──
+    if (finalLeadId && isConnected) {
+      await supabase
+        .from('admission_leads')
+        .update({ last_contact_at: new Date().toISOString() })
+        .eq('id', finalLeadId);
     }
 
     logger.info('telephony/intelligence', 'Call intelligence processed', {

@@ -26,7 +26,6 @@ import {
   useCallLogs,
   useInboundCallStats,
   useTelephonyHealth,
-  useBulkCallback,
   useUniqueCallers,
   useCallFunnel,
   formatDuration,
@@ -35,6 +34,7 @@ import {
   type FunnelStage,
 } from '@/hooks/admission';
 import { cn } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
 import {
   PhoneIncoming,
   PhoneCall,
@@ -53,6 +53,7 @@ import {
   MapPin,
   AlertCircle,
   ArrowRight,
+  ShieldCheck,
 } from 'lucide-react';
 import { CounselorAvailabilityCard } from './counselor-availability-card';
 import Link from 'next/link';
@@ -78,6 +79,8 @@ function RecordingPlayer({ url }: { url: string | null }) {
   const [playing, setPlaying] = useState(false);
   if (!url) return <span className="text-xs text-muted-foreground">-</span>;
 
+  const proxyUrl = `/api/admission/calls/recording?url=${encodeURIComponent(url)}`;
+
   return (
     <Button
       variant="ghost"
@@ -85,12 +88,12 @@ function RecordingPlayer({ url }: { url: string | null }) {
       className="h-7 px-2 text-xs"
       onClick={(e) => {
         e.stopPropagation();
-        const audio = new Audio(url);
+        const audio = new Audio(proxyUrl);
         if (playing) {
           audio.pause();
           setPlaying(false);
         } else {
-          audio.play().catch(() => window.open(url, '_blank'));
+          audio.play().catch(() => window.open(proxyUrl, '_blank'));
           audio.onended = () => setPlaying(false);
           setPlaying(true);
         }
@@ -314,7 +317,7 @@ function InboundVolumeChart({
             onClick={() => onDateClick?.(day.date)}
           >
             <span className={cn("text-xs w-20 shrink-0", isSelected ? "font-bold text-blue-600" : "text-muted-foreground")}>
-              {new Date(day.date + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' })}
+              {new Date(day.date + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
             </span>
             <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden flex">
               <div
@@ -448,6 +451,9 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   // View mode: 'all' = individual calls, 'unique' = grouped by caller
   const [viewMode, setViewMode] = useState<'all' | 'unique'>('all');
 
+  // Admission-only filter: defaults to true (only show admission calls)
+  const [admissionOnly, setAdmissionOnly] = useState(true);
+
   // Filter state
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -480,7 +486,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
 
   // Unique callers hook
   const { callers, summary: callerSummary, isLoading: uniqueLoading, isError: uniqueError, error: uniqueErrorMsg, refetch: refetchUnique } = useUniqueCallers(
-    institutionId, effectiveFromDate || undefined, effectiveToDate || undefined
+    institutionId, effectiveFromDate || undefined, effectiveToDate || undefined, admissionOnly
   );
 
   // Data hooks
@@ -490,14 +496,14 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
     status: (statusFilter as CallStatus) || undefined,
     from_date: effectiveFromDate || undefined,
     to_date: effectiveToDate || undefined,
+    admission_only: admissionOnly,
     page,
     limit: 20,
   });
 
-  const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId);
-  const { funnel, isLoading: funnelLoading } = useCallFunnel(institutionId);
+  const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId, undefined, undefined, admissionOnly);
+  const { funnel, isLoading: funnelLoading } = useCallFunnel(institutionId, undefined, undefined, admissionOnly);
   const { data: health } = useTelephonyHealth();
-  const bulkCallback = useBulkCallback();
 
   const clearFilters = () => {
     setStatusFilter('');
@@ -541,6 +547,26 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
           <span>— {health.latest?.connectivity_status || 'Unknown issue'}. Miss rates may be elevated.</span>
         </div>
       )}
+
+      {/* Admission Filter Toggle */}
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className={cn("h-4 w-4", admissionOnly ? "text-green-600" : "text-muted-foreground")} />
+          <Label htmlFor="admission-filter" className="text-sm font-medium cursor-pointer">
+            {admissionOnly ? 'Admission calls only' : 'All calls (including non-admission)'}
+          </Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {admissionOnly ? 'Hiding dental, pharmacy, engineering & nursing office calls' : 'Showing all Exotel calls'}
+          </span>
+          <Switch
+            id="admission-filter"
+            checked={admissionOnly}
+            onCheckedChange={(checked) => { setAdmissionOnly(checked); setPage(1); }}
+          />
+        </div>
+      </div>
 
       {/* KPI Cards */}
       <InboundKpiCards stats={stats} isLoading={statsLoading} />
@@ -597,7 +623,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
           <span>
             Showing calls
             {drilldownDate && (
-              <> from <span className="font-semibold">{new Date(drilldownDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'Asia/Kolkata' })}</span></>
+              <> from <span className="font-semibold">{new Date(drilldownDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })}</span></>
             )}
             {drilldownHour != null && (
               <> between <span className="font-semibold">
@@ -797,7 +823,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           </TableCell>
                           <TableCell>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(caller.last_call_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
+                              {new Date(caller.last_call_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                             </span>
                           </TableCell>
                         </TableRow>
@@ -808,10 +834,10 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               </>
             )
           ) : (
-          /* ======= ALL CALLS VIEW (original) ======= */
+          /* ======= ALL CALLS VIEW — mobile cards + desktop table ======= */
           logsLoading ? (
             <div className="space-y-3">
-              {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+              {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
             </div>
           ) : logs.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
@@ -823,97 +849,176 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
             </div>
           ) : (
             <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Caller</TableHead>
-                    <TableHead>ExoPhone</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Follow-up</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Recording</TableHead>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {logs.map((log: any) => (
-                    <TableRow key={log.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}>
-                      <TableCell>
-                        <div>
-                          {log.lead ? (
-                            <Link
-                              href={`/admission/leads/${log.lead.id}`}
-                              className="text-sm font-medium hover:underline text-primary"
-                            >
-                              {log.lead.full_name}
-                            </Link>
-                          ) : (
-                            <span className="text-sm font-medium text-muted-foreground italic">Unknown Caller</span>
-                          )}
-                          <p className="text-xs text-muted-foreground font-mono">
-                            {log.from_number ? maskPhone(log.from_number) : '-'}
-                          </p>
+              {/* ── MOBILE: Card-based layout (< md) ── */}
+              <div className="md:hidden space-y-2">
+                {logs.map((log: any) => {
+                  const isMissed = !log.cost_amount || log.cost_amount <= 0;
+                  const callTime = new Date(log.started_at || log.created_at);
+                  const now = new Date();
+                  const diffMs = now.getTime() - callTime.getTime();
+                  const diffMins = Math.floor(diffMs / 60000);
+                  const relativeTime = diffMins < 1 ? 'Just now'
+                    : diffMins < 60 ? `${diffMins}m ago`
+                    : diffMins < 1440 ? `${Math.floor(diffMins / 60)}h ago`
+                    : `${Math.floor(diffMins / 1440)}d ago`;
+
+                  return (
+                    <div
+                      key={log.id}
+                      className={cn(
+                        "relative rounded-lg border overflow-hidden transition-colors active:bg-muted/50",
+                        isMissed
+                          ? "border-l-[3px] border-l-red-500 bg-red-50/30 dark:bg-red-950/10"
+                          : "border-l-[3px] border-l-emerald-500"
+                      )}
+                      onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}
+                    >
+                      <div className="p-3">
+                        {/* Row 1: Caller + Time */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            {log.lead ? (
+                              <p className="text-sm font-semibold truncate">{log.lead.full_name}</p>
+                            ) : (
+                              <p className="text-sm font-medium text-muted-foreground">Unknown Caller</p>
+                            )}
+                            <p className="text-xs text-muted-foreground font-mono mt-0.5">
+                              {log.from_number ? maskPhone(log.from_number) : '-'}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs font-medium text-muted-foreground">{relativeTime}</p>
+                            <p className="text-[10px] text-muted-foreground/70">
+                              {callTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'UTC' })}
+                            </p>
+                          </div>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-xs text-muted-foreground font-mono">
-                          {log.to_number ? `...${log.to_number.slice(-4)}` : '-'}
-                        </span>
-                      </TableCell>
-                      <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-wrap gap-1">
-                          {log.auto_sms_sent && (
-                            <Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">SMS</Badge>
-                          )}
-                          {log.callback_queued && (
-                            <Badge variant="outline" className="text-[10px] px-1 py-0 bg-purple-50 text-purple-700 border-purple-200">Callback</Badge>
-                          )}
+
+                        {/* Row 2: Status + Duration + Tags + Action */}
+                        <div className="flex items-center justify-between mt-2.5 gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {isMissed
+                              ? <span className="inline-flex items-center text-[11px] font-semibold text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 rounded-full"><PhoneMissed className="h-3 w-3 mr-1" />Missed</span>
+                              : <span className="inline-flex items-center text-[11px] font-semibold text-emerald-700 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-0.5 rounded-full"><PhoneCall className="h-3 w-3 mr-1" />Answered</span>
+                            }
+                            {log.duration_seconds > 0 && (
+                              <span className="text-xs text-muted-foreground font-mono">{formatDuration(log.duration_seconds)}</span>
+                            )}
+                            {log.auto_sms_sent && (
+                              <span className="text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded">SMS</span>
+                            )}
+                          </div>
+
+                          {/* Primary action */}
+                          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                            {isMissed && log.from_number ? (
+                              <a
+                                href={`tel:${log.from_number}`}
+                                className="inline-flex items-center gap-1.5 h-9 px-4 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-full shadow-sm transition-colors"
+                              >
+                                <Phone className="h-4 w-4" />
+                                Call Back
+                              </a>
+                            ) : log.recording_url ? (
+                              <RecordingPlayer url={log.recording_url} />
+                            ) : null}
+                          </div>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        {log.duration_seconds > 0 ? (
-                          <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">--</span>
-                        )}
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <RecordingPlayer url={log.recording_url} />
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            timeZone: 'Asia/Kolkata',
-                          })}
-                        </span>
-                      </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        {(!log.cost_amount || log.cost_amount <= 0) && log.callback_queue_id && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => {
-                              if (!log.callback_queue_id) return;
-                              bulkCallback.mutate([log.callback_queue_id]);
-                            }}
-                            disabled={bulkCallback.isPending}
-                          >
-                            <Phone className="h-3 w-3 mr-1" />
-                            Call Back
-                          </Button>
-                        )}
-                      </TableCell>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── DESKTOP: Table layout (≥ md) ── */}
+              <div className="hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Caller</TableHead>
+                      <TableHead>ExoPhone</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Follow-up</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead>Recording</TableHead>
+                      <TableHead>Time</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {logs.map((log: any) => (
+                      <TableRow key={log.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}>
+                        <TableCell>
+                          <div>
+                            {log.lead ? (
+                              <Link
+                                href={`/admission/leads/${log.lead.id}`}
+                                className="text-sm font-medium hover:underline text-primary"
+                              >
+                                {log.lead.full_name}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-medium text-muted-foreground italic">Unknown Caller</span>
+                            )}
+                            <p className="text-xs text-muted-foreground font-mono">
+                              {log.from_number ? maskPhone(log.from_number) : '-'}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground font-mono">
+                            {log.to_number ? `...${log.to_number.slice(-4)}` : '-'}
+                          </span>
+                        </TableCell>
+                        <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-wrap gap-1">
+                            {log.auto_sms_sent && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">SMS</Badge>
+                            )}
+                            {log.callback_queued && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 bg-purple-50 text-purple-700 border-purple-200">Callback</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {log.duration_seconds > 0 ? (
+                            <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">--</span>
+                          )}
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <RecordingPlayer url={log.recording_url} />
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              timeZone: 'UTC',
+                            })}
+                          </span>
+                        </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          {(!log.cost_amount || log.cost_amount <= 0) && log.from_number && (
+                            <a
+                              href={`tel:${log.from_number}`}
+                              className="inline-flex items-center h-7 px-2 text-xs border rounded-md hover:bg-accent"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Phone className="h-3 w-3 mr-1" />
+                              Call Back
+                            </a>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
               {/* Pagination */}
               {totalPages > 1 && (

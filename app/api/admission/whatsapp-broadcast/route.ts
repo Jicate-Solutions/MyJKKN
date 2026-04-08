@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       recipients,
       scheduled_at,
       header_media_url,
+      phone_number_id,
     } = body;
 
     const institution_id = body.institution_id || profile.institution_id;
@@ -82,11 +83,13 @@ export async function POST(request: NextRequest) {
       message_content: r.message_content || template_name || '',
       variables: r.variables || {},
       header_media_url: header_media_url || undefined,
+      phone_number_id: phone_number_id || undefined,
       campaign_id,
       metadata: {
         campaign_name: campaign_name || `Broadcast ${new Date().toLocaleDateString('en-IN')}`,
         template_name,
         created_by: user.id,
+        sender_number: phone_number_id || process.env.WHATSAPP_DEDICATED_NUMBER || '',
       },
     }));
 
@@ -169,11 +172,42 @@ export async function GET(request: NextRequest) {
     }
 
     const serviceClient = createServiceRoleClient();
+    const campaign_id = searchParams.get('campaign_id');
+
+    // If campaign_id provided, return per-phone delivery detail for that campaign
+    if (campaign_id) {
+      const { data: details, error: detailError } = await serviceClient
+        .from('admission_whatsapp_logs')
+        .select('recipient_phone, delivery_status, whatsapp_message_id, error_message, message_content, created_at, sent_at, delivered_at, read_at, failed_at, metadata')
+        .eq('institution_id', institution_id)
+        .eq('campaign_id', campaign_id)
+        .order('created_at', { ascending: true });
+
+      if (detailError) {
+        return NextResponse.json({ error: 'Failed to fetch campaign details' }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        campaign_id,
+        recipients: (details || []).map(d => ({
+          phone: d.recipient_phone,
+          status: d.delivery_status,
+          whatsapp_message_id: d.whatsapp_message_id,
+          error: d.error_message,
+          sent_at: d.sent_at || d.created_at,
+          delivered_at: d.delivered_at,
+          read_at: d.read_at,
+          failed_at: d.failed_at,
+          template: (d.metadata as Record<string, string>)?.template_name || '',
+          sender: (d.metadata as Record<string, string>)?.sender_number || '',
+        })),
+      });
+    }
 
     // Get campaigns grouped by campaign_id with delivery stats
     const { data: logs, error } = await serviceClient
       .from('admission_whatsapp_logs')
-      .select('campaign_id, delivery_status, metadata, created_at')
+      .select('campaign_id, delivery_status, metadata, created_at, recipient_phone, error_message')
       .eq('institution_id', institution_id)
       .not('campaign_id', 'is', null)
       .order('created_at', { ascending: false });
@@ -182,28 +216,54 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch campaigns' }, { status: 500 });
     }
 
+    // Collect unique creator IDs to resolve names in one query
+    const creatorIds = new Set<string>();
+    for (const log of logs || []) {
+      const createdBy = (log.metadata as Record<string, string>)?.created_by;
+      if (createdBy) creatorIds.add(createdBy);
+    }
+
+    // Resolve creator names
+    const creatorNames: Record<string, string> = {};
+    if (creatorIds.size > 0) {
+      const { data: creators } = await serviceClient
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', Array.from(creatorIds));
+      for (const c of creators || []) {
+        creatorNames[c.id] = c.full_name || 'Unknown';
+      }
+    }
+
     // Group by campaign_id
     const campaignMap = new Map<string, {
       campaign_id: string;
       campaign_name: string;
       template_name: string;
+      created_by: string;
       created_at: string;
+      sender_number: string;
       total: number;
       sent: number;
       delivered: number;
       read: number;
       failed: number;
       pending: number;
+      errors: string[];
     }>();
 
     for (const log of logs || []) {
       if (!log.campaign_id) continue;
+      const createdById = (log.metadata as Record<string, string>)?.created_by || '';
       const existing = campaignMap.get(log.campaign_id) || {
         campaign_id: log.campaign_id,
         campaign_name: (log.metadata as Record<string, string>)?.campaign_name || 'Untitled',
         template_name: (log.metadata as Record<string, string>)?.template_name || '',
+        created_by: creatorNames[createdById] || 'Unknown',
         created_at: log.created_at,
+        sender_number: (log.metadata as Record<string, string>)?.sender_number || '',
         total: 0, sent: 0, delivered: 0, read: 0, failed: 0, pending: 0,
+        errors: [],
       };
 
       existing.total++;
@@ -211,7 +271,12 @@ export async function GET(request: NextRequest) {
         case 'sent': existing.sent++; break;
         case 'delivered': existing.delivered++; break;
         case 'read': existing.read++; break;
-        case 'failed': existing.failed++; break;
+        case 'failed':
+          existing.failed++;
+          if (log.error_message && !existing.errors.includes(log.error_message)) {
+            existing.errors.push(log.error_message);
+          }
+          break;
         case 'pending': existing.pending++; break;
       }
 

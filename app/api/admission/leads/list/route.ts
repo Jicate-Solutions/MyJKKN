@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
   const dateFrom = searchParams.get('date_from') || undefined;
   const dateTo = searchParams.get('date_to') || undefined;
   const institutionId = searchParams.get('institution_id') || undefined;
+  const waOptIn = searchParams.get('wa_opt_in') || undefined;
 
   try {
     // 4. Build the query with service role (no RLS overhead)
@@ -162,6 +163,10 @@ export async function GET(request: NextRequest) {
 
     if (capturedBy) {
       query = query.eq('captured_by', capturedBy);
+    }
+
+    if (waOptIn === 'true') {
+      query = query.eq('wa_opt_in', true);
     }
 
     if (search) {

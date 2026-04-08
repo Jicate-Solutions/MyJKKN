@@ -22,14 +22,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, Zap, Loader2, Play, Pause } from 'lucide-react';
+import { Plus, Pencil, Trash2, Zap, Loader2, Play, Pause, PhoneMissed, MessageSquare, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Textarea } from '@/components/ui/textarea';
 import {
   useAutoTriggerRules,
   useAutoTriggerMutations,
   usePersonalWAQueueStats,
 } from '@/hooks/admission/use-auto-trigger';
 import { usePersonalWATemplates } from '@/hooks/admission/use-personal-wa-templates';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   AutoTriggerRule,
   AutoTriggerEventType,
@@ -37,16 +39,211 @@ import type {
   CreateAutoTriggerInput,
 } from '@/types/whatsapp-personal';
 
+// =============================================================================
+// Missed Call Auto-Reply Settings (reads from institution_call_settings)
+// =============================================================================
+
+function MissedCallAutoReplyCard({ institutionId }: { institutionId: string }) {
+  const queryClient = useQueryClient();
+  const [editingTemplate, setEditingTemplate] = useState(false);
+  const [templateDraft, setTemplateDraft] = useState('');
+
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ['call-settings', institutionId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admission/settings/call-settings?institution_id=${institutionId}`);
+      if (!res.ok) throw new Error('Failed to fetch');
+      const json = await res.json();
+      return json.data as {
+        auto_whatsapp_enabled: boolean;
+        auto_whatsapp_template: string;
+        auto_sms_enabled: boolean;
+        auto_sms_template: string;
+        dlt_entity_id: string | null;
+        dlt_template_id: string | null;
+      } | null;
+    },
+    enabled: !!institutionId,
+  });
+
+  const updateSettings = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      const res = await fetch('/api/admission/settings/call-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institution_id: institutionId, ...payload }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['call-settings', institutionId] });
+      toast.success('Settings updated');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const toggleWhatsApp = () => {
+    updateSettings.mutate({ auto_whatsapp_enabled: !settings?.auto_whatsapp_enabled });
+  };
+
+  const toggleSms = () => {
+    updateSettings.mutate({ auto_sms_enabled: !settings?.auto_sms_enabled });
+  };
+
+  const saveTemplate = () => {
+    if (!templateDraft.trim()) return;
+    updateSettings.mutate({ auto_whatsapp_template: templateDraft.trim() });
+    setEditingTemplate(false);
+  };
+
+  if (isLoading) {
+    return <Card><CardContent className="py-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></CardContent></Card>;
+  }
+
+  return (
+    <Card className="border-2 border-emerald-200 dark:border-emerald-800">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <PhoneMissed className="h-5 w-5 text-red-500" />
+            <CardTitle className="text-base">Missed Call Auto-Reply</CardTitle>
+          </div>
+          <Badge variant={settings?.auto_whatsapp_enabled ? 'default' : 'secondary'}>
+            {settings?.auto_whatsapp_enabled ? 'Active' : 'Disabled'}
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Automatically send a WhatsApp message when an admission call goes unanswered.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* WhatsApp Toggle */}
+        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-emerald-600" />
+            <div>
+              <p className="text-sm font-medium">WhatsApp Auto-Reply</p>
+              <p className="text-xs text-muted-foreground">Send via Meta Cloud API to missed callers</p>
+            </div>
+          </div>
+          <Switch
+            checked={settings?.auto_whatsapp_enabled ?? false}
+            onCheckedChange={toggleWhatsApp}
+            disabled={updateSettings.isPending}
+          />
+        </div>
+
+        {/* SMS Toggle */}
+        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-blue-600" />
+            <div>
+              <p className="text-sm font-medium">SMS Auto-Reply</p>
+              <p className="text-xs text-muted-foreground">
+                Send via Exotel SMS
+                {!settings?.dlt_template_id && (
+                  <span className="text-red-500 ml-1">(DLT template ID missing — SMS blocked)</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={settings?.auto_sms_enabled ?? false}
+            onCheckedChange={toggleSms}
+            disabled={updateSettings.isPending}
+          />
+        </div>
+
+        {/* WhatsApp Message Template */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">WhatsApp Message Template</Label>
+          {editingTemplate ? (
+            <div className="space-y-2">
+              <Textarea
+                value={templateDraft}
+                onChange={(e) => setTemplateDraft(e.target.value)}
+                rows={3}
+                placeholder="Message to send when a call is missed..."
+                className="text-sm"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={saveTemplate} disabled={updateSettings.isPending}>
+                  <Save className="h-3 w-3 mr-1" />Save
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setEditingTemplate(false)}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="p-3 rounded-lg border bg-background text-sm cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => {
+                setTemplateDraft(settings?.auto_whatsapp_template || '');
+                setEditingTemplate(true);
+              }}
+            >
+              <p className="whitespace-pre-wrap">{settings?.auto_whatsapp_template || 'No template set — click to add'}</p>
+              <p className="text-xs text-muted-foreground mt-2">Click to edit</p>
+            </div>
+          )}
+        </div>
+
+        {/* Stats */}
+        <div className="flex gap-3 text-xs text-muted-foreground pt-2 border-t">
+          <span>24h dedup active</span>
+          <span>Admission calls only</span>
+          <span>Triggers on missed calls</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 interface AutoTriggerTabProps {
   institutionId: string;
 }
 
-const EVENT_TYPE_LABELS: Record<AutoTriggerEventType, { label: string; description: string }> = {
-  lead_created: { label: 'Lead Created', description: 'When a new lead is added' },
-  expo_lead_captured: { label: 'Expo Lead Captured', description: 'When a lead is captured at an expo' },
-  stage_changed: { label: 'Stage Changed', description: 'When lead funnel stage changes' },
-  followup_due: { label: 'Follow-up Due', description: 'When a scheduled follow-up is due' },
+const EVENT_TYPE_GROUPS: Record<string, { value: AutoTriggerEventType; label: string; description: string }[]> = {
+  'Admission Calls': [
+    { value: 'missed_call', label: 'Missed Call', description: 'Call to admission line goes unanswered' },
+    { value: 'after_hours_call', label: 'After-Hours Call', description: 'Call outside 8 AM - 8 PM IST' },
+    { value: 'repeat_caller', label: 'Repeat Caller', description: 'Same number calls 3+ times' },
+  ],
+  'Lead Lifecycle': [
+    { value: 'lead_created', label: 'New Lead', description: 'New lead created from any source' },
+    { value: 'stage_changed', label: 'Stage Changed', description: 'Lead funnel stage advances' },
+    { value: 'followup_due', label: 'Follow-up Due', description: 'Scheduled follow-up arrives' },
+    { value: 'dormant_lead', label: 'Dormant Lead', description: 'No activity for 7+ days' },
+    { value: 'expo_lead_captured', label: 'Expo Lead', description: 'Lead captured at education fair' },
+  ],
+  'Application Flow': [
+    { value: 'application_started', label: 'Application Started', description: 'Lead begins application' },
+    { value: 'application_submitted', label: 'Application Submitted', description: 'Application fully submitted' },
+    { value: 'documents_pending', label: 'Documents Missing', description: 'Missing documents identified' },
+    { value: 'documents_verified', label: 'Documents Verified', description: 'All documents approved' },
+    { value: 'interview_scheduled', label: 'Interview Scheduled', description: 'GDPI date set' },
+    { value: 'offer_sent', label: 'Offer Sent', description: 'Admission offer issued' },
+    { value: 'offer_accepted', label: 'Offer Accepted', description: 'Student accepts offer' },
+  ],
+  'Enrollment': [
+    { value: 'enrolled', label: 'Enrolled', description: 'Fee paid, enrollment confirmed' },
+    { value: 'fee_reminder', label: 'Fee Reminder', description: 'Payment deadline approaching' },
+    { value: 'welcome_message', label: 'Welcome Message', description: 'First message to new student' },
+    { value: 'visit_scheduled', label: 'Visit Scheduled', description: 'Campus visit booked' },
+    { value: 'visit_reminder', label: 'Visit Reminder', description: '24h before campus visit' },
+  ],
 };
+
+// Flat lookup for display
+const EVENT_TYPE_LABELS: Record<string, { label: string; description: string }> = {};
+for (const events of Object.values(EVENT_TYPE_GROUPS)) {
+  for (const evt of events) {
+    EVENT_TYPE_LABELS[evt.value] = { label: evt.label, description: evt.description };
+  }
+}
 
 const CHANNEL_LABELS: Record<WAChannelType, string> = {
   personal: 'Personal WhatsApp',
@@ -135,12 +332,16 @@ export function AutoTriggerTab({ institutionId }: AutoTriggerTabProps) {
   const isSaving = createRule.isPending || updateRule.isPending;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Missed Call Auto-Reply — top-level settings from institution_call_settings */}
+      <MissedCallAutoReplyCard institutionId={institutionId} />
+
+      {/* Lead Event Auto-Triggers */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Zap className="h-5 w-5 text-orange-500" />
-            Auto-Trigger Rules
+            Lead Event Auto-Triggers
           </h2>
           <p className="text-sm text-muted-foreground">
             Configure automatic WhatsApp messages triggered by lead events.
@@ -274,13 +475,18 @@ export function AutoTriggerTab({ institutionId }: AutoTriggerTabProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(EVENT_TYPE_LABELS).map(([key, val]) => (
-                    <SelectItem key={key} value={key}>
-                      <div>
-                        <span className="font-medium">{val.label}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">{val.description}</span>
-                      </div>
-                    </SelectItem>
+                  {Object.entries(EVENT_TYPE_GROUPS).map(([group, events]) => (
+                    <div key={group}>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">{group}</div>
+                      {events.map((evt) => (
+                        <SelectItem key={evt.value} value={evt.value}>
+                          <div>
+                            <span className="font-medium">{evt.label}</span>
+                            <span className="ml-2 text-xs text-muted-foreground">{evt.description}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </div>
                   ))}
                 </SelectContent>
               </Select>

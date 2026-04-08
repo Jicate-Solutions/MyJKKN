@@ -14,6 +14,7 @@ import type {
 } from '@/types/admission';
 
 import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
+import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Allowed stage transitions — defines the valid moves for each funnel stage.
@@ -449,6 +450,15 @@ export class LeadService {
       console.warn('[LeadService] Auto-assignment skipped (lead created successfully):', assignErr);
     }
 
+    // Non-blocking: dispatch WhatsApp auto-trigger for lead_created
+    WAEventDispatcher.dispatch({
+      eventType: 'lead_created',
+      institutionId: data.institution_id,
+      leadId: data.id,
+      leadPhone: data.phone || '',
+      leadName: data.full_name || data.first_name || undefined,
+    }).catch(() => {}); // Never block lead creation
+
     return this.normalizeLead(data);
   }
 
@@ -585,6 +595,32 @@ export class LeadService {
 
     // Log stage history
     await this.logStageHistory(leadId, current?.funnel_stage, newStage, user?.id, notes);
+
+    // Non-blocking: dispatch WhatsApp auto-trigger for stage_changed
+    const previousStage = current?.funnel_stage || '';
+    WAEventDispatcher.dispatch({
+      eventType: 'stage_changed',
+      institutionId: data.institution_id,
+      leadId: data.id,
+      leadPhone: data.phone || '',
+      leadName: data.full_name || undefined,
+      metadata: { new_stage: newStage, old_stage: previousStage },
+    }).catch(() => {});
+
+    // Dispatch specific event for key application/enrollment stages
+    const stageEvents: string[] = [
+      'application_started', 'application_submitted', 'documents_pending',
+      'documents_verified', 'interview_scheduled', 'offer_sent', 'offer_accepted', 'enrolled',
+    ];
+    if (stageEvents.includes(newStage)) {
+      WAEventDispatcher.dispatch({
+        eventType: newStage as any,
+        institutionId: data.institution_id,
+        leadId: data.id,
+        leadPhone: data.phone || '',
+        leadName: data.full_name || undefined,
+      }).catch(() => {});
+    }
 
     return this.normalizeLead(data);
   }
