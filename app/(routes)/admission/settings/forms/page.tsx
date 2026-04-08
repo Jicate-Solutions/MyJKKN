@@ -42,6 +42,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useAdmissionForms,
   useFormMutations,
@@ -58,7 +59,9 @@ import toast from 'react-hot-toast';
 function FormsListContent() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { selectedInstitutionId } = useUserInstitutionAccess();
+  const { selectedInstitutionId, getAccessibleInstitutionIds } =
+    useUserInstitutionAccess();
+  const { isSuperAdmin } = usePermissions();
   const [createOpen, setCreateOpen] = useState(false);
   const [newForm, setNewForm] = useState({
     name: '',
@@ -67,7 +70,15 @@ function FormsListContent() {
     templateId: '',
   });
 
-  const { data: forms = [], isLoading } = useAdmissionForms(selectedInstitutionId || undefined);
+  // Super admins see forms from ALL institutions they can access.
+  // Regular users see only forms for their current institution context.
+  const accessibleIds = getAccessibleInstitutionIds();
+  const formsQueryScope = isSuperAdmin
+    ? accessibleIds.length > 0
+      ? accessibleIds
+      : selectedInstitutionId
+    : selectedInstitutionId;
+  const { data: forms = [], isLoading } = useAdmissionForms(formsQueryScope || undefined);
   const { data: templates = [] } = useFormTemplates();
   const formIds = forms.map((f) => f.id);
   const { data: submissionCounts = {} } = useFormSubmissionCounts(formIds);

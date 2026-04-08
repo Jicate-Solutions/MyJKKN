@@ -7,11 +7,16 @@ import { FormBuilderService } from '@/lib/services/admission/form-builder-servic
 import type { CreateAdmissionFormInput } from '@/types/admission';
 import toast from 'react-hot-toast';
 
-export function useAdmissionForms(institutionId?: string) {
+export function useAdmissionForms(institutionIdOrIds?: string | string[]) {
   return useQuery({
-    queryKey: ['admission-forms', institutionId],
-    queryFn: () => FormBuilderService.getForms(institutionId),
-    enabled: !!institutionId,
+    queryKey: ['admission-forms', institutionIdOrIds],
+    queryFn: () => FormBuilderService.getForms(institutionIdOrIds),
+    enabled:
+      typeof institutionIdOrIds === 'string'
+        ? !!institutionIdOrIds
+        : Array.isArray(institutionIdOrIds)
+        ? institutionIdOrIds.length > 0
+        : false,
   });
 }
 

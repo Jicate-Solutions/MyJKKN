@@ -15,15 +15,29 @@ import type {
 export class FormBuilderService {
   // ─── Forms CRUD ─────────────────────────────────────────────
 
-  static async getForms(institutionId?: string): Promise<AdmissionForm[]> {
+  /**
+   * Fetch forms scoped to one or more institutions.
+   *
+   * - Pass a single string for single-institution admin contexts.
+   * - Pass an array for super admins who can see forms across multiple orgs.
+   * - Pass `undefined` to let RLS alone decide (super admin only — returns all
+   *   forms the user's role allows).
+   */
+  static async getForms(
+    institutionIdOrIds?: string | string[]
+  ): Promise<AdmissionForm[]> {
     const supabase = createClientSupabaseClient();
     let query = (supabase as any)
       .from('admission_forms')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
+    if (Array.isArray(institutionIdOrIds)) {
+      if (institutionIdOrIds.length > 0) {
+        query = query.in('institution_id', institutionIdOrIds);
+      }
+    } else if (typeof institutionIdOrIds === 'string') {
+      query = query.eq('institution_id', institutionIdOrIds);
     }
 
     const { data, error } = await query;
