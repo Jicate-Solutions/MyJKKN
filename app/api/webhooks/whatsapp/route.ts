@@ -398,7 +398,15 @@ async function processStatusUpdate(status: MetaStatus) {
     };
     if (broadcastStatus === 'delivered') updateData.delivered_at = new Date().toISOString();
     if (broadcastStatus === 'read') updateData.read_at = new Date().toISOString();
-    if (broadcastStatus === 'failed') updateData.failed_at = new Date().toISOString();
+    if (broadcastStatus === 'failed') {
+      updateData.failed_at = new Date().toISOString();
+      // Capture Meta's error details so broadcast campaign UI can show WHY it failed
+      if (status.errors?.length) {
+        updateData.error_message = status.errors.map((e) => `${e.code}: ${e.title}`).join('; ');
+      } else {
+        updateData.error_message = 'Delivery failed (no error details from Meta)';
+      }
+    }
 
     await supabase
       .from('admission_whatsapp_logs')
@@ -406,7 +414,7 @@ async function processStatusUpdate(status: MetaStatus) {
       .eq('whatsapp_message_id', status.id);
   }
 
-  // Log delivery errors
+  // Log delivery errors and update wa_messages
   if (status.status === 'failed' && status.errors?.length) {
     for (const err of status.errors) {
       logger.error('admissions/wa-webhook', 'Message delivery failed', {
@@ -414,10 +422,11 @@ async function processStatusUpdate(status: MetaStatus) {
         errorCode: err.code,
         errorTitle: err.title,
         errorMessage: err.message,
+        errorDetails: err.error_data?.details,
       });
     }
 
-    // Store error message on the record
+    // Store error message on the chat messages record too
     const errorMsg = status.errors.map((e) => `${e.code}: ${e.title}`).join('; ');
     await supabase
       .from('wa_messages')
