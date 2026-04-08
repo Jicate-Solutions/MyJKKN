@@ -2929,6 +2929,23 @@ function LeadDetailPageContent() {
           leadId={lead?.id}
           recipientName={lead?.full_name || ''}
         />
+
+        {/* Log Call Dialog */}
+        <LogCallDialog
+          open={showLogCallDialog}
+          onOpenChange={setShowLogCallDialog}
+          lead={lead ? {
+            id: lead.id,
+            full_name: lead.full_name,
+            phone: lead.phone,
+            funnel_stage: lead.funnel_stage,
+            institution_id: lead.institution_id,
+          } : null}
+          onSendWhatsApp={() => {
+            setShowLogCallDialog(false);
+            setPersonalMsgOpen(true);
+          }}
+        />
       </ContentLayout>
     </PermissionGuard>
   );
