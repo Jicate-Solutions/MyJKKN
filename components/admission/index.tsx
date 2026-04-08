@@ -42,6 +42,9 @@ export {
   ActionConfirmDialog,
 } from './actions';
 
+// Re-export Program Funnel Card
+export { ProgramFunnelCard } from './program-funnel-card';
+
 // ============================================
 // ADMISSION ERROR BOUNDARY
 // ============================================
