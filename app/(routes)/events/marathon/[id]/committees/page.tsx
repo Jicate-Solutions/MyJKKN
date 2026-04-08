@@ -20,6 +20,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
@@ -299,59 +300,61 @@ function CommitteeItem({
 
   return (
     <AccordionItem value={committee.id} className="border rounded-lg mb-3 overflow-hidden">
-      <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 [&[data-state=open]]:bg-muted/30">
-        <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
-          {/* Committee name */}
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm truncate">{committee.name}</p>
-            {committee.lead_name && (
-              <p className="text-xs text-muted-foreground truncate">
-                Lead: {committee.lead_name}
-              </p>
-            )}
+      <div className="flex items-center hover:bg-muted/30 [&[data-state=open]]:bg-muted/30">
+        <AccordionTrigger className="px-4 py-3 hover:no-underline flex-1">
+          <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
+            {/* Committee name */}
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm truncate">{committee.name}</p>
+              {committee.lead_name && (
+                <p className="text-xs text-muted-foreground truncate">
+                  Lead: {committee.lead_name}
+                </p>
+              )}
+            </div>
+
+            {/* Member count */}
+            <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+              <Users className="h-3.5 w-3.5" />
+              {committee.member_names?.length ?? 0} members
+            </div>
+
+            {/* Task progress */}
+            <Badge variant="secondary" className="text-xs shrink-0">
+              {completedCount}/{totalCount} tasks
+            </Badge>
           </div>
+        </AccordionTrigger>
 
-          {/* Member count */}
-          <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-            <Users className="h-3.5 w-3.5" />
-            {committee.member_names?.length ?? 0} members
-          </div>
-
-          {/* Task progress */}
-          <Badge variant="secondary" className="text-xs shrink-0">
-            {completedCount}/{totalCount} tasks
-          </Badge>
-
-          {/* Actions */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onEditCommittee(committee)}>
-                <Pencil className="h-3.5 w-3.5 mr-2" />
-                Edit Committee
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() =>
-                  deleteCommittee.mutate({ id: committee.id, eventId })
-                }
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-2" />
-                Delete Committee
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </AccordionTrigger>
+        {/* Actions — outside AccordionTrigger to avoid nested buttons */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0 mr-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => onEditCommittee(committee)}>
+              <Pencil className="h-3.5 w-3.5 mr-2" />
+              Edit Committee
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={() =>
+                deleteCommittee.mutate({ id: committee.id, eventId })
+              }
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-2" />
+              Delete Committee
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       <AccordionContent className="pb-0">
         {/* Task table header */}
@@ -627,6 +630,9 @@ function CommitteeDialog({
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Committee' : 'Add Committee'}</DialogTitle>
+          <DialogDescription>
+            Select members from staff or learners using the filters below.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
@@ -665,7 +671,7 @@ function CommitteeDialog({
                   setFilters((f) => ({ ...f, degree_id: '', program_id: '', semester_id: '', section_id: '' }));
                 }}
               >
-                Staff (Facilitator)
+                 Facilitator
               </Button>
               <Button
                 type="button"
@@ -673,7 +679,7 @@ function CommitteeDialog({
                 variant={userType === 'learner' ? 'default' : 'outline'}
                 onClick={() => setUserType('learner')}
               >
-                Learners (Student)
+                Learners
               </Button>
             </div>
           </div>
