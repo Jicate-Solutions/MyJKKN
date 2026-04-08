@@ -528,7 +528,7 @@ export interface ValidationRules {
 
 export const DEFAULT_VALIDATION_RULES: ValidationRules = {
   dates: {
-    maxBackdate: 7,
+    maxBackdate: 30,
     mustHaveTimetable: true,
     noOverlap: true,
   },

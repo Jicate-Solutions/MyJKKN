@@ -23,6 +23,7 @@ import {
   LEAVE_SUB_CATEGORIES,
   ONDUTY_SUB_CATEGORIES,
   PeriodType,
+  DEFAULT_VALIDATION_RULES,
 } from '@/types/leave-onduty';
 
 // Storage key for persisting form data
@@ -433,11 +434,10 @@ export function ApplicationForm({
                 selected={startDate}
                 onSelect={setStartDate}
                 disabled={(date) => {
-                  // Allow dates up to 7 days in the past
                   const today = new Date();
                   today.setHours(0, 0, 0, 0);
                   const maxBackdate = new Date(today);
-                  maxBackdate.setDate(maxBackdate.getDate() - 7);
+                  maxBackdate.setDate(maxBackdate.getDate() - DEFAULT_VALIDATION_RULES.dates.maxBackdate);
 
                   const compareDate = new Date(date);
                   compareDate.setHours(0, 0, 0, 0);
