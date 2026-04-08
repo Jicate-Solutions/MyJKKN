@@ -96,6 +96,55 @@ export class StorageService {
     }
   }
 
+  /**
+   * Upload a form builder asset (logo or banner) to the institution-logos bucket.
+   * Stored under `admission-forms/{formId}/{kind}-{timestamp}.{ext}` so assets
+   * for different forms stay isolated and each form's own uploads are grouped.
+   */
+  static async uploadFormAsset(
+    file: File,
+    formId: string,
+    kind: 'logo' | 'banner'
+  ): Promise<{ publicUrl: string | null; error: Error | null }> {
+    try {
+      await this.validateFile(file);
+
+      const {
+        data: { user },
+        error: userError,
+      } = await this.supabase.auth.getUser();
+
+      if (userError || !user) {
+        throw new Error('Authentication required');
+      }
+
+      const fileExt = (file.name.split('.').pop() || 'png').toLowerCase();
+      const fileName = `${kind}-${Date.now()}.${fileExt}`;
+      const filePath = `admission-forms/${formId}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.LOGOS)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.LOGOS)
+        .getPublicUrl(filePath);
+
+      return { publicUrl: urlData.publicUrl, error: null };
+    } catch (error) {
+      console.error('[storage] uploadFormAsset failed:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed'),
+      };
+    }
+  }
+
   private static async deleteOldAvatar(userId: string): Promise<void> {
     try {
       const { data: existingFiles } = await this.supabase.storage

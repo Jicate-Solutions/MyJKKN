@@ -53,6 +53,7 @@ import { useAdmissionForm, useFormMutations } from '@/hooks/admission/use-admiss
 import { FormBuilderService } from '@/lib/services/admission/form-builder-service';
 import type { FormFieldType, AdmissionFormField } from '@/types/admission';
 import { FormPreviewDialog } from './_components/form-preview-dialog';
+import { ImageUploadField } from './_components/image-upload-field';
 import {
   Plus,
   Trash2,
@@ -372,7 +373,18 @@ function FieldConfigPanel({
 
 // ─── Form Settings Panel ────────────────────────────────────────────────────
 
-function FormSettingsPanel({ form, onUpdate }: { form: any; onUpdate: (updates: any) => void }) {
+function FormSettingsPanel({
+  form,
+  onUpdate,
+  onPersist,
+  formId,
+}: {
+  form: any;
+  onUpdate: (updates: any) => void;
+  /** Fire-and-forget immediate DB save — used for uploads which should persist at once */
+  onPersist?: (updates: any) => void;
+  formId: string;
+}) {
   return (
     <div className="space-y-4 text-sm">
       <div>
@@ -409,15 +421,30 @@ function FormSettingsPanel({ form, onUpdate }: { form: any; onUpdate: (updates: 
           />
         </div>
       </div>
-      <div>
-        <Label htmlFor="set-logo">Logo URL</Label>
-        <Input
-          id="set-logo"
-          value={form.logo_url ?? ''}
-          onChange={(e) => onUpdate({ logo_url: e.target.value })}
-          placeholder="https://..."
-        />
-      </div>
+      <ImageUploadField
+        label="Form Logo"
+        kind="logo"
+        formId={formId}
+        value={form.logo_url ?? null}
+        onChange={(url) => {
+          onUpdate({ logo_url: url });
+          onPersist?.({ logo_url: url });
+        }}
+        help="Displayed at the top of the public form. Square images work best."
+        previewClassName="h-20 w-20"
+      />
+      <ImageUploadField
+        label="Form Banner"
+        kind="banner"
+        formId={formId}
+        value={form.banner_url ?? null}
+        onChange={(url) => {
+          onUpdate({ banner_url: url });
+          onPersist?.({ banner_url: url });
+        }}
+        help="Optional hero image shown above the form title. Wide images work best."
+        previewClassName="h-24 w-full"
+      />
       <div>
         <Label htmlFor="set-thank-title">Thank You Title</Label>
         <Input
@@ -805,9 +832,16 @@ function FormBuilderContent({ formId }: { formId: string }) {
                 <TabsContent value="settings" className="mt-4">
                   <FormSettingsPanel
                     form={localFormState}
+                    formId={formId}
                     onUpdate={(updates) =>
                       setLocalFormState((prev: any) => ({ ...prev, ...updates }))
                     }
+                    onPersist={(updates) => {
+                      // Fire the DB save immediately so uploaded asset URLs
+                      // survive even if the user closes the tab before
+                      // clicking Save Draft.
+                      updateForm.mutate({ formId, updates });
+                    }}
                   />
                 </TabsContent>
               </Tabs>
