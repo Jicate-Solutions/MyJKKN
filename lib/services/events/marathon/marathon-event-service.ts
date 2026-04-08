@@ -67,12 +67,13 @@ export class MarathonEventService {
   // ============================================================================
 
   /**
-   * Fetch all marathon events for an institution.
+   * Fetch all marathon events — no institution filter.
+   * Marathon events are common across all JKKN institutions.
+   * The institutionId parameter is kept for API compatibility but ignored.
    */
-  static async getMarathonEvents(institutionId: string): Promise<Event[]> {
+  static async getMarathonEvents(_institutionId?: string): Promise<Event[]> {
     try {
       return await EventBaseService.getEvents({
-        institution_id: institutionId,
         event_type: 'marathon',
       });
     } catch (error) {
