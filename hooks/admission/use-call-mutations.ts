@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { callLogsKeys } from './use-call-logs';
 import { callStatsKeys } from './use-call-stats';
-import type { CallDisposition } from '@/lib/services/telephony/telephony-service';
+import type { CallDisposition, LogCallInput } from '@/lib/services/telephony/telephony-service';
 
 // ============================================================================
 // TYPES
