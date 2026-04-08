@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/tooltip';
 import type { AdmissionLead } from '@/types/admission';
 import { DataTableRowActions } from './row-actions';
+import { SourceBadge, OverdueBadge } from './source-badge';
 
 // Funnel stages ordered by progression for scoring
 const STAGE_PROGRESSION: Record<string, number> = {
