@@ -54,6 +54,8 @@ interface PublicFormClientProps {
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
+  /** When true, disables analytics tracking and submission — used by admin preview. */
+  previewMode?: boolean;
 }
 
 // ─── Dynamic Zod schema builder ─────────────────────────────────────────────
@@ -192,6 +194,7 @@ export default function PublicFormClient({
   utmSource,
   utmMedium,
   utmCampaign,
+  previewMode = false,
 }: PublicFormClientProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -233,17 +236,19 @@ export default function PublicFormClient({
 
   const watchedValues = watch();
 
-  // Track form_viewed on mount
+  // Track form_viewed on mount (skipped in preview mode)
   useEffect(() => {
+    if (previewMode) return;
     trackEvent(form.id, 'form_viewed', sessionIdRef.current, null, {
       utmSource,
       utmMedium,
       utmCampaign,
     });
-  }, [form.id, utmSource, utmMedium, utmCampaign]);
+  }, [form.id, utmSource, utmMedium, utmCampaign, previewMode]);
 
-  // Track form_started on first interaction
+  // Track form_started on first interaction (no-op in preview mode)
   const handleFieldFocus = (fieldKey: string) => {
+    if (previewMode) return;
     if (!startedRef.current) {
       startedRef.current = true;
       trackEvent(form.id, 'form_started', sessionIdRef.current);
@@ -252,6 +257,7 @@ export default function PublicFormClient({
   };
 
   const handleFieldBlur = (fieldKey: string, value: any) => {
+    if (previewMode) return;
     if (value !== undefined && value !== null && value !== '') {
       trackEvent(form.id, 'field_completed', sessionIdRef.current, fieldKey);
     }
@@ -259,6 +265,12 @@ export default function PublicFormClient({
 
   // Submit handler
   const onSubmit = async (data: any) => {
+    // Preview mode: don't actually submit, just show confirmation toast
+    if (previewMode) {
+      toast.success('Preview mode: form would submit successfully');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const { company_website: honeypot, ...formData } = data;

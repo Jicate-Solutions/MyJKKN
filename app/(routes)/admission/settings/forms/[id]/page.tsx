@@ -52,6 +52,7 @@ import { AdmissionErrorBoundary } from '@/components/admission';
 import { useAdmissionForm, useFormMutations } from '@/hooks/admission/use-admission-forms';
 import { FormBuilderService } from '@/lib/services/admission/form-builder-service';
 import type { FormFieldType, AdmissionFormField } from '@/types/admission';
+import { FormPreviewDialog } from './_components/form-preview-dialog';
 import {
   Plus,
   Trash2,
@@ -420,6 +421,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<'field' | 'settings'>('field');
   const [localFormState, setLocalFormState] = useState<any>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
     if (form) setLocalFormState(form);
@@ -563,6 +565,10 @@ function FormBuilderContent({ formId }: { formId: string }) {
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setPreviewOpen(true)}>
+              <Eye className="h-4 w-4 mr-2" />
+              Preview
+            </Button>
             <Button variant="outline" size="sm" onClick={handleCopyLink}>
               <Link2 className="h-4 w-4 mr-2" />
               Copy Link
@@ -648,6 +654,13 @@ function FormBuilderContent({ formId }: { formId: string }) {
               )}
             </CardContent>
           </Card>
+
+          {/* Preview dialog (rendered outside canvas/palette) */}
+          <FormPreviewDialog
+            open={previewOpen}
+            onOpenChange={setPreviewOpen}
+            form={form as any}
+          />
 
           {/* Right panel: Field config or Form settings */}
           <Card className="col-span-12 md:col-span-4">
