@@ -890,12 +890,14 @@ function TaskDialog({
   onClose,
   eventId,
   committeeId,
+  committee,
   initial,
 }: {
   open: boolean;
   onClose: () => void;
   eventId: string;
   committeeId: string;
+  committee: MarathonCommittee | null;
   initial?: MarathonTask | null;
 }) {
   const createTask = useCreateTask();
@@ -1001,11 +1003,46 @@ function TaskDialog({
 
           <div className="space-y-1">
             <Label className="text-xs">Assigned To</Label>
-            <Input
-              placeholder="e.g. Ravi Kumar"
-              value={form.assigned_to_name ?? ''}
-              onChange={(e) => set('assigned_to_name', e.target.value)}
-            />
+            {(() => {
+              // Build list of people from committee lead + members
+              const people: string[] = [];
+              if (committee?.lead_name) people.push(committee.lead_name);
+              for (const m of committee?.member_names ?? []) {
+                if (m && !people.includes(m)) people.push(m);
+              }
+
+              if (people.length === 0) {
+                return (
+                  <div className="text-xs text-muted-foreground p-2 bg-muted/30 rounded border">
+                    No lead or members in this committee. Add a lead or members to assign tasks.
+                  </div>
+                );
+              }
+
+              return (
+                <Select
+                  value={form.assigned_to_name ?? ''}
+                  onValueChange={(v) => set('assigned_to_name', v === '__unassigned__' ? '' : v)}
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Select committee member" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__unassigned__" className="text-sm text-muted-foreground">
+                      Unassigned
+                    </SelectItem>
+                    {people.map((name) => {
+                      const isLead = name === committee?.lead_name;
+                      return (
+                        <SelectItem key={name} value={name} className="text-sm">
+                          {name} {isLead && <span className="text-xs text-muted-foreground ml-1">(Lead)</span>}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              );
+            })()}
           </div>
         </div>
 
@@ -1178,6 +1215,7 @@ export default function MarathonCommitteesPage() {
           onClose={handleCloseTaskDialog}
           eventId={eventId}
           committeeId={taskCommitteeId}
+          committee={committees?.find((c) => c.id === taskCommitteeId) ?? null}
           initial={editingTask}
         />
       )}
