@@ -390,9 +390,9 @@ export class MarathonAnalyticsService {
     try {
       // Get current event's previous_event_id
       const { data: eventData, error: eventError } = await (this.supabase as any)
-        .from('marathon_events')
+        .from('events')
         .select('previous_event_id')
-        .eq('event_id', eventId)
+        .eq('id', eventId)
         .maybeSingle();
 
       if (eventError) {
