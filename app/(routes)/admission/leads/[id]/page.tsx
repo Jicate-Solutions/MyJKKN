@@ -2185,15 +2185,26 @@ function LeadDetailPageContent() {
                 </CardContent>
               </Card>
 
-              {/* Log Call — Primary CTA */}
-              <Button
-                size="lg"
-                className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
-                onClick={() => setShowLogCallDialog(true)}
-              >
-                <Phone className="h-5 w-5" />
-                I Just Called — Log It
-              </Button>
+              {/* Quick Actions Bar — consolidated communication actions */}
+              <Card>
+                <CardContent className="pb-2 pt-3 px-3">
+                  <QuickActionsBar
+                    lead={{
+                      phone: lead.phone,
+                      alternate_phone: lead.alternate_phone,
+                      parent_phone: lead.parent_phone,
+                      parent_name: lead.parent_name,
+                      email: lead.email,
+                    }}
+                    onLogCall={() => setShowLogCallDialog(true)}
+                    onWhatsApp={() => setPersonalMsgOpen(true)}
+                    onSMS={() => { setShowSendMsg(true); setSendChannel('sms'); }}
+                    onNote={() => { setShowActivityDialog(true); setActivityType('note'); }}
+                    onFollowUp={() => setShowFollowupDialog(true)}
+                    isWAConnected={waStatus?.status === 'ready'}
+                  />
+                </CardContent>
+              </Card>
 
               {/* Quick Actions */}
               <Card>
