@@ -17,7 +17,7 @@ import {
 import {
   Send, Loader2, CheckCircle,
   FileSpreadsheet, ChevronRight, ArrowLeft, Megaphone,
-  Clock, Download, ChevronDown, ChevronUp, Upload, ImageIcon, Link2,
+  Clock, Download, ChevronDown, ChevronUp, Upload, ImageIcon, Link2, FileText, Video,
 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
@@ -48,14 +48,32 @@ function getTemplateHeader(t: ApprovedTemplate): { type: string; format?: string
   return header ? { type: header.type, format: header.format } : null;
 }
 
-function templateNeedsImage(t: ApprovedTemplate): boolean {
+function templateNeedsImage(t: ApprovedTemplate | null): boolean {
+  if (!t) return false;
   const header = getTemplateHeader(t);
   return header?.format === 'IMAGE';
 }
 
-function templateNeedsVideo(t: ApprovedTemplate): boolean {
+function templateNeedsVideo(t: ApprovedTemplate | null): boolean {
+  if (!t) return false;
   const header = getTemplateHeader(t);
   return header?.format === 'VIDEO';
+}
+
+function templateNeedsDocument(t: ApprovedTemplate | null): boolean {
+  if (!t) return false;
+  const header = getTemplateHeader(t);
+  return header?.format === 'DOCUMENT';
+}
+
+function templateNeedsMedia(t: ApprovedTemplate | null): boolean {
+  return templateNeedsImage(t) || templateNeedsVideo(t) || templateNeedsDocument(t);
+}
+
+function getMediaConfig(t: ApprovedTemplate | null): { label: string; accept: string; maxMB: number; icon: typeof ImageIcon; placeholder: string } {
+  if (templateNeedsVideo(t)) return { label: 'video', accept: 'video/mp4', maxMB: 16, icon: Video, placeholder: 'https://example.com/video.mp4' };
+  if (templateNeedsDocument(t)) return { label: 'document', accept: 'application/pdf', maxMB: 100, icon: FileText, placeholder: 'https://example.com/brochure.pdf' };
+  return { label: 'image', accept: 'image/jpeg,image/png,image/webp', maxMB: 5, icon: ImageIcon, placeholder: 'https://example.com/image.jpg' };
 }
 
 function getTemplateBody(t: ApprovedTemplate): string {
@@ -253,20 +271,17 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const maxSize = 5 * 1024 * 1024; // 5MB (WhatsApp limit)
+    const config = getMediaConfig(selectedTemplate);
+    const maxSize = config.maxMB * 1024 * 1024;
     if (file.size > maxSize) {
-      toast.error('Image must be under 5MB');
-      return;
-    }
-    if (!file.type.startsWith('image/')) {
-      toast.error('Only image files are allowed');
+      toast.error(`File must be under ${config.maxMB}MB`);
       return;
     }
 
     setIsUploadingMedia(true);
     try {
       const supabase = createClientSupabaseClient();
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'bin';
       const filePath = `broadcast/${institutionId}/${Date.now()}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
@@ -281,14 +296,14 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
 
       setHeaderMediaUrl(urlData.publicUrl);
       setUploadedFileName(file.name);
-      toast.success('Image uploaded');
+      toast.success(`${config.label.charAt(0).toUpperCase() + config.label.slice(1)} uploaded`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setIsUploadingMedia(false);
       if (mediaInputRef.current) mediaInputRef.current.value = '';
     }
-  }, [institutionId]);
+  }, [institutionId, selectedTemplate]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -735,10 +750,14 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                 </div>
               )}
 
-              {/* Header Media (for templates with IMAGE/VIDEO headers) */}
-              {selectedTemplate && templateNeedsImage(selectedTemplate) && (
+              {/* Header Media (for templates with IMAGE/VIDEO/DOCUMENT headers) */}
+              {selectedTemplate && templateNeedsMedia(selectedTemplate) && (() => {
+                const mc = getMediaConfig(selectedTemplate);
+                const MediaIcon = mc.icon;
+                const formatHint = mc.label === 'image' ? 'JPG, PNG, WebP' : mc.label === 'video' ? 'MP4' : 'PDF';
+                return (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">Header image (required):</p>
+                  <p className="text-xs font-medium text-muted-foreground">Header {mc.label} (required):</p>
                   <div className="flex gap-1 border rounded-md p-0.5 w-fit">
                     <button
                       type="button"
@@ -761,13 +780,13 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                       <input
                         ref={mediaInputRef}
                         type="file"
-                        accept="image/jpeg,image/png,image/webp"
+                        accept={mc.accept}
                         onChange={handleMediaUpload}
                         className="hidden"
                       />
                       {headerMediaUrl && uploadedFileName ? (
                         <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-md">
-                          <ImageIcon className="h-4 w-4 text-green-600 shrink-0" />
+                          <MediaIcon className="h-4 w-4 text-green-600 shrink-0" />
                           <span className="text-xs text-green-700 truncate flex-1">{uploadedFileName}</span>
                           <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />
                           <button
@@ -790,7 +809,7 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                           {isUploadingMedia ? (
                             <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Uploading...</>
                           ) : (
-                            <><ImageIcon className="h-3.5 w-3.5 mr-1.5" /> Choose image (JPG, PNG, WebP &mdash; max 5MB)</>
+                            <><MediaIcon className="h-3.5 w-3.5 mr-1.5" /> Choose {mc.label} ({formatHint} &mdash; max {mc.maxMB}MB)</>
                           )}
                         </Button>
                       )}
@@ -799,37 +818,22 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                     <div className="space-y-1">
                       <Input
                         type="url"
-                        placeholder="https://example.com/image.jpg"
+                        placeholder={mc.placeholder}
                         value={headerMediaUrl}
                         onChange={e => { setHeaderMediaUrl(e.target.value); setUploadedFileName(''); }}
                         className="text-xs"
                       />
-                      <p className="text-[10px] text-muted-foreground">Paste a public image URL (must be accessible by WhatsApp)</p>
+                      <p className="text-[10px] text-muted-foreground">Paste a public {mc.label} URL (must be accessible by WhatsApp)</p>
                     </div>
                   )}
                 </div>
-              )}
-              {selectedTemplate && templateNeedsVideo(selectedTemplate) && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">Header video URL (required):</p>
-                  <Input
-                    type="url"
-                    placeholder="https://example.com/video.mp4"
-                    value={headerMediaUrl}
-                    onChange={e => setHeaderMediaUrl(e.target.value)}
-                    className="text-xs"
-                  />
-                  <p className="text-[10px] text-muted-foreground">This template requires a header video. Paste a public video URL.</p>
-                </div>
-              )}
+                );
+              })()}
 
               <Button
                 onClick={() => setStep(3)}
                 className="w-full"
-                disabled={
-                  (templateNeedsImage(selectedTemplate) && !headerMediaUrl) ||
-                  (templateNeedsVideo(selectedTemplate) && !headerMediaUrl)
-                }
+                disabled={templateNeedsMedia(selectedTemplate) && !headerMediaUrl}
               >
                 Use &quot;{selectedTemplate.name}&quot; <ChevronRight className="h-4 w-4 ml-1" />
               </Button>

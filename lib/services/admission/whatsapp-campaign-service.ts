@@ -221,14 +221,23 @@ export class WhatsAppCampaignService {
           // Build Meta template components from mapped variables
           const components: WATemplateComponent[] = [];
 
-          // Header component (image/video if provided)
+          // Header component (image/video/document if provided)
           if (input.header_media_url) {
-            const isVideo = /\.(mp4|mov|avi|webm)$/i.test(input.header_media_url);
+            const url = input.header_media_url;
+            const isVideo = /\.(mp4|mov|avi|webm)$/i.test(url);
+            const isDocument = /\.(pdf|doc|docx|xls|xlsx|ppt|pptx)$/i.test(url);
+            let headerParam: { type: string; [key: string]: unknown };
+            if (isVideo) {
+              headerParam = { type: 'video' as const, video: { link: url } };
+            } else if (isDocument) {
+              const filename = url.split('/').pop()?.split('?')[0] || 'document.pdf';
+              headerParam = { type: 'document' as const, document: { link: url, filename } };
+            } else {
+              headerParam = { type: 'image' as const, image: { link: url } };
+            }
             components.push({
               type: 'header' as const,
-              parameters: isVideo
-                ? [{ type: 'video' as const, video: { link: input.header_media_url } }]
-                : [{ type: 'image' as const, image: { link: input.header_media_url } }],
+              parameters: [headerParam as WATemplateComponent['parameters'][0]],
             });
           }
 
