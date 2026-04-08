@@ -68,18 +68,34 @@ export function FormPreviewDialog({ open, onOpenChange, form }: FormPreviewDialo
             .in('id', institutionIds),
           (supabase as any)
             .from('programs')
-            .select('id, name, institution_id')
+            .select('id, program_name, display_name, institution_id, is_active')
             .in('institution_id', institutionIds)
-            .order('name'),
+            .eq('is_active', true)
+            .order('program_name'),
         ]);
 
         if (cancelled) return;
 
-        const allPrograms = programsRes.data || [];
+        // Dedupe duplicate rows (same program across academic years) and
+        // project program_name -> name for the client component
+        const seen = new Set<string>();
+        const normalized = (programsRes.data || [])
+          .filter((p: any) => {
+            const key = `${p.institution_id}::${p.program_name}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .map((p: any) => ({
+            id: p.id,
+            name: p.display_name || p.program_name,
+            institution_id: p.institution_id,
+          }));
+
         const filteredPrograms =
           form.program_ids && form.program_ids.length > 0
-            ? allPrograms.filter((p: any) => form.program_ids.includes(p.id))
-            : allPrograms;
+            ? normalized.filter((p: any) => form.program_ids.includes(p.id))
+            : normalized;
 
         setInstitutions(institutionsRes.data || []);
         setPrograms(filteredPrograms);

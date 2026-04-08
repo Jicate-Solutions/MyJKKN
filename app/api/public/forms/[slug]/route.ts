@@ -69,14 +69,31 @@ export async function GET(
 
     const { data: programData } = await supabase
       .from('programs')
-      .select('id, name, institution_id')
+      .select('id, program_name, display_name, institution_id, is_active')
       .in('institution_id', institutionIds)
-      .order('name');
+      .eq('is_active', true)
+      .order('program_name');
+
+    // Dedupe + project program_name -> name (programs table has duplicate rows
+    // across academic years, and the client expects a 'name' field)
+    const seen = new Set<string>();
+    const normalized = (programData ?? [])
+      .filter((p: any) => {
+        const key = `${p.institution_id}::${p.program_name}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((p: any) => ({
+        id: p.id,
+        name: p.display_name || p.program_name,
+        institution_id: p.institution_id,
+      }));
 
     const programs =
       form.program_ids?.length > 0
-        ? (programData ?? []).filter((p: any) => form.program_ids.includes(p.id))
-        : programData ?? [];
+        ? normalized.filter((p: any) => form.program_ids.includes(p.id))
+        : normalized;
 
     const { data: institutions } = await supabase
       .from('institutions')

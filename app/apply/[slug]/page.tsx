@@ -62,11 +62,29 @@ export default async function PublicFormPage({ params, searchParams }: PageProps
   const institutionIds =
     form.institution_ids?.length > 0 ? form.institution_ids : [form.institution_id];
 
-  const { data: programs } = await supabase
+  // Note: programs table uses 'program_name', we project to 'name' for the client
+  const { data: programsRaw } = await supabase
     .from('programs')
-    .select('id, name, institution_id')
+    .select('id, program_name, display_name, institution_id, is_active')
     .in('institution_id', institutionIds)
-    .order('name');
+    .eq('is_active', true)
+    .order('program_name');
+
+  // Dedupe by (institution_id, program_name) — the table has duplicate rows
+  // for the same program across academic years
+  const seen = new Set<string>();
+  const programs = (programsRaw ?? [])
+    .filter((p: any) => {
+      const key = `${p.institution_id}::${p.program_name}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((p: any) => ({
+      id: p.id,
+      name: p.display_name || p.program_name,
+      institution_id: p.institution_id,
+    }));
 
   const { data: institutions } = await supabase
     .from('institutions')
