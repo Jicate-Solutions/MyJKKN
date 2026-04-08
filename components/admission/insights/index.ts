@@ -5,3 +5,4 @@ export { InsightCard } from './insight-card';
 export { RecommendationsList } from './recommendations-list';
 export { TrendIndicators, MiniTrend } from './trend-indicators';
 export { AnomalyAlerts } from './anomaly-alerts';
+export { ReengagementCard } from './reengagement-card';
