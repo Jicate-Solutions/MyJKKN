@@ -22,6 +22,25 @@ export type CallStatus = 'initiated' | 'ringing' | 'in-progress' | 'completed' |
 
 export type CallDisposition = 'interested' | 'not_interested' | 'callback' | 'wrong_number' | 'not_reachable' | 'switched_off' | 'busy' | 'other';
 
+export type CallOutcome = 'connected' | 'not_answered' | 'busy' | 'wrong_number' | 'voicemail';
+export type InterestLevel = 'hot' | 'warm' | 'cold' | 'not_interested';
+export type NextAction = 'send_brochure' | 'schedule_visit' | 'refer_hod' | 'follow_up' | 'no_action';
+
+export interface LogCallInput {
+  lead_id: string;
+  institution_id: string;
+  counselor_id?: string;
+  phone_called: string;
+  call_outcome: CallOutcome;
+  interest_level?: InterestLevel;
+  next_action?: NextAction;
+  call_notes?: string;
+  follow_up_date?: string | null;
+  follow_up_time?: string | null;
+  suggested_stage?: string | null;
+  accept_stage_change?: boolean;
+}
+
 export type CallDirection = 'inbound' | 'outbound';
 
 export interface CallLog {
