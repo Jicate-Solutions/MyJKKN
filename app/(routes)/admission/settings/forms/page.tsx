@@ -53,7 +53,7 @@ import {
 } from '@/hooks/admission/use-form-analytics';
 import { FormBuilderService } from '@/lib/services/admission/form-builder-service';
 import { Plus, FileText, BarChart3, Link2, Pencil, Trash2, Copy } from 'lucide-react';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 function FormsListContent() {
   const router = useRouter();

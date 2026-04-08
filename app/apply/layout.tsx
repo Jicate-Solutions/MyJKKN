@@ -3,6 +3,7 @@
 // Added: 2026-04-08
 
 import type { Metadata } from 'next';
+import { Toaster as HotToaster } from 'react-hot-toast';
 
 export const metadata: Metadata = {
   title: 'Apply - JKKN',
@@ -10,5 +11,22 @@ export const metadata: Metadata = {
 };
 
 export default function ApplyLayout({ children }: { children: React.ReactNode }) {
-  return <div className="min-h-screen bg-gray-50 dark:bg-gray-950">{children}</div>;
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      {children}
+      <HotToaster
+        position="top-center"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#1f2937',
+            color: '#fff',
+            fontSize: '14px',
+          },
+          success: { iconTheme: { primary: '#10b981', secondary: '#fff' } },
+          error: { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
+        }}
+      />
+    </div>
+  );
 }

@@ -5,7 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FormBuilderService } from '@/lib/services/admission/form-builder-service';
 import type { CreateAdmissionFormInput } from '@/types/admission';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 export function useAdmissionForms(institutionId?: string) {
   return useQuery({
@@ -73,11 +73,9 @@ export function useFormMutations() {
       formId: string;
       updates: Partial<CreateAdmissionFormInput> & { status?: string };
     }) => FormBuilderService.updateForm(formId, updates),
-    onSuccess: () => {
-      invalidate();
-      toast.success('Form updated');
-    },
-    onError: (err: any) => toast.error(err?.message || 'Failed to update form'),
+    // No onSuccess toast — callers use toast.promise() to show contextual
+    // loading/success/error messages (e.g., "Saving draft..." vs "Publishing...")
+    onSuccess: () => invalidate(),
   });
 
   const deleteForm = useMutation({

@@ -76,7 +76,7 @@ import {
   ArrowLeft,
   Settings as SettingsIcon,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 const FIELD_TYPE_META: Record<FormFieldType, { label: string; icon: any }> = {
   text: { label: 'Text Input', icon: Type },
@@ -575,7 +575,11 @@ function FormBuilderContent({ formId }: { formId: string }) {
   };
 
   const handleSaveSettings = async () => {
-    await updateForm.mutateAsync({
+    if (!localFormState) {
+      toast.error('Form not loaded yet');
+      return;
+    }
+    const savePromise = updateForm.mutateAsync({
       formId,
       updates: {
         name: localFormState.name,
@@ -588,18 +592,72 @@ function FormBuilderContent({ formId }: { formId: string }) {
         allow_duplicate: localFormState.allow_duplicate,
       },
     });
+    // react-hot-toast's promise helper gives inline loading/success/error states
+    await toast.promise(savePromise, {
+      loading: 'Saving draft...',
+      success: 'Draft saved',
+      error: (err: any) => err?.message || 'Failed to save draft',
+    });
   };
 
   const handlePublish = async () => {
-    await handleSaveSettings();
-    await updateForm.mutateAsync({ formId, updates: { status: 'published' } });
-    toast.success('Form published! Share the public link.');
+    try {
+      if (localFormState) {
+        await updateForm.mutateAsync({
+          formId,
+          updates: {
+            name: localFormState.name,
+            description: localFormState.description,
+            primary_color: localFormState.primary_color,
+            logo_url: localFormState.logo_url,
+            thank_you_title: localFormState.thank_you_title,
+            thank_you_message: localFormState.thank_you_message,
+            auto_whatsapp: localFormState.auto_whatsapp,
+            allow_duplicate: localFormState.allow_duplicate,
+          },
+        });
+      }
+      const publishPromise = updateForm.mutateAsync({
+        formId,
+        updates: { status: 'published' },
+      });
+      await toast.promise(publishPromise, {
+        loading: 'Publishing...',
+        success: 'Form published! Share the public link.',
+        error: (err: any) => err?.message || 'Failed to publish',
+      });
+    } catch {
+      /* toast.promise already surfaced the error */
+    }
   };
 
-  const handleCopyLink = () => {
+  const handleCopyLink = async () => {
     const url = `${window.location.origin}/apply/${form.slug}`;
-    navigator.clipboard.writeText(url);
-    toast.success('Public link copied');
+
+    // Modern clipboard API (requires HTTPS or localhost).
+    // On insecure origins navigator.clipboard is undefined — we fall back to
+    // a temporary <textarea> + document.execCommand('copy'), which works
+    // on most browsers even over plain HTTP dev servers.
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (!ok) throw new Error('execCommand copy returned false');
+      }
+      toast.success(`Public link copied\n${url}`);
+    } catch (err) {
+      console.error('[admission/forms] Copy link failed:', err);
+      toast.error(`Could not copy. Link: ${url}`);
+    }
   };
 
   return (
