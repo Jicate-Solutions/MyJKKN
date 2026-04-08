@@ -63,7 +63,8 @@ export default function CreateMarathonEventPage() {
     description: '',
   });
 
-  const slug = EventBaseService.generateSlug(form.name, form.year);
+  // Preview slug (may differ from final slug if collision detected)
+  const slugPreview = EventBaseService.generateSlug(form.name, form.year);
 
   const updateField = (
     field: string,
@@ -78,24 +79,27 @@ export default function CreateMarathonEventPage() {
     if (!form.name.trim()) return;
     if (!institutionId) return;
 
-    const dto = {
-      institution_id: institutionId,
-      name: form.name.trim(),
-      slug,
-      year: form.year,
-      theme: form.theme || undefined,
-      tagline: form.tagline || undefined,
-      event_date: form.event_date || undefined,
-      start_time: form.start_time || undefined,
-      venue: form.venue || undefined,
-      venue_address: form.venue_address || undefined,
-      target_registrations: form.target_registrations
-        ? parseInt(form.target_registrations, 10)
-        : undefined,
-      description: form.description || undefined,
-    };
-
     try {
+      // Generate unique slug (checks DB for collisions)
+      const uniqueSlug = await EventBaseService.generateUniqueSlug(form.name.trim(), form.year);
+
+      const dto = {
+        institution_id: institutionId,
+        name: form.name.trim(),
+        slug: uniqueSlug,
+        year: form.year,
+        theme: form.theme || undefined,
+        tagline: form.tagline || undefined,
+        event_date: form.event_date || undefined,
+        start_time: form.start_time || undefined,
+        venue: form.venue || undefined,
+        venue_address: form.venue_address || undefined,
+        target_registrations: form.target_registrations
+          ? parseInt(form.target_registrations, 10)
+          : undefined,
+        description: form.description || undefined,
+      };
+
       const event = await createMutation.mutateAsync(dto);
       router.push(`/events/marathon/${event.id}/settings`);
     } catch {
@@ -137,9 +141,9 @@ export default function CreateMarathonEventPage() {
                   onChange={(e) => updateField('name', e.target.value)}
                   required
                 />
-                {slug && (
+                {slugPreview && (
                   <p className="text-xs text-muted-foreground">
-                    Slug: <code className="bg-muted px-1 rounded">{slug}</code>
+                    Slug: <code className="bg-muted px-1 rounded">{slugPreview}</code>
                   </p>
                 )}
               </div>

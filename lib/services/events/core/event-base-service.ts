@@ -335,4 +335,27 @@ export class EventBaseService {
 
     return year !== undefined ? `${base}-${year}` : base;
   }
+
+  /**
+   * Generate a unique slug by checking for collisions in the database.
+   * If the slug already exists, appends -2, -3, etc.
+   */
+  static async generateUniqueSlug(name: string, year?: number): Promise<string> {
+    const baseSlug = this.generateSlug(name, year);
+
+    // Check if base slug is available
+    const existing = await this.getEventBySlug(baseSlug);
+    if (!existing) return baseSlug;
+
+    // Slug taken — try with suffix
+    for (let i = 2; i <= 100; i++) {
+      const candidateSlug = `${baseSlug}-${i}`;
+      const check = await this.getEventBySlug(candidateSlug);
+      if (!check) return candidateSlug;
+    }
+
+    // Fallback — append random string
+    const rand = Math.random().toString(36).substring(2, 6);
+    return `${baseSlug}-${rand}`;
+  }
 }
