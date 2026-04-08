@@ -574,6 +574,97 @@ export class TelephonyService {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
+  // MANUAL CALL LOGGING (counselors call from personal phones)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  static async logManualCall(
+    input: LogCallInput,
+    supabase: any
+  ): Promise<{ callLog: any; leadUpdated: boolean }> {
+    const { mapOutcomeToDisposition } = await import('@/lib/utils/admission/stage-suggestions');
+    const disposition = mapOutcomeToDisposition(input.call_outcome, input.interest_level);
+
+    // Build follow-up datetime
+    const followUpDateTime = input.follow_up_date
+      ? input.follow_up_time
+        ? `${input.follow_up_date}T${input.follow_up_time}:00`
+        : `${input.follow_up_date}T09:00:00`
+      : null;
+
+    // 1. Create call log entry
+    const { data: callLog, error: callError } = await supabase
+      .from('admission_call_logs')
+      .insert({
+        institution_id: input.institution_id,
+        lead_id: input.lead_id,
+        counselor_id: input.counselor_id || null,
+        direction: 'outbound',
+        status: 'completed',
+        call_disposition: disposition,
+        from_number: 'manual',
+        to_number: input.phone_called,
+        duration_seconds: 0,
+        call_notes: input.call_notes || null,
+        follow_up_date: followUpDateTime,
+        is_admission_call: true,
+      })
+      .select()
+      .single();
+
+    if (callError) throw new Error(`Failed to log call: ${callError.message}`);
+
+    // 2. Update lead record
+    let leadUpdated = false;
+    const leadUpdate: Record<string, any> = {
+      last_contact_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (followUpDateTime) {
+      leadUpdate.next_followup_at = followUpDateTime;
+    }
+
+    // Stage change — get current stage first
+    if (input.accept_stage_change && input.suggested_stage) {
+      const { data: currentLead } = await supabase
+        .from('admission_leads')
+        .select('funnel_stage')
+        .eq('id', input.lead_id)
+        .single();
+
+      leadUpdate.funnel_stage = input.suggested_stage;
+      leadUpdate.previous_stage = currentLead?.funnel_stage || 'new';
+      leadUpdate.stage_changed_at = new Date().toISOString();
+    }
+
+    const { error: leadError } = await supabase
+      .from('admission_leads')
+      .update(leadUpdate)
+      .eq('id', input.lead_id);
+
+    if (!leadError) leadUpdated = true;
+
+    // 3. Log activity
+    await supabase
+      .from('admission_lead_activities')
+      .insert({
+        lead_id: input.lead_id,
+        activity_type: 'call',
+        subject: `Call ${input.call_outcome}`,
+        description: [
+          `Outcome: ${input.call_outcome}`,
+          input.interest_level ? `Interest: ${input.interest_level}` : null,
+          input.next_action ? `Next: ${input.next_action.replace(/_/g, ' ')}` : null,
+          input.call_notes || null,
+        ].filter(Boolean).join(' | '),
+        outcome: disposition,
+        created_by: input.counselor_id || null,
+      });
+
+    return { callLog, leadUpdated };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
   // WEBHOOK CALLBACK HANDLER
   // ═══════════════════════════════════════════════════════════════════════
 
