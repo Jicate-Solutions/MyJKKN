@@ -108,11 +108,11 @@ const AGENT_MAP: Record<string, ExotelAgent> = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const EXOPHONE_MAP: Record<string, { name: string; department: CallDepartment; college?: JKKNCollege }> = {
-  '04446313503': { name: '1-JKKN-COLLEGES', department: 'admission' },
-  '04448134434': { name: 'JKKN-MAIN', department: 'general' },
-  '04446313545': { name: 'JKKN-SECONDARY', department: 'general' },
-  '04446313596': { name: 'JKKN-TERTIARY', department: 'general' },
-  '04446310202': { name: 'Dharmapuri2025', department: 'admission' },
+  '04446313503': { name: '1-JKKN-COLLEGES', department: 'admission' },        // College admission IVR — the ONLY admission ExoPhone
+  '04446313545': { name: '1-JKKN-SCHOOLS', department: 'general' },            // School inquiries — NOT college admission
+  '04446313596': { name: '1-JKKN-AMBULANCE', department: 'general' },          // Ambulance/emergency — NOT admission
+  '04448134434': { name: '1-JKKN-DENTAL', department: 'general', college: 'DCH' }, // Dental college — separate admission
+  '04446310202': { name: 'Dharmapuri-2025', department: 'general' },            // Dharmapuri campus — separate
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -155,9 +155,15 @@ export function lookupExoPhone(phone: string): { name: string; department: CallD
  * Determine if a call is admission-related based on agent and ExoPhone.
  */
 export function isAdmissionCall(agentPhone: string, exoPhone: string): boolean {
+  // If the answering agent is a known admission counselor → admission
   const agent = lookupAgent(agentPhone);
   if (agent?.isAdmissionCounselor) return true;
 
+  // If agent is known but NOT admission (dental, pharmacy, etc.) → NOT admission
+  // This prevents IVR calls routed to non-admission departments from being tagged
+  if (agent && !agent.isAdmissionCounselor) return false;
+
+  // Unknown agent + admission ExoPhone = likely admission (missed calls through IVR)
   const exo = lookupExoPhone(exoPhone);
   if (exo?.department === 'admission') return true;
 
