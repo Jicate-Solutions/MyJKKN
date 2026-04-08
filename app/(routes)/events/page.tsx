@@ -29,47 +29,7 @@ const EVENT_TYPES: EventTypeCard[] = [
     href: '/events/marathon',
     icon: Timer,
     available: true,
-  },
-  {
-    title: 'Cultural Fest',
-    description:
-      'Manage cultural festivals with multiple stages, performances, and competitions.',
-    href: '/events/cultural-fest',
-    icon: Music,
-    available: false,
-  },
-  {
-    title: 'Seminar',
-    description:
-      'Plan seminars with speaker management, session scheduling, and attendee tracking.',
-    href: '/events/seminar',
-    icon: Mic2,
-    available: false,
-  },
-  {
-    title: 'Sports Day',
-    description:
-      'Organize sports days with multiple events, team scoring, and medal tracking.',
-    href: '/events/sports-day',
-    icon: Dumbbell,
-    available: false,
-  },
-  {
-    title: 'Workshop',
-    description:
-      'Conduct workshops with material management, hands-on sessions, and certificates.',
-    href: '/events/workshop',
-    icon: BookOpen,
-    available: false,
-  },
-  {
-    title: 'Conference',
-    description:
-      'Host conferences with multi-track agendas, networking, and exhibitor management.',
-    href: '/events/conference',
-    icon: Users,
-    available: false,
-  },
+  }
 ];
 
 export default function EventsHubPage() {
