@@ -1,14 +1,18 @@
-// app/api/webhooks/telephony/passthru/route.ts
-// Exotel Passthru URL Handler — routes calls to department-specific numbers
-// POST /api/webhooks/telephony/passthru
+import { NextResponse } from 'next/server';
 
-import { NextRequest, NextResponse } from 'next/server';
-
-export async function POST(request: NextRequest) {
-  // Stub: passthru handler to be implemented
-  return NextResponse.json({ status: 'ok', message: 'passthru stub' });
+// Passthru endpoint — not used. Exotel calls are handled via
+// StatusCallback on each ExoPhone + cron sync at /api/admission/calls/sync.
+export async function POST() {
+  return NextResponse.json({
+    status: 'not_used',
+    message: 'Call handling uses StatusCallback webhooks, not passthru. See /api/webhooks/telephony for the active handler.',
+  });
 }
 
-export async function GET(request: NextRequest) {
-  return NextResponse.json({ status: 'ok', message: 'passthru stub' });
+export async function GET() {
+  return NextResponse.json({
+    status: 'not_used',
+    message: 'Call handling uses StatusCallback webhooks, not passthru.',
+    active_handler: '/api/webhooks/telephony',
+  });
 }

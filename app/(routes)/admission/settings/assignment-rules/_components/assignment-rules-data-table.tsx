@@ -41,7 +41,7 @@ export function AssignmentRulesDataTable() {
         headers: [],
       }}
       idField="id"
-      config={{ enableUrlState: false, enableDateFilter: false, enableExport: false }}
+      config={{ enableUrlState: false, enableDateFilter: false, enableExport: true }}
     />
   );
 }

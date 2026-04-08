@@ -77,7 +77,7 @@ export function StatusDataTable() {
       config={{
         enableUrlState: false,
         enableDateFilter: false,
-        enableExport: false,
+        enableExport: true,
       }}
     />
   );

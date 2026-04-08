@@ -326,7 +326,7 @@ export function LeadsDataTable() {
         config={{
           enableUrlState: true,
           enableDateFilter: false,
-          enableExport: false,
+          enableExport: true,
           enableRowSelection: true
         }}
         renderToolbarContent={renderCustomToolbar}

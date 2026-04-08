@@ -706,7 +706,7 @@ export function useCommunicationMutations() {
         });
       }
       if (channel === 'email') {
-        toast.info('Email sending is coming soon. Please use SMS or WhatsApp for now.');
+        toast.info('Email integration is being set up. Use WhatsApp or SMS to contact this lead.');
         return { success: false, message: 'Email not yet available' };
       }
       if (channel !== 'sms') {
