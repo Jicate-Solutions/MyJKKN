@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 /**
  * Application Launch API

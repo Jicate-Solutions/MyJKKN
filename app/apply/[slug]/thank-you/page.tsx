@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { notFound } from 'next/navigation';
 import { CheckCircle2 } from 'lucide-react';
 
-export const dynamic = 'force-dynamic';
+
 
 export default async function ThankYouPage({
   params,

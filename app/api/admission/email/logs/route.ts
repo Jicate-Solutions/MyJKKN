@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/email/logs/route.ts
 // GET endpoint for email log listing with pagination

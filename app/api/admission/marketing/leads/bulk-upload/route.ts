@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/marketing/leads/bulk-upload/route.ts
 // Server-side bulk upload endpoint for marketing leads.

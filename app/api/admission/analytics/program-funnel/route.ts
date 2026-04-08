@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/analytics/program-funnel/route.ts
 // GET /api/admission/analytics/program-funnel?institution_id=X

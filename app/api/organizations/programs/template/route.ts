@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/organizations/programs/template/route.ts
 

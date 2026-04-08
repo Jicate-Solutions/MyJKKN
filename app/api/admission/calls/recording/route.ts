@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/calls/recording/route.ts
 // GET /api/admission/calls/recording?url=<recording_url>

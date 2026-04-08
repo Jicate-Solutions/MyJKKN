@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/admission/chat/templates/analytics
 // Template engagement analytics

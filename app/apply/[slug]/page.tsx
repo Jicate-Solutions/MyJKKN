@@ -6,7 +6,7 @@ import { notFound } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import PublicFormClient from './_components/public-form-client';
 
-export const dynamic = 'force-dynamic';
+
 
 interface PageProps {
   params: Promise<{ slug: string }>;

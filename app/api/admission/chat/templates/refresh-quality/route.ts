@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/admission/chat/templates/refresh-quality
 // Refresh quality ratings for all WhatsApp templates from Meta API

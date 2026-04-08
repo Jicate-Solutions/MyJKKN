@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/campaigns/roi/route.ts
 // GET ROI data for campaigns

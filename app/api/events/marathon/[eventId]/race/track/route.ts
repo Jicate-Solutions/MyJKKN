@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/events/marathon/[eventId]/race/track
 // Public endpoint — batch GPS sync from the runner's PWA.

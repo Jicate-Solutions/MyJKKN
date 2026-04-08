@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/admission/chat/consent/stats?institution_id={id}
 // Gap 2 — Consent Statistics

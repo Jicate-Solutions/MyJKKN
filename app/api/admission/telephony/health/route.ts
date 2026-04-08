@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/telephony/health/route.ts
 // GET /api/admission/telephony/health — Telephony health status

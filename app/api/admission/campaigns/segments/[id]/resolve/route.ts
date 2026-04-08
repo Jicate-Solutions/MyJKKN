@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/admission/campaigns/segments/[id]/resolve
 // Resolve segment: returns all matching leads

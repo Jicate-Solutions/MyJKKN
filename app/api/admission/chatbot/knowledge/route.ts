@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/chatbot/knowledge/route.ts
 // Authenticated endpoint — CRUD knowledge base documents

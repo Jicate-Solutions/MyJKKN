@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/registrations/[phone]
 // Public endpoint — looks up a registration by participant phone number.

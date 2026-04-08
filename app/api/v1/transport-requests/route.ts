@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 /**
  * External TMS (Transport Management System) API

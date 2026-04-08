@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/admission/chat/conversations
 // List conversations with filters and pagination

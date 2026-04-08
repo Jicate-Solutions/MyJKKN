@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // ============================================
 // BATCH REJECT CHANGE REQUESTS API

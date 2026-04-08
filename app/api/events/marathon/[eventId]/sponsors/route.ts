@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/sponsors
 // Public endpoint — returns committed sponsors for the event.

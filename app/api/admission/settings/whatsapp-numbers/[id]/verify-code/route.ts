@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/admission/settings/whatsapp-numbers/[id]/verify-code
 // Verify a received verification code for a WhatsApp phone number

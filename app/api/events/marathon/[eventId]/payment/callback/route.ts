@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET/POST /api/events/marathon/[eventId]/payment/callback
 // HDFC redirects here after payment. Verifies payment server-to-server,

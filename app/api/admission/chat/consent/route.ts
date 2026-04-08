@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/admission/chat/consent?lead_id={id}
 // POST /api/admission/chat/consent — Grant or revoke consent

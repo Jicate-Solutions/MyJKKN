@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/email/send/route.ts
 // POST endpoint to send a single email via template

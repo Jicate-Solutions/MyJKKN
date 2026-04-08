@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // ============================================
 // CHANGE REQUEST ANALYTICS API

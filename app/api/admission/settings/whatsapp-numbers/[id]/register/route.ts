@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/admission/settings/whatsapp-numbers/[id]/register
 // Register a phone number on WhatsApp Cloud API

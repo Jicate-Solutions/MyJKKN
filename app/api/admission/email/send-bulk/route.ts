@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/email/send-bulk/route.ts
 // POST endpoint for batch email sending

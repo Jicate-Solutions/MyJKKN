@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/telephony/inbound-sync/route.ts
 // POST /api/telephony/inbound-sync — Manual trigger for inbound CDR sync (admin only)

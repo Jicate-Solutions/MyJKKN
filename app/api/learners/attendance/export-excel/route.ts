@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 /**
  * Student Attendance Excel Export API

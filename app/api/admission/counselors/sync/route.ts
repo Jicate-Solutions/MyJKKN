@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/counselors/sync/route.ts
 // POST — Trigger counselor sync from Exotel agent map to admission_counselors table

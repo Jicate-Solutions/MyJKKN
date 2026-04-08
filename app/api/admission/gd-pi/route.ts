@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/gd-pi/route.ts
 // GET  /api/admission/gd-pi — List GD-PI sessions

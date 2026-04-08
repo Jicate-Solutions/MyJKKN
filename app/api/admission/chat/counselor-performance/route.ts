@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/admission/chat/counselor-performance
 // Counselor performance metrics and response time distribution

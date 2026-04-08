@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/events/marathon/[eventId]/register
 // Public endpoint — creates a new registration for the marathon.

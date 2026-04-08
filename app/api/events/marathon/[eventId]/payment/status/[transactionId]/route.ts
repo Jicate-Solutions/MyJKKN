@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/payment/status/[transactionId]
 // Public endpoint — returns current payment status for a transaction.

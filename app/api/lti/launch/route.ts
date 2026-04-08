@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 /**
  * LTI Launch API Endpoint

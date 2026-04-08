@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/events/marathon/[eventId]/race/checkpoint
 // Public endpoint — records a QR checkpoint scan for a runner.

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/admission/chat/conversations/[id]/assign
 // Assign a conversation to a counselor

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/participant-lookup?phone=9876543210
 // Public endpoint — checks whether a phone number belongs to a returning external

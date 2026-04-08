@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET/DELETE /api/admission/settings/whatsapp-templates/[id]
 // Get single template details or delete a template from Meta

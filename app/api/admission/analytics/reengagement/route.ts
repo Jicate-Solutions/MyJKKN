@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/analytics/reengagement/route.ts
 // GET /api/admission/analytics/reengagement?institution_id=X

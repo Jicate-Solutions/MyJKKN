@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/counselors/status/route.ts
 // GET /api/admission/counselors/status — Counselor availability from Exotel User Management API

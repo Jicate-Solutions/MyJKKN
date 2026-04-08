@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';

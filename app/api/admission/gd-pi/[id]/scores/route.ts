@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/gd-pi/[id]/scores/route.ts
 // POST — Submit score for a candidate

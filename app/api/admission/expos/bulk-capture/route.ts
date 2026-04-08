@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/expos/bulk-capture/route.ts
 // Server-side bulk capture endpoint for expo leads.

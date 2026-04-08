@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/remarketing/route.ts
 // CRUD API for remarketing audience rules

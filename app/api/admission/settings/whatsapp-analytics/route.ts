@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/admission/settings/whatsapp-analytics
 // WhatsApp analytics dashboard data — message stats, conversation stats, template usage, costs

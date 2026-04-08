@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // HDFC Payment Callback Handler - SECURE VERSION
 // Purpose: Handle POST callback from HDFC SmartGateway after payment

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 /**
  * SAML SSO Login Endpoint

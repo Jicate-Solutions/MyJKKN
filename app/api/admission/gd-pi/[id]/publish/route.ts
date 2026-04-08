@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/gd-pi/[id]/publish/route.ts
 // POST — Publish session results (calculate ranks, update lead stages)

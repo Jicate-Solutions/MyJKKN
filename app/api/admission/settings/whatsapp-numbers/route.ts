@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET/POST /api/admission/settings/whatsapp-numbers
 // Manage WABA phone numbers per institution

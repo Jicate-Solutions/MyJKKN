@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/analytics/dropoff/route.ts
 // GET /api/admission/analytics/dropoff?institution_id=X

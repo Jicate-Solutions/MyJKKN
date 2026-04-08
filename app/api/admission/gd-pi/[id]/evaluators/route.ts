@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/gd-pi/[id]/evaluators/route.ts
 // POST   — Assign evaluators to session

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/verify/[certId]
 // Public endpoint — verifies a finisher certificate by certificate ID.

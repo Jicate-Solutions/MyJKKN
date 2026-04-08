@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET/POST /api/admission/settings/whatsapp-templates
 // List all templates from Meta API (live) and create new templates

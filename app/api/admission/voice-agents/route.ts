@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/voice-agents/route.ts
 // CRUD API for AI voice agent configs

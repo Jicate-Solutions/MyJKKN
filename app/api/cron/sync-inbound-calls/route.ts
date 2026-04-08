@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/cron/sync-inbound-calls/route.ts
 // Vercel Cron: every 15 minutes, sync inbound CDRs for all active institutions

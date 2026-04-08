@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // ============================================
 // LEARNER DETAIL PAGE (SERVER COMPONENT)

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/analytics/time-to-convert/route.ts
 // GET /api/admission/analytics/time-to-convert?institution_id=X

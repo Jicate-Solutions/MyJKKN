@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/events/marathon/[eventId]/payment/pre-register
 // Creates a payment session BEFORE registration.

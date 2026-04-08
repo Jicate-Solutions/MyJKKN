@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/alerts/route.ts
 // CRUD API for activity alert rules

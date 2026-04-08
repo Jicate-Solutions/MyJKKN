@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/calls/[id]/analyze/route.ts
 // POST /api/admission/calls/[id]/analyze — Run call intelligence pipeline

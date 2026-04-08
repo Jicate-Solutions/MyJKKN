@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/admission/campaigns/segments/[id] — single segment
 // PUT /api/admission/campaigns/segments/[id] — update segment

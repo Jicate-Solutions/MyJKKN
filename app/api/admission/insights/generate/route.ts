@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/insights/generate/route.ts
 // Generates AI-powered CRM insights using Claude claude-sonnet-4-5.

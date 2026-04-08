@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 /**
  * LTI Names and Roles Provisioning Service (NRPS) Endpoint

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/whatsapp-broadcast/route.ts
 // POST: Create and execute a WhatsApp broadcast campaign

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/learner-profile/change-requests/route.ts
 import { NextRequest, NextResponse, connection } from 'next/server';

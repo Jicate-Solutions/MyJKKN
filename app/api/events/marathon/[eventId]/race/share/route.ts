@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/race/share
 // Public endpoint — returns live runner position for the family tracker.

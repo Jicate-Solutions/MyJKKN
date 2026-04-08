@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/stats
 // Public endpoint — returns registration counts aggregated by category, status, and type.

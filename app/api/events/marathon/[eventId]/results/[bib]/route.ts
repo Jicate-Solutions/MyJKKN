@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/results/[bib]
 // Public endpoint — returns an individual runner's result by BIB number.

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/whatsapp-broadcast/upload/route.ts
 // POST: Parse uploaded CSV, validate phone numbers, return parsed contacts

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/expos/wa-queue/route.ts
 // Process the expo WhatsApp message queue — retries failed messages.

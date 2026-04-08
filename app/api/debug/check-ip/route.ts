@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // Temporary endpoint to check Vercel's outgoing IP
 // DELETE THIS FILE AFTER GETTING THE IP!

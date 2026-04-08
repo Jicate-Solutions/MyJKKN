@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/calls/bulk-callback/route.ts
 // GET  /api/admission/calls/bulk-callback?institution_id=&status=pending — List callback queue entries

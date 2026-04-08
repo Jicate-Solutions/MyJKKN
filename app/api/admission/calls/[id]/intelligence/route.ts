@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/calls/[id]/intelligence/route.ts
 // GET /api/admission/calls/[id]/intelligence — Fetch call intelligence data

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 import { createHash } from 'crypto';
 import { createServerClient } from '@supabase/ssr';

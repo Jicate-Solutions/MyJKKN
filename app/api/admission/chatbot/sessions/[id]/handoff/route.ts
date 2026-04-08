@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/chatbot/sessions/[id]/handoff/route.ts
 // Authenticated endpoint — manual handoff to counselor

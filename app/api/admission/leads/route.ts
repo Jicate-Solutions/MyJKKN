@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/leads/route.ts
 // Public webhook endpoint for inbound lead capture from external systems.

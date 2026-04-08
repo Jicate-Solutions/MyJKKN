@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/admission/settings/whatsapp-health
 // Account health check — queries Meta Graph API for each registered phone number

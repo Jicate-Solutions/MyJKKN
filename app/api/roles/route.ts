@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { cookies } from 'next/headers';

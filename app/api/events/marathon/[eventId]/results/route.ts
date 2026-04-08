@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/results
 // Public endpoint — returns the public leaderboard with optional filters.

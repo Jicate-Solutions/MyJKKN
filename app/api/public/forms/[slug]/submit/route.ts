@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { FormSubmissionService } from '@/lib/services/admission/form-submission-service';
 
-export const dynamic = 'force-dynamic';
+
 
 // Simple in-memory rate limiting (per IP, 5 submissions per hour)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();

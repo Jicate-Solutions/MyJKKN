@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/calls/unique-callers/route.ts
 // GET /api/admission/calls/unique-callers — Group inbound calls by unique caller

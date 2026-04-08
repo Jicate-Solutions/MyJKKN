@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/calls/funnel/route.ts
 // GET /api/admission/calls/funnel — Call-to-Enrollment funnel metrics

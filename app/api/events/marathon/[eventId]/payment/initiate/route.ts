@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/events/marathon/[eventId]/payment/initiate
 // Public endpoint — creates an HDFC payment session for an event registration.

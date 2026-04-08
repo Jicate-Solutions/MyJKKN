@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET /api/events/marathon/[eventId]/categories
 // Public endpoint — returns race categories for a marathon event.

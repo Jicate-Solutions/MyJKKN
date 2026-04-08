@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // GET/POST /api/admission/settings/call-settings
 // Manage missed-call auto-reply settings per institution

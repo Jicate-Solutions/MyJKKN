@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/consultants/template/route.ts
 // Template download API for consultant import

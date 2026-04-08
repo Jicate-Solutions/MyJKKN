@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/expos/wa-welcome/route.ts
 // Triggers WhatsApp welcome message for a lead captured at an expo.

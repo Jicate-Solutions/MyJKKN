@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // POST /api/events/marathon/[eventId]/payment/webhook
 // HDFC server-to-server webhook notification.

@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 // app/api/admission/leads/list/route.ts
 // Server-side leads list endpoint — uses service role to bypass RLS overhead.

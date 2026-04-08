@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+
 
 /**
  * LTI OAuth 2.0 Token Endpoint
