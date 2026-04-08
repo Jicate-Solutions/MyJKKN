@@ -113,7 +113,7 @@ interface BroadcastCampaign {
 }
 
 // =============================================================================
-// CSV Parser
+// CSV / Excel Parser
 // =============================================================================
 
 function parseCSV(text: string): Record<string, string>[] {
@@ -128,6 +128,32 @@ function parseCSV(text: string): Record<string, string>[] {
     const row: Record<string, string> = {};
     headers.forEach((h, i) => { row[h] = values[i] || ''; });
     return row;
+  });
+}
+
+async function parseSpreadsheet(file: File): Promise<Record<string, string>[]> {
+  const ext = file.name.split('.').pop()?.toLowerCase();
+
+  if (ext === 'csv') {
+    const text = await file.text();
+    return parseCSV(text);
+  }
+
+  // Excel/Numbers (.xlsx, .xls) — parse with SheetJS
+  const XLSX = (await import('xlsx')).default;
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array' });
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!firstSheet) return [];
+
+  // Convert to JSON rows, all values as strings
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: '' });
+  return rows.map(row => {
+    const stringRow: Record<string, string> = {};
+    for (const [key, value] of Object.entries(row)) {
+      stringRow[key] = String(value ?? '').trim();
+    }
+    return stringRow;
   });
 }
 
@@ -316,9 +342,25 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    const rows = parseCSV(text);
-    if (rows.length === 0) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!['csv', 'xlsx', 'xls'].includes(ext || '')) {
+      toast.error('Please upload a CSV or Excel file (.csv, .xlsx, .xls)');
+      return;
+    }
+
+    let rows: Record<string, string>[];
+    try {
+      rows = await parseSpreadsheet(file);
+    } catch (err) {
+      toast.error(`Failed to read file: ${err instanceof Error ? err.message : 'Invalid format'}`);
+      return;
+    }
+
+    if (rows.length === 0) {
+      toast.error('File is empty or has no data rows');
+      return;
+    }
 
     // Client-side pre-validation: detect phone column and filter rows with invalid phone data
     const headers = Object.keys(rows[0] || {});
@@ -631,9 +673,9 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                 onClick={() => fileInputRef.current?.click()}
               >
                 <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm font-medium">Click to upload CSV</p>
-                <p className="text-xs text-muted-foreground">Phone, Name, Variables</p>
-                <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+                <p className="text-sm font-medium">Click to upload CSV or Excel</p>
+                <p className="text-xs text-muted-foreground">.csv, .xlsx, .xls — with Phone, Name, Variables</p>
+                <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFileUpload} />
               </div>
               <Button
                 variant="outline"
