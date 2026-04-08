@@ -136,6 +136,57 @@ export const ADMISSION_FORM_TEMPLATES = [
       ],
     },
   },
+  {
+    name: 'Lead Basic Details',
+    description:
+      'Mirrors the manual lead creation form with essential fields only — name, phone, email, parent contact, program interest, and location. Perfect starting point for a general admission enquiry form.',
+    form_type: 'lead_basic',
+    is_system: true,
+    template_data: {
+      sections: [
+        {
+          title: 'Personal Details',
+          description: 'Tell us about yourself',
+          fields: [
+            { field_key: 'first_name', field_label: 'First Name', field_type: 'text', is_required: true, lead_field_map: 'first_name', placeholder: 'e.g., Aarav', display_order: 0 },
+            { field_key: 'last_name', field_label: 'Last Name', field_type: 'text', is_required: false, lead_field_map: 'last_name', placeholder: 'e.g., Kumar', display_order: 1 },
+            { field_key: 'phone', field_label: 'Mobile Number', field_type: 'phone', is_required: true, lead_field_map: 'phone', placeholder: '10-digit mobile number', help_text: 'We will reach you on this number via WhatsApp and call', display_order: 2 },
+            { field_key: 'email', field_label: 'Email Address', field_type: 'email', is_required: false, lead_field_map: 'email', placeholder: 'your.email@example.com', display_order: 3 },
+            { field_key: 'gender', field_label: 'Gender', field_type: 'select', is_required: false, lead_field_map: 'gender', options: [{ label: 'Male', value: 'male' }, { label: 'Female', value: 'female' }, { label: 'Other', value: 'other' }], display_order: 4, placeholder: 'Select gender' },
+            { field_key: 'date_of_birth', field_label: 'Date of Birth', field_type: 'date', is_required: false, lead_field_map: 'date_of_birth', display_order: 5 },
+          ],
+        },
+        {
+          title: 'Parent / Guardian Contact',
+          description: 'So we can share updates with your parents',
+          fields: [
+            { field_key: 'parent_name', field_label: 'Parent / Guardian Name', field_type: 'text', is_required: false, lead_field_map: 'parent_name', placeholder: 'Father / Mother / Guardian name', display_order: 0 },
+            { field_key: 'parent_phone', field_label: 'Parent Phone', field_type: 'phone', is_required: false, lead_field_map: 'parent_phone', placeholder: '10-digit mobile number', display_order: 1 },
+          ],
+        },
+        {
+          title: 'Program Interest',
+          description: 'Which program are you interested in?',
+          fields: [
+            { field_key: 'institution_program', field_label: 'Institution & Program', field_type: 'institution_program_selector', is_required: true, display_order: 0, help_text: 'Select the institution and program you are interested in' },
+          ],
+        },
+        {
+          title: 'Location',
+          description: 'Where are you from?',
+          fields: [
+            { field_key: 'district', field_label: 'District', field_type: 'text', is_required: false, lead_field_map: 'district', placeholder: 'e.g., Salem, Coimbatore', display_order: 0 },
+            { field_key: 'state', field_label: 'State', field_type: 'select', is_required: false, lead_field_map: 'state', options: [
+              { label: 'Tamil Nadu', value: 'Tamil Nadu' }, { label: 'Kerala', value: 'Kerala' },
+              { label: 'Karnataka', value: 'Karnataka' }, { label: 'Andhra Pradesh', value: 'Andhra Pradesh' },
+              { label: 'Telangana', value: 'Telangana' }, { label: 'Puducherry', value: 'Puducherry' },
+              { label: 'Other', value: 'Other' },
+            ], display_order: 1, placeholder: 'Select state' },
+          ],
+        },
+      ],
+    },
+  },
 ];
 
 /**
