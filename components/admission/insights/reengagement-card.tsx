@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, Users, Clock, TrendingUp, ArrowRight } from 'lucide-react';
+import { RefreshCw, Users, Clock, TrendingUp, ArrowRight, AlertTriangle } from 'lucide-react';
 import { useReengagement } from '@/hooks/admission/use-reengagement';
 import { cn } from '@/lib/utils';
 
@@ -54,7 +54,7 @@ interface ReengagementCardProps {
 // ============================================================================
 
 export function ReengagementCard({ institutionId, className }: ReengagementCardProps) {
-  const { data, isLoading, refetch } = useReengagement(institutionId);
+  const { data, isLoading, error, refetch } = useReengagement(institutionId);
 
   const ctaHref = institutionId
     ? `/admission/leads?funnel_stage=dormant&institution_id=${institutionId}`
@@ -87,6 +87,22 @@ export function ReengagementCard({ institutionId, className }: ReengagementCardP
     );
   }
 
+  // ── Error state ───────────────────────────────────────────────────────────
+  if (error) {
+    return (
+      <Card className={cn('border-amber-200', className)}>
+        <CardContent className="py-8 text-center">
+          <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-red-400" />
+          <p className="text-sm text-muted-foreground">Failed to load re-engagement data</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // ── Rendered card ─────────────────────────────────────────────────────────
   return (
     <Card className={cn('border-amber-200 hover:shadow-md transition-shadow', className)}>
@@ -105,6 +121,7 @@ export function ReengagementCard({ institutionId, className }: ReengagementCardP
             className="h-8 w-8 text-muted-foreground"
             onClick={() => refetch()}
             title="Refresh"
+            aria-label="Refresh"
           >
             <RefreshCw className="h-4 w-4" />
           </Button>

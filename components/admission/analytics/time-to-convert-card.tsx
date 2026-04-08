@@ -86,7 +86,7 @@ function StageRow({
             className={cn('text-xs font-semibold', config.badge)}
           >
             <Clock className="h-3 w-3 mr-1" />
-            avg {formatHours(stage.avg_hours)}
+            avg from inquiry: {formatHours(stage.avg_hours)}
           </Badge>
         </div>
       </div>
@@ -160,12 +160,12 @@ export function TimeToConvertCard({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-base">Time to Convert</CardTitle>
+            <CardTitle className="text-base">Time from Inquiry</CardTitle>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-9 w-9"
             onClick={() => refetch()}
             disabled={isLoading}
             aria-label="Refresh"

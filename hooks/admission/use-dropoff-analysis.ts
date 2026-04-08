@@ -51,8 +51,7 @@ export function useDropoffAnalysis(institutionId?: string) {
       if (!json.success) throw new Error(json.message ?? 'Failed to fetch drop-off data');
       return json.data as DropoffAnalyticsResponse;
     },
-    staleTime: 2 * 60 * 1000, // 2 minutes
-    enabled: true,
+    staleTime: 2 * 60_000, // 2 minutes
   });
 
   return {

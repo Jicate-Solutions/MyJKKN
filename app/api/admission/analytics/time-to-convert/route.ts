@@ -91,6 +91,10 @@ export async function GET(request: NextRequest) {
 
     // ── Build transition buckets ─────────────────────────────────────────────
     //
+    // NOTE: hours shown are time from lead creation to reaching this stage,
+    // not time spent in the previous stage. Per-stage duration requires a
+    // stage history table (not yet implemented).
+    //
     // Transition 1: new → contacted
     //   Measured by: last_contact_at - created_at (when counselor first touched lead)
     //

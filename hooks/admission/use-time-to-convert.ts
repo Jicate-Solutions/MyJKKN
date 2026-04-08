@@ -24,10 +24,12 @@ export const timeToConvertKeys = {
 // EMPTY STATE
 // ============================================================================
 
+// NOTE: generated_at is omitted from EMPTY_DATA because it would capture
+// module-load time (stale). The API response provides the real timestamp.
 const EMPTY_DATA: TimeToConvertData = {
   stages: [],
   bottleneck: null,
-  generated_at: new Date().toISOString(),
+  generated_at: '',
 };
 
 // ============================================================================
@@ -99,8 +101,7 @@ export function useTimeToConvert(institutionId?: string) {
       if (!json.success) throw new Error(json.message || 'Failed to fetch time-to-convert data');
       return json.data as TimeToConvertData;
     },
-    staleTime: 5 * 60_000, // 5 minutes
-    enabled: true, // works without institution_id (returns all institutions)
+    staleTime: 5 * 60_000, // 5 minutes — works without institution_id (returns all institutions)
   });
 
   return {

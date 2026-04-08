@@ -64,6 +64,7 @@ const QUALIFIED_STAGES = new Set([
 ]);
 
 // Stages where the lead has submitted an application
+// NOTE: enrolled/confirmed are NOT included here — they belong in ENROLLED_STAGES only
 const APPLIED_STAGES = new Set([
   'application_started',
   'application_submitted',
@@ -77,8 +78,6 @@ const APPLIED_STAGES = new Set([
   'applied',
   'interviewed',
   'offered',
-  'enrolled',
-  'confirmed',
 ]);
 
 // Stages that count as enrolled / converted

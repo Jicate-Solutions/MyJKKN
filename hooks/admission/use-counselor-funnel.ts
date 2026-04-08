@@ -42,9 +42,11 @@ export function useCounselorFunnel(institutionId?: string) {
       const url = `/api/admission/analytics/counselor-funnel${params.toString() ? `?${params}` : ''}`;
       const res = await fetch(url);
       if (!res.ok) {
-        throw new Error(`Failed to fetch counselor funnel: ${res.status}`);
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Failed to fetch counselor funnel: ${res.status}`);
       }
       const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'Failed to fetch counselor funnel');
       // API returns { counselors: [...] }
       return (json.counselors ?? []) as CounselorFunnelRow[];
     },

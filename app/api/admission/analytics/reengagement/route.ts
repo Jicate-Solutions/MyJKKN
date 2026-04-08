@@ -37,6 +37,7 @@ export interface ReengagementResponse {
 
 // Stages where a lead is considered "done" — we don't count these as dormant
 // even if their last_activity_at is stale.
+// Includes legacy stages (applied, interviewed, offered) that some leads may still have.
 const TERMINAL_STAGES = new Set([
   'lost',
   'enrolled',
@@ -45,6 +46,9 @@ const TERMINAL_STAGES = new Set([
   'withdrew',
   'expired',
   'dormant', // explicit dormant is handled separately
+  'applied',
+  'interviewed',
+  'offered',
 ]);
 
 // Active stages (lead is working through the funnel)
@@ -143,8 +147,11 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      // Explicitly dormant via flag or funnel_stage
-      const isExplicitlyDormant = lead.is_dormant || stage === 'dormant';
+      // Explicitly dormant via flag or funnel_stage — but never for terminal stages
+      // (a lead with is_dormant=true but stage='enrolled' is NOT dormant)
+      const isExplicitlyDormant =
+        (lead.is_dormant || stage === 'dormant') &&
+        !['enrolled', 'confirmed', 'token_paid'].includes(stage);
 
       // Implicitly dormant: not in terminal stage, last activity too long ago
       const lastActivity = lead.last_activity_at ? new Date(lead.last_activity_at).getTime() : null;

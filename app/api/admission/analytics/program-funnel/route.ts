@@ -114,6 +114,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     supabase.from('institutions').select('id, name'),
   ]);
 
+  if (programsResult.error) console.error('Programs fetch error:', programsResult.error);
+  if (institutionsResult.error) console.error('Institutions fetch error:', institutionsResult.error);
+
   const programMap = new Map<string, { displayName: string; institutionId: string }>(
     (programsResult.data ?? []).map((p) => [
       p.id as string,
@@ -129,12 +132,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   );
 
   // 3. Fetch leads — select only needed columns
-  const leadsQuery = supabase
+  //    id is needed for deduplication (a lead with 3 interested_programs
+  //    should only count once per program, not inflate totals)
+  let leadsQuery = supabase
     .from('admission_leads')
-    .select('interested_programs, funnel_stage, institution_id');
+    .select('id, interested_programs, funnel_stage, institution_id');
 
   if (institution_id) {
-    leadsQuery.eq('institution_id', institution_id);
+    leadsQuery = leadsQuery.eq('institution_id', institution_id);
   }
 
   const { data: leads, error: leadsError } = await leadsQuery;
@@ -147,10 +152,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   // 4. Aggregate by program (primary path)
+  //    Use a Set per program key to deduplicate leads — a lead with multiple
+  //    interested_programs should count once per program, not inflate totals.
   const programAgg = new Map<string, AggEntry>();
+  const programLeadSeen = new Map<string, Set<string>>();
   let hasAnyPrograms = false;
 
   for (const lead of leads) {
+    const leadId = lead.id as string;
     const programs = lead.interested_programs as string[] | null;
     const stage = (lead.funnel_stage as string) ?? 'new';
     const instId = lead.institution_id as string;
@@ -162,6 +171,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         const progName = prog?.displayName ?? 'Not Specified';
         const instName = institutionMap.get(prog?.institutionId ?? instId ?? '') ?? 'Unknown Institution';
         const key = `${pid}::${instName}`;
+
+        // Deduplicate: skip if this lead was already counted for this program
+        if (!programLeadSeen.has(key)) {
+          programLeadSeen.set(key, new Set());
+        }
+        if (programLeadSeen.get(key)!.has(leadId)) continue;
+        programLeadSeen.get(key)!.add(leadId);
 
         if (!programAgg.has(key)) {
           programAgg.set(key, {

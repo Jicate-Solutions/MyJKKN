@@ -7,8 +7,9 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { TrendingDown, Users, AlertTriangle, Filter } from 'lucide-react';
+import { TrendingDown, Users, AlertTriangle, Filter, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDropoffAnalysis } from '@/hooks/admission/use-dropoff-analysis';
 import type { DropoffStage } from '@/hooks/admission/use-dropoff-analysis';
@@ -169,7 +170,7 @@ function StageRow({ stage, position, isBiggestBottleneck, isFirst }: StageRowPro
 // ────────────────────────────────────────────────────────────────────────────
 
 export function DropoffAnalysisCard({ institutionId, className }: DropoffAnalysisCardProps) {
-  const { stages, totalActive, biggestBottleneckStage, isLoading, error } =
+  const { stages, totalActive, biggestBottleneckStage, isLoading, error, refetch } =
     useDropoffAnalysis(institutionId);
 
   if (isLoading) return <DropoffSkeleton />;
@@ -180,7 +181,13 @@ export function DropoffAnalysisCard({ institutionId, className }: DropoffAnalysi
         <CardContent className="py-8 text-center text-muted-foreground">
           <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-red-400" />
           <p className="text-sm">Failed to load drop-off data</p>
-          <p className="text-xs mt-1">{error.message}</p>
+          <p className="text-xs mt-1">
+            {error instanceof Error ? error.message : 'Failed to load drop-off data'}
+          </p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            Retry
+          </Button>
         </CardContent>
       </Card>
     );
@@ -230,8 +237,8 @@ export function DropoffAnalysisCard({ institutionId, className }: DropoffAnalysi
         </div>
       </CardHeader>
 
-      <CardContent className="pt-0">
-        <div>
+      <CardContent className="pt-0 overflow-x-auto">
+        <div className="min-w-[340px]">
           {stages.map((stage, i) => (
             <StageRow
               key={stage.stage}

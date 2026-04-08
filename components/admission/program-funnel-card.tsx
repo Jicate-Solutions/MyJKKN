@@ -167,7 +167,7 @@ export function ProgramFunnelCard({ institutionId }: ProgramFunnelCardProps) {
             </CardTitle>
             <CardDescription className="mt-1">{description}</CardDescription>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => refetch()} title="Refresh">
+          <Button variant="ghost" size="icon" onClick={() => refetch()} title="Refresh" aria-label="Refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>

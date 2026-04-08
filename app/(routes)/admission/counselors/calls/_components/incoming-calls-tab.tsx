@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -79,6 +79,7 @@ function getInboundStatusBadge(costAmount: number | null | undefined) {
 
 function RecordingPlayer({ url }: { url: string | null }) {
   const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   if (!url) return <span className="text-xs text-muted-foreground">-</span>;
 
   const proxyUrl = `/api/admission/calls/recording?url=${encodeURIComponent(url)}`;
@@ -90,11 +91,14 @@ function RecordingPlayer({ url }: { url: string | null }) {
       className="h-7 px-2 text-xs"
       onClick={(e) => {
         e.stopPropagation();
-        const audio = new Audio(proxyUrl);
-        if (playing) {
-          audio.pause();
+        if (playing && audioRef.current) {
+          audioRef.current.pause();
           setPlaying(false);
         } else {
+          // Stop any previous playback before starting new
+          audioRef.current?.pause();
+          const audio = new Audio(proxyUrl);
+          audioRef.current = audio;
           audio.play().catch(() => window.open(proxyUrl, '_blank'));
           audio.onended = () => setPlaying(false);
           setPlaying(true);
@@ -346,7 +350,7 @@ function CounselorFunnelBar({
 }
 
 function CounselorFunnelCard({ institutionId }: { institutionId?: string }) {
-  const { counselors, isLoading } = useCounselorFunnel(institutionId);
+  const { counselors, isLoading, error, refetch } = useCounselorFunnel(institutionId);
 
   const BAR_DEFS: Array<{ key: keyof CounselorFunnelRow; label: string; color: string }> = [
     { key: 'assigned', label: 'Assigned', color: 'bg-blue-400' },
@@ -369,6 +373,11 @@ function CounselorFunnelCard({ institutionId }: { institutionId?: string }) {
         {isLoading ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}
+          </div>
+        ) : error ? (
+          <div className="text-center py-6">
+            <p className="text-sm text-muted-foreground">Failed to load counselor funnel</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>Retry</Button>
           </div>
         ) : counselors.length === 0 ? (
           <p className="text-center text-sm text-muted-foreground py-6">No active counselors found</p>
@@ -1191,7 +1200,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           {(!log.cost_amount || log.cost_amount <= 0) && log.from_number && (
                             <a
                               href={`tel:${log.from_number}`}
-                              className="inline-flex items-center h-7 px-2 text-xs border rounded-md hover:bg-accent"
+                              className="inline-flex items-center h-8 px-2.5 text-xs border rounded-md hover:bg-accent"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Phone className="h-3 w-3 mr-1" />

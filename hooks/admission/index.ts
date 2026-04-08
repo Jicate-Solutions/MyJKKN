@@ -251,7 +251,7 @@ export {
   callFunnelKeys,
 } from './use-call-funnel';
 export type {
-  FunnelStage,
+  FunnelStage as CallFunnelStage,
   CallFunnelData,
 } from './use-call-funnel';
 export type {
@@ -1372,3 +1372,14 @@ export {
   dropoffAnalysisKeys,
 } from './use-dropoff-analysis';
 export type { DropoffStage, DropoffAnalyticsResponse } from './use-dropoff-analysis';
+
+// Re-export time-to-convert hook
+export { useTimeToConvert, timeToConvertKeys, formatHours, getSpeedColor, formatStageName } from './use-time-to-convert';
+export type { TimeToConvertData, StageTransition } from './use-time-to-convert';
+
+// Re-export program funnel hook
+export { useProgramFunnel, programFunnelKeys } from './use-program-funnel';
+export type { ProgramFunnelRow, ProgramFunnelResponse } from './use-program-funnel';
+
+// Re-export re-engagement hook (full export)
+export { useReengagement, reengagementAnalyticsKeys as reengagementKeys } from './use-reengagement';

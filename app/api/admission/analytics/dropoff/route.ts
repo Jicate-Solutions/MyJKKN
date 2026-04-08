@@ -16,25 +16,30 @@ import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 // ────────────────────────────────────────────────────────────────────────────
 
 // Ordered funnel stages (active progression path only).
-// Terminal/exit stages (declined, withdrew, expired, lost, dormant,
-// not_reachable, follow_up_scheduled, applied, interviewed, offered,
-// confirmed) are excluded from the progression funnel.
+// Terminal/exit stages (declined, withdrew, expired, lost, dormant)
+// are excluded from the progression funnel.
 const FUNNEL_ORDER: string[] = [
   'new',
   'contacted',
+  'not_reachable',
+  'follow_up_scheduled',
   'interested',
   'engaged',
   'qualified',
   'application_started',
+  'applied',
   'application_submitted',
   'documents_pending',
   'documents_verified',
   'interview_scheduled',
+  'interviewed',
   'interview_completed',
   'offer_sent',
+  'offered',
   'offer_accepted',
   'token_paid',
   'enrolled',
+  'confirmed',
 ];
 
 // Stages that represent exits from the funnel — excluded entirely.
@@ -75,19 +80,25 @@ export interface DropoffAnalyticsResponse {
 const STAGE_LABELS: Record<string, string> = {
   new: 'New Leads',
   contacted: 'Contacted',
+  not_reachable: 'Not Reachable',
+  follow_up_scheduled: 'Follow-up Scheduled',
   interested: 'Interested',
   engaged: 'Engaged',
   qualified: 'Qualified',
   application_started: 'Application Started',
+  applied: 'Applied',
   application_submitted: 'Application Submitted',
   documents_pending: 'Documents Pending',
   documents_verified: 'Documents Verified',
   interview_scheduled: 'Interview Scheduled',
+  interviewed: 'Interviewed',
   interview_completed: 'Interview Completed',
   offer_sent: 'Offer Sent',
+  offered: 'Offered',
   offer_accepted: 'Offer Accepted',
   token_paid: 'Token Paid',
   enrolled: 'Enrolled',
+  confirmed: 'Confirmed',
 };
 
 // ────────────────────────────────────────────────────────────────────────────
