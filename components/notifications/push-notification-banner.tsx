@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Bell, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 
 const SNOOZE_KEY = 'push-notification-banner-snoozed-until';
 const SNOOZE_DURATION_MS = 4 * 60 * 60 * 1000; // 4 hours
+const SHOW_DELAY_MS = 2000; // Wait before showing to avoid flicker during auto-resubscribe
 
 export function PushNotificationBanner() {
   const {
@@ -19,6 +20,8 @@ export function PushNotificationBanner() {
   } = usePushNotifications();
 
   const [snoozed, setSnoozed] = useState(true); // Start hidden to avoid flash
+  const [showReady, setShowReady] = useState(false); // Delay showing to avoid flicker
+  const showTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Check snooze state on mount
   useEffect(() => {
@@ -31,8 +34,21 @@ export function PushNotificationBanner() {
     }
   }, []);
 
-  // Don't show if: not supported, already subscribed, permission permanently denied, loading, or snoozed
-  if (!isSupported || isSubscribed || isLoading || snoozed) {
+  // Debounce banner visibility to prevent flicker during auto-resubscribe.
+  // Only show after the state has been stable (not subscribed) for SHOW_DELAY_MS.
+  const shouldShow = isSupported && !isSubscribed && !isLoading && !snoozed;
+
+  useEffect(() => {
+    if (shouldShow) {
+      showTimerRef.current = setTimeout(() => setShowReady(true), SHOW_DELAY_MS);
+    } else {
+      clearTimeout(showTimerRef.current);
+      setShowReady(false);
+    }
+    return () => clearTimeout(showTimerRef.current);
+  }, [shouldShow]);
+
+  if (!showReady) {
     return null;
   }
 

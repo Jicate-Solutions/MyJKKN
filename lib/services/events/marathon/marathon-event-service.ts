@@ -37,16 +37,6 @@ const DEFAULT_MARATHON_CATEGORIES: Omit<
     is_active: true,
     config: {},
   },
-  {
-    name: '3 KM Fun Run',
-    code: '3K',
-    distance_km: 3,
-    fee_amount: 200,
-    early_bird_fee: 150,
-    sort_order: 3,
-    is_active: true,
-    config: {},
-  },
 ];
 
 // Valid status transitions (imported logic from types)
@@ -67,12 +57,13 @@ export class MarathonEventService {
   // ============================================================================
 
   /**
-   * Fetch all marathon events for an institution.
+   * Fetch all marathon events — no institution filter.
+   * Marathon events are common across all JKKN institutions.
+   * The institutionId parameter is kept for API compatibility but ignored.
    */
-  static async getMarathonEvents(institutionId: string): Promise<Event[]> {
+  static async getMarathonEvents(_institutionId?: string): Promise<Event[]> {
     try {
       return await EventBaseService.getEvents({
-        institution_id: institutionId,
         event_type: 'marathon',
       });
     } catch (error) {

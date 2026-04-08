@@ -24,8 +24,10 @@ import {
 } from '@/hooks/events/marathon/use-marathon-registrations';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -587,9 +589,11 @@ function RegisterParticipantDialog({
 }) {
   const { profile } = useAuth();
   const { selectedInstitutionId, institutions } = useUserInstitutionAccess();
+  const { isStudent } = usePermissions();
   const registerMutation = useRegisterParticipant();
 
-  const [participantType, setParticipantType] = useState<'internal' | 'external'>('internal');
+  // Internal-only registration inside MyJKKN (external users register via the external app)
+  const participantType = 'internal' as const;
   const [form, setForm] = useState({
     category_id: '',
     participant_name: '',
@@ -599,20 +603,26 @@ function RegisterParticipantDialog({
     participant_gender: '',
     institution_name: '',
     department: '',
-    organization: '',
+    program: '',
+    semester: '',
+    section: '',
+    roll_number: '',
     tshirt_size: '',
     emergency_contact_name: '',
     emergency_contact_phone: '',
     blood_group: '',
-    discount_code: '',
   });
+  const [learnerLoading, setLearnerLoading] = useState(false);
 
-  // Auto-fill from profile when switching to internal
-  const fillFromProfile = () => {
-    if (!profile) return;
+  // Auto-fill from logged-in user's profile + learner details for students
+  useEffect(() => {
+    if (!open || !profile) return;
+
     const inst = institutions?.find(
       (i) => i.institution_id === (selectedInstitutionId || profile.institution_id)
     );
+
+    // Base profile data (all roles)
     setForm((f) => ({
       ...f,
       participant_name: profile.full_name ?? '',
@@ -622,14 +632,54 @@ function RegisterParticipantDialog({
       institution_name: inst?.institution_name ?? '',
       department: (profile as any).departments?.department_name ?? '',
     }));
-  };
 
-  // When dialog opens or type changes to internal, auto-fill
-  useEffect(() => {
-    if (open && participantType === 'internal' && profile) {
-      fillFromProfile();
+    // Student role: fetch additional details from learners_profiles
+    if (isStudent && profile.learner_id) {
+      setLearnerLoading(true);
+      const supabase = createClientSupabaseClient();
+      supabase
+        .from('learners_profiles')
+        .select(`
+          first_name, last_name, student_mobile, student_email, gender, date_of_birth,
+          roll_number, father_name, father_mobile,
+          institution:institutions(id, name),
+          department:departments(id, department_name),
+          program:programs(id, program_name),
+          semester:semesters(id, semester_name),
+          section:sections(id, section_name)
+        `)
+        .eq('id', profile.learner_id)
+        .single()
+        .then(({ data: learner }) => {
+          if (learner) {
+            // Calculate age from date_of_birth
+            let age = '';
+            if (learner.date_of_birth) {
+              const dob = new Date(learner.date_of_birth);
+              age = String(Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000)));
+            }
+
+            setForm((f) => ({
+              ...f,
+              participant_name: `${learner.first_name ?? ''} ${learner.last_name ?? ''}`.trim() || f.participant_name,
+              participant_phone: learner.student_mobile || f.participant_phone,
+              participant_email: learner.student_email || f.participant_email,
+              participant_gender: learner.gender || f.participant_gender,
+              participant_age: age || f.participant_age,
+              institution_name: (learner.institution as any)?.name || f.institution_name,
+              department: (learner.department as any)?.department_name || f.department,
+              program: (learner.program as any)?.program_name || '',
+              semester: (learner.semester as any)?.semester_name || '',
+              section: (learner.section as any)?.section_name || '',
+              roll_number: learner.roll_number || '',
+              emergency_contact_name: learner.father_name || '',
+              emergency_contact_phone: learner.father_mobile || '',
+            }));
+          }
+        })
+        .finally(() => setLearnerLoading(false));
     }
-  }, [open, participantType, profile]);
+  }, [open, profile, isStudent, institutions, selectedInstitutionId]);
 
   const updateField = (field: string, value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
@@ -645,73 +695,55 @@ function RegisterParticipantDialog({
       participant_gender: '',
       institution_name: '',
       department: '',
-      organization: '',
+      program: '',
+      semester: '',
+      section: '',
+      roll_number: '',
       tshirt_size: '',
       emergency_contact_name: '',
       emergency_contact_phone: '',
       blood_group: '',
-      discount_code: '',
     });
-    setParticipantType('internal');
   };
 
-  const handleTypeChange = (type: 'internal' | 'external') => {
-    setParticipantType(type);
-    if (type === 'internal') {
-      fillFromProfile();
-    } else {
-      // Clear auto-filled fields for external
-      setForm((f) => ({
-        ...f,
-        participant_name: '',
-        participant_phone: '',
-        participant_email: '',
-        participant_gender: '',
-        institution_name: '',
-        department: '',
-      }));
-    }
-  };
-
-  // Internal users pay ₹100 fixed fee, external users pay category fee
+  // Internal users pay ₹100 fixed fee
   const INTERNAL_FEE = 100;
   const selectedCategory = categories.find((c) => c.id === form.category_id);
-  const registrationFee = participantType === 'internal'
-    ? INTERNAL_FEE
-    : (selectedCategory?.fee_amount ?? 0);
+  const registrationFee = INTERNAL_FEE;
 
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Build the registration data payload (used for both paid and free flows)
+  // Build the registration data payload (internal users only)
   const buildRegistrationData = () => ({
     event_id: eventId,
     category_id: form.category_id,
     category_code: selectedCategory?.code || 'RUN',
     event_year: (event as any)?.year || new Date().getFullYear(),
     event_code: (event as any)?.config?.event_code || (event as any)?.name?.substring(0, 3).toUpperCase() || 'KBM',
-    participant_type: participantType,
+    participant_type: 'internal',
     participant_name: form.participant_name.trim(),
     participant_phone: form.participant_phone || undefined,
     participant_email: form.participant_email || undefined,
     participant_age: form.participant_age ? parseInt(form.participant_age, 10) : undefined,
     participant_gender: form.participant_gender || undefined,
-    institution_id: participantType === 'internal'
-      ? (selectedInstitutionId || profile?.institution_id || undefined)
-      : undefined,
+    institution_id: selectedInstitutionId || profile?.institution_id || undefined,
     institution_name: form.institution_name || undefined,
     department: form.department || undefined,
-    profile_id: participantType === 'internal' ? profile?.id : undefined,
-    learner_id: participantType === 'internal' ? (profile?.learner_id ?? undefined) : undefined,
-    source: 'admin',
+    profile_id: profile?.id,
+    learner_id: profile?.learner_id ?? undefined,
+    source: 'internal',
     custom_data: {
       tshirt_size: form.tshirt_size || undefined,
       emergency_contact_name: form.emergency_contact_name || undefined,
       emergency_contact_phone: form.emergency_contact_phone || undefined,
       blood_group: form.blood_group || undefined,
-      organization: participantType === 'external' ? form.organization || undefined : undefined,
-      registration_fee_override: participantType === 'internal' ? INTERNAL_FEE : undefined,
+      registration_fee_override: INTERNAL_FEE,
+      // Student-specific academic details
+      program: form.program || undefined,
+      semester: form.semester || undefined,
+      section: form.section || undefined,
+      roll_number: form.roll_number || undefined,
     },
-    discount_code: participantType === 'external' ? (form.discount_code || undefined) : undefined,
   });
 
   const handleSubmit = async () => {
@@ -784,33 +816,12 @@ function RegisterParticipantDialog({
         </DialogHeader>
 
         <div className="space-y-5 mt-2">
-          {/* Participant Type Toggle */}
-          <div className="space-y-2">
-            <Label>Participant Type</Label>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={participantType === 'internal' ? 'default' : 'outline'}
-                onClick={() => handleTypeChange('internal')}
-              >
-                JKKN (Internal)
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={participantType === 'external' ? 'default' : 'outline'}
-                onClick={() => handleTypeChange('external')}
-              >
-                External
-              </Button>
+          {/* Profile auto-fill notice */}
+          {profile && (
+            <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              Auto-filled from your JKKN profile. You can edit fields if needed.
             </div>
-            {participantType === 'internal' && profile && (
-              <p className="text-xs text-muted-foreground">
-                Auto-filled from your profile. You can edit fields if registering someone else.
-              </p>
-            )}
-          </div>
+          )}
 
           {/* Category Selection */}
           <div className="space-y-2">
@@ -825,10 +836,7 @@ function RegisterParticipantDialog({
               <SelectContent>
                 {categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
-                    {cat.name} {cat.distance_km ? `(${cat.distance_km} km)` : ''}
-                    {participantType === 'internal'
-                      ? ' — ₹100'
-                      : ` — ₹${cat.fee_amount ?? 0}`}
+                    {cat.name} {cat.distance_km ? `(${cat.distance_km} km)` : ''} — ₹{INTERNAL_FEE}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -836,12 +844,8 @@ function RegisterParticipantDialog({
             {form.category_id && (
               <div className="rounded-md bg-muted px-3 py-2 text-sm">
                 <span className="text-muted-foreground">Registration Fee: </span>
-                <span className="font-semibold">
-                  {participantType === 'internal' ? '₹100' : `₹${categories.find((c) => c.id === form.category_id)?.fee_amount ?? 0}`}
-                </span>
-                {participantType === 'internal' && (
-                  <span className="text-xs text-muted-foreground ml-2">(Fixed fee for JKKN members)</span>
-                )}
+                <span className="font-semibold">₹{INTERNAL_FEE}</span>
+                <span className="text-xs text-muted-foreground ml-2">(JKKN members)</span>
               </div>
             )}
           </div>
@@ -907,42 +911,77 @@ function RegisterParticipantDialog({
             </div>
           </div>
 
-          {/* Institution / Organization */}
-          {participantType === 'internal' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Institution</Label>
-                <Input
-                  value={form.institution_name}
-                  readOnly
-                  className="bg-muted cursor-not-allowed"
-                />
-                <p className="text-xs text-muted-foreground">Auto-filled from profile</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Department</Label>
-                <Input
-                  value={form.department}
-                  readOnly
-                  className="bg-muted cursor-not-allowed"
-                />
-              </div>
+          {/* Academic Details (auto-filled) */}
+          {learnerLoading ? (
+            <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading academic details...
             </div>
           ) : (
-            <div className="space-y-2">
-              <Label>Organization / College</Label>
-              <Input
-                placeholder="e.g. ABC Engineering College"
-                value={form.organization}
-                onChange={(e) => updateField('organization', e.target.value)}
-              />
-            </div>
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Institution</Label>
+                  <Input
+                    value={form.institution_name}
+                    readOnly
+                    className="bg-muted cursor-not-allowed"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Department</Label>
+                  <Input
+                    value={form.department}
+                    readOnly
+                    className="bg-muted cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
+              {/* Student-specific: Program, Semester, Section, Roll Number */}
+              {isStudent && (form.program || form.semester || form.section || form.roll_number) && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <Label>Program</Label>
+                    <Input
+                      value={form.program}
+                      readOnly
+                      className="bg-muted cursor-not-allowed text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Semester</Label>
+                    <Input
+                      value={form.semester}
+                      readOnly
+                      className="bg-muted cursor-not-allowed text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Section</Label>
+                    <Input
+                      value={form.section}
+                      readOnly
+                      className="bg-muted cursor-not-allowed text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Roll No.</Label>
+                    <Input
+                      value={form.roll_number}
+                      readOnly
+                      className="bg-muted cursor-not-allowed text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           <Separator />
 
           {/* Event-Specific Fields */}
-          <div className={`grid grid-cols-1 ${participantType === 'external' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-4`}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>T-Shirt Size</Label>
               <Select
@@ -975,17 +1014,6 @@ function RegisterParticipantDialog({
                 </SelectContent>
               </Select>
             </div>
-            {/* Discount code — only for external users */}
-            {participantType === 'external' && (
-              <div className="space-y-2">
-                <Label>Discount Code</Label>
-                <Input
-                  placeholder="e.g. MARATHON50"
-                  value={form.discount_code}
-                  onChange={(e) => updateField('discount_code', e.target.value)}
-                />
-              </div>
-            )}
           </div>
 
           {/* Emergency Contact */}

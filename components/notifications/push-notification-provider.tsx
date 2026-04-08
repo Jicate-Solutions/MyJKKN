@@ -66,6 +66,9 @@ export function PushNotificationProvider({
   // Track whether the current error came from an auto-resubscribe attempt
   // so we can suppress the toast for transient failures
   const isAutoResubscribeRef = useRef(false);
+  // Track whether we've already done a mobile force-resubscribe this session
+  // to prevent the init→auto-resubscribe→init infinite loop
+  const hasForceResubscribedRef = useRef(false);
 
   // ─── 1. Check browser support ────────────────────────────────
   useEffect(() => {
@@ -125,9 +128,8 @@ export function PushNotificationProvider({
         }
 
         // On mobile, browser subscriptions go stale frequently (app killed,
-        // deep sleep, FCM token rotation). Mark isSubscribed = false when
-        // permission is granted but we need to validate — the auto-resubscribe
-        // effect will create a fresh subscription with a valid endpoint.
+        // deep sleep, FCM token rotation). Force a one-time resubscribe per
+        // session to refresh the endpoint — but only once to avoid loops.
         const isMobileOrPWA =
           /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
           window.matchMedia('(display-mode: standalone)').matches;
@@ -135,12 +137,15 @@ export function PushNotificationProvider({
         const shouldForceResubscribe =
           isMobileOrPWA &&
           Notification.permission === 'granted' &&
-          !!subscription;
+          !!subscription &&
+          !hasForceResubscribedRef.current;
+
+        if (shouldForceResubscribe) {
+          hasForceResubscribedRef.current = true;
+        }
 
         setState((prev) => ({
           ...prev,
-          // On mobile with granted permission, mark as NOT subscribed
-          // so auto-resubscribe creates a fresh endpoint
           isSubscribed: shouldForceResubscribe ? false : !!subscription,
           subscription: shouldForceResubscribe ? null : subscription,
           isLoading: false,
@@ -171,7 +176,11 @@ export function PushNotificationProvider({
       const timer = setTimeout(async () => {
         try {
           isAutoResubscribeRef.current = true;
-          await doSubscribe();
+          const success = await doSubscribe();
+          if (success) {
+            // Mark as force-resubscribed so init won't reset isSubscribed again
+            hasForceResubscribedRef.current = true;
+          }
         } catch (err) {
           console.warn('Auto-resubscribe failed (will retry next load):', err);
         } finally {
