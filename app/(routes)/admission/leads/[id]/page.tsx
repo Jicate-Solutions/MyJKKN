@@ -2184,6 +2184,16 @@ function LeadDetailPageContent() {
                 </CardContent>
               </Card>
 
+              {/* Log Call — Primary CTA */}
+              <Button
+                size="lg"
+                className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white"
+                onClick={() => setShowLogCallDialog(true)}
+              >
+                <Phone className="h-5 w-5" />
+                I Just Called — Log It
+              </Button>
+
               {/* Quick Actions */}
               <Card>
                 <CardHeader>
