@@ -44,6 +44,7 @@ import { useDegrees } from '@/hooks/organization/use-degrees';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
+import { LogCallDialog } from '@/components/admission/log-call-dialog';
 import { useExpoEvent } from '@/hooks/admission/use-expos';
 import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
 import { useStudentsForDropdown, useFacultyForDropdown } from '@/hooks/admission/use-referral-dropdowns';
