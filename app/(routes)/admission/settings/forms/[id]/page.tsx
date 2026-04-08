@@ -184,15 +184,60 @@ function FieldConfigPanel({
   field: AdmissionFormField;
   onUpdate: (updates: Partial<AdmissionFormField>) => void;
 }) {
+  // Local draft state for all text inputs — prevents race condition with React
+  // Query refetches. Inputs bind to draft while typing, commit to DB on blur.
+  const [draft, setDraft] = useState({
+    field_label: field.field_label,
+    field_key: field.field_key,
+    placeholder: field.placeholder ?? '',
+    help_text: field.help_text ?? '',
+    min_value: field.min_value,
+    max_value: field.max_value,
+  });
+
   const [localOptions, setLocalOptions] = useState(
     field.options ? field.options.map((o) => `${o.label}|${o.value}`).join('\n') : ''
   );
 
+  // Reset draft whenever the user selects a different field.
+  // Intentionally keyed on field.id only — NOT on the other field properties —
+  // so in-progress edits aren't overwritten by a React Query refetch of the
+  // same field that returns stale data from the server.
   useEffect(() => {
-    setLocalOptions(field.options ? field.options.map((o) => `${o.label}|${o.value}`).join('\n') : '');
+    setDraft({
+      field_label: field.field_label,
+      field_key: field.field_key,
+      placeholder: field.placeholder ?? '',
+      help_text: field.help_text ?? '',
+      min_value: field.min_value,
+      max_value: field.max_value,
+    });
+    setLocalOptions(
+      field.options ? field.options.map((o) => `${o.label}|${o.value}`).join('\n') : ''
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [field.id]);
 
   const hasOptions = ['select', 'multi_select', 'radio'].includes(field.field_type);
+
+  const commitText = (key: 'field_label' | 'field_key' | 'placeholder' | 'help_text') => {
+    const next = draft[key];
+    const current = (field as any)[key] ?? '';
+    if (next !== current) {
+      // For nullable fields, store empty as null
+      const normalized =
+        (key === 'placeholder' || key === 'help_text') && next === '' ? null : next;
+      onUpdate({ [key]: normalized } as Partial<AdmissionFormField>);
+    }
+  };
+
+  const commitNumber = (key: 'min_value' | 'max_value') => {
+    const next = draft[key];
+    const current = field[key];
+    if (next !== current) {
+      onUpdate({ [key]: next } as Partial<AdmissionFormField>);
+    }
+  };
 
   const handleOptionsBlur = () => {
     const parsed = localOptions
@@ -212,16 +257,18 @@ function FieldConfigPanel({
         <Label htmlFor="cfg-label">Field Label</Label>
         <Input
           id="cfg-label"
-          value={field.field_label}
-          onChange={(e) => onUpdate({ field_label: e.target.value })}
+          value={draft.field_label}
+          onChange={(e) => setDraft((d) => ({ ...d, field_label: e.target.value }))}
+          onBlur={() => commitText('field_label')}
         />
       </div>
       <div>
         <Label htmlFor="cfg-key">Field Key</Label>
         <Input
           id="cfg-key"
-          value={field.field_key}
-          onChange={(e) => onUpdate({ field_key: e.target.value })}
+          value={draft.field_key}
+          onChange={(e) => setDraft((d) => ({ ...d, field_key: e.target.value }))}
+          onBlur={() => commitText('field_key')}
         />
         <p className="text-xs text-muted-foreground mt-1">
           Used internally. Lowercase letters, digits, underscores only.
@@ -231,16 +278,18 @@ function FieldConfigPanel({
         <Label htmlFor="cfg-placeholder">Placeholder</Label>
         <Input
           id="cfg-placeholder"
-          value={field.placeholder ?? ''}
-          onChange={(e) => onUpdate({ placeholder: e.target.value })}
+          value={draft.placeholder}
+          onChange={(e) => setDraft((d) => ({ ...d, placeholder: e.target.value }))}
+          onBlur={() => commitText('placeholder')}
         />
       </div>
       <div>
         <Label htmlFor="cfg-help">Help Text</Label>
         <Input
           id="cfg-help"
-          value={field.help_text ?? ''}
-          onChange={(e) => onUpdate({ help_text: e.target.value })}
+          value={draft.help_text}
+          onChange={(e) => setDraft((d) => ({ ...d, help_text: e.target.value }))}
+          onBlur={() => commitText('help_text')}
         />
       </div>
       <div className="flex items-center justify-between">
@@ -290,10 +339,14 @@ function FieldConfigPanel({
             <Input
               id="cfg-min"
               type="number"
-              value={field.min_value ?? ''}
+              value={draft.min_value ?? ''}
               onChange={(e) =>
-                onUpdate({ min_value: e.target.value === '' ? null : Number(e.target.value) })
+                setDraft((d) => ({
+                  ...d,
+                  min_value: e.target.value === '' ? null : Number(e.target.value),
+                }))
               }
+              onBlur={() => commitNumber('min_value')}
             />
           </div>
           <div>
@@ -301,10 +354,14 @@ function FieldConfigPanel({
             <Input
               id="cfg-max"
               type="number"
-              value={field.max_value ?? ''}
+              value={draft.max_value ?? ''}
               onChange={(e) =>
-                onUpdate({ max_value: e.target.value === '' ? null : Number(e.target.value) })
+                setDraft((d) => ({
+                  ...d,
+                  max_value: e.target.value === '' ? null : Number(e.target.value),
+                }))
               }
+              onBlur={() => commitNumber('max_value')}
             />
           </div>
         </div>
