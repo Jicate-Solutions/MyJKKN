@@ -123,7 +123,11 @@ export function useFormMutations() {
 
   const deleteField = useMutation({
     mutationFn: (fieldId: string) => FormBuilderService.deleteField(fieldId),
-    onSuccess: () => invalidate(),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Field removed');
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to remove field'),
   });
 
   const reorderFields = useMutation({

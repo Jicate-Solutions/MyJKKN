@@ -164,13 +164,16 @@ function FieldBlock({
         </div>
       </div>
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           onDelete();
         }}
-        className="p-1 opacity-0 group-hover:opacity-100 hover:text-red-500"
+        aria-label={`Delete ${field.field_label}`}
+        title="Delete field"
+        className="p-1.5 rounded hover:bg-red-50 hover:text-red-600 text-muted-foreground transition-colors dark:hover:bg-red-900/20"
       >
-        <Trash2 className="h-3.5 w-3.5" />
+        <Trash2 className="h-4 w-4" />
       </button>
     </div>
   );
@@ -181,9 +184,11 @@ function FieldBlock({
 function FieldConfigPanel({
   field,
   onUpdate,
+  onDelete,
 }: {
   field: AdmissionFormField;
   onUpdate: (updates: Partial<AdmissionFormField>) => void;
+  onDelete: () => void;
 }) {
   // Local draft state for all text inputs — prevents race condition with React
   // Query refetches. Inputs bind to draft while typing, commit to DB on blur.
@@ -367,6 +372,20 @@ function FieldConfigPanel({
           </div>
         </div>
       )}
+
+      {/* Danger zone — delete this field */}
+      <div className="pt-4 mt-2 border-t">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onDelete}
+          className="w-full text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:border-red-900 dark:hover:bg-red-900/20"
+        >
+          <Trash2 className="h-3.5 w-3.5 mr-2" />
+          Delete this field
+        </Button>
+      </div>
     </div>
   );
 }
@@ -822,6 +841,7 @@ function FormBuilderContent({ formId }: { formId: string }) {
                     <FieldConfigPanel
                       field={selectedField}
                       onUpdate={(updates) => handleFieldUpdate(selectedField.id, updates)}
+                      onDelete={() => handleFieldDelete(selectedField.id)}
                     />
                   ) : (
                     <p className="text-sm text-muted-foreground text-center py-8">
