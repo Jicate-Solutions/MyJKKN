@@ -589,7 +589,8 @@ function RegisterParticipantDialog({
   const { selectedInstitutionId, institutions } = useUserInstitutionAccess();
   const registerMutation = useRegisterParticipant();
 
-  const [participantType, setParticipantType] = useState<'internal' | 'external'>('internal');
+  // Internal-only registration inside MyJKKN (external users register via the external app)
+  const participantType = 'internal' as const;
   const [form, setForm] = useState({
     category_id: '',
     participant_name: '',
@@ -599,37 +600,29 @@ function RegisterParticipantDialog({
     participant_gender: '',
     institution_name: '',
     department: '',
-    organization: '',
     tshirt_size: '',
     emergency_contact_name: '',
     emergency_contact_phone: '',
     blood_group: '',
-    discount_code: '',
   });
 
-  // Auto-fill from profile when switching to internal
-  const fillFromProfile = () => {
-    if (!profile) return;
-    const inst = institutions?.find(
-      (i) => i.institution_id === (selectedInstitutionId || profile.institution_id)
-    );
-    setForm((f) => ({
-      ...f,
-      participant_name: profile.full_name ?? '',
-      participant_phone: profile.phone_number ?? '',
-      participant_email: profile.email ?? '',
-      participant_gender: profile.gender ?? '',
-      institution_name: inst?.institution_name ?? '',
-      department: (profile as any).departments?.department_name ?? '',
-    }));
-  };
-
-  // When dialog opens or type changes to internal, auto-fill
+  // Auto-fill from logged-in user's profile
   useEffect(() => {
-    if (open && participantType === 'internal' && profile) {
-      fillFromProfile();
+    if (open && profile) {
+      const inst = institutions?.find(
+        (i) => i.institution_id === (selectedInstitutionId || profile.institution_id)
+      );
+      setForm((f) => ({
+        ...f,
+        participant_name: profile.full_name ?? '',
+        participant_phone: profile.phone_number ?? '',
+        participant_email: profile.email ?? '',
+        participant_gender: profile.gender ?? '',
+        institution_name: inst?.institution_name ?? '',
+        department: (profile as any).departments?.department_name ?? '',
+      }));
     }
-  }, [open, participantType, profile]);
+  }, [open, profile, institutions, selectedInstitutionId]);
 
   const updateField = (field: string, value: string) => {
     setForm((f) => ({ ...f, [field]: value }));
@@ -645,73 +638,46 @@ function RegisterParticipantDialog({
       participant_gender: '',
       institution_name: '',
       department: '',
-      organization: '',
       tshirt_size: '',
       emergency_contact_name: '',
       emergency_contact_phone: '',
       blood_group: '',
-      discount_code: '',
     });
-    setParticipantType('internal');
   };
 
-  const handleTypeChange = (type: 'internal' | 'external') => {
-    setParticipantType(type);
-    if (type === 'internal') {
-      fillFromProfile();
-    } else {
-      // Clear auto-filled fields for external
-      setForm((f) => ({
-        ...f,
-        participant_name: '',
-        participant_phone: '',
-        participant_email: '',
-        participant_gender: '',
-        institution_name: '',
-        department: '',
-      }));
-    }
-  };
-
-  // Internal users pay ₹100 fixed fee, external users pay category fee
+  // Internal users pay ₹100 fixed fee
   const INTERNAL_FEE = 100;
   const selectedCategory = categories.find((c) => c.id === form.category_id);
-  const registrationFee = participantType === 'internal'
-    ? INTERNAL_FEE
-    : (selectedCategory?.fee_amount ?? 0);
+  const registrationFee = INTERNAL_FEE;
 
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Build the registration data payload (used for both paid and free flows)
+  // Build the registration data payload (internal users only)
   const buildRegistrationData = () => ({
     event_id: eventId,
     category_id: form.category_id,
     category_code: selectedCategory?.code || 'RUN',
     event_year: (event as any)?.year || new Date().getFullYear(),
     event_code: (event as any)?.config?.event_code || (event as any)?.name?.substring(0, 3).toUpperCase() || 'KBM',
-    participant_type: participantType,
+    participant_type: 'internal',
     participant_name: form.participant_name.trim(),
     participant_phone: form.participant_phone || undefined,
     participant_email: form.participant_email || undefined,
     participant_age: form.participant_age ? parseInt(form.participant_age, 10) : undefined,
     participant_gender: form.participant_gender || undefined,
-    institution_id: participantType === 'internal'
-      ? (selectedInstitutionId || profile?.institution_id || undefined)
-      : undefined,
+    institution_id: selectedInstitutionId || profile?.institution_id || undefined,
     institution_name: form.institution_name || undefined,
     department: form.department || undefined,
-    profile_id: participantType === 'internal' ? profile?.id : undefined,
-    learner_id: participantType === 'internal' ? (profile?.learner_id ?? undefined) : undefined,
-    source: 'admin',
+    profile_id: profile?.id,
+    learner_id: profile?.learner_id ?? undefined,
+    source: 'internal',
     custom_data: {
       tshirt_size: form.tshirt_size || undefined,
       emergency_contact_name: form.emergency_contact_name || undefined,
       emergency_contact_phone: form.emergency_contact_phone || undefined,
       blood_group: form.blood_group || undefined,
-      organization: participantType === 'external' ? form.organization || undefined : undefined,
-      registration_fee_override: participantType === 'internal' ? INTERNAL_FEE : undefined,
+      registration_fee_override: INTERNAL_FEE,
     },
-    discount_code: participantType === 'external' ? (form.discount_code || undefined) : undefined,
   });
 
   const handleSubmit = async () => {
@@ -784,33 +750,12 @@ function RegisterParticipantDialog({
         </DialogHeader>
 
         <div className="space-y-5 mt-2">
-          {/* Participant Type Toggle */}
-          <div className="space-y-2">
-            <Label>Participant Type</Label>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={participantType === 'internal' ? 'default' : 'outline'}
-                onClick={() => handleTypeChange('internal')}
-              >
-                JKKN (Internal)
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={participantType === 'external' ? 'default' : 'outline'}
-                onClick={() => handleTypeChange('external')}
-              >
-                External
-              </Button>
+          {/* Profile auto-fill notice */}
+          {profile && (
+            <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+              Auto-filled from your JKKN profile. You can edit fields if needed.
             </div>
-            {participantType === 'internal' && profile && (
-              <p className="text-xs text-muted-foreground">
-                Auto-filled from your profile. You can edit fields if registering someone else.
-              </p>
-            )}
-          </div>
+          )}
 
           {/* Category Selection */}
           <div className="space-y-2">
@@ -825,10 +770,7 @@ function RegisterParticipantDialog({
               <SelectContent>
                 {categories.map((cat) => (
                   <SelectItem key={cat.id} value={cat.id}>
-                    {cat.name} {cat.distance_km ? `(${cat.distance_km} km)` : ''}
-                    {participantType === 'internal'
-                      ? ' — ₹100'
-                      : ` — ₹${cat.fee_amount ?? 0}`}
+                    {cat.name} {cat.distance_km ? `(${cat.distance_km} km)` : ''} — ₹{INTERNAL_FEE}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -836,12 +778,8 @@ function RegisterParticipantDialog({
             {form.category_id && (
               <div className="rounded-md bg-muted px-3 py-2 text-sm">
                 <span className="text-muted-foreground">Registration Fee: </span>
-                <span className="font-semibold">
-                  {participantType === 'internal' ? '₹100' : `₹${categories.find((c) => c.id === form.category_id)?.fee_amount ?? 0}`}
-                </span>
-                {participantType === 'internal' && (
-                  <span className="text-xs text-muted-foreground ml-2">(Fixed fee for JKKN members)</span>
-                )}
+                <span className="font-semibold">₹{INTERNAL_FEE}</span>
+                <span className="text-xs text-muted-foreground ml-2">(JKKN members)</span>
               </div>
             )}
           </div>
@@ -907,42 +845,30 @@ function RegisterParticipantDialog({
             </div>
           </div>
 
-          {/* Institution / Organization */}
-          {participantType === 'internal' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Institution</Label>
-                <Input
-                  value={form.institution_name}
-                  readOnly
-                  className="bg-muted cursor-not-allowed"
-                />
-                <p className="text-xs text-muted-foreground">Auto-filled from profile</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Department</Label>
-                <Input
-                  value={form.department}
-                  readOnly
-                  className="bg-muted cursor-not-allowed"
-                />
-              </div>
-            </div>
-          ) : (
+          {/* Institution & Department (auto-filled from profile) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Organization / College</Label>
+              <Label>Institution</Label>
               <Input
-                placeholder="e.g. ABC Engineering College"
-                value={form.organization}
-                onChange={(e) => updateField('organization', e.target.value)}
+                value={form.institution_name}
+                readOnly
+                className="bg-muted cursor-not-allowed"
               />
             </div>
-          )}
+            <div className="space-y-2">
+              <Label>Department</Label>
+              <Input
+                value={form.department}
+                readOnly
+                className="bg-muted cursor-not-allowed"
+              />
+            </div>
+          </div>
 
           <Separator />
 
           {/* Event-Specific Fields */}
-          <div className={`grid grid-cols-1 ${participantType === 'external' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-4`}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>T-Shirt Size</Label>
               <Select
@@ -975,17 +901,6 @@ function RegisterParticipantDialog({
                 </SelectContent>
               </Select>
             </div>
-            {/* Discount code — only for external users */}
-            {participantType === 'external' && (
-              <div className="space-y-2">
-                <Label>Discount Code</Label>
-                <Input
-                  placeholder="e.g. MARATHON50"
-                  value={form.discount_code}
-                  onChange={(e) => updateField('discount_code', e.target.value)}
-                />
-              </div>
-            )}
           </div>
 
           {/* Emergency Contact */}
