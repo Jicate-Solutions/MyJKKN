@@ -38,9 +38,10 @@ const KEYS = {
  */
 export function useMarathonEvents(institutionId: string) {
   return useQuery({
-    queryKey: KEYS.listByInstitution(institutionId),
+    queryKey: KEYS.listByInstitution(institutionId || '__all__'),
     queryFn: () => MarathonEventService.getMarathonEvents(institutionId),
-    enabled: !!institutionId,
+    // Always enabled — super admins have empty institutionId but should see all events
+    enabled: true,
   });
 }
 
