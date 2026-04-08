@@ -8,6 +8,7 @@
 
 export type LeadSource =
   | 'website'
+  | 'admission_form'
   | 'walk_in'
   | 'referral'
   | 'social_media'
@@ -1031,4 +1032,202 @@ export interface SubmitGDPIScoreInput {
   scores: Record<string, number>;
   recommendation?: GDPIRecommendation;
   feedback?: string;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FORM BUILDER TYPES (Added 2026-04-08)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type FormFieldType =
+  | 'text'
+  | 'number'
+  | 'phone'
+  | 'email'
+  | 'select'
+  | 'multi_select'
+  | 'date'
+  | 'textarea'
+  | 'file'
+  | 'checkbox'
+  | 'radio'
+  | 'institution_program_selector';
+
+export type FormStatus = 'draft' | 'published' | 'archived';
+
+export type FormEventType =
+  | 'form_viewed'
+  | 'form_started'
+  | 'field_focused'
+  | 'field_completed'
+  | 'form_submitted'
+  | 'form_abandoned';
+
+export interface FormFieldCondition {
+  field: string; // field_key of the dependent field
+  op: 'eq' | 'neq' | 'contains' | 'not_empty' | 'empty' | 'program_category';
+  value: string;
+}
+
+export interface FormFieldOption {
+  label: string;
+  value: string;
+}
+
+export interface AdmissionFormField {
+  id: string;
+  form_id: string;
+  section_id: string | null;
+  field_key: string;
+  field_label: string;
+  field_type: FormFieldType;
+  placeholder: string | null;
+  help_text: string | null;
+  is_required: boolean;
+  display_order: number;
+  min_length: number | null;
+  max_length: number | null;
+  min_value: number | null;
+  max_value: number | null;
+  pattern: string | null;
+  options: FormFieldOption[] | null;
+  condition: FormFieldCondition | null;
+  lead_field_map: string | null;
+  created_at: string;
+}
+
+export interface AdmissionFormSection {
+  id: string;
+  form_id: string;
+  title: string;
+  description: string | null;
+  display_order: number;
+  is_collapsible: boolean;
+  condition: FormFieldCondition | null;
+  created_at: string;
+  fields?: AdmissionFormField[];
+}
+
+export interface AdmissionForm {
+  id: string;
+  institution_id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  status: FormStatus;
+  form_type: string;
+  institution_ids: string[];
+  program_ids: string[];
+  logo_url: string | null;
+  banner_url: string | null;
+  primary_color: string;
+  thank_you_title: string;
+  thank_you_message: string;
+  is_active: boolean;
+  allow_duplicate: boolean;
+  auto_whatsapp: boolean;
+  wa_template_id: string | null;
+  max_submissions: number | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  sections?: AdmissionFormSection[];
+}
+
+export interface CreateAdmissionFormInput {
+  institution_id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  form_type?: string;
+  institution_ids?: string[];
+  program_ids?: string[];
+  logo_url?: string | null;
+  banner_url?: string | null;
+  primary_color?: string;
+  thank_you_title?: string;
+  thank_you_message?: string;
+  allow_duplicate?: boolean;
+  auto_whatsapp?: boolean;
+  wa_template_id?: string | null;
+  max_submissions?: number | null;
+  starts_at?: string | null;
+  expires_at?: string | null;
+}
+
+export interface AdmissionFormSubmission {
+  id: string;
+  form_id: string;
+  lead_id: string | null;
+  institution_id: string | null;
+  submission_data: Record<string, unknown>;
+  ip_address: string | null;
+  user_agent: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  referrer_url: string | null;
+  device_type: string | null;
+  submitted_at: string;
+}
+
+export interface AdmissionFormEvent {
+  id: string;
+  form_id: string;
+  event_type: FormEventType;
+  field_key: string | null;
+  session_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AdmissionFormTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  form_type: string;
+  template_data: {
+    sections: Array<{
+      title: string;
+      description?: string;
+      fields: Array<Omit<AdmissionFormField, 'id' | 'form_id' | 'section_id' | 'created_at'>>;
+    }>;
+  };
+  is_system: boolean;
+  created_at: string;
+}
+
+// Analytics aggregation types
+export interface FormAnalyticsSummary {
+  form_id: string;
+  total_views: number;
+  total_starts: number;
+  total_submissions: number;
+  view_to_start_rate: number;
+  start_to_submit_rate: number;
+  overall_conversion_rate: number;
+  avg_completion_time_seconds: number | null;
+  submissions_today: number;
+  submissions_this_week: number;
+}
+
+export interface FieldDropOff {
+  field_key: string;
+  field_label: string;
+  started: number;
+  completed: number;
+  drop_off_rate: number;
+}
+
+export interface FormTrafficSource {
+  source: string;
+  count: number;
+  percentage: number;
+}
+
+export interface FormDeviceBreakdown {
+  device_type: string;
+  count: number;
+  percentage: number;
 }
