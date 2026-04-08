@@ -68,8 +68,10 @@ export default function MarathonEventsPage() {
   const router = useRouter();
   const { profile, isLoading: authLoading } = useAuth();
   const { selectedInstitutionId, loading: institutionLoading } = useUserInstitutionAccess();
-  const institutionId = selectedInstitutionId || profile?.institution_id || '';
   const access = useMarathonAccess();
+  // Super admins see all events (empty string skips institution filter in service)
+  // Other roles see only their institution's events
+  const institutionId = access.canManage ? '' : (selectedInstitutionId || profile?.institution_id || '');
   const updateStatus = useUpdateMarathonStatus();
   const deleteMutation = useDeleteMarathonEvent();
   const [deleteEventId, setDeleteEventId] = useState<string | null>(null);
