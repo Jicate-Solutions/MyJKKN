@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 // POST /api/admission/calls/log — Log a manual call (counselor called from personal phone)
 
 import { NextRequest, NextResponse } from 'next/server';
