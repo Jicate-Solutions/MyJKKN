@@ -22,20 +22,185 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, Zap, Loader2, Play, Pause } from 'lucide-react';
+import { Plus, Pencil, Trash2, Zap, Loader2, Play, Pause, PhoneMissed, MessageSquare, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Textarea } from '@/components/ui/textarea';
 import {
   useAutoTriggerRules,
   useAutoTriggerMutations,
   usePersonalWAQueueStats,
 } from '@/hooks/admission/use-auto-trigger';
 import { usePersonalWATemplates } from '@/hooks/admission/use-personal-wa-templates';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   AutoTriggerRule,
   AutoTriggerEventType,
   WAChannelType,
   CreateAutoTriggerInput,
 } from '@/types/whatsapp-personal';
+
+// =============================================================================
+// Missed Call Auto-Reply Settings (reads from institution_call_settings)
+// =============================================================================
+
+function MissedCallAutoReplyCard({ institutionId }: { institutionId: string }) {
+  const queryClient = useQueryClient();
+  const [editingTemplate, setEditingTemplate] = useState(false);
+  const [templateDraft, setTemplateDraft] = useState('');
+
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ['call-settings', institutionId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admission/settings/call-settings?institution_id=${institutionId}`);
+      if (!res.ok) throw new Error('Failed to fetch');
+      const json = await res.json();
+      return json.data as {
+        auto_whatsapp_enabled: boolean;
+        auto_whatsapp_template: string;
+        auto_sms_enabled: boolean;
+        auto_sms_template: string;
+        dlt_entity_id: string | null;
+        dlt_template_id: string | null;
+      } | null;
+    },
+    enabled: !!institutionId,
+  });
+
+  const updateSettings = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      const res = await fetch('/api/admission/settings/call-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institution_id: institutionId, ...payload }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to update');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['call-settings', institutionId] });
+      toast.success('Settings updated');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const toggleWhatsApp = () => {
+    updateSettings.mutate({ auto_whatsapp_enabled: !settings?.auto_whatsapp_enabled });
+  };
+
+  const toggleSms = () => {
+    updateSettings.mutate({ auto_sms_enabled: !settings?.auto_sms_enabled });
+  };
+
+  const saveTemplate = () => {
+    if (!templateDraft.trim()) return;
+    updateSettings.mutate({ auto_whatsapp_template: templateDraft.trim() });
+    setEditingTemplate(false);
+  };
+
+  if (isLoading) {
+    return <Card><CardContent className="py-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></CardContent></Card>;
+  }
+
+  return (
+    <Card className="border-2 border-emerald-200 dark:border-emerald-800">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <PhoneMissed className="h-5 w-5 text-red-500" />
+            <CardTitle className="text-base">Missed Call Auto-Reply</CardTitle>
+          </div>
+          <Badge variant={settings?.auto_whatsapp_enabled ? 'default' : 'secondary'}>
+            {settings?.auto_whatsapp_enabled ? 'Active' : 'Disabled'}
+          </Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Automatically send a WhatsApp message when an admission call goes unanswered.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* WhatsApp Toggle */}
+        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-emerald-600" />
+            <div>
+              <p className="text-sm font-medium">WhatsApp Auto-Reply</p>
+              <p className="text-xs text-muted-foreground">Send via Meta Cloud API to missed callers</p>
+            </div>
+          </div>
+          <Switch
+            checked={settings?.auto_whatsapp_enabled ?? false}
+            onCheckedChange={toggleWhatsApp}
+            disabled={updateSettings.isPending}
+          />
+        </div>
+
+        {/* SMS Toggle */}
+        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-blue-600" />
+            <div>
+              <p className="text-sm font-medium">SMS Auto-Reply</p>
+              <p className="text-xs text-muted-foreground">
+                Send via Exotel SMS
+                {!settings?.dlt_template_id && (
+                  <span className="text-red-500 ml-1">(DLT template ID missing — SMS blocked)</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={settings?.auto_sms_enabled ?? false}
+            onCheckedChange={toggleSms}
+            disabled={updateSettings.isPending}
+          />
+        </div>
+
+        {/* WhatsApp Message Template */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">WhatsApp Message Template</Label>
+          {editingTemplate ? (
+            <div className="space-y-2">
+              <Textarea
+                value={templateDraft}
+                onChange={(e) => setTemplateDraft(e.target.value)}
+                rows={3}
+                placeholder="Message to send when a call is missed..."
+                className="text-sm"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={saveTemplate} disabled={updateSettings.isPending}>
+                  <Save className="h-3 w-3 mr-1" />Save
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setEditingTemplate(false)}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="p-3 rounded-lg border bg-background text-sm cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => {
+                setTemplateDraft(settings?.auto_whatsapp_template || '');
+                setEditingTemplate(true);
+              }}
+            >
+              <p className="whitespace-pre-wrap">{settings?.auto_whatsapp_template || 'No template set — click to add'}</p>
+              <p className="text-xs text-muted-foreground mt-2">Click to edit</p>
+            </div>
+          )}
+        </div>
+
+        {/* Stats */}
+        <div className="flex gap-3 text-xs text-muted-foreground pt-2 border-t">
+          <span>24h dedup active</span>
+          <span>Admission calls only</span>
+          <span>Triggers on missed calls</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 interface AutoTriggerTabProps {
   institutionId: string;
@@ -135,12 +300,16 @@ export function AutoTriggerTab({ institutionId }: AutoTriggerTabProps) {
   const isSaving = createRule.isPending || updateRule.isPending;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Missed Call Auto-Reply — top-level settings from institution_call_settings */}
+      <MissedCallAutoReplyCard institutionId={institutionId} />
+
+      {/* Lead Event Auto-Triggers */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Zap className="h-5 w-5 text-orange-500" />
-            Auto-Trigger Rules
+            Lead Event Auto-Triggers
           </h2>
           <p className="text-sm text-muted-foreground">
             Configure automatic WhatsApp messages triggered by lead events.

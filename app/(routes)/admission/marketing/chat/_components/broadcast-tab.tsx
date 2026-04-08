@@ -17,8 +17,9 @@ import {
 import {
   Send, Loader2, CheckCircle,
   FileSpreadsheet, ChevronRight, ArrowLeft, Megaphone,
-  Clock, Download, ChevronDown, ChevronUp,
+  Clock, Download, ChevronDown, ChevronUp, Upload, ImageIcon, Link2, FileText, Video,
 } from 'lucide-react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // =============================================================================
 // Types
@@ -47,14 +48,32 @@ function getTemplateHeader(t: ApprovedTemplate): { type: string; format?: string
   return header ? { type: header.type, format: header.format } : null;
 }
 
-function templateNeedsImage(t: ApprovedTemplate): boolean {
+function templateNeedsImage(t: ApprovedTemplate | null): boolean {
+  if (!t) return false;
   const header = getTemplateHeader(t);
   return header?.format === 'IMAGE';
 }
 
-function templateNeedsVideo(t: ApprovedTemplate): boolean {
+function templateNeedsVideo(t: ApprovedTemplate | null): boolean {
+  if (!t) return false;
   const header = getTemplateHeader(t);
   return header?.format === 'VIDEO';
+}
+
+function templateNeedsDocument(t: ApprovedTemplate | null): boolean {
+  if (!t) return false;
+  const header = getTemplateHeader(t);
+  return header?.format === 'DOCUMENT';
+}
+
+function templateNeedsMedia(t: ApprovedTemplate | null): boolean {
+  return templateNeedsImage(t) || templateNeedsVideo(t) || templateNeedsDocument(t);
+}
+
+function getMediaConfig(t: ApprovedTemplate | null): { label: string; accept: string; maxMB: number; icon: typeof ImageIcon; placeholder: string } {
+  if (templateNeedsVideo(t)) return { label: 'video', accept: 'video/mp4', maxMB: 16, icon: Video, placeholder: 'https://example.com/video.mp4' };
+  if (templateNeedsDocument(t)) return { label: 'document', accept: 'application/pdf', maxMB: 100, icon: FileText, placeholder: 'https://example.com/brochure.pdf' };
+  return { label: 'image', accept: 'image/jpeg,image/png,image/webp', maxMB: 5, icon: ImageIcon, placeholder: 'https://example.com/image.jpg' };
 }
 
 function getTemplateBody(t: ApprovedTemplate): string {
@@ -162,6 +181,10 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
   const [selectedTemplate, setSelectedTemplate] = useState<ApprovedTemplate | null>(null);
   const [varMapping, setVarMapping] = useState<Record<string, string>>({});
   const [headerMediaUrl, setHeaderMediaUrl] = useState('');
+  const [headerMediaMode, setHeaderMediaMode] = useState<'upload' | 'url'>('upload');
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState('');
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const [selectedPhoneNumberId, setSelectedPhoneNumberId] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
   const [contactSource, setContactSource] = useState<'csv' | 'leads'>('csv');
@@ -239,7 +262,48 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
     setUploadStats(null);
     setSelectedTemplate(null);
     setShowConfirm(false);
+    setHeaderMediaUrl('');
+    setHeaderMediaMode('upload');
+    setUploadedFileName('');
   };
+
+  const handleMediaUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const config = getMediaConfig(selectedTemplate);
+    const maxSize = config.maxMB * 1024 * 1024;
+    if (file.size > maxSize) {
+      toast.error(`File must be under ${config.maxMB}MB`);
+      return;
+    }
+
+    setIsUploadingMedia(true);
+    try {
+      const supabase = createClientSupabaseClient();
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'bin';
+      const filePath = `broadcast/${institutionId}/${Date.now()}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('admission-template-media')
+        .upload(filePath, file, { cacheControl: '31536000', upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('admission-template-media')
+        .getPublicUrl(filePath);
+
+      setHeaderMediaUrl(urlData.publicUrl);
+      setUploadedFileName(file.name);
+      toast.success(`${config.label.charAt(0).toUpperCase() + config.label.slice(1)} uploaded`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setIsUploadingMedia(false);
+      if (mediaInputRef.current) mediaInputRef.current.value = '';
+    }
+  }, [institutionId, selectedTemplate]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -686,41 +750,90 @@ export function BroadcastTab({ institutionId, isSuperAdmin = false }: { institut
                 </div>
               )}
 
-              {/* Header Media URL (for templates with IMAGE/VIDEO headers) */}
-              {selectedTemplate && templateNeedsImage(selectedTemplate) && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">Header image URL (required):</p>
-                  <Input
-                    type="url"
-                    placeholder="https://example.com/image.jpg"
-                    value={headerMediaUrl}
-                    onChange={e => setHeaderMediaUrl(e.target.value)}
-                    className="text-xs"
-                  />
-                  <p className="text-[10px] text-muted-foreground">This template requires a header image. Paste a public image URL.</p>
+              {/* Header Media (for templates with IMAGE/VIDEO/DOCUMENT headers) */}
+              {selectedTemplate && templateNeedsMedia(selectedTemplate) && (() => {
+                const mc = getMediaConfig(selectedTemplate);
+                const MediaIcon = mc.icon;
+                const formatHint = mc.label === 'image' ? 'JPG, PNG, WebP' : mc.label === 'video' ? 'MP4' : 'PDF';
+                return (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Header {mc.label} (required):</p>
+                  <div className="flex gap-1 border rounded-md p-0.5 w-fit">
+                    <button
+                      type="button"
+                      onClick={() => setHeaderMediaMode('upload')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${headerMediaMode === 'upload' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      <Upload className="h-3 w-3" /> Upload
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHeaderMediaMode('url')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors ${headerMediaMode === 'url' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      <Link2 className="h-3 w-3" /> Paste URL
+                    </button>
+                  </div>
+
+                  {headerMediaMode === 'upload' ? (
+                    <div className="space-y-1.5">
+                      <input
+                        ref={mediaInputRef}
+                        type="file"
+                        accept={mc.accept}
+                        onChange={handleMediaUpload}
+                        className="hidden"
+                      />
+                      {headerMediaUrl && uploadedFileName ? (
+                        <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-md">
+                          <MediaIcon className="h-4 w-4 text-green-600 shrink-0" />
+                          <span className="text-xs text-green-700 truncate flex-1">{uploadedFileName}</span>
+                          <CheckCircle className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                          <button
+                            type="button"
+                            onClick={() => { setHeaderMediaUrl(''); setUploadedFileName(''); }}
+                            className="text-xs text-muted-foreground hover:text-destructive ml-1"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full text-xs"
+                          onClick={() => mediaInputRef.current?.click()}
+                          disabled={isUploadingMedia}
+                        >
+                          {isUploadingMedia ? (
+                            <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Uploading...</>
+                          ) : (
+                            <><MediaIcon className="h-3.5 w-3.5 mr-1.5" /> Choose {mc.label} ({formatHint} &mdash; max {mc.maxMB}MB)</>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <Input
+                        type="url"
+                        placeholder={mc.placeholder}
+                        value={headerMediaUrl}
+                        onChange={e => { setHeaderMediaUrl(e.target.value); setUploadedFileName(''); }}
+                        className="text-xs"
+                      />
+                      <p className="text-[10px] text-muted-foreground">Paste a public {mc.label} URL (must be accessible by WhatsApp)</p>
+                    </div>
+                  )}
                 </div>
-              )}
-              {selectedTemplate && templateNeedsVideo(selectedTemplate) && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">Header video URL (required):</p>
-                  <Input
-                    type="url"
-                    placeholder="https://example.com/video.mp4"
-                    value={headerMediaUrl}
-                    onChange={e => setHeaderMediaUrl(e.target.value)}
-                    className="text-xs"
-                  />
-                  <p className="text-[10px] text-muted-foreground">This template requires a header video. Paste a public video URL.</p>
-                </div>
-              )}
+                );
+              })()}
 
               <Button
                 onClick={() => setStep(3)}
                 className="w-full"
-                disabled={
-                  (templateNeedsImage(selectedTemplate) && !headerMediaUrl) ||
-                  (templateNeedsVideo(selectedTemplate) && !headerMediaUrl)
-                }
+                disabled={templateNeedsMedia(selectedTemplate) && !headerMediaUrl}
               >
                 Use &quot;{selectedTemplate.name}&quot; <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
