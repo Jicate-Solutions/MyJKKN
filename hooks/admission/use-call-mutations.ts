@@ -110,10 +110,47 @@ export function useCallMutations() {
     },
   });
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Log manual call (counselor called from personal phone)
+  // ──────────────────────────────────────────────────────────────────────
+
+  const logManualCall = useMutation({
+    mutationFn: async (input: LogCallInput) => {
+      const res = await fetch('/api/admission/calls/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Failed to log call' }));
+        throw new Error(err.message || 'Failed to log call');
+      }
+
+      const json = await res.json();
+      return json.data;
+    },
+    onSuccess: () => {
+      toast.success('Call logged');
+      invalidateCallQueries();
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to log call');
+    },
+  });
+
   return {
     initiateCall,
     updateCallNotes,
+    logManualCall,
     isInitiating: initiateCall.isPending,
     isUpdatingNotes: updateCallNotes.isPending,
+    isLoggingCall: logManualCall.isPending,
   };
 }
