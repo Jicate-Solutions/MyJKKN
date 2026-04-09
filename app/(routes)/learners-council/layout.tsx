@@ -15,7 +15,9 @@ interface LCLayoutProps {
 }
 
 export default async function LearnersCouncilLayout({ children }: LCLayoutProps) {
+  console.log('[LC layout] Starting...');
   const { profile } = await getEnhancedUserProfile();
+  console.log('[LC layout] Profile:', profile ? profile.id : 'NULL');
   const supabase = await createClient();
 
   // Fetch LC membership with position details + yuva_role for role resolution
