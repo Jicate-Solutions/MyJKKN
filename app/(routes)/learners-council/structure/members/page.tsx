@@ -4,18 +4,25 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
-import { getEnhancedUserProfile } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Users } from 'lucide-react';
 import { MembersClient } from './members-client';
 
 export default async function MembersPage() {
-  const { profile } = await getEnhancedUserProfile();
-  if (!profile) redirect('/');
-
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Please sign in to access this page.</p></div>;
+  }
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, role, institution_id, full_name, avatar_url, email')
+    .eq('id', user.id)
+    .single();
+  if (!profile) {
+    return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Please sign in to access this page.</p></div>;
+  }
 
   // Fetch data needed for filters and the assign dialog
   const [
