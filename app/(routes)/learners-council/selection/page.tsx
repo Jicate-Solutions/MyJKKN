@@ -4,8 +4,6 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
-import { getEnhancedUserProfile } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Vote, Calendar, Users, Trophy, Clock } from 'lucide-react';
