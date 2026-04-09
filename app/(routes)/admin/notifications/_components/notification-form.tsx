@@ -1010,6 +1010,83 @@ export function NotificationForm() {
 
           <Separator />
 
+          {/* Mandatory Acknowledgment */}
+          <div>
+            <div className='mb-4'>
+              <h3 className='text-lg font-medium'>Mandatory Acknowledgment</h3>
+              <p className='text-sm text-muted-foreground mt-1'>
+                When enabled, recipients must explicitly acknowledge this
+                notification. They cannot use MyJKKN until they do.
+              </p>
+            </div>
+            <div className='space-y-4'>
+              <FormField
+                control={form.control}
+                name='requires_acknowledgment'
+                render={({ field }) => (
+                  <FormItem className='flex items-center justify-between rounded-lg border p-4'>
+                    <div className='space-y-0.5'>
+                      <FormLabel className='text-base font-medium'>
+                        Require Acknowledgment
+                      </FormLabel>
+                      <FormDescription>
+                        Recipients will see a blocking modal and must tap
+                        &quot;I Acknowledge&quot; before using the app.
+                        Permanently recorded.
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value || false}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              {watchedValues.requires_acknowledgment && (
+                <FormField
+                  control={form.control}
+                  name='acknowledgment_deadline_hours'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Acknowledgment Deadline</FormLabel>
+                      <Select
+                        onValueChange={(v) => field.onChange(Number(v))}
+                        value={String(field.value || 4)}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select deadline' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value='1'>1 hour</SelectItem>
+                          <SelectItem value='2'>2 hours</SelectItem>
+                          <SelectItem value='4'>
+                            4 hours (JKKN SOP default)
+                          </SelectItem>
+                          <SelectItem value='8'>8 hours</SelectItem>
+                          <SelectItem value='24'>24 hours</SelectItem>
+                          <SelectItem value='48'>48 hours</SelectItem>
+                          <SelectItem value='72'>72 hours</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        After this deadline, non-compliance is escalated to
+                        supervisors
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </div>
+          </div>
+
+          <Separator />
+
           {/* Attachments */}
           <div>
             <div className='mb-4'>
