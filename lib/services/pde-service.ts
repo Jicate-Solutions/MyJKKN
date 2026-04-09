@@ -22,7 +22,7 @@ import type {
   QuestFilters, AIInteraction, ReputationLevel,
   // Phase 3 types
   PDECoachConversation, CoachMessage, CoachMessageResponse, CoachingStyle,
-  PDEAgencyIndex, AgencyLevel,
+  PDEAgencyIndex, AgencyLevel, CoachContextType,
 } from '@/types/pde';
 
 // Helper to get untyped supabase client for PDE tables (not yet in generated types)
@@ -1050,6 +1050,7 @@ export class PDEService {
 
   /**
    * Get an existing coach conversation for a given context.
+   * Returns null if no conversation exists.
    */
   static async getCoachConversation(
     learnerId: string,
@@ -1073,6 +1074,7 @@ export class PDEService {
   /**
    * Send a message to the AI Coach. Stores the learner message,
    * generates a placeholder coach reply (actual Gemini integration is follow-up).
+   * Returns the coach reply and conversation ID.
    */
   static async sendCoachMessage(
     learnerId: string,
@@ -1082,7 +1084,7 @@ export class PDEService {
   ): Promise<CoachMessageResponse> {
     const supabase = getSupabase();
 
-    // Get or create conversation
+    // 1. Get or create conversation
     let conversation = await this.getCoachConversation(learnerId, contextType, contextId);
 
     // Determine coaching style from agency level
@@ -1093,10 +1095,11 @@ export class PDEService {
     const learnerMsg: CoachMessage = { role: 'learner', content: message, timestamp: now };
 
     // Placeholder coach reply — will be replaced by Gemini integration
-    const coachReply = this.generatePlaceholderCoachReply(coachingStyle);
+    const coachReply = this.generatePlaceholderCoachReply(message, coachingStyle);
     const coachMsg: CoachMessage = { role: 'coach', content: coachReply, timestamp: now };
 
     if (!conversation) {
+      // Create new conversation
       const { data, error } = await supabase
         .from('pde_coach_conversations')
         .insert({
@@ -1105,7 +1108,7 @@ export class PDEService {
           context_id: contextId,
           messages: [learnerMsg, coachMsg],
           coaching_style: coachingStyle,
-          tokens_used: message.length + coachReply.length,
+          tokens_used: message.length + coachReply.length, // rough estimate
         })
         .select()
         .single();
@@ -1113,6 +1116,7 @@ export class PDEService {
       return { reply: coachReply, conversation_id: data.id };
     }
 
+    // Append to existing conversation
     const updatedMessages = [...(conversation.messages || []), learnerMsg, coachMsg];
     const { error } = await supabase
       .from('pde_coach_conversations')
@@ -1143,7 +1147,9 @@ export class PDEService {
     return data || [];
   }
 
-  /** Map agency level to coaching style. */
+  /**
+   * Map agency level to coaching style.
+   */
   private static getCoachingStyleForLevel(level: AgencyLevel | string): CoachingStyle {
     const styleMap: Record<string, CoachingStyle> = {
       dependent: 'scaffolding',
@@ -1155,8 +1161,11 @@ export class PDEService {
     return styleMap[level] || 'scaffolding';
   }
 
-  /** Placeholder coach reply. Will be replaced by Gemini API. */
-  private static generatePlaceholderCoachReply(style: CoachingStyle): string {
+  /**
+   * Generate placeholder coach reply based on coaching style.
+   * Will be replaced by Gemini API integration.
+   */
+  private static generatePlaceholderCoachReply(message: string, style: CoachingStyle): string {
     const replies: Record<CoachingStyle, string> = {
       scaffolding: "Let's break this down step by step. What part of this do you understand already, and where do you feel stuck?",
       guided: "You're on the right track. Before I point you further, what do you think the next step should be?",
@@ -1196,51 +1205,56 @@ export class PDEService {
   static async calculateAgencyIndex(learnerId: string, courseId: string): Promise<PDEAgencyIndex> {
     const supabase = getSupabase();
 
-    // Fetch engagement data
+    // 1. Fetch engagement data
     const { data: engagementRows } = await supabase
       .from('pde_engagement_daily')
       .select('*')
       .eq('learner_id', learnerId)
       .eq('course_id', courseId);
-    const engagement: PDEEngagementDaily[] = engagementRows || [];
+    const engagement = engagementRows || [];
 
-    // Fetch build session data
+    // 2. Fetch build session data for AI interaction details
     const { data: buildRows } = await supabase
       .from('pde_build_sessions')
       .select('ai_prompts_count, ai_outputs_modified, ai_outputs_blind, ai_interactions')
       .eq('learner_id', learnerId);
     const builds = buildRows || [];
 
+    // 3. Calculate each dimension (0-100)
+
     // Initiative: self-started AI interactions / total interactions
-    const totalAiPrompts = engagement.reduce((s, r) => s + (r.ai_prompts_used || 0), 0);
-    const totalLessonsViewed = engagement.reduce((s, r) => s + (r.lessons_viewed || 0), 0);
+    const totalAiPrompts = engagement.reduce((s: number, r: PDEEngagementDaily) => s + (r.ai_prompts_used || 0), 0);
+    const totalLessonsViewed = engagement.reduce((s: number, r: PDEEngagementDaily) => s + (r.lessons_viewed || 0), 0);
+    // Heuristic: if learner uses AI more than prompts-per-lesson average, they're self-starting
     const initiative = totalLessonsViewed > 0
       ? Math.min(100, Math.round((totalAiPrompts / Math.max(1, totalLessonsViewed)) * 50))
       : 0;
 
     // Self-direction: AI outputs modified / total AI outputs
-    const totalAiModified = engagement.reduce((s, r) => s + (r.ai_outputs_modified || 0), 0);
-    const totalAiBlind = engagement.reduce((s, r) => s + (r.ai_outputs_accepted_blind || 0), 0);
+    const totalAiModified = engagement.reduce((s: number, r: PDEEngagementDaily) => s + (r.ai_outputs_modified || 0), 0);
+    const totalAiBlind = engagement.reduce((s: number, r: PDEEngagementDaily) => s + (r.ai_outputs_accepted_blind || 0), 0);
     const totalAiOutputs = totalAiModified + totalAiBlind;
     const selfDirection = totalAiOutputs > 0
       ? Math.round((totalAiModified / totalAiOutputs) * 100)
-      : 50;
+      : 50; // Neutral if no data
 
-    // Tool mastery: prompt complexity trend
-    let toolMastery = 30;
+    // Tool mastery: prompt complexity trend (simple heuristic from build sessions)
+    let toolMastery = 30; // default baseline
     if (builds.length > 0) {
       const totalBuildPrompts = builds.reduce((s: number, b: { ai_prompts_count?: number }) => s + (b.ai_prompts_count || 0), 0);
       const totalBuildModified = builds.reduce((s: number, b: { ai_outputs_modified?: number }) => s + (b.ai_outputs_modified || 0), 0);
+      // More prompts and more modifications suggest growing mastery
       const modRatio = totalBuildPrompts > 0 ? totalBuildModified / totalBuildPrompts : 0;
       toolMastery = Math.min(100, Math.round(modRatio * 80 + Math.min(20, totalBuildPrompts * 2)));
     }
 
-    // Critical evaluation: verified outputs / total outputs
+    // Critical evaluation: verified (modified) outputs / total outputs
     const criticalEvaluation = totalAiOutputs > 0
       ? Math.round((totalAiModified / totalAiOutputs) * 100)
       : 50;
 
-    // Ethical judgment: penalize blind acceptance
+    // Ethical judgment: bias flags / total interactions (from build session metadata)
+    // Heuristic: penalize blind acceptance, reward modification
     const ethicalJudgment = totalAiOutputs > 0
       ? Math.max(0, Math.round(100 - (totalAiBlind / totalAiOutputs) * 100))
       : 50;
@@ -1261,6 +1275,7 @@ export class PDEService {
     else if (overall >= 40) level = 'independent';
     else if (overall >= 20) level = 'directed';
 
+    // Evidence summary
     const evidence = {
       total_ai_prompts: totalAiPrompts,
       total_ai_outputs: totalAiOutputs,
@@ -1270,6 +1285,7 @@ export class PDEService {
       engagement_days: engagement.length,
     };
 
+    // 4. Upsert the agency index record
     const today = new Date().toISOString().split('T')[0];
     const { data, error } = await supabase
       .from('pde_agency_index')

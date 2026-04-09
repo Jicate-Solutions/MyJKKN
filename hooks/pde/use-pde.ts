@@ -14,7 +14,7 @@ import type {
   LogAIInteractionInput, PostMessageInput, AddReputationPointsInput, AwardBadgeInput,
   QuestFilters, CapabilityCategory,
   // Phase 3
-  SendCoachMessageInput,
+  SendCoachMessageInput, CoachContextType,
 } from '@/types/pde';
 
 // ============================================

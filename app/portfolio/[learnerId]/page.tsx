@@ -6,7 +6,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import {
   Trophy, Award, Star, Shield, Target, BookOpen, Flame,
-  ExternalLink, Share2, Copy, Check, ChevronRight,
+  ExternalLink, Share2, Copy, Check,
 } from 'lucide-react';
 
 // ============================================
@@ -139,88 +139,54 @@ function FinksRadarChart({ data }: { data: Record<string, number> }) {
   const center = 120;
   const maxRadius = 90;
   const levels = [20, 40, 60, 80, 100];
-
   const angleStep = (2 * Math.PI) / dimensions.length;
-  const offset = -Math.PI / 2; // Start from top
+  const offset = -Math.PI / 2;
 
-  function polarToCartesian(angle: number, radius: number) {
+  function polar(angle: number, radius: number) {
     return {
       x: center + radius * Math.cos(angle + offset),
       y: center + radius * Math.sin(angle + offset),
     };
   }
 
-  // Build polygon path for data
   const dataPoints = dimensions.map((dim, i) => {
     const value = data[dim] || 0;
-    const radius = (value / 100) * maxRadius;
-    return polarToCartesian(i * angleStep, radius);
+    return polar(i * angleStep, (value / 100) * maxRadius);
   });
   const dataPath = dataPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') + 'Z';
 
   return (
     <svg viewBox="0 0 240 240" className="w-full max-w-[280px] mx-auto">
-      {/* Grid circles */}
       {levels.map(level => {
         const r = (level / 100) * maxRadius;
-        const points = dimensions.map((_, i) => polarToCartesian(i * angleStep, r));
-        const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') + 'Z';
+        const pts = dimensions.map((_, i) => polar(i * angleStep, r));
+        const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ') + 'Z';
         return <path key={level} d={path} fill="none" stroke="#e5e7eb" strokeWidth="0.5" />;
       })}
-
-      {/* Axis lines */}
       {dimensions.map((_, i) => {
-        const p = polarToCartesian(i * angleStep, maxRadius);
+        const p = polar(i * angleStep, maxRadius);
         return <line key={i} x1={center} y1={center} x2={p.x} y2={p.y} stroke="#d1d5db" strokeWidth="0.5" />;
       })}
-
-      {/* Data polygon */}
       <path d={dataPath} fill="rgba(11, 109, 65, 0.15)" stroke="#0b6d41" strokeWidth="2" />
-
-      {/* Data points */}
       {dataPoints.map((p, i) => (
         <circle key={i} cx={p.x} cy={p.y} r="3" fill="#0b6d41" />
       ))}
-
-      {/* Labels */}
       {dimensions.map((dim, i) => {
-        const p = polarToCartesian(i * angleStep, maxRadius + 18);
+        const p = polar(i * angleStep, maxRadius + 18);
         const label = FINKS_LABELS[dim] || dim;
-        const shortLabel = label.length > 14 ? label.slice(0, 12) + '...' : label;
+        const short = label.length > 14 ? label.slice(0, 12) + '...' : label;
         return (
-          <text
-            key={dim}
-            x={p.x}
-            y={p.y}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            className="fill-slate-600"
-            fontSize="7"
-            fontWeight="500"
-          >
-            {shortLabel}
-          </text>
+          <text key={dim} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle"
+            className="fill-slate-600" fontSize="7" fontWeight="500">{short}</text>
         );
       })}
-
-      {/* Center value labels */}
       {dimensions.map((dim, i) => {
         const value = data[dim] || 0;
-        const radius = (value / 100) * maxRadius;
-        const p = polarToCartesian(i * angleStep, Math.max(radius - 12, 8));
+        const r = (value / 100) * maxRadius;
+        const p = polar(i * angleStep, Math.max(r - 12, 8));
         return (
-          <text
-            key={`val-${dim}`}
-            x={p.x}
-            y={p.y}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            className="fill-emerald-700"
-            fontSize="8"
-            fontWeight="700"
-          >
-            {value}
-          </text>
+          <text key={`v-${dim}`} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle"
+            className="fill-emerald-700" fontSize="8" fontWeight="700">{value}</text>
         );
       })}
     </svg>
@@ -228,7 +194,7 @@ function FinksRadarChart({ data }: { data: Record<string, number> }) {
 }
 
 // ============================================
-// Main Portfolio Page
+// Main Page
 // ============================================
 
 export default function PublicPortfolioPage() {
@@ -244,11 +210,8 @@ export default function PublicPortfolioPage() {
     fetch(`/api/pde/portfolio/${learnerId}`)
       .then(res => res.json())
       .then(json => {
-        if (json.success) {
-          setData(json.data);
-        } else {
-          setError(json.error || 'Failed to load portfolio');
-        }
+        if (json.success) setData(json.data);
+        else setError(json.error || 'Failed to load portfolio');
       })
       .catch(() => setError('Failed to load portfolio'))
       .finally(() => setLoading(false));
@@ -267,7 +230,6 @@ export default function PublicPortfolioPage() {
           <div className="h-8 bg-gray-200 rounded w-1/3" />
           <div className="h-4 bg-gray-200 rounded w-1/2" />
           <div className="h-32 bg-gray-200 rounded" />
-          <div className="h-32 bg-gray-200 rounded" />
         </div>
       </div>
     );
@@ -279,7 +241,7 @@ export default function PublicPortfolioPage() {
         <div className="text-center space-y-4">
           <Shield className="w-16 h-16 text-gray-400 mx-auto" />
           <h1 className="text-2xl font-bold text-gray-700">Portfolio Not Found</h1>
-          <p className="text-gray-500">{error || 'This portfolio does not exist or has been removed.'}</p>
+          <p className="text-gray-500">{error || 'This portfolio does not exist.'}</p>
         </div>
       </div>
     );
@@ -294,13 +256,9 @@ export default function PublicPortfolioPage() {
       <header className="bg-[#0b6d41] text-white py-6 px-4">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-between mb-4">
-            <Link href="/" className="text-white/80 hover:text-white text-sm font-medium">
-              JKKN Institutions
-            </Link>
-            <button
-              onClick={handleCopyLink}
-              className="flex items-center gap-1.5 text-sm bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-md transition-colors"
-            >
+            <Link href="/" className="text-white/80 hover:text-white text-sm font-medium">JKKN Institutions</Link>
+            <button onClick={handleCopyLink}
+              className="flex items-center gap-1.5 text-sm bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-md transition-colors">
               {copied ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
               {copied ? 'Copied!' : 'Share'}
             </button>
@@ -315,43 +273,31 @@ export default function PublicPortfolioPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold">{profile.full_name}</h1>
-              {profile.institution && (
-                <p className="text-white/80 text-sm">{profile.institution}</p>
-              )}
-              {profile.programme && (
-                <p className="text-white/60 text-sm">{profile.programme}</p>
-              )}
+              {profile.institution && <p className="text-white/80 text-sm">{profile.institution}</p>}
+              {profile.programme && <p className="text-white/60 text-sm">{profile.programme}</p>}
             </div>
           </div>
-
-          {/* Stats bar */}
           <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-white/20">
             {reputation && (
               <>
                 <div className="flex items-center gap-1.5">
                   <Trophy className="w-4 h-4 text-[#ffde59]" />
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${levelConfig.color}`}>
-                    {levelConfig.label}
-                  </span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${levelConfig.color}`}>{levelConfig.label}</span>
                 </div>
                 <div className="flex items-center gap-1.5 text-sm text-white/80">
-                  <Star className="w-4 h-4" />
-                  <span>{reputation.total_points} pts</span>
+                  <Star className="w-4 h-4" /><span>{reputation.total_points} pts</span>
                 </div>
               </>
             )}
             <div className="flex items-center gap-1.5 text-sm text-white/80">
-              <Award className="w-4 h-4" />
-              <span>{badges.length} badges</span>
+              <Award className="w-4 h-4" /><span>{badges.length} badges</span>
             </div>
             <div className="flex items-center gap-1.5 text-sm text-white/80">
-              <Target className="w-4 h-4" />
-              <span>{quest_completions.length} quests</span>
+              <Target className="w-4 h-4" /><span>{quest_completions.length} quests</span>
             </div>
             {reputation && reputation.current_streak > 0 && (
               <div className="flex items-center gap-1.5 text-sm text-white/80">
-                <Flame className="w-4 h-4 text-orange-300" />
-                <span>{reputation.current_streak} day streak</span>
+                <Flame className="w-4 h-4 text-orange-300" /><span>{reputation.current_streak} day streak</span>
               </div>
             )}
           </div>
@@ -363,8 +309,7 @@ export default function PublicPortfolioPage() {
         {agency_index && (
           <section>
             <h2 className="text-lg font-bold text-[#0b6d41] mb-3 flex items-center gap-2">
-              <Shield className="w-5 h-5" />
-              Agency Index
+              <Shield className="w-5 h-5" /> Agency Index
             </h2>
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <div className="flex items-center justify-between mb-4">
@@ -381,14 +326,9 @@ export default function PublicPortfolioPage() {
               <div className="grid grid-cols-5 gap-2">
                 {Object.entries(agency_index.dimensions).map(([key, value]) => (
                   <div key={key} className="text-center">
-                    <div className="text-xs text-gray-500 capitalize mb-1">
-                      {key.replace(/_/g, ' ')}
-                    </div>
+                    <div className="text-xs text-gray-500 capitalize mb-1">{key.replace(/_/g, ' ')}</div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-[#0b6d41] rounded-full transition-all"
-                        style={{ width: `${value}%` }}
-                      />
+                      <div className="h-full bg-[#0b6d41] rounded-full" style={{ width: `${value}%` }} />
                     </div>
                     <div className="text-xs font-semibold text-gray-700 mt-0.5">{value}</div>
                   </div>
@@ -398,12 +338,11 @@ export default function PublicPortfolioPage() {
           </section>
         )}
 
-        {/* Fink's Taxonomy Profile */}
+        {/* Fink's Profile */}
         {finks_profile && (
           <section>
             <h2 className="text-lg font-bold text-[#0b6d41] mb-3 flex items-center gap-2">
-              <BookOpen className="w-5 h-5" />
-              Fink&apos;s Taxonomy Profile
+              <BookOpen className="w-5 h-5" /> Fink&apos;s Taxonomy Profile
             </h2>
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <FinksRadarChart data={finks_profile} />
@@ -411,46 +350,28 @@ export default function PublicPortfolioPage() {
           </section>
         )}
 
-        {/* Quests Completed */}
+        {/* Quests */}
         {quest_completions.length > 0 && (
           <section>
             <h2 className="text-lg font-bold text-[#0b6d41] mb-3 flex items-center gap-2">
-              <Target className="w-5 h-5" />
-              Quests Completed ({quest_completions.length})
+              <Target className="w-5 h-5" /> Quests Completed ({quest_completions.length})
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">
-              {quest_completions.map(quest => (
-                <div key={quest.quest_id} className="bg-white rounded-xl border border-gray-200 p-4">
+              {quest_completions.map(q => (
+                <div key={q.quest_id} className="bg-white rounded-xl border border-gray-200 p-4">
                   <div className="flex items-start justify-between mb-2">
-                    <h3 className="font-semibold text-gray-900 text-sm">{quest.title}</h3>
-                    {quest.score != null && (
-                      <span className="text-xs font-bold text-[#0b6d41] bg-emerald-50 px-2 py-0.5 rounded-full">
-                        {quest.score}%
-                      </span>
+                    <h3 className="font-semibold text-gray-900 text-sm">{q.title}</h3>
+                    {q.score != null && (
+                      <span className="text-xs font-bold text-[#0b6d41] bg-emerald-50 px-2 py-0.5 rounded-full">{q.score}%</span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 line-clamp-2 mb-2">{quest.problem_statement}</p>
+                  <p className="text-xs text-gray-500 line-clamp-2 mb-2">{q.problem_statement}</p>
                   <div className="flex items-center gap-2 text-xs text-gray-400">
-                    {quest.difficulty && (
-                      <span className="capitalize">{quest.difficulty}</span>
-                    )}
-                    {quest.quest_type && (
-                      <>
-                        <span>&middot;</span>
-                        <span className="capitalize">{quest.quest_type.replace(/_/g, ' ')}</span>
-                      </>
-                    )}
-                    {quest.completed_at && (
-                      <>
-                        <span>&middot;</span>
-                        <span>{new Date(quest.completed_at).toLocaleDateString()}</span>
-                      </>
-                    )}
+                    {q.difficulty && <span className="capitalize">{q.difficulty}</span>}
+                    {q.completed_at && <><span>&middot;</span><span>{new Date(q.completed_at).toLocaleDateString()}</span></>}
                   </div>
                   <div className="mt-2 pt-2 border-t border-gray-100">
-                    <p className="text-xs text-gray-600">
-                      <span className="font-medium">Deliverable:</span> {quest.deliverable_description}
-                    </p>
+                    <p className="text-xs text-gray-600"><span className="font-medium">Deliverable:</span> {q.deliverable_description}</p>
                   </div>
                 </div>
               ))}
@@ -458,24 +379,19 @@ export default function PublicPortfolioPage() {
           </section>
         )}
 
-        {/* Capabilities Demonstrated */}
+        {/* Capabilities */}
         {capabilities.length > 0 && (
           <section>
             <h2 className="text-lg font-bold text-[#0b6d41] mb-3 flex items-center gap-2">
-              <Star className="w-5 h-5" />
-              Capabilities Demonstrated ({capabilities.length})
+              <Star className="w-5 h-5" /> Capabilities Demonstrated ({capabilities.length})
             </h2>
             <div className="flex flex-wrap gap-2">
               {capabilities.map(cap => {
                 const catColor = CAPABILITY_CATEGORY_COLORS[cap.category] || 'bg-gray-100 text-gray-700 border-gray-200';
                 return (
-                  <div
-                    key={cap.id}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${catColor}`}
-                  >
+                  <div key={cap.id} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${catColor}`}>
                     {cap.status === 'mastered' && <Star className="w-3 h-3" />}
-                    {cap.name}
-                    <span className="opacity-60">L{cap.level}</span>
+                    {cap.name} <span className="opacity-60">L{cap.level}</span>
                   </div>
                 );
               })}
@@ -483,12 +399,11 @@ export default function PublicPortfolioPage() {
           </section>
         )}
 
-        {/* Certificates Earned */}
+        {/* Certificates */}
         {certificates.length > 0 && (
           <section>
             <h2 className="text-lg font-bold text-[#0b6d41] mb-3 flex items-center gap-2">
-              <Award className="w-5 h-5" />
-              Certificates Earned ({certificates.length})
+              <Award className="w-5 h-5" /> Certificates Earned ({certificates.length})
             </h2>
             <div className="space-y-2">
               {certificates.map(cert => (
@@ -499,19 +414,10 @@ export default function PublicPortfolioPage() {
                       <span className="font-mono">{cert.certificate_number}</span>
                       <span>&middot;</span>
                       <span>{new Date(cert.issued_at).toLocaleDateString()}</span>
-                      {cert.final_score != null && (
-                        <>
-                          <span>&middot;</span>
-                          <span className="font-semibold text-[#0b6d41]">{cert.final_score}%</span>
-                        </>
-                      )}
+                      {cert.final_score != null && <><span>&middot;</span><span className="font-semibold text-[#0b6d41]">{cert.final_score}%</span></>}
                     </div>
                   </div>
-                  <Link
-                    href={cert.verification_url}
-                    className="flex items-center gap-1 text-xs text-[#0b6d41] hover:underline"
-                    target="_blank"
-                  >
+                  <Link href={cert.verification_url} className="flex items-center gap-1 text-xs text-[#0b6d41] hover:underline" target="_blank">
                     Verify <ExternalLink className="w-3 h-3" />
                   </Link>
                 </div>
@@ -524,8 +430,7 @@ export default function PublicPortfolioPage() {
         {badges.length > 0 && (
           <section>
             <h2 className="text-lg font-bold text-[#0b6d41] mb-3 flex items-center gap-2">
-              <Trophy className="w-5 h-5" />
-              Badges ({badges.length})
+              <Trophy className="w-5 h-5" /> Badges ({badges.length})
             </h2>
             <div className="flex flex-wrap gap-3">
               {badges.map(badge => (
@@ -555,14 +460,10 @@ export default function PublicPortfolioPage() {
         )}
       </main>
 
-      {/* Footer */}
       <footer className="border-t border-gray-200 py-6 mt-12 bg-white">
         <div className="max-w-4xl mx-auto px-4 flex items-center justify-between text-xs text-gray-400">
           <span>JKKN Institutions &mdash; Principal Development Engine</span>
-          <button
-            onClick={handleCopyLink}
-            className="flex items-center gap-1 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={handleCopyLink} className="flex items-center gap-1 hover:text-gray-600 transition-colors">
             {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
             {copied ? 'Link Copied' : 'Copy Link'}
           </button>

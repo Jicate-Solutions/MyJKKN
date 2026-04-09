@@ -23,7 +23,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert a new build session
     const { data, error } = await (supabase as any)
       .from('pde_build_sessions')
       .insert({
@@ -45,14 +44,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(data, { status: 201 });
   } catch (err) {
     console.error('[PDE Build] POST error:', err);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-// PATCH /api/pde/build — end an active build session (by session ID in body)
+// PATCH /api/pde/build — end an active build session
 export async function PATCH(request: NextRequest) {
   await connection();
   try {
@@ -66,13 +62,9 @@ export async function PATCH(request: NextRequest) {
     const { session_id, notes, artifacts } = body;
 
     if (!session_id) {
-      return NextResponse.json(
-        { error: 'session_id is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'session_id is required' }, { status: 400 });
     }
 
-    // Calculate duration
     const { data: session } = await (supabase as any)
       .from('pde_build_sessions')
       .select('started_at')
@@ -105,9 +97,6 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(data);
   } catch (err) {
     console.error('[PDE Build] PATCH error:', err);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

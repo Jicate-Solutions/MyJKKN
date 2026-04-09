@@ -3,32 +3,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
-// Coaching style mapping based on agency level
-function getCoachingStyle(level: string): string {
-  const styleMap: Record<string, string> = {
-    dependent: 'scaffolding',
-    directed: 'guided',
-    independent: 'challenging',
-    self_directed: 'socratic',
-    principal: 'peer',
-  };
-  return styleMap[level] || 'scaffolding';
-}
-
-// Placeholder coach reply — will be replaced by Gemini API integration
-function generatePlaceholderReply(style: string): string {
-  const replies: Record<string, string> = {
-    scaffolding: "Let's break this down step by step. What part of this do you understand already, and where do you feel stuck?",
-    guided: "You're on the right track. Before I point you further, what do you think the next step should be?",
-    challenging: "Interesting approach. But what would happen if the input was unexpected? Have you considered edge cases?",
-    socratic: "That's one way to look at it. What would someone who disagrees with your approach say? What assumptions are you making?",
-    peer: "I see where you're going. I'd push back on one aspect though — have you validated this with real data?",
-  };
-  return replies[style] || replies.scaffolding;
-}
-
-// GET /api/pde/coach?learnerId=xxx or ?contextType=xxx&contextId=yyy
-// Returns conversation history or a specific conversation
+// GET /api/pde/coach?learnerId=xxx&contextType=xxx&contextId=xxx
+// Returns coach conversation history
 export async function GET(request: NextRequest) {
   await connection();
   try {
@@ -39,33 +15,27 @@ export async function GET(request: NextRequest) {
     }
 
     const searchParams = request.nextUrl.searchParams;
-    const learnerId = searchParams.get('learnerId') || user.id;
+    const learnerId = searchParams.get('learnerId');
     const contextType = searchParams.get('contextType');
     const contextId = searchParams.get('contextId');
-    const limit = parseInt(searchParams.get('limit') || '20');
 
-    if (contextType && contextId) {
-      // Get specific conversation
-      const { data, error } = await (supabase as any)
-        .from('pde_coach_conversations')
-        .select('*')
-        .eq('learner_id', learnerId)
-        .eq('context_type', contextType)
-        .eq('context_id', contextId)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return NextResponse.json({ data: data || null });
+    if (!learnerId) {
+      return NextResponse.json(
+        { error: 'learnerId query param is required' },
+        { status: 400 }
+      );
     }
 
-    // Get conversation history
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('pde_coach_conversations')
       .select('*')
       .eq('learner_id', learnerId)
-      .order('updated_at', { ascending: false })
-      .limit(limit);
+      .order('created_at', { ascending: true });
+
+    if (contextType) query = query.eq('context_type', contextType);
+    if (contextId) query = query.eq('context_id', contextId);
+
+    const { data, error } = await query;
     if (error) throw error;
 
     return NextResponse.json({ data: data || [] });
@@ -78,8 +48,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST /api/pde/coach — send a message to the AI coach
-// Body: { contextType, contextId, message }
+// POST /api/pde/coach — send message to coach
+// Body: { learnerId, contextType, contextId, message }
 export async function POST(request: NextRequest) {
   await connection();
   try {
@@ -90,89 +60,79 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { contextType, contextId, message } = body;
+    const { learnerId, contextType, contextId, message } = body;
 
-    if (!contextType || !contextId || !message) {
+    if (!learnerId || !message) {
       return NextResponse.json(
-        { error: 'contextType, contextId, and message are required' },
+        { error: 'learnerId and message are required' },
         { status: 400 }
       );
     }
 
-    const learnerId = user.id;
-    const now = new Date().toISOString();
-
-    // 1. Determine coaching style from agency level
-    const { data: agencyData } = await (supabase as any)
-      .from('pde_agency_index')
-      .select('level')
-      .eq('learner_id', learnerId)
-      .order('assessment_date', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const coachingStyle = getCoachingStyle(agencyData?.level || 'dependent');
-
-    // 2. Get or create conversation
-    const { data: existing } = await (supabase as any)
+    // Store user message
+    const { data: userMsg, error: userErr } = await (supabase as any)
       .from('pde_coach_conversations')
-      .select('*')
-      .eq('learner_id', learnerId)
-      .eq('context_type', contextType)
-      .eq('context_id', contextId)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .insert({
+        learner_id: learnerId,
+        context_type: contextType || 'general',
+        context_id: contextId || null,
+        role: 'user',
+        content: message,
+      })
+      .select()
+      .single();
 
-    const learnerMsg = { role: 'learner', content: message, timestamp: now };
-    const coachReply = generatePlaceholderReply(coachingStyle);
-    const coachMsg = { role: 'coach', content: coachReply, timestamp: now };
+    if (userErr) throw userErr;
 
-    let conversationId: string;
+    // Generate placeholder coach reply based on coaching style
+    const coachReply = generateCoachReply(message, contextType);
 
-    if (!existing) {
-      // Create new conversation
-      const { data: created, error } = await (supabase as any)
-        .from('pde_coach_conversations')
-        .insert({
-          learner_id: learnerId,
-          context_type: contextType,
-          context_id: contextId,
-          messages: [learnerMsg, coachMsg],
-          coaching_style: coachingStyle,
-          tokens_used: message.length + coachReply.length,
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      conversationId = created.id;
-    } else {
-      // Append to existing
-      const updatedMessages = [...(existing.messages || []), learnerMsg, coachMsg];
-      const { error } = await (supabase as any)
-        .from('pde_coach_conversations')
-        .update({
-          messages: updatedMessages,
-          coaching_style: coachingStyle,
-          tokens_used: (existing.tokens_used || 0) + message.length + coachReply.length,
-          updated_at: now,
-        })
-        .eq('id', existing.id);
-      if (error) throw error;
-      conversationId = existing.id;
-    }
+    const { data: coachMsg, error: coachErr } = await (supabase as any)
+      .from('pde_coach_conversations')
+      .insert({
+        learner_id: learnerId,
+        context_type: contextType || 'general',
+        context_id: contextId || null,
+        role: 'coach',
+        content: coachReply,
+      })
+      .select()
+      .single();
 
-    return NextResponse.json({
-      data: {
-        reply: coachReply,
-        conversation_id: conversationId,
-        coaching_style: coachingStyle,
-      },
-    });
+    if (coachErr) throw coachErr;
+
+    return NextResponse.json(
+      { data: { userMessage: userMsg, coachReply: coachMsg } },
+      { status: 201 }
+    );
   } catch (error: any) {
-    console.error('Error sending coach message:', error);
+    console.error('Error in coach conversation:', error);
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
       { status: 500 }
     );
   }
+}
+
+// Placeholder coach reply generator — will be replaced with AI in Phase 4
+function generateCoachReply(message: string, contextType?: string): string {
+  const lowerMsg = message.toLowerCase();
+
+  if (lowerMsg.includes('stuck') || lowerMsg.includes('help') || lowerMsg.includes('confused')) {
+    return "I can see you're working through a challenge. Let's break this down step by step. What specific part is giving you trouble? Sometimes identifying the exact sticking point makes the solution clearer.";
+  }
+
+  if (lowerMsg.includes('done') || lowerMsg.includes('finished') || lowerMsg.includes('completed')) {
+    return "Great progress! Before moving on, take a moment to reflect: What was the key insight you gained? Understanding the 'why' behind your work deepens your learning.";
+  }
+
+  if (contextType === 'quest') {
+    return "You're making progress on your quest. Remember, the goal isn't just completion — it's building genuine understanding. What connections can you draw between this quest and your broader learning goals?";
+  }
+
+  if (contextType === 'assessment') {
+    return "As you work through this assessment, focus on understanding the underlying concepts rather than just finding the right answer. What principles are being tested here?";
+  }
+
+  return "That's a great question. Let me guide you through this: think about the fundamental principles at play here. What do you already know that might apply? Building on existing knowledge is the fastest path to understanding.";
 }

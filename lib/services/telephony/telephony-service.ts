@@ -22,6 +22,25 @@ export type CallStatus = 'initiated' | 'ringing' | 'in-progress' | 'completed' |
 
 export type CallDisposition = 'interested' | 'not_interested' | 'callback' | 'wrong_number' | 'not_reachable' | 'switched_off' | 'busy' | 'other';
 
+export type CallOutcome = 'connected' | 'not_answered' | 'busy' | 'wrong_number' | 'voicemail';
+export type InterestLevel = 'hot' | 'warm' | 'cold' | 'not_interested';
+export type NextAction = 'send_brochure' | 'schedule_visit' | 'refer_hod' | 'follow_up' | 'no_action';
+
+export interface LogCallInput {
+  lead_id: string;
+  institution_id: string;
+  counselor_id?: string;
+  phone_called: string;
+  call_outcome: CallOutcome;
+  interest_level?: InterestLevel;
+  next_action?: NextAction;
+  call_notes?: string;
+  follow_up_date?: string | null;
+  follow_up_time?: string | null;
+  suggested_stage?: string | null;
+  accept_stage_change?: boolean;
+}
+
 export type CallDirection = 'inbound' | 'outbound';
 
 export interface CallLog {
@@ -382,7 +401,6 @@ export class TelephonyService {
     const toIST = (isoStr: string): Date => new Date(isoStr);
 
     // Use started_at (when call happened) with fallback to created_at (when DB record was created).
-    // This prevents sync-day spikes where bulk-imported records all share the same created_at date.
     const getCallTimestamp = (c: any): string | null => c.started_at || c.created_at;
 
     // Calls by date — split into answered vs missed per day (using cost_amount)
@@ -552,6 +570,32 @@ export class TelephonyService {
 
     if (error) throw new Error(error.message);
     return data;
+  }
+
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // MANUAL CALL LOGGING (counselors call from personal phones)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  static async logManualCall(input: LogCallInput, supabase: any): Promise<{ callLog: any; leadUpdated: boolean }> {
+    const { mapOutcomeToDisposition } = await import('@/lib/utils/admission/stage-suggestions');
+    const disposition = mapOutcomeToDisposition(input.call_outcome, input.interest_level);
+    const followUpDateTime = input.follow_up_date ? (input.follow_up_time ? `${input.follow_up_date}T${input.follow_up_time}:00` : `${input.follow_up_date}T09:00:00`) : null;
+    const { data: callLog, error: callError } = await supabase.from('admission_call_logs').insert({ institution_id: input.institution_id, lead_id: input.lead_id, counselor_id: input.counselor_id || null, direction: 'outbound', status: 'completed', call_disposition: disposition, from_number: 'manual', to_number: input.phone_called, duration_seconds: 0, call_notes: input.call_notes || null, follow_up_date: followUpDateTime, is_admission_call: true }).select().single();
+    if (callError) throw new Error(`Failed to log call: ${callError.message}`);
+    let leadUpdated = false;
+    const leadUpdate: Record<string, any> = { last_contact_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    if (followUpDateTime) leadUpdate.next_followup_at = followUpDateTime;
+    if (input.accept_stage_change && input.suggested_stage) {
+      const { data: cur } = await supabase.from('admission_leads').select('funnel_stage').eq('id', input.lead_id).single();
+      leadUpdate.funnel_stage = input.suggested_stage;
+      leadUpdate.previous_stage = cur?.funnel_stage || 'new';
+      leadUpdate.stage_changed_at = new Date().toISOString();
+    }
+    const { error: leadError } = await supabase.from('admission_leads').update(leadUpdate).eq('id', input.lead_id);
+    if (!leadError) leadUpdated = true;
+    await supabase.from('admission_lead_activities').insert({ lead_id: input.lead_id, activity_type: 'call', subject: `Call ${input.call_outcome}`, description: [`Outcome: ${input.call_outcome}`, input.interest_level ? `Interest: ${input.interest_level}` : null, input.next_action ? `Next: ${input.next_action.replace(/_/g, ' ')}` : null, input.call_notes || null].filter(Boolean).join(' | '), outcome: disposition, created_by: input.counselor_id || null });
+    return { callLog, leadUpdated };
   }
 
   // ═══════════════════════════════════════════════════════════════════════

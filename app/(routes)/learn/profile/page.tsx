@@ -159,7 +159,7 @@ function MyQuestsSection({ learnerId }: { learnerId: string | undefined }) {
           </p>
         ) : (
           <div className="space-y-2">
-            {enrollments.slice(0, 5).map((e: { id: string; quest_id: string; status: string; quest?: { title?: string; difficulty?: string } }) => (
+            {enrollments.slice(0, 5).map((e: { id: string; quest_id: string; status: string; quest?: { title?: string } }) => (
               <Link
                 key={e.id}
                 href={`/learn/build/${e.quest_id}`}

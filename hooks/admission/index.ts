@@ -254,10 +254,12 @@ export type {
   FunnelStage as CallFunnelStage,
   CallFunnelData,
 } from './use-call-funnel';
+
 export type {
   UniqueCaller,
   UniqueCallersSummary,
 } from './use-unique-callers';
+
 
 // Re-export counselor funnel hook
 export {
@@ -276,6 +278,7 @@ export type {
   CounselorStatusSummary,
   CounselorStatusResponse,
 } from './use-counselor-status';
+
 
 // ============================================
 // LEADS HOOKS
