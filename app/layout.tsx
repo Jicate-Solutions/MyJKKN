@@ -188,9 +188,7 @@ export default function RootLayout({
         >
           <AuthProvider>
             <PWAProvider>
-              <PushNotificationProvider>
-                <AcknowledgmentGate>{children}</AcknowledgmentGate>
-              </PushNotificationProvider>
+              <PushNotificationProvider>{children}</PushNotificationProvider>
               <SpeedInsights />
             </PWAProvider>
           </AuthProvider>
