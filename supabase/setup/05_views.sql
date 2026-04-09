@@ -670,8 +670,65 @@ GROUP BY i.name, i.id, p.program_name, p.id, clp.current_semester
 ORDER BY i.name, p.program_name, clp.current_semester;
 
 -- ================================================================================
+-- MARATHON COMPATIBILITY VIEWS
+-- Added: 2026-04-09
+-- Purpose: The external kbm-marathon-public site queries marathon_events,
+-- marathon_categories, and marathon_registrations. These don't exist as tables.
+-- These views map the legacy names to the real shared tables (events,
+-- event_categories, events_registrations).
+-- The marathon_registrations view has an INSTEAD OF INSERT trigger
+-- (see 04_triggers.sql) to allow public site registration inserts.
+-- Post-race, the public site should be refactored to use /api/events/marathon/
+-- REST endpoints; after that, these views can be dropped.
+-- ================================================================================
+
+CREATE OR REPLACE VIEW public.marathon_events AS
+  SELECT * FROM public.events WHERE event_type = 'marathon';
+
+CREATE OR REPLACE VIEW public.marathon_categories AS
+  SELECT ec.*
+  FROM public.event_categories ec
+  JOIN public.events e ON e.id = ec.event_id
+  WHERE e.event_type = 'marathon';
+
+CREATE OR REPLACE VIEW public.marathon_registrations AS
+  SELECT
+    id,
+    event_id,
+    category_id,
+    participant_name,
+    participant_phone,
+    participant_email,
+    participant_age,
+    participant_gender,
+    institution_id,
+    institution_name,
+    department,
+    bib_number,
+    status,
+    checked_in,
+    checked_in_at,
+    payment_status,
+    payment_amount,
+    payment_method,
+    payment_reference,
+    discount_code,
+    discount_amount,
+    custom_data,
+    source,
+    referral_source,
+    created_at,
+    updated_at
+  FROM public.events_registrations;
+
+GRANT SELECT ON public.marathon_events TO anon, authenticated;
+GRANT SELECT ON public.marathon_categories TO anon, authenticated;
+GRANT SELECT, INSERT ON public.marathon_registrations TO anon, authenticated;
+
+-- ================================================================================
 -- End of Views File
--- Total Views: 19 (3 billing + 3 bug-report + 2 academic + 2 compatibility
+-- Total Views: 22 (3 billing + 3 bug-report + 2 academic + 2 compatibility
 --               + 1 lifecycle materialized + 2 demo-day regular views
---               + 1 audience vote summary + 3 VAC/CASE views)
+--               + 1 audience vote summary + 3 VAC/CASE views
+--               + 3 marathon compat views NEW 2026-04-09)
 -- ================================================================================

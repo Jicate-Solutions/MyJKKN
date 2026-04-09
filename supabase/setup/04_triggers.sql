@@ -751,3 +751,83 @@ CREATE TRIGGER update_case_progress_on_track_complete
 CREATE TRIGGER trg_admission_forms_updated
   BEFORE UPDATE ON admission_forms
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- MARATHON COMPATIBILITY VIEW TRIGGERS
+-- Added: 2026-04-09
+-- Purpose: INSTEAD OF INSERT trigger for marathon_registrations view.
+-- Allows the kbm-marathon-public external site to INSERT into
+-- marathon_registrations (a view) which writes to events_registrations
+-- (the real table). Auto-sets participant_type='external' and
+-- source='public_site'.
+-- See: supabase/setup/05_views.sql for the view definitions.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION public.marathon_registrations_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  new_id uuid;
+BEGIN
+  INSERT INTO public.events_registrations (
+    event_id,
+    category_id,
+    participant_name,
+    participant_phone,
+    participant_email,
+    participant_age,
+    participant_gender,
+    institution_id,
+    institution_name,
+    department,
+    bib_number,
+    status,
+    payment_status,
+    payment_amount,
+    payment_method,
+    payment_reference,
+    discount_code,
+    discount_amount,
+    custom_data,
+    participant_type,
+    source,
+    referral_source
+  ) VALUES (
+    NEW.event_id,
+    NEW.category_id,
+    NEW.participant_name,
+    NEW.participant_phone,
+    NEW.participant_email,
+    NEW.participant_age,
+    NEW.participant_gender,
+    NEW.institution_id,
+    NEW.institution_name,
+    NEW.department,
+    NEW.bib_number,
+    COALESCE(NEW.status, 'registered'),
+    COALESCE(NEW.payment_status, 'pending'),
+    COALESCE(NEW.payment_amount, 0),
+    NEW.payment_method,
+    NEW.payment_reference,
+    NEW.discount_code,
+    COALESCE(NEW.discount_amount, 0),
+    COALESCE(NEW.custom_data, '{}'::jsonb),
+    'external',
+    COALESCE(NEW.source, 'public_site'),
+    NEW.referral_source
+  )
+  RETURNING id INTO new_id;
+
+  NEW.id := new_id;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS marathon_registrations_insert_trg ON public.marathon_registrations;
+CREATE TRIGGER marathon_registrations_insert_trg
+  INSTEAD OF INSERT ON public.marathon_registrations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.marathon_registrations_insert();
