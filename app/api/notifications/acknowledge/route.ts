@@ -59,7 +59,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, {
+      headers: { 'Cache-Control': 'private, no-store, no-cache, must-revalidate' }
+    });
   } catch (error) {
     console.error('Error in acknowledge endpoint:', error);
     return NextResponse.json(
@@ -89,33 +91,11 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Find all unacknowledged notifications that require acknowledgment
-    const { data, error } = await supabase
-      .from('user_notifications')
-      .select(`
-        id,
-        notification_id,
-        read_at,
-        acknowledged_at,
-        created_at,
-        notifications!inner (
-          id,
-          title,
-          body,
-          priority,
-          category,
-          url,
-          requires_acknowledgment,
-          acknowledgment_deadline_hours,
-          sent_at,
-          created_by,
-          metadata
-        )
-      `)
-      .eq('user_id', user.id)
-      .is('acknowledged_at', null)
-      .eq('notifications.requires_acknowledgment', true)
-      .order('created_at', { ascending: false });
+    // Use DB function to bypass PostgREST column cache issues
+    // PostgREST silently drops filters on unknown columns (acknowledged_at),
+    // causing already-acknowledged notifications to reappear
+    const { data: items, error } = await supabase
+      .rpc('get_unacknowledged_notifications', { p_user_id: user.id });
 
     if (error) {
       console.error('Error fetching unacknowledged notifications:', error);
@@ -125,47 +105,25 @@ export async function GET() {
       );
     }
 
-    // Get creator names for display
-    const creatorIds = [...new Set(
-      (data || [])
-        .map((d: any) => d.notifications?.created_by)
-        .filter(Boolean)
-    )];
-
-    let creatorMap: Record<string, string> = {};
-    if (creatorIds.length > 0) {
-      const { data: creators } = await supabase
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('id', creatorIds);
-
-      if (creators) {
-        creatorMap = Object.fromEntries(
-          creators.map((c: any) => [c.id, c.full_name || c.email])
-        );
-      }
-    }
-
     const now = new Date();
-    const unacknowledged = (data || []).map((item: any) => {
-      const n = item.notifications;
-      const sentAt = new Date(n.sent_at || item.created_at);
-      const deadlineMs = (n.acknowledgment_deadline_hours || 4) * 60 * 60 * 1000;
+    const unacknowledged = (items || []).map((item: any) => {
+      const sentAt = new Date(item.sent_at || item.created_at);
+      const deadlineMs = (item.acknowledgment_deadline_hours || 4) * 60 * 60 * 1000;
       const deadlineAt = new Date(sentAt.getTime() + deadlineMs);
 
       return {
         id: item.id,
         notification_id: item.notification_id,
-        title: n.title,
-        body: n.body,
-        priority: n.priority,
-        category: n.category,
-        url: n.url,
-        created_by_name: creatorMap[n.created_by] || 'System',
-        sent_at: n.sent_at || item.created_at,
+        title: item.title,
+        body: item.body,
+        priority: item.priority,
+        category: item.category,
+        url: item.url,
+        created_by_name: item.created_by_name || 'System',
+        sent_at: item.sent_at || item.created_at,
         deadline_at: deadlineAt.toISOString(),
         is_overdue: now > deadlineAt,
-        metadata: n.metadata
+        metadata: item.metadata
       };
     });
 
@@ -173,6 +131,8 @@ export async function GET() {
       unacknowledged,
       count: unacknowledged.length,
       has_pending: unacknowledged.length > 0
+    }, {
+      headers: { 'Cache-Control': 'private, no-store, no-cache, must-revalidate' }
     });
   } catch (error) {
     console.error('Error in acknowledge GET endpoint:', error);
