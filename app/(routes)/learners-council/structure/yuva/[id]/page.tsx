@@ -22,15 +22,6 @@ import {
   Mountain
 } from 'lucide-react';
 
-const roleLabels: Record<string, string> = {
-  chapter_chair: 'Chapter Chair',
-  chapter_co_chair: 'Co-Chair',
-  stakeholder_chair: 'Chair',
-  stakeholder_co_chair: 'Co-Chair',
-  vertical_chair: 'Chair',
-  vertical_co_chair: 'Co-Chair'
-};
-
 const roleColors: Record<string, string> = {
   chapter_chair: 'bg-amber-100 text-amber-800 border-amber-200',
   chapter_co_chair: 'bg-amber-50 text-amber-700 border-amber-200',
