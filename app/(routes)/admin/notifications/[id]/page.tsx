@@ -15,6 +15,7 @@ import { ArrowLeft, Users, Calendar, Globe, Bell } from 'lucide-react';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { NotificationView } from './_components/notification-view';
+import { NotificationAnalytics } from './_components/notification-analytics';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { ContentLayout } from '@/components/layout/content-layout';
 
