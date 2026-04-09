@@ -76,6 +76,7 @@ export interface NotificationStats {
   total_read: number;
   read_percentage: number;
   target_users: number;
+  acknowledged: number;
 }
 
 // ==================== ACKNOWLEDGMENT SYSTEM ====================

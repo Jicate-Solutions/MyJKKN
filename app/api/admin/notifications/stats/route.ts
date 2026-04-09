@@ -1,10 +1,9 @@
-export const dynamic = 'force-dynamic';
-
-import { NextResponse, connection } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
-  await connection();
   try {
     const supabase = await createServerSupabaseClient();
 
@@ -52,10 +51,17 @@ export async function GET() {
       .from('notifications')
       .select('*', { count: 'exact', head: true });
 
-    // Get total user_notifications (target users across all notifications)
-    const { count: totalTargetUsers } = await supabase
+    // Get unique users reached (distinct user_ids from user_notifications)
+    // Supabase JS client doesn't support COUNT(DISTINCT), so we fetch user_ids and deduplicate
+    const { data: userIdRows } = await supabase
       .from('user_notifications')
-      .select('*', { count: 'exact', head: true });
+      .select('user_id');
+
+    const uniqueUserIds = new Set(userIdRows?.map((row: { user_id: string }) => row.user_id));
+    const uniqueUsersReached = uniqueUserIds.size;
+
+    // Get total row count for read percentage calculation
+    const totalNotificationRows = userIdRows?.length || 0;
 
     // Get read notifications count
     const { count: totalRead } = await supabase
@@ -63,17 +69,31 @@ export async function GET() {
       .select('*', { count: 'exact', head: true })
       .not('read_at', 'is', null);
 
-    // Calculate read percentage
-    const readPercentage = totalTargetUsers
-      ? Math.round(((totalRead || 0) / totalTargetUsers) * 100)
+    // Get acknowledged notifications count
+    const { count: totalAcknowledged } = await supabase
+      .from('user_notifications')
+      .select('*', { count: 'exact', head: true })
+      .not('acknowledged_at', 'is', null);
+
+    // Calculate read percentage based on total notification rows (not unique users)
+    const readPercentage = totalNotificationRows
+      ? Math.round(((totalRead || 0) / totalNotificationRows) * 100)
       : 0;
 
-    return NextResponse.json({
-      total_sent: totalSent || 0,
-      total_read: totalRead || 0,
-      read_percentage: readPercentage,
-      target_users: totalTargetUsers || 0
-    });
+    return NextResponse.json(
+      {
+        total_sent: totalSent || 0,
+        total_read: totalRead || 0,
+        read_percentage: readPercentage,
+        target_users: uniqueUsersReached,
+        acknowledged: totalAcknowledged || 0
+      },
+      {
+        headers: {
+          'Cache-Control': 'private, no-store'
+        }
+      }
+    );
   } catch (error) {
     console.error('Error fetching notification stats:', error);
     return NextResponse.json(
