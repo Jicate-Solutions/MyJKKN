@@ -80,7 +80,10 @@ const notificationSchema = z.object({
   program_id: z.string().optional(),
   semester_id: z.string().optional(),
   section_id: z.string().optional(),
-  target_roles: z.array(z.string()).optional()
+  target_roles: z.array(z.string()).optional(),
+  // Mandatory acknowledgment fields
+  requires_acknowledgment: z.boolean().optional(),
+  acknowledgment_deadline_hours: z.number().min(1).max(168).optional()
 });
 
 type NotificationFormData = z.infer<typeof notificationSchema>;
