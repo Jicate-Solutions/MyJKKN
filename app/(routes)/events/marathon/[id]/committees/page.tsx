@@ -676,7 +676,7 @@ function CommitteeDialog({
       const [instRes, deptRes, degRes] = await Promise.all([
         supabase.from('institutions').select('id, name').order('name'),
         supabase.from('departments').select('id, department_name, institution_id').order('department_name'),
-        supabase.from('degrees').select('id, degree_name').order('degree_name'),
+        supabase.from('degrees').select('id, degree_name, institution_id').order('degree_name'),
       ]);
       setInstitutions(instRes.data ?? []);
       setDepartments(deptRes.data ?? []);
@@ -782,6 +782,11 @@ function CommitteeDialog({
   const filteredDepartments = filters.institution_id
     ? departments.filter((d) => d.institution_id === filters.institution_id)
     : departments;
+
+  // Filter degrees based on selected institution
+  const filteredDegrees = filters.institution_id
+    ? degrees.filter((d) => d.institution_id === filters.institution_id)
+    : degrees;
 
   const toggleMember = (person: PersonOption) => {
     setSelectedMembers((prev) => {
@@ -891,7 +896,7 @@ function CommitteeDialog({
               <select
                 className="w-full h-9 rounded-md border border-input bg-background px-2 text-xs"
                 value={filters.institution_id}
-                onChange={(e) => setFilters((f) => ({ ...f, institution_id: e.target.value, department_id: '', program_id: '', semester_id: '', section_id: '' }))}
+                onChange={(e) => setFilters((f) => ({ ...f, institution_id: e.target.value, department_id: '', degree_id: '', program_id: '', semester_id: '', section_id: '' }))}
               >
                 <option value="">All Institutions</option>
                 {institutions.map((i) => (
@@ -909,7 +914,7 @@ function CommitteeDialog({
                   onChange={(e) => setFilters((f) => ({ ...f, degree_id: e.target.value, program_id: '', semester_id: '', section_id: '' }))}
                 >
                   <option value="">All Degrees</option>
-                  {degrees.map((d) => (
+                  {filteredDegrees.map((d) => (
                     <option key={d.id} value={d.id}>{d.degree_name}</option>
                   ))}
                 </select>
