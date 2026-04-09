@@ -31,15 +31,20 @@ export function AcknowledgmentGate({ children }: { children: React.ReactNode }) 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [acknowledging, setAcknowledging] = useState(false);
 
-  // Fetch unacknowledged notifications
+  // Fetch unacknowledged notifications — cache-bust to prevent CDN/browser stale responses
   const { data, isLoading } = useQuery({
     queryKey: ['unacknowledged-notifications'],
     queryFn: async () => {
-      const res = await fetch('/api/notifications/acknowledge');
+      const res = await fetch(`/api/notifications/acknowledge?_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+      });
       if (!res.ok) return { unacknowledged: [], count: 0, has_pending: false };
       return res.json();
     },
-    refetchInterval: 60000, // Check every minute for new mandatory notifications
+    staleTime: 0, // Always treat data as stale — never serve cached React Query data
+    gcTime: 0, // Don't keep old data in garbage collection cache
+    refetchInterval: 60000,
     refetchOnWindowFocus: true
   });
 
