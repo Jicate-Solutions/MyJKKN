@@ -50,6 +50,8 @@ import {
   useDeleteTask,
 } from '@/hooks/events/marathon/use-marathon-committees';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import {
   Loader2,
   Plus,
@@ -285,12 +287,16 @@ function CommitteeItem({
   onAddTask,
   onEditTask,
   onEditCommittee,
+  canManage,
+  isLead,
 }: {
   committee: MarathonCommittee;
   eventId: string;
   onAddTask: (committeeId: string) => void;
   onEditTask: (task: MarathonTask) => void;
   onEditCommittee: (committee: MarathonCommittee) => void;
+  canManage: boolean;
+  isLead: boolean;
 }) {
   const deleteCommittee = useDeleteCommittee();
 
@@ -326,34 +332,36 @@ function CommitteeItem({
           </div>
         </AccordionTrigger>
 
-        {/* Actions — outside AccordionTrigger to avoid nested buttons */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0 mr-3"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onEditCommittee(committee)}>
-              <Pencil className="h-3.5 w-3.5 mr-2" />
-              Edit Committee
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() =>
-                deleteCommittee.mutate({ id: committee.id, eventId })
-              }
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-2" />
-              Delete Committee
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Actions — admin only (outside AccordionTrigger to avoid nested buttons) */}
+        {canManage && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 mr-3"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onEditCommittee(committee)}>
+                <Pencil className="h-3.5 w-3.5 mr-2" />
+                Edit Committee
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() =>
+                  deleteCommittee.mutate({ id: committee.id, eventId })
+                }
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-2" />
+                Delete Committee
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <AccordionContent className="pb-0">
@@ -385,18 +393,20 @@ function CommitteeItem({
           ))
         )}
 
-        {/* Add task button */}
-        <div className="px-3 py-2 border-t">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => onAddTask(committee.id)}
-          >
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            Add Task
-          </Button>
-        </div>
+        {/* Add task button — admin or committee lead only */}
+        {(canManage || isLead) && (
+          <div className="px-3 py-2 border-t">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => onAddTask(committee.id)}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Add Task
+            </Button>
+          </div>
+        )}
       </AccordionContent>
     </AccordionItem>
   );
@@ -1079,7 +1089,26 @@ export default function MarathonCommitteesPage() {
   const [editingTask, setEditingTask] = useState<MarathonTask | null>(null);
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
-  const { data: committees, isLoading, error } = useMarathonCommittees(eventId);
+  const { data: allCommittees, isLoading, error } = useMarathonCommittees(eventId);
+
+  // Access control: admins see all committees, committee members see only theirs
+  const access = useMarathonAccess();
+  const membership = useCommitteeMembership(eventId);
+
+  // Filter committees based on access level
+  const committees = (() => {
+    if (!allCommittees) return [];
+    // Full access: see all committees
+    if (access.canManage) return allCommittees;
+    // Committee member/lead: see only committees where they're listed
+    if (membership.isMember) {
+      return allCommittees.filter((c) =>
+        membership.allCommitteeIds.includes(c.id)
+      );
+    }
+    // Otherwise: no committees
+    return [];
+  })();
 
   const handleAddTask = (committeeId: string) => {
     setTaskCommitteeId(committeeId);
@@ -1135,26 +1164,43 @@ export default function MarathonCommitteesPage() {
         {/* Page header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold py-1">Committees & Tasks</h1>
+            <h1 className="text-2xl font-bold py-1">
+              {access.canManage ? 'Committees & Tasks' : 'My Committees'}
+            </h1>
             <p className="text-sm text-muted-foreground">
-              Manage organizing committees and track task progress for{' '}
-              {event?.name ?? 'this event'}.
+              {access.canManage
+                ? `Manage organizing committees and track task progress for ${event?.name ?? 'this event'}.`
+                : `View and update tasks assigned to you for ${event?.name ?? 'this event'}.`}
             </p>
           </div>
-          <Button
-            onClick={() => {
-              setEditingCommittee(null);
-              setCommitteeDialogOpen(true);
-            }}
-            size="sm"
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            Add Committee
-          </Button>
+          {/* Add Committee button — admin only */}
+          {access.canManage && (
+            <Button
+              onClick={() => {
+                setEditingCommittee(null);
+                setCommitteeDialogOpen(true);
+              }}
+              size="sm"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add Committee
+            </Button>
+          )}
         </div>
 
-        {/* Summary cards */}
-        <SummaryCards eventId={eventId} />
+        {/* Summary cards — admin only */}
+        {access.canManage && <SummaryCards eventId={eventId} />}
+
+        {/* Non-admin: if not a committee member and no committees, show friendly empty state */}
+        {!access.canManage && !membership.isLoading && !membership.isMember && (
+          <div className="text-center py-16 text-muted-foreground border rounded-lg">
+            <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
+            <p className="font-medium">You&apos;re not a committee member</p>
+            <p className="text-sm mt-1">
+              Contact the event coordinator to be added to a committee.
+            </p>
+          </div>
+        )}
 
         {/* Loading / error */}
         {isLoading && (
@@ -1190,6 +1236,8 @@ export default function MarathonCommitteesPage() {
                     onAddTask={handleAddTask}
                     onEditTask={handleEditTask}
                     onEditCommittee={handleEditCommittee}
+                    canManage={access.canManage}
+                    isLead={membership.leadCommitteeIds.includes(committee.id)}
                   />
                 ))}
               </Accordion>

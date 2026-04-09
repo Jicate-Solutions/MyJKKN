@@ -3,8 +3,10 @@
 //
 // Access levels:
 // - Super Admin / Admin: Full access to all pages
-// - Principal / HOD / Faculty: Can view registrations for their institution
-// - Student: Can only register and view their own registration
+// - Custom roles with events.marathon.view: Full access (e.g., event_coordinator)
+// - Principal / HOD / Faculty: Institution-level registrations
+// - Committee Member/Lead: Committees page only (scoped to their committees)
+// - Student: Own registration only
 
 'use client';
 
@@ -12,7 +14,7 @@ import { useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 
-export type MarathonAccessLevel = 'full' | 'institution' | 'self' | 'none';
+export type MarathonAccessLevel = 'full' | 'institution' | 'committee_member' | 'self' | 'none';
 
 export interface MarathonAccess {
   /** Overall access level */
@@ -25,6 +27,8 @@ export interface MarathonAccess {
   canRegister: boolean;
   /** Can view own registration only */
   selfOnly: boolean;
+  /** Can access the Committees page (committee leads/members get scoped access) */
+  canAccessCommittees: boolean;
   /** User's profile ID (for filtering own registrations) */
   profileId: string | null;
   /** User's institution ID (for filtering institution registrations) */
@@ -59,6 +63,7 @@ export function useMarathonAccess(): MarathonAccess {
         canViewRegistrations: true,
         canRegister: true,
         selfOnly: false,
+        canAccessCommittees: true,
         profileId,
         institutionId,
         role,
@@ -67,7 +72,8 @@ export function useMarathonAccess(): MarathonAccess {
       };
     }
 
-    // Custom roles with explicit events.marathon.view permission — full access (admin granted)
+    // Custom roles with explicit events.marathon.view permission — full access
+    // (e.g., event_coordinator)
     if (canAccess('events.marathon', 'view')) {
       return {
         level: 'full',
@@ -75,6 +81,24 @@ export function useMarathonAccess(): MarathonAccess {
         canViewRegistrations: true,
         canRegister: true,
         selfOnly: false,
+        canAccessCommittees: true,
+        profileId,
+        institutionId,
+        role,
+        isSuperAdmin: false,
+        isLoading,
+      };
+    }
+
+    // Custom roles with committees.manage permission — committees module only
+    if (canAccess('events.marathon.committees', 'manage')) {
+      return {
+        level: 'committee_member',
+        canManage: false,
+        canViewRegistrations: true,
+        canRegister: true,
+        selfOnly: false,
+        canAccessCommittees: true,
         profileId,
         institutionId,
         role,
@@ -84,6 +108,8 @@ export function useMarathonAccess(): MarathonAccess {
     }
 
     // Principal, HOD, Faculty — can view institution registrations
+    // (Committee membership check happens at the page level — they can also
+    // access committees if they're listed as lead/member)
     if (INSTITUTION_ROLES.includes(role)) {
       return {
         level: 'institution',
@@ -91,6 +117,7 @@ export function useMarathonAccess(): MarathonAccess {
         canViewRegistrations: true,
         canRegister: true,
         selfOnly: false,
+        canAccessCommittees: true, // runtime check via useCommitteeMembership
         profileId,
         institutionId,
         role,
@@ -100,6 +127,7 @@ export function useMarathonAccess(): MarathonAccess {
     }
 
     // Student — can only register and view own registration
+    // Committee access is granted at the page level if they're a committee member
     if (SELF_ONLY_ROLES.includes(role)) {
       return {
         level: 'self',
@@ -107,6 +135,7 @@ export function useMarathonAccess(): MarathonAccess {
         canViewRegistrations: true,
         canRegister: true,
         selfOnly: true,
+        canAccessCommittees: true, // runtime check via useCommitteeMembership
         profileId,
         institutionId,
         role,
@@ -115,14 +144,14 @@ export function useMarathonAccess(): MarathonAccess {
       };
     }
 
-    // Custom/unknown roles — default to institution-level access (can see their institution's registrations)
-    // This ensures custom roles like 'coordinator', 'counselor', etc. can at least register and view
+    // Custom/unknown roles — default to institution-level access
     return {
       level: institutionId ? 'institution' : 'self',
       canManage: false,
       canViewRegistrations: true,
       canRegister: true,
       selfOnly: !institutionId,
+      canAccessCommittees: true, // runtime check via useCommitteeMembership
       profileId,
       institutionId,
       role,

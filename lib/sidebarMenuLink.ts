@@ -2031,11 +2031,11 @@ export function GetRoleBasedPages(
             }
 
             // Marathon events: role-based submenu access
-            // Super admin / admin: all pages
-            // Custom roles with events.marathon.* permissions: matching pages
-            // All other roles: only Registrations (non-adminOnly pages)
+            // Super admin / admin / event_coordinator: all pages
+            // Custom roles with specific events.marathon.* permissions: matching pages
+            // All other roles: Registrations + Committees (committee members check happens at page level)
             if (submenu.href.includes('/events/marathon/') && (submenu as any).adminOnly !== undefined) {
-              const isAdminRole = ['super_admin', 'admin', 'administrator'].includes(userRole.role_key || '');
+              const isAdminRole = ['super_admin', 'admin', 'administrator', 'event_coordinator'].includes(userRole.role_key || '');
               if (isAdminRole) return true;
 
               // Check if custom role has explicit marathon permissions
@@ -2044,8 +2044,11 @@ export function GetRoleBasedPages(
                 return true;
               }
 
-              // Non-admin roles without explicit permission: only show non-adminOnly pages (Registrations)
-              return !(submenu as any).adminOnly;
+              // Non-admin roles without explicit permission: show Registrations + Committees
+              // (Registrations = non-adminOnly; Committees added for committee member access)
+              if (!(submenu as any).adminOnly) return true;
+              if (submenu.href.includes('/committees')) return true;
+              return false;
             }
 
             const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
