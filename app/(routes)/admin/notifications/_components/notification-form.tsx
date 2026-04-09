@@ -166,7 +166,9 @@ export function NotificationForm() {
       program_id: undefined,
       semester_id: undefined,
       section_id: undefined,
-      target_roles: []
+      target_roles: [],
+      requires_acknowledgment: false,
+      acknowledgment_deadline_hours: 4
     }
   });
 
