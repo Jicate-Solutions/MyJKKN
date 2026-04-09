@@ -83,7 +83,13 @@ const notificationSchema = z.object({
   target_roles: z.array(z.string()).optional(),
   // Mandatory acknowledgment fields
   requires_acknowledgment: z.boolean().optional(),
-  acknowledgment_deadline_hours: z.number().min(1).max(168).optional()
+  acknowledgment_deadline_hours: z.number().min(1).max(168).optional(),
+  // Verification question fields (stored in metadata.verification_question)
+  verification_question: z.string().optional(),
+  verification_option_a: z.string().optional(),
+  verification_option_b: z.string().optional(),
+  verification_option_c: z.string().optional(),
+  verification_correct: z.string().optional()
 });
 
 type NotificationFormData = z.infer<typeof notificationSchema>;
@@ -168,7 +174,12 @@ export function NotificationForm() {
       section_id: undefined,
       target_roles: [],
       requires_acknowledgment: false,
-      acknowledgment_deadline_hours: 4
+      acknowledgment_deadline_hours: 4,
+      verification_question: '',
+      verification_option_a: '',
+      verification_option_b: '',
+      verification_option_c: '',
+      verification_correct: ''
     }
   });
 
@@ -339,7 +350,18 @@ export function NotificationForm() {
         priority: data.priority,
         category: data.category,
         expires_at: data.expires_at || undefined,
-        metadata: attachmentUrls.length > 0 ? { attachments: attachmentUrls } : undefined,
+        metadata: {
+          ...(attachmentUrls.length > 0 ? { attachments: attachmentUrls } : {}),
+          ...(data.verification_question && data.verification_option_a && data.verification_option_b && data.verification_option_c && data.verification_correct
+            ? {
+                verification_question: {
+                  question: data.verification_question,
+                  options: [data.verification_option_a, data.verification_option_b, data.verification_option_c],
+                  correct_index: parseInt(data.verification_correct)
+                }
+              }
+            : {})
+        },
         targeting: {
           institution_id: data.institution_id || undefined,
           department_id: data.department_id || undefined,
@@ -1046,41 +1068,150 @@ export function NotificationForm() {
               />
 
               {watchedValues.requires_acknowledgment && (
-                <FormField
-                  control={form.control}
-                  name='acknowledgment_deadline_hours'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Acknowledgment Deadline</FormLabel>
-                      <Select
-                        onValueChange={(v) => field.onChange(Number(v))}
-                        value={String(field.value || 4)}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder='Select deadline' />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value='1'>1 hour</SelectItem>
-                          <SelectItem value='2'>2 hours</SelectItem>
-                          <SelectItem value='4'>
-                            4 hours (JKKN SOP default)
-                          </SelectItem>
-                          <SelectItem value='8'>8 hours</SelectItem>
-                          <SelectItem value='24'>24 hours</SelectItem>
-                          <SelectItem value='48'>48 hours</SelectItem>
-                          <SelectItem value='72'>72 hours</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        After this deadline, non-compliance is escalated to
-                        supervisors
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <>
+                  <FormField
+                    control={form.control}
+                    name='acknowledgment_deadline_hours'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Acknowledgment Deadline</FormLabel>
+                        <Select
+                          onValueChange={(v) => field.onChange(Number(v))}
+                          value={String(field.value || 4)}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select deadline' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='1'>1 hour</SelectItem>
+                            <SelectItem value='2'>2 hours</SelectItem>
+                            <SelectItem value='4'>
+                              4 hours (JKKN SOP default)
+                            </SelectItem>
+                            <SelectItem value='8'>8 hours</SelectItem>
+                            <SelectItem value='24'>24 hours</SelectItem>
+                            <SelectItem value='48'>48 hours</SelectItem>
+                            <SelectItem value='72'>72 hours</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          After this deadline, non-compliance is escalated to
+                          supervisors
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Verification Question — proves they actually read */}
+                  <div className='rounded-lg border p-4 space-y-3 bg-muted/30'>
+                    <div>
+                      <h4 className='text-sm font-semibold'>
+                        Comprehension Check (Optional)
+                      </h4>
+                      <p className='text-xs text-muted-foreground mt-0.5'>
+                        Add a question to verify recipients actually read the
+                        content. They must answer correctly before acknowledging.
+                      </p>
+                    </div>
+                    <FormField
+                      control={form.control}
+                      name='verification_question'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Question</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='e.g., How often must you log a Work Pulse entry?'
+                              value={field.value || ''}
+                              onChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    {watchedValues.verification_question && (
+                      <>
+                        <div className='grid grid-cols-1 gap-2'>
+                          <FormField
+                            control={form.control}
+                            name='verification_option_a'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className='text-xs'>Option A</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder='First option'
+                                    value={field.value || ''}
+                                    onChange={field.onChange}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name='verification_option_b'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className='text-xs'>Option B</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder='Second option'
+                                    value={field.value || ''}
+                                    onChange={field.onChange}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name='verification_option_c'
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className='text-xs'>Option C</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    placeholder='Third option'
+                                    value={field.value || ''}
+                                    onChange={field.onChange}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                        <FormField
+                          control={form.control}
+                          name='verification_correct'
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className='text-xs'>Correct Answer</FormLabel>
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder='Select correct answer' />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value='0'>Option A</SelectItem>
+                                  <SelectItem value='1'>Option B</SelectItem>
+                                  <SelectItem value='2'>Option C</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </FormItem>
+                          )}
+                        />
+                      </>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </div>

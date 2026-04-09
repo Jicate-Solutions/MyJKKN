@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import type { UnacknowledgedNotification } from '@/types/notifications';
+import type { UnacknowledgedNotification, VerificationQuestion } from '@/types/notifications';
 
 /**
  * AcknowledgmentGate — The core component that replaces Google Chat's voluntary 🙏
@@ -111,6 +111,156 @@ export function AcknowledgmentGate({ children }: { children: React.ReactNode }) 
     : getTimeRemaining(deadlineDate);
 
   return (
+    <AcknowledgmentModal
+      current={current}
+      isOverdue={isOverdue}
+      timeLeft={timeLeft}
+      deadlineDate={deadlineDate}
+      notifications={notifications}
+      currentIndex={currentIndex}
+      acknowledging={acknowledging}
+      onAcknowledge={handleAcknowledge}
+    >
+      {children}
+    </AcknowledgmentModal>
+  );
+}
+
+// ─── Calculate minimum read time based on word count ────
+function calculateReadTimeSeconds(body: string): number {
+  // Strip HTML tags for word count
+  const plainText = (body || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const wordCount = plainText.split(' ').filter(Boolean).length;
+
+  // ~150 words/min for non-native English readers (JKKN context)
+  // Minimum 5s, maximum 30s — we're enforcing reading, not punishment
+  const readTimeSeconds = Math.ceil((wordCount / 150) * 60);
+  return Math.max(5, Math.min(30, readTimeSeconds));
+}
+
+// ─── The actual modal with read-time + scroll enforcement ───
+function AcknowledgmentModal({
+  current,
+  isOverdue,
+  timeLeft,
+  deadlineDate,
+  notifications,
+  currentIndex,
+  acknowledging,
+  onAcknowledge,
+  children
+}: {
+  current: UnacknowledgedNotification;
+  isOverdue: boolean;
+  timeLeft: string;
+  deadlineDate: Date;
+  notifications: UnacknowledgedNotification[];
+  currentIndex: number;
+  acknowledging: boolean;
+  onAcknowledge: () => void;
+  children: React.ReactNode;
+}) {
+  const [readTimeLeft, setReadTimeLeft] = useState<number>(-1);
+  const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+  const [timerStarted, setTimerStarted] = useState(false);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [answerStatus, setAnswerStatus] = useState<'pending' | 'correct' | 'wrong'>('pending');
+  const contentRef = useRef<HTMLDivElement>(null);
+  const requiredReadTime = calculateReadTimeSeconds(current.body);
+  const verificationQ: VerificationQuestion | undefined = current.metadata?.verification_question;
+
+  // Reset state when notification changes
+  useEffect(() => {
+    setReadTimeLeft(-1);
+    setHasScrolledToBottom(false);
+    setTimerStarted(false);
+    setSelectedAnswer(null);
+    setAnswerStatus('pending');
+  }, [current.notification_id]);
+
+  // Check if content needs scrolling
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+
+    // If content fits without scrolling, mark as scrolled and start timer immediately
+    const needsScroll = el.scrollHeight > el.clientHeight + 20;
+    if (!needsScroll) {
+      setHasScrolledToBottom(true);
+      if (!timerStarted) {
+        setTimerStarted(true);
+        setReadTimeLeft(requiredReadTime);
+      }
+    }
+  }, [current.notification_id, requiredReadTime, timerStarted]);
+
+  // Track scroll position — start timer only when scrolled to bottom
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      if (isAtBottom && !hasScrolledToBottom) {
+        setHasScrolledToBottom(true);
+        if (!timerStarted) {
+          setTimerStarted(true);
+          setReadTimeLeft(requiredReadTime);
+        }
+      }
+    };
+
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [hasScrolledToBottom, timerStarted, requiredReadTime]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!timerStarted || readTimeLeft <= 0) return;
+
+    const interval = setInterval(() => {
+      setReadTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [timerStarted, readTimeLeft]);
+
+  // Must pass: timer done + scrolled + quiz correct (if quiz exists)
+  const timerDone = readTimeLeft === 0;
+  const quizPassed = verificationQ ? answerStatus === 'correct' : true;
+  const canAcknowledge = timerDone && hasScrolledToBottom && quizPassed;
+  const needsScroll = contentRef.current
+    ? contentRef.current.scrollHeight > contentRef.current.clientHeight + 20
+    : false;
+
+  // Check answer handler
+  const handleAnswerSelect = (index: number) => {
+    if (answerStatus === 'correct') return; // Already answered correctly
+    setSelectedAnswer(index);
+    if (verificationQ && index === verificationQ.correct_index) {
+      setAnswerStatus('correct');
+      toast.success('Correct! You may now acknowledge.', { duration: 2000 });
+    } else {
+      setAnswerStatus('wrong');
+      toast.error('Incorrect — please re-read the notification and try again.', { duration: 3000 });
+      // Reset after 2 seconds so they can try again
+      setTimeout(() => {
+        setSelectedAnswer(null);
+        setAnswerStatus('pending');
+      }, 2000);
+    }
+  };
+
+  return (
     <>
       {/* Blocked app content (blurred) */}
       <div className="pointer-events-none select-none blur-sm opacity-30">
@@ -149,8 +299,8 @@ export function AcknowledgmentGate({ children }: { children: React.ReactNode }) 
             )}
           </div>
 
-          {/* Notification content */}
-          <div className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
+          {/* Notification content — scroll tracked */}
+          <div ref={contentRef} className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
             {/* Title and metadata */}
             <div>
               <h3 className="text-xl font-semibold">{current.title}</h3>
@@ -227,31 +377,104 @@ export function AcknowledgmentGate({ children }: { children: React.ReactNode }) 
             </div>
           </div>
 
-          {/* Action area */}
+          {/* Verification question — appears after timer completes */}
+          {verificationQ && timerDone && hasScrolledToBottom && (
+            <div className="px-6 pb-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className={cn(
+                'p-4 rounded-xl border-2',
+                answerStatus === 'correct' ? 'border-green-300 bg-green-50 dark:bg-green-950/20' :
+                answerStatus === 'wrong' ? 'border-red-300 bg-red-50 dark:bg-red-950/20' :
+                'border-primary/20 bg-primary/5'
+              )}>
+                <p className="text-sm font-semibold mb-3 flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  Verification: {verificationQ.question}
+                </p>
+                <div className="space-y-2">
+                  {verificationQ.options.map((option, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleAnswerSelect(idx)}
+                      disabled={answerStatus === 'correct'}
+                      className={cn(
+                        'w-full text-left px-4 py-2.5 rounded-lg border text-sm font-medium transition-all',
+                        selectedAnswer === idx && answerStatus === 'correct'
+                          ? 'bg-green-100 border-green-400 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                          : selectedAnswer === idx && answerStatus === 'wrong'
+                            ? 'bg-red-100 border-red-400 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+                            : 'bg-background border-border hover:bg-muted/50 hover:border-primary/30',
+                        answerStatus === 'correct' && idx !== verificationQ.correct_index && 'opacity-50'
+                      )}
+                    >
+                      <span className="font-bold mr-2">{String.fromCharCode(65 + idx)}.</span>
+                      {option}
+                    </button>
+                  ))}
+                </div>
+                {answerStatus === 'wrong' && (
+                  <p className="text-xs text-red-600 mt-2 font-medium">
+                    Incorrect. Please re-read the notification and try again.
+                  </p>
+                )}
+                {answerStatus === 'correct' && (
+                  <p className="text-xs text-green-600 mt-2 font-medium flex items-center gap-1">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Correct! You may now acknowledge.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Action area — gated by read time + scroll + quiz */}
           <div className="px-6 py-4 bg-muted/30 border-t">
-            <Button
-              onClick={handleAcknowledge}
-              disabled={acknowledging}
-              className={cn(
-                'w-full h-12 text-base font-semibold gap-2',
-                isOverdue && 'bg-destructive hover:bg-destructive/90'
-              )}
-            >
-              {acknowledging ? (
-                'Acknowledging...'
-              ) : (
-                <>
-                  <span className="text-lg">🙏</span>
-                  Vanakkam — I Acknowledge
-                  {notifications.length > 1 && currentIndex < notifications.length - 1 && (
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  )}
-                </>
-              )}
-            </Button>
+            {disabledLabel ? (
+              <Button
+                disabled
+                className="w-full h-12 text-base font-semibold gap-2 opacity-60"
+              >
+                {!hasScrolledToBottom && needsScroll ? (
+                  <>
+                    <span className="text-lg">↓</span>
+                    Scroll down to read all content
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-5 w-5 animate-pulse" />
+                    Read carefully ({readTimeLeft}s)
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button
+                onClick={onAcknowledge}
+                disabled={acknowledging || !canAcknowledge}
+                className={cn(
+                  'w-full h-12 text-base font-semibold gap-2 animate-in fade-in duration-300',
+                  isOverdue && 'bg-destructive hover:bg-destructive/90'
+                )}
+              >
+                {acknowledging ? (
+                  'Acknowledging...'
+                ) : (
+                  <>
+                    <span className="text-lg">🙏</span>
+                    Vanakkam — I Acknowledge
+                    {notifications.length > 1 && currentIndex < notifications.length - 1 && (
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    )}
+                  </>
+                )}
+              </Button>
+            )}
             <p className="text-xs text-center text-muted-foreground mt-2">
-              By acknowledging, you confirm that you have read and understood
-              this notification. This action is permanently recorded.
+              {!hasScrolledToBottom && needsScroll
+                ? 'Please scroll down to read the full notification.'
+                : !timerDone
+                  ? 'Please read the notification carefully.'
+                  : verificationQ && !quizPassed
+                    ? 'Answer the verification question to proceed.'
+                    : 'By acknowledging, you confirm that you have read and understood this notification. This action is permanently recorded.'}
             </p>
           </div>
         </div>

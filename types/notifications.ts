@@ -65,7 +65,10 @@ export interface CreateNotificationRequest {
   priority?: 'low' | 'normal' | 'high' | 'urgent';
   category?: string;
   expires_at?: string;
-  metadata?: { attachments?: NotificationAttachment[] };
+  metadata?: {
+    attachments?: NotificationAttachment[];
+    verification_question?: VerificationQuestion;
+  };
   targeting: NotificationTargeting;
   requires_acknowledgment?: boolean;
   acknowledgment_deadline_hours?: number;
@@ -76,7 +79,6 @@ export interface NotificationStats {
   total_read: number;
   read_percentage: number;
   target_users: number;
-  acknowledged: number;
 }
 
 // ==================== ACKNOWLEDGMENT SYSTEM ====================
@@ -121,6 +123,15 @@ export interface UnacknowledgedNotification {
   is_overdue: boolean;
   metadata?: {
     attachments?: NotificationAttachment[];
+    verification_question?: VerificationQuestion;
     [key: string]: any;
   };
+}
+
+// ==================== VERIFICATION QUESTION ====================
+
+export interface VerificationQuestion {
+  question: string;
+  options: string[];       // 3 options (A, B, C)
+  correct_index: number;   // 0, 1, or 2
 }
