@@ -36,45 +36,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find the user_notification record
-    const { data: userNotification, error: findError } = await supabase
-      .from('user_notifications')
-      .select('id, acknowledged_at, notification_id')
-      .eq('notification_id', notification_id)
-      .eq('user_id', user.id)
-      .single();
-
-    if (findError || !userNotification) {
-      return NextResponse.json(
-        { error: 'Notification not found for this user' },
-        { status: 404 }
-      );
-    }
-
-    // Already acknowledged — return success (idempotent)
-    if (userNotification.acknowledged_at) {
-      return NextResponse.json({
-        message: 'Already acknowledged',
-        acknowledged_at: userNotification.acknowledged_at
+    // Use database function to bypass PostgREST column cache issues
+    // The function handles: find record, check already-acked, set acknowledged_at + read_at
+    const { data: result, error: rpcError } = await supabase
+      .rpc('acknowledge_notification', {
+        p_notification_id: notification_id,
+        p_user_id: user.id
       });
-    }
 
-    const now = new Date().toISOString();
-
-    // Record acknowledgment AND mark as read
-    const { error: updateError } = await supabase
-      .from('user_notifications')
-      .update({
-        acknowledged_at: now,
-        read_at: now // Also mark as read if not already
-      })
-      .eq('id', userNotification.id);
-
-    if (updateError) {
-      console.error('Error recording acknowledgment:', updateError);
+    if (rpcError) {
+      console.error('Error acknowledging notification:', rpcError);
       return NextResponse.json(
         { error: 'Failed to record acknowledgment' },
         { status: 500 }
+      );
+    }
+
+    if (result?.error) {
+      return NextResponse.json(
+        { error: result.error },
+        { status: 404 }
       );
     }
 
