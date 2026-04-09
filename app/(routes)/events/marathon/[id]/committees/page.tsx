@@ -213,93 +213,220 @@ function TaskRow({
     task.status !== 'cancelled';
 
   return (
-    <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-3 items-center py-2 px-3 border-b last:border-0 hover:bg-muted/30 text-sm">
-      {/* Title */}
-      <div>
-        <p className={`font-medium leading-tight ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
-          {task.title}
-        </p>
-        {task.assigned_to_name && (
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {task.assigned_to_name}
-          </p>
+    <div className="py-3 px-3 sm:px-4 border-b last:border-0 hover:bg-muted/30">
+      {/* MOBILE LAYOUT (stacked card) */}
+      <div className="flex flex-col gap-2 sm:hidden">
+        {/* Row 1: Title + Actions */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <p
+              className={`font-medium text-sm leading-tight ${
+                task.status === 'completed'
+                  ? 'line-through text-muted-foreground'
+                  : ''
+              }`}
+            >
+              {task.title}
+            </p>
+            {task.assigned_to_name && (
+              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                <Users className="h-3 w-3 shrink-0" />
+                {task.assigned_to_name}
+                {isAssignedToMe && (
+                  <span className="text-[10px] font-medium text-primary ml-1">
+                    (You)
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+          {canEdit ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 -mt-1 -mr-1"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onEdit(task)}>
+                  <Pencil className="h-3.5 w-3.5 mr-2" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={() =>
+                    deleteTask.mutate({ id: task.id, eventId })
+                  }
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
+
+        {/* Row 2: Badges */}
+        <div className="flex items-center flex-wrap gap-1.5">
+          <span
+            className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${priority.className}`}
+          >
+            {priority.label}
+          </span>
+          <span
+            className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${status.className}`}
+          >
+            {status.label}
+          </span>
+          {task.due_date && (
+            <span
+              className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${
+                isOverdue
+                  ? 'bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400'
+                  : 'bg-muted text-muted-foreground'
+              }`}
+            >
+              {isOverdue ? '⚠ Overdue · ' : 'Due '}
+              {new Date(task.due_date).toLocaleDateString('en-IN', {
+                day: '2-digit',
+                month: 'short',
+              })}
+            </span>
+          )}
+        </div>
+
+        {/* Row 3: Status change dropdown (full width) */}
+        {canUpdateStatus && (
+          <Select
+            value={task.status}
+            onValueChange={(v) =>
+              updateTask.mutate({
+                id: task.id,
+                eventId,
+                dto: { status: v as TaskStatus },
+              })
+            }
+          >
+            <SelectTrigger className="h-10 text-xs w-full">
+              <SelectValue placeholder="Change status" />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s} className="text-sm">
+                  {STATUS_CONFIG[s].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </div>
 
-      {/* Priority badge */}
-      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${priority.className}`}>
-        {priority.label}
-      </span>
+      {/* DESKTOP LAYOUT (horizontal row) */}
+      <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-3 items-center text-sm">
+        <div>
+          <p
+            className={`font-medium leading-tight ${
+              task.status === 'completed'
+                ? 'line-through text-muted-foreground'
+                : ''
+            }`}
+          >
+            {task.title}
+          </p>
+          {task.assigned_to_name && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {task.assigned_to_name}
+              {isAssignedToMe && (
+                <span className="text-[10px] font-medium text-primary ml-1">
+                  (You)
+                </span>
+              )}
+            </p>
+          )}
+        </div>
 
-      {/* Status badge */}
-      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${status.className}`}>
-        {status.label}
-      </span>
-
-      {/* Due date */}
-      <span className={`text-xs whitespace-nowrap ${isOverdue ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
-        {task.due_date
-          ? new Date(task.due_date).toLocaleDateString('en-IN', {
-              day: '2-digit',
-              month: 'short',
-            })
-          : '—'}
-      </span>
-
-      {/* Change status quick-select — only if user can update this task */}
-      {canUpdateStatus ? (
-        <Select
-          value={task.status}
-          onValueChange={(v) =>
-            updateTask.mutate({
-              id: task.id,
-              eventId,
-              dto: { status: v as TaskStatus },
-            })
-          }
+        <span
+          className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${priority.className}`}
         >
-          <SelectTrigger className="h-6 text-[11px] w-[110px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_OPTIONS.map((s) => (
-              <SelectItem key={s} value={s} className="text-xs">
-                {STATUS_CONFIG[s].label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : (
-        <span className="text-[11px] text-muted-foreground w-[110px] text-center">
-          —
+          {priority.label}
         </span>
-      )}
 
-      {/* Actions — admin or committee lead only */}
-      {canEdit ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-6 w-6">
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onEdit(task)}>
-              <Pencil className="h-3.5 w-3.5 mr-2" />
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() => deleteTask.mutate({ id: task.id, eventId })}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-2" />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : (
-        <div className="w-6" />
-      )}
+        <span
+          className={`text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${status.className}`}
+        >
+          {status.label}
+        </span>
+
+        <span
+          className={`text-xs whitespace-nowrap ${
+            isOverdue ? 'text-red-500 font-medium' : 'text-muted-foreground'
+          }`}
+        >
+          {task.due_date
+            ? new Date(task.due_date).toLocaleDateString('en-IN', {
+                day: '2-digit',
+                month: 'short',
+              })
+            : '—'}
+        </span>
+
+        {canUpdateStatus ? (
+          <Select
+            value={task.status}
+            onValueChange={(v) =>
+              updateTask.mutate({
+                id: task.id,
+                eventId,
+                dto: { status: v as TaskStatus },
+              })
+            }
+          >
+            <SelectTrigger className="h-8 text-[11px] w-[120px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s} className="text-xs">
+                  {STATUS_CONFIG[s].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="text-[11px] text-muted-foreground w-[120px] text-center">
+            —
+          </span>
+        )}
+
+        {canEdit ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onEdit(task)}>
+                <Pencil className="h-3.5 w-3.5 mr-2" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => deleteTask.mutate({ id: task.id, eventId })}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <div className="w-8" />
+        )}
+      </div>
     </div>
   );
 }
@@ -335,31 +462,49 @@ function CommitteeItem({
   const completedCount = tasks.filter((t) => t.status === 'completed').length;
   const totalCount = tasks.length;
 
+  const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const memberCount = committee.member_names?.length ?? 0;
+
   return (
     <AccordionItem value={committee.id} className="border rounded-lg mb-3 overflow-hidden">
       <div className="flex items-center hover:bg-muted/30 [&[data-state=open]]:bg-muted/30">
-        <AccordionTrigger className="px-4 py-3 hover:no-underline flex-1">
-          <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
-            {/* Committee name */}
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm truncate">{committee.name}</p>
+        <AccordionTrigger className="px-3 sm:px-4 py-3 hover:no-underline flex-1">
+          <div className="flex-1 min-w-0 text-left">
+            {/* Committee name + lead */}
+            <div className="min-w-0">
+              <p className="font-semibold text-sm sm:text-base truncate pr-2">
+                {committee.name}
+              </p>
               {committee.lead_name && (
-                <p className="text-xs text-muted-foreground truncate">
+                <p className="text-xs text-muted-foreground truncate mt-0.5">
                   Lead: {committee.lead_name}
                 </p>
               )}
             </div>
 
-            {/* Member count */}
-            <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-              <Users className="h-3.5 w-3.5" />
-              {committee.member_names?.length ?? 0} members
+            {/* Meta row: members + tasks + progress */}
+            <div className="flex items-center flex-wrap gap-2 mt-2">
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Users className="h-3 w-3" />
+                {memberCount} {memberCount === 1 ? 'member' : 'members'}
+              </span>
+              <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+                {completedCount}/{totalCount} tasks
+              </Badge>
+              {totalCount > 0 && (
+                <div className="flex items-center gap-1.5 flex-1 min-w-[80px] max-w-[140px]">
+                  <div className="h-1.5 bg-muted rounded-full overflow-hidden flex-1">
+                    <div
+                      className="h-full bg-primary transition-all"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {progressPct}%
+                  </span>
+                </div>
+              )}
             </div>
-
-            {/* Task progress */}
-            <Badge variant="secondary" className="text-xs shrink-0">
-              {completedCount}/{totalCount} tasks
-            </Badge>
           </div>
         </AccordionTrigger>
 
@@ -398,7 +543,7 @@ function CommitteeItem({
       <AccordionContent className="pb-0">
         {/* Task table header */}
         {tasks.length > 0 && (
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-3 px-3 py-1.5 bg-muted/50 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+          <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-3 px-3 sm:px-4 py-1.5 bg-muted/50 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
             <span>Task</span>
             <span>Priority</span>
             <span>Status</span>
@@ -430,14 +575,14 @@ function CommitteeItem({
 
         {/* Add task button — admin or committee lead only */}
         {(canManage || isLead) && (
-          <div className="px-3 py-2 border-t">
+          <div className="px-3 sm:px-4 py-3 border-t bg-muted/20">
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="h-7 text-xs"
+              className="h-10 w-full sm:w-auto sm:h-8 text-sm sm:text-xs gap-1.5"
               onClick={() => onAddTask(committee.id)}
             >
-              <Plus className="h-3.5 w-3.5 mr-1" />
+              <Plus className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
               Add Task
             </Button>
           </div>
@@ -1185,27 +1330,29 @@ export default function MarathonCommitteesPage() {
 
   return (
     <ContentLayout title={`${event?.name ?? 'Event'} - Committees`}>
-      <PageBreadcrumb
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Events', href: '/events' },
-          { label: 'Marathon', href: '/events/marathon' },
-          { label: event?.name ?? '...', href: `/events/marathon/${eventId}/settings` },
-          { label: 'Committees' },
-        ]}
-      />
+      <div className="hidden sm:block">
+        <PageBreadcrumb
+          items={[
+            { label: 'Home', href: '/' },
+            { label: 'Events', href: '/events' },
+            { label: 'Marathon', href: '/events/marathon' },
+            { label: event?.name ?? '...', href: `/events/marathon/${eventId}/settings` },
+            { label: 'Committees' },
+          ]}
+        />
+      </div>
 
       <div className="space-y-4 mt-4">
         {/* Page header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold py-1">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold py-1">
               {access.canManage ? 'Committees & Tasks' : 'My Committees'}
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs sm:text-sm text-muted-foreground">
               {access.canManage
-                ? `Manage organizing committees and track task progress for ${event?.name ?? 'this event'}.`
-                : `View and update tasks assigned to you for ${event?.name ?? 'this event'}.`}
+                ? `Manage organizing committees and track task progress.`
+                : `View and update tasks assigned to you.`}
             </p>
           </div>
           {/* Add Committee button — admin only */}
@@ -1216,8 +1363,9 @@ export default function MarathonCommitteesPage() {
                 setCommitteeDialogOpen(true);
               }}
               size="sm"
+              className="h-10 sm:h-9 w-full sm:w-auto gap-1.5 shrink-0"
             >
-              <Plus className="h-4 w-4 mr-1" />
+              <Plus className="h-4 w-4" />
               Add Committee
             </Button>
           )}
