@@ -26,6 +26,11 @@ const PUBLIC_PATHS_SET = new Set([
   '/api/admission/leads/inbound' // Inbound webhook API
 ]);
 
+// Public path prefixes (for dynamic routes like /apply/[slug])
+const PUBLIC_PATH_PREFIXES = [
+  '/apply/', // Public admission form builder pages — no login
+];
+
 // Regex for static assets - single check instead of multiple endsWith
 const STATIC_ASSET_PATTERN =
   /^\/(_next|icons)|\.(?:js|css|png|ico|svg|json|xml|html|woff2?)$/;
@@ -34,6 +39,11 @@ const STATIC_ASSET_PATTERN =
 const isPublicPath = (path: string): boolean => {
   // Fast exact match check (O(1))
   if (PUBLIC_PATHS_SET.has(path)) return true;
+
+  // Prefix check for dynamic public routes (e.g. /apply/[slug])
+  for (const prefix of PUBLIC_PATH_PREFIXES) {
+    if (path.startsWith(prefix)) return true;
+  }
 
   // Single regex check for static assets and API routes
   if (STATIC_ASSET_PATTERN.test(path)) return true;
