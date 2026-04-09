@@ -80,7 +80,9 @@ export async function POST(request: NextRequest) {
         expires_at: notificationData.expires_at,
         created_by: user.id,
         targeting: notificationData.targeting,
-        metadata: notificationData.metadata || {}
+        metadata: notificationData.metadata || {},
+        requires_acknowledgment: notificationData.requires_acknowledgment || false,
+        acknowledgment_deadline_hours: notificationData.acknowledgment_deadline_hours || 4
       })
       .select()
       .single();
