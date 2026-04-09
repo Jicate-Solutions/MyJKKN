@@ -12,12 +12,6 @@ export default async function EventCalendarPage() {
   if (!user) {
     return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Please sign in to access this page.</p></div>;
   }
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, role, institution_id, full_name, avatar_url, email')
-    .eq('id', user.id)
-    .single();
-
   // Fetch events for current month
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
