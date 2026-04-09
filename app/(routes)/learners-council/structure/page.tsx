@@ -19,14 +19,6 @@ import {
   Layers
 } from 'lucide-react';
 
-// Status color map
-const statusColors: Record<string, string> = {
-  active: 'bg-green-100 text-green-800',
-  upcoming: 'bg-blue-100 text-blue-800',
-  completed: 'bg-gray-100 text-gray-800',
-  archived: 'bg-gray-100 text-gray-500'
-};
-
 // Category color map for positions
 const categoryColors: Record<string, string> = {
   executive: 'bg-amber-100 text-amber-800 border-amber-200',
