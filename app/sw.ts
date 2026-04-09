@@ -120,23 +120,11 @@ self.addEventListener("push", (event: PushEvent) => {
   }
 
   const title = payload.title || "MyJKKN";
-  const notificationId = payload.data?.notification_id || crypto.randomUUID();
   const options: NotificationOptions = {
     body: payload.body || "New notification from MyJKKN",
     icon: payload.icon || "/icons/icon-192x192.png",
     badge: "/icons/icon-96x96.png",
     vibrate: [100, 50, 100],
-    // tag ensures newer notifications with same ID replace older ones on mobile,
-    // preventing stale duplicates in the notification shade
-    tag: `myjkkn-${notificationId}`,
-    // renotify ensures the device alerts even when replacing a tagged notification
-    renotify: true,
-    // Use server creation time if available, otherwise fall back to now.
-    // Ensures correct ordering in mobile notification shade regardless
-    // of push delivery delay.
-    timestamp: payload.data?.created_at
-      ? new Date(payload.data.created_at).getTime()
-      : Date.now(),
     data: {
       url: payload.url || "/",
       ...payload.data,
@@ -159,9 +147,19 @@ self.addEventListener("push", (event: PushEvent) => {
 self.addEventListener("notificationclick", (event: NotificationEvent) => {
   event.notification.close();
 
-  const targetUrl = event.notification.data?.url || "/";
+  const data = event.notification.data;
+  const targetUrl = data?.url || "/";
 
   if (event.action === "close") return;
+
+  // Fire-and-forget click tracking -- never blocks navigation
+  if (data?.notification_id) {
+    fetch("/api/notifications/track-click", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notification_id: data.notification_id }),
+    }).catch(() => {}); // silently ignore tracking failures
+  }
 
   event.waitUntil(
     self.clients.matchAll({ type: "window" }).then((clientList) => {
