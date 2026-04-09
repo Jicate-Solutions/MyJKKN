@@ -165,10 +165,8 @@ export default async function LearnersCouncilDashboard({
   searchParams?: Promise<{ scope?: string }>;
 }) {
   const { profile } = await getEnhancedUserProfile();
-  console.log('[learners-council/page] Profile loaded:', profile ? profile.id : 'NULL', profile?.role);
 
   if (!profile) {
-    console.log('[learners-council/page] No profile, redirecting to /');
     redirect('/');
   }
 
