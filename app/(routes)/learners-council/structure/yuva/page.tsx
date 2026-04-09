@@ -4,7 +4,6 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
-import { Card, CardContent } from '@/components/ui/card';
 import { Building2 } from 'lucide-react';
 import { YUVAClient } from './yuva-client';
 
