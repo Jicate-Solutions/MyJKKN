@@ -131,6 +131,8 @@ export async function GET() {
       unacknowledged,
       count: unacknowledged.length,
       has_pending: unacknowledged.length > 0
+    }, {
+      headers: { 'Cache-Control': 'private, no-store, no-cache, must-revalidate' }
     });
   } catch (error) {
     console.error('Error in acknowledge GET endpoint:', error);
