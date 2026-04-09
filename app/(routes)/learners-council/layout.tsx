@@ -32,7 +32,7 @@ export default async function LearnersCouncilLayout({ children }: LCLayoutProps)
       lcMembershipInfo = {
         position_category: pos?.category,
         tier: pos?.tier,
-        yuva_role: (lcMembership as any).yuva_role || null,
+        yuva_role: null,
       };
     }
   }
