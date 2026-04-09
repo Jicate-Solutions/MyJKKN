@@ -4,8 +4,6 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
-import { getEnhancedUserProfile } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
 import { EventListClient } from './event-list-client';
 import Link from 'next/link';
 
@@ -14,10 +12,19 @@ export default async function EventsPage({
 }: {
   searchParams?: Promise<{ scope?: string }>;
 }) {
-  const { profile } = await getEnhancedUserProfile();
-  if (!profile) redirect('/');
-
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Please sign in to access this page.</p></div>;
+  }
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, role, institution_id, full_name, avatar_url, email')
+    .eq('id', user.id)
+    .single();
+  if (!profile) {
+    return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Please sign in to access this page.</p></div>;
+  }
   const isMD = profile.role === 'super_admin';
 
   // Resolve scope: MD defaults to lc_wide, others default to institution
