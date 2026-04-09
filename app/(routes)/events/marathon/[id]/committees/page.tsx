@@ -180,6 +180,7 @@ function TaskRow({
   onEdit,
   canManage,
   isLead,
+  isMemberOfThisCommittee,
   currentUserId,
   currentUserName,
 }: {
@@ -188,6 +189,8 @@ function TaskRow({
   onEdit: (task: MarathonTask) => void;
   canManage: boolean;
   isLead: boolean;
+  /** true if current user belongs to THIS committee (as lead or member) */
+  isMemberOfThisCommittee: boolean;
   currentUserId: string | null;
   currentUserName: string | null;
 }) {
@@ -195,13 +198,16 @@ function TaskRow({
   const deleteTask = useDeleteTask();
 
   // Permission checks:
-  // - canEdit: admin OR committee lead (can edit/delete any task)
-  // - canUpdateStatus: canEdit OR task is assigned to current user
+  // - canEdit: admin OR committee lead (can edit/delete any task in their committee)
+  // - canUpdateStatus: admin / lead / (member of this committee AND task assigned to them)
+  //   Members of OTHER committees see this task as read-only.
   const canEdit = canManage || isLead;
   const isAssignedToMe =
     (currentUserId && task.assigned_to === currentUserId) ||
     (currentUserName && task.assigned_to_name === currentUserName);
-  const canUpdateStatus = canEdit || isAssignedToMe;
+  // Members can only update tasks in committees they belong to
+  const canUpdateStatus =
+    canEdit || (isMemberOfThisCommittee && !!isAssignedToMe);
 
   const priority = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.medium;
   const status = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.pending;
@@ -443,6 +449,7 @@ function CommitteeItem({
   onEditCommittee,
   canManage,
   isLead,
+  isMemberOfThisCommittee,
   currentUserId,
   currentUserName,
 }: {
@@ -453,6 +460,8 @@ function CommitteeItem({
   onEditCommittee: (committee: MarathonCommittee) => void;
   canManage: boolean;
   isLead: boolean;
+  /** true if the current user is a lead OR member of THIS specific committee */
+  isMemberOfThisCommittee: boolean;
   currentUserId: string | null;
   currentUserName: string | null;
 }) {
@@ -567,6 +576,7 @@ function CommitteeItem({
               onEdit={onEditTask}
               canManage={canManage}
               isLead={isLead}
+              isMemberOfThisCommittee={isMemberOfThisCommittee}
               currentUserId={currentUserId}
               currentUserName={currentUserName}
             />
@@ -1275,20 +1285,13 @@ export default function MarathonCommitteesPage() {
   const access = useMarathonAccess();
   const membership = useCommitteeMembership(eventId);
 
-  // Filter committees based on access level
-  const committees = (() => {
-    if (!allCommittees) return [];
-    // Full access: see all committees
-    if (access.canManage) return allCommittees;
-    // Committee member/lead: see only committees where they're listed
-    if (membership.isMember) {
-      return allCommittees.filter((c) =>
-        membership.allCommitteeIds.includes(c.id)
-      );
-    }
-    // Otherwise: no committees
-    return [];
-  })();
+  // All committees are visible to all users.
+  // Write access is gated per-committee:
+  // - Admin (canManage): full read+write on all committees
+  // - Committee lead (isLead): full write on their committees only
+  // - Committee member (isMember): update status of own assigned tasks only
+  // - Everyone else: read-only across all committees
+  const committees = allCommittees ?? [];
 
   const handleAddTask = (committeeId: string) => {
     setTaskCommitteeId(committeeId);
@@ -1374,13 +1377,26 @@ export default function MarathonCommitteesPage() {
         {/* Summary cards — admin only */}
         {access.canManage && <SummaryCards eventId={eventId} />}
 
-        {/* Non-admin: if not a committee member and no committees, show friendly empty state */}
+        {/* Read-only banner for non-admin users who aren't committee members */}
         {!access.canManage && !membership.isLoading && !membership.isMember && (
-          <div className="text-center py-16 text-muted-foreground border rounded-lg">
-            <Users className="h-10 w-10 mx-auto mb-3 opacity-30" />
-            <p className="font-medium">You&apos;re not a committee member</p>
-            <p className="text-sm mt-1">
-              Contact the event coordinator to be added to a committee.
+          <div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900 px-4 py-3 text-sm text-blue-900 dark:text-blue-200">
+            <p className="font-medium">Read-only view</p>
+            <p className="text-xs mt-0.5">
+              You can browse all committees and tasks, but you can&apos;t update them.
+              To update tasks, ask the event coordinator to add you to a committee.
+            </p>
+          </div>
+        )}
+
+        {/* Info banner for committee members */}
+        {!access.canManage && membership.isMember && (
+          <div className="rounded-md border border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900 px-4 py-3 text-sm text-green-900 dark:text-green-200">
+            <p className="font-medium">
+              You&apos;re in {membership.allCommitteeIds.length}{' '}
+              {membership.allCommitteeIds.length === 1 ? 'committee' : 'committees'}
+            </p>
+            <p className="text-xs mt-0.5">
+              You can update status on tasks assigned to you in your own committees. Other committees are view-only.
             </p>
           </div>
         )}
@@ -1421,6 +1437,7 @@ export default function MarathonCommitteesPage() {
                     onEditCommittee={handleEditCommittee}
                     canManage={access.canManage}
                     isLead={membership.leadCommitteeIds.includes(committee.id)}
+                    isMemberOfThisCommittee={membership.allCommitteeIds.includes(committee.id)}
                     currentUserId={access.profileId}
                     currentUserName={membership.userName}
                   />
