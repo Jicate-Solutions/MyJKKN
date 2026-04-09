@@ -223,6 +223,12 @@ export class EventPaymentService {
     const now = new Date().toISOString();
 
     if (verification.verified) {
+      // IMPORTANT: Snapshot pre-registration data BEFORE overwriting gateway_response.
+      // The pre-register endpoint stashes registration_data in
+      // gateway_response.pending_registration_data; the verification update below
+      // overwrites that column with HDFC's raw response, so we must read it first.
+      const pendingRegData = transaction.gateway_response?.pending_registration_data;
+
       // SUCCESS — Update transaction
       await supabase
         .from('event_payment_transactions')
@@ -238,7 +244,6 @@ export class EventPaymentService {
       let registrationId = transaction.registration_id || '';
 
       // Check if this is a pre-registration payment (registration not yet created)
-      const pendingRegData = transaction.gateway_response?.pending_registration_data;
       if (!transaction.registration_id && pendingRegData) {
         // Create registration now that payment succeeded
         try {
@@ -325,15 +330,23 @@ export class EventPaymentService {
         transactionId: transaction.id,
       };
     } else {
-      // FAILED — Update transaction
+      // FAILED or still PENDING at HDFC — Update transaction.
+      // IMPORTANT: when status='pending' we keep the row in 'processing' so
+      // a later webhook / retry can finalize it. In that case we MUST NOT
+      // touch gateway_response, otherwise we wipe pending_registration_data
+      // and the eventual retry has nothing to rebuild the registration from.
       const failedStatus = verification.status === 'pending' ? 'processing' : 'failed';
+
+      const updatePayload: Record<string, unknown> = { status: failedStatus };
+      // Only persist rawResponse on a terminal failure — never on 'pending',
+      // so pre-registration payload survives for the retry path.
+      if (failedStatus === 'failed' && verification.rawResponse) {
+        updatePayload.gateway_response = verification.rawResponse;
+      }
 
       await supabase
         .from('event_payment_transactions')
-        .update({
-          status: failedStatus,
-          gateway_response: verification.rawResponse || null,
-        })
+        .update(updatePayload)
         .eq('id', transaction.id);
 
       logger.warn('events/payment', 'Payment verification failed', {

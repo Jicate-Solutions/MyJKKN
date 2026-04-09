@@ -101,7 +101,7 @@ async function handleCallback(request: NextRequest, paramsPromise: Promise<{ eve
 
     logger.info('events/payment-callback', 'Redirecting user', {
       success: result.success,
-      redirectPage,
+      paymentStatus,
       transactionId: result.transactionId,
     });
 
