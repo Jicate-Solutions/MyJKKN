@@ -99,19 +99,21 @@ function RecordingPlayer({ url }: { url: string | null }) {
 // KPI CARDS
 // ============================================================================
 
-function InboundKpiCards({ stats, isLoading }: { stats: any; isLoading: boolean }) {
+function InboundKpiCards({ stats, isLoading, onCardClick }: { stats: any; isLoading: boolean; onCardClick?: (filterStatus: string) => void }) {
   const cards = [
     {
       title: 'Total Incoming',
       value: stats.total_incoming,
       icon: PhoneIncoming,
       iconColor: 'text-blue-600',
+      filter: '',
     },
     {
       title: 'Answered',
       value: stats.answered,
       icon: PhoneCall,
       iconColor: 'text-green-600',
+      filter: 'completed',
     },
     {
       title: 'Missed',
@@ -119,12 +121,14 @@ function InboundKpiCards({ stats, isLoading }: { stats: any; isLoading: boolean 
       icon: PhoneMissed,
       iconColor: 'text-red-500',
       highlight: stats.missed > 0,
+      filter: 'no-answer',
     },
     {
       title: 'Answer Rate',
       value: `${stats.answer_rate}%`,
       icon: TrendingUp,
       iconColor: stats.answer_rate >= 80 ? 'text-green-600' : stats.answer_rate >= 50 ? 'text-yellow-600' : 'text-red-600',
+      filter: '',
     },
     {
       title: 'Missed (No Callback)',
@@ -132,19 +136,24 @@ function InboundKpiCards({ stats, isLoading }: { stats: any; isLoading: boolean 
       icon: AlertTriangle,
       iconColor: 'text-orange-600',
       highlight: stats.missed_without_callback > 0,
+      filter: 'no-answer',
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
       {cards.map((card) => (
-        <Card key={card.title}>
+        <Card
+          key={card.title}
+          className={onCardClick ? 'cursor-pointer hover:shadow-md active:scale-[0.98] transition-all' : ''}
+          onClick={() => onCardClick?.(card.filter)}
+        >
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
+            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
             <card.icon className={`h-4 w-4 ${card.iconColor}`} />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold ${card.highlight ? 'text-red-600' : ''}`}>
+            <div className={`text-xl sm:text-2xl font-bold ${card.highlight ? 'text-red-600' : ''}`}>
               {isLoading ? <Skeleton className="h-7 w-12" /> : card.value}
             </div>
           </CardContent>
@@ -308,7 +317,15 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
-      <InboundKpiCards stats={stats} isLoading={statsLoading} />
+      <InboundKpiCards
+        stats={stats}
+        isLoading={statsLoading}
+        onCardClick={(filterStatus) => {
+          setStatusFilter(filterStatus);
+          setPage(1);
+          document.getElementById('call-history')?.scrollIntoView({ behavior: 'smooth' });
+        }}
+      />
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -340,7 +357,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
       </div>
 
       {/* Call Log Table */}
-      <Card>
+      <Card id="call-history">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
