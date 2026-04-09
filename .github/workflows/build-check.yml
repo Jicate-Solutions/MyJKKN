@@ -28,5 +28,7 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=8192'
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
-          NEXT_PUBLIC_VAPID_PUBLIC_KEY: placeholder
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MjAwMDAwMDAwMH0.placeholder-signature-for-ci-build-only
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoyMDAwMDAwMDAwfQ.placeholder-signature-for-ci-build-only
+          NEXT_PUBLIC_VAPID_PUBLIC_KEY: BPlaceholderVapidKeyForCIBuildOnly000000000000000000000000000000000000000000000000000000
+          NEXT_PUBLIC_APP_URL: https://www.jkkn.ai
