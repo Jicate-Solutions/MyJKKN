@@ -2030,25 +2030,17 @@ export function GetRoleBasedPages(
               return false;
             }
 
-            // Marathon events: role-based submenu access
-            // Super admin / admin / event_coordinator: all pages
-            // Custom roles with specific events.marathon.* permissions: matching pages
-            // All other roles: Registrations + Committees (committee members check happens at page level)
+            // Marathon events: all 10 sub-pages visible to all authenticated users.
+            // Write access is gated per-page via useMarathonAccess/canManage.
+            // - Super admin / admin / event_coordinator: full read+write on all pages
+            // - Custom roles with specific events.marathon.* permissions: full access to matching pages
+            // - All other authenticated users (committee members, students, faculty):
+            //   read-only access to all pages. Task status updates on Committees page
+            //   for tasks assigned to them. Registration self-service on Registrations page.
             if (submenu.href.includes('/events/marathon/') && (submenu as any).adminOnly !== undefined) {
-              const isAdminRole = ['super_admin', 'admin', 'administrator', 'event_coordinator'].includes(userRole.role_key || '');
-              if (isAdminRole) return true;
-
-              // Check if custom role has explicit marathon permissions
-              const submenuPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
-              if (submenuPermission && userRole.permissions[submenuPermission] === true) {
-                return true;
-              }
-
-              // Non-admin roles without explicit permission: show Registrations + Committees
-              // (Registrations = non-adminOnly; Committees added for committee member access)
-              if (!(submenu as any).adminOnly) return true;
-              if (submenu.href.includes('/committees')) return true;
-              return false;
+              // All authenticated users see all marathon sub-pages (read-only enforced
+              // at page/component level via canManage + RLS).
+              return true;
             }
 
             const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];

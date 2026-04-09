@@ -463,14 +463,7 @@ export default function MarathonDashboardPage() {
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
   const { data, isLoading, isError, refetch } = useMarathonDashboard(eventId);
 
-  // Block non-admin users — redirect to registrations
-  if (!access.isLoading && !access.canManage) {
-    if (typeof window !== 'undefined') {
-      window.location.href = `/events/marathon/${eventId}/registrations`;
-    }
-    return null;
-  }
-
+  // Dashboard is read-only for non-admin users — write actions gated per-component
   if (eventLoading) {
     return (
       <ContentLayout title="Dashboard">

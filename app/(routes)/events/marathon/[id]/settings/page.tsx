@@ -1183,22 +1183,7 @@ export default function MarathonSettingsPage() {
   const { data: event, isLoading, error } = useMarathonEvent(id);
   const access = useMarathonAccess();
 
-  // Block non-admin users
-  if (!access.isLoading && !access.canManage) {
-    return (
-      <ContentLayout title="Access Denied">
-        <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <p className="text-sm text-muted-foreground">
-            You don&apos;t have permission to access event settings.
-          </p>
-          <Button variant="outline" onClick={() => router.push('/events/marathon')}>
-            Go Back
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
-
+  // Settings page: read-only for non-admin users. Save actions gated per-tab.
   if (isLoading) {
     return (
       <ContentLayout title="Event Settings">
@@ -1251,6 +1236,15 @@ export default function MarathonSettingsPage() {
             {event.status}
           </Badge>
         </div>
+
+        {!access.canManage && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+            <p className="font-medium">Read-only mode</p>
+            <p className="text-xs mt-0.5">
+              You&apos;re viewing settings in read-only mode. Changes can only be saved by event admins.
+            </p>
+          </div>
+        )}
 
         <Tabs defaultValue="general" className="w-full">
           <TabsList className="grid w-full grid-cols-4">
