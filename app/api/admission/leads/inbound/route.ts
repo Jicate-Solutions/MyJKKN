@@ -2,7 +2,7 @@
 // Auth: API key (Bearer token) from api_keys table
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/service-role';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { IntegrationService } from '@/lib/services/admission/integration-service';
 import type { InboundLeadPayload } from '@/lib/services/admission/integration-service';
 import { logger } from '@/lib/utils/enhanced-logger';

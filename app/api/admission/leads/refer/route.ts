@@ -2,7 +2,7 @@
 // Rate limited: accepts referrals without login for agents/consultants
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/service-role';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { IntegrationService } from '@/lib/services/admission/integration-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 

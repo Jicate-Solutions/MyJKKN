@@ -167,7 +167,11 @@ export default async function LearnersCouncilDashboard({
   const { profile } = await getEnhancedUserProfile();
 
   if (!profile) {
-    redirect('/');
+    return (
+      <div className="flex items-center justify-center py-20">
+        <p className="text-muted-foreground">Loading your profile...</p>
+      </div>
+    );
   }
 
   const supabase = await createClient();
