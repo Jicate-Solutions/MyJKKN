@@ -300,3 +300,20 @@ export class ExotelClient {
     return this.request<ExotelSmsResponse>('POST', '/Sms/send', body);
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONVENIENCE EXPORTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Convenience: check if Exotel env vars are set (non-throwing). */
+export function isExotelConfigured(): boolean {
+  return ExotelClient.isConfigured();
+}
+
+/** Convenience: returns ExotelClient class (which has all static methods). */
+export function getExotelClient(): typeof ExotelClient {
+  return ExotelClient;
+}
+
+/** Re-export the call record type used by inbound sync. */
+export type ExotelCallRecord = ExotelCallDetailsResponse;
