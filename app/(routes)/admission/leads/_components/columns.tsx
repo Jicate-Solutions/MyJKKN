@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/tooltip';
 import type { AdmissionLead } from '@/types/admission';
 import { DataTableRowActions } from './row-actions';
+import { SourceBadge, OverdueBadge } from './source-badge';
 
 // Funnel stages ordered by progression for scoring
 const STAGE_PROGRESSION: Record<string, number> = {
@@ -195,18 +196,24 @@ export function getLeadColumns(
     cell: ({ row }) => {
       const lead = row.original;
       return (
-        <Link
-          href={`/admission/leads/${lead.id}`}
-          className="flex items-center gap-2 hover:text-primary font-medium"
-        >
-          <span>{lead.full_name || 'Unknown'}</span>
-          {lead.is_hot_lead && (
-            <Flame className="h-4 w-4 text-orange-500 shrink-0" />
-          )}
-          {lead.is_priority && !lead.is_hot_lead && (
-            <Star className="h-4 w-4 text-yellow-500 fill-yellow-500 shrink-0" />
-          )}
-        </Link>
+        <div className="flex flex-col gap-1">
+          <Link
+            href={`/admission/leads/${lead.id}`}
+            className="flex items-center gap-2 hover:text-primary font-medium"
+          >
+            <span>{lead.full_name || 'Unknown'}</span>
+            {lead.is_hot_lead && (
+              <Flame className="h-4 w-4 text-orange-500 shrink-0" />
+            )}
+            {lead.is_priority && !lead.is_hot_lead && (
+              <Star className="h-4 w-4 text-yellow-500 fill-yellow-500 shrink-0" />
+            )}
+          </Link>
+          <div className="flex flex-wrap gap-1">
+            <SourceBadge source={lead.source} />
+            <OverdueBadge nextFollowupAt={lead.next_followup_at} />
+          </div>
+        </div>
       );
     },
     size: 250,

@@ -42,8 +42,8 @@ import {
   Milestone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatDistanceToNow, format } from 'date-fns';
-import type { PDEQuest, PDEBuildSession, RequiredCapability, BuildArtifact } from '@/types/pde';
+import { format } from 'date-fns';
+import type { PDEQuest, PDEBuildSession, RequiredCapability } from '@/types/pde';
 import { toast } from 'sonner';
 
 // ============================================
@@ -55,7 +55,6 @@ interface ArtifactLocal {
   name: string;
   type: string;
   size: number;
-  preview?: string;
 }
 
 // ============================================
@@ -182,7 +181,6 @@ function QuestInfoPanel({
 // ============================================
 
 function BuildWorkspace({
-  activeSession,
   notes,
   onNotesChange,
   artifacts,
@@ -192,7 +190,6 @@ function BuildWorkspace({
   sessions,
   isSaving,
 }: {
-  activeSession: PDEBuildSession | null;
   notes: string;
   onNotesChange: (val: string) => void;
   artifacts: ArtifactLocal[];
@@ -363,13 +360,9 @@ function BuildWorkspace({
 // ============================================
 
 function CoachPanel({
-  learnerId,
-  questId,
   reputation,
   sessionStats,
 }: {
-  learnerId: string;
-  questId: string;
   reputation: { agency_index?: number } | null;
   sessionStats: { timeSpent: number; aiInteractions: number; artifactCount: number };
 }) {
@@ -468,7 +461,7 @@ export default function BuildArenaPage({
 
   // Data hooks
   const { data: quest, isLoading: loadingQuest } = useQuestDetail(questId);
-  const { data: sessions = [], isLoading: loadingSessions } = useBuildSessions(learnerId, questId);
+  const { data: sessions = [] } = useBuildSessions(learnerId, questId);
   const { data: submissions = [] } = useLearnerQuestSubmissions(learnerId, questId);
   const { data: learnerCaps = [] } = useLearnerCapabilities(learnerId);
   const { data: reputation } = useLearnerReputation(learnerId);
@@ -480,10 +473,9 @@ export default function BuildArenaPage({
   // Local state
   const [notes, setNotes] = useState('');
   const [artifacts, setArtifacts] = useState<ArtifactLocal[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Find or create active session
+  // Find active session
   const activeSession = sessions.find(
     (s: PDEBuildSession) => !s.ended_at
   ) || null;
@@ -506,29 +498,25 @@ export default function BuildArenaPage({
   const handleSaveSession = useCallback(async () => {
     if (!learnerId) return;
     setIsSaving(true);
-
     try {
       if (activeSession) {
-        // End current session with notes/artifacts
         await endSession.mutateAsync({
           sessionId: activeSession.id,
           input: {
             notes,
             artifacts: artifacts.map((a) => ({
               type: a.type,
-              url: a.name, // In real impl, would be uploaded URL
+              url: a.name,
               description: a.name,
             })),
           },
         });
         toast.success('Session saved successfully');
       } else {
-        // Start a new session
-        const result = await startSession.mutateAsync({
+        await startSession.mutateAsync({
           learner_id: learnerId,
           quest_id: questId,
         });
-        setActiveSessionId(result.id);
         toast.success('Build session started');
       }
     } catch {
@@ -540,19 +528,15 @@ export default function BuildArenaPage({
 
   // Session stats
   const totalTime = sessions.reduce(
-    (sum: number, s: PDEBuildSession) => sum + (s.duration_minutes || 0),
-    0
+    (sum: number, s: PDEBuildSession) => sum + (s.duration_minutes || 0), 0
   );
   const totalAI = sessions.reduce(
-    (sum: number, s: PDEBuildSession) => sum + (s.ai_prompts_count || 0),
-    0
+    (sum: number, s: PDEBuildSession) => sum + (s.ai_prompts_count || 0), 0
   );
   const totalArtifacts = sessions.reduce(
-    (sum: number, s: PDEBuildSession) => sum + (s.artifacts?.length || 0),
-    0
+    (sum: number, s: PDEBuildSession) => sum + (s.artifacts?.length || 0), 0
   ) + artifacts.length;
 
-  // Loading state
   if (loadingQuest) {
     return (
       <ContentLayout title="Build Arena">
@@ -590,9 +574,8 @@ export default function BuildArenaPage({
         ]}
       />
 
-      {/* 3-Panel Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mt-4">
-        {/* Left Panel — 25% */}
+        {/* Left Panel */}
         <div className="lg:col-span-1">
           <Card className="sticky top-4">
             <CardContent className="p-4">
@@ -607,10 +590,9 @@ export default function BuildArenaPage({
           </Card>
         </div>
 
-        {/* Center Panel — 50% */}
+        {/* Center Panel */}
         <div className="lg:col-span-2">
           <BuildWorkspace
-            activeSession={activeSession}
             notes={notes}
             onNotesChange={setNotes}
             artifacts={artifacts}
@@ -622,12 +604,10 @@ export default function BuildArenaPage({
           />
         </div>
 
-        {/* Right Panel — 25% */}
+        {/* Right Panel */}
         <div className="lg:col-span-1">
           <div className="sticky top-4">
             <CoachPanel
-              learnerId={learnerId || ''}
-              questId={questId}
               reputation={reputation as { agency_index?: number } | null}
               sessionStats={{
                 timeSpent: totalTime,

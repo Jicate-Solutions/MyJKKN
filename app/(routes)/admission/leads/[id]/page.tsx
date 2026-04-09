@@ -44,6 +44,8 @@ import { useDegrees } from '@/hooks/organization/use-degrees';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
+import { LogCallDialog } from '@/components/admission/log-call-dialog';
+import { QuickActionsBar } from '@/components/admission/quick-actions-bar';
 import { useExpoEvent } from '@/hooks/admission/use-expos';
 import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
 import { useStudentsForDropdown, useFacultyForDropdown } from '@/hooks/admission/use-referral-dropdowns';
@@ -386,6 +388,7 @@ function LeadDetailPageContent() {
   const [showActivityDialog, setShowActivityDialog] = useState(false);
   const [showFollowupDialog, setShowFollowupDialog] = useState(false);
   const [showCreateAppDialog, setShowCreateAppDialog] = useState(false);
+  const [showLogCallDialog, setShowLogCallDialog] = useState(false);
 
   // Activity form state
   const [activityType, setActivityType] = useState<string>('note');
@@ -1090,7 +1093,13 @@ function LeadDetailPageContent() {
       <PermissionGuard module="admission" action="leads.view">
         <ContentLayout title="Lead Details">
           <LeadDetailSkeleton />
-        </ContentLayout>
+          <LogCallDialog
+          open={showLogCallDialog}
+          onOpenChange={setShowLogCallDialog}
+          lead={lead ? { id: lead.id, full_name: lead.full_name, phone: lead.phone, funnel_stage: lead.funnel_stage, institution_id: lead.institution_id } : null}
+          onSendWhatsApp={() => { setShowLogCallDialog(false); setPersonalMsgOpen(true); }}
+        />
+      </ContentLayout>
       </PermissionGuard>
     );
   }

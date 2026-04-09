@@ -10,6 +10,7 @@ import {
   Tooltip,
 } from 'recharts';
 
+// Fink's 6 Taxonomy dimensions
 const FINKS_DIMENSIONS = [
   { key: 'foundational_knowledge', label: 'Foundational Knowledge', short: 'FK' },
   { key: 'application', label: 'Application', short: 'App' },
@@ -20,7 +21,9 @@ const FINKS_DIMENSIONS = [
 ] as const;
 
 interface FinksRadarProps {
+  /** Average scores per Fink's dimension (0–100 scale) */
   data: Record<string, number>;
+  /** Optional second dataset for comparison (e.g. target) */
   target?: Record<string, number>;
   isLoading?: boolean;
 }
@@ -106,6 +109,7 @@ export function FinksRadar({ data, target, isLoading }: FinksRadarProps) {
         </RadarChart>
       </ResponsiveContainer>
 
+      {/* Dimension Legend */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 text-xs text-muted-foreground px-2">
         {FINKS_DIMENSIONS.map((dim) => (
           <div key={dim.key}>

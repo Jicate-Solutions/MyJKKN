@@ -43,7 +43,7 @@ interface CapabilityHeatmapProps {
   isLoading?: boolean;
 }
 
-// ---------- Status colour mapping ----------
+// ---------- Status → colour mapping ----------
 
 const STATUS_COLORS: Record<CapabilityStatus, { bg: string; label: string }> = {
   locked: { bg: 'bg-gray-200 dark:bg-gray-700', label: 'Locked' },
@@ -64,11 +64,13 @@ export function CapabilityHeatmap({
 }: CapabilityHeatmapProps) {
   const [sortBy, setSortBy] = useState<SortKey>('name');
 
+  // Sort learners
   const sorted = useMemo(() => {
     const copy = [...learners];
     if (sortBy === 'name') {
       copy.sort((a, b) => a.learner_name.localeCompare(b.learner_name));
     } else if (sortBy === 'progress') {
+      // More demonstrated / mastered → top
       const score = (l: LearnerCapabilityRow) =>
         Object.values(l.capabilities).reduce((s, c) => {
           if (c.status === 'mastered') return s + 3;
@@ -78,8 +80,12 @@ export function CapabilityHeatmap({
         }, 0);
       copy.sort((a, b) => score(b) - score(a));
     } else {
+      // Risk: critical first
       const riskOrder: Record<string, number> = {
-        critical: 0, warning: 1, struggling: 2, on_track: 3,
+        critical: 0,
+        warning: 1,
+        struggling: 2,
+        on_track: 3,
       };
       copy.sort(
         (a, b) =>
@@ -113,6 +119,7 @@ export function CapabilityHeatmap({
 
   return (
     <div className="space-y-3">
+      {/* Sort + Legend */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">Sort by:</span>
@@ -127,6 +134,8 @@ export function CapabilityHeatmap({
             </SelectContent>
           </Select>
         </div>
+
+        {/* Legend */}
         <div className="flex items-center gap-3 flex-wrap">
           {Object.entries(STATUS_COLORS).map(([status, { bg, label }]) => (
             <div key={status} className="flex items-center gap-1">
@@ -137,6 +146,7 @@ export function CapabilityHeatmap({
         </div>
       </div>
 
+      {/* Heat Map Table */}
       <div className="overflow-x-auto border rounded-md">
         <Table>
           <TableHeader>
@@ -186,7 +196,9 @@ export function CapabilityHeatmap({
                       <TooltipProvider delayDuration={200}>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <div className={`w-full h-6 rounded-sm cursor-default ${bg}`} />
+                            <div
+                              className={`w-full h-6 rounded-sm cursor-default ${bg}`}
+                            />
                           </TooltipTrigger>
                           <TooltipContent>
                             <p className="font-medium">{cap.name}</p>

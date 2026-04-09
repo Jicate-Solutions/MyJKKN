@@ -11,34 +11,29 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET(request: NextRequest) {
   try {
+    // Authenticate
     const { user, error: authError } = await getAuthUser();
     if (authError || !user) {
-      logger.warn('admission/calls/unique-callers', 'Auth failed', { authError: authError?.message });
       return NextResponse.json(
         { error: 'UNAUTHORIZED', message: 'Authentication required' },
         { status: 401 }
       );
     }
-    logger.info('admission/calls/unique-callers', 'Request', { userId: user.id });
 
     const { searchParams } = request.nextUrl;
     const institutionId = searchParams.get('institution_id') || undefined;
     const fromDate = searchParams.get('from_date') || undefined;
     const toDate = searchParams.get('to_date') || undefined;
-    const admissionOnlyParam = searchParams.get('admission_only');
-    const admissionOnly = admissionOnlyParam === 'false' ? false : true; // default to true
 
     const supabase = createServiceRoleClient();
 
-    // Only select columns that exist in the base schema (pre-pipeline).
-    // Pipeline columns (auto_sms_sent, caller_location, etc.) may not be
-    // visible to PostgREST until its schema cache refreshes after migration.
-    // We compute location from PhoneNumberIntelligence instead.
+    // Fetch all inbound calls with lead + callback queue info
     let query = supabase
       .from('admission_call_logs')
       .select(`
         id, from_number, lead_id, status, duration_seconds, cost_amount,
-        created_at, started_at,
+        created_at, auto_sms_sent, caller_location, caller_attempt_number,
+        callback_queued, callback_queue_id,
         lead:admission_leads(id, full_name, priority)
       `)
       .eq('direction', 'inbound')
@@ -47,16 +42,25 @@ export async function GET(request: NextRequest) {
     if (institutionId) query = query.eq('institution_id', institutionId);
     if (fromDate) query = query.gte('created_at', fromDate);
     if (toDate) query = query.lte('created_at', toDate);
-    if (admissionOnly) query = query.eq('is_admission_call', true);
 
     const { data: calls, error } = await query;
-    if (error) {
-      logger.error('admission/calls/unique-callers', 'Query failed', { error: error.message, code: error.code });
-      throw new Error(error.message);
-    }
-    logger.info('admission/calls/unique-callers', 'Query result', { callCount: (calls || []).length });
+    if (error) throw new Error(error.message);
 
-    const callerMap: Record<string, any> = {};
+    // Group by from_number
+    const callerMap: Record<string, {
+      from_number: string;
+      lead_id: string | null;
+      lead_name: string | null;
+      caller_location: string | null;
+      total_attempts: number;
+      missed_count: number;
+      answered_count: number;
+      first_call_at: string;
+      last_call_at: string;
+      auto_sms_sent: boolean;
+      callback_queue_id: string | null;
+      current_lead_priority: string | null;
+    }> = {};
 
     for (const call of (calls || [])) {
       const phone = call.from_number;
@@ -65,8 +69,9 @@ export async function GET(request: NextRequest) {
       const isAnswered = (call.cost_amount ?? 0) > 0 && (call.duration_seconds ?? 0) > 0;
 
       if (!callerMap[phone]) {
-        const location = PhoneNumberIntelligence.getLocationFromPhone(phone);
-        const callTime = call.started_at || call.created_at;
+        // Derive location from phone prefix if not already on the call log
+        const location = call.caller_location || PhoneNumberIntelligence.getLocationFromPhone(phone);
+
         callerMap[phone] = {
           from_number: phone,
           lead_id: call.lead_id ?? (call.lead as any)?.id ?? null,
@@ -75,45 +80,91 @@ export async function GET(request: NextRequest) {
           total_attempts: 0,
           missed_count: 0,
           answered_count: 0,
-          first_call_at: callTime,
-          last_call_at: callTime,
+          first_call_at: call.created_at,
+          last_call_at: call.created_at,
           auto_sms_sent: false,
-          callback_status: null,
-          callback_priority: null,
-          sla_breached: false,
+          callback_queue_id: call.callback_queue_id ?? null,
           current_lead_priority: (call.lead as any)?.priority ?? null,
         };
       }
 
       const caller = callerMap[phone];
-      const callTime = call.started_at || call.created_at;
       caller.total_attempts++;
-      if (isAnswered) caller.answered_count++;
-      else caller.missed_count++;
+      if (isAnswered) {
+        caller.answered_count++;
+      } else {
+        caller.missed_count++;
+      }
+      if (call.auto_sms_sent) caller.auto_sms_sent = true;
+
+      // Update lead info if available (take most recent)
       if (call.lead_id && !caller.lead_id) {
         caller.lead_id = call.lead_id;
         caller.lead_name = (call.lead as any)?.full_name ?? null;
         caller.current_lead_priority = (call.lead as any)?.priority ?? null;
       }
-      if (callTime < caller.first_call_at) caller.first_call_at = callTime;
-      if (callTime > caller.last_call_at) caller.last_call_at = callTime;
+
+      // Track first/last call timestamps
+      if (call.created_at < caller.first_call_at) caller.first_call_at = call.created_at;
+      if (call.created_at > caller.last_call_at) caller.last_call_at = call.created_at;
+
+      // Update callback info
+      if (call.callback_queue_id) caller.callback_queue_id = call.callback_queue_id;
     }
 
-    const callers = Object.values(callerMap).map((caller: any) => {
+    // Fetch callback statuses for all callers with callbacks
+    const callbackIds = Object.values(callerMap)
+      .map(c => c.callback_queue_id)
+      .filter(Boolean) as string[];
+
+    let callbackStatusMap: Record<string, { status: string; priority: string; sla_breached: boolean }> = {};
+    if (callbackIds.length > 0) {
+      const { data: callbacks } = await supabase
+        .from('admission_callback_queue')
+        .select('id, status, priority, sla_breached')
+        .in('id', callbackIds);
+
+      if (callbacks) {
+        for (const cb of callbacks) {
+          callbackStatusMap[cb.id] = {
+            status: cb.status,
+            priority: cb.priority,
+            sla_breached: cb.sla_breached ?? false,
+          };
+        }
+      }
+    }
+
+    // Build final caller list with callback enrichment
+    const callers = Object.values(callerMap).map(caller => {
+      const cb = caller.callback_queue_id ? callbackStatusMap[caller.callback_queue_id] : null;
       const firstCall = new Date(caller.first_call_at).getTime();
       const lastCall = new Date(caller.last_call_at).getTime();
       const daysTrying = Math.max(1, Math.ceil((lastCall - firstCall) / (1000 * 60 * 60 * 24)));
-      return { ...caller, days_trying: daysTrying };
+
+      return {
+        ...caller,
+        days_trying: daysTrying,
+        callback_status: cb?.status ?? null,
+        callback_priority: cb?.priority ?? null,
+        sla_breached: cb?.sla_breached ?? false,
+      };
     });
 
-    callers.sort((a: any, b: any) => {
+    // Sort: callers never reached first, then by attempt count descending
+    callers.sort((a, b) => {
+      // Never reached first
       if (a.answered_count === 0 && b.answered_count > 0) return -1;
       if (a.answered_count > 0 && b.answered_count === 0) return 1;
+      // Then by total attempts
       return b.total_attempts - a.total_attempts;
     });
 
+    // Summary
     const totalCalls = (calls || []).length;
     const uniqueCallers = callers.length;
+    const callersNeverReached = callers.filter(c => c.answered_count === 0).length;
+    const callersWithBreachedSla = callers.filter(c => c.sla_breached).length;
 
     return NextResponse.json({
       success: true,
@@ -123,13 +174,13 @@ export async function GET(request: NextRequest) {
           unique_callers: uniqueCallers,
           total_calls: totalCalls,
           avg_attempts_per_caller: uniqueCallers > 0 ? Math.round((totalCalls / uniqueCallers) * 10) / 10 : 0,
-          callers_never_reached: callers.filter((c: any) => c.answered_count === 0).length,
-          callers_with_breached_sla: callers.filter((c: any) => c.sla_breached).length,
+          callers_never_reached: callersNeverReached,
+          callers_with_breached_sla: callersWithBreachedSla,
         },
       },
     });
   } catch (error) {
-    logger.error('admission/calls/unique-callers', 'Error', error);
+    logger.error('admission/calls/unique-callers', 'Error fetching unique callers', error);
     return NextResponse.json(
       { error: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }

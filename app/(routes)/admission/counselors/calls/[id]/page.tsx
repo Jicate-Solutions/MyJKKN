@@ -28,8 +28,7 @@ import {
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
-import { useCallLogs, useCallIntelligence, useAnalyzeCall, formatDuration, type CallDisposition } from '@/hooks/admission';
-import { cn } from '@/lib/utils';
+import { useCallLogs, formatDuration, type CallDisposition } from '@/hooks/admission';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -53,6 +52,7 @@ import {
   History,
   MapPin,
   Route,
+  AlertCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -127,10 +127,8 @@ function AudioPlayer({ url }: { url: string }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  const proxyUrl = `/api/admission/calls/recording?url=${encodeURIComponent(url)}`;
-
   useEffect(() => {
-    const audio = new Audio(proxyUrl);
+    const audio = new Audio(url);
     audioRef.current = audio;
 
     audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
@@ -141,14 +139,14 @@ function AudioPlayer({ url }: { url: string }) {
       audio.pause();
       audio.removeAttribute('src');
     };
-  }, [proxyUrl]);
+  }, [url]);
 
   const toggle = () => {
     if (!audioRef.current) return;
     if (playing) {
       audioRef.current.pause();
     } else {
-      audioRef.current.play().catch(() => window.open(proxyUrl, '_blank'));
+      audioRef.current.play().catch(() => window.open(url, '_blank'));
     }
     setPlaying(!playing);
   };
@@ -236,10 +234,6 @@ function CallDetailContent() {
     },
     enabled: !!id,
   });
-
-  // AI Intelligence
-  const { data: intelligence } = useCallIntelligence(call?.id);
-  const analyzeCall = useAnalyzeCall();
 
   // Notes form state
   const [notes, setNotes] = useState('');
@@ -373,7 +367,7 @@ function CallDetailContent() {
             {/* Left Column (2/3) */}
             <div className="lg:col-span-2 space-y-6">
 
-              {/* Journey Context Card (Caller Journey Intelligence) */}
+              {/* Journey Context Card (FIX 5) */}
               {call.caller_journey_context && (call.caller_attempt_number ?? 1) > 1 && (
                 <Card className="border-orange-200 bg-orange-50/50 dark:bg-orange-950/10">
                   <CardHeader className="pb-3">
@@ -392,6 +386,7 @@ function CallDetailContent() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
+                    {/* Timeline dots */}
                     <div className="space-y-2">
                       {call.caller_journey_context.split('\n').map((line, i) => {
                         if (!line.trim()) return null;
@@ -399,34 +394,54 @@ function CallDetailContent() {
                         const isCurrent = line.includes('NOW:');
                         const isMissed = line.includes('missed');
                         const isAnswered = line.includes('answered') || line.includes('Connected');
+                        const isLocation = line.startsWith('Location:');
+                        const isLead = line.startsWith('Lead:');
 
                         if (isHeader) {
-                          return <p key={i} className="text-sm font-semibold text-orange-800">{line.replace('[Caller Journey] ', '')}</p>;
+                          return (
+                            <p key={i} className="text-sm font-semibold text-orange-800">
+                              {line.replace('[Caller Journey] ', '')}
+                            </p>
+                          );
                         }
+
                         if (line.startsWith('- ')) {
                           return (
                             <div key={i} className="flex items-center gap-2 ml-2">
                               <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                                 isCurrent ? 'bg-blue-500 ring-2 ring-blue-200' :
                                 isMissed ? 'bg-red-400' :
-                                isAnswered ? 'bg-green-500' : 'bg-gray-300'
+                                isAnswered ? 'bg-green-500' :
+                                'bg-gray-300'
                               }`} />
                               <span className={`text-xs ${
                                 isCurrent ? 'font-bold text-blue-700' :
                                 isMissed ? 'text-red-600' :
-                                isAnswered ? 'text-green-700' : 'text-muted-foreground'
-                              }`}>{line.slice(2)}</span>
+                                isAnswered ? 'text-green-700' :
+                                'text-muted-foreground'
+                              }`}>
+                                {line.slice(2)}
+                              </span>
                             </div>
                           );
                         }
-                        return <p key={i} className="text-xs text-muted-foreground ml-2 mt-1">{line}</p>;
+
+                        if (isLocation || isLead) {
+                          return (
+                            <p key={i} className="text-xs text-muted-foreground ml-2 mt-1">
+                              {line}
+                            </p>
+                          );
+                        }
+
+                        return <p key={i} className="text-xs text-muted-foreground">{line}</p>;
                       })}
                     </div>
                   </CardContent>
                 </Card>
               )}
 
-              {/* Caller Location (shown even without full journey) */}
+              {/* Caller Location (shown even without full journey, if location exists) */}
               {call.caller_location && (!call.caller_journey_context || (call.caller_attempt_number ?? 1) <= 1) && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200">
                   <MapPin className="h-4 w-4 text-blue-600" />
@@ -450,10 +465,9 @@ function CallDetailContent() {
                     </div>
                     <div className="divide-y">
                       <InfoRow icon={Calendar} label="Date & Time" value={
-                        new Date(call.started_at || call.created_at).toLocaleString('en-IN', {
+                        new Date(call.started_at || call.created_at).toLocaleString(undefined, {
                           weekday: 'short', month: 'short', day: 'numeric',
                           hour: '2-digit', minute: '2-digit', second: '2-digit',
-                          timeZone: 'UTC',
                         })
                       } />
                       <InfoRow icon={Clock} label="Duration" value={
@@ -538,89 +552,6 @@ function CallDetailContent() {
                   )}
                 </CardContent>
               </Card>
-
-              {/* AI Insights Card */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <span>AI Insights</span>
-                    {intelligence?.analyze_status === 'processing' && (
-                      <span className="text-xs text-muted-foreground animate-pulse">Analyzing...</span>
-                    )}
-                    {intelligence?.sentiment && (
-                      <span className={cn(
-                        "inline-block w-2.5 h-2.5 rounded-full",
-                        intelligence.sentiment === 'positive' && "bg-green-500",
-                        intelligence.sentiment === 'negative' && "bg-red-500",
-                        intelligence.sentiment === 'neutral' && "bg-yellow-500",
-                      )} />
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {!intelligence && call?.recording_url && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => analyzeCall.mutate(call.id)}
-                      disabled={analyzeCall.isPending}
-                    >
-                      {analyzeCall.isPending ? 'Submitting...' : 'Analyze Call'}
-                    </Button>
-                  )}
-
-                  {intelligence?.summary && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Summary</p>
-                      <p className="text-sm mt-1">{intelligence.summary}</p>
-                    </div>
-                  )}
-
-                  {intelligence?.categories && intelligence.categories.length > 0 && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Categories</p>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {intelligence.categories.map((cat: string) => (
-                          <Badge key={cat} variant="secondary" className="text-xs">
-                            {cat.replace(/_/g, ' ')}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {(intelligence?.extracted_name || intelligence?.extracted_course || intelligence?.extracted_location) && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Extracted Info</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1 text-sm">
-                        {intelligence.extracted_name && <div><span className="text-muted-foreground">Name:</span> {intelligence.extracted_name}</div>}
-                        {intelligence.extracted_course && <div><span className="text-muted-foreground">Course:</span> {intelligence.extracted_course}</div>}
-                        {intelligence.extracted_location && <div><span className="text-muted-foreground">Location:</span> {intelligence.extracted_location}</div>}
-                      </div>
-                      {intelligence.enrichment_applied && (
-                        <p className="text-xs text-green-600 mt-1">Applied to lead record</p>
-                      )}
-                    </div>
-                  )}
-
-                  {intelligence?.transcription && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Transcription</p>
-                      <p className="text-sm mt-1 whitespace-pre-wrap max-h-40 overflow-y-auto bg-muted/30 p-2 rounded">
-                        {intelligence.transcription}
-                      </p>
-                    </div>
-                  )}
-
-                  {intelligence?.analyze_status === 'failed' && (
-                    <p className="text-sm text-red-500">Analysis failed. Try again.</p>
-                  )}
-
-                  {!intelligence && !call?.recording_url && (
-                    <p className="text-sm text-muted-foreground">No recording available for analysis.</p>
-                  )}
-                </CardContent>
-              </Card>
             </div>
 
             {/* Right Column (1/3) */}
@@ -680,9 +611,8 @@ function CallDetailContent() {
                     </Badge>
                     {call.follow_up_date && (
                       <p className="text-xs text-muted-foreground mt-2">
-                        Follow-up: {new Date(call.follow_up_date).toLocaleDateString('en-IN', {
-                          weekday: 'short', month: 'short', day: 'numeric',
-                          timeZone: 'UTC',
+                        Follow-up: {new Date(call.follow_up_date).toLocaleDateString(undefined, {
+                          weekday: 'short', month: 'short', day: 'numeric'
                         })}
                       </p>
                     )}
@@ -722,9 +652,8 @@ function CallDetailContent() {
                             <div className="text-right">
                               <span className="text-xs font-mono">{formatDuration(c.duration_seconds)}</span>
                               <p className="text-[10px] text-muted-foreground">
-                                {new Date(c.created_at).toLocaleDateString('en-IN', {
+                                {new Date(c.created_at).toLocaleDateString(undefined, {
                                   month: 'short', day: 'numeric',
-                                  timeZone: 'UTC',
                                 })}
                               </p>
                             </div>

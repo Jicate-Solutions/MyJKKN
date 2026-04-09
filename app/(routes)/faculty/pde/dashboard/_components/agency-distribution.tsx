@@ -14,6 +14,7 @@ import {
   Legend,
 } from 'recharts';
 
+// Agency levels from PDE spec
 const AGENCY_LEVELS = [
   { key: 'dependent', label: 'Dependent', color: '#ef4444' },
   { key: 'guided', label: 'Guided', color: '#f97316' },
@@ -25,6 +26,7 @@ const AGENCY_LEVELS = [
 // ---------- Bar Chart: Distribution ----------
 
 interface AgencyDistributionBarProps {
+  /** Count of Learners at each Agency level */
   distribution: Record<string, number>;
   isLoading?: boolean;
 }
@@ -87,8 +89,8 @@ export function AgencyDistributionBar({
 // ---------- Line Chart: Agency Trend Over Time ----------
 
 interface AgencyTrendPoint {
-  date: string;
-  average: number;
+  date: string; // YYYY-MM-DD or label
+  average: number; // 0–100
 }
 
 interface AgencyTrendLineProps {

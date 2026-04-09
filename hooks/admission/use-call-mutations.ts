@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { callLogsKeys } from './use-call-logs';
 import { callStatsKeys } from './use-call-stats';
-import type { CallDisposition } from '@/lib/services/telephony/telephony-service';
+import type { CallDisposition, LogCallInput } from '@/lib/services/telephony/telephony-service';
 
 // ============================================================================
 // TYPES
@@ -110,10 +110,32 @@ export function useCallMutations() {
     },
   });
 
+
+  const logManualCall = useMutation({
+    mutationFn: async (input: LogCallInput) => {
+      const res = await fetch('/api/admission/calls/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+      if (!res.ok) { const err = await res.json().catch(() => ({ message: 'Failed to log call' })); throw new Error(err.message || 'Failed to log call'); }
+      return (await res.json()).data;
+    },
+    onSuccess: () => {
+      toast.success('Call logged');
+      invalidateCallQueries();
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+    },
+    onError: (error: Error) => { toast.error(error.message || 'Failed to log call'); },
+  });
+
   return {
     initiateCall,
     updateCallNotes,
+    logManualCall,
     isInitiating: initiateCall.isPending,
     isUpdatingNotes: updateCallNotes.isPending,
+    isLoggingCall: logManualCall.isPending,
   };
 }

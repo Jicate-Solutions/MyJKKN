@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,18 +25,11 @@ import {
 import {
   useCallLogs,
   useInboundCallStats,
-  useTelephonyHealth,
   useUniqueCallers,
-  useCallFunnel,
-  useCounselorFunnel,
   formatDuration,
   type CallStatus,
   type UniqueCaller,
-  type FunnelStage,
-  type CounselorFunnelRow,
 } from '@/hooks/admission';
-import { cn } from '@/lib/utils';
-import { Switch } from '@/components/ui/switch';
 import {
   PhoneIncoming,
   PhoneCall,
@@ -54,10 +47,7 @@ import {
   Users,
   MapPin,
   AlertCircle,
-  ArrowRight,
-  ShieldCheck,
 } from 'lucide-react';
-import { CounselorAvailabilityCard } from './counselor-availability-card';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { maskPhone } from '@/lib/utils/phone-number';
@@ -79,10 +69,7 @@ function getInboundStatusBadge(costAmount: number | null | undefined) {
 
 function RecordingPlayer({ url }: { url: string | null }) {
   const [playing, setPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   if (!url) return <span className="text-xs text-muted-foreground">-</span>;
-
-  const proxyUrl = `/api/admission/calls/recording?url=${encodeURIComponent(url)}`;
 
   return (
     <Button
@@ -91,15 +78,12 @@ function RecordingPlayer({ url }: { url: string | null }) {
       className="h-7 px-2 text-xs"
       onClick={(e) => {
         e.stopPropagation();
-        if (playing && audioRef.current) {
-          audioRef.current.pause();
+        const audio = new Audio(url);
+        if (playing) {
+          audio.pause();
           setPlaying(false);
         } else {
-          // Stop any previous playback before starting new
-          audioRef.current?.pause();
-          const audio = new Audio(proxyUrl);
-          audioRef.current = audio;
-          audio.play().catch(() => window.open(proxyUrl, '_blank'));
+          audio.play().catch(() => window.open(url, '_blank'));
           audio.onended = () => setPlaying(false);
           setPlaying(true);
         }
@@ -115,25 +99,19 @@ function RecordingPlayer({ url }: { url: string | null }) {
 // KPI CARDS
 // ============================================================================
 
-function InboundKpiCards({ stats, isLoading, onFilter }: {
-  stats: any;
-  isLoading: boolean;
-  onFilter: (status: string) => void;
-}) {
+function InboundKpiCards({ stats, isLoading }: { stats: any; isLoading: boolean }) {
   const cards = [
     {
       title: 'Total Incoming',
       value: stats.total_incoming,
       icon: PhoneIncoming,
       iconColor: 'text-blue-600',
-      filterValue: '',
     },
     {
       title: 'Answered',
       value: stats.answered,
       icon: PhoneCall,
       iconColor: 'text-green-600',
-      filterValue: 'completed',
     },
     {
       title: 'Missed',
@@ -141,14 +119,12 @@ function InboundKpiCards({ stats, isLoading, onFilter }: {
       icon: PhoneMissed,
       iconColor: 'text-red-500',
       highlight: stats.missed > 0,
-      filterValue: 'no-answer',
     },
     {
       title: 'Answer Rate',
       value: `${stats.answer_rate}%`,
       icon: TrendingUp,
       iconColor: stats.answer_rate >= 80 ? 'text-green-600' : stats.answer_rate >= 50 ? 'text-yellow-600' : 'text-red-600',
-      filterValue: '',
     },
     {
       title: 'Missed (No Callback)',
@@ -156,24 +132,19 @@ function InboundKpiCards({ stats, isLoading, onFilter }: {
       icon: AlertTriangle,
       iconColor: 'text-orange-600',
       highlight: stats.missed_without_callback > 0,
-      filterValue: 'no-answer',
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
       {cards.map((card) => (
-        <Card
-          key={card.title}
-          className="cursor-pointer hover:shadow-md active:scale-[0.98] transition-all"
-          onClick={() => onFilter(card.filterValue)}
-        >
+        <Card key={card.title}>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{card.title}</CardTitle>
             <card.icon className={`h-4 w-4 ${card.iconColor}`} />
           </CardHeader>
           <CardContent>
-            <div className={`text-xl sm:text-2xl font-bold ${card.highlight ? 'text-red-600' : ''}`}>
+            <div className={`text-2xl font-bold ${card.highlight ? 'text-red-600' : ''}`}>
               {isLoading ? <Skeleton className="h-7 w-12" /> : card.value}
             </div>
           </CardContent>
@@ -184,276 +155,10 @@ function InboundKpiCards({ stats, isLoading, onFilter }: {
 }
 
 // ============================================================================
-// CALL-TO-ENROLLMENT FUNNEL
-// ============================================================================
-
-function getConversionColor(rate: number | null): string {
-  if (rate === null) return '';
-  if (rate >= 50) return 'text-emerald-600';
-  if (rate >= 25) return 'text-yellow-600';
-  return 'text-red-500';
-}
-
-function getFunnelBarColor(index: number): string {
-  const colors = [
-    'bg-blue-500',
-    'bg-emerald-500',
-    'bg-violet-500',
-    'bg-amber-500',
-    'bg-green-600',
-  ];
-  return colors[index] || 'bg-gray-400';
-}
-
-function CallFunnelView({ stages, isLoading, onStageClick }: {
-  stages: FunnelStage[];
-  isLoading: boolean;
-  onStageClick?: (stageKey: string) => void;
-}) {
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Call-to-Enrollment Funnel</CardTitle>
-          <CardDescription>Prospect journey from inbound call to enrollment</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-24 w-full" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const maxCount = Math.max(...stages.map(s => s.count), 1);
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <TrendingUp className="h-4 w-4" />
-          Call-to-Enrollment Funnel
-        </CardTitle>
-        <CardDescription>Inbound call prospect journey with conversion rates between stages</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {/* Horizontal funnel for md+ screens */}
-        <div className="hidden md:flex items-center gap-1">
-          {stages.map((stage, i) => (
-            <div key={stage.key} className="flex items-center gap-1 flex-1 min-w-0">
-              <div
-                className="flex-1 min-w-0 cursor-pointer hover:bg-muted/50 rounded-lg p-1.5 transition-colors"
-                onClick={() => onStageClick?.(stage.key)}
-              >
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground truncate">{stage.name}</p>
-                  <p className="text-2xl font-bold tabular-nums">{stage.count.toLocaleString()}</p>
-                  {stage.rate !== null && (
-                    <p className={cn('text-xs font-medium', getConversionColor(stage.rate))}>
-                      {stage.rate}%
-                    </p>
-                  )}
-                </div>
-                {/* Bar */}
-                <div className="mt-1.5 h-2.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={cn('h-full rounded-full transition-all', getFunnelBarColor(i))}
-                    style={{ width: `${Math.max((stage.count / maxCount) * 100, 2)}%` }}
-                  />
-                </div>
-              </div>
-              {i < stages.length - 1 && (
-                <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0 mx-0.5" />
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Vertical funnel for small screens */}
-        <div className="md:hidden space-y-3">
-          {stages.map((stage, i) => (
-            <div
-              key={stage.key}
-              className="cursor-pointer hover:bg-muted/50 rounded-lg p-2 -mx-2 transition-colors active:scale-[0.98]"
-              onClick={() => onStageClick?.(stage.key)}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">{stage.name}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-bold tabular-nums">{stage.count.toLocaleString()}</span>
-                  {stage.rate !== null && (
-                    <span className={cn('text-xs font-medium', getConversionColor(stage.rate))}>
-                      {stage.rate}%
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden mt-1">
-                <div
-                  className={cn('h-full rounded-full transition-all', getFunnelBarColor(i))}
-                  style={{ width: `${Math.max((stage.count / maxCount) * 100, 2)}%` }}
-                />
-              </div>
-              {i < stages.length - 1 && (
-                <div className="flex justify-center py-1">
-                  <ArrowRight className="h-3 w-3 text-muted-foreground rotate-90" />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// ============================================================================
-// COUNSELOR PERFORMANCE FUNNEL
-// ============================================================================
-
-function CounselorInitials({ name }: { name: string }) {
-  const initials = name
-    .split(' ')
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('');
-  return (
-    <span className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-violet-100 text-violet-700 text-xs font-bold shrink-0">
-      {initials || '?'}
-    </span>
-  );
-}
-
-function CounselorFunnelBar({
-  value,
-  max,
-  colorClass,
-  label,
-}: {
-  value: number;
-  max: number;
-  colorClass: string;
-  label: string;
-}) {
-  const pct = max > 0 ? Math.max((value / max) * 100, value > 0 ? 2 : 0) : 0;
-  return (
-    <div className="flex items-center gap-2 w-full">
-      <span className="text-[10px] text-muted-foreground w-[4.5rem] shrink-0 text-right">{label}</span>
-      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-        <div
-          className={cn('h-full rounded-full transition-all', colorClass)}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <span className="text-xs font-mono font-medium tabular-nums w-7 text-right">{value}</span>
-    </div>
-  );
-}
-
-function CounselorFunnelCard({ institutionId }: { institutionId?: string }) {
-  const { counselors, isLoading, error, refetch } = useCounselorFunnel(institutionId);
-
-  const BAR_DEFS: Array<{ key: keyof CounselorFunnelRow; label: string; color: string }> = [
-    { key: 'assigned', label: 'Assigned', color: 'bg-blue-400' },
-    { key: 'contacted', label: 'Contacted', color: 'bg-emerald-400' },
-    { key: 'qualified', label: 'Qualified', color: 'bg-violet-400' },
-    { key: 'applied', label: 'Applied', color: 'bg-amber-400' },
-    { key: 'enrolled', label: 'Enrolled', color: 'bg-green-600' },
-  ];
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Users className="h-4 w-4" />
-          Counselor Performance Funnel
-        </CardTitle>
-        <CardDescription>Individual conversion pipelines — best performers first</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="space-y-4">
-            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}
-          </div>
-        ) : error ? (
-          <div className="text-center py-6">
-            <p className="text-sm text-muted-foreground">Failed to load counselor funnel</p>
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>Retry</Button>
-          </div>
-        ) : counselors.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground py-6">No active counselors found</p>
-        ) : (
-          <>
-            {(() => {
-              const maxAssigned = Math.max(...counselors.map((c: CounselorFunnelRow) => c.assigned), 1);
-              return (
-                <div className="space-y-5">
-                  {counselors.map((c: CounselorFunnelRow) => (
-                    <div key={c.counselor_id} className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <CounselorInitials name={c.name} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">{c.name}</p>
-                          <p className="text-[10px] text-muted-foreground">{c.assigned} leads assigned</p>
-                        </div>
-                        <span
-                          className={cn(
-                            'text-xs font-bold px-2 py-0.5 rounded-full shrink-0',
-                            c.conversion_rate >= 10
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : c.conversion_rate >= 5
-                              ? 'bg-yellow-100 text-yellow-700'
-                              : 'bg-red-100 text-red-600'
-                          )}
-                        >
-                          {c.conversion_rate}%
-                        </span>
-                      </div>
-                      <div className="pl-10 space-y-1">
-                        {BAR_DEFS.map(({ key, label, color }) => (
-                          <CounselorFunnelBar
-                            key={key as string}
-                            value={c[key] as number}
-                            max={maxAssigned}
-                            colorClass={color}
-                            label={label}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-4 border-t mt-4">
-              {BAR_DEFS.map(({ label, color }) => (
-                <div key={label} className="flex items-center gap-1">
-                  <div className={cn('w-2.5 h-2.5 rounded-sm', color)} />
-                  <span className="text-[10px] text-muted-foreground">{label}</span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ============================================================================
 // CHARTS
 // ============================================================================
 
-function InboundVolumeChart({
-  data,
-  isLoading,
-  selectedDate,
-  onDateClick,
-}: {
-  data: Array<{ date: string; answered: number; missed: number }>;
-  isLoading: boolean;
-  selectedDate?: string;
-  onDateClick?: (date: string) => void;
-}) {
+function InboundVolumeChart({ data, isLoading }: { data: Array<{ date: string; answered: number; missed: number }>; isLoading: boolean }) {
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (!data.length) {
     return <div className="text-center py-8 text-muted-foreground text-sm">No incoming call data yet</div>;
@@ -468,19 +173,10 @@ function InboundVolumeChart({
         const total = day.answered + day.missed;
         const answeredPct = (day.answered / maxTotal) * 100;
         const missedPct = (day.missed / maxTotal) * 100;
-        const isSelected = selectedDate === day.date;
         return (
-          <div
-            key={day.date}
-            className={cn(
-              "flex items-center gap-3 rounded px-1 -mx-1 transition-colors",
-              onDateClick && "cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20",
-              isSelected && "bg-blue-100 dark:bg-blue-950/30 ring-1 ring-blue-300"
-            )}
-            onClick={() => onDateClick?.(day.date)}
-          >
-            <span className={cn("text-xs w-20 shrink-0", isSelected ? "font-bold text-blue-600" : "text-muted-foreground")}>
-              {new Date(day.date + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
+          <div key={day.date} className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground w-20 shrink-0">
+              {new Date(day.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             </span>
             <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden flex">
               <div
@@ -507,30 +203,12 @@ function InboundVolumeChart({
           <div className="w-3 h-3 rounded bg-red-400" />
           Missed
         </div>
-        {selectedDate && (
-          <button
-            className="ml-auto text-blue-600 hover:underline flex items-center gap-1"
-            onClick={(e) => { e.stopPropagation(); onDateClick?.(''); }}
-          >
-            <X className="h-3 w-3" /> Clear filter
-          </button>
-        )}
       </div>
     </div>
   );
 }
 
-function HourlyDistributionChart({
-  data,
-  isLoading,
-  selectedHour,
-  onHourClick,
-}: {
-  data: Array<{ hour: number; answered: number; missed: number }>;
-  isLoading: boolean;
-  selectedHour?: number | null;
-  onHourClick?: (hour: number | null) => void;
-}) {
+function HourlyDistributionChart({ data, isLoading }: { data: Array<{ hour: number; answered: number; missed: number }>; isLoading: boolean }) {
   if (isLoading) return <Skeleton className="h-40 w-full" />;
 
   // Only show hours 6-22 (relevant business hours in India)
@@ -552,24 +230,11 @@ function HourlyDistributionChart({
         const answeredPct = (h.answered / maxTotal) * 100;
         const missedPct = (h.missed / maxTotal) * 100;
         const isPeak = h.hour === peakHour.hour && total > 0;
-        const isSelected = selectedHour === h.hour;
         const hourLabel = h.hour === 0 ? '12 AM' : h.hour < 12 ? `${h.hour} AM` : h.hour === 12 ? '12 PM' : `${h.hour - 12} PM`;
 
         return (
-          <div
-            key={h.hour}
-            className={cn(
-              "flex items-center gap-3 -mx-2 px-2 py-0.5 rounded transition-colors",
-              onHourClick && total > 0 && "cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20",
-              isSelected && "bg-blue-100 dark:bg-blue-950/30 ring-1 ring-blue-300",
-              isPeak && !isSelected && "bg-blue-50 dark:bg-blue-950/20",
-            )}
-            onClick={() => total > 0 && onHourClick?.(isSelected ? null : h.hour)}
-          >
-            <span className={cn(
-              "text-xs w-12 shrink-0",
-              isSelected ? "font-bold text-blue-600" : isPeak ? "font-bold text-blue-600" : "text-muted-foreground"
-            )}>
+          <div key={h.hour} className={`flex items-center gap-3 ${isPeak ? 'bg-blue-50 dark:bg-blue-950/20 -mx-2 px-2 py-0.5 rounded' : ''}`}>
+            <span className={`text-xs w-12 shrink-0 ${isPeak ? 'font-bold text-blue-600' : 'text-muted-foreground'}`}>
               {hourLabel}
             </span>
             <div className="flex-1 h-4 bg-muted rounded-full overflow-hidden flex">
@@ -580,22 +245,12 @@ function HourlyDistributionChart({
           </div>
         );
       })}
-      <div className="flex items-center gap-2 pt-1">
-        {peakHour && (peakHour.answered + peakHour.missed) > 0 && (
-          <span className="text-xs text-blue-600 font-medium">
-            Peak: {peakHour.hour === 0 ? '12 AM' : peakHour.hour < 12 ? `${peakHour.hour} AM` : peakHour.hour === 12 ? '12 PM' : `${peakHour.hour - 12} PM`}
-            {' '}({peakHour.answered + peakHour.missed} calls)
-          </span>
-        )}
-        {selectedHour != null && (
-          <button
-            className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1"
-            onClick={(e) => { e.stopPropagation(); onHourClick?.(null); }}
-          >
-            <X className="h-3 w-3" /> Clear filter
-          </button>
-        )}
-      </div>
+      {peakHour && (peakHour.answered + peakHour.missed) > 0 && (
+        <div className="text-xs text-blue-600 pt-1 font-medium">
+          Peak: {peakHour.hour === 0 ? '12 AM' : peakHour.hour < 12 ? `${peakHour.hour} AM` : peakHour.hour === 12 ? '12 PM' : `${peakHour.hour - 12} PM`}
+          {' '}({peakHour.answered + peakHour.missed} calls)
+        </div>
+      )}
     </div>
   );
 }
@@ -614,9 +269,6 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   // View mode: 'all' = individual calls, 'unique' = grouped by caller
   const [viewMode, setViewMode] = useState<'all' | 'unique'>('all');
 
-  // Admission-only filter: defaults to true (only show admission calls)
-  const [admissionOnly, setAdmissionOnly] = useState(true);
-
   // Filter state
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -624,32 +276,11 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   const [toDate, setToDate] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
-  // Drill-down state — set by clicking chart bars
-  const [drilldownDate, setDrilldownDate] = useState<string>('');
-  const [drilldownHour, setDrilldownHour] = useState<number | null>(null);
-
-  // Compute effective date filters: drill-down overrides manual filters
-  // When a day bar is clicked, scope to that day. When an hour bar is clicked
-  // AND a day is selected, further narrow to that hour window.
-  const effectiveFromDate = (() => {
-    if (drilldownDate && drilldownHour != null) {
-      // Date + hour selected: scope to that IST hour on that date
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${drilldownDate}T${pad(drilldownHour)}:00:00+05:30`;
-    }
-    return drilldownDate || fromDate;
-  })();
-  const effectiveToDate = (() => {
-    if (drilldownDate && drilldownHour != null) {
-      const pad = (n: number) => String(n).padStart(2, '0');
-      return `${drilldownDate}T${pad(drilldownHour)}:59:59+05:30`;
-    }
-    return drilldownDate || toDate;
-  })();
-
   // Unique callers hook
-  const { callers, summary: callerSummary, isLoading: uniqueLoading, isError: uniqueError, error: uniqueErrorMsg, refetch: refetchUnique } = useUniqueCallers(
-    institutionId, effectiveFromDate || undefined, effectiveToDate || undefined, admissionOnly
+  const { callers, summary: callerSummary, isLoading: uniqueLoading } = useUniqueCallers(
+    institutionId,
+    fromDate || undefined,
+    toDate || undefined
   );
 
   // Data hooks
@@ -657,119 +288,27 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
     institution_id: institutionId,
     direction: 'inbound',
     status: (statusFilter as CallStatus) || undefined,
-    from_date: effectiveFromDate || undefined,
-    to_date: effectiveToDate || undefined,
-    admission_only: admissionOnly,
+    from_date: fromDate || undefined,
+    to_date: toDate || undefined,
     page,
     limit: 20,
   });
 
-  const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId, undefined, undefined, admissionOnly);
-  const { funnel, isLoading: funnelLoading } = useCallFunnel(institutionId, undefined, undefined, admissionOnly);
-  const { data: health } = useTelephonyHealth();
+  const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId);
 
   const clearFilters = () => {
     setStatusFilter('');
     setFromDate('');
     setToDate('');
-    setDrilldownDate('');
-    setDrilldownHour(null);
     setPage(1);
   };
 
-  const hasFilters = !!statusFilter || !!fromDate || !!toDate || !!drilldownDate || drilldownHour != null;
-
-  // Handlers for chart drill-down
-  const handleDateClick = (date: string) => {
-    if (date === drilldownDate || !date) {
-      setDrilldownDate('');
-    } else {
-      setDrilldownDate(date);
-      setDrilldownHour(null);
-    }
-    setPage(1);
-  };
-
-  const handleHourClick = (hour: number | null) => {
-    setDrilldownHour(hour);
-    setPage(1);
-  };
+  const hasFilters = !!statusFilter || !!fromDate || !!toDate;
 
   return (
     <div className="space-y-6">
-      {/* Health Banner */}
-      {health && health.status !== 'healthy' && (
-        <div className={cn(
-          "p-3 rounded-lg text-sm flex items-center gap-2",
-          health.status === 'critical' ? "bg-red-50 text-red-800 border border-red-200" : "bg-yellow-50 text-yellow-800 border border-yellow-200"
-        )}>
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span className="font-medium">
-            {health.status === 'critical' ? 'ExoPhone Outage' : 'ExoPhone Warning'}
-          </span>
-          <span>— {health.latest?.connectivity_status || 'Unknown issue'}. Miss rates may be elevated.</span>
-        </div>
-      )}
-
-      {/* Admission Filter Toggle */}
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className={cn("h-4 w-4", admissionOnly ? "text-green-600" : "text-muted-foreground")} />
-          <Label htmlFor="admission-filter" className="text-sm font-medium cursor-pointer">
-            {admissionOnly ? 'Admission calls only' : 'All calls (including non-admission)'}
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {admissionOnly ? 'Hiding dental, pharmacy, engineering & nursing office calls' : 'Showing all Exotel calls'}
-          </span>
-          <Switch
-            id="admission-filter"
-            checked={admissionOnly}
-            onCheckedChange={(checked) => { setAdmissionOnly(checked); setPage(1); }}
-          />
-        </div>
-      </div>
-
-      {/* KPI Cards — clickable to filter call list */}
-      <InboundKpiCards
-        stats={stats}
-        isLoading={statsLoading}
-        onFilter={(status) => {
-          setStatusFilter(status);
-          setPage(1);
-          // Scroll to call list
-          document.getElementById('call-history')?.scrollIntoView({ behavior: 'smooth' });
-        }}
-      />
-
-      {/* Counselor Availability */}
-      <CounselorAvailabilityCard />
-
-      {/* Call-to-Enrollment Funnel — clickable stages */}
-      <CallFunnelView
-        stages={funnel.stages}
-        isLoading={funnelLoading}
-        onStageClick={(stageKey) => {
-          // Navigate to relevant page based on funnel stage
-          if (stageKey === 'total_calls') {
-            setStatusFilter(''); setPage(1);
-            document.getElementById('call-history')?.scrollIntoView({ behavior: 'smooth' });
-          } else if (stageKey === 'answered') {
-            setStatusFilter('completed'); setPage(1);
-            document.getElementById('call-history')?.scrollIntoView({ behavior: 'smooth' });
-          } else if (stageKey === 'leads_created') {
-            router.push('/admission/leads');
-          } else if (stageKey === 'applications') {
-            router.push('/admission/applications');
-          } else if (stageKey === 'enrolled') {
-            router.push('/admission/applications?status=enrolled');
-          }
-        }}
-      />
-
-      {/* Counselor Performance Funnel */}
-      <CounselorFunnelCard institutionId={institutionId} />
+      {/* KPI Cards */}
+      <InboundKpiCards stats={stats} isLoading={statsLoading} />
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -779,15 +318,10 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <TrendingUp className="h-4 w-4" />
               Incoming Call Volume
             </CardTitle>
-            <CardDescription>Answered vs. missed per day — click a bar to filter</CardDescription>
+            <CardDescription>Answered vs. missed per day</CardDescription>
           </CardHeader>
           <CardContent>
-            <InboundVolumeChart
-              data={stats.calls_by_date}
-              isLoading={statsLoading}
-              selectedDate={drilldownDate}
-              onDateClick={handleDateClick}
-            />
+            <InboundVolumeChart data={stats.calls_by_date} isLoading={statsLoading} />
           </CardContent>
         </Card>
 
@@ -797,49 +331,16 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <Clock className="h-4 w-4" />
               When Do Prospects Call?
             </CardTitle>
-            <CardDescription>Hourly distribution (IST) — click a bar to filter</CardDescription>
+            <CardDescription>Hourly distribution (IST)</CardDescription>
           </CardHeader>
           <CardContent>
-            <HourlyDistributionChart
-              data={stats.calls_by_hour}
-              isLoading={statsLoading}
-              selectedHour={drilldownHour}
-              onHourClick={handleHourClick}
-            />
+            <HourlyDistributionChart data={stats.calls_by_hour} isLoading={statsLoading} />
           </CardContent>
         </Card>
       </div>
 
-      {/* Drill-down active banner */}
-      {(drilldownDate || drilldownHour != null) && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 text-sm text-blue-800 dark:text-blue-200">
-          <Filter className="h-4 w-4 shrink-0" />
-          <span>
-            Showing calls
-            {drilldownDate && (
-              <> from <span className="font-semibold">{new Date(drilldownDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })}</span></>
-            )}
-            {drilldownHour != null && (
-              <> between <span className="font-semibold">
-                {drilldownHour === 0 ? '12 AM' : drilldownHour < 12 ? `${drilldownHour} AM` : drilldownHour === 12 ? '12 PM' : `${drilldownHour - 12} PM`}
-                {' - '}
-                {(drilldownHour + 1) % 24 === 0 ? '12 AM' : (drilldownHour + 1) < 12 ? `${drilldownHour + 1} AM` : (drilldownHour + 1) === 12 ? '12 PM' : `${(drilldownHour + 1) - 12} PM`}
-              </span> (IST)</>
-            )}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto h-7 px-2 text-xs text-blue-700 hover:text-blue-900"
-            onClick={() => { setDrilldownDate(''); setDrilldownHour(null); setPage(1); }}
-          >
-            <X className="h-3 w-3 mr-1" /> Clear
-          </Button>
-        </div>
-      )}
-
       {/* Call Log Table */}
-      <Card id="call-history">
+      <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -921,23 +422,14 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <div className="space-y-3">
                 {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
               </div>
-            ) : uniqueError ? (
-              <div className="text-center py-12 text-red-500">
-                <AlertCircle className="h-10 w-10 mx-auto mb-3 opacity-70" />
-                <p className="font-medium">Failed to load callers</p>
-                <p className="text-sm mt-1 text-muted-foreground">{uniqueErrorMsg?.message || 'Unknown error'}</p>
-                <Button variant="outline" size="sm" className="mt-3" onClick={() => refetchUnique()}>
-                  Retry
-                </Button>
-              </div>
             ) : callers.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Users className="h-10 w-10 mx-auto mb-3 opacity-50" />
                 <p className="font-medium">No callers found</p>
-                <p className="text-xs mt-1">Try adjusting the date filters</p>
               </div>
             ) : (
               <>
+                {/* Summary Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                   <div className="p-3 rounded-lg bg-muted/50 text-center">
                     <p className="text-2xl font-bold">{callerSummary.unique_callers}</p>
@@ -956,6 +448,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                     <p className="text-xs text-muted-foreground">SLA Breached</p>
                   </div>
                 </div>
+
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -975,49 +468,86 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           <TableCell>
                             <div>
                               {caller.lead_name ? (
-                                <Link href={caller.lead_id ? `/admission/leads/${caller.lead_id}` : '#'} className="text-sm font-medium hover:underline text-primary">{caller.lead_name}</Link>
+                                <Link
+                                  href={caller.lead_id ? `/admission/leads/${caller.lead_id}` : '#'}
+                                  className="text-sm font-medium hover:underline text-primary"
+                                >
+                                  {caller.lead_name}
+                                </Link>
                               ) : (
                                 <span className="text-sm font-medium text-muted-foreground italic">Unknown</span>
                               )}
-                              <p className="text-xs text-muted-foreground font-mono">{maskPhone(caller.from_number)}</p>
+                              <p className="text-xs text-muted-foreground font-mono">
+                                {maskPhone(caller.from_number)}
+                              </p>
                             </div>
                           </TableCell>
                           <TableCell>
                             {caller.caller_location ? (
-                              <span className="text-xs flex items-center gap-1"><MapPin className="h-3 w-3 text-muted-foreground" />{caller.caller_location}</span>
-                            ) : <span className="text-xs text-muted-foreground">-</span>}
+                              <span className="text-xs flex items-center gap-1">
+                                <MapPin className="h-3 w-3 text-muted-foreground" />
+                                {caller.caller_location}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-mono font-bold">{caller.total_attempts}</span>
                               <div className="text-[10px] text-muted-foreground">
-                                <span className="text-green-600">{caller.answered_count} ans</span>{' / '}<span className="text-red-500">{caller.missed_count} miss</span>
+                                <span className="text-green-600">{caller.answered_count} ans</span>
+                                {' / '}
+                                <span className="text-red-500">{caller.missed_count} miss</span>
                               </div>
                             </div>
-                            {caller.days_trying > 1 && <p className="text-[10px] text-muted-foreground">over {caller.days_trying} days</p>}
+                            {caller.days_trying > 1 && (
+                              <p className="text-[10px] text-muted-foreground">over {caller.days_trying} days</p>
+                            )}
                           </TableCell>
                           <TableCell>
                             {neverReached ? (
                               <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200 text-[10px]">
-                                <AlertCircle className="h-2.5 w-2.5 mr-0.5" />Never Reached
+                                <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
+                                Never Reached
                               </Badge>
                             ) : (
-                              <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">Connected</Badge>
+                              <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">
+                                Connected
+                              </Badge>
                             )}
-                            {caller.auto_sms_sent && <p className="text-[10px] text-blue-500 mt-0.5">SMS sent</p>}
+                            {caller.auto_sms_sent && (
+                              <p className="text-[10px] text-blue-500 mt-0.5">SMS sent</p>
+                            )}
                           </TableCell>
                           <TableCell>
                             {caller.callback_status ? (
-                              <Badge variant="outline" className={`text-[10px] ${
-                                caller.sla_breached ? 'bg-red-100 text-red-700 border-red-200' :
-                                caller.callback_status === 'completed' ? 'bg-green-100 text-green-700 border-green-200' :
-                                'bg-yellow-100 text-yellow-700 border-yellow-200'
-                              }`}>{caller.sla_breached ? 'SLA BREACHED' : caller.callback_status}</Badge>
-                            ) : <span className="text-xs text-muted-foreground">-</span>}
+                              <div>
+                                <Badge variant="outline" className={`text-[10px] ${
+                                  caller.sla_breached
+                                    ? 'bg-red-100 text-red-700 border-red-200'
+                                    : caller.callback_status === 'completed'
+                                    ? 'bg-green-100 text-green-700 border-green-200'
+                                    : 'bg-yellow-100 text-yellow-700 border-yellow-200'
+                                }`}>
+                                  {caller.sla_breached ? 'SLA BREACHED' : caller.callback_status}
+                                </Badge>
+                                {caller.callback_priority && (
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">{caller.callback_priority}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(caller.last_call_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
+                              {new Date(caller.last_call_at).toLocaleDateString(undefined, {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
                             </span>
                           </TableCell>
                         </TableRow>
@@ -1028,10 +558,10 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               </>
             )
           ) : (
-          /* ======= ALL CALLS VIEW — mobile cards + desktop table ======= */
+          /* ======= ALL CALLS VIEW (original) ======= */
           logsLoading ? (
             <div className="space-y-3">
-              {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
+              {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
             </div>
           ) : logs.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
@@ -1043,176 +573,67 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
             </div>
           ) : (
             <>
-              {/* ── MOBILE: Card-based layout (< md) ── */}
-              <div className="md:hidden space-y-2">
-                {logs.map((log: any) => {
-                  const isMissed = !log.cost_amount || log.cost_amount <= 0;
-                  const callTime = new Date(log.started_at || log.created_at);
-                  const now = new Date();
-                  const diffMs = now.getTime() - callTime.getTime();
-                  const diffMins = Math.floor(diffMs / 60000);
-                  const relativeTime = diffMins < 1 ? 'Just now'
-                    : diffMins < 60 ? `${diffMins}m ago`
-                    : diffMins < 1440 ? `${Math.floor(diffMins / 60)}h ago`
-                    : `${Math.floor(diffMins / 1440)}d ago`;
-
-                  return (
-                    <div
-                      key={log.id}
-                      className={cn(
-                        "relative rounded-lg border overflow-hidden transition-colors active:bg-muted/50",
-                        isMissed
-                          ? "border-l-[3px] border-l-red-500 bg-red-50/30 dark:bg-red-950/10"
-                          : "border-l-[3px] border-l-emerald-500"
-                      )}
-                      onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}
-                    >
-                      <div className="p-3">
-                        {/* Row 1: Caller + Time */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            {log.lead ? (
-                              <p className="text-sm font-semibold truncate">{log.lead.full_name}</p>
-                            ) : (
-                              <p className="text-sm font-medium text-muted-foreground">Unknown Caller</p>
-                            )}
-                            <p className="text-xs text-muted-foreground font-mono mt-0.5">
-                              {log.from_number ? maskPhone(log.from_number) : '-'}
-                            </p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="text-xs font-medium text-muted-foreground">{relativeTime}</p>
-                            <p className="text-[10px] text-muted-foreground/70">
-                              {callTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'UTC' })}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Row 2: Status + Duration + Tags + Action */}
-                        <div className="flex items-center justify-between mt-2.5 gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {isMissed
-                              ? <span className="inline-flex items-center text-[11px] font-semibold text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 rounded-full"><PhoneMissed className="h-3 w-3 mr-1" />Missed</span>
-                              : <span className="inline-flex items-center text-[11px] font-semibold text-emerald-700 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-0.5 rounded-full"><PhoneCall className="h-3 w-3 mr-1" />Answered</span>
-                            }
-                            {log.duration_seconds > 0 && (
-                              <span className="text-xs text-muted-foreground font-mono">{formatDuration(log.duration_seconds)}</span>
-                            )}
-                            {log.auto_sms_sent && (
-                              <span className="text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-1.5 py-0.5 rounded">SMS</span>
-                            )}
-                          </div>
-
-                          {/* Primary action */}
-                          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                            {isMissed && log.from_number ? (
-                              <a
-                                href={`tel:${log.from_number}`}
-                                className="inline-flex items-center gap-1.5 h-9 px-4 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-full shadow-sm transition-colors"
-                              >
-                                <Phone className="h-4 w-4" />
-                                Call Back
-                              </a>
-                            ) : log.recording_url ? (
-                              <RecordingPlayer url={log.recording_url} />
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* ── DESKTOP: Table layout (≥ md) ── */}
-              <div className="hidden md:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Caller</TableHead>
-                      <TableHead>ExoPhone</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Follow-up</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>Recording</TableHead>
-                      <TableHead>Time</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {logs.map((log: any) => (
-                      <TableRow key={log.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}>
-                        <TableCell>
-                          <div>
-                            {log.lead ? (
-                              <Link
-                                href={`/admission/leads/${log.lead.id}`}
-                                className="text-sm font-medium hover:underline text-primary"
-                              >
-                                {log.lead.full_name}
-                              </Link>
-                            ) : (
-                              <span className="text-sm font-medium text-muted-foreground italic">Unknown Caller</span>
-                            )}
-                            <p className="text-xs text-muted-foreground font-mono">
-                              {log.from_number ? maskPhone(log.from_number) : '-'}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-xs text-muted-foreground font-mono">
-                            {log.to_number ? `...${log.to_number.slice(-4)}` : '-'}
-                          </span>
-                        </TableCell>
-                        <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <div className="flex flex-wrap gap-1">
-                            {log.auto_sms_sent && (
-                              <Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-50 text-blue-700 border-blue-200">SMS</Badge>
-                            )}
-                            {log.callback_queued && (
-                              <Badge variant="outline" className="text-[10px] px-1 py-0 bg-purple-50 text-purple-700 border-purple-200">Callback</Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {log.duration_seconds > 0 ? (
-                            <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">--</span>
-                          )}
-                        </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <RecordingPlayer url={log.recording_url} />
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              timeZone: 'UTC',
-                            })}
-                          </span>
-                        </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          {(!log.cost_amount || log.cost_amount <= 0) && log.from_number && (
-                            <a
-                              href={`tel:${log.from_number}`}
-                              className="inline-flex items-center h-8 px-2.5 text-xs border rounded-md hover:bg-accent"
-                              onClick={(e) => e.stopPropagation()}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Caller</TableHead>
+                    <TableHead>ExoPhone</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Recording</TableHead>
+                    <TableHead>Time</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {logs.map((log: any) => (
+                    <TableRow key={log.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => router.push(`/admission/counselors/calls/${log.id}`)}>
+                      <TableCell>
+                        <div>
+                          {log.lead ? (
+                            <Link
+                              href={`/admission/leads/${log.lead.id}`}
+                              className="text-sm font-medium hover:underline text-primary"
                             >
-                              <Phone className="h-3 w-3 mr-1" />
-                              Call Back
-                            </a>
+                              {log.lead.full_name}
+                            </Link>
+                          ) : (
+                            <span className="text-sm font-medium text-muted-foreground italic">Unknown Caller</span>
                           )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                          <p className="text-xs text-muted-foreground font-mono">
+                            {log.from_number ? maskPhone(log.from_number) : '-'}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {log.to_number ? `...${log.to_number.slice(-4)}` : '-'}
+                        </span>
+                      </TableCell>
+                      <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
+                      <TableCell>
+                        {log.duration_seconds > 0 ? (
+                          <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">--</span>
+                        )}
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <RecordingPlayer url={log.recording_url} />
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(log.created_at).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
 
               {/* Pagination */}
               {totalPages > 1 && (
