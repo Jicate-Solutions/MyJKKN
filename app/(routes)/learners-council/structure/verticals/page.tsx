@@ -4,16 +4,23 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
-import { getEnhancedUserProfile } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
 import { Layers } from 'lucide-react';
 import { VerticalsClient } from './verticals-client';
 
 export default async function VerticalsPage() {
-  const { profile } = await getEnhancedUserProfile();
-  if (!profile) redirect('/');
-
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Please sign in to access this page.</p></div>;
+  }
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, role, institution_id, full_name, avatar_url, email')
+    .eq('id', user.id)
+    .single();
+  if (!profile) {
+    return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Please sign in to access this page.</p></div>;
+  }
 
   const [
     { data: verticals },
