@@ -162,17 +162,23 @@ export default async function LearnersCouncilDashboard({
 }: {
   searchParams?: Promise<{ scope?: string }>;
 }) {
-  const { profile } = await getEnhancedUserProfile();
+  const supabase = await createClient();
 
-  if (!profile) {
+  // Get auth user and profile in one flow using the same client
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
     return (
       <div className="flex items-center justify-center py-20">
-        <p className="text-muted-foreground">Loading your profile...</p>
+        <p className="text-muted-foreground">Please sign in to access Learners Council.</p>
       </div>
     );
   }
 
-  const supabase = await createClient();
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, role, institution_id, full_name, avatar_url, email')
+    .eq('id', user.id)
+    .single();
 
   // Check LC membership from DB with position details
   const { data: lcMembership } = await supabase
