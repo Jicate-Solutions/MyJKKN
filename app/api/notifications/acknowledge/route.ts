@@ -59,11 +59,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({
-      message: 'Notification acknowledged',
-      acknowledged_at: now,
-      notification_id
-    });
+    return NextResponse.json(result);
   } catch (error) {
     console.error('Error in acknowledge endpoint:', error);
     return NextResponse.json(
