@@ -125,7 +125,7 @@ export function GDPIDataTable() {
         getColumns={() => getGDPIColumns(triggerRefresh) as any}
         exportConfig={{ entityName: 'gdpi-sessions', columnMapping: {}, columnWidths: [], headers: [] }}
         idField="id"
-        config={{ enableUrlState: false, enableDateFilter: false, enableExport: false }}
+        config={{ enableUrlState: false, enableDateFilter: false, enableExport: true }}
       />
     </div>
   );

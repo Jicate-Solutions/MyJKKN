@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -16,6 +16,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 import {
   ArrowLeft,
   Phone,
@@ -37,6 +45,11 @@ import {
   HelpCircle,
   RefreshCw,
   Zap,
+  X,
+  ChevronDown,
+  User,
+  BellOff,
+  Star,
 } from 'lucide-react';
 import { useConversation, useConversationMessages } from '@/hooks/admission/use-conversation';
 import { useChatMutations } from '@/hooks/admission/use-chat-mutations';
@@ -175,6 +188,8 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
   const [messageText, setMessageText] = useState('');
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [windowInfo, setWindowInfo] = useState<WindowInfo>({
     withinWindow: false,
     expiresAt: null,
@@ -213,6 +228,26 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
   }, [conversation?.last_inbound_at]);
 
   const canSendFreeText = windowInfo.status === 'open' || windowInfo.status === 'closing';
+
+  // Filter messages by search query (client-side)
+  const filteredMessages = searchQuery.trim()
+    ? messages.filter((msg) =>
+        msg.content?.text?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : messages;
+
+  // Scroll-to-bottom FAB visibility
+  const [showScrollFab, setShowScrollFab] = useState(false);
+
+  const handleScrollAreaScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollFab(distanceFromBottom > 200);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
 
   // Auto-scroll to bottom only when new messages are appended (not when older ones are prepended)
   useEffect(() => {
@@ -399,34 +434,98 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
           </div>
         </button>
 
-        {/* Action icons — not yet wired */}
+        {/* Action icons */}
         <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Search in chat */}
           <button
-            disabled
-            title="Coming soon"
-            className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] opacity-50 cursor-not-allowed"
-            aria-label="Search in chat (coming soon)"
+            onClick={() => {
+              setSearchOpen((prev) => {
+                if (prev) setSearchQuery('');
+                return !prev;
+              });
+            }}
+            className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] hover:bg-black/5 dark:hover:bg-white/10"
+            aria-label="Search in chat"
           >
             <Search className="h-5 w-5" />
           </button>
-          <button
-            disabled
-            title="Coming soon"
-            className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] opacity-50 cursor-not-allowed"
-            aria-label="Call (coming soon)"
-          >
-            <Phone className="h-5 w-5" />
-          </button>
-          <button
-            disabled
-            title="Coming soon"
-            className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] opacity-50 cursor-not-allowed"
-            aria-label="More options (coming soon)"
-          >
-            <MoreVertical className="h-5 w-5" />
-          </button>
+
+          {/* Call button — tel: link if phone available */}
+          {conversation?.contact_phone ? (
+            <a
+              href={`tel:${conversation.contact_phone}`}
+              className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] hover:bg-black/5 dark:hover:bg-white/10"
+              aria-label={`Call ${conversation.contact_phone}`}
+            >
+              <Phone className="h-5 w-5" />
+            </a>
+          ) : (
+            <button
+              onClick={() => toast.info('No phone number available for this contact.')}
+              className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] hover:bg-black/5 dark:hover:bg-white/10"
+              aria-label="Call"
+            >
+              <Phone className="h-5 w-5" />
+            </button>
+          )}
+
+          {/* More options dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="h-9 w-9 flex items-center justify-center rounded-full transition-colors text-[#54656f] dark:text-[#aebac1] hover:bg-black/5 dark:hover:bg-white/10"
+                aria-label="More options"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {conversation?.lead_id && (
+                <DropdownMenuItem asChild>
+                  <a href={`/admission/leads/${conversation.lead_id}`}>
+                    <User className="h-4 w-4 mr-2" />
+                    View Lead Profile
+                  </a>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => toast.success('Marked as important')}>
+                <Star className="h-4 w-4 mr-2" />
+                Mark as Important
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => toast.success('Notifications muted')}>
+                <BellOff className="h-4 w-4 mr-2" />
+                Mute Notifications
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
+
+      {/* ===== SEARCH BAR ===== */}
+      {searchOpen && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-[#202c33] border-b border-gray-200 dark:border-[#2a3942] flex-shrink-0">
+          <Search className="h-4 w-4 text-[#8696a0] flex-shrink-0" />
+          <Input
+            autoFocus
+            placeholder="Search messages..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-8 text-sm border-none bg-transparent shadow-none focus-visible:ring-0 placeholder:text-[#8696a0]"
+          />
+          {searchQuery && (
+            <span className="text-xs text-[#8696a0] flex-shrink-0 whitespace-nowrap">
+              {filteredMessages.length} found
+            </span>
+          )}
+          <button
+            onClick={() => { setSearchOpen(false); setSearchQuery(''); }}
+            className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-black/5 dark:hover:bg-white/10 text-[#54656f] dark:text-[#aebac1] flex-shrink-0"
+            aria-label="Close search"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* ===== MESSAGES AREA ===== */}
       <div className="flex-1 relative overflow-hidden">
@@ -438,7 +537,7 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
           }}
         />
 
-        <ScrollArea className="h-full">
+        <ScrollArea className="h-full" onScrollCapture={handleScrollAreaScroll}>
           <div className="px-3 py-4 flex flex-col" ref={scrollAreaRef}>
 
             {/* Load older messages */}
@@ -472,24 +571,24 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
                   </div>
                 ))}
               </div>
-            ) : messages.length === 0 ? (
+            ) : filteredMessages.length === 0 ? (
               <div className="flex justify-center py-8">
                 <div className="bg-[#182229]/80 text-white/70 text-xs px-4 py-2 rounded-lg">
-                  No messages yet. Send a template to start.
+                  {searchQuery ? 'No messages match your search.' : 'No messages yet. Send a template to start.'}
                 </div>
               </div>
             ) : (
               <div>
-                {messages.map((msg, idx) => {
+                {filteredMessages.map((msg, idx) => {
                   const isOutbound = msg.direction === 'outbound';
                   const isSystem = msg.sender_type === 'system';
-                  const firstInGroup = isFirstInGroup(messages, idx);
+                  const firstInGroup = isFirstInGroup(filteredMessages, idx);
 
                   // Date separator
                   const showDateSep =
                     idx === 0 ||
                     new Date(msg.created_at).toDateString() !==
-                      new Date(messages[idx - 1].created_at).toDateString();
+                      new Date(filteredMessages[idx - 1].created_at).toDateString();
 
                   return (
                     <div key={msg.id}>
@@ -653,7 +752,16 @@ export function ChatThread({ conversationId, onBack, onContactClick }: ChatThrea
           </div>
         </ScrollArea>
 
-        {/* TODO: Wire up scroll-to-bottom FAB with scroll position detection */}
+        {/* Scroll-to-bottom FAB */}
+        {showScrollFab && (
+          <button
+            onClick={scrollToBottom}
+            className="absolute bottom-4 right-4 h-10 w-10 rounded-full bg-white dark:bg-[#202c33] shadow-lg flex items-center justify-center text-[#54656f] dark:text-[#aebac1] hover:bg-gray-50 dark:hover:bg-[#2a3942] transition-colors z-10"
+            aria-label="Scroll to bottom"
+          >
+            <ChevronDown className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       {/* ===== 24HR WINDOW BANNER ===== */}

@@ -94,7 +94,7 @@ export class VoiceBroadcastService {
   private static supabase = createClientSupabaseClient();
 
   static async getCampaigns(filters: BroadcastFilters): Promise<BroadcastCampaignsResult> {
-    console.warn('[voice-broadcast-service] getCampaigns stub called');
+    console.info('[voice-broadcast] Voice broadcast requires Exotel Voice API — not yet configured for this account');
     return { campaigns: [], total: 0 };
   }
 

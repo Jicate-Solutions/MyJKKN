@@ -436,39 +436,29 @@ function ChatSettingsContent() {
           {/* Quick Replies */}
           <QuickReplyManager />
 
-          {/* Business Hours (placeholder for future config) */}
+          {/* Business Hours */}
           <Card>
             <CardHeader>
               <CardTitle>Business Hours</CardTitle>
               <CardDescription>
-                Configure when counselors are available for live chat.
-                Outside business hours, the auto-reply message will be sent.
+                When counselors are available for live chat. Outside these hours,
+                the auto-reply message will be sent.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4 max-w-md">
-                <div className="space-y-2">
-                  <Label>Start Time</Label>
-                  <Input type="time" defaultValue="09:00" />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 border rounded-lg">
+                  <span className="text-sm font-medium">Monday - Saturday</span>
+                  <Badge variant="secondary">8:00 AM - 8:00 PM IST</Badge>
                 </div>
-                <div className="space-y-2">
-                  <Label>End Time</Label>
-                  <Input type="time" defaultValue="18:00" />
+                <div className="flex items-center justify-between p-3 border rounded-lg">
+                  <span className="text-sm font-medium">Sunday</span>
+                  <Badge variant="outline" className="text-muted-foreground">Closed</Badge>
                 </div>
               </div>
-              <div className="mt-4 space-y-2">
-                <Label>Away Message</Label>
-                <Textarea
-                  placeholder="Thank you for reaching out! Our team is currently unavailable. We'll respond during business hours (9 AM - 6 PM IST)."
-                  rows={3}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Sent automatically when a prospect messages outside business hours.
-                </p>
-              </div>
-              <Button className="mt-4" size="sm">
-                Save Settings
-              </Button>
+              <p className="text-xs text-muted-foreground mt-4">
+                To change business hours, update them in your institution settings.
+              </p>
             </CardContent>
           </Card>
 
