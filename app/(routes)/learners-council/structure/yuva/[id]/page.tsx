@@ -46,10 +46,19 @@ interface PageProps {
 
 export default async function YUVAChapterDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const { profile } = await getEnhancedUserProfile();
-  if (!profile) redirect('/');
-
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Please sign in to access this page.</p></div>;
+  }
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, role, institution_id, full_name, avatar_url, email')
+    .eq('id', user.id)
+    .single();
+  if (!profile) {
+    return <div className="flex items-center justify-center py-20"><p className="text-muted-foreground">Please sign in to access this page.</p></div>;
+  }
 
   // Fetch chapter details
   const { data: chapter } = await supabase
