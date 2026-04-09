@@ -241,8 +241,8 @@ export function AcknowledgmentGate({ children }: { children: React.ReactNode }) 
                 'Acknowledging...'
               ) : (
                 <>
-                  <CheckCircle2 className="h-5 w-5" />
-                  I Acknowledge
+                  <span className="text-lg">🙏</span>
+                  Vanakkam — I Acknowledge
                   {notifications.length > 1 && currentIndex < notifications.length - 1 && (
                     <ChevronRight className="h-4 w-4 ml-1" />
                   )}
