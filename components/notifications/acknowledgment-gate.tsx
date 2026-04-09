@@ -182,6 +182,29 @@ export function AcknowledgmentGate({ children }: { children: React.ReactNode }) 
               <RichTextDisplay content={current.body} />
             </div>
 
+            {/* Attachments */}
+            {current.metadata?.attachments && current.metadata.attachments.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-muted-foreground">Attachments:</p>
+                <div className="space-y-1.5">
+                  {current.metadata.attachments.map((att: any, idx: number) => (
+                    <a
+                      key={idx}
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg border bg-muted/30 hover:bg-muted/60 transition-colors text-sm"
+                    >
+                      <span className="truncate flex-1">{att.name}</span>
+                      <Badge variant="outline" className="text-xs shrink-0">
+                        {att.type?.split('/').pop()?.toUpperCase() || 'FILE'}
+                      </Badge>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Deadline indicator */}
             <div
               className={cn(
