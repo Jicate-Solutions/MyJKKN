@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 // On successful payment callback, the registration is created automatically.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
 import { HDFCEventClient } from '@/lib/services/events/core/hdfc-event-client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -64,6 +64,48 @@ export async function POST(
 
     if (eventError || !event) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
+    }
+
+    // SECURITY / DATA INTEGRITY: If the caller is authenticated, FORCE the
+    // registration's profile_id and learner_id to come from the session —
+    // never trust the client-supplied values. This prevents a helper user
+    // registering classmates from their own browser and accidentally (or
+    // maliciously) stamping their own profile_id onto every row.
+    // External/public registrations (no session) continue to work with
+    // whatever profile_id the client sends, which is typically null.
+    const { user: authUser } = await getAuthUser();
+    if (authUser) {
+      let derivedLearnerId: string | null = null;
+      try {
+        // Match learner by the user's profile email against learners_profiles.college_email
+        // (mirrors the pattern used in getEnhancedUserProfile at lib/supabase/server.ts)
+        const { data: authProfile } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('id', authUser.id)
+          .single();
+        if (authProfile?.email) {
+          const { data: learnerRow } = await supabase
+            .from('learners_profiles')
+            .select('id')
+            .eq('college_email', authProfile.email)
+            .maybeSingle();
+          derivedLearnerId = learnerRow?.id ?? null;
+        }
+      } catch (lookupError) {
+        logger.warn('events/payment', 'Learner lookup failed in pre-register', {
+          userId: authUser.id,
+          error: lookupError instanceof Error ? lookupError.message : String(lookupError),
+        });
+      }
+      // Override any client-supplied profile_id / learner_id with session-derived values
+      (registration_data as Record<string, unknown>).profile_id = authUser.id;
+      if (derivedLearnerId) {
+        (registration_data as Record<string, unknown>).learner_id = derivedLearnerId;
+      } else {
+        // Clear it rather than leave whatever the client sent
+        (registration_data as Record<string, unknown>).learner_id = null;
+      }
     }
 
     // Generate unique transaction reference

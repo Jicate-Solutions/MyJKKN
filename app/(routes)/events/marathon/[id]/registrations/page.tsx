@@ -311,17 +311,31 @@ export default function MarathonRegistrationsPage() {
   // - super_admin / event_coordinator / committee_member / institution roles → see ALL registrations
   // - student (access.selfOnly) → see ONLY their own registration(s)
   // Write actions (add, check-in, cancel) remain gated per-button via access.canManage.
+  //
+  // Match strategy (defensive): a student's own row may be keyed by any of:
+  //   1. profile_id equal to their auth user id (happens when they self-register)
+  //   2. participant_email equal to their login email (case-insensitive)
+  //   3. participant_phone equal to their profile phone (covers helper-registered
+  //      rows where profile_id was wrong — post-repair, phone is the most stable
+  //      per-person identifier at JKKN)
+  // Any one match is enough. This is wider than strictly needed on purpose: the
+  // write path is still gated by access.canManage, so extra visibility is safe.
+  const phoneDigits = user?.phone?.replace(/\D/g, '') || '';
   const registrations = useMemo(() => {
     const list = allRegistrations ?? [];
     if (!access.selfOnly) return list;
     const uid = user?.id;
     const email = user?.email?.toLowerCase();
-    return list.filter(
-      (r) =>
-        (uid && r.profile_id === uid) ||
-        (email && r.participant_email?.toLowerCase() === email)
-    );
-  }, [allRegistrations, access.selfOnly, user?.id, user?.email]);
+    return list.filter((r) => {
+      if (uid && r.profile_id === uid) return true;
+      if (email && r.participant_email?.toLowerCase() === email) return true;
+      if (phoneDigits && r.participant_phone) {
+        const regPhone = r.participant_phone.replace(/\D/g, '');
+        if (regPhone && regPhone.endsWith(phoneDigits.slice(-10))) return true;
+      }
+      return false;
+    });
+  }, [allRegistrations, access.selfOnly, user?.id, user?.email, phoneDigits]);
 
   const categories = useMemo(
     () =>
