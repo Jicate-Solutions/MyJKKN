@@ -350,7 +350,11 @@ export function NotificationForm() {
             data.target_roles && data.target_roles.length > 0
               ? data.target_roles
               : undefined
-        }
+        },
+        requires_acknowledgment: data.requires_acknowledgment || false,
+        acknowledgment_deadline_hours: data.requires_acknowledgment
+          ? (data.acknowledgment_deadline_hours || 4)
+          : undefined
       };
 
       const response = await fetch('/api/notifications/send', {
