@@ -178,13 +178,30 @@ function TaskRow({
   task,
   eventId,
   onEdit,
+  canManage,
+  isLead,
+  currentUserId,
+  currentUserName,
 }: {
   task: MarathonTask;
   eventId: string;
   onEdit: (task: MarathonTask) => void;
+  canManage: boolean;
+  isLead: boolean;
+  currentUserId: string | null;
+  currentUserName: string | null;
 }) {
   const updateTask = useUpdateTask();
   const deleteTask = useDeleteTask();
+
+  // Permission checks:
+  // - canEdit: admin OR committee lead (can edit/delete any task)
+  // - canUpdateStatus: canEdit OR task is assigned to current user
+  const canEdit = canManage || isLead;
+  const isAssignedToMe =
+    (currentUserId && task.assigned_to === currentUserId) ||
+    (currentUserName && task.assigned_to_name === currentUserName);
+  const canUpdateStatus = canEdit || isAssignedToMe;
 
   const priority = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.medium;
   const status = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.pending;
@@ -229,50 +246,60 @@ function TaskRow({
           : '—'}
       </span>
 
-      {/* Change status quick-select */}
-      <Select
-        value={task.status}
-        onValueChange={(v) =>
-          updateTask.mutate({
-            id: task.id,
-            eventId,
-            dto: { status: v as TaskStatus },
-          })
-        }
-      >
-        <SelectTrigger className="h-6 text-[11px] w-[110px]">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {STATUS_OPTIONS.map((s) => (
-            <SelectItem key={s} value={s} className="text-xs">
-              {STATUS_CONFIG[s].label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {/* Change status quick-select — only if user can update this task */}
+      {canUpdateStatus ? (
+        <Select
+          value={task.status}
+          onValueChange={(v) =>
+            updateTask.mutate({
+              id: task.id,
+              eventId,
+              dto: { status: v as TaskStatus },
+            })
+          }
+        >
+          <SelectTrigger className="h-6 text-[11px] w-[110px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {STATUS_OPTIONS.map((s) => (
+              <SelectItem key={s} value={s} className="text-xs">
+                {STATUS_CONFIG[s].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <span className="text-[11px] text-muted-foreground w-[110px] text-center">
+          —
+        </span>
+      )}
 
-      {/* Actions */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-6 w-6">
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => onEdit(task)}>
-            <Pencil className="h-3.5 w-3.5 mr-2" />
-            Edit
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-destructive"
-            onClick={() => deleteTask.mutate({ id: task.id, eventId })}
-          >
-            <Trash2 className="h-3.5 w-3.5 mr-2" />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* Actions — admin or committee lead only */}
+      {canEdit ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-6 w-6">
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => onEdit(task)}>
+              <Pencil className="h-3.5 w-3.5 mr-2" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive"
+              onClick={() => deleteTask.mutate({ id: task.id, eventId })}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <div className="w-6" />
+      )}
     </div>
   );
 }
@@ -289,6 +316,8 @@ function CommitteeItem({
   onEditCommittee,
   canManage,
   isLead,
+  currentUserId,
+  currentUserName,
 }: {
   committee: MarathonCommittee;
   eventId: string;
@@ -297,6 +326,8 @@ function CommitteeItem({
   onEditCommittee: (committee: MarathonCommittee) => void;
   canManage: boolean;
   isLead: boolean;
+  currentUserId: string | null;
+  currentUserName: string | null;
 }) {
   const deleteCommittee = useDeleteCommittee();
 
@@ -389,6 +420,10 @@ function CommitteeItem({
               task={task}
               eventId={eventId}
               onEdit={onEditTask}
+              canManage={canManage}
+              isLead={isLead}
+              currentUserId={currentUserId}
+              currentUserName={currentUserName}
             />
           ))
         )}
@@ -1238,6 +1273,8 @@ export default function MarathonCommitteesPage() {
                     onEditCommittee={handleEditCommittee}
                     canManage={access.canManage}
                     isLead={membership.leadCommitteeIds.includes(committee.id)}
+                    currentUserId={access.profileId}
+                    currentUserName={membership.userName}
                   />
                 ))}
               </Accordion>
