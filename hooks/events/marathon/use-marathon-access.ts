@@ -41,7 +41,7 @@ export interface MarathonAccess {
   isLoading: boolean;
 }
 
-const ADMIN_ROLES = ['super_admin', 'admin', 'administrator'];
+const ADMIN_ROLES = ['super_admin', 'admin', 'administrator', 'event_coordinator'];
 const INSTITUTION_ROLES = ['principal', 'hod', 'faculty', 'vice_principal', 'dean'];
 const SELF_ONLY_ROLES = ['student'];
 
