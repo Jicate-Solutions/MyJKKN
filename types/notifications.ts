@@ -118,4 +118,8 @@ export interface UnacknowledgedNotification {
   sent_at: string;
   deadline_at: string;
   is_overdue: boolean;
+  metadata?: {
+    attachments?: NotificationAttachment[];
+    [key: string]: any;
+  };
 }
