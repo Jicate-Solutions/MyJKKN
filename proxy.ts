@@ -20,7 +20,10 @@ const PUBLIC_PATHS_SET = new Set([
   '/sw.js',
   '/manifest.webmanifest',
   '/browserconfig.xml',
-  '/pwa-test.html'
+  '/pwa-test.html',
+  '/refer', // Agent referral form — public, no login
+  '/api/admission/leads/refer', // Agent referral API
+  '/api/admission/leads/inbound' // Inbound webhook API
 ]);
 
 // Regex for static assets - single check instead of multiple endsWith
