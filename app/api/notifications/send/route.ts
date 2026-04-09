@@ -388,14 +388,21 @@ async function sendWebPushNotifications(
       .replace(/\n{3,}/g, '\n\n')
       .trim();
 
+    const requiresAck = notification.requires_acknowledgment || false;
     const pushPayload = JSON.stringify({
-      title: notification.title,
-      body: plainBody,
+      title: requiresAck
+        ? `⚠️ ACTION REQUIRED: ${notification.title}`
+        : notification.title,
+      body: requiresAck
+        ? `${plainBody}\n\nTap to acknowledge (mandatory)`
+        : plainBody,
       icon: notification.icon || '/icons/icon-192x192.png',
       url: notification.url || '/notifications',
+      requireInteraction: requiresAck, // Don't auto-dismiss if acknowledgment required
       data: {
         notification_id: notification.id,
         priority: notification.priority,
+        requires_acknowledgment: requiresAck,
         created_at: notification.created_at
       }
     });
