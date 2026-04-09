@@ -306,27 +306,9 @@ export default function MarathonRegistrationsPage() {
     refetch,
   } = useMarathonRegistrations(eventId, filters);
 
-  // Filter registrations based on access level
-  const registrations = useMemo(() => {
-    if (!allRegistrations) return [];
-    if (access.level === 'full') {
-      // Super admin / admin: see all registrations
-      return allRegistrations;
-    }
-    if (access.level === 'institution' && access.institutionId) {
-      // Principal / HOD / Faculty: see only their institution's registrations
-      return allRegistrations.filter(
-        (r) => r.institution_id === access.institutionId
-      );
-    }
-    if (access.level === 'self' && access.profileId) {
-      // Student: see only their own registration
-      return allRegistrations.filter(
-        (r) => r.profile_id === access.profileId
-      );
-    }
-    return [];
-  }, [allRegistrations, access.level, access.institutionId, access.profileId]);
+  // All authenticated users can view all registrations (read-only for non-admin).
+  // Write actions (add, check-in, cancel) are gated per-button via access.canManage.
+  const registrations = allRegistrations ?? [];
 
   const categories = useMemo(
     () =>
@@ -493,29 +475,23 @@ export default function MarathonRegistrationsPage() {
 
       <div className="space-y-4 mt-4">
         <div>
-          <h1 className="text-2xl font-bold py-1">
-            {access.selfOnly ? 'My Registration' : 'Registrations'}
-          </h1>
+          <h1 className="text-2xl font-bold py-1">Registrations</h1>
           <p className="text-sm text-muted-foreground">
-            {access.selfOnly
-              ? `Your registration for ${event?.name ?? 'this event'}.`
-              : access.level === 'institution'
-                ? `Registrations from your institution for ${event?.name ?? 'this event'}.`
-                : `Manage participant registrations for ${event?.name ?? 'this event'}.`}
+            {access.canManage
+              ? `Manage participant registrations for ${event?.name ?? 'this event'}.`
+              : `View all registrations for ${event?.name ?? 'this event'}.`}
           </p>
         </div>
 
         {/* Stats Cards — only for admin users */}
         {access.canManage && <StatsCards eventId={eventId} />}
 
-        {/* Filters — only for admin and institution users */}
-        {!access.selfOnly && (
-          <FilterBar
-            filters={filters}
-            setFilters={setFilters}
-            categories={categories}
-          />
-        )}
+        {/* Filters — visible to all users */}
+        <FilterBar
+          filters={filters}
+          setFilters={setFilters}
+          categories={categories}
+        />
 
         {/* Data Table */}
         {isLoading && (
