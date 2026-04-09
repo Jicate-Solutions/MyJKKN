@@ -6,6 +6,7 @@ import AdminPanelLayout from '@/components/layout/admin-panel-layout';
 import { QueryClientProvider } from '@/providers/query-provider';
 import { BugReporterWidget } from '@/components/bug-reporter/bug-reporter-widget';
 import { WorkPulseFab } from '@/components/work-pulse-fab';
+import { AcknowledgmentGate } from '@/components/notifications/acknowledgment-gate';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
