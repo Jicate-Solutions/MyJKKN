@@ -59,7 +59,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, {
+      headers: { 'Cache-Control': 'private, no-store, no-cache, must-revalidate' }
+    });
   } catch (error) {
     console.error('Error in acknowledge endpoint:', error);
     return NextResponse.json(
