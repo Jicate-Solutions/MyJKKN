@@ -23,7 +23,7 @@ export default async function LearnersCouncilLayout({ children }: LCLayoutProps)
   if (profile?.id) {
     const { data: lcMembership } = await supabase
       .from('lc_members')
-      .select('id, yuva_role, position:lc_positions(category, tier)')
+      .select('id, position:lc_positions(category, tier)')
       .eq('user_id', profile.id)
       .eq('status', 'active')
       .maybeSingle();
