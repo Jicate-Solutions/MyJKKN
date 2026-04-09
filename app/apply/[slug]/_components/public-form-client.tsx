@@ -353,6 +353,13 @@ export default function PublicFormClient({
           // Section conditional visibility
           if (!evaluateCondition(section.condition, watchedValues)) return null;
 
+          // Hide sections with no visible fields — prevents empty cards when
+          // all fields have been removed or hidden by conditional logic
+          const visibleFields = (section.fields ?? []).filter((f) =>
+            evaluateCondition(f.condition, watchedValues)
+          );
+          if (visibleFields.length === 0) return null;
+
           return (
             <Card key={section.id}>
               <CardContent className="pt-6 space-y-4">

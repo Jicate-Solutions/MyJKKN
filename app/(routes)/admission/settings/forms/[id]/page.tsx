@@ -47,6 +47,16 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { useAdmissionForm, useFormMutations } from '@/hooks/admission/use-admission-forms';
@@ -112,6 +122,90 @@ const LEAD_FIELD_OPTIONS = [
   { value: 'pincode', label: 'Pincode' },
   { value: 'notes', label: 'Notes' },
 ];
+
+// ─── Section Block (header with inline rename + delete, contains fields) ───
+
+function SectionBlock({
+  section,
+  selectedFieldId,
+  onSelectField,
+  onDeleteField,
+  onTitleCommit,
+  onDescriptionCommit,
+  onDeleteSection,
+}: {
+  section: any;
+  selectedFieldId: string | null;
+  onSelectField: (id: string) => void;
+  onDeleteField: (id: string) => void;
+  onTitleCommit: (title: string) => void;
+  onDescriptionCommit: (desc: string) => void;
+  onDeleteSection: () => void;
+}) {
+  const [titleDraft, setTitleDraft] = useState(section.title ?? '');
+  const [descDraft, setDescDraft] = useState(section.description ?? '');
+
+  // Keep local draft in sync if the section is refetched from the server
+  useEffect(() => {
+    setTitleDraft(section.title ?? '');
+    setDescDraft(section.description ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.id]);
+
+  const fields = section.fields ?? [];
+
+  return (
+    <div className="border rounded-md bg-muted/20">
+      {/* Section header */}
+      <div className="flex items-start gap-2 p-3 border-b bg-muted/40">
+        <div className="flex-1 min-w-0 space-y-1">
+          <Input
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => onTitleCommit(titleDraft)}
+            placeholder="Section title"
+            className="h-8 font-semibold text-sm bg-background"
+          />
+          <Input
+            value={descDraft}
+            onChange={(e) => setDescDraft(e.target.value)}
+            onBlur={() => onDescriptionCommit(descDraft)}
+            placeholder="Section description (optional)"
+            className="h-7 text-xs bg-background"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onDeleteSection}
+          aria-label={`Delete section ${section.title}`}
+          title="Delete section"
+          className="p-1.5 rounded hover:bg-red-50 hover:text-red-600 text-muted-foreground transition-colors dark:hover:bg-red-900/20"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Fields inside this section */}
+      <div className="p-2 space-y-2">
+        {fields.length === 0 ? (
+          <div className="text-xs text-muted-foreground text-center py-3">
+            No fields yet — click a field type on the left to add one
+          </div>
+        ) : (
+          fields.map((field: any) => (
+            <FieldBlock
+              key={field.id}
+              field={field}
+              isSelected={selectedFieldId === field.id}
+              onSelect={() => onSelectField(field.id)}
+              onDelete={() => onDeleteField(field.id)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─── Sortable Field Block ───────────────────────────────────────────────────
 
@@ -519,12 +613,15 @@ function FormBuilderContent({ formId }: { formId: string }) {
     deleteField,
     reorderFields,
     createSection,
+    updateSection,
+    deleteSection,
   } = useFormMutations();
 
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<'field' | 'settings'>('field');
   const [localFormState, setLocalFormState] = useState<any>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [sectionToDelete, setSectionToDelete] = useState<any | null>(null);
 
   useEffect(() => {
     if (form) setLocalFormState(form);
@@ -600,6 +697,64 @@ function FormBuilderContent({ formId }: { formId: string }) {
     if (!confirm('Delete this field?')) return;
     await deleteField.mutateAsync(fieldId);
     if (selectedFieldId === fieldId) setSelectedFieldId(null);
+  };
+
+  const handleAddSection = async () => {
+    await createSection.mutateAsync({
+      formId,
+      section: {
+        title: 'New Section',
+        display_order: (form.sections?.length ?? 0),
+      },
+    });
+  };
+
+  const handleSectionTitleCommit = async (sectionId: string, nextTitle: string) => {
+    const section = (form.sections || []).find((s: any) => s.id === sectionId);
+    if (!section || section.title === nextTitle || !nextTitle.trim()) return;
+    await updateSection.mutateAsync({
+      sectionId,
+      updates: { title: nextTitle.trim() },
+    });
+  };
+
+  const handleSectionDescriptionCommit = async (
+    sectionId: string,
+    nextDescription: string
+  ) => {
+    const section = (form.sections || []).find((s: any) => s.id === sectionId);
+    if (!section) return;
+    const normalized = nextDescription.trim() === '' ? null : nextDescription.trim();
+    if ((section.description ?? null) === normalized) return;
+    await updateSection.mutateAsync({
+      sectionId,
+      updates: { description: normalized },
+    });
+  };
+
+  const handleSectionDelete = (sectionId: string) => {
+    const section = (form.sections || []).find((s: any) => s.id === sectionId);
+    if (!section) return;
+    setSectionToDelete(section);
+  };
+
+  const confirmSectionDelete = async () => {
+    if (!sectionToDelete) return;
+    const section = sectionToDelete;
+    try {
+      await deleteSection.mutateAsync(section.id);
+      if (
+        selectedFieldId &&
+        section.fields?.some((f: any) => f.id === selectedFieldId)
+      ) {
+        setSelectedFieldId(null);
+      }
+      toast.success(`Section "${section.title}" deleted`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to delete section');
+    } finally {
+      setSectionToDelete(null);
+    }
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
@@ -777,12 +932,23 @@ function FormBuilderContent({ formId }: { formId: string }) {
           {/* Canvas */}
           <Card className="col-span-12 md:col-span-6">
             <CardContent className="pt-4">
-              <div className="mb-3">
-                <h3 className="text-sm font-semibold">{form.name}</h3>
-                <p className="text-xs text-muted-foreground">/apply/{form.slug}</p>
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold">{form.name}</h3>
+                  <p className="text-xs text-muted-foreground">/apply/{form.slug}</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddSection}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Add Section
+                </Button>
               </div>
 
-              {allFields.length === 0 ? (
+              {(!form.sections || form.sections.length === 0) && allFields.length === 0 ? (
                 <div className="border-2 border-dashed rounded-md p-8 text-center text-sm text-muted-foreground">
                   Click a field type on the left to start building
                 </div>
@@ -796,17 +962,24 @@ function FormBuilderContent({ formId }: { formId: string }) {
                     items={allFields.map((f: any) => f.id)}
                     strategy={verticalListSortingStrategy}
                   >
-                    <div className="space-y-2">
-                      {allFields.map((field: any) => (
-                        <FieldBlock
-                          key={field.id}
-                          field={field}
-                          isSelected={selectedFieldId === field.id}
-                          onSelect={() => {
-                            setSelectedFieldId(field.id);
+                    <div className="space-y-4">
+                      {(form.sections || []).map((section: any) => (
+                        <SectionBlock
+                          key={section.id}
+                          section={section}
+                          selectedFieldId={selectedFieldId}
+                          onSelectField={(id) => {
+                            setSelectedFieldId(id);
                             setRightTab('field');
                           }}
-                          onDelete={() => handleFieldDelete(field.id)}
+                          onDeleteField={handleFieldDelete}
+                          onTitleCommit={(title) =>
+                            handleSectionTitleCommit(section.id, title)
+                          }
+                          onDescriptionCommit={(desc) =>
+                            handleSectionDescriptionCommit(section.id, desc)
+                          }
+                          onDeleteSection={() => handleSectionDelete(section.id)}
                         />
                       ))}
                     </div>
@@ -822,6 +995,59 @@ function FormBuilderContent({ formId }: { formId: string }) {
             onOpenChange={setPreviewOpen}
             form={form as any}
           />
+
+          {/* Confirm section deletion */}
+          <AlertDialog
+            open={!!sectionToDelete}
+            onOpenChange={(open) => !open && setSectionToDelete(null)}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete section?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {sectionToDelete && (
+                    <>
+                      You are about to delete{' '}
+                      <span className="font-semibold text-foreground">
+                        &quot;{sectionToDelete.title}&quot;
+                      </span>
+                      {sectionToDelete.fields?.length > 0 ? (
+                        <>
+                          {' '}and all{' '}
+                          <span className="font-semibold text-foreground">
+                            {sectionToDelete.fields.length} field
+                            {sectionToDelete.fields.length === 1 ? '' : 's'}
+                          </span>{' '}
+                          inside it.
+                        </>
+                      ) : (
+                        '.'
+                      )}
+                      <br />
+                      This action cannot be undone.
+                    </>
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleteSection.isPending}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => {
+                    // Prevent the default close-on-click — we close manually
+                    // after the mutation resolves so users see loading state
+                    e.preventDefault();
+                    confirmSectionDelete();
+                  }}
+                  disabled={deleteSection.isPending}
+                  className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
+                >
+                  {deleteSection.isPending ? 'Deleting...' : 'Delete section'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {/* Right panel: Field config or Form settings */}
           <Card className="col-span-12 md:col-span-4">
