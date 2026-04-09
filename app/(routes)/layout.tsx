@@ -15,6 +15,7 @@ interface DashboardLayoutProps {
 const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
   return (
     <QueryClientProvider>
+      <AcknowledgmentGate>
       <AdminPanelLayout>
         {children}
         <Toaster />
