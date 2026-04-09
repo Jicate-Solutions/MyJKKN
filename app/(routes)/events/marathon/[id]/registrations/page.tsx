@@ -296,6 +296,7 @@ export default function MarathonRegistrationsPage() {
   }, [searchParams, eventId, router]);
 
   const access = useMarathonAccess();
+  const { user } = useAuth();
   const [filters, setFilters] = useState<Partial<RegistrationFilters>>({});
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
@@ -306,9 +307,21 @@ export default function MarathonRegistrationsPage() {
     refetch,
   } = useMarathonRegistrations(eventId, filters);
 
-  // All authenticated users can view all registrations (read-only for non-admin).
-  // Write actions (add, check-in, cancel) are gated per-button via access.canManage.
-  const registrations = allRegistrations ?? [];
+  // Role-based visibility:
+  // - super_admin / event_coordinator / committee_member / institution roles → see ALL registrations
+  // - student (access.selfOnly) → see ONLY their own registration(s)
+  // Write actions (add, check-in, cancel) remain gated per-button via access.canManage.
+  const registrations = useMemo(() => {
+    const list = allRegistrations ?? [];
+    if (!access.selfOnly) return list;
+    const uid = user?.id;
+    const email = user?.email?.toLowerCase();
+    return list.filter(
+      (r) =>
+        (uid && r.profile_id === uid) ||
+        (email && r.participant_email?.toLowerCase() === email)
+    );
+  }, [allRegistrations, access.selfOnly, user?.id, user?.email]);
 
   const categories = useMemo(
     () =>
