@@ -61,7 +61,7 @@ export class FormSubmissionService {
 
     // 3. Extract lead data via lead_field_map
     const leadData: Partial<CreateLeadInput> = {
-      source: 'admission_form' as LeadSource,
+      source: 'website' as LeadSource,
       tags: [`form:${form.slug}`],
       notes: `Submitted via public form: ${form.name}`,
     };
