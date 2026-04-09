@@ -56,6 +56,10 @@ export default async function NotificationViewPage({
           <Suspense fallback={<div>Loading notification...</div>}>
             <NotificationView notificationId={id} />
           </Suspense>
+
+          <Suspense fallback={<div>Loading analytics...</div>}>
+            <NotificationAnalytics notificationId={id} />
+          </Suspense>
         </div>
       </ContentLayout>
     </PermissionGuard>
