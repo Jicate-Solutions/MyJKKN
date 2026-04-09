@@ -67,6 +67,8 @@ export interface CreateNotificationRequest {
   expires_at?: string;
   metadata?: { attachments?: NotificationAttachment[] };
   targeting: NotificationTargeting;
+  requires_acknowledgment?: boolean;
+  acknowledgment_deadline_hours?: number;
 }
 
 export interface NotificationStats {
@@ -74,4 +76,46 @@ export interface NotificationStats {
   total_read: number;
   read_percentage: number;
   target_users: number;
+}
+
+// ==================== ACKNOWLEDGMENT SYSTEM ====================
+
+export interface AcknowledgmentStatus {
+  notification_id: string;
+  title: string;
+  requires_acknowledgment: boolean;
+  acknowledgment_deadline_hours: number;
+  sent_at: string;
+  total_recipients: number;
+  acknowledged_count: number;
+  pending_count: number;
+  overdue_count: number;
+  acknowledgment_rate: number;
+  recipients: AcknowledgmentRecipient[];
+}
+
+export interface AcknowledgmentRecipient {
+  user_id: string;
+  email: string;
+  name: string;
+  role: string;
+  institution_name?: string;
+  acknowledged_at: string | null;
+  read_at: string | null;
+  is_overdue: boolean;
+  escalation_level: number;
+}
+
+export interface UnacknowledgedNotification {
+  id: string;
+  notification_id: string;
+  title: string;
+  body: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  category: string;
+  url?: string;
+  created_by_name?: string;
+  sent_at: string;
+  deadline_at: string;
+  is_overdue: boolean;
 }
