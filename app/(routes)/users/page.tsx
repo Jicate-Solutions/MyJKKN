@@ -40,9 +40,12 @@ export default async function UsersPage() {
   try {
     stats = await getCachedUserStats(); // Cached with cacheLife('hours')
 
-    // If user has institution, get stats for that institution
-    // Otherwise, get all stats (for super admins)
-    const institutionId = profile?.institution_id;
+    // Super admins always see global stats across every institution,
+    // even if their profile is attached to a specific institution.
+    // Non-super-admins are scoped to their own institution.
+    const institutionId = profile?.is_super_admin
+      ? undefined
+      : profile?.institution_id;
     institutionStats = institutionId
       ? await getCachedUserStats(institutionId)
       : stats;

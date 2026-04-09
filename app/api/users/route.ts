@@ -528,7 +528,12 @@ export async function GET(request: NextRequest) {
     const search = url.searchParams.get('search');
 
     // Build query - include all users (both regular and pre-registered)
-    let query = supabase
+    // Super admins bypass RLS via the service-role admin client so they can
+    // see every user across every institution. Other roles use the
+    // cookie-authed client, which is still subject to RLS policies.
+    const isSuperAdmin = profile.role === 'super_admin';
+    const queryClient = isSuperAdmin ? supabaseAdmin : supabase;
+    let query = queryClient
       .from('profiles')
       .select('*', { count: 'exact' });
       // Note: Pre-registered users will show with is_pre_registered: true

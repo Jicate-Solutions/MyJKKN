@@ -63,7 +63,13 @@ export function UsersClientWrapper({
         setError(null);
 
         const fetchFilters: UserFilters = { ...filters };
-        if (initialProfile && initialProfile.institution_id) {
+        // Super admins see all users across every institution.
+        // Non-super-admins are scoped to their own institution.
+        if (
+          initialProfile &&
+          initialProfile.institution_id &&
+          !initialProfile.is_super_admin
+        ) {
           fetchFilters.institution = initialProfile.institution_id;
         }
 
