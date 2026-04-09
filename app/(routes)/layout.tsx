@@ -34,6 +34,7 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
         <BugReporterWidget />
         <WorkPulseFab />
       </AdminPanelLayout>
+      </AcknowledgmentGate>
     </QueryClientProvider>
   );
 };
