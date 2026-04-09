@@ -306,6 +306,17 @@ export default function LoginPage() {
         const origin = window.location.origin;
         // Ensure we use the current domain, not production
         redirectTo = `${origin}/auth/callback`;
+
+        // SAML SP-initiated SSO resume (Option B, 2026-04-09):
+        // If the login page was opened by /api/saml/sso with a pending
+        // request ID, thread it through the OAuth redirect_uri so that
+        // /auth/callback can resume the SAML flow after Google auth.
+        // Google preserves the redirect_uri query string verbatim on return.
+        const samlReqId = new URLSearchParams(window.location.search).get('samlReqId');
+        if (samlReqId) {
+          redirectTo = `${origin}/auth/callback?samlReqId=${encodeURIComponent(samlReqId)}`;
+          console.log('[Login Page] Threading samlReqId through OAuth:', samlReqId);
+        }
       }
 
       console.log('[Login Page] Current origin:', window.location.origin);

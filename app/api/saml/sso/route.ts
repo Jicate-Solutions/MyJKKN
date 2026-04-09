@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse , connection } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { SamlIdpService } from '@/lib/services/saml/saml-idp-service';
 import { SamlSessionService } from '@/lib/services/saml/saml-session-service';
 import { SamlError, SamlStatusCode } from '@/types/saml';
@@ -35,8 +35,57 @@ async function handleSamlSso(
     // the request body stream is consumed on first read
     let samlRequest: string | null = null;
     let relayState: string | null = null;
+    let effectiveBinding: 'post' | 'redirect' = binding;
 
-    if (binding === 'redirect') {
+    // ── Resume path (Option B, 2026-04-09) ────────────────────────────────
+    // When an unauthenticated user hits /api/saml/sso we persist the request
+    // in `saml_pending_requests` and redirect to /auth/login?samlReqId=UUID.
+    // The login page carries the UUID through the Google OAuth round-trip
+    // (preserved inside the OAuth redirect_uri query string), and the auth
+    // callback finally redirects to /api/saml/sso?samlReqId=UUID.
+    //
+    // If we see samlReqId here, rehydrate the request from the DB instead of
+    // parsing request body/query params.
+    const samlReqId =
+      binding === 'redirect'
+        ? request.nextUrl.searchParams.get('samlReqId')
+        : null;
+
+    if (samlReqId) {
+      const adminClient = createServiceRoleClient();
+      const { data: pending, error: pendingError } = await adminClient
+        .from('saml_pending_requests')
+        .select('saml_request, relay_state, binding, expires_at')
+        .eq('id', samlReqId)
+        .is('consumed_at', null)
+        .maybeSingle();
+
+      if (pendingError || !pending) {
+        console.error('[saml/sso] Pending request not found or already consumed:', samlReqId, pendingError);
+        throw new SamlError(
+          'SAML request session expired. Please retry sign-in from MathWorks.',
+          SamlStatusCode.REQUESTER,
+          'pending_request_missing'
+        );
+      }
+
+      if (new Date(pending.expires_at as string).getTime() < Date.now()) {
+        await adminClient.from('saml_pending_requests').delete().eq('id', samlReqId);
+        throw new SamlError(
+          'SAML request expired (10 min TTL). Please retry sign-in from MathWorks.',
+          SamlStatusCode.REQUESTER,
+          'pending_request_expired'
+        );
+      }
+
+      samlRequest = pending.saml_request as string;
+      relayState = (pending.relay_state as string | null) ?? null;
+      effectiveBinding = (pending.binding as 'post' | 'redirect') || 'redirect';
+
+      // Single-use: delete immediately so the same ID cannot be replayed.
+      await adminClient.from('saml_pending_requests').delete().eq('id', samlReqId);
+      console.log('[saml/sso] Resumed pending request from DB:', samlReqId, 'binding:', effectiveBinding);
+    } else if (binding === 'redirect') {
       const searchParams = request.nextUrl.searchParams;
       samlRequest = searchParams.get('SAMLRequest');
       relayState = searchParams.get('RelayState');
@@ -54,9 +103,10 @@ async function handleSamlSso(
       );
     }
 
-    // Parse SAML request
+    // Parse SAML request (use effectiveBinding — may differ from transport
+    // binding when resuming a persisted POST request via the redirect path)
     const { request: parsedRequest, spEntityId } =
-      await SamlIdpService.parseAuthnRequest(samlRequest, binding);
+      await SamlIdpService.parseAuthnRequest(samlRequest, effectiveBinding);
 
     console.log('[saml/sso] Received AuthnRequest:', {
       id: parsedRequest.id,
@@ -72,23 +122,44 @@ async function handleSamlSso(
     } = await supabase.auth.getUser();
 
     if (authError || !authUser) {
-      // User not authenticated — redirect to login, then back to SSO.
-      //
-      // For HTTP-POST binding the SAMLRequest lives in the form body which is
-      // consumed and gone after formData() is called. `request.url` therefore
-      // contains no SAMLRequest. We re-encode it as a query param so it
-      // survives the login redirect. On return the GET handler processes it via
-      // redirect-binding; parseAuthnRequest's DEFLATE fallback handles raw
-      // base64 (POST-binding format) transparently.
+      // User not authenticated — persist the AuthnRequest in the DB so it
+      // survives the OAuth round-trip, then redirect to login carrying only
+      // the opaque pending-request ID. See Option B in
+      // docs/features/mathswork/EMAIL_REPLY_TO_MATHWORKS_2026-04-09.md.
       //
       // Status 302 (not default 307): 302 lets the browser downgrade POST→GET
       // so the user lands on the login page with a GET, not a POST (405).
-      const callbackUrl = new URL('/api/saml/sso', request.url);
-      callbackUrl.searchParams.set('SAMLRequest', samlRequest);
-      if (relayState) callbackUrl.searchParams.set('RelayState', relayState);
+      const adminClient = createServiceRoleClient();
+      const { data: inserted, error: insertError } = await adminClient
+        .from('saml_pending_requests')
+        .insert({
+          saml_request: samlRequest,
+          relay_state: relayState,
+          binding: effectiveBinding,
+          sp_entity_id: spEntityId,
+          user_agent: request.headers.get('user-agent') || null,
+          ip_address:
+            request.headers.get('x-forwarded-for') ||
+            request.headers.get('x-real-ip') ||
+            null,
+        })
+        .select('id')
+        .single();
+
+      if (insertError || !inserted) {
+        console.error('[saml/sso] Failed to persist pending request:', insertError);
+        throw new SamlError(
+          'Failed to initiate SAML login flow',
+          SamlStatusCode.RESPONDER,
+          'pending_request_insert_failed'
+        );
+      }
+
+      const pendingId = (inserted as { id: string }).id;
+      console.log('[saml/sso] Stored pending request:', pendingId, 'sp:', spEntityId);
 
       const loginUrl = new URL('/auth/login', request.url);
-      loginUrl.searchParams.set('redirectedFrom', callbackUrl.toString());
+      loginUrl.searchParams.set('samlReqId', pendingId);
       return NextResponse.redirect(loginUrl, { status: 302 });
     }
 

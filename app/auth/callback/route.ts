@@ -18,6 +18,14 @@ export async function GET(request: NextRequest) {
     const code = requestUrl.searchParams.get('code');
     const origin = requestUrl.origin;
 
+    // SAML SP-initiated SSO resume (Option B, 2026-04-09).
+    // When the login was initiated by /api/saml/sso the login page threads
+    // a samlReqId through the Google OAuth redirect_uri. If present, after
+    // a successful code exchange we must bypass all role-based routing and
+    // redirect straight back to /api/saml/sso?samlReqId=... which will load
+    // the persisted AuthnRequest and emit the SAMLResponse to the SP ACS.
+    const samlReqId = requestUrl.searchParams.get('samlReqId');
+
     console.log('[Auth Callback] 🔐 Auth callback initiated');
     console.log('[Auth Callback] Request URL:', requestUrl.toString());
     console.log('[Auth Callback] Origin:', origin);
@@ -76,6 +84,19 @@ export async function GET(request: NextRequest) {
       );
     }
     console.log('[Auth Callback] ✅ User authenticated:', user.id, user.email);
+
+    // SAML resume short-circuit — see comment at top of handler.
+    // Skip role-based routing and hand control back to /api/saml/sso which
+    // will load the persisted AuthnRequest, build the assertion and POST
+    // it to the SP ACS. We still want the Supabase session cookies set by
+    // exchangeCodeForSession above to stick, which they will because this
+    // redirect is same-origin.
+    if (samlReqId) {
+      console.log('[Auth Callback] 🔁 Resuming SAML flow with samlReqId:', samlReqId);
+      const resumeUrl = new URL('/api/saml/sso', origin);
+      resumeUrl.searchParams.set('samlReqId', samlReqId);
+      return NextResponse.redirect(resumeUrl);
+    }
 
     try {
       // Use service role client to bypass RLS for profile check
