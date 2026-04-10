@@ -106,7 +106,7 @@ const PAYMENT_VARIANT: Record<
 };
 
 const PAYMENT_LABELS: Record<PaymentStatus, string> = {
-  not_required: 'N/A',
+  not_required: 'Free',
   pending: 'Pending',
   paid: 'Paid',
   refunded: 'Refunded',
