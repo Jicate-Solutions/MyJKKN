@@ -4624,6 +4624,12 @@ CREATE POLICY "events_reg_auth_read" ON public.events_registrations
     )
   );
 
+-- Users can always read their own registration(s) regardless of event institution
+-- (needed for cross-institution events like marathons where the event's institution_id
+--  may not match the participant's institution_id)
+CREATE POLICY "events_reg_own_read" ON public.events_registrations
+  FOR SELECT TO authenticated USING (profile_id = auth.uid());
+
 -- Authenticated users can update registrations for their institution's events
 CREATE POLICY "events_reg_auth_update" ON public.events_registrations
   FOR UPDATE TO authenticated USING (
