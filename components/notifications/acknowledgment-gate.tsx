@@ -242,17 +242,6 @@ function AcknowledgmentModal({
     ? contentRef.current.scrollHeight > contentRef.current.clientHeight + 20
     : false;
 
-  // Label for disabled state — shows why button is locked
-  const disabledLabel = !canAcknowledge
-    ? !hasScrolledToBottom && needsScroll
-      ? 'Scroll down to read all content'
-      : !timerDone
-        ? `Read carefully (${readTimeLeft}s)`
-        : verificationQ && !quizPassed
-          ? 'Answer the verification question'
-          : ''
-    : '';
-
   // Check answer handler
   const handleAnswerSelect = (index: number) => {
     if (answerStatus === 'correct') return; // Already answered correctly
