@@ -11,6 +11,7 @@ export interface UserListResponse {
     hasNextPage: boolean;
     hasPreviousPage: boolean;
   };
+  stats?: UserStats | null;
 }
 
 export interface UserFilters {

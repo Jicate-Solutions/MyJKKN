@@ -283,18 +283,35 @@ export function UserDetails({ user }: UserDetailsProps) {
         </Card>
       )}
 
-      {/* Academic Information Card */}
+      {/* Role Information Card */}
       <Card>
         <CardHeader className='pb-4'>
           <CardTitle>Role Information</CardTitle>
         </CardHeader>
         <CardContent className='grid gap-4'>
-          <div className='flex items-center gap-3'>
-            <Shield className='h-4 w-4 text-muted-foreground' />
-            <span>
-              Role: {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
-            </span>
-          </div>
+          {userRoles.length > 0 ? (
+            <div className='space-y-3'>
+              {userRoles.map((r) => (
+                <div key={r.role_id} className='flex items-center gap-3'>
+                  <Shield className='h-4 w-4 text-muted-foreground' />
+                  <span>{r.role_name}</span>
+                  {r.is_primary && userRoles.length > 1 && (
+                    <Badge variant='outline' className='gap-1 text-xs'>
+                      <Star className='h-3 w-3' />
+                      Primary
+                    </Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className='flex items-center gap-3'>
+              <Shield className='h-4 w-4 text-muted-foreground' />
+              <span>
+                Role: {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
 

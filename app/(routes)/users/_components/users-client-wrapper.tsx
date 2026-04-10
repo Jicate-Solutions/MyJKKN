@@ -36,7 +36,7 @@ export function UsersClientWrapper({
   const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
-  const [stats] = useState<UserStats>(initialStats); // Use initial stats from server
+  const [stats, setStats] = useState<UserStats>(initialStats);
   const [advancedSearchFilters, setAdvancedSearchFilters] = useState<UserSearchFilters | null>(null);
   const [filters, setFilters] = useState<UserFilters>({
     page: 1,
@@ -106,6 +106,9 @@ export function UsersClientWrapper({
         const response = await UserService.getUsers(fetchFilters);
         setUsers(response.data);
         setMetadata(response.metadata);
+        if (response.stats) {
+          setStats(response.stats);
+        }
       } catch (err) {
         console.error('[users/client-wrapper] Error fetching users:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -182,7 +185,7 @@ export function UsersClientWrapper({
 
   return (
     <div className='space-y-6'>
-      {/* Stats Cards (using server-cached data) */}
+      {/* Stats Cards (updates dynamically based on active filters) */}
       {stats && (
         <div className='grid gap-4 md:grid-cols-4'>
           <Card>

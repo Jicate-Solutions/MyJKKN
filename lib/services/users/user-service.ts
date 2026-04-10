@@ -23,6 +23,7 @@ export class UserService {
       if (filters.role) searchParams.set('role', filters.role);
       if (filters.institution) searchParams.set('institution', filters.institution);
       if (filters.search) searchParams.set('search', filters.search);
+      if (filters.isActive !== undefined) searchParams.set('isActive', String(filters.isActive));
 
       const response = await fetch(`/api/users?${searchParams.toString()}`);
 
@@ -35,6 +36,7 @@ export class UserService {
 
       return {
         data: result.data || [],
+        stats: result.stats || null,
         metadata: {
           total: result.metadata?.total || 0,
           page: result.metadata?.page || 1,

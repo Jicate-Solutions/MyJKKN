@@ -526,6 +526,7 @@ export async function GET(request: NextRequest) {
     const role = url.searchParams.get('role');
     const institution = url.searchParams.get('institution');
     const search = url.searchParams.get('search');
+    const isActive = url.searchParams.get('isActive');
 
     // Build query - include all users (both regular and pre-registered)
     // Super admins bypass RLS via the service-role admin client so they can
@@ -550,6 +551,10 @@ export async function GET(request: NextRequest) {
 
     if (institution) {
       query = query.eq('institution_id', institution);
+    }
+
+    if (isActive !== null && isActive !== undefined) {
+      query = query.eq('is_active', isActive === 'true');
     }
 
     if (search) {
@@ -595,6 +600,49 @@ export async function GET(request: NextRequest) {
 
     if (usersError) throw usersError;
 
+    // Build a stats query with the same base filters (excluding isActive and pagination)
+    let statsQuery = queryClient
+      .from('profiles')
+      .select('is_active, role');
+
+    if ((profile.role === 'faculty' || profile.role === 'hod') && profile.institution_id) {
+      statsQuery = statsQuery.eq('institution_id', profile.institution_id);
+    }
+    if (role) statsQuery = statsQuery.eq('role', role);
+    if (institution) statsQuery = statsQuery.eq('institution_id', institution);
+    if (search) {
+      const searchParts = search.split('|');
+      let hasAdvanced = false;
+      searchParts.forEach((part) => {
+        const colonIndex = part.indexOf(':');
+        if (colonIndex > 0) {
+          const field = part.substring(0, colonIndex);
+          const value = part.substring(colonIndex + 1).trim();
+          if (value) {
+            hasAdvanced = true;
+            if (field === 'name') statsQuery = statsQuery.ilike('full_name', `%${value}%`);
+            else if (field === 'email') statsQuery = statsQuery.ilike('email', `%${value}%`);
+            else if (field === 'phone') statsQuery = statsQuery.ilike('phone_number', `%${value}%`);
+          }
+        }
+      });
+      if (!hasAdvanced) {
+        statsQuery = statsQuery.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
+      }
+    }
+
+    const { data: statsData } = await statsQuery;
+    const filteredStats = {
+      total: statsData?.length || 0,
+      active: statsData?.filter((u) => u.is_active).length || 0,
+      inactive: statsData?.filter((u) => !u.is_active).length || 0,
+      byRole: (statsData || []).reduce((acc: Record<string, number>, u) => {
+        acc[u.role] = (acc[u.role] || 0) + 1;
+        return acc;
+      }, {}),
+      byInstitution: {}
+    };
+
     return NextResponse.json({
       data: users,
       metadata: {
@@ -602,7 +650,8 @@ export async function GET(request: NextRequest) {
         page,
         limit,
         totalPages: count ? Math.ceil(count / limit) : 0
-      }
+      },
+      stats: filteredStats
     });
   } catch (error) {
     console.error('Error in GET /api/users:', error);

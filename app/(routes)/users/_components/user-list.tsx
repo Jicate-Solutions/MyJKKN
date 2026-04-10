@@ -9,7 +9,6 @@ import {
   Trash2,
   Eye,
   Pencil,
-  Shield,
   User,
   UserCheck,
   UserX,
@@ -105,7 +104,7 @@ export function UserList({
   const canViewUsers = isSuperAdmin || canAccess('users', 'view');
   const canEditUsers = isSuperAdmin || canAccess('users', 'edit');
   const canDeleteUsers = isSuperAdmin || canAccess('users', 'delete');
-  const canEditRoles = isSuperAdmin || canAccess('roles', 'edit');
+
 
   // Handle bulk delete
   const handleBulkDelete = async (selectedRows: Profile[]) => {
@@ -179,13 +178,6 @@ export function UserList({
     },
     [onRefresh]
   );
-
-  // Handle role change
-  const handleRoleChange = (user: Profile) => {
-    // You would typically show a dialog here to select a new role
-    // This is just a placeholder - implement the actual role change dialog
-    toast.success('Role change feature coming soon');
-  };
 
   // Handle status toggle
   const handleStatusToggle = useCallback(
@@ -374,17 +366,6 @@ export function UserList({
 
                 <DropdownMenuItem
                   onClick={
-                    canEditRoles ? () => handleRoleChange(user) : undefined
-                  }
-                  disabled={!canEditRoles}
-                  style={{ opacity: canEditRoles ? 1 : 0.5 }}
-                >
-                  <Shield className='mr-2 h-4 w-4' />
-                  Change Role
-                </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onClick={
                     canEditUsers ? () => handleStatusToggle(user) : undefined
                   }
                   disabled={!canEditUsers}
@@ -440,7 +421,6 @@ export function UserList({
       canViewUsers,
       canEditUsers,
       canDeleteUsers,
-      canEditRoles,
       handleSingleDelete,
       handleStatusToggle
     ]
