@@ -58,6 +58,7 @@
     "node_modules",
     "scripts",
     "__tests__",
-    "public/sw.js"
+    "public/sw.js",
+    "whatsapp-service"
   ]
 }

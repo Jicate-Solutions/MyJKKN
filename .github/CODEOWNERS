@@ -1,0 +1,22 @@
+# CODEOWNERS — Auto-assign reviewers for sensitive files
+# When a PR touches these paths, the listed people are auto-assigned as reviewers
+
+# Database changes — require Omm's review (most critical)
+/supabase/ @Ommsharravana
+
+# API routes — require review before merge
+/app/api/ @Ommsharravana
+
+# Authentication & security — require review
+/lib/auth/ @Ommsharravana
+/lib/supabase/ @Ommsharravana
+/middleware.ts @Ommsharravana
+
+# Deployment config — require review
+vercel.json @Ommsharravana
+next.config.ts @Ommsharravana
+.github/ @Ommsharravana
+
+# Notification system (new, critical for 5000 users)
+/components/notifications/ @Ommsharravana
+/app/api/notifications/ @Ommsharravana
