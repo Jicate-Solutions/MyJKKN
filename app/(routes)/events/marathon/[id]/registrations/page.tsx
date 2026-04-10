@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -53,6 +53,10 @@ import {
   Building2,
   Eye,
   Plus,
+  PartyPopper,
+  XCircle,
+  AlertTriangle,
+  ArrowLeft,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import type {
@@ -183,6 +187,246 @@ function StatsCards({ eventId }: { eventId: string }) {
 }
 
 // ============================================================================
+// Payment Confirmation Overlay
+// ============================================================================
+
+interface PaymentTxnData {
+  id: string;
+  status: string;
+  registration_id: string | null;
+  amount: number;
+  payment_method: string | null;
+  paid_at: string | null;
+}
+
+interface PaymentRegData {
+  id: string;
+  bib_number: string | null;
+  participant_name: string;
+  status: string;
+  payment_status: string;
+}
+
+function PaymentConfirmation({
+  eventId,
+  transactionId,
+  paymentResult,
+  onDismiss,
+}: {
+  eventId: string;
+  transactionId: string | null;
+  paymentResult: 'success' | 'failed' | 'cancelled';
+  onDismiss: () => void;
+}) {
+  const [phase, setPhase] = useState<'verifying' | 'confirmed' | 'failed' | 'cancelled'>(
+    paymentResult === 'cancelled' ? 'cancelled' : paymentResult === 'failed' ? 'failed' : 'verifying'
+  );
+  const [txnData, setTxnData] = useState<PaymentTxnData | null>(null);
+  const [regData, setRegData] = useState<PaymentRegData | null>(null);
+  const [pollCount, setPollCount] = useState(0);
+  const pollRef = useRef<NodeJS.Timeout | null>(null);
+
+  const pollStatus = useCallback(async () => {
+    if (!transactionId || phase !== 'verifying') return;
+
+    try {
+      const res = await fetch(`/api/events/marathon/${eventId}/payment/status/${transactionId}`);
+      if (!res.ok) return;
+
+      const json = await res.json();
+      const txn = json.data as PaymentTxnData;
+      setTxnData(txn);
+
+      if (txn.status === 'success') {
+        // Payment confirmed — fetch registration details if available
+        if (txn.registration_id) {
+          try {
+            const supabase = (await import('@/lib/supabase/client')).createClientSupabaseClient();
+            const { data: reg } = await supabase
+              .from('events_registrations')
+              .select('id, bib_number, participant_name, status, payment_status')
+              .eq('id', txn.registration_id)
+              .single();
+            if (reg) setRegData(reg);
+          } catch {
+            // Non-critical — we still show success without reg details
+          }
+        }
+        setPhase('confirmed');
+        if (pollRef.current) clearInterval(pollRef.current);
+      } else if (txn.status === 'failed') {
+        setPhase('failed');
+        if (pollRef.current) clearInterval(pollRef.current);
+      }
+    } catch {
+      // Network error — keep polling
+    }
+
+    setPollCount((c) => c + 1);
+  }, [eventId, transactionId, phase]);
+
+  // Poll payment status every 2 seconds, max 15 attempts (30 seconds)
+  useEffect(() => {
+    if (phase !== 'verifying' || !transactionId) return;
+
+    // Initial check immediately
+    pollStatus();
+
+    pollRef.current = setInterval(() => {
+      setPollCount((c) => {
+        if (c >= 15) {
+          // Max attempts reached — show success anyway (callback already processed it)
+          setPhase('confirmed');
+          if (pollRef.current) clearInterval(pollRef.current);
+          return c;
+        }
+        pollStatus();
+        return c;
+      });
+    }, 2000);
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [phase, transactionId, pollStatus]);
+
+  // Cancelled state
+  if (phase === 'cancelled') {
+    return (
+      <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-900">
+        <CardContent className="pt-6 pb-6">
+          <div className="flex flex-col items-center text-center gap-4">
+            <div className="h-14 w-14 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+              <AlertTriangle className="h-7 w-7 text-amber-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Payment Cancelled</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                No payment was processed and no registration was created. You can try again anytime.
+              </p>
+            </div>
+            <Button onClick={onDismiss} className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Registrations
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Failed state
+  if (phase === 'failed') {
+    return (
+      <Card className="border-destructive/30 bg-destructive/5">
+        <CardContent className="pt-6 pb-6">
+          <div className="flex flex-col items-center text-center gap-4">
+            <div className="h-14 w-14 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+              <XCircle className="h-7 w-7 text-destructive" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">Payment Failed</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Your payment could not be processed. No registration was created.<br />
+                Please try again or contact the event coordinator.
+              </p>
+            </div>
+            <Button onClick={onDismiss} className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Registrations
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Verifying state
+  if (phase === 'verifying') {
+    return (
+      <Card className="border-blue-200 dark:border-blue-900">
+        <CardContent className="pt-6 pb-6">
+          <div className="flex flex-col items-center text-center gap-4">
+            <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
+            <div>
+              <h2 className="text-lg font-semibold">Confirming Payment...</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Please wait while we verify your payment with the gateway.
+                <br />
+                This may take a few seconds. Do not close this page.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Confirmed state — Thank You card
+  return (
+    <Card className="border-green-200 bg-green-50/50 dark:bg-green-950/20 dark:border-green-900">
+      <CardContent className="pt-6 pb-6">
+        <div className="flex flex-col items-center text-center gap-5">
+          <div className="h-16 w-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+            <PartyPopper className="h-8 w-8 text-green-600" />
+          </div>
+
+          <div>
+            <h2 className="text-xl font-bold text-green-700 dark:text-green-400">
+              Registration Confirmed!
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Payment received successfully. Your registration is complete.
+            </p>
+          </div>
+
+          {/* Registration Details */}
+          {(regData || txnData) && (
+            <div className="w-full max-w-sm space-y-2 text-left">
+              {regData?.bib_number && (
+                <div className="flex justify-between items-center py-2 px-3 rounded-md bg-white dark:bg-background border">
+                  <span className="text-sm text-muted-foreground">BIB Number</span>
+                  <span className="font-mono font-bold text-lg">{regData.bib_number}</span>
+                </div>
+              )}
+              {regData?.participant_name && (
+                <div className="flex justify-between items-center py-2 px-3 rounded-md bg-white dark:bg-background border">
+                  <span className="text-sm text-muted-foreground">Name</span>
+                  <span className="font-medium">{regData.participant_name}</span>
+                </div>
+              )}
+              {txnData?.amount && (
+                <div className="flex justify-between items-center py-2 px-3 rounded-md bg-white dark:bg-background border">
+                  <span className="text-sm text-muted-foreground">Amount Paid</span>
+                  <span className="font-medium">₹{txnData.amount.toLocaleString('en-IN')}</span>
+                </div>
+              )}
+              {txnData?.payment_method && (
+                <div className="flex justify-between items-center py-2 px-3 rounded-md bg-white dark:bg-background border">
+                  <span className="text-sm text-muted-foreground">Payment Method</span>
+                  <span className="font-medium capitalize">{txnData.payment_method}</span>
+                </div>
+              )}
+              {regData && (
+                <div className="flex justify-between items-center py-2 px-3 rounded-md bg-white dark:bg-background border">
+                  <span className="text-sm text-muted-foreground">Status</span>
+                  <Badge variant="default" className="text-xs">Registered</Badge>
+                </div>
+              )}
+            </div>
+          )}
+
+          <Button onClick={onDismiss} variant="default" className="gap-2 mt-2">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Registrations
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================================
 // Filter Bar
 // ============================================================================
 
@@ -283,22 +527,22 @@ export default function MarathonRegistrationsPage() {
   const searchParams = useSearchParams();
   const eventId = params.id as string;
 
-  // Handle payment callback — show toast when redirected back from HDFC
+  // Payment confirmation state — set from URL params after HDFC redirect
+  const [paymentState, setPaymentState] = useState<{
+    result: 'success' | 'failed' | 'cancelled';
+    transactionId: string | null;
+  } | null>(null);
+
+  // Detect payment callback params on mount
   useEffect(() => {
-    const paymentResult = searchParams.get('payment');
-    if (paymentResult === 'success') {
-      toast.success('Payment successful! Registration confirmed.', { duration: 5000 });
-      router.replace(`/events/marathon/${eventId}/registrations`, { scroll: false });
-    } else if (paymentResult === 'cancelled') {
-      toast('Payment was cancelled. No registration was created. You can try again.', {
-        icon: '⚠️',
-        duration: 5000,
-      });
-      router.replace(`/events/marathon/${eventId}/registrations`, { scroll: false });
-    } else if (paymentResult === 'failed') {
-      toast.error('Payment failed. No registration was created. Please try again.', { duration: 5000 });
-      router.replace(`/events/marathon/${eventId}/registrations`, { scroll: false });
-    }
+    const paymentResult = searchParams.get('payment') as 'success' | 'failed' | 'cancelled' | null;
+    if (!paymentResult) return;
+
+    const txnId = searchParams.get('txn') || null;
+    setPaymentState({ result: paymentResult, transactionId: txnId });
+
+    // Clean URL params without triggering navigation
+    router.replace(`/events/marathon/${eventId}/registrations`, { scroll: false });
   }, [searchParams, eventId, router]);
 
   const access = useMarathonAccess();
@@ -312,6 +556,12 @@ export default function MarathonRegistrationsPage() {
     error,
     refetch,
   } = useMarathonRegistrations(eventId, filters);
+
+  // Dismiss payment confirmation and refetch registrations
+  const handlePaymentDismiss = useCallback(() => {
+    setPaymentState(null);
+    refetch();
+  }, [refetch]);
 
   // Role-based visibility:
   // - super_admin / event_coordinator / committee_member / institution roles → see ALL registrations
@@ -535,30 +785,42 @@ export default function MarathonRegistrationsPage() {
           </p>
         </div>
 
+        {/* Payment Confirmation — shown after HDFC redirect */}
+        {paymentState && (
+          <PaymentConfirmation
+            eventId={eventId}
+            transactionId={paymentState.transactionId}
+            paymentResult={paymentState.result}
+            onDismiss={handlePaymentDismiss}
+          />
+        )}
+
         {/* Stats Cards — only for admin users */}
-        {access.canManage && <StatsCards eventId={eventId} />}
+        {access.canManage && !paymentState && <StatsCards eventId={eventId} />}
 
-        {/* Filters — visible to all users */}
-        <FilterBar
-          filters={filters}
-          setFilters={setFilters}
-          categories={categories}
-        />
+        {/* Filters — visible to all users, hidden during payment confirmation */}
+        {!paymentState && (
+          <FilterBar
+            filters={filters}
+            setFilters={setFilters}
+            categories={categories}
+          />
+        )}
 
-        {/* Data Table with Internal/External Tabs */}
-        {isLoading && (
+        {/* Data Table with Internal/External Tabs — hidden during payment confirmation */}
+        {!paymentState && isLoading && (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         )}
 
-        {error && (
+        {!paymentState && error && (
           <div className="text-center py-12 text-destructive">
             Failed to load registrations. Please try again.
           </div>
         )}
 
-        {!isLoading && !error && (
+        {!paymentState && !isLoading && !error && (
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <TabsList>
