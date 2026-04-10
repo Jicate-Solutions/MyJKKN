@@ -22,11 +22,24 @@ export async function POST(
     const supabase = createServiceRoleClient();
 
     // Parse and validate body
-    let body: unknown;
+    let body: Record<string, unknown>;
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+
+    // Normalize field aliases from external apps:
+    //   phone → participant_phone, age → participant_age, gender → participant_gender
+    //   tshirt_size / date_of_birth → merged into custom_data
+    if (body.phone && !body.participant_phone) body.participant_phone = body.phone;
+    if (body.age && !body.participant_age) body.participant_age = body.age;
+    if (body.gender && !body.participant_gender) body.participant_gender = body.gender;
+    if (body.tshirt_size || body.date_of_birth) {
+      const existing = (body.custom_data ?? {}) as Record<string, unknown>;
+      if (body.tshirt_size) existing.tshirt_size = body.tshirt_size;
+      if (body.date_of_birth) existing.date_of_birth = body.date_of_birth;
+      body.custom_data = existing;
     }
 
     const parsed = publicRegistrationSchema.safeParse(body);
@@ -184,16 +197,17 @@ export async function POST(
         institution_id: data.participant_type === 'internal' ? (data.institution_id ?? null) : null,
         // External participant link
         external_participant_id,
-        organization: data.organization ?? null,
-        city: data.city ?? null,
         status: 'registered',
       })
       .select()
       .single();
 
     if (insertError) {
-      console.error('[marathon-api/register] Insert error:', insertError);
-      return NextResponse.json({ error: 'Failed to create registration' }, { status: 500 });
+      console.error('[marathon-api/register] Insert error:', insertError.message, insertError.details, insertError.hint);
+      return NextResponse.json(
+        { error: 'Failed to create registration', details: insertError.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ data: registration }, { status: 201 });
