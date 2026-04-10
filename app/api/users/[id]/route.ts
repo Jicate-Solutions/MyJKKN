@@ -307,6 +307,40 @@ export async function PATCH(
       );
     }
 
+    // If role changed via the simple role field, sync to user_roles table
+    if (body.role !== undefined && body.role !== originalTargetUser?.role) {
+      try {
+        // Find the custom_roles record matching the new role_key
+        const { data: matchingRole } = await supabaseAdmin
+          .from('custom_roles')
+          .select('id')
+          .eq('role_key', body.role)
+          .single();
+
+        if (matchingRole) {
+          // Replace all existing user_roles with the new single role
+          await supabaseAdmin
+            .from('user_roles')
+            .delete()
+            .eq('user_id', userId);
+
+          await supabaseAdmin
+            .from('user_roles')
+            .insert({
+              user_id: userId,
+              role_id: matchingRole.id,
+              is_primary: true,
+              assigned_by: user.id,
+            });
+
+          console.log(`Synced user_roles for ${userId}: role_key=${body.role}, role_id=${matchingRole.id}`);
+        }
+      } catch (roleError) {
+        console.error('Error syncing user_roles from role change:', roleError);
+        // Non-fatal — profiles.role is already updated
+      }
+    }
+
     // Handle multi-role updates if role_ids is provided
     let updatedRoleIds: string[] | undefined;
     if (body.role_ids !== undefined && Array.isArray(body.role_ids)) {

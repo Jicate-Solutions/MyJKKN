@@ -2,7 +2,7 @@
 
 
 import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Profile } from '@/types/auth';
 import { UserService } from '@/lib/services/users/user-service';
@@ -38,7 +38,10 @@ const isValidUserId = (id: string | undefined): boolean => {
 export default function UserDetailsPage() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = getUserId(params.id);
+  // Track `updated` param to force refetch after edits
+  const updatedAt = searchParams.get('updated');
   const [user, setUser] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +74,12 @@ export default function UserDetailsPage() {
     };
 
     fetchUser();
-  }, [id]);
+
+    // Clean the updated param from URL without triggering navigation
+    if (updatedAt) {
+      router.replace(`/users/${id}`, { scroll: false });
+    }
+  }, [id, updatedAt, router]);
 
   if (isLoading) {
     return (

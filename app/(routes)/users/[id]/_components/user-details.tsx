@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { Profile } from '@/types/auth';
 import { ROLE_LABELS, INSTITUTIONS } from '@/lib/constants/permissions';
@@ -17,14 +18,41 @@ import {
   UserCircle2,
   Briefcase,
   FileText,
-  GraduationCap
+  GraduationCap,
+  Star,
 } from 'lucide-react';
+
+interface UserRole {
+  role_id: string;
+  role_name: string;
+  role_key: string;
+  is_primary: boolean;
+}
 
 interface UserDetailsProps {
   user: Profile;
 }
 
 export function UserDetails({ user }: UserDetailsProps) {
+  const [userRoles, setUserRoles] = useState<UserRole[]>([]);
+
+  // Fetch multi-roles for this user
+  useEffect(() => {
+    const fetchRoles = async () => {
+      try {
+        const res = await fetch(`/api/users/${user.id}/roles`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data?.roles?.length > 0) {
+            setUserRoles(json.data.roles);
+          }
+        }
+      } catch {
+        // Non-critical — fall back to single role from profile
+      }
+    };
+    fetchRoles();
+  }, [user.id]);
   const getInitials = (user: Profile) => {
     return user.full_name
       ? user.full_name
@@ -60,10 +88,25 @@ export function UserDetails({ user }: UserDetailsProps) {
             <div>
               <h2 className='text-xl font-semibold'>{user.full_name}</h2>
               <p className='text-sm text-muted-foreground'>{user.email}</p>
-              <div className='flex items-center gap-2 mt-2'>
-                <Badge variant='secondary'>
-                  {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS]}
-                </Badge>
+              <div className='flex items-center gap-2 mt-2 flex-wrap'>
+                {userRoles.length > 0 ? (
+                  userRoles.map((r) => (
+                    <Badge
+                      key={r.role_id}
+                      variant={r.is_primary ? 'default' : 'secondary'}
+                      className='gap-1'
+                    >
+                      {r.is_primary && userRoles.length > 1 && (
+                        <Star className='h-3 w-3' />
+                      )}
+                      {r.role_name}
+                    </Badge>
+                  ))
+                ) : (
+                  <Badge variant='secondary'>
+                    {ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}
+                  </Badge>
+                )}
                 {user.is_active ? (
                   <Badge variant='success'>Active</Badge>
                 ) : (

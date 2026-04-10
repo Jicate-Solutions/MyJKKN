@@ -186,7 +186,8 @@ export function UserEditForm({ user }: UserEditFormProps) {
       }
 
       toast.success('User updated successfully');
-      router.push(`/users/${user.id}`);
+      // Use timestamp param to force refetch on the details page
+      router.push(`/users/${user.id}?updated=${Date.now()}`);
     } catch (error) {
       console.error('Error updating user:', error);
       toast.error(
