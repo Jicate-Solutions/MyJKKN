@@ -857,6 +857,22 @@ export default function MarathonRegistrationsPage() {
   const [showRegisterDialog, setShowRegisterDialog] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
 
+  // Filter registrations by tab
+  const tabFilteredRegistrations = useMemo(() => {
+    if (activeTab === 'all') return registrations;
+    return registrations.filter((r) => r.participant_type === activeTab);
+  }, [registrations, activeTab]);
+
+  // Counts for tab badges
+  const internalCount = useMemo(
+    () => registrations.filter((r) => r.participant_type === 'internal').length,
+    [registrations]
+  );
+  const externalCount = useMemo(
+    () => registrations.filter((r) => r.participant_type === 'external').length,
+    [registrations]
+  );
+
   // Export current tab's registrations to Excel
   const handleExport = useCallback(() => {
     const dataToExport = tabFilteredRegistrations;
@@ -925,22 +941,6 @@ export default function MarathonRegistrationsPage() {
       `${tabLabel} Registrations`
     );
   }, [tabFilteredRegistrations, activeTab, event?.name]);
-
-  // Filter registrations by tab
-  const tabFilteredRegistrations = useMemo(() => {
-    if (activeTab === 'all') return registrations;
-    return registrations.filter((r) => r.participant_type === activeTab);
-  }, [registrations, activeTab]);
-
-  // Counts for tab badges
-  const internalCount = useMemo(
-    () => registrations.filter((r) => r.participant_type === 'internal').length,
-    [registrations]
-  );
-  const externalCount = useMemo(
-    () => registrations.filter((r) => r.participant_type === 'external').length,
-    [registrations]
-  );
 
   if (eventLoading) {
     return (
