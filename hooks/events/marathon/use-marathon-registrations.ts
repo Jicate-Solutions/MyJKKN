@@ -164,3 +164,38 @@ export function useCancelRegistration() {
     },
   });
 }
+
+/**
+ * Bulk import external registrations.
+ */
+export function useBulkRegisterParticipants() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      eventId,
+      rows,
+      categoryCodes,
+    }: {
+      eventId: string;
+      rows: Record<string, unknown>[];
+      categoryCodes: string[];
+    }) => {
+      const res = await fetch(`/api/events/marathon/${eventId}/bulk-register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows, categoryCodes }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Bulk import failed');
+      return json.result;
+    },
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: KEYS.lists() });
+      queryClient.invalidateQueries({ queryKey: KEYS.stats(variables.eventId) });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Bulk import failed');
+    },
+  });
+}

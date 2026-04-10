@@ -57,8 +57,10 @@ import {
   XCircle,
   AlertTriangle,
   ArrowLeft,
+  Upload,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { BulkImportDialog } from './_components/bulk-import-dialog';
 import type {
   EventRegistration,
   EventCategory,
@@ -736,6 +738,7 @@ export default function MarathonRegistrationsPage() {
 
   const [activeTab, setActiveTab] = useState<'all' | 'internal' | 'external'>('all');
   const [showRegisterDialog, setShowRegisterDialog] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
 
   // Filter registrations by tab
   const tabFilteredRegistrations = useMemo(() => {
@@ -844,16 +847,30 @@ export default function MarathonRegistrationsPage() {
                 </TabsTrigger>
               </TabsList>
 
-              {access.canRegister && (
-                <Button
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setShowRegisterDialog(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  {access.selfOnly ? 'Register for Event' : 'Add Registration'}
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {access.canManage && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => setShowBulkImport(true)}
+                  >
+                    <Upload className="h-4 w-4" />
+                    <span className="hidden sm:inline">Import External</span>
+                    <span className="sm:hidden">Import</span>
+                  </Button>
+                )}
+                {access.canRegister && (
+                  <Button
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setShowRegisterDialog(true)}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {access.selfOnly ? 'Register for Event' : 'Add Registration'}
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="mt-3">
@@ -875,6 +892,15 @@ export default function MarathonRegistrationsPage() {
           categories={categories}
           open={showRegisterDialog}
           onOpenChange={setShowRegisterDialog}
+          onSuccess={() => refetch()}
+        />
+
+        {/* Bulk Import Dialog */}
+        <BulkImportDialog
+          eventId={eventId}
+          categories={categories}
+          open={showBulkImport}
+          onOpenChange={setShowBulkImport}
           onSuccess={() => refetch()}
         />
       </div>
