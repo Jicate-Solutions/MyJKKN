@@ -29,8 +29,10 @@ import type {
 } from '@/types/vac';
 
 export class VACService {
+  // Cast to any — VAC tables exist in DB but aren't in generated Supabase types yet.
+  // Regenerate types with: supabase gen types typescript --project-id <id>
   private static getSupabase() {
-    return createClientSupabaseClient();
+    return createClientSupabaseClient() as any;
   }
 
   /** Whitelist of columns that may be used in .order() to prevent injection */

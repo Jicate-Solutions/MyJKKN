@@ -29,7 +29,8 @@ import { PLACEMENT_QUESTIONS } from '@/lib/data/case-placement-questions';
 // ================================================================================
 
 export class CASEService {
-  private static supabase = createClientSupabaseClient();
+  // Cast to any — CASE tables exist in DB but aren't in generated Supabase types yet
+  private static supabase = createClientSupabaseClient() as any;
 
   // ── TRACKS ──────────────────────────────────────────────────────────────────
 
