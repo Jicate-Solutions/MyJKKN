@@ -42,6 +42,7 @@ import {
 import type { EventStatus } from '@/types/events';
 import { EVENT_STATUS_TRANSITIONS } from '@/types/events';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 
 // ============================================================================
 // Helpers
@@ -463,7 +464,11 @@ export default function MarathonDashboardPage() {
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
   const { data, isLoading, isError, refetch } = useMarathonDashboard(eventId);
 
-  // Dashboard is read-only for non-admin users — write actions gated per-component
+  // Block non-admin users from accessing the dashboard
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Dashboard" eventId={eventId} />;
+  }
+
   if (eventLoading) {
     return (
       <ContentLayout title="Dashboard">

@@ -45,6 +45,8 @@ import {
   useLogSponsorActivity,
 } from '@/hooks/events/marathon/use-marathon-sponsors';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import {
   Loader2,
   ArrowLeft,
@@ -633,12 +635,18 @@ export default function SponsorDetailPage() {
   const router = useRouter();
   const eventId = params.id as string;
   const sponsorId = params.sponsorId as string;
+  const access = useMarathonAccess();
 
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const { data: event } = useMarathonEvent(eventId);
   const { data: sponsor, isLoading, error } = useMarathonSponsor(sponsorId);
+
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Sponsor Details" eventId={eventId} />;
+  }
 
   const movePipeline = useMovePipelineStage();
   const deleteSponsor = useDeleteSponsor();

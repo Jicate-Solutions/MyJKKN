@@ -51,6 +51,7 @@ import Image from 'next/image';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
 import toast from 'react-hot-toast';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 import type { EventCategory } from '@/types/events';
 
 // ============================================================================
@@ -1183,7 +1184,11 @@ export default function MarathonSettingsPage() {
   const { data: event, isLoading, error } = useMarathonEvent(id);
   const access = useMarathonAccess();
 
-  // Settings page: read-only for non-admin users. Save actions gated per-tab.
+  // Block non-admin users from settings page
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Settings" eventId={id} />;
+  }
+
   if (isLoading) {
     return (
       <ContentLayout title="Event Settings">
@@ -1236,15 +1241,6 @@ export default function MarathonSettingsPage() {
             {event.status}
           </Badge>
         </div>
-
-        {!access.canManage && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-            <p className="font-medium">Read-only mode</p>
-            <p className="text-xs mt-0.5">
-              You&apos;re viewing settings in read-only mode. Changes can only be saved by event admins.
-            </p>
-          </div>
-        )}
 
         <Tabs defaultValue="general" className="w-full">
           <TabsList className="grid w-full grid-cols-4">

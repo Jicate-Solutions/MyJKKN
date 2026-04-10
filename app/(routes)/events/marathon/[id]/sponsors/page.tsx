@@ -40,6 +40,8 @@ import {
   TrendingUp,
   ExternalLink,
 } from 'lucide-react';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 import type {
   MarathonSponsor,
   SponsorTier,
@@ -457,11 +459,17 @@ function AddSponsorDialog({
 export default function MarathonSponsorsPage() {
   const params = useParams();
   const eventId = params.id as string;
+  const access = useMarathonAccess();
 
   const [addOpen, setAddOpen] = useState(false);
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
   const { data: sponsors, isLoading, error } = useMarathonSponsors(eventId);
+
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Sponsors" eventId={eventId} />;
+  }
 
   // Group sponsors by pipeline stage
   const byStage = (stage: SponsorPipelineStage) =>

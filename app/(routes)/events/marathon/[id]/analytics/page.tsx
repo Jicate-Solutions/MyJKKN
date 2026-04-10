@@ -30,6 +30,8 @@ import {
   useYoYComparison,
 } from '@/hooks/events/marathon/use-marathon-analytics';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 import {
   PerformanceOverview,
   PaceDistributionChart,
@@ -356,11 +358,17 @@ function formatSecondsLocal(seconds: number): string {
 export default function MarathonAnalyticsPage() {
   const params = useParams();
   const eventId = params.id as string;
+  const access = useMarathonAccess();
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
   const { data: regAnalytics, isLoading: regLoading } = useRegistrationAnalytics(eventId);
   const { data: raceAnalytics, isLoading: raceLoading } = useRaceAnalytics(eventId);
   const { data: colleges, isLoading: collegesLoading } = useCollegePerformance(eventId);
+
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Analytics" eventId={eventId} />;
+  }
 
   const hasRaceResults = (raceAnalytics?.fastest_time_seconds ?? 0) > 0;
 

@@ -37,6 +37,8 @@ import {
   useDisqualifyResult,
 } from '@/hooks/events/marathon/use-marathon-results';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 import { ImportGPSResultsDialog } from './_components/import-gps-results';
 import {
   Loader2,
@@ -283,6 +285,7 @@ function DisqualifyDialog({
 export default function MarathonResultsPage() {
   const params = useParams();
   const eventId = params.id as string;
+  const access = useMarathonAccess();
 
   const [gpsDialogOpen, setGpsDialogOpen] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -291,6 +294,11 @@ export default function MarathonResultsPage() {
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
   const { data: results, isLoading, error, refetch } = useMarathonResults(eventId);
+
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Results" eventId={eventId} />;
+  }
   const recalculateMutation = useRecalculateRankings();
   const markDNFMutation = useMarkDNF();
 

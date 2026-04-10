@@ -26,6 +26,8 @@ import {
   useGenerateCertificates,
 } from '@/hooks/events/marathon/use-marathon-results';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 import {
   Loader2,
   Award,
@@ -185,10 +187,16 @@ type CertRow = {
 export default function MarathonCertificatesPage() {
   const params = useParams();
   const eventId = params.id as string;
+  const access = useMarathonAccess();
 
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
+
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Certificates" eventId={eventId} />;
+  }
   const { data: stats } = useCertificateStats(eventId);
   const { data: certList, isLoading, error, refetch } = useCertificateList(eventId);
 

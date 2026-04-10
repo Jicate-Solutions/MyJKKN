@@ -1665,7 +1665,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           { href: `/events/marathon/${activeMarathonId}/dashboard`, label: 'Dashboard', active: pathname.includes('/dashboard'), adminOnly: true },
           { href: `/events/marathon/${activeMarathonId}/registrations`, label: 'Registrations', active: pathname.includes('/registrations'), adminOnly: false },
           { href: `/events/marathon/${activeMarathonId}/sponsors`, label: 'Sponsors', active: pathname.includes('/sponsors'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/committees`, label: 'Committees', active: pathname.includes('/committees'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/committees`, label: 'Committees', active: pathname.includes('/committees'), adminOnly: false },
           { href: `/events/marathon/${activeMarathonId}/budget`, label: 'Budget', active: pathname.includes('/budget'), adminOnly: true },
           { href: `/events/marathon/${activeMarathonId}/live`, label: 'Live Ops', active: pathname.includes('/live'), adminOnly: true },
           { href: `/events/marathon/${activeMarathonId}/results`, label: 'Results', active: pathname.includes('/results'), adminOnly: true },
@@ -2022,16 +2022,23 @@ export function GetRoleBasedPages(
               return false;
             }
 
-            // Marathon events: all 10 sub-pages visible to all authenticated users.
-            // Write access is gated per-page via useMarathonAccess/canManage.
-            // - Super admin / admin / event_coordinator: full read+write on all pages
-            // - Custom roles with specific events.marathon.* permissions: full access to matching pages
-            // - All other authenticated users (committee members, students, faculty):
-            //   read-only access to all pages. Task status updates on Committees page
-            //   for tasks assigned to them. Registration self-service on Registrations page.
+            // Marathon events: admin-only pages restricted to admin/coordinator roles.
+            // Non-admin users only see Registrations and Committees sub-pages.
             if (submenu.href.includes('/events/marathon/') && (submenu as any).adminOnly !== undefined) {
-              // All authenticated users see all marathon sub-pages (read-only enforced
-              // at page/component level via canManage + RLS).
+              const marathonAdminRoles = ['admin', 'administrator', 'event_coordinator'];
+              const isMarathonAdmin =
+                marathonAdminRoles.includes(userRole.role_key || '') ||
+                userRole.permissions['events.marathon.view'] === true;
+
+              if ((submenu as any).adminOnly) {
+                // Admin-only pages: only visible to marathon admins
+                return isMarathonAdmin;
+              }
+              // Non-admin pages (Registrations, Committees): visible to non-students
+              // Students only see Registrations
+              if (isStudent && submenu.href.includes('/committees')) {
+                return false;
+              }
               return true;
             }
 

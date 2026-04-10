@@ -38,6 +38,8 @@ import {
   useDeleteBudgetItem,
 } from '@/hooks/events/marathon/use-marathon-budget';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 import {
   Loader2,
   Plus,
@@ -551,6 +553,7 @@ function BudgetItemDialog({
 export default function MarathonBudgetPage() {
   const params = useParams();
   const eventId = params.id as string;
+  const access = useMarathonAccess();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MarathonBudgetItem | null>(null);
@@ -558,6 +561,11 @@ export default function MarathonBudgetPage() {
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
   const { data: items, isLoading, error } = useMarathonBudget(eventId);
+
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Budget" eventId={eventId} />;
+  }
 
   const handleEdit = (item: MarathonBudgetItem) => {
     setEditingItem(item);

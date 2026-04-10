@@ -95,7 +95,11 @@ function EventCard({
   return (
     <Card
       className="cursor-pointer active:scale-[0.98] transition-transform touch-manipulation"
-      onClick={() => router.push(`/events/marathon/${event.id}/dashboard`)}
+      onClick={() => router.push(
+        access.canManage
+          ? `/events/marathon/${event.id}/dashboard`
+          : `/events/marathon/${event.id}/registrations`
+      )}
     >
       <CardContent className="p-4">
         {/* Top row: Status + Days */}

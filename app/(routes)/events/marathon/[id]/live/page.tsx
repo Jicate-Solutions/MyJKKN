@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useMarathonEvent } from '@/hooks/events/marathon/use-marathon-events';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../_components/marathon-access-denied';
 import { useLiveOpsData } from '@/hooks/events/marathon/use-marathon-live-ops';
 import {
   Loader2,
@@ -284,8 +286,14 @@ function PostRaceView({ eventId }: { eventId: string }) {
 export default function MarathonLiveOpsPage() {
   const params = useParams();
   const eventId = params.id as string;
+  const access = useMarathonAccess();
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
+
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Live Ops" eventId={eventId} />;
+  }
 
   if (eventLoading) {
     return (
