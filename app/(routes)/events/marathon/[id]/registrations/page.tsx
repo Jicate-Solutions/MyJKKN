@@ -296,7 +296,7 @@ export default function MarathonRegistrationsPage() {
   }, [searchParams, eventId, router]);
 
   const access = useMarathonAccess();
-  const { user } = useAuth();
+  const { profile: user } = useAuth();
   const [filters, setFilters] = useState<Partial<RegistrationFilters>>({});
 
   const { data: event, isLoading: eventLoading } = useMarathonEvent(eventId);
@@ -320,7 +320,7 @@ export default function MarathonRegistrationsPage() {
   //      per-person identifier at JKKN)
   // Any one match is enough. This is wider than strictly needed on purpose: the
   // write path is still gated by access.canManage, so extra visibility is safe.
-  const phoneDigits = user?.phone?.replace(/\D/g, '') || '';
+  const phoneDigits = user?.phone_number?.replace(/\D/g, '') || '';
   const registrations = useMemo(() => {
     const list = allRegistrations ?? [];
     if (!access.selfOnly) return list;

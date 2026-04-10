@@ -4614,31 +4614,39 @@ ALTER TABLE public.events_registrations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "events_reg_public_insert" ON public.events_registrations
   FOR INSERT WITH CHECK (true);
 
--- Authenticated users can read registrations for their institution's events
-CREATE POLICY "events_reg_auth_read" ON public.events_registrations
+-- Admins / event coordinators can read all registrations
+CREATE POLICY "events_reg_admin_read" ON public.events_registrations
   FOR SELECT TO authenticated USING (
+    is_super_admin() OR get_current_user_role() = ANY(ARRAY['super_admin','admin','administrator','event_coordinator'])
+  );
+
+-- Admins / event coordinators can update all registrations
+CREATE POLICY "events_reg_admin_update" ON public.events_registrations
+  FOR UPDATE TO authenticated USING (
+    is_super_admin() OR get_current_user_role() = ANY(ARRAY['super_admin','admin','administrator','event_coordinator'])
+  );
+
+-- Authenticated users can read registrations where the registration's institution matches theirs
+CREATE POLICY "events_reg_institution_read" ON public.events_registrations
+  FOR SELECT TO authenticated USING (
+    institution_id IN (
+      SELECT institution_id FROM public.profiles
+      WHERE id = auth.uid() AND institution_id IS NOT NULL
+    )
+  );
+
+-- Anyone can read registrations for public, active events
+CREATE POLICY "events_reg_public_event_read" ON public.events_registrations
+  FOR SELECT USING (
     event_id IN (
-      SELECT id FROM public.events WHERE institution_id IN (
-        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
-      )
+      SELECT id FROM public.events
+      WHERE is_public = true AND status NOT IN ('draft','cancelled')
     )
   );
 
 -- Users can always read their own registration(s) regardless of event institution
--- (needed for cross-institution events like marathons where the event's institution_id
---  may not match the participant's institution_id)
-CREATE POLICY "events_reg_own_read" ON public.events_registrations
+CREATE POLICY "events_reg_self_read" ON public.events_registrations
   FOR SELECT TO authenticated USING (profile_id = auth.uid());
-
--- Authenticated users can update registrations for their institution's events
-CREATE POLICY "events_reg_auth_update" ON public.events_registrations
-  FOR UPDATE TO authenticated USING (
-    event_id IN (
-      SELECT id FROM public.events WHERE institution_id IN (
-        SELECT institution_id FROM public.profiles WHERE id = auth.uid()
-      )
-    )
-  );
 
 -- ── event_payment_transactions ────────────────────────────────────────────────
 
