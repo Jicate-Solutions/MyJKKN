@@ -61,10 +61,12 @@ import {
   Wallet,
   UserCheck,
   ExternalLink,
+  Download,
 } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { format } from 'date-fns';
 import { BulkImportDialog } from './_components/bulk-import-dialog';
+import { ExportService } from '@/lib/services/export-service';
 import type {
   EventRegistration,
   EventCategory,
@@ -855,6 +857,75 @@ export default function MarathonRegistrationsPage() {
   const [showRegisterDialog, setShowRegisterDialog] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
 
+  // Export current tab's registrations to Excel
+  const handleExport = useCallback(() => {
+    const dataToExport = tabFilteredRegistrations;
+    if (!dataToExport || dataToExport.length === 0) return;
+
+    const tabLabel = activeTab === 'all' ? 'All' : activeTab === 'internal' ? 'Internal' : 'External';
+    const eventName = event?.name?.replace(/[^a-zA-Z0-9]/g, '_') ?? 'Marathon';
+
+    const headers = {
+      bib_number: 'BIB Number',
+      participant_name: 'Name',
+      participant_phone: 'Phone',
+      participant_email: 'Email',
+      participant_age: 'Age',
+      participant_gender: 'Gender',
+      participant_type: 'Type',
+      category_name: 'Category',
+      institution_name: 'Institution',
+      department: 'Department',
+      status: 'Status',
+      payment_status: 'Payment Status',
+      payment_amount: 'Payment Amount',
+      payment_method: 'Payment Method',
+      payment_reference: 'Payment Reference',
+      tshirt_size: 'T-Shirt Size',
+      blood_group: 'Blood Group',
+      emergency_contact_name: 'Emergency Contact',
+      emergency_contact_phone: 'Emergency Phone',
+      checked_in: 'Checked In',
+      checked_in_at: 'Checked In At',
+      registered_at: 'Registered At',
+    } as Record<string, string>;
+
+    const rows = dataToExport.map((r) => {
+      const custom = (r.custom_data ?? {}) as Record<string, unknown>;
+      return {
+        bib_number: r.bib_number ?? '',
+        participant_name: r.participant_name ?? '',
+        participant_phone: r.participant_phone ?? '',
+        participant_email: r.participant_email ?? '',
+        participant_age: r.participant_age ?? '',
+        participant_gender: r.participant_gender ?? '',
+        participant_type: r.participant_type ?? '',
+        category_name: r.category?.name ?? r.category?.code ?? '',
+        institution_name: r.institution_name ?? '',
+        department: r.department ?? '',
+        status: r.status ?? '',
+        payment_status: r.payment_status === 'not_required' ? 'Free' : (r.payment_status ?? ''),
+        payment_amount: r.payment_amount ?? 0,
+        payment_method: r.payment_method ?? '',
+        payment_reference: r.payment_reference ?? '',
+        tshirt_size: (custom.tshirt_size as string) ?? '',
+        blood_group: (custom.blood_group as string) ?? '',
+        emergency_contact_name: (custom.emergency_contact_name as string) ?? '',
+        emergency_contact_phone: (custom.emergency_contact_phone as string) ?? '',
+        checked_in: r.checked_in ? 'Yes' : 'No',
+        checked_in_at: r.checked_in_at ? format(new Date(r.checked_in_at), 'dd MMM yyyy hh:mm a') : '',
+        registered_at: r.created_at ? format(new Date(r.created_at), 'dd MMM yyyy hh:mm a') : '',
+      };
+    });
+
+    ExportService.exportToExcel(
+      rows,
+      headers,
+      `${eventName}_Registrations_${tabLabel}`,
+      `${tabLabel} Registrations`
+    );
+  }, [tabFilteredRegistrations, activeTab, event?.name]);
+
   // Filter registrations by tab
   const tabFilteredRegistrations = useMemo(() => {
     if (activeTab === 'all') return registrations;
@@ -963,26 +1034,36 @@ export default function MarathonRegistrationsPage() {
               </TabsList>
 
               <div className="flex items-center gap-2">
+                {access.canManage && tabFilteredRegistrations.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={handleExport}
+                  >
+                    <Download className="h-4 w-4" />
+                    <span className="hidden sm:inline">Export</span>
+                  </Button>
+                )}
                 {access.canManage && (
                   <Button
                     size="sm"
                     variant="outline"
-                    className="gap-2"
+                    className="gap-1.5"
                     onClick={() => setShowBulkImport(true)}
                   >
                     <Upload className="h-4 w-4" />
-                    <span className="hidden sm:inline">Import External</span>
-                    <span className="sm:hidden">Import</span>
+                    <span className="hidden sm:inline">Import</span>
                   </Button>
                 )}
                 {access.canRegister && (
                   <Button
                     size="sm"
-                    className="gap-2"
+                    className="gap-1.5"
                     onClick={() => setShowRegisterDialog(true)}
                   >
                     <Plus className="h-4 w-4" />
-                    {access.selfOnly ? 'Register for Event' : 'Add Registration'}
+                    {access.selfOnly ? 'Register' : 'Add'}
                   </Button>
                 )}
               </div>
