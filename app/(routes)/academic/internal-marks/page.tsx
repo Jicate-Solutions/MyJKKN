@@ -27,6 +27,8 @@ export default function InternalMarksPage() {
   const { isSuperAdmin, canAccess, isLoading: isLoadingPermissions } = usePermissions();
   const { profile } = useAuth();
   const canView = isLoadingPermissions || isSuperAdmin || canAccess('academic.internal-marks', 'view');
+  const canEdit = isSuperAdmin || canAccess('academic.internal-marks', 'edit');
+  const canSubmit = isSuperAdmin || canAccess('academic.internal-marks', 'submit');
 
   const [filters, setFilters] = useState<Partial<InternalMarksFilterState>>({});
 
@@ -184,6 +186,8 @@ export default function InternalMarksPage() {
             pdfContext={pdfContext}
             onSubmit={handleSubmitMarks}
             isSubmitting={submitMutation.isPending}
+            canEdit={canEdit}
+            canSubmit={canSubmit}
           />
         )}
 

@@ -237,6 +237,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/batches': 'academic.batches.view',
   '/academic/batches/new': 'academic.batches.create',
   '/academic/batches/[id]/edit': 'academic.batches.edit',
+  // Internal Marks (CIA)
+  '/academic/internal-marks': 'academic.internal-marks.view',
+  '/academic/internal-marks/report': 'academic.internal-marks.reports',
 
   // Notification Management
   '/admin/notifications': 'notifications.view',
@@ -806,6 +809,24 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/academic/attendance/consolidation',
               label: 'Consolidation Reports',
               active: pathname.startsWith('/academic/attendance/consolidation')
+            }
+          ]
+        },
+        {
+          href: '/academic/internal-marks',
+          label: 'Internal Marks',
+          active: pathname.startsWith('/academic/internal-marks'),
+          icon: ClipboardList,
+          submenus: [
+            {
+              href: '/academic/internal-marks',
+              label: 'Mark Entry',
+              active: pathname === '/academic/internal-marks'
+            },
+            {
+              href: '/academic/internal-marks/report',
+              label: 'Reports',
+              active: pathname.startsWith('/academic/internal-marks/report')
             }
           ]
         }

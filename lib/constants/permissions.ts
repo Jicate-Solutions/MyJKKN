@@ -385,7 +385,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.batches.view', label: 'View Batches' },
       { key: 'academic.batches.create', label: 'Create Batches' },
       { key: 'academic.batches.edit', label: 'Edit Batches' },
-      { key: 'academic.batches.delete', label: 'Delete Batches' }
+      { key: 'academic.batches.delete', label: 'Delete Batches' },
+      // Internal Marks (CIA)
+      { key: 'academic.internal-marks.view', label: 'View Internal Marks' },
+      { key: 'academic.internal-marks.edit', label: 'Enter/Edit Internal Marks' },
+      { key: 'academic.internal-marks.submit', label: 'Submit Internal Marks' },
+      { key: 'academic.internal-marks.reports', label: 'View Internal Marks Reports' }
     ]
   },
   {

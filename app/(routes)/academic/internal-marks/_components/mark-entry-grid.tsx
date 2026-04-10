@@ -61,6 +61,10 @@ interface MarkEntryGridProps {
   pdfContext: MarkEntryPDFContext;
   onSubmit: (records: CiaMarkSyncRecord[], onSuccess: () => void) => void;
   isSubmitting: boolean;
+  /** Permission: can edit/enter marks (defaults to true for backward compat) */
+  canEdit?: boolean;
+  /** Permission: can submit marks (defaults to true for backward compat) */
+  canSubmit?: boolean;
 }
 
 interface MarkRow {
@@ -99,6 +103,8 @@ export function MarkEntryGrid({
   pdfContext,
   onSubmit,
   isSubmitting,
+  canEdit = true,
+  canSubmit = true,
 }: MarkEntryGridProps) {
   const entryStatus: EntryWindowStatus = getEntryWindowStatus(round);
 
@@ -111,8 +117,8 @@ export function MarkEntryGrid({
     );
   }, [existingMarks]);
 
-  // Read-only when: entry window closed OR marks already saved
-  const isReadOnly = entryStatus !== 'open' || alreadySaved;
+  // Read-only when: entry window closed OR marks already saved OR user lacks edit permission
+  const isReadOnly = entryStatus !== 'open' || alreadySaved || !canEdit;
 
   // Override component max_marks with course's internal_max_mark when use_course_max is true
   const components = useMemo(
@@ -609,7 +615,7 @@ export function MarkEntryGrid({
       )}
 
       {/* Submit button */}
-      {!isReadOnly && rows.length > 0 && (
+      {!isReadOnly && canSubmit && rows.length > 0 && (
         <div className='flex justify-end'>
           <AlertDialog>
             <AlertDialogTrigger asChild>
