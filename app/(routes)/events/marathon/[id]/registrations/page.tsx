@@ -18,6 +18,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
+import {
   useMarathonRegistrations,
   useRegistrationStats,
   useRegisterParticipant,
@@ -434,10 +440,12 @@ export default function MarathonRegistrationsPage() {
           const d = row.original.created_at;
           if (!d) return '-';
           try {
+            const date = new Date(d);
             return (
-              <span className="text-sm text-muted-foreground">
-                {format(new Date(d), 'dd MMM yyyy')}
-              </span>
+              <div className="text-sm">
+                <div className="text-foreground">{format(date, 'dd MMM yyyy')}</div>
+                <div className="text-xs text-muted-foreground">{format(date, 'hh:mm a')}</div>
+              </div>
             );
           } catch {
             return d;
@@ -476,7 +484,24 @@ export default function MarathonRegistrationsPage() {
     );
   };
 
+  const [activeTab, setActiveTab] = useState<'all' | 'internal' | 'external'>('all');
   const [showRegisterDialog, setShowRegisterDialog] = useState(false);
+
+  // Filter registrations by tab
+  const tabFilteredRegistrations = useMemo(() => {
+    if (activeTab === 'all') return registrations;
+    return registrations.filter((r) => r.participant_type === activeTab);
+  }, [registrations, activeTab]);
+
+  // Counts for tab badges
+  const internalCount = useMemo(
+    () => registrations.filter((r) => r.participant_type === 'internal').length,
+    [registrations]
+  );
+  const externalCount = useMemo(
+    () => registrations.filter((r) => r.participant_type === 'external').length,
+    [registrations]
+  );
 
   if (eventLoading) {
     return (
@@ -520,7 +545,7 @@ export default function MarathonRegistrationsPage() {
           categories={categories}
         />
 
-        {/* Data Table */}
+        {/* Data Table with Internal/External Tabs */}
         {isLoading && (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -534,14 +559,30 @@ export default function MarathonRegistrationsPage() {
         )}
 
         {!isLoading && !error && (
-          <DataTable
-            columns={columns}
-            data={registrations ?? []}
-            searchPlaceholder="Search by name, phone, or BIB..."
-            globalFilterFn={globalFilterFn}
-            onRefresh={() => refetch()}
-            tableTools={
-              access.canRegister ? (
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <TabsList>
+                <TabsTrigger value="all" className="gap-1.5">
+                  All
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
+                    {registrations.length}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="internal" className="gap-1.5">
+                  Internal
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
+                    {internalCount}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="external" className="gap-1.5">
+                  External
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1">
+                    {externalCount}
+                  </Badge>
+                </TabsTrigger>
+              </TabsList>
+
+              {access.canRegister && (
                 <Button
                   size="sm"
                   className="gap-2"
@@ -550,9 +591,19 @@ export default function MarathonRegistrationsPage() {
                   <Plus className="h-4 w-4" />
                   {access.selfOnly ? 'Register for Event' : 'Add Registration'}
                 </Button>
-              ) : undefined
-            }
-          />
+              )}
+            </div>
+
+            <div className="mt-3">
+              <DataTable
+                columns={columns}
+                data={tabFilteredRegistrations}
+                searchPlaceholder="Search by name, phone, or BIB..."
+                globalFilterFn={globalFilterFn}
+                onRefresh={() => refetch()}
+              />
+            </div>
+          </Tabs>
         )}
 
         {/* Register Participant Dialog */}
