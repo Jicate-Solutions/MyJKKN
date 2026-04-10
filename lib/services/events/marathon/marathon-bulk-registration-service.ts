@@ -23,6 +23,11 @@ export interface BulkRegistrationRow {
   blood_group?: string;
   emergency_contact_name?: string;
   emergency_contact_phone?: string;
+  // Payment fields
+  payment_status?: string;  // paid / pending / not_required / waived
+  payment_amount?: number;
+  payment_method?: string;  // cash / upi / bank_transfer / card / online
+  payment_reference?: string; // transaction ID or receipt number
 }
 
 export interface RowValidationError {
@@ -65,6 +70,10 @@ const TEMPLATE_COLUMNS = [
   { header: 'Blood Group', key: 'blood_group', width: 14 },
   { header: 'Emergency Contact Name', key: 'emergency_contact_name', width: 25 },
   { header: 'Emergency Contact Phone', key: 'emergency_contact_phone', width: 22 },
+  { header: 'Payment Status', key: 'payment_status', width: 16 },
+  { header: 'Amount Paid', key: 'payment_amount', width: 14 },
+  { header: 'Payment Method', key: 'payment_method', width: 16 },
+  { header: 'Payment Reference', key: 'payment_reference', width: 22 },
 ];
 
 // ============================================================================
@@ -124,6 +133,10 @@ export class MarathonBulkRegistrationService {
       blood_group: 'B+',
       emergency_contact_name: 'Priya Kumar',
       emergency_contact_phone: '9876543211',
+      payment_status: 'paid',
+      payment_amount: cats[0]?.fee_amount ?? 100,
+      payment_method: 'upi',
+      payment_reference: 'TXN123456',
     });
     sheet.addRow({
       participant_name: 'Meena S',
@@ -138,6 +151,10 @@ export class MarathonBulkRegistrationService {
       blood_group: 'O+',
       emergency_contact_name: 'Suresh S',
       emergency_contact_phone: '8765432101',
+      payment_status: '',
+      payment_amount: '',
+      payment_method: '',
+      payment_reference: '',
     });
 
     // Style sample rows as italic light gray
@@ -175,6 +192,20 @@ export class MarathonBulkRegistrationService {
       formulae: ['"XS,S,M,L,XL,XXL"'],
     });
 
+    // Payment status dropdown (column M)
+    sheet.dataValidations.add('M2:M10000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: ['"paid,pending,not_required,waived"'],
+    });
+
+    // Payment method dropdown (column O)
+    sheet.dataValidations.add('O2:O10000', {
+      type: 'list',
+      allowBlank: true,
+      formulae: ['"cash,upi,bank_transfer,card,online"'],
+    });
+
     // ── Sheet 2: Legend ─────────────────────────────────────────────
     const legend = workbook.addWorksheet('Instructions');
     legend.columns = [
@@ -204,6 +235,10 @@ export class MarathonBulkRegistrationService {
       { field: 'Blood Group', required: 'No', description: 'e.g., A+, B-, O+, AB+' },
       { field: 'Emergency Contact Name', required: 'No', description: 'Name of emergency contact person' },
       { field: 'Emergency Contact Phone', required: 'No', description: 'Phone of emergency contact person' },
+      { field: 'Payment Status', required: 'No', description: 'paid / pending / not_required / waived. Leave blank to auto-detect from category fee.' },
+      { field: 'Amount Paid', required: 'No', description: 'Amount paid (number). Leave blank to use category fee.' },
+      { field: 'Payment Method', required: 'No', description: 'cash / upi / bank_transfer / card / online' },
+      { field: 'Payment Reference', required: 'No', description: 'Transaction ID, receipt number, or reference' },
     ];
     fields.forEach((f) => legend.addRow(f));
 
@@ -259,6 +294,13 @@ export class MarathonBulkRegistrationService {
       const ecName = String(raw.emergency_contact_name ?? raw['Emergency Contact Name'] ?? '').trim() || undefined;
       const ecPhone = String(raw.emergency_contact_phone ?? raw['Emergency Contact Phone'] ?? '').trim() || undefined;
 
+      // Payment fields
+      const paymentStatusRaw = String(raw.payment_status ?? raw['Payment Status'] ?? '').trim().toLowerCase() || undefined;
+      const paymentAmountRaw = raw.payment_amount ?? raw['Amount Paid'] ?? '';
+      const paymentAmount = paymentAmountRaw ? Number(paymentAmountRaw) : undefined;
+      const paymentMethod = String(raw.payment_method ?? raw['Payment Method'] ?? '').trim().toLowerCase() || undefined;
+      const paymentReference = String(raw.payment_reference ?? raw['Payment Reference'] ?? '').trim() || undefined;
+
       // Required field validation
       if (!name || name.length < 2) {
         errors.push({ row: rowNum, field: 'Name', message: 'Name is required (min 2 characters)' });
@@ -298,6 +340,24 @@ export class MarathonBulkRegistrationService {
         hasError = true;
       }
 
+      // Payment validation
+      const validPaymentStatuses = ['paid', 'pending', 'not_required', 'waived'];
+      if (paymentStatusRaw && !validPaymentStatuses.includes(paymentStatusRaw)) {
+        errors.push({ row: rowNum, field: 'Payment Status', message: `Must be one of: ${validPaymentStatuses.join(', ')}` });
+        hasError = true;
+      }
+
+      if (paymentAmount !== undefined && (isNaN(paymentAmount) || paymentAmount < 0)) {
+        errors.push({ row: rowNum, field: 'Amount Paid', message: 'Amount must be a positive number' });
+        hasError = true;
+      }
+
+      const validPaymentMethods = ['cash', 'upi', 'bank_transfer', 'card', 'online'];
+      if (paymentMethod && !validPaymentMethods.includes(paymentMethod)) {
+        errors.push({ row: rowNum, field: 'Payment Method', message: `Must be one of: ${validPaymentMethods.join(', ')}` });
+        hasError = true;
+      }
+
       // Duplicate phone within file
       if (phone && seenPhones.has(phone)) {
         errors.push({ row: rowNum, field: 'Phone', message: `Duplicate phone in file (same as earlier row)` });
@@ -319,6 +379,10 @@ export class MarathonBulkRegistrationService {
           blood_group: bloodGroup,
           emergency_contact_name: ecName,
           emergency_contact_phone: ecPhone,
+          payment_status: paymentStatusRaw,
+          payment_amount: paymentAmount,
+          payment_method: paymentMethod,
+          payment_reference: paymentReference,
         });
       }
     }
@@ -452,8 +516,10 @@ export class MarathonBulkRegistrationService {
         department: row.department ?? null,
         bib_number: bibNumber,
         status: 'registered',
-        payment_status: cat.fee_amount > 0 ? 'pending' : 'not_required',
-        payment_amount: cat.fee_amount ?? 0,
+        payment_status: row.payment_status ?? (cat.fee_amount > 0 ? 'pending' : 'not_required'),
+        payment_amount: row.payment_amount ?? cat.fee_amount ?? 0,
+        payment_method: row.payment_method ?? null,
+        payment_reference: row.payment_reference ?? null,
         custom_data: Object.keys(customData).length > 0 ? customData : {},
         source: 'bulk_upload',
         checked_in: false,

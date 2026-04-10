@@ -258,6 +258,7 @@ export function BulkImportDialog({
                       <th className="px-2 py-1.5 text-left font-medium">Institution</th>
                       <th className="px-2 py-1.5 text-left font-medium">Gender</th>
                       <th className="px-2 py-1.5 text-left font-medium">Age</th>
+                      <th className="px-2 py-1.5 text-left font-medium">Payment</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -283,6 +284,20 @@ export function BulkImportDialog({
                         </td>
                         <td className="px-2 py-1">
                           {String(row['Age'] ?? row['participant_age'] ?? '-')}
+                        </td>
+                        <td className="px-2 py-1">
+                          {(() => {
+                            const ps = String(row['Payment Status'] ?? row['payment_status'] ?? '').trim().toLowerCase();
+                            if (!ps) return <span className="text-muted-foreground">-</span>;
+                            return (
+                              <Badge
+                                variant={ps === 'paid' ? 'default' : ps === 'pending' ? 'outline' : 'secondary'}
+                                className="text-[10px]"
+                              >
+                                {ps}
+                              </Badge>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}
