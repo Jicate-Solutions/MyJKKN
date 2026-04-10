@@ -58,7 +58,11 @@ import {
   AlertTriangle,
   ArrowLeft,
   Upload,
+  Wallet,
+  UserCheck,
+  ExternalLink,
 } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 import { format } from 'date-fns';
 import { BulkImportDialog } from './_components/bulk-import-dialog';
 import type {
@@ -121,19 +125,75 @@ const PAYMENT_LABELS: Record<PaymentStatus, string> = {
 };
 
 // ============================================================================
-// Stats Cards
+// Stats Cards — Advanced with Internal/External + Payment breakdown
 // ============================================================================
+
+function formatINR(amount: number): string {
+  if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
+  if (amount >= 1000) return `₹${(amount / 1000).toFixed(1)}K`;
+  return `₹${amount.toLocaleString('en-IN')}`;
+}
+
+function TypeCard({
+  label,
+  icon: Icon,
+  iconColor,
+  data,
+  total,
+}: {
+  label: string;
+  icon: React.ElementType;
+  iconColor: string;
+  data: { total: number; checked_in: number; payment_collected: number; payment_paid: number; payment_pending: number; payment_free: number };
+  total: number;
+}) {
+  const pct = total > 0 ? Math.round((data.total / total) * 100) : 0;
+  const checkInPct = data.total > 0 ? Math.round((data.checked_in / data.total) * 100) : 0;
+
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-3 space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Icon className={`h-3.5 w-3.5 ${iconColor}`} />
+            {label}
+          </div>
+          <Badge variant="secondary" className="text-[10px]">{pct}%</Badge>
+        </div>
+        <div className="text-2xl font-bold">{data.total.toLocaleString('en-IN')}</div>
+        <div className="space-y-1.5">
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Checked in</span>
+            <span>{data.checked_in} ({checkInPct}%)</span>
+          </div>
+          <Progress value={checkInPct} className="h-1" />
+        </div>
+        <div className="flex gap-3 text-xs text-muted-foreground pt-1 border-t">
+          {data.payment_paid > 0 && (
+            <span className="text-green-600 dark:text-green-400">{data.payment_paid} paid</span>
+          )}
+          {data.payment_pending > 0 && (
+            <span className="text-amber-600 dark:text-amber-400">{data.payment_pending} pending</span>
+          )}
+          {data.payment_free > 0 && (
+            <span>{data.payment_free} free</span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function StatsCards({ eventId }: { eventId: string }) {
   const { data: stats, isLoading } = useRegistrationStats(eventId);
 
   if (isLoading || !stats) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[...Array(4)].map((_, i) => (
           <Card key={i}>
             <CardContent className="pt-4 pb-3">
-              <div className="h-16 animate-pulse bg-muted rounded" />
+              <div className="h-20 animate-pulse bg-muted rounded" />
             </CardContent>
           </Card>
         ))}
@@ -141,49 +201,104 @@ function StatsCards({ eventId }: { eventId: string }) {
     );
   }
 
-  const cards = [
-    {
-      label: 'Total Registrations',
-      value: stats.total,
-      icon: Users,
-      sub: `${stats.internal_count} internal / ${stats.external_count} external`,
-    },
-    {
-      label: 'Checked In',
-      value: stats.checked_in_count,
-      icon: CheckCircle2,
-      sub: stats.total > 0
-        ? `${Math.round((stats.checked_in_count / stats.total) * 100)}% of total`
-        : '0%',
-    },
-    {
-      label: 'Payment Collected',
-      value: `₹${stats.payment_collected.toLocaleString('en-IN')}`,
-      icon: IndianRupee,
-      sub: `${stats.payment_pending} pending`,
-    },
-    {
-      label: 'Institutions',
-      value: stats.by_institution.length,
-      icon: Building2,
-      sub: stats.by_institution.slice(0, 2).map((i) => i.institution_name).join(', ') || '-',
-    },
-  ];
+  const checkInPct = stats.total > 0 ? Math.round((stats.checked_in_count / stats.total) * 100) : 0;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      {cards.map((c) => (
-        <Card key={c.label}>
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-              <c.icon className="h-3.5 w-3.5" />
-              {c.label}
+    <div className="space-y-3">
+      {/* Row 1: Overview + Internal + External + Payment */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Total Overview */}
+        <Card>
+          <CardContent className="pt-4 pb-3 space-y-2.5">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Users className="h-3.5 w-3.5 text-blue-500" />
+              Total Registrations
             </div>
-            <div className="text-2xl font-bold">{c.value}</div>
-            <div className="text-xs text-muted-foreground truncate mt-0.5">{c.sub}</div>
+            <div className="text-2xl font-bold">{stats.total.toLocaleString('en-IN')}</div>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Checked in</span>
+                <span>{stats.checked_in_count} ({checkInPct}%)</span>
+              </div>
+              <Progress value={checkInPct} className="h-1" />
+            </div>
+            <div className="text-xs text-muted-foreground pt-1 border-t">
+              {stats.by_institution.length} institution{stats.by_institution.length !== 1 ? 's' : ''}
+              {stats.by_category.length > 0 && ` · ${stats.by_category.length} categories`}
+            </div>
           </CardContent>
         </Card>
-      ))}
+
+        {/* Internal */}
+        <TypeCard
+          label="Internal (JKKN)"
+          icon={UserCheck}
+          iconColor="text-emerald-500"
+          data={stats.internal}
+          total={stats.total}
+        />
+
+        {/* External */}
+        <TypeCard
+          label="External"
+          icon={ExternalLink}
+          iconColor="text-violet-500"
+          data={stats.external}
+          total={stats.total}
+        />
+
+        {/* Payment Summary */}
+        <Card>
+          <CardContent className="pt-4 pb-3 space-y-2.5">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Wallet className="h-3.5 w-3.5 text-amber-500" />
+              Payment Summary
+            </div>
+            <div className="text-2xl font-bold">{formatINR(stats.payment_collected)}</div>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
+                  Paid
+                </span>
+                <span className="font-medium">{stats.payment_paid_count}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 inline-block" />
+                  Pending
+                </span>
+                <span className="font-medium">{stats.payment_pending_count}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-gray-400 inline-block" />
+                  Free
+                </span>
+                <span className="font-medium">{stats.payment_free_count}</span>
+              </div>
+              {stats.payment_waived_count > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500 inline-block" />
+                    Waived
+                  </span>
+                  <span className="font-medium">{stats.payment_waived_count}</span>
+                </div>
+              )}
+              {stats.payment_failed_count > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-red-600 dark:text-red-400 flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500 inline-block" />
+                    Failed
+                  </span>
+                  <span className="font-medium">{stats.payment_failed_count}</span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

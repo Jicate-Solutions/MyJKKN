@@ -37,6 +37,16 @@ export interface RegisterParticipantDto {
   referral_source?: string;
 }
 
+export interface TypeBreakdown {
+  total: number;
+  checked_in: number;
+  payment_collected: number;
+  payment_paid: number;
+  payment_pending: number;
+  payment_free: number;
+  payment_waived: number;
+}
+
 export interface RegistrationStats {
   total: number;
   by_category: { category_name: string; category_code: string; count: number }[];
@@ -48,6 +58,15 @@ export interface RegistrationStats {
   checked_in_count: number;
   payment_collected: number;
   payment_pending: number;
+  // Extended breakdowns
+  internal: TypeBreakdown;
+  external: TypeBreakdown;
+  payment_total_amount: number;
+  payment_paid_count: number;
+  payment_pending_count: number;
+  payment_free_count: number;
+  payment_waived_count: number;
+  payment_failed_count: number;
 }
 
 export interface CollegePenetration {
@@ -374,13 +393,36 @@ export class MarathonRegistrationService {
       }
 
       // Counts
-      const internal_count = regs.filter((r: any) => r.participant_type === 'internal').length;
-      const external_count = regs.filter((r: any) => r.participant_type === 'external').length;
+      const internalRegs = regs.filter((r: any) => r.participant_type === 'internal');
+      const externalRegs = regs.filter((r: any) => r.participant_type === 'external');
+      const internal_count = internalRegs.length;
+      const external_count = externalRegs.length;
       const checked_in_count = regs.filter((r: any) => r.checked_in).length;
       const payment_collected = regs
         .filter((r: any) => r.payment_status === 'paid')
         .reduce((sum: number, r: any) => sum + (r.payment_amount ?? 0), 0);
       const payment_pending = regs.filter((r: any) => r.payment_status === 'pending').length;
+
+      // Type breakdown helper
+      const buildBreakdown = (subset: any[]): TypeBreakdown => ({
+        total: subset.length,
+        checked_in: subset.filter((r) => r.checked_in).length,
+        payment_collected: subset
+          .filter((r) => r.payment_status === 'paid')
+          .reduce((sum: number, r) => sum + (r.payment_amount ?? 0), 0),
+        payment_paid: subset.filter((r) => r.payment_status === 'paid').length,
+        payment_pending: subset.filter((r) => r.payment_status === 'pending').length,
+        payment_free: subset.filter((r) => r.payment_status === 'not_required').length,
+        payment_waived: subset.filter((r) => r.payment_status === 'waived').length,
+      });
+
+      // Payment totals
+      const payment_total_amount = regs.reduce((sum: number, r: any) => sum + (r.payment_amount ?? 0), 0);
+      const payment_paid_count = regs.filter((r: any) => r.payment_status === 'paid').length;
+      const payment_pending_count = payment_pending;
+      const payment_free_count = regs.filter((r: any) => r.payment_status === 'not_required').length;
+      const payment_waived_count = regs.filter((r: any) => r.payment_status === 'waived').length;
+      const payment_failed_count = regs.filter((r: any) => r.payment_status === 'failed').length;
 
       return {
         total,
@@ -393,6 +435,14 @@ export class MarathonRegistrationService {
         checked_in_count,
         payment_collected,
         payment_pending,
+        internal: buildBreakdown(internalRegs),
+        external: buildBreakdown(externalRegs),
+        payment_total_amount,
+        payment_paid_count,
+        payment_pending_count,
+        payment_free_count,
+        payment_waived_count,
+        payment_failed_count,
       };
     } catch (error) {
       logger.error('events/marathon-registration', 'Unexpected error in getRegistrationStats', error);
