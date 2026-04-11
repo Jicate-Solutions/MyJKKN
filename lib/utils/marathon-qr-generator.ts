@@ -1,6 +1,5 @@
-import * as QRCode from 'qrcode';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import sharp = require('sharp');
+import QRCode from 'qrcode';
+import sharp from 'sharp';
 
 export interface QRGeneratorInput {
   bibNumber: string;

@@ -18,7 +18,7 @@ export async function GET(
     // Fetch event name
     const { data: event, error: eventError } = await supabase
       .from('events')
-      .select('id, event_name')
+      .select('id, name')
       .eq('id', eventId)
       .single();
 
@@ -29,7 +29,7 @@ export async function GET(
     // Fetch registration with stall join
     const { data: reg, error: regError } = await supabase
       .from('events_registrations')
-      .select('participant_name, stall_id, events_stalls(stall_code)')
+      .select('participant_name, stall:events_stalls(stall_code)')
       .eq('event_id', eventId)
       .eq('bib_number', bibNumber)
       .single();
@@ -42,22 +42,22 @@ export async function GET(
     }
 
     const stallCode =
-      reg.events_stalls && typeof reg.events_stalls === 'object' && 'stall_code' in reg.events_stalls
-        ? (reg.events_stalls as { stall_code: string }).stall_code
+      reg.stall && typeof reg.stall === 'object' && 'stall_code' in reg.stall
+        ? (reg.stall as { stall_code: string }).stall_code
         : null;
 
     const image = await generateMarathonQR({
       bibNumber,
       participantName: reg.participant_name,
       stallCode,
-      eventName: event.event_name,
+      eventName: event.name,
     });
 
     return new NextResponse(image, {
       status: 200,
       headers: {
         'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
         'Content-Disposition': `inline; filename="${bibNumber}.png"`,
       },
     });

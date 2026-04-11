@@ -1,9 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Search, UserCheck } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Loader2,
+  Search,
+  UserCheck,
+  Users,
+  ScanLine,
+} from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -16,7 +26,15 @@ import { BibScanner } from '@/components/marathon/bib-scanner';
 import { ScanResultCard } from '@/components/marathon/scan-result-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -25,8 +43,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 
 const ACTION = 'check_in' as const;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 export default function CheckInPage() {
   const params = useParams();
@@ -35,6 +55,9 @@ export default function CheckInPage() {
 
   const [scanResult, setScanResult] = useState<OpsScanResult | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'checked_in' | 'not_checked_in'>('all');
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(20);
 
   const processScan = useProcessScan();
   const { data: stats } = useOpsStats(eventId);
@@ -61,7 +84,7 @@ export default function CheckInPage() {
     return () => clearTimeout(timer);
   }, [scanResult]);
 
-  // Fetch registrations for the table
+  // Fetch registrations
   const { data: registrations, isLoading } = useQuery({
     queryKey: ['marathon-ops-registrations', eventId, ACTION],
     queryFn: async () => {
@@ -102,42 +125,46 @@ export default function CheckInPage() {
     [eventId, profile?.id, processScan]
   );
 
-  const handleManualMark = useCallback(
-    async (bibNumber: string) => {
-      if (!profile?.id) return;
-      try {
-        const result = await processScan.mutateAsync({
-          eventId,
-          bibNumber,
-          action: ACTION,
-          operatorId: profile.id,
-        });
-        setScanResult(result);
-      } catch {
-        // Error handled by mutation hook
-      }
-    },
-    [eventId, profile?.id, processScan]
-  );
-
   // Client-side filtering
-  const filtered = (registrations ?? []).filter((r: any) => {
-    if (searchQuery.length < 2) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      r.bib_number?.toLowerCase().includes(q) ||
-      r.participant_name?.toLowerCase().includes(q) ||
-      r.participant_phone?.toLowerCase().includes(q)
-    );
-  });
+  const filtered = useMemo(() => {
+    return (registrations ?? []).filter((r: any) => {
+      // Text search
+      if (searchQuery.length >= 2) {
+        const q = searchQuery.toLowerCase();
+        const matchesSearch =
+          r.bib_number?.toLowerCase().includes(q) ||
+          r.participant_name?.toLowerCase().includes(q) ||
+          r.participant_phone?.toLowerCase().includes(q);
+        if (!matchesSearch) return false;
+      }
+      // Status filter
+      if (filterStatus === 'checked_in' && !r.checked_in) return false;
+      if (filterStatus === 'not_checked_in' && r.checked_in) return false;
+      return true;
+    });
+  }, [registrations, searchQuery, filterStatus]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginatedData = useMemo(() => {
+    const start = pageIndex * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, pageIndex, pageSize]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setPageIndex(0);
+  }, [searchQuery, filterStatus, pageSize]);
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleTimeString('en-MY', {
+    return new Date(dateStr).toLocaleTimeString('en-IN', {
       hour: '2-digit',
       minute: '2-digit',
     });
   };
+
+  const checkedInPct = stats ? Math.round(((stats.checked_in ?? 0) / Math.max(stats.total, 1)) * 100) : 0;
 
   return (
     <ContentLayout title={`${eventName} - Check-in`}>
@@ -151,110 +178,292 @@ export default function CheckInPage() {
         ]}
       />
 
-      <div className="space-y-4 mt-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Check-in Station</h1>
-        <div className="flex items-center gap-2 rounded-lg border bg-card px-4 py-2">
-          <UserCheck className="h-5 w-5 text-green-600" />
-          <span className="text-lg font-semibold">
-            {stats?.checked_in ?? 0} / {stats?.total ?? 0}
-          </span>
-        </div>
-      </div>
-
-      {/* Two-column layout */}
-      <div className="flex flex-col gap-6 lg:flex-row">
-        {/* Left: Scanner + Result */}
-        <div className="flex flex-col gap-4 lg:w-1/3">
-          <BibScanner onScan={handleScan} disabled={processScan.isPending} />
-          <ScanResultCard result={scanResult} />
-        </div>
-
-        {/* Right: Search + Table */}
-        <div className="flex flex-col gap-4 lg:w-2/3">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search by BIB, name, or phone..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
+      <div className="space-y-5 mt-4">
+        {/* ── Header with stats ─────────────────────────────────── */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-green-500/10">
+              <UserCheck className="h-6 w-6 text-green-600" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Check-in Station</h1>
+              <p className="text-sm text-muted-foreground">{eventName}</p>
+            </div>
           </div>
 
-          {/* Table */}
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          {/* Live counter pills */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 rounded-full border bg-card px-4 py-2 shadow-sm">
+              <UserCheck className="h-4 w-4 text-green-600" />
+              <span className="text-sm font-semibold tabular-nums">
+                {stats?.checked_in ?? 0}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                / {stats?.total ?? 0}
+              </span>
             </div>
-          ) : (
-            <div className="overflow-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[80px]">BIB</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead className="hidden md:table-cell">Phone</TableHead>
-                    <TableHead className="hidden sm:table-cell">Category</TableHead>
-                    <TableHead className="hidden lg:table-cell">Stall</TableHead>
-                    <TableHead>Checked In</TableHead>
-                    <TableHead className="hidden sm:table-cell">Time</TableHead>
-                    <TableHead className="w-[120px]">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                        No registrations found.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filtered.map((r: any) => (
-                      <TableRow key={r.id}>
-                        <TableCell className="font-mono font-bold">{r.bib_number}</TableCell>
-                        <TableCell>{r.participant_name}</TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          {r.participant_phone ?? '-'}
-                        </TableCell>
-                        <TableCell className="hidden sm:table-cell">
-                          {r.category?.name ?? r.category?.code ?? '-'}
-                        </TableCell>
-                        <TableCell className="hidden lg:table-cell">
-                          {r.stall?.stall_name ?? '-'}
-                        </TableCell>
-                        <TableCell>
-                          {r.checked_in ? (
-                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                              Yes
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary">No</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="hidden sm:table-cell">
-                          {formatTime(r.checked_in_at)}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            size="sm"
-                            disabled={r.checked_in || processScan.isPending}
-                            onClick={() => handleManualMark(r.bib_number)}
-                          >
-                            Check In
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+            <div className="rounded-full border bg-green-50 px-3 py-2 shadow-sm">
+              <span className="text-sm font-bold text-green-700 tabular-nums">{checkedInPct}%</span>
             </div>
-          )}
+          </div>
         </div>
-      </div>
+
+        {/* ── Two-column layout ─────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* LEFT: Scanner + Result */}
+          <div className="lg:col-span-4 xl:col-span-3 space-y-4">
+            {/* Scanner card */}
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <ScanLine className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-muted-foreground">QR Scanner</span>
+                </div>
+                <BibScanner onScan={handleScan} disabled={processScan.isPending} />
+              </CardContent>
+            </Card>
+
+            {/* Scan result */}
+            {scanResult && (
+              <ScanResultCard result={scanResult} className="animate-in slide-in-from-top-2" />
+            )}
+
+            {/* Quick stats mini cards */}
+            <div className="grid grid-cols-2 gap-3">
+              <Card>
+                <CardContent className="p-3 text-center">
+                  <Users className="h-4 w-4 mx-auto text-blue-500 mb-1" />
+                  <p className="text-2xl font-bold tabular-nums">{stats?.total ?? 0}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3 text-center">
+                  <UserCheck className="h-4 w-4 mx-auto text-green-500 mb-1" />
+                  <p className="text-2xl font-bold tabular-nums text-green-600">{stats?.checked_in ?? 0}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Checked In</p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          {/* RIGHT: Filters + Table */}
+          <div className="lg:col-span-8 xl:col-span-9 space-y-4">
+            {/* Filter bar */}
+            <Card>
+              <CardContent className="p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  {/* Search input */}
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Search BIB, name, or phone..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+
+                  {/* Status filter */}
+                  <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
+                    <SelectTrigger className="w-full sm:w-[180px]">
+                      <SelectValue placeholder="Filter status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Participants</SelectItem>
+                      <SelectItem value="checked_in">Checked In</SelectItem>
+                      <SelectItem value="not_checked_in">Not Checked In</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {/* Result count */}
+                  <Badge variant="secondary" className="whitespace-nowrap hidden sm:flex">
+                    {filtered.length} results
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Table */}
+            <Card>
+              <CardContent className="p-0">
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50">
+                            <TableHead className="w-[90px] font-semibold">BIB</TableHead>
+                            <TableHead className="font-semibold">Name</TableHead>
+                            <TableHead className="hidden md:table-cell font-semibold">Phone</TableHead>
+                            <TableHead className="hidden sm:table-cell font-semibold">Category</TableHead>
+                            <TableHead className="hidden lg:table-cell font-semibold">Stall</TableHead>
+                            <TableHead className="font-semibold">Status</TableHead>
+                            <TableHead className="hidden sm:table-cell font-semibold">Time</TableHead>
+                            <TableHead className="w-[110px] font-semibold text-right">Action</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {paginatedData.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                                {searchQuery.length >= 2
+                                  ? `No results for "${searchQuery}"`
+                                  : 'No registrations found.'}
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            paginatedData.map((r: any) => (
+                              <TableRow
+                                key={r.id}
+                                className={cn(
+                                  'transition-colors',
+                                  r.checked_in && 'bg-green-50/50 dark:bg-green-950/10'
+                                )}
+                              >
+                                <TableCell className="font-mono font-bold text-sm">
+                                  {r.bib_number}
+                                </TableCell>
+                                <TableCell className="font-medium max-w-[180px] truncate">
+                                  {r.participant_name}
+                                </TableCell>
+                                <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
+                                  {r.participant_phone ?? '-'}
+                                </TableCell>
+                                <TableCell className="hidden sm:table-cell">
+                                  <Badge variant="outline" className="text-xs">
+                                    {r.category?.code ?? r.category?.name ?? '-'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="hidden lg:table-cell">
+                                  {r.stall?.stall_name ? (
+                                    <Badge variant="secondary" className="text-xs font-medium">
+                                      {r.stall.stall_name}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">-</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {r.checked_in ? (
+                                    <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-green-200">
+                                      <UserCheck className="h-3 w-3 mr-1" />
+                                      Yes
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-muted-foreground">
+                                      No
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="hidden sm:table-cell text-sm text-muted-foreground tabular-nums">
+                                  {formatTime(r.checked_in_at)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    size="sm"
+                                    variant={r.checked_in ? 'ghost' : 'default'}
+                                    disabled={r.checked_in || processScan.isPending}
+                                    onClick={() => handleScan(r.bib_number)}
+                                    className="h-8 text-xs"
+                                  >
+                                    {processScan.isPending ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : r.checked_in ? (
+                                      'Done'
+                                    ) : (
+                                      'Check In'
+                                    )}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* ── Pagination ─────────────────────────────── */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t px-4 py-3">
+                      {/* Left: rows info + page size */}
+                      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                        <span>
+                          Showing {pageIndex * pageSize + 1}-{Math.min((pageIndex + 1) * pageSize, filtered.length)} of{' '}
+                          <strong>{filtered.length}</strong>
+                        </span>
+                        <Select
+                          value={String(pageSize)}
+                          onValueChange={(v) => setPageSize(Number(v))}
+                        >
+                          <SelectTrigger className="h-8 w-[75px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PAGE_SIZE_OPTIONS.map((size) => (
+                              <SelectItem key={size} value={String(size)}>
+                                {size}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <span className="hidden sm:inline">per page</span>
+                      </div>
+
+                      {/* Right: page controls */}
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setPageIndex(0)}
+                          disabled={pageIndex === 0}
+                        >
+                          <ChevronsLeft className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
+                          disabled={pageIndex === 0}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+
+                        <span className="px-3 text-sm font-medium tabular-nums">
+                          Page {pageIndex + 1} of {totalPages}
+                        </span>
+
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setPageIndex((p) => Math.min(totalPages - 1, p + 1))}
+                          disabled={pageIndex >= totalPages - 1}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setPageIndex(totalPages - 1)}
+                          disabled={pageIndex >= totalPages - 1}
+                        >
+                          <ChevronsRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     </ContentLayout>
   );

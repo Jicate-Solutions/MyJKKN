@@ -391,3 +391,78 @@ export interface ImportGPSResultsResponse {
   skipped: number;
   errors: string[];
 }
+
+// ============================================================================
+// Event Stalls
+// ============================================================================
+
+export interface EventStall {
+  id: string;
+  event_id: string;
+  stall_name: string;
+  stall_code: string;
+  capacity: number;
+  location_note: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateEventStallDto {
+  event_id: string;
+  stall_name: string;
+  stall_code: string;
+  capacity: number;
+  location_note?: string;
+  sort_order?: number;
+}
+
+export interface UpdateEventStallDto {
+  stall_name?: string;
+  stall_code?: string;
+  capacity?: number;
+  location_note?: string;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+// ============================================================================
+// Operations (Scan Actions)
+// ============================================================================
+
+export type OpsActionType = 'check_in' | 'tshirt' | 'certificate';
+
+export interface OpsScanResult {
+  success: boolean;
+  action: OpsActionType;
+  registration: {
+    id: string;
+    bib_number: string;
+    participant_name: string;
+    participant_phone: string | null;
+    participant_age: number | null;
+    participant_gender: string | null;
+    category_code: string;
+    custom_data: Record<string, unknown>;
+    stall?: EventStall | null;
+  } | null;
+  already_done: boolean;
+  timestamp: string;
+  message: string;
+}
+
+export interface OpsStats {
+  total: number;
+  checked_in: number;
+  tshirt_collected: number;
+  certificate_issued: number;
+  stall_breakdown: {
+    stall_id: string;
+    stall_name: string;
+    stall_code: string;
+    capacity: number;
+    assigned: number;
+    checked_in: number;
+  }[];
+}

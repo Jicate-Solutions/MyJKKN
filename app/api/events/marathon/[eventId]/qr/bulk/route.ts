@@ -21,7 +21,7 @@ export async function GET(
     // Fetch event name
     const { data: event, error: eventError } = await supabase
       .from('events')
-      .select('id, event_name')
+      .select('id, name')
       .eq('id', eventId)
       .single();
 
@@ -32,7 +32,7 @@ export async function GET(
     // Fetch all registrations with stall join, ordered by bib_number
     const { data: registrations, error: regError } = await supabase
       .from('events_registrations')
-      .select('bib_number, participant_name, stall_id, events_stalls(stall_code)')
+      .select('bib_number, participant_name, stall:events_stalls(stall_code)')
       .eq('event_id', eventId)
       .not('bib_number', 'is', null)
       .order('bib_number', { ascending: true });
@@ -56,15 +56,15 @@ export async function GET(
 
     for (const reg of registrations) {
       const stallCode =
-        reg.events_stalls && typeof reg.events_stalls === 'object' && 'stall_code' in reg.events_stalls
-          ? (reg.events_stalls as { stall_code: string }).stall_code
+        reg.stall && typeof reg.stall === 'object' && 'stall_code' in reg.stall
+          ? (reg.stall as { stall_code: string }).stall_code
           : null;
 
       const image = await generateMarathonQR({
         bibNumber: reg.bib_number,
         participantName: reg.participant_name,
         stallCode,
-        eventName: event.event_name,
+        eventName: event.name,
       });
 
       archive.append(image, { name: `${reg.bib_number}.png` });

@@ -3652,6 +3652,30 @@ CREATE TABLE IF NOT EXISTS public.marathon_race_track_points (
 );
 
 CREATE INDEX IF NOT EXISTS idx_marathon_track_points_event_bib ON public.marathon_race_track_points(event_id, bib);
+
+-- ============================================================
+-- EVENT STALLS (Marathon kit distribution stations)
+-- Updated: 2026-04-11 - Created for marathon ops system
+-- ============================================================
+CREATE TABLE IF NOT EXISTS events_stalls (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  stall_name TEXT NOT NULL,
+  stall_code TEXT NOT NULL,
+  capacity INT NOT NULL DEFAULT 100,
+  location_note TEXT,
+  sort_order INT DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(event_id, stall_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_stalls_event ON events_stalls(event_id);
+
+-- Ops tracking columns on events_registrations
+-- stall_id, tshirt_collected, certificate_issued
+-- (Added via ALTER TABLE - columns already exist in live DB)
 CREATE INDEX IF NOT EXISTS idx_marathon_track_points_timestamp ON public.marathon_race_track_points(timestamp);
 
 -- ═══════════════════════════════════════════════════════════════════════════
