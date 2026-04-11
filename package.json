@@ -88,6 +88,7 @@
     "framer-motion": "^11.18.2",
     "fuse.js": "^7.2.0",
     "html2canvas": "^1.4.1",
+    "html5-qrcode": "^2.3.8",
     "jose": "^6.0.12",
     "js-cookie": "^3.0.5",
     "json2csv": "^6.0.0-alpha.2",
@@ -136,6 +137,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@types/archiver": "^7.0.0",
     "@types/canvas-confetti": "^1.9.0",
     "@types/dom-to-image": "^2.6.7",
     "@types/file-saver": "^2.0.7",
