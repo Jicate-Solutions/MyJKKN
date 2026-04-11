@@ -2082,7 +2082,8 @@ export function GetRoleBasedPages(
                 return false;
               }
               if (isStudent && submenu.href.includes('/ops/')) {
-                return false;
+                // Allow student committee members to see ops pages
+                return userRole.permissions['events.marathon.ops.committee_access'] === true;
               }
               return true;
             }

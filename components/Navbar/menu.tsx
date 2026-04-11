@@ -18,6 +18,7 @@ import { AuthService } from '@/lib/auth/auth-service';
 import { useMemo } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
+import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebarSection';
 import { Search } from 'lucide-react';
@@ -41,6 +42,10 @@ export function Menu({ isOpen }: MenuProps) {
   // Check if user is an expo team member (for dynamic sidebar visibility)
   const { data: isExpoTeamMember } = useUserExpoTeamStatus();
 
+  // Check if student is a marathon committee member (for ops page visibility)
+  const marathonEventId = pathname.match(/\/events\/marathon\/([^/]+)/)?.[1] ?? '';
+  const { isMember: isMarathonCommitteeMember } = useCommitteeMembership(marathonEventId);
+
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
     if (!userProfile) return null;
@@ -53,18 +58,25 @@ export function Menu({ isOpen }: MenuProps) {
       };
     }
 
-    // Enrich permissions with dynamic expo access for assigned team members.
+    // Enrich permissions with dynamic access for assigned team members.
     // Faculty/students assigned to expo events need to see the Expos menu
     // even without a global `admission.marketing.expos.view` permission.
-    const enrichedPermissions = isExpoTeamMember
-      ? { ...permissions, 'admission.marketing.expos.view': true }
-      : permissions;
+    let enrichedPermissions = { ...permissions };
+
+    if (isExpoTeamMember) {
+      enrichedPermissions['admission.marketing.expos.view'] = true;
+    }
+
+    // Student committee members need ops page visibility in sidebar
+    if (isMarathonCommitteeMember) {
+      enrichedPermissions['events.marathon.ops.committee_access'] = true;
+    }
 
     return {
       role_key: userProfile.role || '',
       permissions: enrichedPermissions
     };
-  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember]);
+  }, [userProfile, permissions, isSuperAdmin, isExpoTeamMember, isMarathonCommitteeMember]);
 
   // Debug: Log permission state for troubleshooting
   if (process.env.NODE_ENV === 'development' && roleData && !permissionsLoading) {
