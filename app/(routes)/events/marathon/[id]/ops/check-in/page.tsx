@@ -21,6 +21,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { useProcessScan, useOpsStats } from '@/hooks/events/marathon/use-marathon-ops';
 import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -65,6 +66,7 @@ export default function CheckInPage() {
   const eventId = params.id as string;
   const { profile } = useAuth();
   const access = useMarathonAccess();
+  const membership = useCommitteeMembership(eventId);
 
   const [scanResult, setScanResult] = useState<OpsScanResult | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -380,7 +382,7 @@ export default function CheckInPage() {
   }, [filtered, filterInstitution, institutionOptions, eventName]);
 
   // Block non-admin users
-  if (!access.isLoading && !access.canAccessOps) {
+  if (!access.isLoading && !membership.isLoading && !access.canAccessOps && !membership.isMember) {
     return <MarathonAccessDenied title="Check-in" eventId={eventId} />;
   }
 

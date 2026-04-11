@@ -49,6 +49,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import {
   useMarathonStalls,
@@ -347,6 +348,7 @@ export default function StallsManagementPage() {
   const params = useParams();
   const eventId = params.id as string;
   const access = useMarathonAccess();
+  const membership = useCommitteeMembership(eventId);
 
   // Data
   const { data: stalls, isLoading: stallsLoading } = useMarathonStalls(eventId);
@@ -428,7 +430,7 @@ export default function StallsManagementPage() {
   }, [stalls]);
 
   // Block non-admin users
-  if (!access.isLoading && !access.canAccessOps) {
+  if (!access.isLoading && !membership.isLoading && !access.canAccessOps && !membership.isMember) {
     return <MarathonAccessDenied title="Stall Management" eventId={eventId} />;
   }
 

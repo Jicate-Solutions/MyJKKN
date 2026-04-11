@@ -23,6 +23,7 @@ import toast from 'react-hot-toast';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +46,7 @@ export default function QrCodesPage() {
   const eventId = params.id as string;
   const queryClient = useQueryClient();
   const access = useMarathonAccess();
+  const membership = useCommitteeMembership(eventId);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [downloading, setDownloading] = useState(false);
@@ -184,7 +186,7 @@ export default function QrCodesPage() {
   }) : null;
 
   // Block non-admin users
-  if (!access.isLoading && !access.canAccessOps) {
+  if (!access.isLoading && !membership.isLoading && !access.canAccessOps && !membership.isMember) {
     return <MarathonAccessDenied title="QR Codes" eventId={eventId} />;
   }
 
