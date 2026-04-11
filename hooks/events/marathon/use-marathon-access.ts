@@ -29,6 +29,8 @@ export interface MarathonAccess {
   selfOnly: boolean;
   /** Can access the Committees page (committee leads/members get scoped access) */
   canAccessCommittees: boolean;
+  /** Can access Operations pages (check-in, t-shirt, certificate, stalls, QR codes, dashboard) */
+  canAccessOps: boolean;
   /** User's profile ID (for filtering own registrations) */
   profileId: string | null;
   /** User's institution ID (for filtering institution registrations) */
@@ -64,6 +66,7 @@ export function useMarathonAccess(): MarathonAccess {
         canRegister: true,
         selfOnly: false,
         canAccessCommittees: true,
+        canAccessOps: true,
         profileId,
         institutionId,
         role,
@@ -82,6 +85,7 @@ export function useMarathonAccess(): MarathonAccess {
         canRegister: true,
         selfOnly: false,
         canAccessCommittees: true,
+        canAccessOps: true,
         profileId,
         institutionId,
         role,
@@ -90,7 +94,8 @@ export function useMarathonAccess(): MarathonAccess {
       };
     }
 
-    // Custom roles with committees.manage permission — committees module only
+    // Custom roles with committees.manage permission — committees + ops access
+    // Committee members run event-day ops (check-in, t-shirt, certificate stations)
     if (canAccess('events.marathon.committees', 'manage')) {
       return {
         level: 'committee_member',
@@ -99,6 +104,7 @@ export function useMarathonAccess(): MarathonAccess {
         canRegister: true,
         selfOnly: false,
         canAccessCommittees: true,
+        canAccessOps: true,
         profileId,
         institutionId,
         role,
@@ -107,9 +113,8 @@ export function useMarathonAccess(): MarathonAccess {
       };
     }
 
-    // Principal, HOD, Faculty — can view institution registrations
-    // (Committee membership check happens at the page level — they can also
-    // access committees if they're listed as lead/member)
+    // Principal, HOD, Faculty — can view institution registrations + ops access
+    // They may volunteer at event-day stations
     if (INSTITUTION_ROLES.includes(role)) {
       return {
         level: 'institution',
@@ -118,6 +123,7 @@ export function useMarathonAccess(): MarathonAccess {
         canRegister: true,
         selfOnly: false,
         canAccessCommittees: true, // runtime check via useCommitteeMembership
+        canAccessOps: true,
         profileId,
         institutionId,
         role,
@@ -127,7 +133,7 @@ export function useMarathonAccess(): MarathonAccess {
     }
 
     // Student — can only register and view own registration
-    // Committee access is granted at the page level if they're a committee member
+    // No ops access — students don't run event stations
     if (SELF_ONLY_ROLES.includes(role)) {
       return {
         level: 'self',
@@ -136,6 +142,7 @@ export function useMarathonAccess(): MarathonAccess {
         canRegister: true,
         selfOnly: true,
         canAccessCommittees: true, // runtime check via useCommitteeMembership
+        canAccessOps: false,
         profileId,
         institutionId,
         role,
@@ -152,6 +159,7 @@ export function useMarathonAccess(): MarathonAccess {
       canRegister: true,
       selfOnly: !institutionId,
       canAccessCommittees: true, // runtime check via useCommitteeMembership
+      canAccessOps: !!institutionId, // institution roles get ops, others don't
       profileId,
       institutionId,
       role,

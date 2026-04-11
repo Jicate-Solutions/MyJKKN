@@ -339,7 +339,7 @@ export default function OpsDashboardPage() {
   }, [dataUpdatedAt]);
 
   // Block non-admin users
-  if (!access.isLoading && !access.canManage) {
+  if (!access.isLoading && !access.canAccessOps) {
     return <MarathonAccessDenied title="Ops Dashboard" eventId={eventId} />;
   }
 

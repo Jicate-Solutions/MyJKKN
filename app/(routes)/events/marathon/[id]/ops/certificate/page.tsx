@@ -170,7 +170,7 @@ export default function CertificatePage() {
   const issuedPct = stats ? Math.round(((stats.certificate_issued ?? 0) / Math.max(stats.total, 1)) * 100) : 0;
 
   // Block non-admin users
-  if (!access.isLoading && !access.canManage) {
+  if (!access.isLoading && !access.canAccessOps) {
     return <MarathonAccessDenied title="Certificate Issuance" eventId={eventId} />;
   }
 

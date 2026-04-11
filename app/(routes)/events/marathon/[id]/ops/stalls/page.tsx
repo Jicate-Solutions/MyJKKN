@@ -428,7 +428,7 @@ export default function StallsManagementPage() {
   }, [stalls]);
 
   // Block non-admin users
-  if (!access.isLoading && !access.canManage) {
+  if (!access.isLoading && !access.canAccessOps) {
     return <MarathonAccessDenied title="Stall Management" eventId={eventId} />;
   }
 

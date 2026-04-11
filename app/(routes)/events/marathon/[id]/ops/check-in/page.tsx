@@ -170,7 +170,7 @@ export default function CheckInPage() {
   const checkedInPct = stats ? Math.round(((stats.checked_in ?? 0) / Math.max(stats.total, 1)) * 100) : 0;
 
   // Block non-admin users
-  if (!access.isLoading && !access.canManage) {
+  if (!access.isLoading && !access.canAccessOps) {
     return <MarathonAccessDenied title="Check-in" eventId={eventId} />;
   }
 

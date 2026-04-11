@@ -170,7 +170,7 @@ export default function TshirtPage() {
   const collectedPct = stats ? Math.round(((stats.tshirt_collected ?? 0) / Math.max(stats.total, 1)) * 100) : 0;
 
   // Block non-admin users
-  if (!access.isLoading && !access.canManage) {
+  if (!access.isLoading && !access.canAccessOps) {
     return <MarathonAccessDenied title="T-Shirt Distribution" eventId={eventId} />;
   }
 

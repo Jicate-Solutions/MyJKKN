@@ -184,7 +184,7 @@ export default function QrCodesPage() {
   }) : null;
 
   // Block non-admin users
-  if (!access.isLoading && !access.canManage) {
+  if (!access.isLoading && !access.canAccessOps) {
     return <MarathonAccessDenied title="QR Codes" eventId={eventId} />;
   }
 
