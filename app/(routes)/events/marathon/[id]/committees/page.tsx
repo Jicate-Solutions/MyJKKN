@@ -637,10 +637,46 @@ function CommitteeDialog({
     member_names: initial?.member_names ?? [],
   });
 
-  // Member selector state
+  // Member selector state — pre-populate from initial data when editing
   const [userType, setUserType] = useState<UserType>('staff');
-  const [selectedLead, setSelectedLead] = useState<PersonOption | null>(null);
-  const [selectedMembers, setSelectedMembers] = useState<PersonOption[]>([]);
+  const [selectedLead, setSelectedLead] = useState<PersonOption | null>(
+    initial?.lead_name
+      ? { id: initial.lead_id ?? `lead-${initial.lead_name}`, name: initial.lead_name, subtitle: 'Committee Lead', type: 'staff' }
+      : null
+  );
+  const [selectedMembers, setSelectedMembers] = useState<PersonOption[]>(
+    (initial?.member_names ?? []).map((name, idx) => ({
+      id: initial?.member_ids?.[idx] ?? `member-${name}`,
+      name,
+      subtitle: 'Committee Member',
+      type: 'staff' as const,
+    }))
+  );
+
+  // Reset selection state when dialog opens with different committee
+  useEffect(() => {
+    if (!open) return;
+    setForm({
+      event_id: eventId,
+      name: initial?.name ?? '',
+      description: initial?.description ?? '',
+      lead_name: initial?.lead_name ?? '',
+      member_names: initial?.member_names ?? [],
+    });
+    setSelectedLead(
+      initial?.lead_name
+        ? { id: initial.lead_id ?? `lead-${initial.lead_name}`, name: initial.lead_name, subtitle: 'Committee Lead', type: 'staff' }
+        : null
+    );
+    setSelectedMembers(
+      (initial?.member_names ?? []).map((name, idx) => ({
+        id: initial?.member_ids?.[idx] ?? `member-${name}`,
+        name,
+        subtitle: 'Committee Member',
+        type: 'staff' as const,
+      }))
+    );
+  }, [open, initial, eventId]);
 
   // Filters
   const [filters, setFilters] = useState({
