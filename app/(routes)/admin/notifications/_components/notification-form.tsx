@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -81,6 +83,7 @@ const notificationSchema = z.object({
   semester_id: z.string().optional(),
   section_id: z.string().optional(),
   target_roles: z.array(z.string()).optional(),
+  audience_ids: z.array(z.string()).optional(),
   // Mandatory acknowledgment fields
   requires_acknowledgment: z.boolean().optional(),
   acknowledgment_deadline_hours: z.number().min(1).max(168).optional(),
@@ -173,6 +176,7 @@ export function NotificationForm() {
       semester_id: undefined,
       section_id: undefined,
       target_roles: [],
+      audience_ids: [],
       requires_acknowledgment: false,
       acknowledgment_deadline_hours: 4,
       verification_question: '',
@@ -248,6 +252,18 @@ export function NotificationForm() {
       label: role.role_name,
       description: role.description
     })) || [];
+
+  // Fetch saved audiences for the picker
+  const { data: audiencesData } = useQuery({
+    queryKey: ['notification-audiences'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/notifications/audiences', { cache: 'no-store' });
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.audiences || json.data || json || [];
+    }
+  });
+  const availableAudiences = Array.isArray(audiencesData) ? audiencesData : [];
 
   // Get degree_id from selected department (after departments are fetched)
   const selectedDepartment = departments.find(
@@ -371,6 +387,10 @@ export function NotificationForm() {
           target_roles:
             data.target_roles && data.target_roles.length > 0
               ? data.target_roles
+              : undefined,
+          audience_ids:
+            data.audience_ids && data.audience_ids.length > 0
+              ? data.audience_ids
               : undefined
         },
         requires_acknowledgment: data.requires_acknowledgment || false,
@@ -895,6 +915,71 @@ export function NotificationForm() {
                   )}
                 />
               </div>
+
+              {/* Saved Audiences */}
+              {availableAudiences.length > 0 && (
+                <div>
+                  <div className='flex items-center justify-between mb-3'>
+                    <h4 className='text-md font-medium flex items-center gap-2'>
+                      <Users className='h-4 w-4' />
+                      Saved Audiences (Optional)
+                    </h4>
+                    <Link
+                      href='/admin/notifications/audiences'
+                      className='text-xs text-primary hover:underline'
+                    >
+                      Manage →
+                    </Link>
+                  </div>
+                  <p className='text-sm text-muted-foreground mb-3'>
+                    Target predefined groups like &quot;Hostel Residents&quot;, &quot;Work Pulse Laggards&quot;, etc.
+                  </p>
+                  <FormField
+                    control={form.control}
+                    name='audience_ids'
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
+                          {availableAudiences.map((audience: any) => (
+                            <div
+                              key={audience.id}
+                              className='flex items-start gap-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors'
+                            >
+                              <Checkbox
+                                id={`aud-${audience.id}`}
+                                checked={field.value?.includes(audience.id) || false}
+                                onCheckedChange={(checked) => {
+                                  const current = field.value || [];
+                                  field.onChange(
+                                    checked
+                                      ? [...current, audience.id]
+                                      : current.filter((id: string) => id !== audience.id)
+                                  );
+                                }}
+                                className='mt-0.5'
+                              />
+                              <div className='flex-1 min-w-0'>
+                                <label
+                                  htmlFor={`aud-${audience.id}`}
+                                  className='text-sm font-medium cursor-pointer'
+                                >
+                                  {audience.name}
+                                </label>
+                                {audience.description && (
+                                  <p className='text-xs text-muted-foreground line-clamp-2 mt-0.5'>
+                                    {audience.description}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
 
               {/* Role-based Targeting */}
               <div>

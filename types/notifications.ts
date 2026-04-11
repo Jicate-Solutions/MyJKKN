@@ -48,6 +48,27 @@ export interface NotificationTargeting {
   semester_id?: string;
   section_id?: string;
   target_roles?: string[];
+  audience_ids?: string[];
+}
+
+export interface SavedAudience {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  query_type: 'sql' | 'built_in';
+  query_params: { name?: string; sql?: string };
+  is_active: boolean;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResolvedAudience {
+  audience_id: string;
+  name: string;
+  user_ids: string[];
+  count: number;
 }
 
 export interface NotificationAttachment {
