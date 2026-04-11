@@ -191,17 +191,17 @@ export class MarathonRegistrationService {
         throw new Error(`Event not found: ${dto.event_id}`);
       }
 
-      // Generate BIB number
+      // Determine payment status and amount
+      const feeAmount = category.fee_amount ?? 0;
+      const paymentStatus: PaymentStatus = feeAmount > 0 ? 'pending' : 'not_required';
+
+      // Generate BIB number (needs paymentStatus to determine prefix)
       const eventCode =
         (event.config as Record<string, unknown>)?.event_code as string ??
         event.name.replace(/[^A-Za-z]/g, '').substring(0, 3).toUpperCase();
       const categoryCode = category.code ?? 'GEN';
-      const sequence = await this.getNextBibSequence(dto.event_id, categoryCode);
-      const bibNumber = this.generateBibNumber(eventCode, event.year ?? new Date().getFullYear(), categoryCode, sequence);
-
-      // Determine payment status and amount
-      const feeAmount = category.fee_amount ?? 0;
-      const paymentStatus: PaymentStatus = feeAmount > 0 ? 'pending' : 'not_required';
+      const sequence = await this.getNextBibSequence(dto.event_id, categoryCode, paymentStatus);
+      const bibNumber = this.generateBibNumber(eventCode, event.year ?? new Date().getFullYear(), categoryCode, sequence, paymentStatus);
 
       const insertPayload = {
         event_id: dto.event_id,
@@ -522,30 +522,47 @@ export class MarathonRegistrationService {
   // --------------------------------------------------------------------------
 
   /**
-   * Generate a BIB number.
-   * Format: {EVENT_CODE}-{YEAR}-{CATEGORY_CODE}-{SEQUENCE}
-   * Example: KBM-2026-10K-0042
+   * Generate a BIB number based on category and payment status.
+   * Format:
+   *   10K (all)   → T001-T500
+   *   5K (paid)   → F0501-F2000
+   *   5K (free)   → K2001-K2600
    */
   static generateBibNumber(
-    eventCode: string,
-    year: number,
+    _eventCode: string,
+    _year: number,
     categoryCode: string,
-    sequence: number
+    sequence: number,
+    paymentStatus?: string
   ): string {
-    return `${eventCode}-${year}-${categoryCode}-${String(sequence).padStart(4, '0')}`;
+    const upperCat = categoryCode.toUpperCase();
+    if (upperCat === '10K') {
+      // T series: T001-T500
+      return `T${String(sequence).padStart(3, '0')}`;
+    } else if (upperCat === '5K') {
+      if (paymentStatus === 'not_required') {
+        // K series: K2001-K2600 (free/school students)
+        return `K${String(sequence + 2000).padStart(4, '0')}`;
+      }
+      // F series: F0501-F2000 (paid adults)
+      return `F${String(sequence + 500).padStart(4, '0')}`;
+    }
+    // Fallback for unknown categories
+    return `X${String(sequence).padStart(4, '0')}`;
   }
 
   /**
    * Get next sequence number for BIB generation by counting existing registrations
-   * for the given event + category code combination.
+   * matching the same BIB prefix (T, F, or K).
    */
-  static async getNextBibSequence(eventId: string, categoryCode: string): Promise<number> {
+  static async getNextBibSequence(eventId: string, categoryCode: string, paymentStatus?: string): Promise<number> {
     try {
+      const prefix = this.getBibPrefix(categoryCode, paymentStatus);
       const { count, error } = await (this.supabase as any)
         .from('events_registrations')
         .select('id', { count: 'exact', head: true })
         .eq('event_id', eventId)
-        .ilike('bib_number', `%-${categoryCode}-%`);
+        .like('bib_number', `${prefix}%`);
 
       if (error) {
         logger.warn('events/marathon-registration', 'Failed to get BIB sequence count, defaulting to 1', error);
@@ -557,5 +574,16 @@ export class MarathonRegistrationService {
       logger.warn('events/marathon-registration', 'Unexpected error in getNextBibSequence, defaulting to 1', error);
       return 1;
     }
+  }
+
+  /**
+   * Get BIB prefix based on category and payment status.
+   */
+  static getBibPrefix(categoryCode: string, paymentStatus?: string): string {
+    const upperCat = categoryCode.toUpperCase();
+    if (upperCat === '10K') return 'T';
+    if (upperCat === '5K' && paymentStatus === 'not_required') return 'K';
+    if (upperCat === '5K') return 'F';
+    return 'X';
   }
 }

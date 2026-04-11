@@ -156,19 +156,27 @@ export async function POST(
     }
 
     // =========================================================================
-    // Generate BIB number: {EVENT_CODE}-{YEAR}-{CAT_CODE}-{SEQ}
+    // Generate BIB number: T(10K), F(5K paid), K(5K free)
     // =========================================================================
+    const catCode = (category.code ?? category.name.substring(0, 3)).toUpperCase();
+    const feeAmount = category.fee_amount ?? 0;
+    const paymentStatus = feeAmount > 0 ? 'paid' : 'not_required';
+    const bibPrefix = catCode === '10K' ? 'T'
+      : (catCode === '5K' && paymentStatus === 'not_required') ? 'K' : 'F';
+
     const { count: seqCount } = await supabase
       .from('events_registrations')
       .select('id', { count: 'exact', head: true })
       .eq('event_id', eventId)
-      .eq('category_id', data.category_id);
+      .like('bib_number', `${bibPrefix}%`);
 
-    const seq = ((seqCount ?? 0) + 1).toString().padStart(4, '0');
+    const seq = (seqCount ?? 0) + 1;
     const eventYear = event.year ?? new Date().getFullYear();
-    const catCode = (category.code ?? category.name.substring(0, 3)).toUpperCase();
-    const eventCode = 'KBM'; // Standard prefix — configurable via event.config in future
-    const bib_number = `${eventCode}-${eventYear}-${catCode}-${seq}`;
+    const bib_number = catCode === '10K'
+      ? `T${String(seq).padStart(3, '0')}`
+      : paymentStatus === 'not_required'
+        ? `K${String(seq + 2000).padStart(4, '0')}`
+        : `F${String(seq + 500).padStart(4, '0')}`;
 
     // =========================================================================
     // Insert registration

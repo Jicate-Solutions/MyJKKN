@@ -5,6 +5,7 @@
 import ExcelJS from 'exceljs';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { MarathonRegistrationService } from './marathon-registration-service';
 
 // ============================================================================
 // Types
@@ -447,15 +448,15 @@ export class MarathonBulkRegistrationService {
       (existingRegs ?? []).map((r: any) => r.participant_phone?.replace(/\D/g, '')).filter(Boolean)
     );
 
-    // Get current BIB sequence counts per category
+    // Get current BIB sequence counts per prefix (T, F, K)
     const bibCounts = new Map<string, number>();
-    for (const [code] of catMap) {
+    for (const prefix of ['T', 'F', 'K']) {
       const { count } = await supabase
         .from('events_registrations')
         .select('id', { count: 'exact', head: true })
         .eq('event_id', eventId)
-        .ilike('bib_number', `%-${code}-%`);
-      bibCounts.set(code, (count ?? 0) + 1);
+        .like('bib_number', `${prefix}%`);
+      bibCounts.set(prefix, (count ?? 0) + 1);
     }
 
     // Process rows in batch
@@ -489,10 +490,14 @@ export class MarathonBulkRegistrationService {
         continue;
       }
 
-      // Generate BIB
-      const seq = bibCounts.get(row.category_code.toUpperCase()) ?? 1;
-      const bibNumber = `${eventCode}-${eventYear}-${row.category_code.toUpperCase()}-${String(seq).padStart(4, '0')}`;
-      bibCounts.set(row.category_code.toUpperCase(), seq + 1);
+      // Generate BIB using prefix-based format: T(10K), F(5K paid), K(5K free)
+      const payStatus = row.payment_status ?? (cat.fee_amount > 0 ? 'pending' : 'not_required');
+      const bibPrefix = MarathonRegistrationService.getBibPrefix(row.category_code, payStatus);
+      const seq = bibCounts.get(bibPrefix) ?? 1;
+      const bibNumber = MarathonRegistrationService.generateBibNumber(
+        eventCode, eventYear, row.category_code.toUpperCase(), seq, payStatus
+      );
+      bibCounts.set(bibPrefix, seq + 1);
 
       // Mark phone as used
       existingPhones.add(cleanPhone);
