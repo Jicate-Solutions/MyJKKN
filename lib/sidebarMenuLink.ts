@@ -1699,13 +1699,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           { href: `/events/marathon/${activeMarathonId}/analytics`, label: 'Analytics', active: pathname.includes('/analytics'), adminOnly: true },
           { href: `/events/marathon/${activeMarathonId}/certificates`, label: 'Certificates', active: pathname.includes('/certificates'), adminOnly: true },
           { href: `/events/marathon/${activeMarathonId}/settings`, label: 'Settings', active: pathname.includes('/settings'), adminOnly: true },
-          // Operations sub-pages
-          { href: `/events/marathon/${activeMarathonId}/ops/dashboard`, label: 'Ops Dashboard', active: pathname.includes('/ops/dashboard'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/ops/check-in`, label: 'Check-in', active: pathname.includes('/ops/check-in'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/ops/tshirt`, label: 'T-Shirt', active: pathname.includes('/ops/tshirt'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/ops/certificate`, label: 'Certificate', active: pathname.includes('/ops/certificate'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/ops/stalls`, label: 'Stalls', active: pathname.includes('/ops/stalls'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/ops/qr-codes`, label: 'QR Codes', active: pathname.includes('/ops/qr-codes'), adminOnly: true },
+          // Operations sub-pages (visible to all institution roles + admins, not students)
+          { href: `/events/marathon/${activeMarathonId}/ops/dashboard`, label: 'Ops Dashboard', active: pathname.includes('/ops/dashboard'), adminOnly: false },
+          { href: `/events/marathon/${activeMarathonId}/ops/check-in`, label: 'Check-in', active: pathname.includes('/ops/check-in'), adminOnly: false },
+          { href: `/events/marathon/${activeMarathonId}/ops/tshirt`, label: 'T-Shirt', active: pathname.includes('/ops/tshirt'), adminOnly: false },
+          { href: `/events/marathon/${activeMarathonId}/ops/certificate`, label: 'Certificate', active: pathname.includes('/ops/certificate'), adminOnly: false },
+          { href: `/events/marathon/${activeMarathonId}/ops/stalls`, label: 'Stalls', active: pathname.includes('/ops/stalls'), adminOnly: false },
+          { href: `/events/marathon/${activeMarathonId}/ops/qr-codes`, label: 'QR Codes', active: pathname.includes('/ops/qr-codes'), adminOnly: false },
         ] : [];
 
         return [
@@ -2068,9 +2068,12 @@ export function GetRoleBasedPages(
                 // Admin-only pages: only visible to marathon admins
                 return isMarathonAdmin;
               }
-              // Non-admin pages (Registrations, Committees): visible to non-students
-              // Students only see Registrations
+              // Non-admin pages (Registrations, Committees, Ops): visible to non-students
+              // Students only see Registrations (not committees or ops pages)
               if (isStudent && submenu.href.includes('/committees')) {
+                return false;
+              }
+              if (isStudent && submenu.href.includes('/ops/')) {
                 return false;
               }
               return true;
