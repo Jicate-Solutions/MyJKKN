@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
+  Building2,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -59,6 +60,7 @@ export default function CheckInPage() {
   const [scanResult, setScanResult] = useState<OpsScanResult | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'checked_in' | 'not_checked_in'>('all');
+  const [filterInstitution, setFilterInstitution] = useState<string>('all');
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(20);
 
@@ -110,6 +112,62 @@ export default function CheckInPage() {
     refetchInterval: 30_000,
   });
 
+  // Fetch institution mapping: email → institution name via profiles table
+  const { data: institutionMap } = useQuery({
+    queryKey: ['marathon-ops-institution-map', eventId],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      // Get all JKKN emails from registrations, then match to profiles → institutions
+      const { data } = await (supabase as any)
+        .from('profiles')
+        .select('email, institution:institutions(id, name)')
+        .not('email', 'is', null)
+        .not('institution_id', 'is', null);
+
+      // Build email → institution map
+      const map = new Map<string, { id: string; name: string }>();
+      for (const p of data ?? []) {
+        if (p.email && p.institution) {
+          map.set(p.email.toLowerCase(), {
+            id: (p.institution as any).id,
+            name: (p.institution as any).name,
+          });
+        }
+      }
+      return map;
+    },
+    enabled: !!eventId,
+  });
+
+  // Enrich registrations with institution info
+  const enrichedRegistrations = useMemo(() => {
+    if (!registrations) return [];
+    return registrations.map((r: any) => {
+      const inst = r.participant_email
+        ? institutionMap?.get(r.participant_email.toLowerCase())
+        : null;
+      return {
+        ...r,
+        _institution_name: inst?.name ?? null,
+        _institution_id: inst?.id ?? null,
+      };
+    });
+  }, [registrations, institutionMap]);
+
+  // Extract unique institutions for the filter dropdown
+  const institutionOptions = useMemo(() => {
+    const instMap = new Map<string, string>();
+    for (const r of enrichedRegistrations) {
+      if (r._institution_id && r._institution_name) {
+        instMap.set(r._institution_id, r._institution_name);
+      }
+    }
+    // Sort alphabetically
+    return Array.from(instMap.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [enrichedRegistrations]);
+
   const handleScan = useCallback(
     async (bibNumber: string) => {
       if (!profile?.id) return;
@@ -130,7 +188,7 @@ export default function CheckInPage() {
 
   // Client-side filtering
   const filtered = useMemo(() => {
-    return (registrations ?? []).filter((r: any) => {
+    return enrichedRegistrations.filter((r: any) => {
       // Text search
       if (searchQuery.length >= 2) {
         const q = searchQuery.toLowerCase();
@@ -144,9 +202,12 @@ export default function CheckInPage() {
       // Status filter
       if (filterStatus === 'checked_in' && !r.checked_in) return false;
       if (filterStatus === 'not_checked_in' && r.checked_in) return false;
+      // Institution filter
+      if (filterInstitution === '_external' && r._institution_id) return false;
+      if (filterInstitution !== 'all' && filterInstitution !== '_external' && r._institution_id !== filterInstitution) return false;
       return true;
     });
-  }, [registrations, searchQuery, filterStatus]);
+  }, [enrichedRegistrations, searchQuery, filterStatus, filterInstitution]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -158,7 +219,7 @@ export default function CheckInPage() {
   // Reset page when filters change
   useEffect(() => {
     setPageIndex(0);
-  }, [searchQuery, filterStatus, pageSize]);
+  }, [searchQuery, filterStatus, filterInstitution, pageSize]);
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '-';
@@ -273,6 +334,23 @@ export default function CheckInPage() {
                     />
                   </div>
 
+                  {/* Institution filter */}
+                  <Select value={filterInstitution} onValueChange={(v) => setFilterInstitution(v)}>
+                    <SelectTrigger className="w-full sm:w-[200px]">
+                      <Building2 className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                      <SelectValue placeholder="Institution" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Institutions</SelectItem>
+                      <SelectItem value="_external">External Only</SelectItem>
+                      {institutionOptions.map((inst) => (
+                        <SelectItem key={inst.id} value={inst.id}>
+                          {inst.name.replace('JKKN ', '')}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
                   {/* Status filter */}
                   <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
                     <SelectTrigger className="w-full sm:w-[180px]">
@@ -310,6 +388,7 @@ export default function CheckInPage() {
                             <TableHead className="font-semibold">Name</TableHead>
                             <TableHead className="hidden md:table-cell font-semibold">Phone</TableHead>
                             <TableHead className="hidden sm:table-cell font-semibold">Category</TableHead>
+                            <TableHead className="hidden lg:table-cell font-semibold">Institution</TableHead>
                             <TableHead className="hidden lg:table-cell font-semibold">Stall</TableHead>
                             <TableHead className="font-semibold">Status</TableHead>
                             <TableHead className="hidden sm:table-cell font-semibold">Time</TableHead>
@@ -319,7 +398,7 @@ export default function CheckInPage() {
                         <TableBody>
                           {paginatedData.length === 0 ? (
                             <TableRow>
-                              <TableCell colSpan={8} className="py-12 text-center text-muted-foreground">
+                              <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
                                 {searchQuery.length >= 2
                                   ? `No results for "${searchQuery}"`
                                   : 'No registrations found.'}
@@ -350,6 +429,16 @@ export default function CheckInPage() {
                                   <Badge variant="outline" className="text-xs">
                                     {r.category?.code ?? r.category?.name ?? '-'}
                                   </Badge>
+                                </TableCell>
+                                <TableCell className="hidden lg:table-cell">
+                                  {r._institution_name ? (
+                                    <Badge variant="secondary" className="text-[10px] font-medium">
+                                      <Building2 className="h-2.5 w-2.5 mr-1" />
+                                      {r._institution_name.replace('JKKN ', '')}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">External</span>
+                                  )}
                                 </TableCell>
                                 <TableCell className="hidden lg:table-cell">
                                   {r.stall?.stall_name ? (
