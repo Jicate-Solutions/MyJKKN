@@ -378,15 +378,15 @@ export default function CheckInPage() {
                       <Table>
                         <TableHeader>
                           <TableRow className="bg-muted/50">
-                            <TableHead className="w-[90px] font-semibold">BIB</TableHead>
+                            <TableHead className="w-[80px] font-semibold">BIB</TableHead>
                             <TableHead className="font-semibold">Name</TableHead>
-                            <TableHead className="hidden md:table-cell font-semibold">Phone</TableHead>
-                            <TableHead className="hidden sm:table-cell font-semibold">Category</TableHead>
-                            <TableHead className="hidden lg:table-cell font-semibold">Institution</TableHead>
-                            <TableHead className="hidden lg:table-cell font-semibold">Stall</TableHead>
+                            <TableHead className="hidden xl:table-cell font-semibold">Phone</TableHead>
+                            <TableHead className="hidden lg:table-cell font-semibold">Category</TableHead>
+                            <TableHead className="hidden xl:table-cell font-semibold">Institution</TableHead>
+                            <TableHead className="font-semibold">Stall</TableHead>
                             <TableHead className="font-semibold">Status</TableHead>
-                            <TableHead className="hidden sm:table-cell font-semibold">Time</TableHead>
-                            <TableHead className="w-[110px] font-semibold text-right">Action</TableHead>
+                            <TableHead className="hidden md:table-cell font-semibold">Time</TableHead>
+                            <TableHead className="w-[100px] font-semibold text-right">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -416,15 +416,15 @@ export default function CheckInPage() {
                                     <div className="text-xs text-muted-foreground truncate">{r.participant_email}</div>
                                   )}
                                 </TableCell>
-                                <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
+                                <TableCell className="hidden xl:table-cell text-sm text-muted-foreground">
                                   {r.participant_phone ?? '-'}
                                 </TableCell>
-                                <TableCell className="hidden sm:table-cell">
+                                <TableCell className="hidden lg:table-cell">
                                   <Badge variant="outline" className="text-xs">
                                     {r.category?.code ?? r.category?.name ?? '-'}
                                   </Badge>
                                 </TableCell>
-                                <TableCell className="hidden lg:table-cell">
+                                <TableCell className="hidden xl:table-cell">
                                   {r._institution_name ? (
                                     <Badge variant="secondary" className="text-[10px] font-medium">
                                       <Building2 className="h-2.5 w-2.5 mr-1" />
@@ -434,7 +434,7 @@ export default function CheckInPage() {
                                     <span className="text-xs text-muted-foreground">External</span>
                                   )}
                                 </TableCell>
-                                <TableCell className="hidden lg:table-cell">
+                                <TableCell>
                                   {r.stall?.stall_name ? (
                                     <Badge variant="secondary" className="text-xs font-medium">
                                       {r.stall.stall_name}
@@ -455,7 +455,7 @@ export default function CheckInPage() {
                                     </Badge>
                                   )}
                                 </TableCell>
-                                <TableCell className="hidden sm:table-cell text-sm text-muted-foreground tabular-nums">
+                                <TableCell className="hidden md:table-cell text-sm text-muted-foreground tabular-nums">
                                   {formatTime(r.checked_in_at)}
                                 </TableCell>
                                 <TableCell className="text-right">
