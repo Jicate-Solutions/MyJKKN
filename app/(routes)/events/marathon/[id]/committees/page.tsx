@@ -110,7 +110,7 @@ function SummaryCards({ eventId }: { eventId: string }) {
 
   if (isLoading || !summary) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
         {[...Array(4)].map((_, i) => (
           <Card key={i}>
             <CardContent className="pt-4 pb-3">
@@ -153,7 +153,7 @@ function SummaryCards({ eventId }: { eventId: string }) {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
       {cards.map((c) => (
         <Card key={c.label}>
           <CardContent className="pt-4 pb-3">
@@ -476,32 +476,32 @@ function CommitteeItem({
 
   return (
     <AccordionItem value={committee.id} className="border rounded-lg mb-3 overflow-hidden">
-      <div className="flex items-center hover:bg-muted/30 [&[data-state=open]]:bg-muted/30">
-        <AccordionTrigger className="px-3 sm:px-4 py-3 hover:no-underline flex-1">
+      <div className="flex items-start sm:items-center hover:bg-muted/30 [&[data-state=open]]:bg-muted/30">
+        <AccordionTrigger className="px-3 sm:px-4 py-3 hover:no-underline flex-1 min-w-0">
           <div className="flex-1 min-w-0 text-left">
             {/* Committee name + lead */}
             <div className="min-w-0">
-              <p className="font-semibold text-sm sm:text-base truncate pr-2">
+              <p className="font-semibold text-sm sm:text-base truncate pr-2 max-w-[200px] sm:max-w-none">
                 {committee.name}
               </p>
               {committee.lead_name && (
-                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                <p className="text-xs text-muted-foreground truncate mt-0.5 max-w-[180px] sm:max-w-none">
                   Lead: {committee.lead_name}
                 </p>
               )}
             </div>
 
             {/* Meta row: members + tasks + progress */}
-            <div className="flex items-center flex-wrap gap-2 mt-2">
-              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <div className="flex items-center flex-wrap gap-1.5 sm:gap-2 mt-2">
+              <span className="flex items-center gap-1 text-[10px] sm:text-[11px] text-muted-foreground">
                 <Users className="h-3 w-3" />
                 {memberCount} {memberCount === 1 ? 'member' : 'members'}
               </span>
-              <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+              <Badge variant="secondary" className="text-[9px] sm:text-[10px] h-4 sm:h-5 px-1 sm:px-1.5">
                 {completedCount}/{totalCount} tasks
               </Badge>
               {totalCount > 0 && (
-                <div className="flex items-center gap-1.5 flex-1 min-w-[80px] max-w-[140px]">
+                <div className="hidden sm:flex items-center gap-1.5 flex-1 min-w-[80px] max-w-[140px]">
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden flex-1">
                     <div
                       className="h-full bg-primary transition-all"
