@@ -68,20 +68,22 @@ export class MarathonCommitteeService {
       const { data, error } = await (this.supabase as any)
         .from('marathon_committees')
         .insert([insertPayload])
-        .select('*')
-        .single();
+        .select('*');
 
       if (error) {
         logger.error('events/marathon-committee', 'Failed to create committee', error);
         throw error;
       }
 
+      // Use first row — multiple SELECT policies can cause duplicate rows in RETURNING
+      const created = Array.isArray(data) ? data[0] : data;
+
       logger.info('events/marathon-committee', 'Committee created', {
         eventId: dto.event_id,
         name: dto.name,
       });
 
-      return data as unknown as MarathonCommittee;
+      return created as unknown as MarathonCommittee;
     } catch (error) {
       logger.error('events/marathon-committee', 'Unexpected error in createCommittee', error);
       throw error;
@@ -103,15 +105,16 @@ export class MarathonCommitteeService {
         .from('marathon_committees')
         .update(updatePayload)
         .eq('id', id)
-        .select('*')
-        .single();
+        .select('*');
 
       if (error) {
         logger.error('events/marathon-committee', 'Failed to update committee', { id, error });
         throw error;
       }
 
-      return data as unknown as MarathonCommittee;
+      // Use first row — multiple SELECT policies can cause duplicate rows in RETURNING
+      const updated = Array.isArray(data) ? data[0] : data;
+      return updated as unknown as MarathonCommittee;
     } catch (error) {
       logger.error('events/marathon-committee', 'Unexpected error in updateCommittee', error);
       throw error;
@@ -165,20 +168,21 @@ export class MarathonCommitteeService {
       const { data, error } = await (this.supabase as any)
         .from('marathon_tasks')
         .insert([insertPayload])
-        .select('*')
-        .single();
+        .select('*');
 
       if (error) {
         logger.error('events/marathon-committee', 'Failed to create task', error);
         throw error;
       }
 
+      const created = Array.isArray(data) ? data[0] : data;
+
       logger.info('events/marathon-committee', 'Task created', {
         committeeId: dto.committee_id,
         title: dto.title,
       });
 
-      return data as unknown as MarathonTask;
+      return created as unknown as MarathonTask;
     } catch (error) {
       logger.error('events/marathon-committee', 'Unexpected error in createTask', error);
       throw error;
@@ -206,15 +210,15 @@ export class MarathonCommitteeService {
         .from('marathon_tasks')
         .update(updatePayload)
         .eq('id', id)
-        .select('*')
-        .single();
+        .select('*');
 
       if (error) {
         logger.error('events/marathon-committee', 'Failed to update task', { id, error });
         throw error;
       }
 
-      return data as unknown as MarathonTask;
+      const updated = Array.isArray(data) ? data[0] : data;
+      return updated as unknown as MarathonTask;
     } catch (error) {
       logger.error('events/marathon-committee', 'Unexpected error in updateTask', error);
       throw error;
