@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Award, Loader2, Search } from 'lucide-react';
 
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useProcessScan, useOpsStats } from '@/hooks/events/marathon/use-marathon-ops';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -36,6 +38,21 @@ export default function CertificatePage() {
 
   const processScan = useProcessScan();
   const { data: stats } = useOpsStats(eventId);
+
+  const { data: event } = useQuery({
+    queryKey: ['marathon-event-name', eventId],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await (supabase as any)
+        .from('events')
+        .select('name')
+        .eq('id', eventId)
+        .single();
+      return data;
+    },
+    enabled: !!eventId,
+  });
+  const eventName = event?.name ?? 'Marathon';
 
   // Auto-clear scan result after 5 seconds
   useEffect(() => {
@@ -123,7 +140,18 @@ export default function CertificatePage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 p-4 lg:p-6">
+    <ContentLayout title={`${eventName} - Certificate Issuance`}>
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Events', href: '/events' },
+          { label: 'Marathon', href: '/events/marathon' },
+          { label: eventName, href: `/events/marathon/${eventId}/settings` },
+          { label: 'Certificate' },
+        ]}
+      />
+
+      <div className="space-y-4 mt-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Certificate Issuance</h1>
@@ -239,6 +267,7 @@ export default function CertificatePage() {
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </ContentLayout>
   );
 }

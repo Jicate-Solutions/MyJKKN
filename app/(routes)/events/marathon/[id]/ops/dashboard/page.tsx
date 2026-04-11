@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import {
   Award,
   LayoutDashboard,
@@ -15,6 +16,9 @@ import {
   UserCheck,
   Users,
 } from 'lucide-react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
@@ -206,6 +210,21 @@ export default function OpsDashboardPage() {
   const { data: stats, isLoading, dataUpdatedAt } = useOpsStats(eventId);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  const { data: event } = useQuery({
+    queryKey: ['marathon-event-name', eventId],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await (supabase as any)
+        .from('events')
+        .select('name')
+        .eq('id', eventId)
+        .single();
+      return data;
+    },
+    enabled: !!eventId,
+  });
+  const eventName = event?.name ?? 'Marathon';
+
   // Track last-updated timestamp from dataUpdatedAt
   useEffect(() => {
     if (dataUpdatedAt > 0) {
@@ -216,14 +235,27 @@ export default function OpsDashboardPage() {
   // ── Loading ────────────────────────────────────────────────────
   if (isLoading && !stats) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
+      <ContentLayout title="Ops Dashboard">
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <ContentLayout title={`${eventName} - Ops Dashboard`}>
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Events', href: '/events' },
+          { label: 'Marathon', href: '/events/marathon' },
+          { label: eventName, href: `/events/marathon/${eventId}/settings` },
+          { label: 'Dashboard' },
+        ]}
+      />
+
+      <div className="space-y-4 mt-4">
       {/* ── Header ────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3">
         <LayoutDashboard className="h-6 w-6 text-muted-foreground" />
@@ -283,6 +315,7 @@ export default function OpsDashboardPage() {
         </span>
         <span className="text-sm">(auto-refreshes every 10s)</span>
       </div>
-    </div>
+      </div>
+    </ContentLayout>
   );
 }

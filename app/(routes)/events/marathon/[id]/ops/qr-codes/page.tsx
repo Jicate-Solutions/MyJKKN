@@ -9,6 +9,8 @@ import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Download, Loader2, QrCode, Search } from 'lucide-react';
 
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,6 +27,21 @@ export default function QrCodesPage() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [downloading, setDownloading] = useState(false);
+
+  const { data: event } = useQuery({
+    queryKey: ['marathon-event-name', eventId],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await (supabase as any)
+        .from('events')
+        .select('name')
+        .eq('id', eventId)
+        .single();
+      return data;
+    },
+    enabled: !!eventId,
+  });
+  const eventName = event?.name ?? 'Marathon';
 
   // Fetch registrations with BIB numbers
   const { data: registrations, isLoading } = useQuery({
@@ -72,7 +89,18 @@ export default function QrCodesPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <ContentLayout title={`${eventName} - QR Codes`}>
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Events', href: '/events' },
+          { label: 'Marathon', href: '/events/marathon' },
+          { label: eventName, href: `/events/marathon/${eventId}/settings` },
+          { label: 'QR Codes' },
+        ]}
+      />
+
+      <div className="space-y-4 mt-4">
       {/* ── Header ──────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -165,6 +193,7 @@ export default function QrCodesPage() {
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </ContentLayout>
   );
 }

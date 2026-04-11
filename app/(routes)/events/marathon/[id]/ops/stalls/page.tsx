@@ -2,7 +2,12 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -344,6 +349,21 @@ export default function StallsManagementPage() {
   const { data: stalls, isLoading: stallsLoading } = useMarathonStalls(eventId);
   const { data: stats } = useOpsStats(eventId);
 
+  const { data: event } = useQuery({
+    queryKey: ['marathon-event-name', eventId],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await (supabase as any)
+        .from('events')
+        .select('name')
+        .eq('id', eventId)
+        .single();
+      return data;
+    },
+    enabled: !!eventId,
+  });
+  const eventName = event?.name ?? 'Marathon';
+
   // Mutations
   const deleteMutation = useDeleteStall();
   const autoAssignMutation = useAutoAssignStalls();
@@ -405,7 +425,18 @@ export default function StallsManagementPage() {
   }, [stalls]);
 
   return (
-    <div className="space-y-6">
+    <ContentLayout title={`${eventName} - Stall Management`}>
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Events', href: '/events' },
+          { label: 'Marathon', href: '/events/marathon' },
+          { label: eventName, href: `/events/marathon/${eventId}/settings` },
+          { label: 'Stalls' },
+        ]}
+      />
+
+      <div className="space-y-4 mt-4">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -631,6 +662,7 @@ export default function StallsManagementPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+      </div>
+    </ContentLayout>
   );
 }
