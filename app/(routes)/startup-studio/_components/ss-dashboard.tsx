@@ -23,6 +23,7 @@ import {
   useCycleStatusDistribution,
   useStepCompletionRates,
 } from '@/hooks/startup-studio';
+import { PipelineFunnel } from './pipeline-funnel';
 
 const STEP_LABELS: Record<number, string> = {
   1: 'Problem',
@@ -80,6 +81,9 @@ export function SSDashboard() {
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Innovation Pipeline: Appathon → Sarvam Galatta → Solve for 100 → NIF */}
+      <PipelineFunnel />
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">

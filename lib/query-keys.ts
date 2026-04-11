@@ -573,6 +573,16 @@ export const startupStudioKeys = {
       [...startupStudioKeys.nif.all, 'history', candidateId] as const,
   },
 
+  pipeline: {
+    all: ['startup-studio', 'pipeline'] as const,
+    summary: () =>
+      [...startupStudioKeys.pipeline.all, 'summary'] as const,
+    teams: (stage: string) =>
+      [...startupStudioKeys.pipeline.all, 'teams', stage] as const,
+    activity: (limit?: number) =>
+      [...startupStudioKeys.pipeline.all, 'activity', limit] as const,
+  },
+
   trl: {
     all: ['startup-studio', 'trl'] as const,
     list: (candidateId: string) =>
