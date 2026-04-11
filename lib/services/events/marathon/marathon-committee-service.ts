@@ -78,6 +78,12 @@ export class MarathonCommitteeService {
       // Use first row — multiple SELECT policies can cause duplicate rows in RETURNING
       const created = Array.isArray(data) ? data[0] : data;
 
+      if (!created) {
+        // INSERT succeeded but RLS blocked the read-back — return a minimal object from the DTO
+        logger.warn('events/marathon-committee', 'Committee created but read-back was empty (RLS). Returning DTO fallback.');
+        return { ...insertPayload, id: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString() } as unknown as MarathonCommittee;
+      }
+
       logger.info('events/marathon-committee', 'Committee created', {
         eventId: dto.event_id,
         name: dto.name,
@@ -114,6 +120,12 @@ export class MarathonCommitteeService {
 
       // Use first row — multiple SELECT policies can cause duplicate rows in RETURNING
       const updated = Array.isArray(data) ? data[0] : data;
+
+      if (!updated) {
+        logger.warn('events/marathon-committee', 'Committee updated but read-back was empty (RLS).');
+        return { id, ...updatePayload } as unknown as MarathonCommittee;
+      }
+
       return updated as unknown as MarathonCommittee;
     } catch (error) {
       logger.error('events/marathon-committee', 'Unexpected error in updateCommittee', error);
