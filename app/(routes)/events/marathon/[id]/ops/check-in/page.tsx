@@ -125,25 +125,36 @@ export default function CheckInPage() {
   });
 
   // Fetch profile mapping: email → institution + department + semester
+  // Uses two queries: profiles→institutions, and learners_profiles→departments+semesters
   const { data: profileMap } = useQuery({
     queryKey: ['marathon-ops-profile-map', eventId],
     queryFn: async () => {
       const supabase = createClientSupabaseClient();
-      const { data } = await (supabase as any)
+
+      // Query 1: profiles → institution
+      const { data: profiles } = await (supabase as any)
         .from('profiles')
-        .select(`
-          email, institution_id, department_id,
-          institution:institutions(id, name),
-          learner:learners_profiles(
-            department_id,
-            semester_id,
-            department:departments(id, department_name),
-            semester:semesters(id, semester_name)
-          )
-        `)
+        .select('id, email, learner_id, institution:institutions(id, name)')
         .not('email', 'is', null)
         .not('institution_id', 'is', null);
 
+      // Query 2: learners_profiles → department + semester
+      const { data: learners } = await (supabase as any)
+        .from('learners_profiles')
+        .select('id, department:departments(id, department_name), semester:semesters(id, semester_name)');
+
+      // Build learner lookup: learner_id → { department, semester }
+      const learnerLookup = new Map<string, { dept_id: string | null; dept_name: string | null; sem_id: string | null; sem_name: string | null }>();
+      for (const l of learners ?? []) {
+        learnerLookup.set(l.id, {
+          dept_id: l.department?.id ?? null,
+          dept_name: l.department?.department_name ?? null,
+          sem_id: l.semester?.id ?? null,
+          sem_name: l.semester?.semester_name ?? null,
+        });
+      }
+
+      // Build email → full profile map
       const map = new Map<string, {
         institution_id: string;
         institution_name: string;
@@ -153,16 +164,16 @@ export default function CheckInPage() {
         semester_name: string | null;
       }>();
 
-      for (const p of data ?? []) {
+      for (const p of profiles ?? []) {
         if (!p.email || !p.institution) continue;
-        const learner = p.learner;
+        const learner = p.learner_id ? learnerLookup.get(p.learner_id) : null;
         map.set(p.email.toLowerCase(), {
           institution_id: (p.institution as any).id,
           institution_name: (p.institution as any).name,
-          department_id: learner?.department?.id ?? null,
-          department_name: learner?.department?.department_name ?? null,
-          semester_id: learner?.semester?.id ?? null,
-          semester_name: learner?.semester?.semester_name ?? null,
+          department_id: learner?.dept_id ?? null,
+          department_name: learner?.dept_name ?? null,
+          semester_id: learner?.sem_id ?? null,
+          semester_name: learner?.sem_name ?? null,
         });
       }
       return map;
