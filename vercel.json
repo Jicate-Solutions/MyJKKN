@@ -7,36 +7,8 @@
   },
   "crons": [
     {
-      "path": "/api/academic/privileges/cron/auto-pause",
-      "schedule": "0 0 1 * *"
-    },
-    {
-      "path": "/api/work-pulse/analyze",
-      "schedule": "0 0 * * 0"
-    },
-    {
-      "path": "/api/work-pulse/notify?type=pulse_reminder",
-      "schedule": "0 16 * * 5"
-    },
-    {
-      "path": "/api/work-pulse/notify?type=pulse_followup",
-      "schedule": "0 10 * * 6"
-    },
-    {
-      "path": "/api/work-pulse/notify?type=hod_compliance",
-      "schedule": "0 9 * * 1"
-    },
-    {
-      "path": "/api/admission/calls/sync",
-      "schedule": "*/5 2-16 * * 1-6"
-    },
-    {
-      "path": "/api/cron/sync-inbound-calls",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/process-scheduled-whatsapp",
-      "schedule": "*/5 * * * *"
+      "path": "/api/cron/notification-processor?secret=${CRON_SECRET}",
+      "schedule": "0 * * * *"
     }
   ]
 }
