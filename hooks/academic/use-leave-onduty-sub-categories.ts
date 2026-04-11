@@ -71,7 +71,12 @@ export function useUpdateLeaveOndutySubCategory() {
       data,
     }: {
       id: string;
-      data: Partial<Pick<SubCategoryFormData, 'name' | 'description'>>;
+      data: Partial<
+        Pick<
+          SubCategoryFormData,
+          'name' | 'description' | 'requires_sponsor_approval' | 'sponsor_role_hint'
+        >
+      >;
     }) => LeaveOndutySubCategoryService.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: KEYS.all });

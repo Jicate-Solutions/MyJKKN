@@ -99,6 +99,9 @@ export function SubCategoriesManager({
   const [formCode, setFormCode] = useState('');
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
+  // Sponsor-approval gate state (Phase 1: admin can toggle + set hint)
+  const [formRequiresSponsorApproval, setFormRequiresSponsorApproval] = useState(false);
+  const [formSponsorRoleHint, setFormSponsorRoleHint] = useState('');
 
   // Data
   const { data: subCategories, isLoading, error } = useLeaveOndutySubCategories(institutionId);
@@ -113,6 +116,10 @@ export function SubCategoriesManager({
     setFormCode('');
     setFormName('');
     setFormDescription('');
+    // Default new OnDuty sub-categories to requiring sponsor approval,
+    // Leave sub-categories to NOT requiring it. Matches the product intent.
+    setFormRequiresSponsorApproval(false);
+    setFormSponsorRoleHint('');
   };
 
   const openCreateDialog = () => {
@@ -124,6 +131,8 @@ export function SubCategoriesManager({
     setEditingRow(row);
     setFormName(row.name);
     setFormDescription(row.description || '');
+    setFormRequiresSponsorApproval(row.requires_sponsor_approval);
+    setFormSponsorRoleHint(row.sponsor_role_hint || '');
   };
 
   const handleCreate = () => {
@@ -137,6 +146,8 @@ export function SubCategoriesManager({
           code: formCode,
           name: formName,
           description: formDescription,
+          requires_sponsor_approval: formRequiresSponsorApproval,
+          sponsor_role_hint: formSponsorRoleHint,
         },
         createdBy: currentUserId,
       },
@@ -157,6 +168,8 @@ export function SubCategoriesManager({
         data: {
           name: formName,
           description: formDescription,
+          requires_sponsor_approval: formRequiresSponsorApproval,
+          sponsor_role_hint: formSponsorRoleHint,
         },
       },
       {
@@ -373,6 +386,47 @@ export function SubCategoriesManager({
                 className="min-h-[80px]"
               />
             </div>
+
+            {/* Sponsor-approval gate (Phase 1: stored, wired up in follow-up PR) */}
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3 space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="sc-requires-sponsor"
+                  checked={formRequiresSponsorApproval}
+                  onChange={(e) => setFormRequiresSponsorApproval(e.target.checked)}
+                  className="h-4 w-4 mt-0.5 rounded border-gray-300 text-primary focus:ring-2 focus:ring-primary"
+                />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    Requires sponsor approval
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    If enabled, the learner must pick a sponsor (the person they&apos;re working with) and
+                    that sponsor must approve the application before it enters the academic approval chain.
+                    Typical for OnDuty sub-categories (events, media work, club activities).
+                  </p>
+                </div>
+              </label>
+
+              {formRequiresSponsorApproval && (
+                <div className="space-y-2 pl-7">
+                  <Label htmlFor="sc-sponsor-hint" className="text-xs">
+                    Sponsor hint (shown to learners)
+                  </Label>
+                  <Input
+                    id="sc-sponsor-hint"
+                    value={formSponsorRoleHint}
+                    onChange={(e) => setFormSponsorRoleHint(e.target.value)}
+                    placeholder="e.g., Event lead or faculty advisor"
+                    maxLength={200}
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Shown under the &ldquo;Who are you working with?&rdquo; field on the learner apply form.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           <DialogFooter>
@@ -436,6 +490,43 @@ export function SubCategoriesManager({
                 onChange={(e) => setFormDescription(e.target.value)}
                 className="min-h-[80px]"
               />
+            </div>
+
+            {/* Sponsor-approval gate (same UX as Create dialog) */}
+            <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3 space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  id="edit-requires-sponsor"
+                  checked={formRequiresSponsorApproval}
+                  onChange={(e) => setFormRequiresSponsorApproval(e.target.checked)}
+                  className="h-4 w-4 mt-0.5 rounded border-gray-300 text-primary focus:ring-2 focus:ring-primary"
+                />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    Requires sponsor approval
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    If enabled, the learner must pick a sponsor and that sponsor must approve before
+                    the academic chain reviews the application.
+                  </p>
+                </div>
+              </label>
+
+              {formRequiresSponsorApproval && (
+                <div className="space-y-2 pl-7">
+                  <Label htmlFor="edit-sponsor-hint" className="text-xs">
+                    Sponsor hint (shown to learners)
+                  </Label>
+                  <Input
+                    id="edit-sponsor-hint"
+                    value={formSponsorRoleHint}
+                    onChange={(e) => setFormSponsorRoleHint(e.target.value)}
+                    placeholder="e.g., Event lead or faculty advisor"
+                    maxLength={200}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -531,6 +622,15 @@ function SubCategoryList({
               {!row.is_active && (
                 <Badge variant="secondary" className="text-xs">
                   Inactive
+                </Badge>
+              )}
+              {row.requires_sponsor_approval && (
+                <Badge
+                  variant="outline"
+                  className="text-xs border-amber-400 text-amber-700 dark:text-amber-400"
+                  title={row.sponsor_role_hint || 'Sponsor pre-approval required'}
+                >
+                  Sponsor required
                 </Badge>
               )}
               {isSuperAdmin && row.institution?.name && (
