@@ -8,30 +8,27 @@ export interface QRGeneratorInput {
   eventName: string;
 }
 
+interface TextLayer {
+  buffer: Buffer;
+  width: number;
+  height: number;
+}
+
 /**
- * Render text as a PNG buffer using sharp's native Pango text engine.
- * This does NOT use SVG — it goes through libvips/Pango directly,
- * which works reliably on Vercel's serverless Linux environment.
+ * Render text as PNG and return buffer with dimensions.
+ * Uses sharp's native Pango engine — works on Vercel.
  */
 async function renderText(
   text: string,
   options: {
-    width: number;
     fontSize: number;
     bold?: boolean;
     color: string;
-    align?: 'centre' | 'left';
     mono?: boolean;
+    maxWidth?: number;
   }
-): Promise<Buffer> {
-  const {
-    width,
-    fontSize,
-    bold = false,
-    color,
-    align = 'centre',
-    mono = false,
-  } = options;
+): Promise<TextLayer> {
+  const { fontSize, bold = false, color, mono = false, maxWidth } = options;
 
   const escaped = text
     .replace(/&/g, '&amp;')
@@ -44,35 +41,31 @@ async function renderText(
   const boldClose = bold ? '</b>' : '';
   const markup = `<span foreground="${color}" font="${fontFace} ${fontSize}">${boldOpen}${escaped}${boldClose}</span>`;
 
-  return sharp({
-    text: {
-      text: markup,
-      width,
-      align,
-      rgba: true,
-    },
-  })
-    .png()
-    .toBuffer();
+  const textOpts: any = { text: markup, rgba: true };
+  if (maxWidth) textOpts.width = maxWidth;
+
+  const buffer = await sharp({ text: textOpts }).png().toBuffer();
+  const meta = await sharp(buffer).metadata();
+
+  return {
+    buffer,
+    width: meta.width ?? 100,
+    height: meta.height ?? 20,
+  };
 }
 
 /**
- * Generates a branded QR code PNG image for a marathon participant.
- *
- * Uses sharp's native Pango text engine (NOT SVG fonts) so text
- * renders correctly on all environments including Vercel serverless.
- *
- * Layout (400×520px):
- *   Event name → QR code → BIB → Stall → Name → divider → JKKN → tagline
+ * Generates a branded QR code PNG for a marathon participant.
+ * All elements are horizontally centered on a 400×520 white canvas.
  */
 export async function generateMarathonQR(input: QRGeneratorInput): Promise<Buffer> {
   const { bibNumber, participantName, stallCode, eventName } = input;
 
-  const WIDTH = 400;
-  const HEIGHT = 520;
-  const QR_SIZE = 300;
+  const W = 400;
+  const H = 520;
+  const QR_SIZE = 280;
 
-  // 1. Generate QR code
+  // 1. QR code
   const qrBuffer = await QRCode.toBuffer(`BIB:${bibNumber}`, {
     type: 'png',
     width: QR_SIZE,
@@ -80,93 +73,72 @@ export async function generateMarathonQR(input: QRGeneratorInput): Promise<Buffe
     errorCorrectionLevel: 'M',
   });
 
-  // 2. Render all text lines using Pango (NOT SVG)
-  const truncatedName = participantName.length > 35
+  // 2. Render text layers
+  const truncName = participantName.length > 35
     ? participantName.slice(0, 35) + '...'
     : participantName;
 
-  const textLayers = await Promise.all([
-    renderText(eventName, { width: WIDTH - 40, fontSize: 14, bold: true, color: '#1a1a2e' }),
-    renderText(`BIB: ${bibNumber}`, { width: WIDTH - 40, fontSize: 24, bold: true, color: '#1a1a2e', mono: true }),
-    renderText(truncatedName, { width: WIDTH - 40, fontSize: 12, color: '#555555' }),
-    renderText('JKKN Educational Institutions', { width: WIDTH - 40, fontSize: 11, bold: true, color: '#1a1a2e' }),
-    renderText("India's 1st AI Empowered Marathon", { width: WIDTH - 40, fontSize: 9, color: '#e94560' }),
-    stallCode
-      ? renderText(`Stall: ${stallCode}`, { width: WIDTH - 40, fontSize: 15, bold: true, color: '#e94560' })
-      : null,
+  const [eventTxt, bibTxt, nameTxt, jkknTxt, tagTxt, stallTxt] = await Promise.all([
+    renderText(eventName, { fontSize: 13, bold: true, color: '#1a1a2e', maxWidth: W - 20 }),
+    renderText(`BIB: ${bibNumber}`, { fontSize: 22, bold: true, color: '#1a1a2e', mono: true }),
+    renderText(truncName, { fontSize: 11, color: '#555555', maxWidth: W - 20 }),
+    renderText('JKKN Educational Institutions', { fontSize: 10, bold: true, color: '#1a1a2e' }),
+    renderText("India's 1st AI Empowered Marathon", { fontSize: 9, color: '#e94560' }),
+    stallCode ? renderText(`Stall: ${stallCode}`, { fontSize: 14, bold: true, color: '#e94560' }) : null,
   ]);
 
-  const [eventNameImg, bibImg, nameImg, jkknImg, taglineImg, stallImg] = textLayers;
-
-  // 3. Get actual heights of rendered text
-  const getHeight = async (buf: Buffer) => (await sharp(buf).metadata()).height ?? 20;
-
-  const heights = await Promise.all([
-    getHeight(eventNameImg),
-    getHeight(bibImg),
-    getHeight(nameImg),
-    getHeight(jkknImg),
-    getHeight(taglineImg),
-    stallImg ? getHeight(stallImg) : 0,
-  ]);
-
-  // 4. Create divider line
-  const dividerImg = await sharp({
-    create: { width: WIDTH - 80, height: 1, channels: 4, background: { r: 200, g: 200, b: 200, alpha: 1 } },
+  // 3. Divider
+  const divW = 320;
+  const divider = await sharp({
+    create: { width: divW, height: 1, channels: 4, background: { r: 200, g: 200, b: 200, alpha: 1 } },
   }).png().toBuffer();
 
-  // 5. Build composite layers with proper vertical positioning
-  const composites: sharp.OverlayOptions[] = [];
+  // Helper: center horizontally
+  const cx = (layerWidth: number) => Math.max(0, Math.round((W - layerWidth) / 2));
 
-  // Event name centered at top
-  const eventNameLeft = Math.max(0, Math.round((WIDTH - (WIDTH - 40)) / 2));
-  composites.push({ input: eventNameImg, top: 12, left: eventNameLeft });
+  // 4. Build composites — all centered
+  const layers: sharp.OverlayOptions[] = [];
 
-  // QR code centered below event name
-  const qrTop = 12 + heights[0] + 8;
-  const qrLeft = Math.round((WIDTH - QR_SIZE) / 2);
-  composites.push({ input: qrBuffer, top: qrTop, left: qrLeft });
+  // Event name
+  layers.push({ input: eventTxt.buffer, top: 14, left: cx(eventTxt.width) });
 
-  // Text below QR
+  // QR code
+  const qrTop = 14 + eventTxt.height + 10;
+  layers.push({ input: qrBuffer, top: qrTop, left: cx(QR_SIZE) });
+
+  // Below QR
   let y = qrTop + QR_SIZE + 10;
 
-  // BIB number
-  composites.push({ input: bibImg, top: y, left: 20 });
-  y += heights[1] + 4;
+  // BIB
+  layers.push({ input: bibTxt.buffer, top: y, left: cx(bibTxt.width) });
+  y += bibTxt.height + 4;
 
-  // Stall (if assigned)
-  if (stallImg) {
-    composites.push({ input: stallImg, top: y, left: 20 });
-    y += heights[5] + 2;
+  // Stall
+  if (stallTxt) {
+    layers.push({ input: stallTxt.buffer, top: y, left: cx(stallTxt.width) });
+    y += stallTxt.height + 2;
   }
 
-  // Participant name
-  composites.push({ input: nameImg, top: y, left: 20 });
-  y += heights[2] + 10;
+  // Name
+  layers.push({ input: nameTxt.buffer, top: y, left: cx(nameTxt.width) });
+  y += nameTxt.height + 10;
 
   // Divider
-  composites.push({ input: dividerImg, top: y, left: 40 });
+  layers.push({ input: divider, top: y, left: cx(divW) });
   y += 10;
 
-  // JKKN branding
-  composites.push({ input: jkknImg, top: y, left: 20 });
-  y += heights[3] + 2;
+  // JKKN
+  layers.push({ input: jkknTxt.buffer, top: y, left: cx(jkknTxt.width) });
+  y += jkknTxt.height + 3;
 
   // Tagline
-  composites.push({ input: taglineImg, top: y, left: 20 });
+  layers.push({ input: tagTxt.buffer, top: y, left: cx(tagTxt.width) });
 
-  // 6. Create white canvas and composite everything
-  const image = await sharp({
-    create: {
-      width: WIDTH,
-      height: HEIGHT,
-      channels: 4,
-      background: { r: 255, g: 255, b: 255, alpha: 1 },
-    },
+  // 5. Compose
+  return sharp({
+    create: { width: W, height: H, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } },
   })
-    .composite(composites)
+    .composite(layers)
     .png()
     .toBuffer();
-
-  return image;
 }
