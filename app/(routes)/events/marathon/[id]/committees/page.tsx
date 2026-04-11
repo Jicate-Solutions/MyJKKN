@@ -524,7 +524,7 @@ function CommitteeItem({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 shrink-0 mr-3"
+                className="h-8 w-8 shrink-0 mr-2 sm:mr-3 mt-2 sm:mt-0 self-start sm:self-center"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontal className="h-4 w-4" />
