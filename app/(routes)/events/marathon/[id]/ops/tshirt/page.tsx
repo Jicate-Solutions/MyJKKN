@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertTriangle,
+  Building2,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -61,6 +62,7 @@ export default function TshirtPage() {
   const [scanResult, setScanResult] = useState<OpsScanResult | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'collected' | 'not_collected'>('all');
+  const [filterInstitution, setFilterInstitution] = useState<string>('all');
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(20);
 
@@ -97,7 +99,7 @@ export default function TshirtPage() {
       const { data } = await (supabase as any)
         .from('events_registrations')
         .select(`
-          id, bib_number, participant_name, participant_phone,
+          id, bib_number, participant_name, participant_phone, participant_email,
           checked_in, checked_in_at,
           tshirt_collected, tshirt_collected_at,
           certificate_issued, certificate_issued_at,
@@ -111,6 +113,51 @@ export default function TshirtPage() {
     },
     refetchInterval: 30_000,
   });
+
+  const { data: institutionMap } = useQuery({
+    queryKey: ['marathon-ops-institution-map', eventId],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await (supabase as any)
+        .from('profiles')
+        .select('email, institution:institutions(id, name)')
+        .not('email', 'is', null)
+        .not('institution_id', 'is', null);
+      const map = new Map<string, { id: string; name: string }>();
+      for (const p of data ?? []) {
+        if (p.email && p.institution) {
+          map.set(p.email.toLowerCase(), {
+            id: (p.institution as any).id,
+            name: (p.institution as any).name,
+          });
+        }
+      }
+      return map;
+    },
+    enabled: !!eventId,
+  });
+
+  const enrichedRegistrations = useMemo(() => {
+    if (!registrations) return [];
+    return registrations.map((r: any) => {
+      const inst = r.participant_email
+        ? institutionMap?.get(r.participant_email.toLowerCase())
+        : null;
+      return { ...r, _institution_name: inst?.name ?? null, _institution_id: inst?.id ?? null };
+    });
+  }, [registrations, institutionMap]);
+
+  const institutionOptions = useMemo(() => {
+    const instMap = new Map<string, string>();
+    for (const r of enrichedRegistrations) {
+      if (r._institution_id && r._institution_name) {
+        instMap.set(r._institution_id, r._institution_name);
+      }
+    }
+    return Array.from(instMap.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [enrichedRegistrations]);
 
   const handleScan = useCallback(
     async (bibNumber: string) => {
@@ -132,7 +179,7 @@ export default function TshirtPage() {
 
   // Client-side filtering
   const filtered = useMemo(() => {
-    return (registrations ?? []).filter((r: any) => {
+    return enrichedRegistrations.filter((r: any) => {
       if (searchQuery.length >= 2) {
         const q = searchQuery.toLowerCase();
         const matchesSearch =
@@ -141,11 +188,13 @@ export default function TshirtPage() {
           r.participant_phone?.toLowerCase().includes(q);
         if (!matchesSearch) return false;
       }
+      if (filterInstitution === '_external' && r._institution_id) return false;
+      if (filterInstitution !== 'all' && filterInstitution !== '_external' && r._institution_id !== filterInstitution) return false;
       if (filterStatus === 'collected' && !r.tshirt_collected) return false;
       if (filterStatus === 'not_collected' && r.tshirt_collected) return false;
       return true;
     });
-  }, [registrations, searchQuery, filterStatus]);
+  }, [enrichedRegistrations, searchQuery, filterInstitution, filterStatus]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -157,7 +206,7 @@ export default function TshirtPage() {
   // Reset page on filter change
   useEffect(() => {
     setPageIndex(0);
-  }, [searchQuery, filterStatus, pageSize]);
+  }, [searchQuery, filterInstitution, filterStatus, pageSize]);
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '-';
@@ -268,6 +317,22 @@ export default function TshirtPage() {
                       className="pl-9"
                     />
                   </div>
+
+                  <Select value={filterInstitution} onValueChange={(v) => setFilterInstitution(v)}>
+                    <SelectTrigger className="w-full sm:w-[200px]">
+                      <Building2 className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                      <SelectValue placeholder="Institution" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Institutions</SelectItem>
+                      <SelectItem value="_external">External Only</SelectItem>
+                      {institutionOptions.map((inst) => (
+                        <SelectItem key={inst.id} value={inst.id}>
+                          {inst.name.replace('JKKN ', '')}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
                   <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
                     <SelectTrigger className="w-full sm:w-[180px]">
