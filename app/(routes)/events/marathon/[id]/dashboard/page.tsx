@@ -33,6 +33,7 @@ import {
   Shirt,
   Store,
   QrCode,
+  BedDouble,
 } from 'lucide-react';
 import { useMarathonDashboard } from '@/hooks/events/marathon/use-marathon-dashboard';
 import { useMarathonEvent, useUpdateMarathonStatus } from '@/hooks/events/marathon/use-marathon-events';
@@ -425,6 +426,7 @@ function BudgetQuadrant({
 function QuickNav({ eventId }: { eventId: string }) {
   const links = [
     { label: 'Registrations', href: `/events/marathon/${eventId}/registrations`, icon: Users },
+    { label: 'Mandatory Hostelers', href: `/events/marathon/${eventId}/mandatory-hostelers`, icon: BedDouble },
     { label: 'Sponsors', href: `/events/marathon/${eventId}/sponsors`, icon: Star },
     { label: 'Committees', href: `/events/marathon/${eventId}/committees`, icon: UserCheck },
     { label: 'Budget', href: `/events/marathon/${eventId}/budget`, icon: Wallet },
