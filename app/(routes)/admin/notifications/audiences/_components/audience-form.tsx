@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useQueryClient } from '@tanstack/react-query';
 import * as z from 'zod';
 import toast from 'react-hot-toast';
 import {
@@ -107,10 +108,14 @@ const BUILT_IN_TYPES = [
 
 // --- Schema --------------------------------------------------------------
 
+// Wire types MUST match the API contract in app/api/admin/notifications/audiences/route.ts:
+//   - query_type: 'built_in' | 'sql'   (snake_case, matches DB enum)
+//   - query_params: { name: BuiltInName } | { sql: string }
 const audienceSchema = z
   .object({
     name: z
       .string()
+      .trim()
       .min(2, 'Name must be at least 2 characters')
       .max(80, 'Name must be less than 80 characters'),
     description: z
@@ -119,19 +124,19 @@ const audienceSchema = z
       .optional()
       .or(z.literal('')),
     icon: z.string().min(1, 'Select an icon'),
-    query_type: z.enum(['built-in', 'custom-sql']),
+    query_type: z.enum(['built_in', 'sql']),
     built_in_type: z.string().optional(),
-    custom_sql: z.string().optional()
+    custom_sql: z.string().max(4096, 'SQL must be 4096 characters or fewer').optional()
   })
   .superRefine((data, ctx) => {
-    if (data.query_type === 'built-in' && !data.built_in_type) {
+    if (data.query_type === 'built_in' && !data.built_in_type) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Select a built-in audience type',
         path: ['built_in_type']
       });
     }
-    if (data.query_type === 'custom-sql') {
+    if (data.query_type === 'sql') {
       const sql = (data.custom_sql ?? '').trim();
       if (!sql) {
         ctx.addIssue({
@@ -139,13 +144,10 @@ const audienceSchema = z
           message: 'Custom SQL is required',
           path: ['custom_sql']
         });
-      } else if (!/\bid\b/i.test(sql)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "SQL must return a column named 'id' (the user_id)",
-          path: ['custom_sql']
-        });
       }
+      // NOTE: no client-side regex check for `id` — it produced false positives
+      // (`profile_id` passed; `identity` failed). Server + DB-side validation
+      // in `resolve_audience` is authoritative.
     }
   });
 
@@ -168,6 +170,7 @@ interface PreviewResult {
 
 export function AudienceForm() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewResult, setPreviewResult] = useState<PreviewResult | null>(
@@ -181,7 +184,7 @@ export function AudienceForm() {
       name: '',
       description: '',
       icon: 'Users',
-      query_type: 'built-in',
+      query_type: 'built_in',
       built_in_type: undefined,
       custom_sql: ''
     }
@@ -192,48 +195,93 @@ export function AudienceForm() {
   const IconPreview =
     ICON_OPTIONS.find((o) => o.value === selectedIcon)?.Icon ?? Users;
 
+  // Produces the API-compatible payload shape:
+  //   { name, description, icon, query_type, query_params }
   function buildPayload(data: AudienceFormValues) {
-    return {
+    const base = {
       name: data.name,
       description: data.description || null,
       icon: data.icon,
-      query_type: data.query_type,
-      built_in_type:
-        data.query_type === 'built-in' ? data.built_in_type : null,
-      custom_sql:
-        data.query_type === 'custom-sql' ? data.custom_sql?.trim() : null
+      query_type: data.query_type
+    };
+
+    if (data.query_type === 'built_in') {
+      return {
+        ...base,
+        query_params: { name: data.built_in_type }
+      };
+    }
+    return {
+      ...base,
+      query_params: { sql: (data.custom_sql ?? '').trim() }
     };
   }
 
+  // Save-then-preview flow:
+  //   1) POST /audiences          → creates the audience row (super_admin only)
+  //   2) GET  /audiences/:id/preview → returns count + preview_users
+  //
+  // Rationale: there is no collection-level /preview endpoint, and an older
+  // implementation that POSTed `{ preview_only: true }` to the create route
+  // silently created real rows on every click (the server never read the
+  // flag). The save-first approach is the simplest path that avoids DB
+  // pollution and respects the existing permission model.
   async function handlePreview() {
-    // Validate before firing a preview request
+    // Clear any previous result BEFORE validation so a stale error banner
+    // doesn't hang around if validation now fails.
+    setPreviewError(null);
+    setPreviewResult(null);
+
     const valid = await form.trigger();
     if (!valid) return;
 
     const data = form.getValues();
     setIsPreviewing(true);
-    setPreviewError(null);
-    setPreviewResult(null);
 
     try {
-      const res = await fetch('/api/admin/notifications/audiences', {
+      // Step 1: create the audience
+      const createRes = await fetch('/api/admin/notifications/audiences', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify({ ...buildPayload(data), preview_only: true })
+        body: JSON.stringify(buildPayload(data))
       });
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
+      if (!createRes.ok) {
+        const body = await createRes.json().catch(() => ({}));
         throw new Error(body.error || 'Preview failed');
       }
 
-      const body = await res.json();
-      const users: PreviewUser[] = body.users || body.preview || [];
+      const createBody = await createRes.json();
+      const audienceId = createBody?.audience?.id;
+      if (!audienceId) {
+        throw new Error('Preview failed: audience id missing in response');
+      }
+
+      // Step 2: fetch preview for the newly created audience
+      const previewRes = await fetch(
+        `/api/admin/notifications/audiences/${audienceId}/preview`,
+        { cache: 'no-store' }
+      );
+
+      if (!previewRes.ok) {
+        const body = await previewRes.json().catch(() => ({}));
+        throw new Error(body.error || 'Preview failed');
+      }
+
+      const previewBody = await previewRes.json();
+      const users: PreviewUser[] = Array.isArray(previewBody.preview_users)
+        ? previewBody.preview_users
+        : [];
       const count: number =
-        body.count ?? body.total ?? users.length ?? 0;
+        typeof previewBody.count === 'number' ? previewBody.count : users.length;
+
       setPreviewResult({ count, users: users.slice(0, 20) });
-      toast.success(`Matched ${count} users`);
+      toast.success(`Audience saved — matched ${count} users`);
+      // Once the audience exists, the form should navigate to the list so
+      // the user sees their creation and doesn't double-create on re-click.
+      router.push('/admin/notifications/audiences');
+      router.refresh();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Preview failed';
@@ -259,6 +307,10 @@ export function AudienceForm() {
         throw new Error(body.error || 'Failed to save audience');
       }
 
+      // Invalidate the list cache so audience-list.tsx doesn't show stale
+      // data until its next refetch. Pair with the queryClient import below.
+      queryClient.invalidateQueries({ queryKey: ['notification-audiences'] });
+
       toast.success('Audience created');
       router.push('/admin/notifications/audiences');
       router.refresh();
@@ -277,7 +329,7 @@ export function AudienceForm() {
         <h2 className='text-2xl sm:text-3xl font-bold tracking-tight'>
           Create Audience
         </h2>
-        <p className='text-sm text-muted-foreground hidden sm:block'>
+        <p className='text-sm text-muted-foreground'>
           Define a reusable audience for targeted notifications
         </p>
       </div>
@@ -395,13 +447,13 @@ export function AudienceForm() {
                         <div
                           className={cn(
                             'flex items-start space-x-3 rounded-lg border p-3 cursor-pointer transition-colors',
-                            field.value === 'built-in'
+                            field.value === 'built_in'
                               ? 'border-primary bg-primary/5'
                               : 'hover:bg-muted/50'
                           )}
                         >
                           <RadioGroupItem
-                            value='built-in'
+                            value='built_in'
                             id='query-built-in'
                             className='mt-1'
                           />
@@ -420,13 +472,13 @@ export function AudienceForm() {
                         <div
                           className={cn(
                             'flex items-start space-x-3 rounded-lg border p-3 cursor-pointer transition-colors',
-                            field.value === 'custom-sql'
+                            field.value === 'sql'
                               ? 'border-primary bg-primary/5'
                               : 'hover:bg-muted/50'
                           )}
                         >
                           <RadioGroupItem
-                            value='custom-sql'
+                            value='sql'
                             id='query-custom'
                             className='mt-1'
                           />
@@ -450,7 +502,7 @@ export function AudienceForm() {
               />
 
               {/* Built-in select */}
-              {queryType === 'built-in' && (
+              {queryType === 'built_in' && (
                 <FormField
                   control={form.control}
                   name='built_in_type'
@@ -486,19 +538,19 @@ export function AudienceForm() {
               )}
 
               {/* Custom SQL */}
-              {queryType === 'custom-sql' && (
+              {queryType === 'sql' && (
                 <FormField
                   control={form.control}
                   name='custom_sql'
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Custom SQL *</FormLabel>
-                      <div className='rounded-md border border-yellow-200 bg-yellow-50 p-3 mb-2 text-xs text-yellow-900 flex items-start gap-2'>
+                      <div className='rounded-md border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950 p-3 mb-2 text-xs text-yellow-900 dark:text-yellow-200 flex items-start gap-2'>
                         <AlertCircle className='h-4 w-4 shrink-0 mt-0.5' />
                         <div>
                           <strong>Advanced users only.</strong> Your query
                           must return a column named{' '}
-                          <code className='bg-yellow-100 px-1 rounded'>
+                          <code className='bg-yellow-100 dark:bg-yellow-900 px-1 rounded'>
                             id
                           </code>{' '}
                           containing the user_id. Read-only; dangerous
@@ -581,7 +633,9 @@ export function AudienceForm() {
                 </div>
               )}
 
-              {/* Actions */}
+              {/* Actions — on mobile stack vertically (each button full-width),
+                  on sm+ line them up horizontally. Fixes the pile-up where
+                  Preview + Save competed for ~160px each on a 360px phone. */}
               <div className='flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2'>
                 <Button
                   type='button'
@@ -591,13 +645,13 @@ export function AudienceForm() {
                 >
                   Cancel
                 </Button>
-                <div className='flex items-center gap-2'>
+                <div className='flex flex-col gap-2 w-full sm:flex-row sm:w-auto sm:items-center'>
                   <Button
                     type='button'
                     variant='outline'
                     onClick={handlePreview}
                     disabled={isPreviewing || isSubmitting}
-                    className='flex-1 sm:flex-none'
+                    className='w-full sm:w-auto'
                   >
                     {isPreviewing ? (
                       <>
@@ -614,7 +668,7 @@ export function AudienceForm() {
                   <Button
                     type='submit'
                     disabled={isSubmitting || isPreviewing}
-                    className='flex-1 sm:flex-none'
+                    className='w-full sm:w-auto'
                   >
                     {isSubmitting ? (
                       <>

@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient
+} from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' };
 
+const PREVIEW_LIMIT = 20;
+
 /**
  * GET /api/admin/notifications/audiences/[id]/preview
  *
  * Resolves a saved audience via the `resolve_audience` Postgres function and
- * returns the full user_id list plus a hydrated preview of the first 20 users
- * (with name, email, role, and institution).
+ * returns the total count plus a hydrated preview of the first 20 users.
+ *
+ * Restricted to super_admin. Returning a full user_id list leaks PII / enables
+ * user-base enumeration, so we only return the 20-row preview + total count.
  */
 export async function GET(
   _request: NextRequest,
@@ -41,11 +48,28 @@ export async function GET(
       );
     }
 
-    // Load the audience row to get its name (and verify it exists)
+    // Require super_admin — audience previews expose user lists which leak
+    // directory information, so a plain authenticated check is not enough.
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+
+    const profile = profileData as { role: string } | null;
+    if (profile?.role !== 'super_admin') {
+      return NextResponse.json(
+        { error: 'Forbidden: super_admin only' },
+        { status: 403, headers: NO_STORE }
+      );
+    }
+
+    // Load the audience row and verify it is active.
     const { data: audience, error: audienceError } = await (supabase as any)
       .from('notification_audiences')
       .select('id, name, is_active')
       .eq('id', id)
+      .eq('is_active', true)
       .single();
 
     if (audienceError || !audience) {
@@ -55,8 +79,10 @@ export async function GET(
       );
     }
 
-    // Resolve audience via Postgres function
-    const { data: resolveData, error: resolveError } = await (supabase as any).rpc(
+    // resolve_audience is SECURITY DEFINER and only granted to service_role —
+    // the authenticated role cannot execute it, so we use the service client.
+    const serviceClient = createServiceRoleClient();
+    const { data: resolveData, error: resolveError } = await (serviceClient as any).rpc(
       'resolve_audience',
       { p_audience_id: id }
     );
@@ -72,34 +98,39 @@ export async function GET(
       );
     }
 
-    // Normalize shape - resolve_audience may return a table (array of rows with user_id)
-    // or a single object with user_ids[]. Support both.
+    // Authoritative shape from the DB function:
+    //   { audience_id, name, user_ids: string[], count: number }
     let allUserIds: string[] = [];
+    let totalCount = 0;
 
-    if (Array.isArray(resolveData)) {
-      // Table/set result: either [{ user_id }, ...] or [uuid, ...]
-      allUserIds = resolveData
-        .map((row: any) => {
-          if (typeof row === 'string') return row;
-          if (row && typeof row === 'object') return row.user_id || row.id || null;
-          return null;
-        })
-        .filter((v: any): v is string => typeof v === 'string' && v.length > 0);
-    } else if (resolveData && typeof resolveData === 'object') {
+    if (resolveData && typeof resolveData === 'object') {
       if (Array.isArray(resolveData.user_ids)) {
         allUserIds = resolveData.user_ids.filter(
           (v: any): v is string => typeof v === 'string' && v.length > 0
         );
       }
+      if (typeof resolveData.count === 'number') {
+        totalCount = resolveData.count;
+      } else {
+        totalCount = allUserIds.length;
+      }
     }
 
-    // De-dupe
+    // De-dupe defensively (the DB function should already dedupe).
     allUserIds = [...new Set(allUserIds)];
 
-    const previewIds = allUserIds.slice(0, 20);
+    const previewIds = allUserIds.slice(0, PREVIEW_LIMIT);
 
-    // Fetch profile info for the preview user ids
-    let previewUsers: any[] = [];
+    // Fetch profile info for the preview subset only — we never return the
+    // full user_id list to clients.
+    let previewUsers: Array<{
+      id: string;
+      full_name: string;
+      email: string;
+      role: string;
+      institution_id: string | null;
+      institution_name: string | null;
+    }> = [];
     let institutionMap: Record<string, string> = {};
 
     if (previewIds.length > 0) {
@@ -159,9 +190,8 @@ export async function GET(
       {
         audience_id: audience.id,
         name: audience.name,
-        count: allUserIds.length,
-        preview_users: previewUsers,
-        all_user_ids: allUserIds
+        count: totalCount,
+        preview_users: previewUsers
       },
       { headers: NO_STORE }
     );
