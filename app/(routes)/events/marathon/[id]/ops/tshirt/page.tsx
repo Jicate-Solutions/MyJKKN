@@ -1,0 +1,241 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { Loader2, Search, Shirt } from 'lucide-react';
+
+import { useAuth } from '@/hooks/use-auth';
+import { useProcessScan, useOpsStats } from '@/hooks/events/marathon/use-marathon-ops';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { OpsScanResult } from '@/types/events-marathon';
+
+import { BibScanner } from '@/components/marathon/bib-scanner';
+import { ScanResultCard } from '@/components/marathon/scan-result-card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+
+const ACTION = 'tshirt' as const;
+
+export default function TshirtPage() {
+  const params = useParams();
+  const eventId = params.id as string;
+  const { profile } = useAuth();
+
+  const [scanResult, setScanResult] = useState<OpsScanResult | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const processScan = useProcessScan();
+  const { data: stats } = useOpsStats(eventId);
+
+  // Auto-clear scan result after 5 seconds
+  useEffect(() => {
+    if (!scanResult) return;
+    const timer = setTimeout(() => setScanResult(null), 5000);
+    return () => clearTimeout(timer);
+  }, [scanResult]);
+
+  // Fetch registrations for the table
+  const { data: registrations, isLoading } = useQuery({
+    queryKey: ['marathon-ops-registrations', eventId, ACTION],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await (supabase as any)
+        .from('events_registrations')
+        .select(`
+          id, bib_number, participant_name, participant_phone,
+          checked_in, checked_in_at,
+          tshirt_collected, tshirt_collected_at,
+          certificate_issued, certificate_issued_at,
+          custom_data,
+          category:event_categories(name, code),
+          stall:events_stalls(stall_name, stall_code)
+        `)
+        .eq('event_id', eventId)
+        .order('bib_number', { ascending: true });
+      return data ?? [];
+    },
+    refetchInterval: 30_000,
+  });
+
+  const handleScan = useCallback(
+    async (bibNumber: string) => {
+      if (!profile?.id) return;
+      try {
+        const result = await processScan.mutateAsync({
+          eventId,
+          bibNumber,
+          action: ACTION,
+          operatorId: profile.id,
+        });
+        setScanResult(result);
+      } catch {
+        // Error handled by mutation hook
+      }
+    },
+    [eventId, profile?.id, processScan]
+  );
+
+  const handleManualMark = useCallback(
+    async (bibNumber: string) => {
+      if (!profile?.id) return;
+      try {
+        const result = await processScan.mutateAsync({
+          eventId,
+          bibNumber,
+          action: ACTION,
+          operatorId: profile.id,
+        });
+        setScanResult(result);
+      } catch {
+        // Error handled by mutation hook
+      }
+    },
+    [eventId, profile?.id, processScan]
+  );
+
+  // Client-side filtering
+  const filtered = (registrations ?? []).filter((r: any) => {
+    if (searchQuery.length < 2) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      r.bib_number?.toLowerCase().includes(q) ||
+      r.participant_name?.toLowerCase().includes(q) ||
+      r.participant_phone?.toLowerCase().includes(q)
+    );
+  });
+
+  const formatTime = (dateStr: string | null) => {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleTimeString('en-MY', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-6 p-4 lg:p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">T-Shirt Distribution</h1>
+        <div className="flex items-center gap-2 rounded-lg border bg-card px-4 py-2">
+          <Shirt className="h-5 w-5 text-blue-600" />
+          <span className="text-lg font-semibold">
+            {stats?.tshirt_collected ?? 0} / {stats?.total ?? 0}
+          </span>
+        </div>
+      </div>
+
+      {/* Two-column layout */}
+      <div className="flex flex-col gap-6 lg:flex-row">
+        {/* Left: Scanner + Result */}
+        <div className="flex flex-col gap-4 lg:w-1/3">
+          <BibScanner onScan={handleScan} disabled={processScan.isPending} />
+          <ScanResultCard result={scanResult} />
+        </div>
+
+        {/* Right: Search + Table */}
+        <div className="flex flex-col gap-4 lg:w-2/3">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by BIB, name, or phone..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {/* Table */}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="overflow-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[80px]">BIB</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>T-Shirt Size</TableHead>
+                    <TableHead>Checked In</TableHead>
+                    <TableHead>T-Shirt Collected</TableHead>
+                    <TableHead className="hidden sm:table-cell">Time</TableHead>
+                    <TableHead className="w-[140px]">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                        No registrations found.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filtered.map((r: any) => {
+                      const customData = r.custom_data as Record<string, unknown> | undefined;
+                      return (
+                        <TableRow key={r.id}>
+                          <TableCell className="font-mono font-bold">{r.bib_number}</TableCell>
+                          <TableCell>{r.participant_name}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {(customData?.tshirt_size as string) ?? '-'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {r.checked_in ? (
+                              <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                                Yes
+                              </Badge>
+                            ) : (
+                              <span className="text-sm font-medium text-yellow-700">
+                                Not checked in
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {r.tshirt_collected ? (
+                              <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                                Yes
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary">No</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell">
+                            {formatTime(r.tshirt_collected_at)}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              disabled={r.tshirt_collected || processScan.isPending}
+                              onClick={() => handleManualMark(r.bib_number)}
+                            >
+                              Mark Collected
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
