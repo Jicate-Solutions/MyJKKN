@@ -29,6 +29,10 @@ import {
   Star,
   ClipboardList,
   RefreshCw,
+  LayoutDashboard,
+  Shirt,
+  Store,
+  QrCode,
 } from 'lucide-react';
 import { useMarathonDashboard } from '@/hooks/events/marathon/use-marathon-dashboard';
 import { useMarathonEvent, useUpdateMarathonStatus } from '@/hooks/events/marathon/use-marathon-events';
@@ -431,22 +435,44 @@ function QuickNav({ eventId }: { eventId: string }) {
     { label: 'Settings', href: `/events/marathon/${eventId}/settings`, icon: Settings },
   ];
 
+  const opsLinks = [
+    { label: 'Ops Dashboard', href: `/events/marathon/${eventId}/ops/dashboard`, icon: LayoutDashboard },
+    { label: 'Check-in', href: `/events/marathon/${eventId}/ops/check-in`, icon: UserCheck },
+    { label: 'T-Shirt', href: `/events/marathon/${eventId}/ops/tshirt`, icon: Shirt },
+    { label: 'Certificate', href: `/events/marathon/${eventId}/ops/certificate`, icon: Award },
+    { label: 'Stalls', href: `/events/marathon/${eventId}/ops/stalls`, icon: Store },
+    { label: 'QR Codes', href: `/events/marathon/${eventId}/ops/qr-codes`, icon: QrCode },
+  ];
+
+  const NavGrid = ({ items }: { items: typeof links }) => (
+    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-9 gap-2">
+      {items.map((l) => (
+        <Link key={l.href} href={l.href}>
+          <div className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-transparent hover:border-border hover:bg-muted/50 transition-colors cursor-pointer group text-center">
+            <l.icon className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+            <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors leading-tight">
+              {l.label}
+            </span>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+
   return (
-    <div>
-      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-        Quick Navigation
-      </h2>
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-9 gap-2">
-        {links.map((l) => (
-          <Link key={l.href} href={l.href}>
-            <div className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-transparent hover:border-border hover:bg-muted/50 transition-colors cursor-pointer group text-center">
-              <l.icon className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-              <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors leading-tight">
-                {l.label}
-              </span>
-            </div>
-          </Link>
-        ))}
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+          Quick Navigation
+        </h2>
+        <NavGrid items={links} />
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+          Operations
+        </h2>
+        <NavGrid items={opsLinks} />
       </div>
     </div>
   );

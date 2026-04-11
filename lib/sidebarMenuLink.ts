@@ -482,6 +482,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/events/marathon/[id]/analytics': 'events.marathon.analytics.view',
   '/events/marathon/[id]/certificates': 'events.marathon.certificates.manage',
   '/events/marathon/[id]/settings': 'events.marathon.settings.manage',
+  '/events/marathon/[id]/ops/dashboard': 'events.marathon.live_ops.manage',
+  '/events/marathon/[id]/ops/check-in': 'events.marathon.live_ops.manage',
+  '/events/marathon/[id]/ops/tshirt': 'events.marathon.live_ops.manage',
+  '/events/marathon/[id]/ops/certificate': 'events.marathon.live_ops.manage',
+  '/events/marathon/[id]/ops/stalls': 'events.marathon.live_ops.manage',
+  '/events/marathon/[id]/ops/qr-codes': 'events.marathon.live_ops.manage',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1693,6 +1699,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           { href: `/events/marathon/${activeMarathonId}/analytics`, label: 'Analytics', active: pathname.includes('/analytics'), adminOnly: true },
           { href: `/events/marathon/${activeMarathonId}/certificates`, label: 'Certificates', active: pathname.includes('/certificates'), adminOnly: true },
           { href: `/events/marathon/${activeMarathonId}/settings`, label: 'Settings', active: pathname.includes('/settings'), adminOnly: true },
+          // Operations sub-pages
+          { href: `/events/marathon/${activeMarathonId}/ops/dashboard`, label: 'Ops Dashboard', active: pathname.includes('/ops/dashboard'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/ops/check-in`, label: 'Check-in', active: pathname.includes('/ops/check-in'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/ops/tshirt`, label: 'T-Shirt', active: pathname.includes('/ops/tshirt'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/ops/certificate`, label: 'Certificate', active: pathname.includes('/ops/certificate'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/ops/stalls`, label: 'Stalls', active: pathname.includes('/ops/stalls'), adminOnly: true },
+          { href: `/events/marathon/${activeMarathonId}/ops/qr-codes`, label: 'QR Codes', active: pathname.includes('/ops/qr-codes'), adminOnly: true },
         ] : [];
 
         return [
