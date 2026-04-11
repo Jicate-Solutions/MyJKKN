@@ -731,30 +731,47 @@ function CommitteeDialog({
     const supabase = createClientSupabaseClient();
 
     if (userType === 'staff') {
+      // If no institution or search filter, prompt user to select one
+      if (!filters.institution_id && !filters.search) {
+        setPeople([]);
+        setPeopleLoading(false);
+        return;
+      }
+
       let query = supabase
         .from('staff')
-        .select('id, first_name, last_name, designation, email, institution_id, department_id, department:departments(department_name)')
+        .select('id, first_name, last_name, designation, email, institution_id, department_id, department:departments(department_name), institution:institutions(name)')
         .eq('is_active', true);
 
       if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
       if (filters.department_id) query = query.eq('department_id', filters.department_id);
       if (filters.search) query = query.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,email.ilike.%${filters.search}%`);
 
-      query.order('first_name').limit(100).then(({ data }) => {
+      query.order('first_name').limit(200).then(({ data }) => {
         setPeople(
-          (data ?? []).map((s: any) => ({
-            id: s.id,
-            name: `${s.first_name} ${s.last_name}`.trim(),
-            subtitle: `${s.designation}${s.department?.department_name ? ' · ' + s.department.department_name : ''}`,
-            type: 'staff' as const,
-          }))
+          (data ?? []).map((s: any) => {
+            const instName = s.institution?.name ? s.institution.name.replace('JKKN ', '') : '';
+            return {
+              id: s.id,
+              name: `${s.first_name} ${s.last_name}`.trim(),
+              subtitle: `${s.designation}${s.department?.department_name ? ' · ' + s.department.department_name : ''}${instName ? ' · ' + instName : ''}`,
+              type: 'staff' as const,
+            };
+          })
         );
         setPeopleLoading(false);
       });
     } else {
+      // If no institution or search filter, prompt user to select one
+      if (!filters.institution_id && !filters.search) {
+        setPeople([]);
+        setPeopleLoading(false);
+        return;
+      }
+
       let query = supabase
         .from('learners_profiles')
-        .select('id, first_name, last_name, student_email, roll_number, institution_id, department_id, program_id, semester_id, section_id, department:departments(department_name), program:programs(program_name)');
+        .select('id, first_name, last_name, student_email, roll_number, institution_id, department_id, program_id, semester_id, section_id, department:departments(department_name), program:programs(program_name), institution:institutions(name)');
 
       if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
       if (filters.department_id) query = query.eq('department_id', filters.department_id);
@@ -764,14 +781,17 @@ function CommitteeDialog({
       if (filters.section_id) query = query.eq('section_id', filters.section_id);
       if (filters.search) query = query.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,roll_number.ilike.%${filters.search}%`);
 
-      query.order('first_name').limit(100).then(({ data }) => {
+      query.order('first_name').limit(200).then(({ data }) => {
         setPeople(
-          (data ?? []).map((l: any) => ({
-            id: l.id,
-            name: `${l.first_name} ${l.last_name ?? ''}`.trim(),
-            subtitle: `${l.roll_number ?? ''}${l.program?.program_name ? ' · ' + l.program.program_name : ''}${l.department?.department_name ? ' · ' + l.department.department_name : ''}`,
-            type: 'learner' as const,
-          }))
+          (data ?? []).map((l: any) => {
+            const instName = l.institution?.name ? l.institution.name.replace('JKKN ', '') : '';
+            return {
+              id: l.id,
+              name: `${l.first_name} ${l.last_name ?? ''}`.trim(),
+              subtitle: `${l.roll_number ?? ''}${l.program?.program_name ? ' · ' + l.program.program_name : ''}${l.department?.department_name ? ' · ' + l.department.department_name : ''}${instName ? ' · ' + instName : ''}`,
+              type: 'learner' as const,
+            };
+          })
         );
         setPeopleLoading(false);
       });
@@ -998,7 +1018,9 @@ function CommitteeDialog({
               </div>
             ) : people.length === 0 ? (
               <div className="text-center py-6 text-sm text-muted-foreground">
-                No {userType === 'staff' ? 'staff' : 'learners'} found. Try adjusting filters.
+                {!filters.institution_id && !filters.search
+                  ? `Select an institution or search by name to find ${userType === 'staff' ? 'staff' : 'learners'}.`
+                  : `No ${userType === 'staff' ? 'staff' : 'learners'} found. Try adjusting filters.`}
               </div>
             ) : (
               <div className="divide-y">
