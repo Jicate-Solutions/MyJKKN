@@ -215,8 +215,14 @@ export default function MandatoryHostelersPage() {
     }
   }
 
+  // Initial load + auto-refresh every 30 seconds for live race-day tracking
   useEffect(() => {
     loadHostelers();
+    const interval = setInterval(() => {
+      loadHostelers();
+    }, 30000); // 30 seconds
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
   // Institution-level stats
@@ -298,8 +304,12 @@ export default function MandatoryHostelersPage() {
               Hostelers must register for the marathon. Track who still needs to sign up.
             </p>
             {lastUpdated && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Last updated: {lastUpdated.toLocaleTimeString()}
+              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                Live · Last updated: {lastUpdated.toLocaleTimeString()} · Auto-refreshes every 30s
               </p>
             )}
           </div>
