@@ -20,7 +20,9 @@ import {
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import { useProcessScan, useOpsStats } from '@/hooks/events/marathon/use-marathon-ops';
+import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { OpsScanResult } from '@/types/events-marathon';
 
@@ -54,6 +56,7 @@ export default function CertificatePage() {
   const params = useParams();
   const eventId = params.id as string;
   const { profile } = useAuth();
+  const access = useMarathonAccess();
 
   const [scanResult, setScanResult] = useState<OpsScanResult | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -166,6 +169,11 @@ export default function CertificatePage() {
 
   const issuedPct = stats ? Math.round(((stats.certificate_issued ?? 0) / Math.max(stats.total, 1)) * 100) : 0;
 
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Certificate Issuance" eventId={eventId} />;
+  }
+
   return (
     <ContentLayout title={`${eventName} - Certificate Issuance`}>
       <PageBreadcrumb
@@ -173,7 +181,7 @@ export default function CertificatePage() {
           { label: 'Home', href: '/' },
           { label: 'Events', href: '/events' },
           { label: 'Marathon', href: '/events/marathon' },
-          { label: eventName, href: `/events/marathon/${eventId}/settings` },
+          { label: eventName, href: `/events/marathon/${eventId}/dashboard` },
           { label: 'Certificate' },
         ]}
       />

@@ -22,6 +22,8 @@ import toast from 'react-hot-toast';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +44,7 @@ export default function QrCodesPage() {
   const params = useParams();
   const eventId = params.id as string;
   const queryClient = useQueryClient();
+  const access = useMarathonAccess();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [downloading, setDownloading] = useState(false);
@@ -180,6 +183,11 @@ export default function QrCodesPage() {
     hour: '2-digit', minute: '2-digit',
   }) : null;
 
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="QR Codes" eventId={eventId} />;
+  }
+
   return (
     <ContentLayout title={`${eventName} - QR Codes`}>
       <PageBreadcrumb
@@ -187,7 +195,7 @@ export default function QrCodesPage() {
           { label: 'Home', href: '/' },
           { label: 'Events', href: '/events' },
           { label: 'Marathon', href: '/events/marathon' },
-          { label: eventName, href: `/events/marathon/${eventId}/settings` },
+          { label: eventName, href: `/events/marathon/${eventId}/dashboard` },
           { label: 'QR Codes' },
         ]}
       />

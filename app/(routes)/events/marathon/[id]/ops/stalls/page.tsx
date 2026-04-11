@@ -48,6 +48,8 @@ import {
   Users,
   Loader2,
 } from 'lucide-react';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import {
   useMarathonStalls,
   useCreateStall,
@@ -344,6 +346,7 @@ function StallFormDialog({
 export default function StallsManagementPage() {
   const params = useParams();
   const eventId = params.id as string;
+  const access = useMarathonAccess();
 
   // Data
   const { data: stalls, isLoading: stallsLoading } = useMarathonStalls(eventId);
@@ -424,6 +427,11 @@ export default function StallsManagementPage() {
     return [...stalls].sort((a, b) => a.sort_order - b.sort_order);
   }, [stalls]);
 
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Stall Management" eventId={eventId} />;
+  }
+
   return (
     <ContentLayout title={`${eventName} - Stall Management`}>
       <PageBreadcrumb
@@ -431,7 +439,7 @@ export default function StallsManagementPage() {
           { label: 'Home', href: '/' },
           { label: 'Events', href: '/events' },
           { label: 'Marathon', href: '/events/marathon' },
-          { label: eventName, href: `/events/marathon/${eventId}/settings` },
+          { label: eventName, href: `/events/marathon/${eventId}/dashboard` },
           { label: 'Stalls' },
         ]}
       />

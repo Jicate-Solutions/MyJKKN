@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
+import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -310,6 +312,7 @@ function StallCard({
 export default function OpsDashboardPage() {
   const params = useParams();
   const eventId = params.id as string;
+  const access = useMarathonAccess();
 
   const { data: stats, isLoading, dataUpdatedAt } = useOpsStats(eventId);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -335,6 +338,11 @@ export default function OpsDashboardPage() {
     }
   }, [dataUpdatedAt]);
 
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Ops Dashboard" eventId={eventId} />;
+  }
+
   if (isLoading && !stats) {
     return (
       <ContentLayout title="Ops Dashboard">
@@ -354,7 +362,7 @@ export default function OpsDashboardPage() {
           { label: 'Home', href: '/' },
           { label: 'Events', href: '/events' },
           { label: 'Marathon', href: '/events/marathon' },
-          { label: eventName, href: `/events/marathon/${eventId}/settings` },
+          { label: eventName, href: `/events/marathon/${eventId}/dashboard` },
           { label: 'Dashboard' },
         ]}
       />

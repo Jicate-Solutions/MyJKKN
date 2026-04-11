@@ -18,7 +18,9 @@ import {
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import { useProcessScan, useOpsStats } from '@/hooks/events/marathon/use-marathon-ops';
+import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { OpsScanResult } from '@/types/events-marathon';
 
@@ -52,6 +54,7 @@ export default function CheckInPage() {
   const params = useParams();
   const eventId = params.id as string;
   const { profile } = useAuth();
+  const access = useMarathonAccess();
 
   const [scanResult, setScanResult] = useState<OpsScanResult | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -166,6 +169,11 @@ export default function CheckInPage() {
 
   const checkedInPct = stats ? Math.round(((stats.checked_in ?? 0) / Math.max(stats.total, 1)) * 100) : 0;
 
+  // Block non-admin users
+  if (!access.isLoading && !access.canManage) {
+    return <MarathonAccessDenied title="Check-in" eventId={eventId} />;
+  }
+
   return (
     <ContentLayout title={`${eventName} - Check-in`}>
       <PageBreadcrumb
@@ -173,7 +181,7 @@ export default function CheckInPage() {
           { label: 'Home', href: '/' },
           { label: 'Events', href: '/events' },
           { label: 'Marathon', href: '/events/marathon' },
-          { label: eventName, href: `/events/marathon/${eventId}/settings` },
+          { label: eventName, href: `/events/marathon/${eventId}/dashboard` },
           { label: 'Check-in' },
         ]}
       />
