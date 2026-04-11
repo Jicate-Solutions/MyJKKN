@@ -241,6 +241,7 @@ function AcknowledgmentModal({
   const needsScroll = contentRef.current
     ? contentRef.current.scrollHeight > contentRef.current.clientHeight + 20
     : false;
+  const disabledLabel = !canAcknowledge;
 
   // Check answer handler
   const handleAnswerSelect = (index: number) => {

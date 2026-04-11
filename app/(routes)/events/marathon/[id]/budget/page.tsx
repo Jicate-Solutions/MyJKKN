@@ -609,7 +609,7 @@ export default function MarathonBudgetPage() {
           { label: 'Home', href: '/' },
           { label: 'Events', href: '/events' },
           { label: 'Marathon', href: '/events/marathon' },
-          { label: event?.name ?? '...', href: `/events/marathon/${eventId}/settings` },
+          { label: event?.name ?? '...', href: `/events/marathon/${eventId}/dashboard` },
           { label: 'Budget' },
         ]}
       />

@@ -182,7 +182,7 @@ export default function RegistrationDetailPage() {
           { label: 'Marathon', href: '/events/marathon' },
           {
             label: event?.name ?? '...',
-            href: `/events/marathon/${eventId}/settings`,
+            href: `/events/marathon/${eventId}/dashboard`,
           },
           {
             label: 'Registrations',

@@ -361,7 +361,7 @@ function PaymentConfirmation({
         if (txn.registration_id) {
           try {
             const supabase = (await import('@/lib/supabase/client')).createClientSupabaseClient();
-            const { data: reg } = await supabase
+            const { data: reg } = await supabase 
               .from('events_registrations')
               .select('id, bib_number, participant_name, status, payment_status')
               .eq('id', txn.registration_id)
@@ -959,7 +959,7 @@ export default function MarathonRegistrationsPage() {
           { label: 'Home', href: '/' },
           { label: 'Events', href: '/events' },
           { label: 'Marathon', href: '/events/marathon' },
-          { label: event?.name ?? '...', href: `/events/marathon/${eventId}/settings` },
+          { label: event?.name ?? '...', href: `/events/marathon/${eventId}/dashboard` },
           { label: 'Registrations' },
         ]}
       />
