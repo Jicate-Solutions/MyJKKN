@@ -24,8 +24,10 @@ import {
   useAllApplicationsForSuperAdminByStatus,
   useSuperAdminApprovalStatistics,
   useApplicationsByStatusForInstitution,
+  useSponsorPendingApprovals,
+  useProcessSponsorApproval,
 } from '@/hooks/academic/use-leave-onduty';
-import { ApprovalActionData } from '@/types/leave-onduty';
+import { ApprovalActionData, LeaveOndutyApplication } from '@/types/leave-onduty';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { convertToAuthenticatedUrl } from '@/lib/utils/storage-url-helper';
 import {
@@ -82,6 +84,39 @@ export default function ApprovalsPage() {
   const [rowSelection, setRowSelection] = useState({});
   const [bulkAction, setBulkAction] = useState<'approved' | 'rejected' | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
+
+  // Phase 2 — sponsor approval queue state
+  const [sponsorAction, setSponsorAction] = useState<{
+    application: LeaveOndutyApplication;
+    decision: 'approved' | 'rejected';
+  } | null>(null);
+  const [sponsorComments, setSponsorComments] = useState('');
+
+  // Fetch applications awaiting THIS user as sponsor
+  const { data: sponsorPending, isLoading: sponsorPendingLoading } = useSponsorPendingApprovals(
+    profile?.id || null
+  );
+  const processSponsorMutation = useProcessSponsorApproval();
+
+  const handleSponsorAction = () => {
+    if (!sponsorAction || !profile?.id) return;
+    if (sponsorAction.decision === 'rejected' && sponsorComments.trim().length === 0) return;
+
+    processSponsorMutation.mutate(
+      {
+        application_id: sponsorAction.application.id,
+        sponsor_id: profile.id,
+        decision: sponsorAction.decision,
+        comments: sponsorComments.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          setSponsorAction(null);
+          setSponsorComments('');
+        },
+      }
+    );
+  };
 
   // Permission check - redirect if unauthorized
   // CRITICAL: Wait for both auth AND permissions to finish loading before checking
@@ -292,6 +327,88 @@ export default function ApprovalsPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
+
+      {/* Phase 2: Awaiting Your Sponsor Approval section */}
+      {!sponsorPendingLoading && sponsorPending && sponsorPending.length > 0 && (
+        <Card className="border-amber-300 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Users className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              Awaiting Your Sponsor Approval
+              <Badge className="ml-2 bg-amber-500 text-white hover:bg-amber-600">
+                {sponsorPending.length}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              Learners have picked you as their sponsor for these applications. Your approval is
+              required before the academic chain (HOD → Principal) reviews them.
+            </p>
+            <div className="space-y-2">
+              {sponsorPending.map((app: LeaveOndutyApplication) => {
+                const learnerName = app.learner
+                  ? `${app.learner.first_name} ${app.learner.last_name}`
+                  : 'Unknown learner';
+                const dateRange =
+                  app.start_date === app.end_date
+                    ? format(new Date(app.start_date), 'MMM d, yyyy')
+                    : `${format(new Date(app.start_date), 'MMM d')} – ${format(new Date(app.end_date), 'MMM d, yyyy')}`;
+                return (
+                  <div
+                    key={app.id}
+                    className="flex items-start justify-between gap-3 rounded-md border border-amber-200 dark:border-amber-900/50 bg-white dark:bg-gray-950 p-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          {learnerName}
+                        </span>
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {app.sub_category.replace(/_/g, ' ')}
+                        </Badge>
+                        {app.learner?.roll_number && (
+                          <span className="text-xs text-muted-foreground">
+                            {app.learner.roll_number}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        <span>{dateRange}</span>
+                      </div>
+                      {app.reason && (
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                          &ldquo;{app.reason}&rdquo;
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => setSponsorAction({ application: app, decision: 'approved' })}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => setSponsorAction({ application: app, decision: 'rejected' })}
+                      >
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Statistics Cards */}
       {stats && (
@@ -582,6 +699,105 @@ export default function ApprovalsPage() {
                       Reject {Object.keys(rowSelection).filter(key => rowSelection[key]).length} Applications
                     </>
                   )}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Phase 2: Sponsor Approval Action Dialog */}
+      <Dialog
+        open={!!sponsorAction}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSponsorAction(null);
+            setSponsorComments('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {sponsorAction?.decision === 'approved' ? 'Approve' : 'Reject'} as Sponsor
+            </DialogTitle>
+            <DialogDescription>
+              {sponsorAction?.decision === 'approved'
+                ? 'You are confirming that this learner is working with you on this activity. After your approval, the application will go to the HOD for academic approval.'
+                : 'You are indicating that this learner is NOT working with you on this activity. This will reject the application and the academic chain will not review it.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {sponsorAction && (
+              <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3 bg-gray-50 dark:bg-gray-900/50 space-y-1">
+                <div className="text-sm font-medium">
+                  {sponsorAction.application.learner
+                    ? `${sponsorAction.application.learner.first_name} ${sponsorAction.application.learner.last_name}`
+                    : 'Unknown learner'}
+                </div>
+                <div className="text-xs text-muted-foreground capitalize">
+                  {sponsorAction.application.sub_category.replace(/_/g, ' ')} · {format(new Date(sponsorAction.application.start_date), 'MMM d, yyyy')}
+                  {sponsorAction.application.start_date !== sponsorAction.application.end_date &&
+                    ` – ${format(new Date(sponsorAction.application.end_date), 'MMM d, yyyy')}`}
+                </div>
+                {sponsorAction.application.reason && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Reason: &ldquo;{sponsorAction.application.reason}&rdquo;
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div>
+              <Label htmlFor="sponsor-comments">
+                Comments{' '}
+                {sponsorAction?.decision === 'rejected' && <span className="text-red-500">*</span>}
+              </Label>
+              <Textarea
+                id="sponsor-comments"
+                value={sponsorComments}
+                onChange={(e) => setSponsorComments(e.target.value)}
+                placeholder={
+                  sponsorAction?.decision === 'approved'
+                    ? 'Optional: confirm details or add a note for the HOD'
+                    : 'Required: explain why you are rejecting this application'
+                }
+                className="min-h-[100px]"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSponsorAction(null);
+                setSponsorComments('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={sponsorAction?.decision === 'approved' ? 'default' : 'destructive'}
+              onClick={handleSponsorAction}
+              disabled={
+                processSponsorMutation.isPending ||
+                (sponsorAction?.decision === 'rejected' && sponsorComments.trim().length === 0)
+              }
+              className={sponsorAction?.decision === 'approved' ? 'bg-green-600 hover:bg-green-700' : ''}
+            >
+              {processSponsorMutation.isPending ? (
+                <>Processing...</>
+              ) : sponsorAction?.decision === 'approved' ? (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Approve &amp; Forward to HOD
+                </>
+              ) : (
+                <>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Reject Application
                 </>
               )}
             </Button>

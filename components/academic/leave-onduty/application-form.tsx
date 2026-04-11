@@ -70,6 +70,7 @@ function base64ToFile(data: { name: string; type: string; base64: string }): Fil
 import { LeaveOndutyApplicationService } from '@/lib/services/academic/leave-onduty-application-service';
 import { useCreateLeaveOndutyApplication } from '@/hooks/academic/use-leave-onduty';
 import { useLeaveOndutySubCategories } from '@/hooks/academic/use-leave-onduty-sub-categories';
+import { SponsorPicker } from './sponsor-picker';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -126,6 +127,7 @@ export function ApplicationForm({
   const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
   const [reason, setReason] = useState('');
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [sponsorId, setSponsorId] = useState<string | null>(null);
   const [dayCount, setDayCount] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -258,6 +260,21 @@ export function ApplicationForm({
       { enabled: !!institutionId }
     );
 
+  // Look up the full sub-category row (for sponsor requirement)
+  const selectedSubCategoryRow = (dbSubCategories || []).find(
+    (r) => r.category === category && r.code === subCategory
+  );
+  const requiresSponsorApproval = !!selectedSubCategoryRow?.requires_sponsor_approval;
+  const sponsorRoleHint = selectedSubCategoryRow?.sponsor_role_hint || null;
+
+  // Reset sponsor when category/sub-category changes (would be invalid anyway)
+  useEffect(() => {
+    if (isInitialized) {
+      setSponsorId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subCategory, category]);
+
   const getSubCategories = () => {
     // While still fetching, show the hard-coded constants so the dropdown is
     // never empty on first paint. Once loaded, use only the DB rows — if the
@@ -304,6 +321,11 @@ export function ApplicationForm({
       return;
     }
 
+    // Phase 2: sponsor requirement check
+    if (requiresSponsorApproval && !sponsorId) {
+      return;
+    }
+
     const formData: ApplicationFormData = {
       category,
       sub_category: subCategory,
@@ -313,6 +335,7 @@ export function ApplicationForm({
       selected_periods: selectedPeriods,
       reason,
       attachment_file: attachmentFile,
+      sponsor_id: requiresSponsorApproval ? sponsorId : null,
     };
 
     createApplication.mutate(
@@ -335,6 +358,7 @@ export function ApplicationForm({
           setSelectedPeriods([]);
           setReason('');
           setAttachmentFile(null);
+          setSponsorId(null);
           onSuccess?.();
         },
       }
@@ -342,6 +366,7 @@ export function ApplicationForm({
   };
 
   const isFormValid = () => {
+    if (requiresSponsorApproval && !sponsorId) return false;
     return (
       category &&
       subCategory &&
@@ -418,6 +443,17 @@ export function ApplicationForm({
           </SelectContent>
         </Select>
       </div>
+
+      {/* Sponsor Picker — only shown when the selected sub-category requires it */}
+      {requiresSponsorApproval && subCategory && (
+        <SponsorPicker
+          institutionId={institutionId}
+          value={sponsorId}
+          onChange={(id) => setSponsorId(id)}
+          hint={sponsorRoleHint}
+          categoryLabel={category === 'onduty' ? 'OnDuty' : 'Leave'}
+        />
+      )}
 
       {/* Date Range Selection */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">

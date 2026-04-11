@@ -32,6 +32,8 @@ export type ApproverRole = 'faculty' | 'hod' | 'principal';
  * Leave/OnDuty Application
  * Main record for leave and onduty applications
  */
+export type SponsorApprovalStatus = 'pending' | 'approved' | 'rejected';
+
 export interface LeaveOndutyApplication {
   id: string;
   learner_id: string;
@@ -50,6 +52,14 @@ export interface LeaveOndutyApplication {
   attachment_url: string | null;
   status: ApplicationStatus;
   current_step: number;
+
+  // Sponsor approval gate (Phase 2). NULL when sub_category does NOT
+  // require sponsor approval. Otherwise tracks the pre-flight gate state.
+  sponsor_id: string | null;
+  sponsor_approval_status: SponsorApprovalStatus | null;
+  sponsor_comments: string | null;
+  sponsor_action_at: string | null;
+
   created_at: string;
   updated_at: string;
 
@@ -78,7 +88,23 @@ export interface LeaveOndutyApplication {
     id: string;
     section_name: string;
   };
+  sponsor?: {
+    id: string;
+    full_name: string;
+    email: string;
+    avatar_url: string | null;
+  };
   approvals?: LeaveOndutyApproval[];
+}
+
+/**
+ * Sponsor action input — used by useProcessSponsorApproval hook.
+ */
+export interface SponsorActionInput {
+  application_id: string;
+  sponsor_id: string;
+  decision: 'approved' | 'rejected';
+  comments?: string;
 }
 
 /**
@@ -205,6 +231,8 @@ export interface ApplicationFormData {
   selected_periods: string[];
   reason: string;
   attachment_file: File | null;
+  /** Phase 2: sponsor (the person the learner is working with) when sub-category requires sponsor approval */
+  sponsor_id?: string | null;
 }
 
 /**

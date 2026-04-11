@@ -583,6 +583,27 @@ export class LeaveOndutyService {
         ? data.selected_periods
         : periodDetection.periods;
 
+    // Phase 2: sponsor-approval gate
+    // Look up whether the selected sub_category requires sponsor pre-approval.
+    // If yes, the learner must have provided a sponsor_id AND the application
+    // starts in the sponsor-pending state (current_step = 0 is a convention
+    // for "waiting for sponsor"; the academic chain starts at 1).
+    const { data: subCatRow } = await supabase
+      .from('leave_onduty_sub_categories')
+      .select('requires_sponsor_approval')
+      .eq('institution_id', institutionId)
+      .eq('category', data.category)
+      .eq('code', data.sub_category)
+      .maybeSingle();
+
+    const requiresSponsor = !!subCatRow?.requires_sponsor_approval;
+
+    if (requiresSponsor && !data.sponsor_id) {
+      throw new Error(
+        'This sub-category requires sponsor approval. Please select the person you are working with.'
+      );
+    }
+
     // Create application
     const { data: application, error: createError } = await supabase
       .from('leave_onduty_applications')
@@ -601,7 +622,13 @@ export class LeaveOndutyService {
         reason: data.reason,
         attachment_url: attachmentUrl,
         status: 'pending',
-        current_step: 1,
+        // When sponsor approval is required, start at step 0 (sponsor gate).
+        // The academic chain (HOD → Principal) starts at step 1 once the
+        // sponsor approves. This keeps the existing flow unchanged for
+        // sub-categories that don't need sponsor approval.
+        current_step: requiresSponsor ? 0 : 1,
+        sponsor_id: requiresSponsor ? data.sponsor_id : null,
+        sponsor_approval_status: requiresSponsor ? 'pending' : null,
       })
       .select()
       .single();
@@ -611,6 +638,204 @@ export class LeaveOndutyService {
     }
 
     return application;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SPONSOR APPROVAL (Phase 2)
+  // Sponsor = the person the learner is working with. Must approve the
+  // application before the academic approval chain starts.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get applications awaiting sponsor approval for a specific sponsor.
+   * RLS policy `sponsors_view_assigned` limits what the sponsor can see to
+   * their own assigned applications, so this query is already scoped
+   * correctly by the sponsor's auth context.
+   */
+  static async getPendingSponsorApprovals(
+    sponsorId: string
+  ): Promise<LeaveOndutyApplication[]> {
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('leave_onduty_applications')
+      .select(
+        `
+        *,
+        learner:learners_profiles(
+          id, first_name, last_name, roll_number, register_number, student_email
+        ),
+        institution:institutions(id, name),
+        department:departments(id, department_name),
+        semester:semesters(id, semester_name),
+        section:sections(id, section_name),
+        sponsor:profiles!leave_onduty_applications_sponsor_id_fkey(
+          id, full_name, email, avatar_url
+        )
+        `
+      )
+      .eq('sponsor_id', sponsorId)
+      .eq('sponsor_approval_status', 'pending')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[leave-onduty/sponsor] failed to fetch pending approvals', error);
+      throw new Error(`Failed to fetch sponsor queue: ${error.message}`);
+    }
+
+    return (data as LeaveOndutyApplication[]) || [];
+  }
+
+  /**
+   * Sponsor approves or rejects an application.
+   *
+   * On approve:
+   *   - sponsor_approval_status = 'approved'
+   *   - current_step advances from 0 → 1 (academic chain starts)
+   *
+   * On reject:
+   *   - sponsor_approval_status = 'rejected'
+   *   - application.status = 'rejected' (terminal state, no academic chain)
+   */
+  static async processSponsorApproval(input: {
+    application_id: string;
+    sponsor_id: string;
+    decision: 'approved' | 'rejected';
+    comments?: string;
+  }): Promise<LeaveOndutyApplication> {
+    const supabase = getSupabase();
+
+    // Guard: only the assigned sponsor can act, and only on pending
+    const { data: app, error: fetchError } = await supabase
+      .from('leave_onduty_applications')
+      .select('id, sponsor_id, sponsor_approval_status, status')
+      .eq('id', input.application_id)
+      .maybeSingle();
+
+    if (fetchError || !app) {
+      throw new Error('Application not found');
+    }
+    if (app.sponsor_id !== input.sponsor_id) {
+      throw new Error('You are not the assigned sponsor for this application');
+    }
+    if (app.sponsor_approval_status !== 'pending') {
+      throw new Error(
+        `Sponsor approval already ${app.sponsor_approval_status}. Cannot act again.`
+      );
+    }
+    if (app.status !== 'pending') {
+      throw new Error(`Application is ${app.status}, cannot process sponsor action`);
+    }
+
+    const now = new Date().toISOString();
+    const patch: Record<string, any> = {
+      sponsor_approval_status: input.decision,
+      sponsor_comments: input.comments?.trim() || null,
+      sponsor_action_at: now,
+    };
+
+    if (input.decision === 'approved') {
+      // Advance to the academic chain — step 1 is the first HOD/Principal etc.
+      patch.current_step = 1;
+    } else {
+      // Sponsor rejection is terminal. No academic chain runs.
+      patch.status = 'rejected';
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from('leave_onduty_applications')
+      .update(patch)
+      .eq('id', input.application_id)
+      .select(
+        `
+        *,
+        sponsor:profiles!leave_onduty_applications_sponsor_id_fkey(
+          id, full_name, email, avatar_url
+        )
+        `
+      )
+      .single();
+
+    if (updateError) {
+      console.error('[leave-onduty/sponsor] failed to process sponsor action', updateError);
+      throw new Error(`Failed to ${input.decision === 'approved' ? 'approve' : 'reject'}: ${updateError.message}`);
+    }
+
+    return updated as LeaveOndutyApplication;
+  }
+
+  /**
+   * Search profiles eligible to be sponsors within a given institution.
+   * Used by the learner application form sponsor picker.
+   *
+   * Eligible roles: any faculty/staff/admin/coordinator role. Students are
+   * excluded because onduty work is typically supervised by an adult.
+   */
+  static async searchEligibleSponsors(params: {
+    institutionId: string;
+    query: string;
+    limit?: number;
+  }): Promise<
+    Array<{
+      id: string;
+      full_name: string;
+      email: string;
+      role: string;
+      department_name?: string | null;
+    }>
+  > {
+    const supabase = getSupabase();
+    const q = params.query.trim();
+    const limit = params.limit ?? 15;
+
+    // Role allowlist — see memory note "Admission CRM - Schema" for role list;
+    // 'student' and 'guest' are excluded. All other active roles in the profile
+    // system are eligible sponsors.
+    const eligibleRoles = [
+      'super_admin',
+      'administrator',
+      'admin',
+      'institution_admin',
+      'principal',
+      'hod',
+      'faculty',
+      'staff',
+      'admission',
+      'accounts',
+      'coe',
+      'coe_office',
+      'counselor',
+      'digital_coordinator',
+      'event_coordinator',
+    ];
+
+    let query: any = supabase
+      .from('profiles')
+      .select('id, full_name, email, role, department_id')
+      .eq('institution_id', params.institutionId)
+      .in('role', eligibleRoles)
+      .limit(limit);
+
+    // Case-insensitive name/email search when query is provided
+    if (q.length > 0) {
+      query = query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('[leave-onduty/sponsor] search failed', error);
+      throw new Error(`Sponsor search failed: ${error.message}`);
+    }
+
+    return (data || []).map((p: any) => ({
+      id: p.id,
+      full_name: p.full_name,
+      email: p.email,
+      role: p.role,
+      department_name: null, // lookup-free for v1; can join later if needed
+    }));
   }
 
   /**
