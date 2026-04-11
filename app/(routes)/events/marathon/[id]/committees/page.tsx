@@ -1397,7 +1397,7 @@ export default function MarathonCommitteesPage() {
 
   return (
     <ContentLayout title={`${event?.name ?? 'Event'} - Committees`}>
-      <div className="hidden sm:block">
+      <div>
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
