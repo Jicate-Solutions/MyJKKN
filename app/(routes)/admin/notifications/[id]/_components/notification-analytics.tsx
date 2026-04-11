@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
   CardContent,
@@ -24,10 +24,17 @@ import {
   EyeOff,
   ChevronDown,
   ChevronUp,
-  BarChart3
+  BarChart3,
+  AlertTriangle,
+  Send,
+  Clock,
+  Zap,
+  Loader2,
+  CheckCircle2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
+import toast from 'react-hot-toast';
 
 interface NotificationAnalyticsProps {
   notificationId: string;
@@ -37,6 +44,8 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedInstitution, setExpandedInstitution] = useState<string | null>(null);
   const [showAllUnread, setShowAllUnread] = useState(false);
+
+  const queryClient = useQueryClient();
 
   const { data: analytics, isLoading } = useQuery({
     queryKey: ['notification-analytics', notificationId],
@@ -48,6 +57,75 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
       return res.json();
     },
     refetchInterval: 30000 // Auto-refresh every 30s for live monitoring
+  });
+
+  // Fetch escalation report (only if notification requires acknowledgment)
+  const { data: escalationReport, isLoading: isEscalationLoading } = useQuery({
+    queryKey: ['escalation-report', notificationId],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/admin/notifications/escalation-report?notification_id=${notificationId}`,
+        { cache: 'no-store' }
+      );
+      if (!res.ok) {
+        // 400 means not an ack notification — that's fine, return null
+        if (res.status === 400) return null;
+        throw new Error('Failed to fetch escalation report');
+      }
+      return res.json();
+    },
+    refetchInterval: 30000
+  });
+
+  // Escalation mutation
+  const escalateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/notifications/escalate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to escalate');
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast.success(
+        data.escalated > 0
+          ? `Escalation sent for ${data.escalated} user(s)`
+          : data.message || 'No pending escalations'
+      );
+      // Refresh escalation report and analytics
+      queryClient.invalidateQueries({ queryKey: ['escalation-report', notificationId] });
+      queryClient.invalidateQueries({ queryKey: ['notification-analytics', notificationId] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Escalation failed');
+    }
+  });
+
+  // Send reminders mutation (re-sends push to unread users)
+  const reminderMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/admin/notifications/send-reminders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notification_id: notificationId })
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to send reminders');
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || 'Reminders sent successfully');
+      queryClient.invalidateQueries({ queryKey: ['notification-analytics', notificationId] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to send reminders');
+    }
   });
 
   if (isLoading) {
@@ -114,6 +192,17 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
           </div>
         </CardContent>
       </Card>
+
+      {/* ─── Escalation Controls ─────────────── */}
+      {escalationReport && (
+        <EscalationControls
+          escalationReport={escalationReport}
+          onEscalate={() => escalateMutation.mutate()}
+          onSendReminders={() => reminderMutation.mutate()}
+          isEscalating={escalateMutation.isPending}
+          isSendingReminders={reminderMutation.isPending}
+        />
+      )}
 
       {/* ─── Tabs: Institution / Role / People ── */}
       <Tabs defaultValue="institution" className="w-full">
@@ -347,6 +436,218 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ─── Escalation Controls Component ──────────────────
+function EscalationControls({
+  escalationReport,
+  onEscalate,
+  onSendReminders,
+  isEscalating,
+  isSendingReminders
+}: {
+  escalationReport: {
+    notification_id: string;
+    notification_title: string;
+    sent_at: string;
+    deadline: string;
+    deadline_hours: number;
+    is_overdue: boolean;
+    total_recipients: number;
+    total_acknowledged: number;
+    total_overdue: number;
+    acknowledgment_rate_percent: number;
+    by_institution: {
+      institution_id: string;
+      institution_name: string;
+      overdue_count: number;
+      users: {
+        user_id: string;
+        full_name: string;
+        email: string;
+        role: string;
+        escalation_level: number;
+        escalated_at: string | null;
+      }[];
+    }[];
+  };
+  onEscalate: () => void;
+  onSendReminders: () => void;
+  isEscalating: boolean;
+  isSendingReminders: boolean;
+}) {
+  const [now, setNow] = useState(new Date());
+
+  // Update clock every minute for deadline countdown
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const deadline = new Date(escalationReport.deadline);
+  const isOverdue = escalationReport.is_overdue;
+  const totalOverdue = escalationReport.total_overdue;
+  const totalAcknowledged = escalationReport.total_acknowledged;
+  const totalRecipients = escalationReport.total_recipients;
+
+  // Calculate escalated vs pending escalation from the by_institution data
+  let escalatedCount = 0;
+  let pendingEscalation = 0;
+
+  for (const inst of escalationReport.by_institution) {
+    for (const user of inst.users) {
+      if (user.escalated_at) {
+        escalatedCount++;
+      } else {
+        pendingEscalation++;
+      }
+    }
+  }
+
+  return (
+    <Card className="border-amber-200 dark:border-amber-800 bg-gradient-to-r from-amber-50/50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/20">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold flex items-center gap-2 text-amber-800 dark:text-amber-200">
+          <AlertTriangle className="h-4 w-4" />
+          Escalation Controls
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Deadline Status */}
+        <div className={cn(
+          'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium',
+          isOverdue
+            ? 'bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-300'
+            : 'bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
+        )}>
+          <Clock className="h-4 w-4 shrink-0" />
+          {isOverdue ? (
+            <span>
+              Deadline passed{' '}
+              <strong>
+                {formatDistanceToNow(deadline, { addSuffix: false })}
+              </strong>{' '}
+              ago
+            </span>
+          ) : (
+            <span>
+              Deadline in{' '}
+              <strong>
+                {formatDistanceToNow(deadline, { addSuffix: false })}
+              </strong>
+            </span>
+          )}
+          <span className="ml-auto text-xs opacity-70">
+            ({format(deadline, 'PPp')})
+          </span>
+        </div>
+
+        {/* Stats Row */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-lg bg-white dark:bg-slate-900 border p-3 text-center">
+            <div className={cn(
+              'text-xl font-bold',
+              totalOverdue > 0 ? 'text-red-600' : 'text-green-600'
+            )}>
+              {totalOverdue}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">Overdue</div>
+          </div>
+          <div className="rounded-lg bg-white dark:bg-slate-900 border p-3 text-center">
+            <div className="text-xl font-bold text-orange-600">
+              {escalatedCount}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">Escalated</div>
+          </div>
+          <div className="rounded-lg bg-white dark:bg-slate-900 border p-3 text-center">
+            <div className={cn(
+              'text-xl font-bold',
+              pendingEscalation > 0 ? 'text-amber-600' : 'text-green-600'
+            )}>
+              {pendingEscalation}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-0.5">Pending Escalation</div>
+          </div>
+        </div>
+
+        {/* Acknowledgment progress */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5 text-xs">
+            <span className="text-muted-foreground">Acknowledgment Progress</span>
+            <span className="font-semibold text-emerald-600">
+              {escalationReport.acknowledgment_rate_percent}%
+            </span>
+          </div>
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div
+              className={cn(
+                'h-full rounded-full transition-all duration-700',
+                escalationReport.acknowledgment_rate_percent >= 80
+                  ? 'bg-emerald-500'
+                  : escalationReport.acknowledgment_rate_percent >= 50
+                    ? 'bg-yellow-500'
+                    : 'bg-red-500'
+              )}
+              style={{
+                width: `${Math.max(escalationReport.acknowledgment_rate_percent, 1)}%`
+              }}
+            />
+          </div>
+          <div className="flex justify-between mt-1 text-[11px] text-muted-foreground">
+            <span>{totalAcknowledged} acknowledged</span>
+            <span>{totalRecipients - totalAcknowledged} remaining</span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-col sm:flex-row gap-2 pt-1">
+          <Button
+            variant="destructive"
+            size="sm"
+            className="flex-1"
+            onClick={onEscalate}
+            disabled={isEscalating || pendingEscalation === 0}
+          >
+            {isEscalating ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                Escalating...
+              </>
+            ) : pendingEscalation === 0 ? (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                All Escalated
+              </>
+            ) : (
+              <>
+                <Zap className="h-3.5 w-3.5 mr-1.5" />
+                Send Escalation Now ({pendingEscalation})
+              </>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1"
+            onClick={onSendReminders}
+            disabled={isSendingReminders}
+          >
+            {isSendingReminders ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Send className="h-3.5 w-3.5 mr-1.5" />
+                Send Reminders
+              </>
+            )}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
