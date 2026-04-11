@@ -646,7 +646,7 @@ function CommitteeDialog({
   );
   const [selectedMembers, setSelectedMembers] = useState<PersonOption[]>(
     (initial?.member_names ?? []).map((name, idx) => ({
-      id: initial?.member_ids?.[idx] ?? `member-${name}`,
+      id: initial?.member_ids?.[idx] ?? `member-${idx}-${name}`,
       name,
       subtitle: 'Committee Member',
       type: 'staff' as const,
@@ -670,7 +670,7 @@ function CommitteeDialog({
     );
     setSelectedMembers(
       (initial?.member_names ?? []).map((name, idx) => ({
-        id: initial?.member_ids?.[idx] ?? `member-${name}`,
+        id: initial?.member_ids?.[idx] ?? `member-${idx}-${name}`,
         name,
         subtitle: 'Committee Member',
         type: 'staff' as const,
