@@ -136,20 +136,28 @@ export async function GET(request: NextRequest) {
     }
 
     // Build final caller list with callback enrichment
-    const callers = Object.values(callerMap).map(caller => {
-      const cb = caller.callback_queue_id ? callbackStatusMap[caller.callback_queue_id] : null;
-      const firstCall = new Date(caller.first_call_at).getTime();
-      const lastCall = new Date(caller.last_call_at).getTime();
-      const daysTrying = Math.max(1, Math.ceil((lastCall - firstCall) / (1000 * 60 * 60 * 24)));
+    // BUG-003220: Exclude callers who have already been converted to leads.
+    // Once any call for a phone number has `lead_id` set, that caller is now a
+    // regular admission lead and should appear in the leads list only — not
+    // duplicated in the "Unique Callers" tab. We filter at the caller level
+    // (post-aggregation) so we naturally hide phones where ANY call was linked
+    // to a lead, even if older calls for the same phone are still `lead_id = null`.
+    const callers = Object.values(callerMap)
+      .filter(caller => !caller.lead_id)
+      .map(caller => {
+        const cb = caller.callback_queue_id ? callbackStatusMap[caller.callback_queue_id] : null;
+        const firstCall = new Date(caller.first_call_at).getTime();
+        const lastCall = new Date(caller.last_call_at).getTime();
+        const daysTrying = Math.max(1, Math.ceil((lastCall - firstCall) / (1000 * 60 * 60 * 24)));
 
-      return {
-        ...caller,
-        days_trying: daysTrying,
-        callback_status: cb?.status ?? null,
-        callback_priority: cb?.priority ?? null,
-        sla_breached: cb?.sla_breached ?? false,
-      };
-    });
+        return {
+          ...caller,
+          days_trying: daysTrying,
+          callback_status: cb?.status ?? null,
+          callback_priority: cb?.priority ?? null,
+          sla_breached: cb?.sla_breached ?? false,
+        };
+      });
 
     // Sort: callers never reached first, then by attempt count descending
     callers.sort((a, b) => {
