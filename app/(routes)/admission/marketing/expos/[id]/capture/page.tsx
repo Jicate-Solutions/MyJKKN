@@ -70,14 +70,14 @@ function ExpoCaptureContent() {
     );
   }
 
-  if (event.event_status === 'completed' || event.event_status === 'cancelled') {
+  if (event.event_status === 'cancelled') {
     return (
       <Card className="mx-auto mt-8">
         <CardContent className="flex flex-col items-center py-8">
           <AlertCircle className="h-12 w-12 text-yellow-500 mb-4" />
-          <h2 className="text-lg font-semibold mb-2">Event Has Ended</h2>
+          <h2 className="text-lg font-semibold mb-2">Event Cancelled</h2>
           <p className="text-sm text-muted-foreground text-center mb-4">
-            &quot;{event.event_name}&quot; is no longer active. Use the leads form for manual entry.
+            &quot;{event.event_name}&quot; has been cancelled. Lead capture is disabled.
           </p>
           <Link href="/admission/marketing/expos">
             <Button variant="outline" size="sm">

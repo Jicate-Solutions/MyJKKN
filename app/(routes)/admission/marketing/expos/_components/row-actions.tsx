@@ -41,7 +41,7 @@ export function DataTableRowActions<TData>({ row, onRefresh }: DataTableRowActio
   const handleCapture = () => router.push(`/admission/marketing/expos/${expo.id}/capture`);
   const handleQr = () => router.push(`/admission/marketing/expos/${expo.id}/qr`);
   const handleLive = () => router.push(`/admission/marketing/expos/${expo.id}/live`);
-  const isActiveEvent = expo.event_status !== 'cancelled' && expo.event_status !== 'completed';
+  const isActiveEvent = expo.event_status !== 'cancelled';
   const handleCancel = () => {
     updateStatus.mutate(
       { id: expo.id, status: 'cancelled' },

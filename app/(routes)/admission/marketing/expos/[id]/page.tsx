@@ -933,7 +933,7 @@ function ExpoEventDetailContent() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {event.event_status !== 'cancelled' && event.event_status !== 'completed' && (
+          {event.event_status !== 'cancelled' && (
             <Link href={`/admission/marketing/expos/${event.id}/capture`}>
               <Button variant="default" size="sm">
                 <ScanLine className="h-4 w-4 mr-2" />

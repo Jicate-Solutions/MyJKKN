@@ -152,7 +152,7 @@ return [
     cell: ({ row }) => {
       const expo = row.original;
       const count = expo.total_leads_collected ?? 0;
-      const isActive = expo.event_status !== 'cancelled' && expo.event_status !== 'completed';
+      const isActive = expo.event_status !== 'cancelled';
       return (
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
