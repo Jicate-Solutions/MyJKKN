@@ -46,9 +46,10 @@ export function SSDashboard() {
   const { data: statusDistRaw, isLoading: statusLoading } = useCycleStatusDistribution();
   const { data: stepRatesRaw, isLoading: stepsLoading } = useStepCompletionRates();
 
-  const stats = statsRaw as any;
-  const statusDist = statusDistRaw as any;
-  const stepRates = stepRatesRaw as any;
+  // Unwrap { data: ... } envelope from apiClient responses
+  const stats = ((statsRaw as any)?.data ?? statsRaw) as any;
+  const statusDist = ((statusDistRaw as any)?.data ?? statusDistRaw) as any;
+  const stepRates = ((stepRatesRaw as any)?.data ?? stepRatesRaw) as any;
 
   const isLoading = statsLoading || statusLoading || stepsLoading;
 
