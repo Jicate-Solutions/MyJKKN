@@ -118,14 +118,6 @@ export function ApplicationForm({
   onSuccess,
   onCancel,
 }: ApplicationFormProps) {
-  // Debug logging
-  console.log('[ApplicationForm] Props:', {
-    learnerId,
-    institutionId,
-    sectionId,
-    semesterId,
-  });
-
   const [category, setCategory] = useState<LeaveOndutyCategory>('leave');
   const [subCategory, setSubCategory] = useState('');
   const [startDate, setStartDate] = useState<Date>();
@@ -259,20 +251,24 @@ export function ApplicationForm({
   }, [category, isInitialized, prevCategory]);
 
   // Fetch admin-managed sub-categories for this institution
-  const { data: dbSubCategories } = useLeaveOndutySubCategories(
-    institutionId,
-    { activeOnly: true },
-    { enabled: !!institutionId }
-  );
+  const { data: dbSubCategories, isLoading: dbSubCategoriesLoading } =
+    useLeaveOndutySubCategories(
+      institutionId,
+      { activeOnly: true },
+      { enabled: !!institutionId }
+    );
 
   const getSubCategories = () => {
-    // Prefer DB-managed sub-categories when available
-    const dbRows = (dbSubCategories || []).filter((r) => r.category === category);
-    if (dbRows.length > 0) {
-      return dbRows.map((r) => ({ value: r.code, label: r.name }));
+    // While still fetching, show the hard-coded constants so the dropdown is
+    // never empty on first paint. Once loaded, use only the DB rows — if the
+    // admin has intentionally removed all options, the dropdown MUST reflect
+    // that (do not silently revert to the constants).
+    if (dbSubCategoriesLoading) {
+      return category === 'leave' ? LEAVE_SUB_CATEGORIES : ONDUTY_SUB_CATEGORIES;
     }
-    // Fallback to hard-coded constants (covers initial-load + pre-seed state)
-    return category === 'leave' ? LEAVE_SUB_CATEGORIES : ONDUTY_SUB_CATEGORIES;
+    return (dbSubCategories || [])
+      .filter((r) => r.category === category)
+      .map((r) => ({ value: r.code, label: r.name }));
   };
 
   const getFileRequirements = () => {
