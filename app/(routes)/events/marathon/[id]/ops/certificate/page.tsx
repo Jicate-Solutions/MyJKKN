@@ -67,6 +67,7 @@ export default function CertificatePage() {
 
   const [scanResult, setScanResult] = useState<OpsScanResult | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanningBib, setScanningBib] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'issued' | 'not_issued'>('all');
   const [filterInstitution, setFilterInstitution] = useState<string>('all');
@@ -101,7 +102,7 @@ export default function CertificatePage() {
   }, [scanResult]);
 
   // Fetch registrations
-  const { data: registrations, isLoading } = useQuery({
+  const { data: registrations, isLoading, refetch: refetchRegistrations } = useQuery({
     queryKey: ['marathon-ops-registrations', eventId, ACTION],
     queryFn: async () => {
       const supabase = createClientSupabaseClient();
@@ -224,6 +225,7 @@ export default function CertificatePage() {
   const handleScan = useCallback(
     async (bibNumber: string) => {
       if (!profile?.id) return;
+      setScanningBib(bibNumber);
       try {
         const result = await processScan.mutateAsync({
           eventId,
@@ -232,11 +234,14 @@ export default function CertificatePage() {
           operatorId: profile.id,
         });
         setScanResult(result);
+        refetchRegistrations();
       } catch {
         // Error handled by mutation hook
+      } finally {
+        setScanningBib(null);
       }
     },
-    [eventId, profile?.id, processScan]
+    [eventId, profile?.id, processScan, refetchRegistrations]
   );
 
   // Client-side filtering
@@ -540,11 +545,11 @@ export default function CertificatePage() {
                                   <Button
                                     size="sm"
                                     variant={r.certificate_issued ? 'ghost' : 'default'}
-                                    disabled={r.certificate_issued || processScan.isPending}
+                                    disabled={r.certificate_issued || scanningBib === r.bib_number}
                                     onClick={() => handleScan(r.bib_number)}
                                     className="h-8 text-xs"
                                   >
-                                    {processScan.isPending ? (
+                                    {scanningBib === r.bib_number ? (
                                       <Loader2 className="h-3 w-3 animate-spin" />
                                     ) : r.certificate_issued ? (
                                       'Done'
