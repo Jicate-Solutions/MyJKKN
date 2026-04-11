@@ -96,7 +96,15 @@ export async function PUT(
 
     return NextResponse.json(data);
   } catch (error: any) {
-    console.error('[committees-api] PATCH error:', error);
+    console.error('[committees-api] PUT error:', error);
     return NextResponse.json({ error: error.message ?? 'Internal error' }, { status: 500 });
   }
+}
+
+// PATCH alias — calls the same handler as PUT
+export async function PATCH(
+  req: NextRequest,
+  context: { params: Promise<{ eventId: string }> }
+) {
+  return PUT(req, context);
 }

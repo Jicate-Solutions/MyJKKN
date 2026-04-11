@@ -61,7 +61,12 @@ export class MarathonCommitteeService {
         body: JSON.stringify(dto),
       });
 
-      const result = await res.json();
+      let result;
+      try {
+        result = await res.json();
+      } catch {
+        throw new Error(`Committee create failed (HTTP ${res.status})`);
+      }
 
       if (!res.ok) {
         logger.error('events/marathon-committee', 'Failed to create committee', result);
@@ -103,7 +108,12 @@ export class MarathonCommitteeService {
         body: JSON.stringify({ id, ...cleanPayload }),
       });
 
-      const result = await res.json();
+      let result;
+      try {
+        result = await res.json();
+      } catch {
+        throw new Error(`Committee update failed (HTTP ${res.status})`);
+      }
 
       if (!res.ok) {
         logger.error('events/marathon-committee', 'Failed to update committee', result);
