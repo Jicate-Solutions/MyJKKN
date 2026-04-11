@@ -15,8 +15,8 @@ interface TextLayer {
 }
 
 /**
- * Render text as PNG and return buffer with dimensions.
- * Uses sharp's native Pango engine — works on Vercel.
+ * Render text as PNG using sharp's native Pango engine.
+ * Returns buffer + actual dimensions for manual centering.
  */
 async function renderText(
   text: string,
@@ -26,20 +26,31 @@ async function renderText(
     color: string;
     mono?: boolean;
     maxWidth?: number;
+    allCaps?: boolean;
+    letterSpacing?: boolean;
   }
 ): Promise<TextLayer> {
-  const { fontSize, bold = false, color, mono = false, maxWidth } = options;
+  const {
+    fontSize, bold = false, color, mono = false,
+    maxWidth, allCaps = false, letterSpacing = false,
+  } = options;
 
-  const escaped = text
+  let displayText = allCaps ? text.toUpperCase() : text;
+  // Simulate letter spacing by adding thin spaces between chars
+  if (letterSpacing) {
+    displayText = displayText.split('').join(' ');
+  }
+
+  const escaped = displayText
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
   const fontFace = mono ? 'monospace' : 'sans';
-  const boldOpen = bold ? '<b>' : '';
-  const boldClose = bold ? '</b>' : '';
-  const markup = `<span foreground="${color}" font="${fontFace} ${fontSize}">${boldOpen}${escaped}${boldClose}</span>`;
+  const b1 = bold ? '<b>' : '';
+  const b2 = bold ? '</b>' : '';
+  const markup = `<span foreground="${color}" font="${fontFace} ${fontSize}">${b1}${escaped}${b2}</span>`;
 
   const textOpts: any = { text: markup, rgba: true };
   if (maxWidth) textOpts.width = maxWidth;
@@ -47,23 +58,19 @@ async function renderText(
   const buffer = await sharp({ text: textOpts }).png().toBuffer();
   const meta = await sharp(buffer).metadata();
 
-  return {
-    buffer,
-    width: meta.width ?? 100,
-    height: meta.height ?? 20,
-  };
+  return { buffer, width: meta.width ?? 100, height: meta.height ?? 20 };
 }
 
 /**
  * Generates a branded QR code PNG for a marathon participant.
- * All elements are horizontally centered on a 400×520 white canvas.
+ * All elements centered on a 400x540 white canvas.
  */
 export async function generateMarathonQR(input: QRGeneratorInput): Promise<Buffer> {
   const { bibNumber, participantName, stallCode, eventName } = input;
 
   const W = 400;
-  const H = 520;
-  const QR_SIZE = 280;
+  const H = 540;
+  const QR_SIZE = 260;
 
   // 1. QR code
   const qrBuffer = await QRCode.toBuffer(`BIB:${bibNumber}`, {
@@ -73,68 +80,73 @@ export async function generateMarathonQR(input: QRGeneratorInput): Promise<Buffe
     errorCorrectionLevel: 'M',
   });
 
-  // 2. Render text layers
-  const truncName = participantName.length > 35
-    ? participantName.slice(0, 35) + '...'
+  // 2. Render text layers with improved sizing
+  const truncName = participantName.length > 30
+    ? participantName.slice(0, 30) + '...'
     : participantName;
 
   const [eventTxt, bibTxt, nameTxt, jkknTxt, tagTxt, stallTxt] = await Promise.all([
-    renderText(eventName, { fontSize: 13, bold: true, color: '#1a1a2e', maxWidth: W - 20 }),
-    renderText(`BIB: ${bibNumber}`, { fontSize: 22, bold: true, color: '#1a1a2e', mono: true }),
-    renderText(truncName, { fontSize: 11, color: '#555555', maxWidth: W - 20 }),
-    renderText('JKKN Educational Institutions', { fontSize: 10, bold: true, color: '#1a1a2e' }),
-    renderText("India's 1st AI Empowered Marathon", { fontSize: 9, color: '#e94560' }),
-    stallCode ? renderText(`Stall: ${stallCode}`, { fontSize: 14, bold: true, color: '#e94560' }) : null,
+    // Event name — prominent at top
+    renderText(eventName, { fontSize: 14, bold: true, color: '#111827', maxWidth: W - 30 }),
+    // BIB — large and bold
+    renderText(`BIB: ${bibNumber}`, { fontSize: 24, bold: true, color: '#111827', mono: true }),
+    // Participant name — medium, readable
+    renderText(truncName, { fontSize: 13, color: '#374151', maxWidth: W - 30 }),
+    // JKKN — clear branding, slightly larger
+    renderText('JKKN Educational Institutions', { fontSize: 12, bold: true, color: '#111827' }),
+    // Tagline — accent color, readable
+    renderText("India's 1st AI Empowered Marathon", { fontSize: 11, bold: true, color: '#e94560' }),
+    // Stall — if assigned
+    stallCode ? renderText(`Stall: ${stallCode}`, { fontSize: 15, bold: true, color: '#e94560' }) : null,
   ]);
 
   // 3. Divider
-  const divW = 320;
+  const divW = 300;
   const divider = await sharp({
-    create: { width: divW, height: 1, channels: 4, background: { r: 200, g: 200, b: 200, alpha: 1 } },
+    create: { width: divW, height: 2, channels: 4, background: { r: 229, g: 231, b: 235, alpha: 1 } },
   }).png().toBuffer();
 
-  // Helper: center horizontally
-  const cx = (layerWidth: number) => Math.max(0, Math.round((W - layerWidth) / 2));
+  // Center helper
+  const cx = (lw: number) => Math.max(0, Math.round((W - lw) / 2));
 
-  // 4. Build composites — all centered
+  // 4. Compose all layers
   const layers: sharp.OverlayOptions[] = [];
+  let y = 18;
 
   // Event name
-  layers.push({ input: eventTxt.buffer, top: 14, left: cx(eventTxt.width) });
+  layers.push({ input: eventTxt.buffer, top: y, left: cx(eventTxt.width) });
+  y += eventTxt.height + 14;
 
   // QR code
-  const qrTop = 14 + eventTxt.height + 10;
-  layers.push({ input: qrBuffer, top: qrTop, left: cx(QR_SIZE) });
+  layers.push({ input: qrBuffer, top: y, left: cx(QR_SIZE) });
+  y += QR_SIZE + 14;
 
-  // Below QR
-  let y = qrTop + QR_SIZE + 10;
-
-  // BIB
+  // BIB number
   layers.push({ input: bibTxt.buffer, top: y, left: cx(bibTxt.width) });
   y += bibTxt.height + 4;
 
   // Stall
   if (stallTxt) {
     layers.push({ input: stallTxt.buffer, top: y, left: cx(stallTxt.width) });
-    y += stallTxt.height + 2;
+    y += stallTxt.height + 4;
   }
 
-  // Name
+  // Participant name
   layers.push({ input: nameTxt.buffer, top: y, left: cx(nameTxt.width) });
-  y += nameTxt.height + 10;
+  y += nameTxt.height + 12;
 
-  // Divider
+  // Divider (slightly thicker, lighter color)
   layers.push({ input: divider, top: y, left: cx(divW) });
-  y += 10;
+  y += 12;
 
-  // JKKN
+  // JKKN branding
   layers.push({ input: jkknTxt.buffer, top: y, left: cx(jkknTxt.width) });
-  y += jkknTxt.height + 3;
+  y += jkknTxt.height + 4;
 
   // Tagline
   layers.push({ input: tagTxt.buffer, top: y, left: cx(tagTxt.width) });
 
-  // 5. Compose
+  // 5. White canvas + composite
   return sharp({
     create: { width: W, height: H, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } },
   })
