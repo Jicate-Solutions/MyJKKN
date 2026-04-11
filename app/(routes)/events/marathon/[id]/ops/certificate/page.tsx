@@ -10,7 +10,6 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  FileCheck,
   Loader2,
   ScanLine,
   Search,
@@ -48,6 +47,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
 const ACTION = 'certificate' as const;
@@ -60,6 +66,7 @@ export default function CertificatePage() {
   const access = useMarathonAccess();
 
   const [scanResult, setScanResult] = useState<OpsScanResult | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'issued' | 'not_issued'>('all');
   const [filterInstitution, setFilterInstitution] = useState<string>('all');
@@ -314,8 +321,28 @@ export default function CertificatePage() {
             </div>
           </div>
 
-          {/* Live counter pills */}
-          <div className="flex items-center gap-2">
+          {/* Action buttons + Live counter */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Scan QR button */}
+            <Dialog open={scannerOpen} onOpenChange={setScannerOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="gap-1.5 bg-amber-600 hover:bg-amber-700">
+                  <ScanLine className="h-4 w-4" />
+                  Scan QR Code
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <ScanLine className="h-5 w-5" />
+                    QR Scanner
+                  </DialogTitle>
+                </DialogHeader>
+                <BibScanner onScan={handleScan} disabled={processScan.isPending} />
+              </DialogContent>
+            </Dialog>
+
+            {/* Live counters */}
             <div className="flex items-center gap-2 rounded-full border bg-card px-4 py-2 shadow-sm">
               <Award className="h-4 w-4 text-amber-600" />
               <span className="text-sm font-semibold tabular-nums">
@@ -331,45 +358,13 @@ export default function CertificatePage() {
           </div>
         </div>
 
-        {/* ── Two-column layout ─────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* LEFT: Scanner + Result */}
-          <div className="lg:col-span-4 xl:col-span-3 space-y-4">
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <ScanLine className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-muted-foreground">QR Scanner</span>
-                </div>
-                <BibScanner onScan={handleScan} disabled={processScan.isPending} />
-              </CardContent>
-            </Card>
+        {/* ── Scan Result (inline, above table) ────────────────── */}
+        {scanResult && (
+          <ScanResultCard result={scanResult} className="animate-in slide-in-from-top-2" />
+        )}
 
-            {scanResult && (
-              <ScanResultCard result={scanResult} className="animate-in slide-in-from-top-2" />
-            )}
-
-            {/* Quick stats */}
-            <div className="grid grid-cols-2 gap-3">
-              <Card>
-                <CardContent className="p-3 text-center">
-                  <FileCheck className="h-4 w-4 mx-auto text-amber-500 mb-1" />
-                  <p className="text-2xl font-bold tabular-nums text-amber-600">{stats?.certificate_issued ?? 0}</p>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Issued</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-3 text-center">
-                  <Award className="h-4 w-4 mx-auto text-muted-foreground mb-1" />
-                  <p className="text-2xl font-bold tabular-nums">{(stats?.total ?? 0) - (stats?.certificate_issued ?? 0)}</p>
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Remaining</p>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          {/* RIGHT: Filters + Table */}
-          <div className="lg:col-span-8 xl:col-span-9 space-y-4">
+        {/* ── Full-width: Filters + Table ──────────────────────── */}
+        <div className="space-y-4">
             {/* Filter bar */}
             <Card>
               <CardContent className="p-3">
@@ -639,7 +634,6 @@ export default function CertificatePage() {
               </CardContent>
             </Card>
           </div>
-        </div>
       </div>
     </ContentLayout>
   );
