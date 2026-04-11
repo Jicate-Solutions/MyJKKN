@@ -476,7 +476,7 @@ function CommitteeItem({
 
   return (
     <AccordionItem value={committee.id} className="border rounded-lg mb-3 overflow-hidden">
-      <div className="flex items-start sm:items-center hover:bg-muted/30 [&[data-state=open]]:bg-muted/30">
+      <div className="flex items-start sm:items-center justify-between hover:bg-muted/30 [&[data-state=open]]:bg-muted/30">
         <AccordionTrigger className="px-3 sm:px-4 py-3 hover:no-underline flex-1 min-w-0">
           <div className="flex-1 min-w-0 text-left">
             {/* Committee name + lead */}
