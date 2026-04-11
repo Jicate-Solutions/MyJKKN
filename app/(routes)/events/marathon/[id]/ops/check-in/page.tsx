@@ -95,7 +95,7 @@ export default function CheckInPage() {
       const { data } = await (supabase as any)
         .from('events_registrations')
         .select(`
-          id, bib_number, participant_name, participant_phone,
+          id, bib_number, participant_name, participant_email, participant_phone,
           checked_in, checked_in_at,
           tshirt_collected, tshirt_collected_at,
           certificate_issued, certificate_issued_at,
@@ -137,6 +137,7 @@ export default function CheckInPage() {
         const matchesSearch =
           r.bib_number?.toLowerCase().includes(q) ||
           r.participant_name?.toLowerCase().includes(q) ||
+          r.participant_email?.toLowerCase().includes(q) ||
           r.participant_phone?.toLowerCase().includes(q);
         if (!matchesSearch) return false;
       }
@@ -336,8 +337,11 @@ export default function CheckInPage() {
                                 <TableCell className="font-mono font-bold text-sm">
                                   {r.bib_number}
                                 </TableCell>
-                                <TableCell className="font-medium max-w-[180px] truncate">
-                                  {r.participant_name}
+                                <TableCell className="max-w-[200px]">
+                                  <div className="font-medium truncate">{r.participant_name}</div>
+                                  {r.participant_email && (
+                                    <div className="text-xs text-muted-foreground truncate">{r.participant_email}</div>
+                                  )}
                                 </TableCell>
                                 <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
                                   {r.participant_phone ?? '-'}
