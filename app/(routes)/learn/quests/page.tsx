@@ -17,7 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useQuests, useEnrollInQuest } from '@/hooks/pde/use-pde';
+import { useQuests, useEnrollInQuest, useLearnerQuestEnrollments } from '@/hooks/pde/use-pde';
+import type { PDEQuestEnrollment } from '@/types/pde';
 import { useAuth } from '@/hooks/use-auth';
 import {
   Search,
@@ -411,19 +412,28 @@ export default function QuestBoardPage() {
     return quests;
   }, [questsData, filters.search, filters.solutions_hub, filters.nif_eligible]);
 
-  // Build set of enrolled quest IDs
+  // Build set of enrolled quest IDs from real data
+  const { data: myEnrollments } = useLearnerQuestEnrollments(user?.id);
   const enrolledQuestIds = useMemo(() => {
-    // This will come from the user's enrollment data when Phase 2 backend is ready
-    return new Set<string>();
-  }, []);
+    if (!myEnrollments) return new Set<string>();
+    return new Set(myEnrollments.map((e: PDEQuestEnrollment) => e.quest_id));
+  }, [myEnrollments]);
 
   const handleFilterChange = (key: keyof QuestFilters, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleEnroll = async (questId: string) => {
-    if (!user?.id) return;
-    await enrollInQuest.mutateAsync({ questId, learnerId: user.id });
+    if (!user?.id) {
+      alert('Please log in to start a quest');
+      return;
+    }
+    try {
+      await enrollInQuest.mutateAsync({ questId, learnerId: user.id });
+      alert('Enrolled! Go to Build Arena to start working.');
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Failed to enroll');
+    }
   };
 
   const activeFilterCount = [
@@ -456,17 +466,17 @@ export default function QuestBoardPage() {
 
           {/* Status filter - quick toggle */}
           <Select
-            value={filters.status}
-            onValueChange={(val) => handleFilterChange('status', val)}
+            value={filters.status || 'all'}
+            onValueChange={(val) => handleFilterChange('status', val === 'all' ? '' : val)}
           >
             <SelectTrigger className="w-[140px]">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="all">All</SelectItem>
               <SelectItem value="open">Open</SelectItem>
               <SelectItem value="in_progress">In Progress</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="">All</SelectItem>
             </SelectContent>
           </Select>
         </div>
