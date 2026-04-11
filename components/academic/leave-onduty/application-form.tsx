@@ -69,6 +69,7 @@ function base64ToFile(data: { name: string; type: string; base64: string }): Fil
 }
 import { LeaveOndutyApplicationService } from '@/lib/services/academic/leave-onduty-application-service';
 import { useCreateLeaveOndutyApplication } from '@/hooks/academic/use-leave-onduty';
+import { useLeaveOndutySubCategories } from '@/hooks/academic/use-leave-onduty-sub-categories';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -257,7 +258,20 @@ export function ApplicationForm({
     setPrevCategory(category);
   }, [category, isInitialized, prevCategory]);
 
+  // Fetch admin-managed sub-categories for this institution
+  const { data: dbSubCategories } = useLeaveOndutySubCategories(
+    institutionId,
+    { activeOnly: true },
+    { enabled: !!institutionId }
+  );
+
   const getSubCategories = () => {
+    // Prefer DB-managed sub-categories when available
+    const dbRows = (dbSubCategories || []).filter((r) => r.category === category);
+    if (dbRows.length > 0) {
+      return dbRows.map((r) => ({ value: r.code, label: r.name }));
+    }
+    // Fallback to hard-coded constants (covers initial-load + pre-seed state)
     return category === 'leave' ? LEAVE_SUB_CATEGORIES : ONDUTY_SUB_CATEGORIES;
   };
 
