@@ -499,6 +499,15 @@ export class PDEService {
 
   static async enrollInQuest(questId: string, learnerId: string, teamId?: string): Promise<PDEQuestEnrollment> {
     const supabase = getSupabase();
+    // Return existing enrollment if already enrolled (idempotent)
+    const { data: existing } = await supabase
+      .from('pde_quest_enrollments')
+      .select('*')
+      .eq('quest_id', questId)
+      .eq('learner_id', learnerId)
+      .maybeSingle();
+    if (existing) return existing;
+
     const { data, error } = await supabase
       .from('pde_quest_enrollments')
       .insert({
