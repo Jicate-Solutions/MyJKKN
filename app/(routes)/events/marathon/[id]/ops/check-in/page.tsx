@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Download,
   Loader2,
   Search,
   UserCheck,
@@ -54,6 +55,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { ExportService } from '@/lib/services/export-service';
 
 const ACTION = 'check_in' as const;
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
@@ -239,6 +241,59 @@ export default function CheckInPage() {
 
   const checkedInPct = stats ? Math.round(((stats.checked_in ?? 0) / Math.max(stats.total, 1)) * 100) : 0;
 
+  // Export filtered data to Excel
+  const handleExport = useCallback(() => {
+    if (!filtered.length) return;
+
+    const headers = {
+      bib_number: 'BIB Number',
+      participant_name: 'Name',
+      participant_email: 'Email',
+      participant_phone: 'Phone',
+      category: 'Category',
+      institution: 'Institution',
+      stall: 'Stall',
+      tshirt_size: 'T-Shirt Size',
+      checked_in_status: 'Checked In',
+      checked_in_time: 'Check-in Time',
+      tshirt_status: 'T-Shirt Collected',
+      certificate_status: 'Certificate Issued',
+      payment_status: 'Payment',
+    } as Record<string, string>;
+
+    const rows = filtered.map((r: any) => {
+      const customData = (r.custom_data ?? {}) as Record<string, unknown>;
+      return {
+        bib_number: r.bib_number ?? '',
+        participant_name: r.participant_name ?? '',
+        participant_email: r.participant_email ?? '',
+        participant_phone: r.participant_phone ?? '',
+        category: r.category?.code ?? r.category?.name ?? '',
+        institution: r._institution_name ? r._institution_name.replace('JKKN ', '') : 'External',
+        stall: r.stall?.stall_name ?? 'Not Assigned',
+        tshirt_size: (customData.tshirt_size as string) ?? '',
+        checked_in_status: r.checked_in ? 'Yes' : 'No',
+        checked_in_time: r.checked_in_at
+          ? new Date(r.checked_in_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
+          : '',
+        tshirt_status: r.tshirt_collected ? 'Yes' : 'No',
+        certificate_status: r.certificate_issued ? 'Yes' : 'No',
+        payment_status: r.payment_status === 'not_required' ? 'Free' : (r.payment_status ?? ''),
+      };
+    });
+
+    const filterLabel = filterInstitution === 'all' ? 'All'
+      : filterInstitution === '_external' ? 'External'
+        : institutionOptions.find((i) => i.id === filterInstitution)?.name?.replace('JKKN ', '') ?? 'Filtered';
+
+    ExportService.exportToExcel(
+      rows,
+      headers,
+      `${eventName}_CheckIn_${filterLabel}`,
+      'Check-in Report'
+    );
+  }, [filtered, filterInstitution, institutionOptions, eventName]);
+
   // Block non-admin users
   if (!access.isLoading && !access.canAccessOps) {
     return <MarathonAccessDenied title="Check-in" eventId={eventId} />;
@@ -271,6 +326,18 @@ export default function CheckInPage() {
 
           {/* Action buttons + Live counter */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Export button */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={handleExport}
+              disabled={!filtered.length}
+            >
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">Export</span>
+            </Button>
+
             {/* Scan QR button → opens scanner dialog */}
             <Dialog open={scannerOpen} onOpenChange={setScannerOpen}>
               <DialogTrigger asChild>
