@@ -157,6 +157,23 @@ async function findTargetUsers(
   supabase: any,
   targeting: any
 ): Promise<string[]> {
+  // NEW: Resolve saved audiences first — merge their user_ids into the result
+  const audienceUserIds = new Set<string>();
+  if (targeting.audience_ids && Array.isArray(targeting.audience_ids) && targeting.audience_ids.length > 0) {
+    for (const audienceId of targeting.audience_ids) {
+      const { data, error } = await supabase.rpc('resolve_audience', { p_audience_id: audienceId });
+      if (error) {
+        console.error('[notifications/send] Failed to resolve audience:', audienceId, error);
+        continue;
+      }
+      if (data?.user_ids && Array.isArray(data.user_ids)) {
+        for (const uid of data.user_ids) {
+          if (uid) audienceUserIds.add(uid);
+        }
+      }
+    }
+  }
+
   // Check if only role targeting is specified
   const hasLocationTargeting =
     targeting.institution_id ||
@@ -166,9 +183,15 @@ async function findTargetUsers(
     targeting.section_id;
   const hasRoleTargeting =
     targeting.target_roles && targeting.target_roles.length > 0;
+  const hasAudienceTargeting = audienceUserIds.size > 0;
+
+  // If ONLY audiences are specified, return those directly
+  if (hasAudienceTargeting && !hasLocationTargeting && !hasRoleTargeting) {
+    return Array.from(audienceUserIds);
+  }
 
   // If no specific targeting criteria, send to all users
-  if (!hasLocationTargeting && !hasRoleTargeting) {
+  if (!hasLocationTargeting && !hasRoleTargeting && !hasAudienceTargeting) {
     const { data, error } = await supabase
       .from('profiles')
       .select('id')
@@ -248,6 +271,10 @@ async function findTargetUsers(
       }
     }
 
+    // Merge audience user_ids (deduplicated)
+    for (const uid of audienceUserIds) {
+      if (!userIds.includes(uid)) userIds.push(uid);
+    }
     return userIds;
   }
 
@@ -321,6 +348,10 @@ async function findTargetUsers(
     }
   }
 
+  // Merge audience user_ids (deduplicated)
+  for (const uid of audienceUserIds) {
+    if (!userIds.includes(uid)) userIds.push(uid);
+  }
   return userIds;
 }
 
