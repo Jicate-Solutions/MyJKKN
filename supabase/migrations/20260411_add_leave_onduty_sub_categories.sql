@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS leave_onduty_sub_categories (
   CONSTRAINT leave_onduty_sub_categories_code_format
     CHECK (code ~ '^[a-z0-9_]+$' AND length(code) BETWEEN 2 AND 64),
   CONSTRAINT leave_onduty_sub_categories_name_length
-    CHECK (length(name) BETWEEN 2 AND 100)
+    CHECK (length(name) BETWEEN 2 AND 100),
+  CONSTRAINT leave_onduty_sub_categories_description_length
+    CHECK (description IS NULL OR length(description) <= 500)
 );
 
 -- ============================================================================
@@ -60,12 +62,16 @@ CREATE INDEX IF NOT EXISTS idx_leave_onduty_sub_categories_code
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION update_leave_onduty_sub_categories_updated_at()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
 BEGIN
   NEW.updated_at = now();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 DROP TRIGGER IF EXISTS trg_leave_onduty_sub_categories_updated_at
   ON leave_onduty_sub_categories;
@@ -109,7 +115,7 @@ CREATE POLICY "sub_categories_insert" ON leave_onduty_sub_categories
           p.role = 'super_admin'
           OR p.is_super_admin = true
           OR (
-            p.role IN ('admin', 'institution_admin', 'hod', 'principal')
+            p.role IN ('administrator', 'admin', 'hod', 'principal')
             AND p.institution_id = leave_onduty_sub_categories.institution_id
           )
         )
@@ -128,7 +134,7 @@ CREATE POLICY "sub_categories_update" ON leave_onduty_sub_categories
           p.role = 'super_admin'
           OR p.is_super_admin = true
           OR (
-            p.role IN ('admin', 'institution_admin', 'hod', 'principal')
+            p.role IN ('administrator', 'admin', 'hod', 'principal')
             AND p.institution_id = leave_onduty_sub_categories.institution_id
           )
         )
@@ -142,7 +148,7 @@ CREATE POLICY "sub_categories_update" ON leave_onduty_sub_categories
           p.role = 'super_admin'
           OR p.is_super_admin = true
           OR (
-            p.role IN ('admin', 'institution_admin', 'hod', 'principal')
+            p.role IN ('administrator', 'admin', 'hod', 'principal')
             AND p.institution_id = leave_onduty_sub_categories.institution_id
           )
         )
@@ -161,7 +167,7 @@ CREATE POLICY "sub_categories_delete" ON leave_onduty_sub_categories
           p.role = 'super_admin'
           OR p.is_super_admin = true
           OR (
-            p.role IN ('admin', 'institution_admin', 'hod', 'principal')
+            p.role IN ('administrator', 'admin', 'hod', 'principal')
             AND p.institution_id = leave_onduty_sub_categories.institution_id
           )
         )

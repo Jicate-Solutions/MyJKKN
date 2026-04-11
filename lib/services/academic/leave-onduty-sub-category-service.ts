@@ -98,8 +98,22 @@ export class LeaveOndutySubCategoryService {
         );
       }
       if (error.code === '23514') {
+        // Disambiguate by constraint name: the table has separate CHECKs for
+        // code format, name length, and description length
+        const constraint = (error as any).constraint || '';
+        if (constraint.includes('code_format')) {
+          throw new Error(
+            'Invalid code format. Use lowercase letters, digits, and underscores (2-64 characters).'
+          );
+        }
+        if (constraint.includes('name_length')) {
+          throw new Error('Name must be between 2 and 100 characters.');
+        }
+        if (constraint.includes('description_length')) {
+          throw new Error('Description must be 500 characters or less.');
+        }
         throw new Error(
-          'Invalid code format. Use lowercase letters, digits, and underscores (2-64 characters).'
+          'Validation failed. Check the code, name, and description fields.'
         );
       }
       throw new Error(error.message || 'Failed to create sub-category');

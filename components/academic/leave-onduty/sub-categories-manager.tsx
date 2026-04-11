@@ -295,7 +295,7 @@ export function SubCategoriesManager({
           if (!open) resetForm();
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add Sub-Category</DialogTitle>
             <DialogDescription>
@@ -404,7 +404,7 @@ export function SubCategoriesManager({
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Sub-Category</DialogTitle>
             <DialogDescription>
@@ -546,14 +546,19 @@ function SubCategoryList({
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
-            <Button size="sm" variant="ghost" onClick={() => onEdit(row)} title="Edit">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onEdit(row)}
+              aria-label={`Edit ${row.name}`}
+            >
               <Edit className="h-4 w-4" />
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => onToggleActive(row)}
-              title={row.is_active ? 'Deactivate' : 'Activate'}
+              aria-label={`${row.is_active ? 'Deactivate' : 'Activate'} ${row.name}`}
             >
               {row.is_active ? (
                 <PowerOff className="h-4 w-4" />
@@ -566,7 +571,7 @@ function SubCategoryList({
               variant="ghost"
               onClick={() => onDelete(row)}
               className="text-red-600 hover:text-red-700"
-              title="Delete"
+              aria-label={`Delete ${row.name}`}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
