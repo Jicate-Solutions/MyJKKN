@@ -300,13 +300,13 @@ export default function TshirtPage() {
                       <Table>
                         <TableHeader>
                           <TableRow className="bg-muted/50">
-                            <TableHead className="w-[90px] font-semibold">BIB</TableHead>
+                            <TableHead className="w-[80px] font-semibold">BIB</TableHead>
                             <TableHead className="font-semibold">Name</TableHead>
                             <TableHead className="font-semibold">Size</TableHead>
-                            <TableHead className="hidden sm:table-cell font-semibold">Checked In</TableHead>
+                            <TableHead className="font-semibold">Checked In</TableHead>
                             <TableHead className="font-semibold">T-Shirt</TableHead>
-                            <TableHead className="hidden sm:table-cell font-semibold">Time</TableHead>
-                            <TableHead className="w-[130px] font-semibold text-right">Action</TableHead>
+                            <TableHead className="hidden md:table-cell font-semibold">Time</TableHead>
+                            <TableHead className="w-[120px] font-semibold text-right">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -341,7 +341,7 @@ export default function TshirtPage() {
                                       {tshirtSize}
                                     </Badge>
                                   </TableCell>
-                                  <TableCell className="hidden sm:table-cell">
+                                  <TableCell>
                                     {r.checked_in ? (
                                       <Badge className="bg-green-100 text-green-800 hover:bg-green-100 border-green-200">
                                         <UserCheck className="h-3 w-3 mr-1" />
@@ -366,7 +366,7 @@ export default function TshirtPage() {
                                       </Badge>
                                     )}
                                   </TableCell>
-                                  <TableCell className="hidden sm:table-cell text-sm text-muted-foreground tabular-nums">
+                                  <TableCell className="hidden md:table-cell text-sm text-muted-foreground tabular-nums">
                                     {formatTime(r.tshirt_collected_at)}
                                   </TableCell>
                                   <TableCell className="text-right">

@@ -300,14 +300,14 @@ export default function CertificatePage() {
                       <Table>
                         <TableHeader>
                           <TableRow className="bg-muted/50">
-                            <TableHead className="w-[90px] font-semibold">BIB</TableHead>
+                            <TableHead className="w-[80px] font-semibold">BIB</TableHead>
                             <TableHead className="font-semibold">Name</TableHead>
-                            <TableHead className="hidden sm:table-cell font-semibold">Category</TableHead>
+                            <TableHead className="hidden lg:table-cell font-semibold">Category</TableHead>
                             <TableHead className="font-semibold">Checked In</TableHead>
-                            <TableHead className="hidden md:table-cell font-semibold">T-Shirt</TableHead>
+                            <TableHead className="font-semibold">T-Shirt</TableHead>
                             <TableHead className="font-semibold">Certificate</TableHead>
-                            <TableHead className="hidden sm:table-cell font-semibold">Time</TableHead>
-                            <TableHead className="w-[140px] font-semibold text-right">Action</TableHead>
+                            <TableHead className="hidden md:table-cell font-semibold">Time</TableHead>
+                            <TableHead className="w-[120px] font-semibold text-right">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -334,7 +334,7 @@ export default function CertificatePage() {
                                 <TableCell className="font-medium max-w-[180px] truncate">
                                   {r.participant_name}
                                 </TableCell>
-                                <TableCell className="hidden sm:table-cell">
+                                <TableCell className="hidden lg:table-cell">
                                   <Badge variant="outline" className="text-xs">
                                     {r.category?.code ?? r.category?.name ?? '-'}
                                   </Badge>
@@ -351,7 +351,7 @@ export default function CertificatePage() {
                                     </Badge>
                                   )}
                                 </TableCell>
-                                <TableCell className="hidden md:table-cell">
+                                <TableCell>
                                   {r.tshirt_collected ? (
                                     <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100 border-purple-200">
                                       <Shirt className="h-3 w-3 mr-1" />
@@ -375,7 +375,7 @@ export default function CertificatePage() {
                                     </Badge>
                                   )}
                                 </TableCell>
-                                <TableCell className="hidden sm:table-cell text-sm text-muted-foreground tabular-nums">
+                                <TableCell className="hidden md:table-cell text-sm text-muted-foreground tabular-nums">
                                   {formatTime(r.certificate_issued_at)}
                                 </TableCell>
                                 <TableCell className="text-right">
