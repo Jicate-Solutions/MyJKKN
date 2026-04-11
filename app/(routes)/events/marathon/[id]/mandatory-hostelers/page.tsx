@@ -9,8 +9,10 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -138,6 +140,20 @@ function exportToCsv(data: Hosteler[], filename: string) {
 export default function MandatoryHostelersPage() {
   const params = useParams();
   const eventId = params.id as string;
+
+  const { data: event } = useQuery({
+    queryKey: ['marathon-event-name', eventId],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('events')
+        .select('name')
+        .eq('id', eventId)
+        .single();
+      return data;
+    },
+    enabled: !!eventId,
+  });
+  const eventName = event?.name ?? 'Marathon';
 
   const [loading, setLoading] = useState(true);
   const [hostelers, setHostelers] = useState<Hosteler[]>([]);
@@ -294,8 +310,18 @@ export default function MandatoryHostelersPage() {
   }
 
   return (
-    <ContentLayout title="Mandatory Hosteler Registration">
-      <div className="space-y-6 max-w-7xl mx-auto">
+    <ContentLayout title={`${eventName} - Mandatory Hostelers`}>
+      <PageBreadcrumb
+        items={[
+          { label: 'Home', href: '/' },
+          { label: 'Events', href: '/events' },
+          { label: 'Marathon', href: '/events/marathon' },
+          { label: eventName, href: `/events/marathon/${eventId}/dashboard` },
+          { label: 'Mandatory Hostelers' },
+        ]}
+      />
+
+      <div className="space-y-6 max-w-7xl mx-auto mt-4">
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
