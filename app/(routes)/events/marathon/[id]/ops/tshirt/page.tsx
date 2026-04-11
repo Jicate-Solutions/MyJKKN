@@ -63,6 +63,8 @@ export default function TshirtPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'collected' | 'not_collected'>('all');
   const [filterInstitution, setFilterInstitution] = useState<string>('all');
+  const [filterDepartment, setFilterDepartment] = useState<string>('all');
+  const [filterSemester, setFilterSemester] = useState<string>('all');
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(20);
 
@@ -114,23 +116,43 @@ export default function TshirtPage() {
     refetchInterval: 30_000,
   });
 
-  const { data: institutionMap } = useQuery({
-    queryKey: ['marathon-ops-institution-map', eventId],
+  const { data: profileMap } = useQuery({
+    queryKey: ['marathon-ops-profile-map', eventId],
     queryFn: async () => {
       const supabase = createClientSupabaseClient();
-      const { data } = await (supabase as any)
+      const { data: profiles } = await (supabase as any)
         .from('profiles')
-        .select('email, institution:institutions(id, name)')
+        .select('id, email, learner_id, institution:institutions(id, name)')
         .not('email', 'is', null)
         .not('institution_id', 'is', null);
-      const map = new Map<string, { id: string; name: string }>();
-      for (const p of data ?? []) {
-        if (p.email && p.institution) {
-          map.set(p.email.toLowerCase(), {
-            id: (p.institution as any).id,
-            name: (p.institution as any).name,
-          });
-        }
+      const { data: learners } = await (supabase as any)
+        .from('learners_profiles')
+        .select('id, department:departments(id, department_name), semester:semesters(id, semester_name)');
+      const learnerLookup = new Map<string, { dept_id: string | null; dept_name: string | null; sem_id: string | null; sem_name: string | null }>();
+      for (const l of learners ?? []) {
+        learnerLookup.set(l.id, {
+          dept_id: l.department?.id ?? null,
+          dept_name: l.department?.department_name ?? null,
+          sem_id: l.semester?.id ?? null,
+          sem_name: l.semester?.semester_name ?? null,
+        });
+      }
+      const map = new Map<string, {
+        institution_id: string; institution_name: string;
+        department_id: string | null; department_name: string | null;
+        semester_id: string | null; semester_name: string | null;
+      }>();
+      for (const p of profiles ?? []) {
+        if (!p.email || !p.institution) continue;
+        const learner = p.learner_id ? learnerLookup.get(p.learner_id) : null;
+        map.set(p.email.toLowerCase(), {
+          institution_id: (p.institution as any).id,
+          institution_name: (p.institution as any).name,
+          department_id: learner?.dept_id ?? null,
+          department_name: learner?.dept_name ?? null,
+          semester_id: learner?.sem_id ?? null,
+          semester_name: learner?.sem_name ?? null,
+        });
       }
       return map;
     },
@@ -140,12 +162,20 @@ export default function TshirtPage() {
   const enrichedRegistrations = useMemo(() => {
     if (!registrations) return [];
     return registrations.map((r: any) => {
-      const inst = r.participant_email
-        ? institutionMap?.get(r.participant_email.toLowerCase())
+      const profile = r.participant_email
+        ? profileMap?.get(r.participant_email.toLowerCase())
         : null;
-      return { ...r, _institution_name: inst?.name ?? null, _institution_id: inst?.id ?? null };
+      return {
+        ...r,
+        _institution_name: profile?.institution_name ?? null,
+        _institution_id: profile?.institution_id ?? null,
+        _department_name: profile?.department_name ?? null,
+        _department_id: profile?.department_id ?? null,
+        _semester_name: profile?.semester_name ?? null,
+        _semester_id: profile?.semester_id ?? null,
+      };
     });
-  }, [registrations, institutionMap]);
+  }, [registrations, profileMap]);
 
   const institutionOptions = useMemo(() => {
     const instMap = new Map<string, string>();
@@ -158,6 +188,31 @@ export default function TshirtPage() {
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [enrichedRegistrations]);
+
+  const departmentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of enrichedRegistrations) {
+      if (!r._department_id || !r._department_name) continue;
+      if (filterInstitution !== 'all' && filterInstitution !== '_external' && r._institution_id !== filterInstitution) continue;
+      map.set(r._department_id, r._department_name);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [enrichedRegistrations, filterInstitution]);
+
+  const semesterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of enrichedRegistrations) {
+      if (!r._semester_id || !r._semester_name) continue;
+      if (filterInstitution !== 'all' && filterInstitution !== '_external' && r._institution_id !== filterInstitution) continue;
+      if (filterDepartment !== 'all' && r._department_id !== filterDepartment) continue;
+      map.set(r._semester_id, r._semester_name);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [enrichedRegistrations, filterInstitution, filterDepartment]);
 
   const handleScan = useCallback(
     async (bibNumber: string) => {
@@ -190,11 +245,13 @@ export default function TshirtPage() {
       }
       if (filterInstitution === '_external' && r._institution_id) return false;
       if (filterInstitution !== 'all' && filterInstitution !== '_external' && r._institution_id !== filterInstitution) return false;
+      if (filterDepartment !== 'all' && r._department_id !== filterDepartment) return false;
+      if (filterSemester !== 'all' && r._semester_id !== filterSemester) return false;
       if (filterStatus === 'collected' && !r.tshirt_collected) return false;
       if (filterStatus === 'not_collected' && r.tshirt_collected) return false;
       return true;
     });
-  }, [enrichedRegistrations, searchQuery, filterInstitution, filterStatus]);
+  }, [enrichedRegistrations, searchQuery, filterInstitution, filterDepartment, filterSemester, filterStatus]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -206,7 +263,16 @@ export default function TshirtPage() {
   // Reset page on filter change
   useEffect(() => {
     setPageIndex(0);
-  }, [searchQuery, filterInstitution, filterStatus, pageSize]);
+  }, [searchQuery, filterInstitution, filterDepartment, filterSemester, filterStatus, pageSize]);
+
+  useEffect(() => {
+    setFilterDepartment('all');
+    setFilterSemester('all');
+  }, [filterInstitution]);
+
+  useEffect(() => {
+    setFilterSemester('all');
+  }, [filterDepartment]);
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '-';
@@ -307,7 +373,7 @@ export default function TshirtPage() {
             {/* Filter bar */}
             <Card>
               <CardContent className="p-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
@@ -333,6 +399,38 @@ export default function TshirtPage() {
                       ))}
                     </SelectContent>
                   </Select>
+
+                  {filterInstitution !== 'all' && filterInstitution !== '_external' && departmentOptions.length > 0 && (
+                    <Select value={filterDepartment} onValueChange={(v) => setFilterDepartment(v)}>
+                      <SelectTrigger className="w-full sm:w-[200px]">
+                        <SelectValue placeholder="Department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Departments</SelectItem>
+                        {departmentOptions.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {filterDepartment !== 'all' && semesterOptions.length > 0 && (
+                    <Select value={filterSemester} onValueChange={(v) => setFilterSemester(v)}>
+                      <SelectTrigger className="w-full sm:w-[160px]">
+                        <SelectValue placeholder="Semester" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Semesters</SelectItem>
+                        {semesterOptions.map((sem) => (
+                          <SelectItem key={sem.id} value={sem.id}>
+                            {sem.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
 
                   <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
                     <SelectTrigger className="w-full sm:w-[180px]">
