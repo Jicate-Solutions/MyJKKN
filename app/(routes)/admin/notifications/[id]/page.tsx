@@ -15,6 +15,7 @@ import { ArrowLeft, Users, Calendar, Globe, Bell } from 'lucide-react';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { NotificationView } from './_components/notification-view';
+import { NotificationAnalytics } from './_components/notification-analytics';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { ContentLayout } from '@/components/layout/content-layout';
 
@@ -54,6 +55,10 @@ export default async function NotificationViewPage({
 
           <Suspense fallback={<div>Loading notification...</div>}>
             <NotificationView notificationId={id} />
+          </Suspense>
+
+          <Suspense fallback={<div>Loading analytics...</div>}>
+            <NotificationAnalytics notificationId={id} />
           </Suspense>
         </div>
       </ContentLayout>
