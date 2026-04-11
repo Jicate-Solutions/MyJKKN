@@ -71,6 +71,8 @@ export default function CheckInPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'checked_in' | 'not_checked_in'>('all');
   const [filterInstitution, setFilterInstitution] = useState<string>('all');
+  const [filterDepartment, setFilterDepartment] = useState<string>('all');
+  const [filterSemester, setFilterSemester] = useState<string>('all');
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(20);
 
@@ -122,61 +124,109 @@ export default function CheckInPage() {
     refetchInterval: 30_000,
   });
 
-  // Fetch institution mapping: email → institution name via profiles table
-  const { data: institutionMap } = useQuery({
-    queryKey: ['marathon-ops-institution-map', eventId],
+  // Fetch profile mapping: email → institution + department + semester
+  const { data: profileMap } = useQuery({
+    queryKey: ['marathon-ops-profile-map', eventId],
     queryFn: async () => {
       const supabase = createClientSupabaseClient();
-      // Get all JKKN emails from registrations, then match to profiles → institutions
       const { data } = await (supabase as any)
         .from('profiles')
-        .select('email, institution:institutions(id, name)')
+        .select(`
+          email, institution_id, department_id,
+          institution:institutions(id, name),
+          learner:learners_profiles(
+            department_id,
+            semester_id,
+            department:departments(id, department_name),
+            semester:semesters(id, semester_name)
+          )
+        `)
         .not('email', 'is', null)
         .not('institution_id', 'is', null);
 
-      // Build email → institution map
-      const map = new Map<string, { id: string; name: string }>();
+      const map = new Map<string, {
+        institution_id: string;
+        institution_name: string;
+        department_id: string | null;
+        department_name: string | null;
+        semester_id: string | null;
+        semester_name: string | null;
+      }>();
+
       for (const p of data ?? []) {
-        if (p.email && p.institution) {
-          map.set(p.email.toLowerCase(), {
-            id: (p.institution as any).id,
-            name: (p.institution as any).name,
-          });
-        }
+        if (!p.email || !p.institution) continue;
+        const learner = p.learner;
+        map.set(p.email.toLowerCase(), {
+          institution_id: (p.institution as any).id,
+          institution_name: (p.institution as any).name,
+          department_id: learner?.department?.id ?? null,
+          department_name: learner?.department?.department_name ?? null,
+          semester_id: learner?.semester?.id ?? null,
+          semester_name: learner?.semester?.semester_name ?? null,
+        });
       }
       return map;
     },
     enabled: !!eventId,
   });
 
-  // Enrich registrations with institution info
+  // Enrich registrations with institution + department + semester
   const enrichedRegistrations = useMemo(() => {
     if (!registrations) return [];
     return registrations.map((r: any) => {
-      const inst = r.participant_email
-        ? institutionMap?.get(r.participant_email.toLowerCase())
+      const profile = r.participant_email
+        ? profileMap?.get(r.participant_email.toLowerCase())
         : null;
       return {
         ...r,
-        _institution_name: inst?.name ?? null,
-        _institution_id: inst?.id ?? null,
+        _institution_name: profile?.institution_name ?? null,
+        _institution_id: profile?.institution_id ?? null,
+        _department_name: profile?.department_name ?? null,
+        _department_id: profile?.department_id ?? null,
+        _semester_name: profile?.semester_name ?? null,
+        _semester_id: profile?.semester_id ?? null,
       };
     });
-  }, [registrations, institutionMap]);
+  }, [registrations, profileMap]);
 
-  // Extract unique institutions for the filter dropdown
+  // Extract unique filter options (cascading)
   const institutionOptions = useMemo(() => {
-    const instMap = new Map<string, string>();
+    const map = new Map<string, string>();
     for (const r of enrichedRegistrations) {
       if (r._institution_id && r._institution_name) {
-        instMap.set(r._institution_id, r._institution_name);
+        map.set(r._institution_id, r._institution_name);
       }
     }
-    // Sort alphabetically
-    return Array.from(instMap.entries())
+    return Array.from(map.entries())
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [enrichedRegistrations]);
+
+  const departmentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of enrichedRegistrations) {
+      if (!r._department_id || !r._department_name) continue;
+      // Filter by selected institution
+      if (filterInstitution !== 'all' && filterInstitution !== '_external' && r._institution_id !== filterInstitution) continue;
+      map.set(r._department_id, r._department_name);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [enrichedRegistrations, filterInstitution]);
+
+  const semesterOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of enrichedRegistrations) {
+      if (!r._semester_id || !r._semester_name) continue;
+      if (filterInstitution !== 'all' && filterInstitution !== '_external' && r._institution_id !== filterInstitution) continue;
+      if (filterDepartment !== 'all' && r._department_id !== filterDepartment) continue;
+      map.set(r._semester_id, r._semester_name);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [enrichedRegistrations, filterInstitution, filterDepartment]);
 
   const handleScan = useCallback(
     async (bibNumber: string) => {
@@ -215,9 +265,13 @@ export default function CheckInPage() {
       // Institution filter
       if (filterInstitution === '_external' && r._institution_id) return false;
       if (filterInstitution !== 'all' && filterInstitution !== '_external' && r._institution_id !== filterInstitution) return false;
+      // Department filter
+      if (filterDepartment !== 'all' && r._department_id !== filterDepartment) return false;
+      // Semester filter
+      if (filterSemester !== 'all' && r._semester_id !== filterSemester) return false;
       return true;
     });
-  }, [enrichedRegistrations, searchQuery, filterStatus, filterInstitution]);
+  }, [enrichedRegistrations, searchQuery, filterStatus, filterInstitution, filterDepartment, filterSemester]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -229,7 +283,18 @@ export default function CheckInPage() {
   // Reset page when filters change
   useEffect(() => {
     setPageIndex(0);
-  }, [searchQuery, filterStatus, filterInstitution, pageSize]);
+  }, [searchQuery, filterStatus, filterInstitution, filterDepartment, filterSemester, pageSize]);
+
+  // Cascade reset: when institution changes, clear department + semester
+  useEffect(() => {
+    setFilterDepartment('all');
+    setFilterSemester('all');
+  }, [filterInstitution]);
+
+  // Cascade reset: when department changes, clear semester
+  useEffect(() => {
+    setFilterSemester('all');
+  }, [filterDepartment]);
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return '-';
@@ -252,6 +317,8 @@ export default function CheckInPage() {
       participant_phone: 'Phone',
       category: 'Category',
       institution: 'Institution',
+      department: 'Department',
+      semester: 'Semester',
       stall: 'Stall',
       tshirt_size: 'T-Shirt Size',
       checked_in_status: 'Checked In',
@@ -270,6 +337,8 @@ export default function CheckInPage() {
         participant_phone: r.participant_phone ?? '',
         category: r.category?.code ?? r.category?.name ?? '',
         institution: r._institution_name ? r._institution_name.replace('JKKN ', '') : 'External',
+        department: r._department_name ?? '',
+        semester: r._semester_name ?? '',
         stall: r.stall?.stall_name ?? 'Not Assigned',
         tshirt_size: (customData.tshirt_size as string) ?? '',
         checked_in_status: r.checked_in ? 'Yes' : 'No',
@@ -383,7 +452,7 @@ export default function CheckInPage() {
             {/* Filter bar */}
             <Card>
               <CardContent className="p-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
                   {/* Search input */}
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -411,6 +480,40 @@ export default function CheckInPage() {
                       ))}
                     </SelectContent>
                   </Select>
+
+                  {/* Department filter — only when institution selected */}
+                  {filterInstitution !== 'all' && filterInstitution !== '_external' && departmentOptions.length > 0 && (
+                    <Select value={filterDepartment} onValueChange={(v) => setFilterDepartment(v)}>
+                      <SelectTrigger className="w-full sm:w-[200px]">
+                        <SelectValue placeholder="Department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Departments</SelectItem>
+                        {departmentOptions.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {/* Semester filter — only when department selected */}
+                  {filterDepartment !== 'all' && semesterOptions.length > 0 && (
+                    <Select value={filterSemester} onValueChange={(v) => setFilterSemester(v)}>
+                      <SelectTrigger className="w-full sm:w-[160px]">
+                        <SelectValue placeholder="Semester" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Semesters</SelectItem>
+                        {semesterOptions.map((sem) => (
+                          <SelectItem key={sem.id} value={sem.id}>
+                            {sem.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
 
                   {/* Status filter */}
                   <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
