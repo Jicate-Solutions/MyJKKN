@@ -584,10 +584,22 @@ export const APPROVER_ROLE_LABELS: Record<ApproverRole, string> = {
 // TYPE GUARDS
 // =====================================================
 
+/**
+ * @deprecated Sub-categories are now DB-managed via leave_onduty_sub_categories.
+ * This guard only recognises the original seeded codes and will reject any
+ * admin-created codes. Use the useLeaveOndutySubCategories() hook to validate
+ * against the current list for an institution.
+ */
 export function isLeaveSubCategory(value: string): value is LeaveSubCategory {
   return ['casual', 'medical'].includes(value);
 }
 
+/**
+ * @deprecated Sub-categories are now DB-managed via leave_onduty_sub_categories.
+ * This guard only recognises the original seeded codes and will reject any
+ * admin-created codes. Use the useLeaveOndutySubCategories() hook to validate
+ * against the current list for an institution.
+ */
 export function isOndutySubCategory(value: string): value is OndutySubCategory {
   return ['event_participation', 'club_activities'].includes(value);
 }

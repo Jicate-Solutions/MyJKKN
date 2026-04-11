@@ -151,7 +151,7 @@ function getFlowColumns({
           </Badge>
           {subCategory && (
             <div className="text-xs text-muted-foreground capitalize">
-              {subCategory.replace('_', ' ')}
+              {subCategory.replace(/_/g, ' ')}
             </div>
           )}
         </div>
@@ -347,11 +347,12 @@ export default function FlowSettingsPage() {
 
   // Fetch admin-managed sub-categories — used both for the settings-page
   // approval flow builder dropdown AND for the Sub-Categories tab content
-  const { data: dbSubCategories } = useLeaveOndutySubCategories(
-    selectedInstitutionId || viewInstitutionId || null,
-    { activeOnly: true },
-    { enabled: true }
-  );
+  const { data: dbSubCategories, isLoading: dbSubCategoriesLoading } =
+    useLeaveOndutySubCategories(
+      selectedInstitutionId || viewInstitutionId || null,
+      { activeOnly: true },
+      { enabled: true }
+    );
 
   // Extract data from query results
   const degrees = degreesData?.data || [];
@@ -384,17 +385,19 @@ export default function FlowSettingsPage() {
   };
 
   // Get available sub-categories based on selected category.
-  // Prefers admin-managed DB rows; falls back to hard-coded constants
-  // when the DB table is empty (e.g., before the seed migration runs).
+  // Shows hard-coded constants ONLY while the DB query is still loading —
+  // never as a silent fallback after it resolves. If the admin intentionally
+  // has zero sub-categories for a category, the dropdown must reflect that.
   const getSubCategoryOptions = () => {
     if (category !== 'leave' && category !== 'onduty') return [];
 
-    const dbRows = (dbSubCategories || []).filter((r) => r.category === category);
-    if (dbRows.length > 0) {
-      return dbRows.map((r) => ({ value: r.code, label: r.name }));
+    if (dbSubCategoriesLoading) {
+      return category === 'leave' ? LEAVE_SUB_CATEGORIES : ONDUTY_SUB_CATEGORIES;
     }
 
-    return category === 'leave' ? LEAVE_SUB_CATEGORIES : ONDUTY_SUB_CATEGORIES;
+    return (dbSubCategories || [])
+      .filter((r) => r.category === category)
+      .map((r) => ({ value: r.code, label: r.name }));
   };
 
   // Reset sub-category when category changes
