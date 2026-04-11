@@ -637,3 +637,47 @@ export type CreateFlowInput = Omit<
 export type UpdateFlowInput = Partial<
   Omit<LeaveOndutyApprovalFlow, 'id' | 'created_at' | 'updated_at'>
 >;
+
+// =====================================================
+// SUB-CATEGORY MANAGEMENT (Admin-Managed Dynamic List)
+// =====================================================
+
+/**
+ * Leave/OnDuty Sub-Category Record
+ * Admin-managed sub-category, stored in leave_onduty_sub_categories table.
+ * The `code` field is what gets written to
+ * leave_onduty_applications.sub_category and leave_onduty_approval_flows.sub_category.
+ *
+ * Replaces the hard-coded LEAVE_SUB_CATEGORIES / ONDUTY_SUB_CATEGORIES constants
+ * above. Those constants remain as fallback when the DB table is empty.
+ */
+export interface LeaveOndutySubCategoryRecord {
+  id: string;
+  institution_id: string;
+  category: LeaveOndutyCategory;
+  code: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+
+  // Joined data (populated by services)
+  institution?: {
+    id: string;
+    name: string;
+  };
+}
+
+/**
+ * Sub-Category Form Data
+ * Used when creating or editing sub-categories via the admin UI.
+ */
+export interface SubCategoryFormData {
+  institution_id: string;
+  category: LeaveOndutyCategory;
+  code: string;
+  name: string;
+  description?: string | null;
+}

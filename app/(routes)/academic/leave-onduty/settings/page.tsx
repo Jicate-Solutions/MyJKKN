@@ -79,6 +79,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ApprovalFlowBuilder } from '@/components/academic/leave-onduty/approval-flow-builder';
+import { SubCategoriesManager } from '@/components/academic/leave-onduty/sub-categories-manager';
+import { useLeaveOndutySubCategories } from '@/hooks/academic/use-leave-onduty-sub-categories';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DataTable } from '@/components/ui/data-table';
@@ -342,6 +345,14 @@ export default function FlowSettingsPage() {
   const { data: flows, isLoading, error } = useFlowsByInstitution(viewInstitutionId);
   const { data: stats } = useFlowStatistics(viewInstitutionId || '');
 
+  // Fetch admin-managed sub-categories — used both for the settings-page
+  // approval flow builder dropdown AND for the Sub-Categories tab content
+  const { data: dbSubCategories } = useLeaveOndutySubCategories(
+    selectedInstitutionId || viewInstitutionId || null,
+    { activeOnly: true },
+    { enabled: true }
+  );
+
   // Extract data from query results
   const degrees = degreesData?.data || [];
   const departments = departmentsData?.data || [];
@@ -372,14 +383,18 @@ export default function FlowSettingsPage() {
     setFlowSteps([]);
   };
 
-  // Get available sub-categories based on selected category
+  // Get available sub-categories based on selected category.
+  // Prefers admin-managed DB rows; falls back to hard-coded constants
+  // when the DB table is empty (e.g., before the seed migration runs).
   const getSubCategoryOptions = () => {
-    if (category === 'leave') {
-      return LEAVE_SUB_CATEGORIES;
-    } else if (category === 'onduty') {
-      return ONDUTY_SUB_CATEGORIES;
+    if (category !== 'leave' && category !== 'onduty') return [];
+
+    const dbRows = (dbSubCategories || []).filter((r) => r.category === category);
+    if (dbRows.length > 0) {
+      return dbRows.map((r) => ({ value: r.code, label: r.name }));
     }
-    return [];
+
+    return category === 'leave' ? LEAVE_SUB_CATEGORIES : ONDUTY_SUB_CATEGORIES;
   };
 
   // Reset sub-category when category changes
@@ -613,6 +628,14 @@ export default function FlowSettingsPage() {
           )}
         </div>
 
+      {/* Tabs: Approval Workflows | Sub-Categories */}
+      <Tabs defaultValue="workflows" className="w-full">
+        <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsTrigger value="workflows">Approval Workflows</TabsTrigger>
+          <TabsTrigger value="sub-categories">Sub-Categories</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="workflows" className="mt-6 space-y-6">
       {/* Statistics */}
       {stats && stats.total_flows > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -692,6 +715,17 @@ export default function FlowSettingsPage() {
           />
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="sub-categories" className="mt-6">
+          <SubCategoriesManager
+            institutionId={viewInstitutionId}
+            currentUserId={profile?.id || null}
+            isSuperAdmin={isSuperAdmin}
+            institutions={institutions || []}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Create/Edit Flow Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={(open) => {
