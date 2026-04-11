@@ -46,13 +46,16 @@ import { usePermissions } from '@/hooks/use-permissions';
 
 // --- Types ---------------------------------------------------------------
 
+// NOTE: wire types match the API contract; see types/notifications.ts for the
+// authoritative shared definitions. These local interfaces are intentionally
+// scoped to this component.
 interface Audience {
   id: string;
   name: string;
   description?: string | null;
   icon?: string | null;
-  query_type?: 'built-in' | 'custom-sql' | string;
-  built_in_type?: string | null;
+  query_type?: 'built_in' | 'sql';
+  query_params?: { name?: string; sql?: string };
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
@@ -66,16 +69,16 @@ interface AudiencesResponse {
 interface PreviewUser {
   id: string;
   email?: string | null;
-  name?: string | null;
   full_name?: string | null;
   role?: string | null;
+  institution_name?: string | null;
 }
 
 interface PreviewResponse {
+  audience_id?: string;
+  name?: string;
   count?: number;
-  total?: number;
-  users?: PreviewUser[];
-  preview?: PreviewUser[];
+  preview_users?: PreviewUser[];
 }
 
 // --- Icon registry -------------------------------------------------------
@@ -94,7 +97,17 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 
 function getIcon(name?: string | null) {
   if (!name) return Users;
-  return ICON_MAP[name] ?? Users;
+  const Icon = ICON_MAP[name];
+  if (!Icon) {
+    // Surface unknown icon names in dev so typos don't silently fall back.
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `[audience-list] Unknown icon name "${name}"; falling back to Users. Add to ICON_MAP or update backend whitelist.`
+      );
+    }
+    return Users;
+  }
+  return Icon;
 }
 
 // --- API helpers ---------------------------------------------------------
@@ -149,13 +162,18 @@ export function AudienceList() {
   } = useQuery({
     queryKey: ['notification-audiences'],
     queryFn: fetchAudiences,
-    refetchInterval: 30_000,
-    staleTime: 15_000
+    // Audiences are admin-managed config that rarely change; polling every 30s
+    // burns network + battery on mobile. Rely on explicit invalidation after
+    // mutations (see deleteMutation.onSuccess) plus a long staleTime instead.
+    staleTime: 5 * 60 * 1000
   });
 
   const previewQuery = useQuery({
     queryKey: ['notification-audience-preview', previewId],
-    queryFn: () => fetchAudiencePreview(previewId as string),
+    queryFn: () => {
+      if (!previewId) throw new Error('Audience id missing');
+      return fetchAudiencePreview(previewId);
+    },
     enabled: !!previewId
   });
 
@@ -181,8 +199,14 @@ export function AudienceList() {
     );
   }, [audiences, search]);
 
-  const previewAudience = audiences.find((a) => a.id === previewId) || null;
-  const deleteAudienceData = audiences.find((a) => a.id === deleteId) || null;
+  const previewAudience = useMemo(
+    () => audiences.find((a) => a.id === previewId) || null,
+    [audiences, previewId]
+  );
+  const audienceToDelete = useMemo(
+    () => audiences.find((a) => a.id === deleteId) || null,
+    [audiences, deleteId]
+  );
 
   return (
     <div className='space-y-4 sm:space-y-6'>
@@ -193,7 +217,7 @@ export function AudienceList() {
             <h2 className='text-2xl sm:text-3xl font-bold tracking-tight'>
               Audiences
             </h2>
-            <p className='text-sm text-muted-foreground hidden sm:block'>
+            <p className='text-sm text-muted-foreground'>
               Manage saved audiences for targeted notifications
             </p>
           </div>
@@ -255,7 +279,7 @@ export function AudienceList() {
                           </CardTitle>
                           {audience.query_type && (
                             <p className='text-xs text-muted-foreground mt-0.5 truncate'>
-                              {audience.query_type === 'built-in'
+                              {audience.query_type === 'built_in'
                                 ? 'Built-in query'
                                 : 'Custom SQL'}
                             </p>
@@ -271,7 +295,10 @@ export function AudienceList() {
                     </div>
                   </CardHeader>
                   <CardContent className='flex-1 pb-3'>
-                    <CardDescription className='line-clamp-3 min-h-[3rem]'>
+                    {/* min-h must match line-clamp-3 * line-height (1.5rem) = 4.5rem
+                        so cards in the grid have consistent height regardless of
+                        how much description text is actually present. */}
+                    <CardDescription className='line-clamp-3 min-h-[4.5rem]'>
                       {audience.description || 'No description provided.'}
                     </CardDescription>
                   </CardContent>
@@ -338,19 +365,17 @@ export function AudienceList() {
               <>
                 <div className='flex items-center gap-2'>
                   <Badge variant='secondary'>
-                    {previewQuery.data.count ??
-                      previewQuery.data.total ??
-                      (previewQuery.data.users?.length ||
-                        previewQuery.data.preview?.length ||
-                        0)}{' '}
-                    users
+                    {/* Authoritative shape: API returns { count, preview_users }.
+                        The total count is always `count`; preview_users is the
+                        first 20 rows only. */}
+                    {previewQuery.data.count ?? 0} users
                   </Badge>
                   <span className='text-xs text-muted-foreground'>
                     Showing first 20
                   </span>
                 </div>
                 <div className='max-h-80 overflow-y-auto border rounded-md divide-y'>
-                  {(previewQuery.data.users || previewQuery.data.preview || [])
+                  {(previewQuery.data.preview_users || [])
                     .slice(0, 20)
                     .map((u, idx) => (
                       <div
@@ -359,7 +384,7 @@ export function AudienceList() {
                       >
                         <div className='min-w-0'>
                           <p className='font-medium truncate'>
-                            {u.full_name || u.name || u.email || u.id}
+                            {u.full_name || u.email || u.id}
                           </p>
                           {u.email && (
                             <p className='text-xs text-muted-foreground truncate'>
@@ -374,8 +399,7 @@ export function AudienceList() {
                         )}
                       </div>
                     ))}
-                  {(previewQuery.data.users || previewQuery.data.preview || [])
-                    .length === 0 && (
+                  {(previewQuery.data.preview_users || []).length === 0 && (
                     <p className='px-3 py-6 text-sm text-center text-muted-foreground'>
                       No users match this audience.
                     </p>
@@ -407,8 +431,8 @@ export function AudienceList() {
           <DialogHeader>
             <DialogTitle>Delete audience?</DialogTitle>
             <DialogDescription>
-              {deleteAudienceData
-                ? `"${deleteAudienceData.name}" will be soft-deleted and removed from the list. This action can be reversed by a database admin.`
+              {audienceToDelete
+                ? `"${audienceToDelete.name}" will be soft-deleted and removed from the list. This action can be reversed by a database admin.`
                 : 'This audience will be soft-deleted.'}
             </DialogDescription>
           </DialogHeader>

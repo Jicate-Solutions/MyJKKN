@@ -17,6 +17,40 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
+// Allowlist for notification.url / notification.icon. Relative paths are
+// permitted (same-origin). Absolute URLs must hit a known JKKN host so an
+// attacker can't plant a phishing link via a notification payload.
+const NOTIFICATION_LINK_ALLOWLIST = new Set<string>([
+  'jkkn.ac.in',
+  'www.jkkn.ac.in',
+  'myjkkn.com',
+  'www.myjkkn.com',
+  'app.jkkn.ac.in'
+]);
+
+function isAllowedNotificationLink(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) {
+    return true; // empty / undefined is fine — no link set
+  }
+  // Relative paths are always same-origin.
+  if (value.startsWith('/') && !value.startsWith('//')) {
+    return true;
+  }
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (NOTIFICATION_LINK_ALLOWLIST.has(host)) return true;
+    // Allow any subdomain of jkkn.ac.in (e.g. marathon.jkkn.ac.in)
+    if (host === 'jkkn.ac.in' || host.endsWith('.jkkn.ac.in')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: NextRequest) {
   await connection();
   try {
@@ -67,7 +101,64 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create the notification record
+    // Validate notification.url and notification.icon — these render in the
+    // OS push notification and open when clicked, so an attacker-controlled
+    // URL = one-click phishing from an official JKKN notification. Restrict
+    // to known-good hosts plus relative paths (same-origin).
+    if (notificationData.url && !isAllowedNotificationLink(notificationData.url)) {
+      return NextResponse.json(
+        { error: 'notification url must be same-origin or an allowed host' },
+        { status: 400 }
+      );
+    }
+    if (notificationData.icon && !isAllowedNotificationLink(notificationData.icon)) {
+      return NextResponse.json(
+        { error: 'notification icon must be same-origin or an allowed host' },
+        { status: 400 }
+      );
+    }
+
+    // Find target users BEFORE creating the notification row so we don't
+    // leave orphan "ghost notifications" in the table when targeting resolves
+    // to zero users. This also lets us fail-closed when an audience-only
+    // target fails to resolve.
+    const targetingResult = await findTargetUsers(
+      supabase,
+      notificationData.targeting
+    );
+
+    const targetUsers = targetingResult.userIds;
+    const failedAudiences = targetingResult.failedAudiences;
+
+    if (targetUsers.length === 0) {
+      return NextResponse.json(
+        {
+          error: 'No users found matching the targeting criteria',
+          failed_audiences: failedAudiences.length ? failedAudiences : undefined
+        },
+        { status: 400 }
+      );
+    }
+
+    // If any audience failed to resolve AND the admin asked for audience
+    // targeting, fail-closed — silent partial delivery is worse than a clear
+    // error. The admin can re-submit after investigating.
+    if (
+      failedAudiences.length > 0 &&
+      notificationData.targeting?.audience_ids &&
+      notificationData.targeting.audience_ids.length > 0
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'One or more audiences failed to resolve. No notification was sent.',
+          failed_audiences: failedAudiences
+        },
+        { status: 500 }
+      );
+    }
+
+    // Create the notification record now that targeting is confirmed.
     const { data: notification, error: notificationError } = await supabase
       .from('notifications')
       .insert({
@@ -92,19 +183,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Failed to create notification' },
         { status: 500 }
-      );
-    }
-
-    // Find target users based on criteria
-    const targetUsers = await findTargetUsers(
-      supabase,
-      notificationData.targeting
-    );
-
-    if (targetUsers.length === 0) {
-      return NextResponse.json(
-        { error: 'No users found matching the targeting criteria' },
-        { status: 400 }
       );
     }
 
@@ -153,23 +231,67 @@ export async function POST(request: NextRequest) {
   }
 }
 
+interface TargetingResult {
+  userIds: string[];
+  failedAudiences: string[];
+}
+
 async function findTargetUsers(
   supabase: any,
   targeting: any
-): Promise<string[]> {
-  // NEW: Resolve saved audiences first — merge their user_ids into the result
+): Promise<TargetingResult> {
+  const failedAudiences: string[] = [];
+
+  // Resolve saved audiences in parallel — sequential RPC calls on a request
+  // path add up quickly and can exceed serverless timeouts.
+  //
+  // resolve_audience is SECURITY DEFINER and only granted to service_role,
+  // so we must use the service client here — the authenticated session client
+  // cannot execute it.
   const audienceUserIds = new Set<string>();
-  if (targeting.audience_ids && Array.isArray(targeting.audience_ids) && targeting.audience_ids.length > 0) {
-    for (const audienceId of targeting.audience_ids) {
-      const { data, error } = await supabase.rpc('resolve_audience', { p_audience_id: audienceId });
-      if (error) {
-        console.error('[notifications/send] Failed to resolve audience:', audienceId, error);
+  const rawAudienceIds = Array.isArray(targeting?.audience_ids)
+    ? (targeting.audience_ids as any[]).filter(
+        (v): v is string => typeof v === 'string' && v.length > 0
+      )
+    : [];
+
+  if (rawAudienceIds.length > 0) {
+    const serviceClient = createServiceRoleClient();
+    const resolveResults = await Promise.allSettled(
+      rawAudienceIds.map((audienceId) =>
+        (serviceClient as any)
+          .rpc('resolve_audience', { p_audience_id: audienceId })
+          .then((result: any) => ({ audienceId, ...result }))
+      )
+    );
+
+    for (const r of resolveResults) {
+      if (r.status !== 'fulfilled') {
+        console.error('[notifications/send] resolve_audience threw:', r.reason);
+        failedAudiences.push('unknown');
         continue;
       }
+      const { audienceId, data, error } = r.value;
+      if (error) {
+        console.error(
+          '[notifications/send] Failed to resolve audience:',
+          audienceId,
+          error
+        );
+        failedAudiences.push(audienceId);
+        continue;
+      }
+      // Authoritative shape: { user_ids: string[], count: number }
       if (data?.user_ids && Array.isArray(data.user_ids)) {
         for (const uid of data.user_ids) {
-          if (uid) audienceUserIds.add(uid);
+          if (typeof uid === 'string' && uid) audienceUserIds.add(uid);
         }
+      } else {
+        console.warn(
+          '[notifications/send] resolve_audience returned unexpected shape for',
+          audienceId
+        );
+        failedAudiences.push(audienceId);
       }
     }
   }
@@ -187,7 +309,7 @@ async function findTargetUsers(
 
   // If ONLY audiences are specified, return those directly
   if (hasAudienceTargeting && !hasLocationTargeting && !hasRoleTargeting) {
-    return Array.from(audienceUserIds);
+    return { userIds: Array.from(audienceUserIds), failedAudiences };
   }
 
   // If no specific targeting criteria, send to all users
@@ -199,10 +321,13 @@ async function findTargetUsers(
 
     if (error) {
       console.error('Error finding all users:', error);
-      return [];
+      return { userIds: [], failedAudiences };
     }
 
-    return data?.map((item: any) => item.id).filter(Boolean) || [];
+    return {
+      userIds: data?.map((item: any) => item.id).filter(Boolean) || [],
+      failedAudiences
+    };
   }
 
   // If only role targeting (no location targeting)
@@ -215,10 +340,16 @@ async function findTargetUsers(
 
     if (error) {
       console.error('Error finding users by role:', error);
-      return [];
+      return { userIds: [], failedAudiences };
     }
 
-    return data?.map((item: any) => item.id).filter(Boolean) || [];
+    const ids: string[] =
+      data?.map((item: any) => item.id).filter(Boolean) || [];
+    // Merge audience user_ids (deduplicated) — audience + role = union
+    for (const uid of audienceUserIds) {
+      if (!ids.includes(uid)) ids.push(uid);
+    }
+    return { userIds: ids, failedAudiences };
   }
 
   // If only institution targeting, get all profiles for that institution
@@ -243,7 +374,7 @@ async function findTargetUsers(
 
     if (error) {
       console.error('Error finding target users by institution:', error);
-      return [];
+      return { userIds: [], failedAudiences };
     }
 
     const userIds: string[] =
@@ -275,58 +406,81 @@ async function findTargetUsers(
     for (const uid of audienceUserIds) {
       if (!userIds.includes(uid)) userIds.push(uid);
     }
-    return userIds;
+    return { userIds, failedAudiences };
   }
 
-  // For department/program/semester/section targeting, use students table
-  let query = (supabase as any).from('learners_profiles').select('college_email');
+  // For department/program/semester/section targeting, use students table.
+  // NOTE: learners_profiles only holds students. If the caller specified
+  // target_roles that DOES NOT include 'student', we should NOT pull student
+  // rows here — branch 3 (role-only) already handled that case via profiles.
+  // Historically this branch silently ignored target_roles, blasting every
+  // student in the org unit regardless of role intent.
+  const roleRequestedNonStudent =
+    hasRoleTargeting &&
+    !targeting.target_roles.includes('student') &&
+    !targeting.target_roles.includes('all');
 
-  if (targeting.institution_id) {
-    query = query.eq('institution_id', targeting.institution_id);
-  }
-  if (targeting.department_id) {
-    query = query.eq('department_id', targeting.department_id);
-  }
-  if (targeting.program_id) {
-    query = query.eq('program_id', targeting.program_id);
-  }
-  if (targeting.semester_id) {
-    query = query.eq('semester_id', targeting.semester_id);
-  }
-  if (targeting.section_id) {
-    query = query.eq('section_id', targeting.section_id);
+  let studentIds: string[] = [];
+
+  if (!roleRequestedNonStudent) {
+    let query = (supabase as any).from('learners_profiles').select('college_email');
+
+    if (targeting.institution_id) {
+      query = query.eq('institution_id', targeting.institution_id);
+    }
+    if (targeting.department_id) {
+      query = query.eq('department_id', targeting.department_id);
+    }
+    if (targeting.program_id) {
+      query = query.eq('program_id', targeting.program_id);
+    }
+    if (targeting.semester_id) {
+      query = query.eq('semester_id', targeting.semester_id);
+    }
+    if (targeting.section_id) {
+      query = query.eq('section_id', targeting.section_id);
+    }
+
+    const { data: students, error: studentsError } = await query;
+
+    if (studentsError) {
+      console.error('Error finding target students:', studentsError);
+      return { userIds: [], failedAudiences };
+    }
+
+    if (students && students.length > 0) {
+      const emails = students
+        .map((s: any) => s.college_email)
+        .filter(Boolean);
+
+      if (emails.length > 0) {
+        // Filter the profiles join by role when a role filter is in effect.
+        // Previously this query ignored target_roles entirely, so "department
+        // CSE + target_roles=['faculty']" returned all CSE students instead
+        // of zero — exactly the wrong audience.
+        let profileQuery = supabase
+          .from('profiles')
+          .select('id')
+          .in('email', emails);
+
+        if (hasRoleTargeting) {
+          profileQuery = profileQuery.in('role', targeting.target_roles);
+        }
+
+        const { data: profiles, error: profilesError } = await profileQuery;
+
+        if (profilesError) {
+          console.error('Error finding profiles for students:', profilesError);
+          return { userIds: [], failedAudiences };
+        }
+
+        studentIds =
+          profiles?.map((p: any) => p.id).filter(Boolean) || [];
+      }
+    }
   }
 
-  const { data: students, error: studentsError } = await query;
-
-  if (studentsError) {
-    console.error('Error finding target students:', studentsError);
-    return [];
-  }
-
-  if (!students || students.length === 0) {
-    return [];
-  }
-
-  // Get profile IDs for these students using their college emails
-  const emails = students.map((s: any) => s.college_email).filter(Boolean);
-
-  if (emails.length === 0) {
-    return [];
-  }
-
-  const { data: profiles, error: profilesError } = await supabase
-    .from('profiles')
-    .select('id')
-    .in('email', emails);
-
-  if (profilesError) {
-    console.error('Error finding profiles for students:', profilesError);
-    return [];
-  }
-
-  const userIds: string[] =
-    profiles?.map((p: any) => p.id).filter(Boolean) || [];
+  const userIds: string[] = [...studentIds];
 
   // Include super_admins when targeted (they have null institution_id)
   if (
@@ -352,7 +506,7 @@ async function findTargetUsers(
   for (const uid of audienceUserIds) {
     if (!userIds.includes(uid)) userIds.push(uid);
   }
-  return userIds;
+  return { userIds, failedAudiences };
 }
 
 interface PushDeliveryDetail {
