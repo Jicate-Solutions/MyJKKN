@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import * as z from 'zod';
 import {
   Form,
@@ -81,6 +83,7 @@ const notificationSchema = z.object({
   semester_id: z.string().optional(),
   section_id: z.string().optional(),
   target_roles: z.array(z.string()).optional(),
+  audience_ids: z.array(z.string()).optional(),
   // Mandatory acknowledgment fields
   requires_acknowledgment: z.boolean().optional(),
   acknowledgment_deadline_hours: z.number().min(1).max(168).optional()
@@ -167,6 +170,7 @@ export function NotificationForm() {
       semester_id: undefined,
       section_id: undefined,
       target_roles: [],
+      audience_ids: [],
       requires_acknowledgment: false,
       acknowledgment_deadline_hours: 4
     }
@@ -238,6 +242,17 @@ export function NotificationForm() {
       description: role.description
     })) || [];
 
+  // Fetch saved audiences
+  const { data: audiences } = useQuery({
+    queryKey: ['notification-audiences'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/notifications/audiences', { cache: 'no-store' });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.audiences || data || [];
+    }
+  });
+
   // Get degree_id from selected department (after departments are fetched)
   const selectedDepartment = departments.find(
     (d: any) => d.id === selectedDepartmentId
@@ -286,6 +301,7 @@ export function NotificationForm() {
     form.setValue('semester_id', undefined);
     form.setValue('section_id', undefined);
     form.setValue('target_roles', []);
+    form.setValue('audience_ids', []);
   };
 
   const onSubmit = async (data: NotificationFormData) => {
@@ -299,7 +315,8 @@ export function NotificationForm() {
         !data.program_id &&
         !data.semester_id &&
         !data.section_id &&
-        (!data.target_roles || data.target_roles.length === 0);
+        (!data.target_roles || data.target_roles.length === 0) &&
+        (!data.audience_ids || data.audience_ids.length === 0);
 
       if (isTargetingAll && !canSendToAll) {
         toast.error(
@@ -349,6 +366,10 @@ export function NotificationForm() {
           target_roles:
             data.target_roles && data.target_roles.length > 0
               ? data.target_roles
+              : undefined,
+          audience_ids:
+            data.audience_ids && data.audience_ids.length > 0
+              ? data.audience_ids
               : undefined
         },
         requires_acknowledgment: data.requires_acknowledgment || false,
@@ -476,6 +497,14 @@ export function NotificationForm() {
         return role?.label || roleValue;
       });
       targets.push(`Roles: ${roleLabels.join(', ')}`);
+    }
+
+    if (watchedValues.audience_ids && watchedValues.audience_ids.length > 0) {
+      const audienceLabels = watchedValues.audience_ids.map((audienceId: string) => {
+        const audience = (audiences || []).find((a: any) => a.id === audienceId);
+        return audience?.name || audienceId;
+      });
+      targets.push(`Audiences: ${audienceLabels.join(', ')}`);
     }
 
     if (targets.length > 0) {
@@ -874,6 +903,53 @@ export function NotificationForm() {
                 />
               </div>
 
+              {/* Saved Audiences */}
+              <div>
+                <h4 className='text-md font-medium mb-3 flex items-center gap-2'>
+                  <Users className='h-4 w-4' />
+                  Saved Audiences (Optional)
+                </h4>
+                <p className='text-sm text-muted-foreground mb-3'>
+                  Target predefined groups like &quot;Hostel Residents&quot;, &quot;Work Pulse Laggards&quot;, etc.
+                  <Link href='/admin/notifications/audiences' className='ml-2 text-primary hover:underline'>
+                    Manage audiences →
+                  </Link>
+                </p>
+                <FormField
+                  control={form.control}
+                  name='audience_ids'
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
+                        {(audiences || []).map((audience: any) => (
+                          <div key={audience.id} className='flex items-start gap-2 p-3 border rounded-lg hover:bg-muted/50'>
+                            <Checkbox
+                              id={audience.id}
+                              checked={field.value?.includes(audience.id) || false}
+                              onCheckedChange={(checked) => {
+                                const current = field.value || [];
+                                field.onChange(
+                                  checked ? [...current, audience.id] : current.filter((id: string) => id !== audience.id)
+                                );
+                              }}
+                            />
+                            <div className='flex-1 min-w-0'>
+                              <label htmlFor={audience.id} className='text-sm font-medium cursor-pointer'>
+                                {audience.name}
+                              </label>
+                              {audience.description && (
+                                <p className='text-xs text-muted-foreground truncate'>{audience.description}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               {/* Role-based Targeting */}
               <div>
                 <h4 className='text-md font-medium mb-3'>
@@ -982,7 +1058,9 @@ export function NotificationForm() {
                       watchedValues.semester_id ||
                       watchedValues.section_id ||
                       (watchedValues.target_roles &&
-                        watchedValues.target_roles.length > 0)) && (
+                        watchedValues.target_roles.length > 0) ||
+                      (watchedValues.audience_ids &&
+                        watchedValues.audience_ids.length > 0)) && (
                       <Button
                         type='button'
                         variant='ghost'

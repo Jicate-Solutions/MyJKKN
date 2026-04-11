@@ -157,7 +157,10 @@ async function findTargetUsers(
   supabase: any,
   targeting: any
 ): Promise<string[]> {
-  // Check if only role targeting is specified
+  // Accumulate user IDs from all targeting sources; Set handles dedup.
+  const allUserIds = new Set<string>();
+
+  // Detect which targeting modes are in play
   const hasLocationTargeting =
     targeting.institution_id ||
     targeting.department_id ||
@@ -166,9 +169,39 @@ async function findTargetUsers(
     targeting.section_id;
   const hasRoleTargeting =
     targeting.target_roles && targeting.target_roles.length > 0;
+  const hasAudienceTargeting =
+    targeting.audience_ids &&
+    Array.isArray(targeting.audience_ids) &&
+    targeting.audience_ids.length > 0;
 
-  // If no specific targeting criteria, send to all users
-  if (!hasLocationTargeting && !hasRoleTargeting) {
+  // 1) Resolve saved audiences first (if any)
+  if (hasAudienceTargeting) {
+    for (const audienceId of targeting.audience_ids) {
+      const { data, error } = await supabase.rpc('resolve_audience', {
+        p_audience_id: audienceId
+      });
+
+      if (error) {
+        console.error('Failed to resolve audience:', audienceId, error);
+        continue;
+      }
+
+      if (data?.user_ids && Array.isArray(data.user_ids)) {
+        for (const uid of data.user_ids) {
+          if (uid) allUserIds.add(uid);
+        }
+      }
+    }
+
+    // If audiences were the ONLY targeting mode, short-circuit and return.
+    // Otherwise fall through so location/role targeting gets unioned in.
+    if (!hasLocationTargeting && !hasRoleTargeting) {
+      return Array.from(allUserIds);
+    }
+  }
+
+  // 2) If no specific targeting criteria, send to all users
+  if (!hasLocationTargeting && !hasRoleTargeting && !hasAudienceTargeting) {
     const { data, error } = await supabase
       .from('profiles')
       .select('id')
@@ -176,13 +209,16 @@ async function findTargetUsers(
 
     if (error) {
       console.error('Error finding all users:', error);
-      return [];
+      return Array.from(allUserIds);
     }
 
-    return data?.map((item: any) => item.id).filter(Boolean) || [];
+    for (const item of data || []) {
+      if (item?.id) allUserIds.add(item.id);
+    }
+    return Array.from(allUserIds);
   }
 
-  // If only role targeting (no location targeting)
+  // 3) If only role targeting (no location targeting)
   if (!hasLocationTargeting && hasRoleTargeting) {
     const { data, error } = await supabase
       .from('profiles')
@@ -192,13 +228,16 @@ async function findTargetUsers(
 
     if (error) {
       console.error('Error finding users by role:', error);
-      return [];
+      return Array.from(allUserIds);
     }
 
-    return data?.map((item: any) => item.id).filter(Boolean) || [];
+    for (const item of data || []) {
+      if (item?.id) allUserIds.add(item.id);
+    }
+    return Array.from(allUserIds);
   }
 
-  // If only institution targeting, get all profiles for that institution
+  // 4) If only institution targeting, get all profiles for that institution
   if (
     targeting.institution_id &&
     !targeting.department_id &&
@@ -220,11 +259,12 @@ async function findTargetUsers(
 
     if (error) {
       console.error('Error finding target users by institution:', error);
-      return [];
+      return Array.from(allUserIds);
     }
 
-    const userIds: string[] =
-      data?.map((item: any) => item.id).filter(Boolean) || [];
+    for (const item of data || []) {
+      if (item?.id) allUserIds.add(item.id);
+    }
 
     // Super admins have institution_id = null, so they're excluded by the
     // institution filter above. Always include them when super_admin is
@@ -241,17 +281,15 @@ async function findTargetUsers(
 
       if (superAdmins) {
         for (const sa of superAdmins) {
-          if (sa.id && !userIds.includes(sa.id)) {
-            userIds.push(sa.id);
-          }
+          if (sa?.id) allUserIds.add(sa.id);
         }
       }
     }
 
-    return userIds;
+    return Array.from(allUserIds);
   }
 
-  // For department/program/semester/section targeting, use students table
+  // 5) For department/program/semester/section targeting, use students table
   let query = (supabase as any).from('learners_profiles').select('college_email');
 
   if (targeting.institution_id) {
@@ -274,18 +312,18 @@ async function findTargetUsers(
 
   if (studentsError) {
     console.error('Error finding target students:', studentsError);
-    return [];
+    return Array.from(allUserIds);
   }
 
   if (!students || students.length === 0) {
-    return [];
+    return Array.from(allUserIds);
   }
 
   // Get profile IDs for these students using their college emails
   const emails = students.map((s: any) => s.college_email).filter(Boolean);
 
   if (emails.length === 0) {
-    return [];
+    return Array.from(allUserIds);
   }
 
   const { data: profiles, error: profilesError } = await supabase
@@ -295,11 +333,12 @@ async function findTargetUsers(
 
   if (profilesError) {
     console.error('Error finding profiles for students:', profilesError);
-    return [];
+    return Array.from(allUserIds);
   }
 
-  const userIds: string[] =
-    profiles?.map((p: any) => p.id).filter(Boolean) || [];
+  for (const p of profiles || []) {
+    if (p?.id) allUserIds.add(p.id);
+  }
 
   // Include super_admins when targeted (they have null institution_id)
   if (
@@ -314,14 +353,12 @@ async function findTargetUsers(
 
     if (superAdmins) {
       for (const sa of superAdmins) {
-        if (sa.id && !userIds.includes(sa.id)) {
-          userIds.push(sa.id);
-        }
+        if (sa?.id) allUserIds.add(sa.id);
       }
     }
   }
 
-  return userIds;
+  return Array.from(allUserIds);
 }
 
 interface PushDeliveryDetail {
