@@ -51,37 +51,21 @@ export class MarathonCommitteeService {
 
   /**
    * Create a new committee for an event.
+   * Uses API route with service role to bypass RLS issues.
    */
   static async createCommittee(dto: CreateMarathonCommitteeDto): Promise<MarathonCommittee> {
     try {
-      const insertPayload = {
-        event_id: dto.event_id,
-        name: dto.name,
-        description: dto.description ?? null,
-        lead_id: dto.lead_id ?? null,
-        lead_name: dto.lead_name ?? null,
-        member_ids: dto.member_ids ?? [],
-        member_names: dto.member_names ?? [],
-        status: 'active',
-      };
+      const res = await fetch(`/api/events/marathon/${dto.event_id}/committees`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dto),
+      });
 
-      const { data, error } = await (this.supabase as any)
-        .from('marathon_committees')
-        .insert([insertPayload])
-        .select('*');
+      const result = await res.json();
 
-      if (error) {
-        logger.error('events/marathon-committee', 'Failed to create committee', error);
-        throw error;
-      }
-
-      // Use first row — multiple SELECT policies can cause duplicate rows in RETURNING
-      const created = Array.isArray(data) ? data[0] : data;
-
-      if (!created) {
-        // INSERT succeeded but RLS blocked the read-back — return a minimal object from the DTO
-        logger.warn('events/marathon-committee', 'Committee created but read-back was empty (RLS). Returning DTO fallback.');
-        return { ...insertPayload, id: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString() } as unknown as MarathonCommittee;
+      if (!res.ok) {
+        logger.error('events/marathon-committee', 'Failed to create committee', result);
+        throw new Error(result.error ?? 'Failed to create committee');
       }
 
       logger.info('events/marathon-committee', 'Committee created', {
@@ -89,7 +73,7 @@ export class MarathonCommitteeService {
         name: dto.name,
       });
 
-      return created as unknown as MarathonCommittee;
+      return result as MarathonCommittee;
     } catch (error) {
       logger.error('events/marathon-committee', 'Unexpected error in createCommittee', error);
       throw error;
@@ -98,35 +82,35 @@ export class MarathonCommitteeService {
 
   /**
    * Update committee fields.
+   * Uses API route with service role to bypass RLS issues.
    */
   static async updateCommittee(
     id: string,
     dto: Partial<MarathonCommittee>
   ): Promise<MarathonCommittee> {
     try {
-      // Strip joined fields before update
-      const { tasks: _t, ...updatePayload } = dto as any;
-
-      const { data, error } = await (this.supabase as any)
-        .from('marathon_committees')
-        .update(updatePayload)
-        .eq('id', id)
-        .select('*');
-
-      if (error) {
-        logger.error('events/marathon-committee', 'Failed to update committee', { id, error });
-        throw error;
+      // Extract event_id for the API route
+      const eventId = (dto as any).event_id;
+      if (!eventId) {
+        throw new Error('event_id is required for committee update');
       }
 
-      // Use first row — multiple SELECT policies can cause duplicate rows in RETURNING
-      const updated = Array.isArray(data) ? data[0] : data;
+      const { tasks: _t, ...cleanPayload } = dto as any;
 
-      if (!updated) {
-        logger.warn('events/marathon-committee', 'Committee updated but read-back was empty (RLS).');
-        return { id, ...updatePayload } as unknown as MarathonCommittee;
+      const res = await fetch(`/api/events/marathon/${eventId}/committees`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...cleanPayload }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        logger.error('events/marathon-committee', 'Failed to update committee', result);
+        throw new Error(result.error ?? 'Failed to update committee');
       }
 
-      return updated as unknown as MarathonCommittee;
+      return result as MarathonCommittee;
     } catch (error) {
       logger.error('events/marathon-committee', 'Unexpected error in updateCommittee', error);
       throw error;
