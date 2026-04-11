@@ -852,7 +852,7 @@ function CommitteeDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-auto p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit Committee' : 'Add Committee'}</DialogTitle>
           <DialogDescription>
@@ -910,7 +910,7 @@ function CommitteeDialog({
           </div>
 
           {/* Filters */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">Institution</Label>
               <select
@@ -1030,18 +1030,18 @@ function CommitteeDialog({
                   return (
                     <div
                       key={person.id}
-                      className="flex items-center justify-between p-2 hover:bg-muted/50"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 hover:bg-muted/50"
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{person.name}</p>
                         <p className="text-xs text-muted-foreground truncate">{person.subtitle}</p>
                       </div>
-                      <div className="flex gap-1 shrink-0">
+                      <div className="flex gap-1.5 shrink-0">
                         <Button
                           type="button"
                           size="sm"
                           variant={isLead ? 'default' : 'outline'}
-                          className="h-7 text-xs"
+                          className="h-8 text-xs flex-1 sm:flex-none"
                           onClick={() => setAsLead(person)}
                         >
                           {isLead ? '★ Lead' : 'Set Lead'}
@@ -1050,7 +1050,7 @@ function CommitteeDialog({
                           type="button"
                           size="sm"
                           variant={isSelected ? 'default' : 'outline'}
-                          className="h-7 text-xs"
+                          className="h-8 text-xs flex-1 sm:flex-none"
                           onClick={() => toggleMember(person)}
                         >
                           {isSelected ? 'Added' : 'Add'}
@@ -1091,13 +1091,14 @@ function CommitteeDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={isPending}>
+        <DialogFooter className="flex-col-reverse sm:flex-row gap-2 sm:gap-0">
+          <Button variant="outline" onClick={onClose} disabled={isPending} className="w-full sm:w-auto">
             Cancel
           </Button>
           <Button
             onClick={handleSubmit}
             disabled={isPending || !form.name?.trim()}
+            className="w-full sm:w-auto"
           >
             {isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
             {isEdit ? 'Save Changes' : 'Create Committee'}
