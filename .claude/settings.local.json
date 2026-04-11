@@ -245,7 +245,9 @@
       "mcp__exotel__getNumberMetadata",
       "WebFetch(domain:developer.exotel.com)",
       "mcp__exotel__getVoiceCallCallbacks",
-      "mcp__exotel__getBulkCallDetails"
+      "mcp__exotel__getBulkCallDetails",
+      "Read(//Users/omm/.claude/skills/fresh-eyes/reports/myjkkn-lo-subcats/20260411-201959/**)",
+      "Bash(mkdir -p /Users/omm/.claude/skills/fresh-eyes/reports/myjkkn-lo-subcats/20260411-201959/)"
     ],
     "deny": [],
     "ask": []
