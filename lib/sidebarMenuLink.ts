@@ -454,6 +454,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learn/profile': 'pde.profile.view',
   '/learn/leaderboard': 'pde.leaderboard.view',
 
+  // PDE (Principal Development Engine) — Learning
+  '/learn/quests': 'pde.quests.view',
+  '/learn/capabilities': 'pde.capabilities.view',
+  '/learn/build': 'pde.build.view',
+  '/learn/channels': 'pde.channels.view',
+  '/learn/profile': 'pde.profile.view',
+  '/learn/leaderboard': 'pde.leaderboard.view',
+
   // Startup Studio
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
