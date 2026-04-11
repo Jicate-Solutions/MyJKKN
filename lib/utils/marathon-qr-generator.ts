@@ -9,12 +9,44 @@ export interface QRGeneratorInput {
 }
 
 /**
+ * Render a single line of text as PNG using a minimal SVG.
+ * Each SVG is tiny and self-contained — librsvg handles these reliably
+ * even on Vercel's minimal runtime.
+ */
+async function textToPng(
+  text: string,
+  fontSize: number,
+  color: string,
+  bold = false,
+  mono = false,
+): Promise<{ buffer: Buffer; width: number; height: number }> {
+  const esc = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&apos;');
+
+  const font = mono ? 'monospace' : 'sans-serif';
+  const weight = bold ? 'font-weight="bold"' : '';
+  // Estimate width: ~0.6 * fontSize per char for sans, ~0.6 for mono
+  const estimatedWidth = Math.ceil(text.length * fontSize * 0.65) + 20;
+  const h = Math.ceil(fontSize * 1.6);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${estimatedWidth}" height="${h}">
+<text x="0" y="${Math.ceil(fontSize * 1.15)}" font-family="${font}" font-size="${fontSize}" ${weight} fill="${color}">${esc(text)}</text>
+</svg>`;
+
+  const raw = await sharp(Buffer.from(svg)).png().toBuffer();
+  // Trim transparent padding to get actual text dimensions
+  const trimmed = await sharp(raw).trim().png().toBuffer();
+  const meta = await sharp(trimmed).metadata();
+
+  return { buffer: trimmed, width: meta.width ?? 50, height: meta.height ?? 20 };
+}
+
+/**
  * Generates a branded QR code PNG for a marathon participant.
  *
- * Approach: Generate QR as SVG string, embed it inside a full SVG
- * document with text, then render the entire SVG to PNG via sharp.
- * This uses librsvg (NOT Pango) for text rendering, which handles
- * fonts differently and works on Vercel's serverless environment.
+ * Strategy: QR as raster PNG + each text line as individually rendered
+ * SVG→PNG (trimmed). All layers composited onto a white canvas.
+ * This avoids any font/scaling issues on serverless environments.
  */
 export async function generateMarathonQR(input: QRGeneratorInput): Promise<Buffer> {
   const { bibNumber, participantName, stallCode, eventName } = input;
@@ -22,108 +54,79 @@ export async function generateMarathonQR(input: QRGeneratorInput): Promise<Buffe
   const W = 400;
   const H = 540;
   const QR_SIZE = 260;
-  const QR_X = (W - QR_SIZE) / 2;
 
-  // 1. Generate QR code as SVG string
-  const qrSvgString = await QRCode.toString(bibNumber.startsWith('BIB:') ? bibNumber : `BIB:${bibNumber}`, {
-    type: 'svg',
-    width: QR_SIZE,
-    margin: 1,
-    errorCorrectionLevel: 'M',
-    color: { dark: '#000000', light: '#ffffff' },
-  });
+  // 1. Generate QR as PNG raster
+  const qrBuffer = await QRCode.toBuffer(
+    bibNumber.startsWith('BIB:') ? bibNumber : `BIB:${bibNumber}`,
+    { type: 'png', width: QR_SIZE, margin: 1, errorCorrectionLevel: 'M' }
+  );
 
-  // Extract viewBox dimensions and inner SVG content
-  const viewBoxMatch = qrSvgString.match(/viewBox="0 0 (\d+) (\d+)"/);
-  const qrNativeSize = viewBoxMatch ? parseInt(viewBoxMatch[1]) : 33;
-  const qrScale = QR_SIZE / qrNativeSize;
-
-  const innerQr = qrSvgString
-    .replace(/<\?xml[^?]*\?>\s*/g, '')
-    .replace(/<svg[^>]*>/, '')
-    .replace(/<\/svg>/, '');
-
-  // 2. Escape text for XML
-  const esc = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&apos;').replace(/"/g, '&quot;');
-
+  // 2. Render text lines
   const truncName = participantName.length > 35
     ? participantName.slice(0, 35) + '...'
     : participantName;
 
-  // 3. Calculate vertical positions
-  let y = 30; // Event name
-  const eventNameY = y;
-  y = 50; // QR starts
-  const qrY = y;
-  y = qrY + QR_SIZE + 25; // BIB
-  const bibY = y;
-  y += 25; // Stall or name
-  const stallY = stallCode ? y : 0;
-  if (stallCode) y += 22;
-  const nameY = y;
-  y += 25; // Divider
-  const dividerY = y;
-  y += 18; // JKKN
-  const jkknY = y;
-  y += 18; // Tagline
-  const taglineY = y;
+  const textLines = await Promise.all([
+    textToPng(eventName, 14, '#111827', true),
+    textToPng(`BIB: ${bibNumber}`, 24, '#111827', true, true),
+    textToPng(truncName, 13, '#374151'),
+    textToPng('JKKN Educational Institutions', 12, '#111827', true),
+    textToPng("India's 1st AI Empowered Marathon", 11, '#e94560', true),
+    stallCode ? textToPng(`Stall: ${stallCode}`, 15, '#e94560', true) : null,
+  ]);
 
-  // 4. Build complete SVG document
-  // Using generic font families that librsvg resolves to available system fonts
-  const stallLine = stallCode
-    ? `<text x="${W / 2}" y="${stallY}" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="bold" fill="#e94560">${esc('Stall: ' + stallCode)}</text>`
-    : '';
+  const [eventTxt, bibTxt, nameTxt, jkknTxt, tagTxt, stallTxt] = textLines;
 
-  const fullSvg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-  <!-- White background -->
-  <rect width="${W}" height="${H}" fill="white"/>
+  // 3. Create divider
+  const divider = await sharp({
+    create: { width: 300, height: 2, channels: 4, background: { r: 229, g: 231, b: 235, alpha: 1 } },
+  }).png().toBuffer();
 
-  <!-- Event name -->
-  <text x="${W / 2}" y="${eventNameY}" text-anchor="middle"
-    font-family="sans-serif" font-size="14" font-weight="bold" fill="#111827">
-    ${esc(eventName)}
-  </text>
+  // 4. Center helper
+  const cx = (layerW: number) => Math.max(0, Math.round((W - layerW) / 2));
 
-  <!-- QR Code (scaled from ${qrNativeSize}x${qrNativeSize} to ${QR_SIZE}x${QR_SIZE}) -->
-  <g transform="translate(${QR_X}, ${qrY}) scale(${qrScale})">
-    ${innerQr}
-  </g>
+  // 5. Position all layers
+  const layers: sharp.OverlayOptions[] = [];
+  let y = 14;
 
-  <!-- BIB Number -->
-  <text x="${W / 2}" y="${bibY}" text-anchor="middle"
-    font-family="monospace" font-size="24" font-weight="bold" fill="#111827">
-    BIB: ${esc(bibNumber)}
-  </text>
+  // Event name
+  layers.push({ input: eventTxt.buffer, top: y, left: cx(eventTxt.width) });
+  y += eventTxt.height + 10;
 
-  <!-- Stall (optional) -->
-  ${stallLine}
+  // QR code
+  layers.push({ input: qrBuffer, top: y, left: cx(QR_SIZE) });
+  y += QR_SIZE + 12;
 
-  <!-- Participant name -->
-  <text x="${W / 2}" y="${nameY}" text-anchor="middle"
-    font-family="sans-serif" font-size="13" fill="#374151">
-    ${esc(truncName)}
-  </text>
+  // BIB
+  layers.push({ input: bibTxt.buffer, top: y, left: cx(bibTxt.width) });
+  y += bibTxt.height + 4;
 
-  <!-- Divider -->
-  <line x1="50" y1="${dividerY}" x2="${W - 50}" y2="${dividerY}" stroke="#e5e7eb" stroke-width="2"/>
+  // Stall
+  if (stallTxt) {
+    layers.push({ input: stallTxt.buffer, top: y, left: cx(stallTxt.width) });
+    y += stallTxt.height + 4;
+  }
 
-  <!-- JKKN branding -->
-  <text x="${W / 2}" y="${jkknY}" text-anchor="middle"
-    font-family="sans-serif" font-size="12" font-weight="bold" fill="#111827">
-    JKKN Educational Institutions
-  </text>
+  // Name
+  layers.push({ input: nameTxt.buffer, top: y, left: cx(nameTxt.width) });
+  y += nameTxt.height + 10;
 
-  <!-- Tagline -->
-  <text x="${W / 2}" y="${taglineY}" text-anchor="middle"
-    font-family="sans-serif" font-size="11" font-weight="bold" fill="#e94560">
-    India&apos;s 1st AI Empowered Marathon
-  </text>
-</svg>`;
+  // Divider
+  layers.push({ input: divider, top: y, left: cx(300) });
+  y += 12;
 
-  // 5. Render SVG to PNG
-  const image = await sharp(Buffer.from(fullSvg)).png().toBuffer();
+  // JKKN
+  layers.push({ input: jkknTxt.buffer, top: y, left: cx(jkknTxt.width) });
+  y += jkknTxt.height + 4;
 
-  return image;
+  // Tagline
+  layers.push({ input: tagTxt.buffer, top: y, left: cx(tagTxt.width) });
+
+  // 6. Composite onto white canvas
+  return sharp({
+    create: { width: W, height: H, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } },
+  })
+    .composite(layers)
+    .png()
+    .toBuffer();
 }
