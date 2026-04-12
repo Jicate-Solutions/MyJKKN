@@ -31,7 +31,7 @@ export function Solve100HubClient({ eventId, eventStartDate }: Props) {
   if (isLoading) return <Skeleton className="h-96 w-full rounded-xl" />
 
   const filteredTeams = (teams ?? []).filter(t => {
-    if (search && !t.team_name.toLowerCase().includes(search.toLowerCase())) return false
+    if (search && !(t.team_name ?? '').toLowerCase().includes(search.toLowerCase())) return false
     if (statusFilter !== 'all' && t.app_status !== statusFilter) return false
     return true
   })
