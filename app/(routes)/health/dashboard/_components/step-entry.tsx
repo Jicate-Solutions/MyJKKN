@@ -93,11 +93,11 @@ export function StepEntry({
   const inputRef = useRef<HTMLInputElement>(null);
   const mutation = useUpdateSteps();
 
-  // Keep input in sync if parent updates (e.g. after refetch)
+  // Keep input in sync if parent updates (e.g. after refetch) but only when not actively editing
   useEffect(() => {
-    if (!inputRef.current || document.activeElement === inputRef.current) return;
+    if (focused) return;
     setInputValue(currentSteps > 0 ? String(currentSteps) : '');
-  }, [currentSteps]);
+  }, [currentSteps, focused]);
 
   const [focused, setFocused] = useState(false);
   const parsedSteps = Math.max(0, Math.min(Number(inputValue) || 0, 99999));

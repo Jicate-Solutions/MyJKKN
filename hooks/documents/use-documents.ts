@@ -41,11 +41,10 @@ export function useDocumentHistory(initialFilters: DocumentHistoryFilters = {}) 
 
   const queryClient = useQueryClient();
 
-  const { data, isLoading, error } = useQuery<DocumentHistoryListResponse>({
+  const { data, isLoading, error } = useQuery({
     queryKey: documentKeys.history(filters),
     queryFn: () => DocumentGenerationService.getDocumentHistory(filters),
-    placeholderData: (prev) => prev,
-    ...QUERY_CONFIG.DYNAMIC_DATA,
+    placeholderData: (previousData: DocumentHistoryListResponse | undefined) => previousData,
   });
 
   const updateFilters = useCallback((newFilters: Partial<DocumentHistoryFilters>) => {
