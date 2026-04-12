@@ -39,6 +39,7 @@ import {
   OPTIONAL_FEE_LABELS,
   type FeeStructureType
 } from '@/lib/constants/fee-structure';
+import { LearnerDocumentsTab } from './learner-documents-tab';
 
 interface LearnerDetailProps {
   learner: LearnerProfile;
