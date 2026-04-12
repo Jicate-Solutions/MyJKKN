@@ -247,6 +247,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Notification Management
   '/admin/notifications': 'notifications.view',
   '/admin/notifications/new': 'notifications.create',
+  '/admin/notifications/compliance': 'notifications.view',
+  '/admin/notifications/audiences': 'notifications.view',
 
   // System Management
   // Work Pulse
@@ -1498,6 +1500,16 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admin/notifications/new',
               label: 'Send Notification',
               active: pathname === '/admin/notifications/new'
+            },
+            {
+              href: '/admin/notifications/compliance',
+              label: 'Compliance Dashboard',
+              active: pathname === '/admin/notifications/compliance'
+            },
+            {
+              href: '/admin/notifications/audiences',
+              label: 'Audiences',
+              active: pathname.startsWith('/admin/notifications/audiences')
             }
           ]
         },
