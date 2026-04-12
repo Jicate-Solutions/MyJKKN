@@ -34,6 +34,11 @@ export function WeeklyCheckinClient({ eventId, eventStartDate }: Props) {
   const currentWeek = eventStartDate ? getCurrentWeekNumber(eventStartDate) : 1
   const [selectedWeek, setSelectedWeek] = useState(currentWeek)
 
+  // Sync selectedWeek if eventStartDate resolves after initial render
+  useEffect(() => {
+    if (eventStartDate) setSelectedWeek(getCurrentWeekNumber(eventStartDate))
+  }, [eventStartDate])
+
   const teamId = registration?.id ?? null
   const { data: existingCheckin, isLoading: checkinLoading } = useMyWeeklyCheckin(eventId, teamId, selectedWeek)
   const { data: prevCheckin } = useMyWeeklyCheckin(eventId, teamId, selectedWeek - 1)
