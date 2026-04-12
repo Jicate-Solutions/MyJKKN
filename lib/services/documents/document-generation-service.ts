@@ -9,18 +9,14 @@ import type {
   DocumentBranding,
   DocumentMetadata,
   DocumentType,
-  DocumentCategory,
   DocumentInstitutionSettings,
   DocumentTemplate,
   GeneratedDocument,
   GenerateDocumentDto,
-  GenerateBulkDocumentsDto,
   DocumentHistoryFilters,
   DocumentHistoryListResponse,
   UpsertDocumentSettingsDto,
   UpdateDocumentTemplateDto,
-  DOCUMENT_TYPE_INFO,
-  SignatureConfig,
 } from '@/types/documents';
 import { DocumentDataService } from './document-data-service';
 import { getGenerator } from '@/lib/utils/document-generators/generator-registry';
