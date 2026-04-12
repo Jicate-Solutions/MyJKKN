@@ -4626,6 +4626,16 @@ CREATE POLICY "events_reg_admin_update" ON public.events_registrations
     is_super_admin() OR get_current_user_role() = ANY(ARRAY['super_admin','admin','administrator','event_coordinator'])
   );
 
+-- Updated: 2026-04-12 - Any authenticated user can update registrations for public active events
+-- This enables event-day ops (check-in, t-shirt, certificate) by committee members of any role
+CREATE POLICY "events_reg_public_event_update" ON public.events_registrations
+  FOR UPDATE TO authenticated USING (
+    event_id IN (
+      SELECT id FROM public.events
+      WHERE is_public = true AND status NOT IN ('draft', 'cancelled')
+    )
+  );
+
 -- Authenticated users can read registrations where the registration's institution matches theirs
 CREATE POLICY "events_reg_institution_read" ON public.events_registrations
   FOR SELECT TO authenticated USING (

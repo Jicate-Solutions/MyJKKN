@@ -104,14 +104,21 @@ export class MarathonOpsService {
       // Perform the action
       const updatePayload = this.buildUpdatePayload(action, operatorId);
 
-      const { error: updateError } = await (this.supabase as any)
+      const { data: updateData, error: updateError } = await (this.supabase as any)
         .from('events_registrations')
         .update(updatePayload)
-        .eq('id', registration.id);
+        .eq('id', registration.id)
+        .select('id')
+        .maybeSingle();
 
       if (updateError) {
         logger.error('events/marathon-ops', 'Failed to process scan', { action, bibNumber, error: updateError });
         throw updateError;
+      }
+
+      if (!updateData) {
+        logger.error('events/marathon-ops', 'Update blocked by RLS or row not found', { action, bibNumber, registrationId: registration.id });
+        throw new Error('Update failed — you may not have permission to perform this action. Please contact an administrator.');
       }
 
       logger.info('events/marathon-ops', 'Scan processed', {
