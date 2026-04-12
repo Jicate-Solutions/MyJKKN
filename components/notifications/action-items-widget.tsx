@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Clock,
@@ -9,7 +9,7 @@ import {
   FileText,
   Link2,
   ListChecks,
-  Zap,
+  Upload,
 } from 'lucide-react';
 import {
   Card,
@@ -34,53 +34,16 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { StorageUtils } from '@/lib/supabase/storage-utils';
+import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import toast from 'react-hot-toast';
-
-// These types are defined in types/notifications.ts on the main branch.
-// Re-exported here so the widget compiles standalone until the types land.
-type ActionType = 'urgent' | 'tracked';
-type ResponseType = 'text' | 'file' | 'form' | 'link';
-
-interface FormItem {
-  id: string;
-  title: string;
-  description?: string;
-}
-
-interface ActionConfig {
-  response_type: ResponseType;
-  form_items?: FormItem[];
-  link_url?: string;
-  min_text_length?: number;
-  max_file_size_mb?: number;
-  allowed_file_types?: string[];
-  escalation_chain?: string[];
-}
-
-interface PendingAction {
-  id: string;
-  notification_id: string;
-  title: string;
-  body: string;
-  priority: 'low' | 'normal' | 'high' | 'urgent';
-  category: string;
-  action_type: ActionType;
-  action_config: ActionConfig;
-  acknowledgment_deadline_hours: number;
-  sent_at: string;
-  created_by_name: string;
-  deadline_at: string;
-  is_overdue: boolean;
-  has_responded: boolean;
-  extension_request?: {
-    status: 'pending' | 'approved' | 'denied';
-    requested_deadline: string;
-  };
-  metadata?: {
-    attachments?: { name: string; url: string; type: string; size: number }[];
-    [key: string]: any;
-  };
-}
+import type {
+  ActionType,
+  ResponseType,
+  FormItem,
+  ActionConfig,
+  PendingAction
+} from '@/types/notifications';
 
 // ---------------------------------------------------------------------------
 // Deadline helpers
@@ -131,7 +94,7 @@ function getResponseIcon(type: ActionConfig['response_type']) {
     case 'text':
       return <FileText className="h-3.5 w-3.5" />;
     case 'file':
-      return <Zap className="h-3.5 w-3.5" />;
+      return <Upload className="h-3.5 w-3.5" />;
     case 'form':
       return <ListChecks className="h-3.5 w-3.5" />;
     case 'link':
@@ -153,16 +116,26 @@ function ResponseForm({ action, onSubmit, isSubmitting }: ResponseFormProps) {
   const config = action.action_config;
   const [textValue, setTextValue] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [formChecks, setFormChecks] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
-    config.form_items?.forEach((item) => {
+    config?.form_items?.forEach((item) => {
       initial[item.id] = false;
     });
     return initial;
   });
   const [linkConfirmed, setLinkConfirmed] = useState(false);
 
-  const handleSubmit = () => {
+  // Guard against missing config
+  if (!config || !config.response_type) {
+    return (
+      <div className="p-4 text-sm text-destructive">
+        This action is missing response configuration. Please contact your administrator.
+      </div>
+    );
+  }
+
+  const handleSubmit = async () => {
     switch (config.response_type) {
       case 'text': {
         const minLen = config.min_text_length ?? 1;
@@ -183,16 +156,39 @@ function ResponseForm({ action, onSubmit, isSubmitting }: ResponseFormProps) {
           toast.error(`File must be under ${maxMb}MB`);
           return;
         }
-        // In a real implementation this would upload the file first.
-        // For now we pass the file metadata.
-        onSubmit({
-          file_name: file.name,
-          file_size: file.size,
-          response_type: 'file',
-        });
+        if (file.size === 0) {
+          toast.error('Cannot upload an empty file');
+          return;
+        }
+        // Upload the file to Supabase storage
+        setUploading(true);
+        try {
+          const fileUrl = await StorageUtils.uploadFile(
+            'action-responses',
+            file,
+            'responses'
+          );
+          onSubmit({
+            file_url: fileUrl,
+            file_name: file.name,
+            file_size: file.size,
+            response_type: 'file',
+          });
+        } catch {
+          toast.error('Failed to upload file. Please try again.');
+        } finally {
+          setUploading(false);
+        }
         break;
       }
       case 'form': {
+        // Validate all items are checked before submission
+        const items = config.form_items || [];
+        const allChecked = items.length === 0 || items.every(item => formChecks[item.id]);
+        if (!allChecked) {
+          toast.error('Please complete all checklist items');
+          return;
+        }
         onSubmit({ form_response: formChecks, response_type: 'form' });
         break;
       }
@@ -219,7 +215,7 @@ function ResponseForm({ action, onSubmit, isSubmitting }: ResponseFormProps) {
             value={textValue}
             onChange={(e) => setTextValue(e.target.value)}
             rows={4}
-            className="resize-none"
+            className="resize-none text-base"
           />
           {config.min_text_length && (
             <p className="text-xs text-muted-foreground">
@@ -311,8 +307,8 @@ function ResponseForm({ action, onSubmit, isSubmitting }: ResponseFormProps) {
       )}
 
       <DialogFooter>
-        <Button onClick={handleSubmit} disabled={isSubmitting} className="w-full sm:w-auto">
-          {isSubmitting ? 'Submitting...' : 'Submit Response'}
+        <Button onClick={handleSubmit} disabled={isSubmitting || uploading} className="w-full sm:w-auto">
+          {uploading ? 'Uploading file...' : isSubmitting ? 'Submitting...' : 'Submit Response'}
         </Button>
       </DialogFooter>
     </div>
@@ -483,6 +479,7 @@ export function ActionItemsWidget() {
     onSuccess: () => {
       toast.success('Response submitted');
       queryClient.invalidateQueries({ queryKey: ['pending-actions-widget'] });
+      queryClient.invalidateQueries({ queryKey: ['pending-urgent-actions'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       setSelectedAction(null);
     },
@@ -525,9 +522,9 @@ export function ActionItemsWidget() {
             />
           ))}
           {hasMore && (
-            <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground">
-              View all ({trackedActions.length})
-            </Button>
+            <p className="text-xs text-center text-muted-foreground py-1">
+              Showing {MAX_VISIBLE} of {trackedActions.length} actions
+            </p>
           )}
         </CardContent>
       </Card>
@@ -555,11 +552,19 @@ export function ActionItemsWidget() {
           </DialogHeader>
 
           {selectedAction && (
-            <ResponseForm
-              action={selectedAction}
-              onSubmit={handleSubmit}
-              isSubmitting={submitMutation.isPending}
-            />
+            <>
+              {/* Notification body — so user knows what they're responding to */}
+              {selectedAction.body && (
+                <div className="prose prose-sm max-w-none dark:prose-invert max-h-[200px] overflow-y-auto border rounded-lg p-3 bg-muted/30">
+                  <RichTextDisplay content={selectedAction.body} />
+                </div>
+              )}
+              <ResponseForm
+                action={selectedAction}
+                onSubmit={handleSubmit}
+                isSubmitting={submitMutation.isPending}
+              />
+            </>
           )}
         </DialogContent>
       </Dialog>

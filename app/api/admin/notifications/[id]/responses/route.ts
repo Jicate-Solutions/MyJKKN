@@ -90,12 +90,22 @@ export async function GET(
       .select('*', { count: 'exact', head: true })
       .eq('notification_id', notificationId);
 
-    const respondedCount = responses?.length || 0;
+    // Flatten nested profiles data for the client
+    const flattenedResponses = (responses || []).map((r: any) => ({
+      ...r,
+      user_name: r.profiles?.full_name || null,
+      user_email: r.profiles?.email || null,
+      user_role: r.profiles?.role || null,
+      institution_name: r.profiles?.institution_id || null,
+      profiles: undefined
+    }));
+
+    const respondedCount = flattenedResponses.length;
     const total = totalTargeted || 0;
 
     return NextResponse.json(
       {
-        responses: responses || [],
+        responses: flattenedResponses,
         total,
         responded_count: respondedCount,
         pending_count: Math.max(0, total - respondedCount)

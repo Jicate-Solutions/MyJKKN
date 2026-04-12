@@ -14,7 +14,8 @@ import {
   CalendarClock,
   X,
   Paperclip,
-  Send
+  Send,
+  Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -67,7 +68,7 @@ function TextResponseForm({
             isValid ? 'text-muted-foreground' : 'text-destructive'
           )}
         >
-          {text.trim().length}/{minLength} min characters
+          {text.trim().length} / {minLength} characters minimum
         </span>
         <Button
           onClick={() => onSubmit({ text_response: text.trim() })}
@@ -227,7 +228,8 @@ function FormResponseForm({
   const items = config.form_items || [];
   const [checked, setChecked] = useState<Record<string, boolean>>({});
 
-  const allChecked = items.length > 0 && items.every((item) => checked[item.id]);
+  // Allow submit when no items exist (admin misconfigured) or all items checked
+  const allChecked = items.length === 0 || items.every((item) => checked[item.id]);
 
   const handleToggle = (itemId: string) => {
     setChecked((prev) => ({ ...prev, [itemId]: !prev[itemId] }));
@@ -305,9 +307,11 @@ function LinkResponseForm({
 }) {
   const [visited, setVisited] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const linkUrl = config.link_url || '#';
+  const linkUrl = config.link_url;
+  const hasValidLink = linkUrl && linkUrl !== '#' && linkUrl.startsWith('http');
 
   const handleVisit = () => {
+    if (!hasValidLink) return;
     window.open(linkUrl, '_blank', 'noopener,noreferrer');
     setVisited(true);
   };
@@ -316,14 +320,20 @@ function LinkResponseForm({
     <div className="space-y-4">
       <label className="text-sm font-medium">Visit the required link</label>
 
-      <Button
-        variant="outline"
-        className="w-full h-12 gap-2 text-base"
-        onClick={handleVisit}
-      >
-        <ExternalLink className="h-5 w-5" />
-        Open Link
-      </Button>
+      {hasValidLink ? (
+        <Button
+          variant="outline"
+          className="w-full h-12 gap-2 text-base"
+          onClick={handleVisit}
+        >
+          <ExternalLink className="h-5 w-5" />
+          Open Link
+        </Button>
+      ) : (
+        <p className="text-sm text-destructive px-3 py-2 rounded-lg bg-destructive/10">
+          No valid link configured for this action. Please contact your administrator.
+        </p>
+      )}
 
       {visited && (
         <label className="flex items-center gap-3 px-4 py-3 rounded-lg border bg-muted/30 cursor-pointer">
@@ -441,7 +451,7 @@ function ExtensionRequestSection({
           onChange={(e) => setReason(e.target.value)}
           placeholder="Explain why you need more time..."
           rows={3}
-          className="resize-none text-sm"
+          className="resize-none text-base"
         />
         <span
           className={cn(
@@ -451,7 +461,7 @@ function ExtensionRequestSection({
               : 'text-destructive'
           )}
         >
-          {reason.trim().length}/10 min characters
+          {reason.trim().length} / 10 characters minimum
         </span>
       </div>
 
@@ -519,9 +529,13 @@ export function ActionGate({ children }: { children: React.ReactNode }) {
     refetchInterval: 60000,
     refetchOnWindowFocus: true,
     // Post-process: filter for urgent only (tracked goes to dashboard)
+    // Also exclude actions with approved extensions
     select: (data) => {
       const urgentActions = (data?.actions || []).filter(
-        (a: PendingAction) => a.action_type === 'urgent' && !a.has_responded
+        (a: PendingAction) =>
+          a.action_type === 'urgent' &&
+          !a.has_responded &&
+          a.extension_request?.status !== 'approved'
       );
       return { actions: urgentActions, count: urgentActions.length };
     }
@@ -529,6 +543,9 @@ export function ActionGate({ children }: { children: React.ReactNode }) {
 
   const actions: PendingAction[] = data?.actions || [];
   const hasPending = actions.length > 0;
+
+  // Reset currentIndex when actions list changes to avoid stale references
+  const safeIndex = currentIndex >= actions.length ? 0 : currentIndex;
 
   // Submit action response mutation
   const submitMutation = useMutation({
@@ -552,26 +569,30 @@ export function ActionGate({ children }: { children: React.ReactNode }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pending-urgent-actions'] });
+      queryClient.invalidateQueries({ queryKey: ['pending-actions-widget'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     }
   });
 
   const handleSubmitResponse = useCallback(
     async (responseData: Record<string, any>) => {
-      const current = actions[currentIndex];
+      const current = actions[safeIndex];
       if (!current) return;
+
+      const totalBeforeSubmit = actions.length;
 
       try {
         await submitMutation.mutateAsync({
           notification_id: current.notification_id,
-          response_type: current.action_config.response_type,
+          response_type: current.action_config?.response_type,
           ...responseData
         });
 
-        if (currentIndex < actions.length - 1) {
-          setCurrentIndex((prev) => prev + 1);
+        if (totalBeforeSubmit > 1) {
+          // Reset to 0 — the refetch will remove the submitted action from the list
+          setCurrentIndex(0);
           toast.success(
-            `Response submitted (${currentIndex + 1}/${actions.length})`
+            `Response submitted (${safeIndex + 1}/${totalBeforeSubmit})`
           );
         } else {
           toast.success('All actions completed!', {
@@ -584,7 +605,7 @@ export function ActionGate({ children }: { children: React.ReactNode }) {
         toast.error('Failed to submit response. Please try again.');
       }
     },
-    [actions, currentIndex, submitMutation]
+    [actions, safeIndex, submitMutation]
   );
 
   const handleExtensionSubmitted = useCallback(() => {
@@ -592,18 +613,42 @@ export function ActionGate({ children }: { children: React.ReactNode }) {
     queryClient.invalidateQueries({ queryKey: ['pending-urgent-actions'] });
   }, [queryClient]);
 
-  // Don't block while loading
-  if (isLoading) return <>{children}</>;
+  // Show loading spinner while fetching — prevents flash of app content
+  if (isLoading) return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-background">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   // No pending urgent actions — render app normally
   if (!hasPending) return <>{children}</>;
 
-  const current = actions[currentIndex];
+  const current = actions[safeIndex];
   if (!current) return <>{children}</>;
 
   const deadlineDate = new Date(current.deadline_at);
   const isOverdue = current.is_overdue;
   const timeLeft = isOverdue ? 'OVERDUE' : getTimeRemaining(deadlineDate);
+
+  // Guard against null/missing action_config
+  if (!current.action_config || !current.action_config.response_type) {
+    return (
+      <>
+        <div className="pointer-events-none select-none blur-sm opacity-30">
+          {children}
+        </div>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-lg bg-background rounded-2xl shadow-2xl border p-6 text-center space-y-3">
+            <AlertTriangle className="h-10 w-10 text-destructive mx-auto" />
+            <h2 className="text-lg font-bold">Configuration Error</h2>
+            <p className="text-sm text-muted-foreground">
+              This action notification is missing its response configuration. Please contact your administrator.
+            </p>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   const responseTypeLabels: Record<ResponseType, string> = {
     text: 'Written Response Required',
@@ -627,7 +672,12 @@ export function ActionGate({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Full-screen action overlay */}
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="action-gate-title"
+      >
         <div className="w-full max-w-lg bg-background rounded-2xl shadow-2xl border overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-300 max-h-[95vh] flex flex-col">
           {/* Header */}
           <div
@@ -640,7 +690,7 @@ export function ActionGate({ children }: { children: React.ReactNode }) {
           >
             <Zap className="h-6 w-6 shrink-0" />
             <div className="flex-1 min-w-0">
-              <h2 className="text-lg font-bold truncate">Action Required</h2>
+              <h2 id="action-gate-title" className="text-lg font-bold truncate">Action Required</h2>
               <p className="text-sm opacity-90">
                 {actions.length === 1
                   ? '1 action requires your response'

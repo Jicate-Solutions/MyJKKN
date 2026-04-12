@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       file_url?: string;
       file_name?: string;
       file_size?: number;
-      form_response?: Record<string, string>;
+      form_response?: Record<string, boolean>;
       link_confirmed?: boolean;
     };
 
@@ -52,6 +52,21 @@ export async function POST(request: NextRequest) {
 
     // Use service role client to read the notification's action_config (cross-RLS)
     const serviceClient = createServiceRoleClient();
+
+    // IDOR check: verify the authenticated user is actually a recipient
+    const { data: recipientCheck } = await (serviceClient as any)
+      .from('user_notifications')
+      .select('id')
+      .eq('notification_id', notification_id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!recipientCheck) {
+      return NextResponse.json(
+        { error: 'You are not a recipient of this notification' },
+        { status: 403 }
+      );
+    }
 
     // Fetch the notification to validate against its action_config
     const { data: notification, error: notifError } = await (
@@ -149,17 +164,15 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        // Validate all form_items have entries
+        // Validate all form_items have been checked
         if (actionConfig.form_items && actionConfig.form_items.length > 0) {
           const missing = actionConfig.form_items.filter(
-            (item) =>
-              !form_response[item] ||
-              String(form_response[item]).trim() === ''
+            (item) => !form_response[item.id]
           );
           if (missing.length > 0) {
             return NextResponse.json(
               {
-                error: `Missing required form fields: ${missing.join(', ')}`
+                error: `Missing required form fields: ${missing.map(i => i.title).join(', ')}`
               },
               { status: 400 }
             );

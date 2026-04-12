@@ -64,13 +64,28 @@ export async function POST(request: NextRequest) {
 
     const serviceClient = createServiceRoleClient();
 
-    // Check no approved extension already exists for this user + notification
+    // IDOR check: verify the authenticated user is actually a recipient
+    const { data: recipientCheck } = await (serviceClient as any)
+      .from('user_notifications')
+      .select('id')
+      .eq('notification_id', notification_id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!recipientCheck) {
+      return NextResponse.json(
+        { error: 'You are not a recipient of this notification' },
+        { status: 403 }
+      );
+    }
+
+    // Check no approved or pending extension already exists for this user + notification
     const { data: existing, error: checkError } = await (serviceClient as any)
       .from('action_extension_requests')
       .select('id, status')
       .eq('notification_id', notification_id)
       .eq('user_id', user.id)
-      .eq('status', 'approved')
+      .in('status', ['approved', 'pending'])
       .maybeSingle();
 
     if (checkError) {
@@ -85,11 +100,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (existing) {
+      const msg = existing.status === 'approved'
+        ? 'An approved extension already exists for this notification'
+        : 'You already have a pending extension request for this notification';
       return NextResponse.json(
-        {
-          error:
-            'An approved extension already exists for this notification'
-        },
+        { error: msg },
         { status: 409 }
       );
     }
