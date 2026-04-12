@@ -454,7 +454,7 @@ export default function CapabilityTreePage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Learn', href: '/vac' },
+          { label: 'Learn', href: '/learn/quests' },
           { label: 'Capability Tree' },
         ]}
       />

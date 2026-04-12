@@ -65,10 +65,16 @@ function QuestInfoPanel({
   quest,
   learnerCapabilities,
   submissions,
+  questId,
+  userId,
+  buildNotes,
 }: {
   quest: PDEQuest;
   learnerCapabilities: Array<{ capability_id: string; status: string }>;
   submissions: Array<{ id: string; submitted_at: string; status: string; milestone_label?: string }>;
+  questId: string;
+  userId?: string;
+  buildNotes?: string;
 }) {
   const capMap = new Map(learnerCapabilities.map((c) => [c.capability_id, c.status]));
 
@@ -163,11 +169,57 @@ function QuestInfoPanel({
 
       {/* Action Buttons */}
       <div className="space-y-2">
-        <Button variant="outline" className="w-full text-sm" size="sm">
+        <Button
+          variant="outline"
+          className="w-full text-sm"
+          size="sm"
+          onClick={async () => {
+            if (!userId) return;
+            try {
+              const res = await fetch(`/api/pde/quests/${questId}/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  learner_id: userId,
+                  submission_type: 'milestone',
+                  title: 'Milestone checkpoint',
+                  description: buildNotes || 'Work in progress',
+                }),
+              });
+              if (res.ok) toast.success('Milestone submitted!');
+              else toast.error('Failed to submit milestone');
+            } catch {
+              toast.error('Error submitting milestone');
+            }
+          }}
+        >
           <Send className="h-3.5 w-3.5 mr-1.5" />
           Submit Milestone
         </Button>
-        <Button className="w-full text-sm" size="sm">
+        <Button
+          className="w-full text-sm"
+          size="sm"
+          onClick={async () => {
+            if (!confirm('Submit your final work for this quest? This cannot be undone.')) return;
+            if (!userId) return;
+            try {
+              const res = await fetch(`/api/pde/quests/${questId}/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  learner_id: userId,
+                  submission_type: 'final',
+                  title: 'Final submission',
+                  description: buildNotes || 'Final work submission',
+                }),
+              });
+              if (res.ok) toast.success('Final work submitted!');
+              else toast.error('Failed to submit final work');
+            } catch {
+              toast.error('Error submitting final work');
+            }
+          }}
+        >
           <Send className="h-3.5 w-3.5 mr-1.5" />
           Submit Final
         </Button>
@@ -238,6 +290,9 @@ function BuildWorkspace({
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Screenshots, code, documents, designs
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Files are saved with your build session. Large files may take a moment to upload.
             </p>
             <input
               ref={fileInputRef}
@@ -584,6 +639,9 @@ export default function BuildArenaPage({
                   quest={quest}
                   learnerCapabilities={learnerCaps}
                   submissions={submissions}
+                  questId={questId}
+                  userId={user?.id}
+                  buildNotes={notes}
                 />
               </ScrollArea>
             </CardContent>

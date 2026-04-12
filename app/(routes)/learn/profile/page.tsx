@@ -190,7 +190,7 @@ function MyQuestsSection({ learnerId }: { learnerId: string | undefined }) {
 function MyCapabilitiesSection({ learnerId }: { learnerId: string | undefined }) {
   const { data: caps = [], isLoading } = useLearnerCapabilities(learnerId);
 
-  const demonstrated = caps.filter((c: { status: string }) => c.status === 'demonstrated' || c.status === 'verified').length;
+  const demonstrated = caps.filter((c: { status: string }) => c.status === 'demonstrated' || c.status === 'mastered').length;
   const inProgress = caps.filter((c: { status: string }) => c.status === 'in_progress').length;
   const locked = caps.filter((c: { status: string }) => c.status === 'locked' || c.status === 'not_started').length;
 
@@ -302,7 +302,7 @@ export default function ProfilePage() {
               <div className="flex items-center gap-4">
                 <Avatar className="h-16 w-16">
                   <AvatarFallback className="text-xl bg-primary/10 text-primary">
-                    {(user?.full_name || 'U').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                    {(user?.full_name?.trim() || 'U').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
                 <div>

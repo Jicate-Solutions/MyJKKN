@@ -87,7 +87,7 @@ export default function BadgesPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Learn', href: '/vac' },
+          { label: 'Learn', href: '/learn/quests' },
           { label: 'Profile', href: '/learn/profile' },
           { label: 'Badges' },
         ]}

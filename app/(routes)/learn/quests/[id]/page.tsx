@@ -190,7 +190,7 @@ export default function QuestDetailPage({
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Learn', href: '/vac' },
+          { label: 'Learn', href: '/learn/quests' },
           { label: 'Quest Board', href: '/learn/quests' },
           { label: quest.title },
         ]}
@@ -565,12 +565,15 @@ export default function QuestDetailPage({
                   <>
                     <Button
                       variant="outline"
-                      onClick={() => router.push(`/learn/quests/${questId}`)}
+                      onClick={() => router.push(`/learn/build/${questId}`)}
                     >
                       <FileText className="h-4 w-4 mr-2" />
                       Submit Work
                     </Button>
-                    <Button className="bg-[#0b6d41] hover:bg-[#0b6d41]/90">
+                    <Button
+                      className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+                      onClick={() => router.push(`/learn/build/${questId}`)}
+                    >
                       <Play className="h-4 w-4 mr-2" />
                       Build Arena
                     </Button>

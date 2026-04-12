@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useEngagementSummary } from '@/hooks/pde/use-pde';
+import { useEngagementSummary, useRecentActivity } from '@/hooks/pde/use-pde';
 import { useAuth } from '@/hooks/use-auth';
 import { BeatLoader } from 'react-spinners';
 import {
@@ -92,12 +92,21 @@ export default function ActivityFeedPage() {
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [visibleCount, setVisibleCount] = useState(20);
 
-  const { data: engagementData, isLoading } = useEngagementSummary(learnerId);
+  const { data: engagementData, isLoading: engagementLoading } = useEngagementSummary(learnerId);
+  const { data: activityData, isLoading: activityLoading } = useRecentActivity(learnerId, 50);
+  const isLoading = engagementLoading || activityLoading;
 
-  // The engagement summary may not have an activity feed directly.
-  // This page will display events once the activity log endpoint exists.
-  // For now, we show the shell with a meaningful empty state.
-  const allEvents: ActivityEvent[] = [];
+  // Transform raw engagement events into activity events
+  const allEvents: ActivityEvent[] = useMemo(() => {
+    if (!activityData || !Array.isArray(activityData)) return [];
+    return activityData.map((event: Record<string, unknown>) => ({
+      id: (event.id as string) || String(Math.random()),
+      event_type: (event.event_type as string) || 'engagement',
+      description: (event.description as string) || (event.event_type as string) || 'Activity',
+      created_at: (event.created_at as string) || new Date().toISOString(),
+      metadata: (event.metadata as Record<string, unknown>) || undefined,
+    }));
+  }, [activityData]);
 
   const filteredEvents = useMemo(() => {
     if (!typeFilter) return allEvents;
@@ -127,7 +136,7 @@ export default function ActivityFeedPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Learn', href: '/vac' },
+          { label: 'Learn', href: '/learn/quests' },
           { label: 'Profile', href: '/learn/profile' },
           { label: 'Activity' },
         ]}
@@ -144,12 +153,12 @@ export default function ActivityFeedPage() {
               Your complete PDE journey -- every lesson, quest, badge, and build session
             </p>
           </div>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <Select value={typeFilter || 'all'} onValueChange={(v) => setTypeFilter(v === 'all' ? '' : v)}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="All Activities" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Activities</SelectItem>
+              <SelectItem value="all">All Activities</SelectItem>
               {Object.entries(EVENT_TYPE_CONFIG).map(([key, config]) => (
                 <SelectItem key={key} value={key}>
                   {config.label}

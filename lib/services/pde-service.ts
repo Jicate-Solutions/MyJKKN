@@ -65,7 +65,7 @@ export class PDEService {
       .from('pde_assessments')
       .select('*')
       .eq('id', assessmentId)
-      .single();
+      .maybeSingle();
     if (aErr || !assessment) return null;
 
     const { data: questions, error: qErr } = await supabase
@@ -174,18 +174,38 @@ export class PDEService {
   ): Promise<PDESubmission> {
     const supabase = getSupabase();
 
-    // Calculate score
-    const totalPoints = answers.reduce((sum, a) => sum + (a.is_correct ? a.points_earned : 0) + (!a.is_correct ? 0 : 0), 0);
-    const earnedPoints = answers.reduce((sum, a) => sum + a.points_earned, 0);
+    // First, get the submission to find the assessment_id
+    const { data: submission } = await supabase
+      .from('pde_submissions')
+      .select('assessment_id')
+      .eq('id', submissionId)
+      .single();
 
-    // We need the max possible points from the questions themselves
-    // For now auto_score = percentage based on answers
+    // Fetch assessment + questions to get max possible points and pass threshold
+    let totalPoints = 0;
+    let passThreshold = 60;
+    if (submission?.assessment_id) {
+      const assessment = await this.getAssessmentWithQuestions(submission.assessment_id);
+      if (assessment) {
+        totalPoints = assessment.questions.reduce((sum, q) => sum + (q.points || 0), 0);
+        passThreshold = assessment.pass_threshold || 60;
+      }
+    }
+
+    // Calculate earned points from answers
+    const earnedPoints = answers.reduce((sum, a) => sum + a.points_earned, 0);
+    const scorePercent = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+    const passed = totalPoints > 0 ? (earnedPoints / totalPoints * 100) >= passThreshold : false;
+
     const { data, error } = await supabase
       .from('pde_submissions')
       .update({
         answers: answers,
         time_spent_seconds: timeSpentSeconds,
         completed_at: new Date().toISOString(),
+        auto_score: scorePercent,
+        final_score: scorePercent,
+        passed: passed,
       })
       .eq('id', submissionId)
       .select()
@@ -902,7 +922,7 @@ export class PDEService {
       .from('pde_reputation')
       .select('*')
       .eq('learner_id', learnerId)
-      .single();
+      .maybeSingle();
     if (error) return null;
     return data;
   }
@@ -1318,6 +1338,20 @@ export class PDEService {
       .single();
     if (error) throw new Error(`Failed to calculate agency index: ${error.message}`);
     return data;
+  }
+
+  /**
+   * Get recent activity/engagement events for a learner.
+   */
+  static async getRecentActivity(learnerId: string, limit = 20): Promise<Record<string, unknown>[]> {
+    const supabase = getSupabase();
+    const { data } = await supabase
+      .from('pde_engagement_events')
+      .select('*')
+      .eq('learner_id', learnerId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    return data || [];
   }
 
   /**

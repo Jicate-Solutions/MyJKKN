@@ -178,7 +178,7 @@ export default function PDECertificatePage({
 
   const appUrl = typeof window !== 'undefined'
     ? window.location.origin
-    : process.env.NEXT_PUBLIC_APP_URL || 'https://myjkkn.com';
+    : (process.env.NEXT_PUBLIC_APP_URL || 'https://jkkn.ai');
 
   const verificationUrl = certificate
     ? `${appUrl}/verify/${certificate.certificate_number}`
