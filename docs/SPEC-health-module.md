@@ -331,4 +331,61 @@ Dental College announces camp date in MyJKKN
 
 ---
 
-*Spec produced by SDD Pipeline Phase 1 (/spec plan). Next: /writing-plans for technical decomposition.*
+---
+
+## 15. Locked-In Decisions (Post-Assumption Audit)
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| **Step counting** | Manual entry (Sprint 1) → Capacitor native app (Sprint 2) | Web Pedometer API has 0% iOS support. No browser can count steps reliably. Manual entry for v1, native wrapper for v2. |
+| **Counselor** | Build system now, appoint person later | Only 1 counselor (Priya Krishnan, Engineering) exists. System ready but auto-escalation dormant until qualified person appointed. |
+| **Consent** | Simple one-time consent screen | DPDP Act requires consent. Most students 18+ so parental consent skipped. "I Agree" + "Learn More" gate on first access. |
+| **Build priority** | Phase 1 + 2 together (web) then Capacitor | Ship mood + water + profile + PHQ-9 + GAD-7 + counselor dashboard in Sprint 1 (3 weeks). Capacitor native app in Sprint 2 (3 weeks). |
+| **Gamification** | Full — streaks, badges, institution leaderboards | By mood streak and water consistency (not steps in Sprint 1). Steps leaderboard added when Capacitor ships. |
+| **PHQ-9 success metric** | 30% participation (revised down from 50%) | Research shows 30-60% voluntary participation in Indian college PHQ-9 studies. 30% of 4,785 = 1,435 responses — statistically meaningful. |
+| **Minors consent** | Skip for v1 — almost all students 18+ | JKKN is a college/university. DigiLocker parental consent deferred to v2 if needed. |
+
+---
+
+## 16. Implementation Plan
+
+**Full plan:** `docs/plans/2026-04-12-health-module.md`
+
+### Sprint 1: Web Module (Weeks 1-3) — 24 tasks
+
+| Batch | Tasks | What Gets Built |
+|-------|-------|----------------|
+| Foundation | 0-5 | Consent table, health tables, RLS, types, service, hooks |
+| Pages (parallel) | 6-11 | Dashboard, mood check-in, step entry, water tracker, profile, leaderboard |
+| Integration | 12-14 | Sidebar, custom roles, build verify |
+| Mental Health | 15-24 | PHQ-9/GAD-7 engine, escalation, counselor dashboard, peer support |
+
+### Sprint 2: Capacitor Native App (Weeks 4-6)
+
+| Task | What |
+|------|------|
+| Capacitor setup | Initialize Capacitor project, configure iOS + Android |
+| Health Connect / HealthKit | Read step data from phone health stores |
+| Background sync | Auto-sync steps every hour |
+| Push notifications | Daily mood check-in reminder |
+| Play Store listing | Build, sign, submit to Google Play |
+
+### Sprint 3: Clinical Integration (Weeks 7-10) — Phase 3
+
+| Task | What |
+|------|------|
+| Screening workflow | Dental/Nursing/Pharmacy assessment forms |
+| Practicum auto-credit | Screening → hours auto-logged |
+| Camp management | Schedule, register, track health camps |
+
+### Sprint 4: Analytics + NAAC (Weeks 11-12) — Phase 4
+
+| Task | What |
+|------|------|
+| Admin dashboard | Institution wellness scores, trend charts |
+| NAAC report generator | Auto-generate wellness report for accreditation |
+| Research export | Anonymized dataset for faculty publications |
+
+---
+
+*Spec + Plan produced by SDD Pipeline. Ready for human gate approval.*
