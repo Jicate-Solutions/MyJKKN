@@ -196,7 +196,7 @@ export function MentorReviewClient({ eventId, eventStartDate }: Props) {
           </Card>
         ) : (
           alerts.map(team => {
-            const weeksMissing = currentWeek - team.current_week
+            const weeksMissing = team.weeks_submitted > 0 ? currentWeek - team.current_week : 0
             return (
               <Card key={team.team_id} className="border-l-4 border-l-red-400">
                 <CardContent className="pt-4 space-y-2">
