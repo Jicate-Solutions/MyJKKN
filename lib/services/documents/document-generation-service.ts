@@ -73,7 +73,7 @@ export class DocumentGenerationService {
 
   static async getTemplates(institutionId: string): Promise<DocumentTemplate[]> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('document_templates')
         .select('*')
         .eq('institution_id', institutionId)
@@ -89,7 +89,7 @@ export class DocumentGenerationService {
 
   static async getTemplate(institutionId: string, documentType: DocumentType): Promise<DocumentTemplate | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('document_templates')
         .select('*')
         .eq('institution_id', institutionId)
@@ -108,7 +108,7 @@ export class DocumentGenerationService {
     dto: UpdateDocumentTemplateDto
   ): Promise<DocumentTemplate> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('document_templates')
         .update(dto)
         .eq('id', templateId)
