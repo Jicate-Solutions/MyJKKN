@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import * as z from 'zod';
 import {
   Form,
@@ -36,7 +36,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Bell, Send, Users, Paperclip, X, FileText, FileSpreadsheet, FileImage, Film, Music } from 'lucide-react';
+import { Bell, Send, Users, Paperclip, X, FileText, FileSpreadsheet, FileImage, Film, Music, Zap, ListChecks, Link2, Plus, Trash2 } from 'lucide-react';
 import {
   RichTextEditor,
   RichTextDisplay
@@ -51,6 +51,7 @@ import { useRoles } from '@/hooks/organization/use-roles';
 import { usePermissions } from '@/hooks/use-permissions';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 // Define categories for the dropdown
 const notificationCategories = [
@@ -60,7 +61,8 @@ const notificationCategories = [
   'Alert',
   'Event',
   'Update',
-  'Maintenance'
+  'Maintenance',
+  'Action Required'
 ];
 
 const notificationSchema = z.object({
@@ -87,12 +89,15 @@ const notificationSchema = z.object({
   // Mandatory acknowledgment fields
   requires_acknowledgment: z.boolean().optional(),
   acknowledgment_deadline_hours: z.number().min(1).max(168).optional(),
-  // Verification question fields (stored in metadata.verification_question)
-  verification_question: z.string().optional(),
-  verification_option_a: z.string().optional(),
-  verification_option_b: z.string().optional(),
-  verification_option_c: z.string().optional(),
-  verification_correct: z.string().optional()
+  // Action Required fields
+  action_type: z.enum(['urgent', 'tracked']).optional(),
+  action_response_type: z.enum(['text', 'file', 'form', 'link']).optional(),
+  action_form_items: z.array(z.object({
+    id: z.string(),
+    title: z.string().min(1),
+    description: z.string().optional()
+  })).optional(),
+  action_link_url: z.string().url().optional().or(z.literal(''))
 });
 
 type NotificationFormData = z.infer<typeof notificationSchema>;
@@ -168,7 +173,7 @@ export function NotificationForm() {
       url: '',
       icon: '',
       priority: (searchParams.get('priority') as any) || 'normal',
-      category: searchParams.get('category') || 'General',
+      category: searchParams.get('category') || undefined,
       expires_at: '',
       institution_id: undefined,
       department_id: undefined,
@@ -179,11 +184,10 @@ export function NotificationForm() {
       audience_ids: [],
       requires_acknowledgment: false,
       acknowledgment_deadline_hours: 4,
-      verification_question: '',
-      verification_option_a: '',
-      verification_option_b: '',
-      verification_option_c: '',
-      verification_correct: ''
+      action_type: undefined,
+      action_response_type: undefined,
+      action_form_items: [],
+      action_link_url: ''
     }
   });
 
@@ -253,17 +257,16 @@ export function NotificationForm() {
       description: role.description
     })) || [];
 
-  // Fetch saved audiences for the picker
-  const { data: audiencesData } = useQuery({
+  // Fetch saved audiences
+  const { data: audiences } = useQuery({
     queryKey: ['notification-audiences'],
     queryFn: async () => {
       const res = await fetch('/api/admin/notifications/audiences', { cache: 'no-store' });
       if (!res.ok) return [];
-      const json = await res.json();
-      return json.audiences || json.data || json || [];
+      const data = await res.json();
+      return data.audiences || data || [];
     }
   });
-  const availableAudiences = Array.isArray(audiencesData) ? audiencesData : [];
 
   // Get degree_id from selected department (after departments are fetched)
   const selectedDepartment = departments.find(
@@ -313,6 +316,7 @@ export function NotificationForm() {
     form.setValue('semester_id', undefined);
     form.setValue('section_id', undefined);
     form.setValue('target_roles', []);
+    form.setValue('audience_ids', []);
   };
 
   const onSubmit = async (data: NotificationFormData) => {
@@ -326,7 +330,8 @@ export function NotificationForm() {
         !data.program_id &&
         !data.semester_id &&
         !data.section_id &&
-        (!data.target_roles || data.target_roles.length === 0);
+        (!data.target_roles || data.target_roles.length === 0) &&
+        (!data.audience_ids || data.audience_ids.length === 0);
 
       if (isTargetingAll && !canSendToAll) {
         toast.error(
@@ -366,18 +371,7 @@ export function NotificationForm() {
         priority: data.priority,
         category: data.category,
         expires_at: data.expires_at || undefined,
-        metadata: {
-          ...(attachmentUrls.length > 0 ? { attachments: attachmentUrls } : {}),
-          ...(data.verification_question && data.verification_option_a && data.verification_option_b && data.verification_option_c && data.verification_correct
-            ? {
-                verification_question: {
-                  question: data.verification_question,
-                  options: [data.verification_option_a, data.verification_option_b, data.verification_option_c],
-                  correct_index: parseInt(data.verification_correct)
-                }
-              }
-            : {})
-        },
+        metadata: attachmentUrls.length > 0 ? { attachments: attachmentUrls } : undefined,
         targeting: {
           institution_id: data.institution_id || undefined,
           department_id: data.department_id || undefined,
@@ -396,7 +390,16 @@ export function NotificationForm() {
         requires_acknowledgment: data.requires_acknowledgment || false,
         acknowledgment_deadline_hours: data.requires_acknowledgment
           ? (data.acknowledgment_deadline_hours || 4)
-          : undefined
+          : undefined,
+        action_type: data.action_type || undefined,
+        action_config: data.action_type ? {
+          response_type: data.action_response_type || 'text',
+          form_items: data.action_response_type === 'form' ? data.action_form_items : undefined,
+          link_url: data.action_response_type === 'link' ? data.action_link_url : undefined,
+          min_text_length: 10,
+          max_file_size_mb: 25,
+          escalation_chain: ['hod', 'principal', 'super_admin']
+        } : undefined
       };
 
       const response = await fetch('/api/notifications/send', {
@@ -520,6 +523,14 @@ export function NotificationForm() {
       targets.push(`Roles: ${roleLabels.join(', ')}`);
     }
 
+    if (watchedValues.audience_ids && watchedValues.audience_ids.length > 0) {
+      const audienceLabels = watchedValues.audience_ids.map((audienceId: string) => {
+        const audience = (audiences || []).find((a: any) => a.id === audienceId);
+        return audience?.name || audienceId;
+      });
+      targets.push(`Audiences: ${audienceLabels.join(', ')}`);
+    }
+
     if (targets.length > 0) {
       return targets;
     }
@@ -527,6 +538,13 @@ export function NotificationForm() {
     // Show "All Users" only if user has permission, otherwise show guidance
     return canSendToAll ? ['All Users'] : ['Select targeting criteria'];
   };
+
+  // Auto-enable requires_acknowledgment when category is 'Action Required'
+  useEffect(() => {
+    if (watchedValues.category === 'Action Required' && !watchedValues.requires_acknowledgment) {
+      form.setValue('requires_acknowledgment', true);
+    }
+  }, [watchedValues.category, watchedValues.requires_acknowledgment, form]);
 
   return (
     <div className='space-y-6'>
@@ -917,69 +935,51 @@ export function NotificationForm() {
               </div>
 
               {/* Saved Audiences */}
-              {availableAudiences.length > 0 && (
-                <div>
-                  <div className='flex items-center justify-between mb-3'>
-                    <h4 className='text-md font-medium flex items-center gap-2'>
-                      <Users className='h-4 w-4' />
-                      Saved Audiences (Optional)
-                    </h4>
-                    <Link
-                      href='/admin/notifications/audiences'
-                      className='text-xs text-primary hover:underline'
-                    >
-                      Manage →
-                    </Link>
-                  </div>
-                  <p className='text-sm text-muted-foreground mb-3'>
-                    Target predefined groups like &quot;Hostel Residents&quot;, &quot;Work Pulse Laggards&quot;, etc.
-                  </p>
-                  <FormField
-                    control={form.control}
-                    name='audience_ids'
-                    render={({ field }) => (
-                      <FormItem>
-                        <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
-                          {availableAudiences.map((audience: any) => (
-                            <div
-                              key={audience.id}
-                              className='flex items-start gap-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors'
-                            >
-                              <Checkbox
-                                id={`aud-${audience.id}`}
-                                checked={field.value?.includes(audience.id) || false}
-                                onCheckedChange={(checked) => {
-                                  const current = field.value || [];
-                                  field.onChange(
-                                    checked
-                                      ? [...current, audience.id]
-                                      : current.filter((id: string) => id !== audience.id)
-                                  );
-                                }}
-                                className='mt-0.5'
-                              />
-                              <div className='flex-1 min-w-0'>
-                                <label
-                                  htmlFor={`aud-${audience.id}`}
-                                  className='text-sm font-medium cursor-pointer'
-                                >
-                                  {audience.name}
-                                </label>
-                                {audience.description && (
-                                  <p className='text-xs text-muted-foreground line-clamp-2 mt-0.5'>
-                                    {audience.description}
-                                  </p>
-                                )}
-                              </div>
+              <div>
+                <h4 className='text-md font-medium mb-3 flex items-center gap-2'>
+                  <Users className='h-4 w-4' />
+                  Saved Audiences (Optional)
+                </h4>
+                <p className='text-sm text-muted-foreground mb-3'>
+                  Target predefined groups like &quot;Hostel Residents&quot;, &quot;Work Pulse Laggards&quot;, etc.
+                  <Link href='/admin/notifications/audiences' className='ml-2 text-primary hover:underline'>
+                    Manage audiences →
+                  </Link>
+                </p>
+                <FormField
+                  control={form.control}
+                  name='audience_ids'
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className='grid grid-cols-1 sm:grid-cols-2 gap-2'>
+                        {(audiences || []).map((audience: any) => (
+                          <div key={audience.id} className='flex items-start gap-2 p-3 border rounded-lg hover:bg-muted/50'>
+                            <Checkbox
+                              id={audience.id}
+                              checked={field.value?.includes(audience.id) || false}
+                              onCheckedChange={(checked) => {
+                                const current = field.value || [];
+                                field.onChange(
+                                  checked ? [...current, audience.id] : current.filter((id: string) => id !== audience.id)
+                                );
+                              }}
+                            />
+                            <div className='flex-1 min-w-0'>
+                              <label htmlFor={audience.id} className='text-sm font-medium cursor-pointer'>
+                                {audience.name}
+                              </label>
+                              {audience.description && (
+                                <p className='text-xs text-muted-foreground truncate'>{audience.description}</p>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
+                          </div>
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               {/* Role-based Targeting */}
               <div>
@@ -1089,7 +1089,9 @@ export function NotificationForm() {
                       watchedValues.semester_id ||
                       watchedValues.section_id ||
                       (watchedValues.target_roles &&
-                        watchedValues.target_roles.length > 0)) && (
+                        watchedValues.target_roles.length > 0) ||
+                      (watchedValues.audience_ids &&
+                        watchedValues.audience_ids.length > 0)) && (
                       <Button
                         type='button'
                         variant='ghost'
@@ -1153,153 +1155,236 @@ export function NotificationForm() {
               />
 
               {watchedValues.requires_acknowledgment && (
-                <>
+                <FormField
+                  control={form.control}
+                  name='acknowledgment_deadline_hours'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Acknowledgment Deadline</FormLabel>
+                      <Select
+                        onValueChange={(v) => field.onChange(Number(v))}
+                        value={String(field.value || 4)}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select deadline' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value='1'>1 hour</SelectItem>
+                          <SelectItem value='2'>2 hours</SelectItem>
+                          <SelectItem value='4'>
+                            4 hours (JKKN SOP default)
+                          </SelectItem>
+                          <SelectItem value='8'>8 hours</SelectItem>
+                          <SelectItem value='24'>24 hours</SelectItem>
+                          <SelectItem value='48'>48 hours</SelectItem>
+                          <SelectItem value='72'>72 hours</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        After this deadline, non-compliance is escalated to
+                        supervisors
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Action Configuration - shown only when category is 'Action Required' */}
+          {watchedValues.category === 'Action Required' && (
+            <>
+              <Separator />
+              <div>
+                <div className='mb-4'>
+                  <h3 className='text-lg font-medium flex items-center gap-2'>
+                    <Zap className='h-5 w-5' />
+                    Action Configuration
+                  </h3>
+                  <p className='text-sm text-muted-foreground mt-1'>
+                    Configure what response the recipient must provide.
+                  </p>
+                </div>
+                <div className='space-y-4'>
+                  {/* Action Urgency */}
                   <FormField
                     control={form.control}
-                    name='acknowledgment_deadline_hours'
+                    name='action_type'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Acknowledgment Deadline</FormLabel>
+                        <FormLabel>Action Urgency</FormLabel>
+                        <FormControl>
+                          <RadioGroup
+                            onValueChange={field.onChange}
+                            value={field.value || ''}
+                            className='grid grid-cols-2 gap-3'
+                          >
+                            <div className='flex items-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors'>
+                              <RadioGroupItem value='urgent' id='action-urgent' />
+                              <label htmlFor='action-urgent' className='cursor-pointer flex-1'>
+                                <div className='text-sm font-medium'>Urgent</div>
+                                <div className='text-xs text-muted-foreground'>
+                                  Blocks app usage until responded
+                                </div>
+                              </label>
+                            </div>
+                            <div className='flex items-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors'>
+                              <RadioGroupItem value='tracked' id='action-tracked' />
+                              <label htmlFor='action-tracked' className='cursor-pointer flex-1'>
+                                <div className='text-sm font-medium'>Tracked</div>
+                                <div className='text-xs text-muted-foreground'>
+                                  Non-blocking, deadline enforced
+                                </div>
+                              </label>
+                            </div>
+                          </RadioGroup>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Response Type */}
+                  <FormField
+                    control={form.control}
+                    name='action_response_type'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Response Type</FormLabel>
                         <Select
-                          onValueChange={(v) => field.onChange(Number(v))}
-                          value={String(field.value || 4)}
+                          onValueChange={field.onChange}
+                          value={field.value || ''}
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder='Select deadline' />
+                              <SelectValue placeholder='Select what the recipient must submit' />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value='1'>1 hour</SelectItem>
-                            <SelectItem value='2'>2 hours</SelectItem>
-                            <SelectItem value='4'>
-                              4 hours (JKKN SOP default)
-                            </SelectItem>
-                            <SelectItem value='8'>8 hours</SelectItem>
-                            <SelectItem value='24'>24 hours</SelectItem>
-                            <SelectItem value='48'>48 hours</SelectItem>
-                            <SelectItem value='72'>72 hours</SelectItem>
+                            <SelectItem value='text'>Text Response</SelectItem>
+                            <SelectItem value='file'>File Upload</SelectItem>
+                            <SelectItem value='form'>Checklist / Form</SelectItem>
+                            <SelectItem value='link'>Confirm Link Visited</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          After this deadline, non-compliance is escalated to
-                          supervisors
+                          {field.value === 'text' && 'Recipient writes a free-text response (min 10 characters).'}
+                          {field.value === 'file' && 'Recipient uploads a file (max 25MB).'}
+                          {field.value === 'form' && 'Recipient completes a checklist you define below.'}
+                          {field.value === 'link' && 'Recipient must visit a link and confirm they read it.'}
+                          {!field.value && 'Choose the type of response required from recipients.'}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
 
-                  {/* Verification Question — proves they actually read */}
-                  <div className='rounded-lg border p-4 space-y-3 bg-muted/30'>
-                    <div>
-                      <h4 className='text-sm font-semibold'>
-                        Comprehension Check (Optional)
-                      </h4>
-                      <p className='text-xs text-muted-foreground mt-0.5'>
-                        Add a question to verify recipients actually read the
-                        content. They must answer correctly before acknowledging.
+                  {/* Form Items Builder - shown when response type is 'form' */}
+                  {watchedValues.action_response_type === 'form' && (
+                    <div className='space-y-3'>
+                      <div className='flex items-center justify-between'>
+                        <Label className='text-sm font-medium flex items-center gap-2'>
+                          <ListChecks className='h-4 w-4' />
+                          Checklist Items
+                        </Label>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={() => {
+                            const current = form.getValues('action_form_items') || [];
+                            form.setValue('action_form_items', [
+                              ...current,
+                              { id: crypto.randomUUID(), title: '', description: '' }
+                            ]);
+                          }}
+                        >
+                          <Plus className='h-3.5 w-3.5 mr-1' />
+                          Add Item
+                        </Button>
+                      </div>
+                      <p className='text-xs text-muted-foreground'>
+                        Define the checklist items recipients must complete.
                       </p>
+                      {(watchedValues.action_form_items || []).length === 0 && (
+                        <div className='p-4 border border-dashed rounded-lg text-center text-sm text-muted-foreground'>
+                          No checklist items yet. Click &quot;Add Item&quot; to create one.
+                        </div>
+                      )}
+                      {(watchedValues.action_form_items || []).map((item: any, index: number) => (
+                        <div key={item.id} className='flex items-start gap-2 p-3 border rounded-lg'>
+                          <div className='flex-1 space-y-2'>
+                            <Input
+                              placeholder={`Item ${index + 1} title (required)`}
+                              value={item.title}
+                              onChange={(e) => {
+                                const items = [...(form.getValues('action_form_items') || [])];
+                                items[index] = { ...items[index], title: e.target.value };
+                                form.setValue('action_form_items', items);
+                              }}
+                            />
+                            <Input
+                              placeholder='Description (optional)'
+                              value={item.description || ''}
+                              onChange={(e) => {
+                                const items = [...(form.getValues('action_form_items') || [])];
+                                items[index] = { ...items[index], description: e.target.value };
+                                form.setValue('action_form_items', items);
+                              }}
+                              className='text-sm'
+                            />
+                          </div>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            className='h-8 w-8 shrink-0 text-destructive hover:text-destructive'
+                            onClick={() => {
+                              const items = (form.getValues('action_form_items') || []).filter(
+                                (_: any, i: number) => i !== index
+                              );
+                              form.setValue('action_form_items', items);
+                            }}
+                          >
+                            <Trash2 className='h-4 w-4' />
+                          </Button>
+                        </div>
+                      ))}
                     </div>
+                  )}
+
+                  {/* Link URL - shown when response type is 'link' */}
+                  {watchedValues.action_response_type === 'link' && (
                     <FormField
                       control={form.control}
-                      name='verification_question'
+                      name='action_link_url'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Question</FormLabel>
+                          <FormLabel className='flex items-center gap-2'>
+                            <Link2 className='h-4 w-4' />
+                            Link URL
+                          </FormLabel>
                           <FormControl>
                             <Input
-                              placeholder='e.g., How often must you log a Work Pulse entry?'
-                              value={field.value || ''}
-                              onChange={field.onChange}
+                              placeholder='https://...'
+                              {...field}
                             />
                           </FormControl>
+                          <FormDescription>
+                            The URL the recipient must visit and confirm they have read.
+                          </FormDescription>
+                          <FormMessage />
                         </FormItem>
                       )}
                     />
-                    {watchedValues.verification_question && (
-                      <>
-                        <div className='grid grid-cols-1 gap-2'>
-                          <FormField
-                            control={form.control}
-                            name='verification_option_a'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className='text-xs'>Option A</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder='First option'
-                                    value={field.value || ''}
-                                    onChange={field.onChange}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name='verification_option_b'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className='text-xs'>Option B</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder='Second option'
-                                    value={field.value || ''}
-                                    onChange={field.onChange}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name='verification_option_c'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className='text-xs'>Option C</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder='Third option'
-                                    value={field.value || ''}
-                                    onChange={field.onChange}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                        <FormField
-                          control={form.control}
-                          name='verification_correct'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className='text-xs'>Correct Answer</FormLabel>
-                              <Select
-                                onValueChange={field.onChange}
-                                value={field.value || ''}
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder='Select correct answer' />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value='0'>Option A</SelectItem>
-                                  <SelectItem value='1'>Option B</SelectItem>
-                                  <SelectItem value='2'>Option C</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </FormItem>
-                          )}
-                        />
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
 
           <Separator />
 

@@ -48,99 +48,6 @@ export interface NotificationTargeting {
   semester_id?: string;
   section_id?: string;
   target_roles?: string[];
-  audience_ids?: string[];
-}
-
-// ==================== SAVED AUDIENCES ====================
-
-export type AudienceQueryType = 'built_in' | 'sql';
-
-export type BuiltInAudienceName =
-  | 'all_active_users'
-  | 'all_students'
-  | 'all_faculty'
-  | 'all_hods'
-  | 'hostel_residents'
-  | 'bus_commuters'
-  | 'work_pulse_laggards';
-
-export const VALID_BUILT_IN_AUDIENCE_NAMES: readonly BuiltInAudienceName[] = [
-  'all_active_users',
-  'all_students',
-  'all_faculty',
-  'all_hods',
-  'hostel_residents',
-  'bus_commuters',
-  'work_pulse_laggards'
-] as const;
-
-export interface AudienceQueryParamsBuiltIn {
-  name: BuiltInAudienceName;
-}
-
-export interface AudienceQueryParamsSql {
-  sql: string;
-}
-
-export type AudienceQueryParams =
-  | AudienceQueryParamsBuiltIn
-  | AudienceQueryParamsSql;
-
-export interface NotificationAudience {
-  id: string;
-  name: string;
-  description: string | null;
-  icon: string | null;
-  query_type: AudienceQueryType;
-  query_params: AudienceQueryParams;
-  is_active: boolean;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreateAudienceRequest {
-  name: string;
-  description?: string | null;
-  icon?: string | null;
-  query_type: AudienceQueryType;
-  query_params: AudienceQueryParams;
-}
-
-export interface AudiencePreviewResponse {
-  audience_id: string;
-  name: string;
-  count: number;
-  preview_users: AudiencePreviewUser[];
-}
-
-export interface AudiencePreviewUser {
-  id: string;
-  full_name: string;
-  email: string;
-  role: string;
-  institution_id: string | null;
-  institution_name: string | null;
-}
-
-export interface SavedAudience {
-  id: string;
-  name: string;
-  description?: string;
-  icon?: string;
-  query_type: 'sql' | 'built_in';
-  query_params: { name?: string; sql?: string };
-  is_active: boolean;
-  created_by?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ResolvedAudience {
-  audience_id: string;
-  name: string;
-  user_ids: string[];
-  count: number;
 }
 
 export interface NotificationAttachment {
@@ -158,13 +65,12 @@ export interface CreateNotificationRequest {
   priority?: 'low' | 'normal' | 'high' | 'urgent';
   category?: string;
   expires_at?: string;
-  metadata?: {
-    attachments?: NotificationAttachment[];
-    verification_question?: VerificationQuestion;
-  };
+  metadata?: { attachments?: NotificationAttachment[] };
   targeting: NotificationTargeting;
   requires_acknowledgment?: boolean;
   acknowledgment_deadline_hours?: number;
+  action_type?: ActionType;
+  action_config?: ActionConfig;
 }
 
 export interface NotificationStats {
@@ -216,15 +122,80 @@ export interface UnacknowledgedNotification {
   is_overdue: boolean;
   metadata?: {
     attachments?: NotificationAttachment[];
-    verification_question?: VerificationQuestion;
     [key: string]: any;
   };
 }
 
-// ==================== VERIFICATION QUESTION ====================
+// ==================== ACTION REQUIRED SYSTEM ====================
 
-export interface VerificationQuestion {
-  question: string;
-  options: string[];       // 3 options (A, B, C)
-  correct_index: number;   // 0, 1, or 2
+export type ActionType = 'urgent' | 'tracked';
+export type ResponseType = 'text' | 'file' | 'form' | 'link';
+
+export interface FormItem {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface ActionConfig {
+  response_type: ResponseType;
+  form_items?: FormItem[];
+  link_url?: string;
+  min_text_length?: number;
+  max_file_size_mb?: number;
+  allowed_file_types?: string[];
+  escalation_chain?: string[];
+}
+
+export interface ActionResponse {
+  id: string;
+  notification_id: string;
+  user_id: string;
+  response_type: ResponseType;
+  text_response?: string;
+  file_url?: string;
+  file_name?: string;
+  file_size?: number;
+  form_response?: Record<string, boolean>;
+  link_confirmed?: boolean;
+  submitted_at: string;
+  created_at: string;
+}
+
+export interface ExtensionRequest {
+  id: string;
+  notification_id: string;
+  user_id: string;
+  reason: string;
+  requested_deadline: string;
+  status: 'pending' | 'approved' | 'denied';
+  reviewed_by?: string;
+  reviewed_at?: string;
+  review_note?: string;
+  created_at: string;
+}
+
+export interface PendingAction {
+  id: string;
+  notification_id: string;
+  title: string;
+  body: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  category: string;
+  action_type: ActionType;
+  action_config: ActionConfig;
+  acknowledgment_deadline_hours: number;
+  sent_at: string;
+  created_by_name: string;
+  deadline_at: string;
+  is_overdue: boolean;
+  has_responded: boolean;
+  extension_request?: {
+    status: 'pending' | 'approved' | 'denied';
+    requested_deadline: string;
+  };
+  metadata?: {
+    attachments?: NotificationAttachment[];
+    [key: string]: any;
+  };
 }
