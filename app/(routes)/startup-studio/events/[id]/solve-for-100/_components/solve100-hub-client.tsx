@@ -171,7 +171,7 @@ export function Solve100HubClient({ eventId, eventStartDate }: Props) {
                     <TableCell className="text-center">{team.active_users}</TableCell>
                     <TableCell>
                       {team.app_status ? (
-                        <Badge className={statusColors[team.app_status]} variant="secondary">
+                        <Badge className={STATUS_COLORS[team.app_status]} variant="secondary">
                           {APP_STATUS_OPTIONS.find(o => o.value === team.app_status)?.label ?? team.app_status}
                         </Badge>
                       ) : (
