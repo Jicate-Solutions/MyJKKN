@@ -24,9 +24,7 @@ import { SF100PhaseIndicator } from './sf100-phase-indicator';
 import { SF100CheckInPrompt } from './sf100-checkin-prompt';
 import { SF100ActivityTimeline } from './sf100-activity-timeline';
 import { SF100DeadlineCountdown } from './sf100-deadline-countdown';
-
-// The default/active program ID — in production, discover via API or config
-const DEFAULT_PROGRAM_ID = 'current';
+import { useSF100Programs } from '@/hooks/startup-studio';
 
 interface InstitutionalSupport {
   on_duty: boolean;
@@ -66,27 +64,30 @@ function DashboardSkeleton() {
 export function SF100TeamDashboard() {
   useAuth(); // ensure authenticated
 
+  // Step 0: Discover the active program (never hardcode 'current')
+  const { data: programsRaw, isLoading: programsLoading } = useSF100Programs();
+  const programs = Array.isArray(programsRaw) ? programsRaw : (programsRaw as any)?.data || [];
+  const activeProgram = programs.find((p: any) => p.status === 'active') || programs[0];
+  const activeProgramId: string | undefined = activeProgram?.id;
+
   // Step 1: Get the current user's enrollment in the active program
   const {
-    data: myEnrollmentRaw,
+    data: myEnrollment,
     isLoading: enrollmentLoading,
     error: enrollmentError,
-  } = useMySF100Enrollment(DEFAULT_PROGRAM_ID);
+  } = useMySF100Enrollment(activeProgramId ?? '');
 
-  const myEnrollment = (myEnrollmentRaw as any)?.data ?? myEnrollmentRaw;
-  const enrollmentId: string | undefined = myEnrollment?.id;
+  const enrollmentId: string | undefined = (myEnrollment as any)?.id;
 
   // Step 2: Get full enrollment detail (includes phase, team info, support status)
-  const { data: enrollmentDetailRaw, isLoading: detailLoading } = useSF100Enrollment(
+  const { data: enrollment, isLoading: detailLoading } = useSF100Enrollment(
     enrollmentId ?? ''
   );
-  const enrollment = (enrollmentDetailRaw as any)?.data ?? enrollmentDetailRaw;
 
   // Step 3: Paid users count
-  const { data: paidUsersRaw, isLoading: paidUsersLoading } = useSF100PaidUsers(
+  const { data: paidUsersData, isLoading: paidUsersLoading } = useSF100PaidUsers(
     enrollmentId ?? ''
   );
-  const paidUsersData = (paidUsersRaw as any)?.data ?? paidUsersRaw;
   const paidUsersList = Array.isArray(paidUsersData) ? paidUsersData : [];
   const cumulativePaidUsers: number = paidUsersList.length;
   const activePaidUsers: number = paidUsersList.filter(
@@ -94,16 +95,14 @@ export function SF100TeamDashboard() {
   ).length;
 
   // Step 4: Leaderboard position
-  const programId: string | undefined = enrollment?.program_id ?? myEnrollment?.program_id;
-  const { data: leaderboardRaw } = useSF100PublicLeaderboard(programId ?? DEFAULT_PROGRAM_ID);
-  const leaderboard = (leaderboardRaw as any)?.data ?? leaderboardRaw;
-  const myLeaderboardEntry = Array.isArray(leaderboard)
-    ? leaderboard.find((e: any) => e.enrollment_id === enrollmentId)
-    : null;
+  const programId: string | undefined = (enrollment as any)?.program_id ?? (myEnrollment as any)?.program_id ?? activeProgramId;
+  const { data: leaderboardRaw } = useSF100PublicLeaderboard(programId ?? '');
+  const leaderboard = Array.isArray(leaderboardRaw) ? leaderboardRaw : (leaderboardRaw as any)?.data || [];
+  const myLeaderboardEntry = leaderboard.find((e: any) => e.enrollment_id === enrollmentId) || null;
   const leaderboardRank: number | null = myLeaderboardEntry?.rank ?? null;
-  const leaderboardPhaseLabel: string = myLeaderboardEntry?.phase_label ?? enrollment?.current_phase ?? '';
+  const leaderboardPhaseLabel: string = myLeaderboardEntry?.phase_label ?? (enrollment as any)?.current_phase ?? '';
 
-  const isLoading = enrollmentLoading || detailLoading || paidUsersLoading;
+  const isLoading = programsLoading || enrollmentLoading || detailLoading || paidUsersLoading;
 
   // Not enrolled
   const notEnrolled =
