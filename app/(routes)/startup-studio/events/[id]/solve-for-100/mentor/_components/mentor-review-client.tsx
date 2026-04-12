@@ -137,11 +137,13 @@ export function MentorReviewClient({ eventId, eventStartDate }: Props) {
 
   const unreviewedCount = unreviewed?.length ?? 0
 
-  // Alerts: teams with 0 progress for 2+ weeks, unresolved blockers
+  // Alerts: teams that were active but are now behind (2+ weeks), or have unresolved blockers
   const alerts = (teams ?? []).filter(t => {
+    const hasEverCheckedIn = t.weeks_submitted > 0
     const weeksMissing = currentWeek - t.current_week
+    const isBehind = hasEverCheckedIn && weeksMissing >= 2
     const hasUnresolvedBlocker = !!t.biggest_blocker
-    return weeksMissing >= 2 || hasUnresolvedBlocker
+    return isBehind || hasUnresolvedBlocker
   })
 
   return (
