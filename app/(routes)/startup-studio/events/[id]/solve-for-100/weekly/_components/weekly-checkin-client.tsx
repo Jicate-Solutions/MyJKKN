@@ -215,10 +215,15 @@ export function WeeklyCheckinClient({ eventId, eventStartDate }: Props) {
           <p className="text-xs text-muted-foreground">
             {selectedWeek === currentWeek ? 'Current week' : selectedWeek < currentWeek ? 'Past week' : 'Future week'}
           </p>
+          {eventStartDate && selectedWeek < currentWeek && isCheckinDeadlinePassed(eventStartDate, selectedWeek) && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center justify-center gap-1 mt-0.5">
+              <Clock className="h-3 w-3" /> Deadline passed
+            </p>
+          )}
         </div>
         <Button
           variant="outline" size="sm"
-          disabled={selectedWeek >= SOLVE100_WEEKS}
+          disabled={selectedWeek >= currentWeek}
           onClick={() => setSelectedWeek(w => w + 1)}
         >
           <ChevronRight className="h-4 w-4" />
