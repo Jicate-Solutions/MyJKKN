@@ -6,7 +6,7 @@
 import type jsPDF from 'jspdf';
 import type { DocumentBranding, DocumentMetadata } from '@/types/documents';
 import { BaseDocumentGenerator } from '../base-document-generator';
-import { DEFAULT_COLORS, formatDateLong, getFullName } from '../brand-utils';
+import { DEFAULT_COLORS, getFullName } from '../brand-utils';
 
 export class ScholarshipCertificateGenerator extends BaseDocumentGenerator {
   constructor(branding: DocumentBranding, metadata: DocumentMetadata) {
