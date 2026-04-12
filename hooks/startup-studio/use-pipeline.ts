@@ -22,11 +22,7 @@ import type {
 export function usePipelineSummary() {
   return useQuery({
     queryKey: startupStudioKeys.pipeline.summary(),
-    queryFn: async () => {
-      const res = await apiClient.get<PipelineSummary>('/api/startup-studio/pipeline');
-      // apiClient may wrap in { data } envelope — unwrap defensively
-      return ((res as any)?.data ?? res) as PipelineSummary;
-    },
+    queryFn: () => apiClient.get<PipelineSummary>('/api/startup-studio/pipeline'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -41,8 +37,7 @@ export function usePipelineTeamsAtStage(stage: PipelineStage | null) {
       const res = await apiClient.get<{ stage: PipelineStage; teams: PipelineTeam[] }>(
         `/api/startup-studio/pipeline/teams?stage=${stage}`
       );
-      const unwrapped = ((res as any)?.data ?? res) as { stage: PipelineStage; teams: PipelineTeam[] };
-      return unwrapped.teams || [];
+      return (res as any).teams || [];
     },
     enabled: !!stage,
     ...QUERY_CONFIG.DYNAMIC_DATA,
@@ -59,8 +54,7 @@ export function usePipelineActivity(limit: number = 20) {
       const res = await apiClient.get<{ activity: PipelineActivity[] }>(
         `/api/startup-studio/pipeline/activity?limit=${limit}`
       );
-      const unwrapped = ((res as any)?.data ?? res) as { activity: PipelineActivity[] };
-      return unwrapped.activity || [];
+      return (res as any).activity || [];
     },
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
