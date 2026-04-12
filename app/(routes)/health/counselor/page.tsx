@@ -600,7 +600,7 @@ function AccessDenied() {
 
 function CounselorDashboardInner() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions(profile ?? undefined);
+  const { isSuperAdmin } = usePermissions();
 
   // Access control check
   const hasAccess = useMemo(() => {
@@ -842,7 +842,7 @@ function CounselorDashboardInner_WithCallbacks({
   onOpenDialog: (e: HealthEscalation) => void;
 }) {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions(profile ?? undefined);
+  const { isSuperAdmin } = usePermissions();
 
   const hasAccess = useMemo(() => {
     if (!profile) return false;
