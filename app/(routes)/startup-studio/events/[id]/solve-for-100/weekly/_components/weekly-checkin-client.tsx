@@ -81,7 +81,24 @@ export function WeeklyCheckinClient({ eventId, eventStartDate }: Props) {
       setBiggestBlocker(existingCheckin.biggest_blocker ?? '')
       setBlockerResolved(existingCheckin.blocker_resolved)
     } else {
-      // Try draft from sessionStorage
+      // Reset all fields to defaults first to prevent stale data from previous week
+      setCommitment('')
+      setCommitmentResult('')
+      setCommitmentMet(null)
+      setVerifiedPaidUsers(0)
+      setTotalUsers(0)
+      setActiveUsers(0)
+      setTargetCustomerName('')
+      setTargetCustomerLocation('')
+      setProblemDescription('')
+      setPricing('')
+      setAcquisitionPlan('')
+      setAppStatus('')
+      setAppUrl('')
+      setBiggestBlocker('')
+      setBlockerResolved(false)
+
+      // Then try draft from sessionStorage
       try {
         const draft = sessionStorage.getItem(DRAFT_KEY(eventId, selectedWeek))
         if (draft) {
