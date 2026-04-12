@@ -366,7 +366,7 @@ function StatsBar({ stats, isLoading }: { stats: CounselorStatsData | undefined;
       <StatCard
         icon={AlertTriangle}
         label="Open Alerts"
-        value={stats?.open_count}
+        value={stats?.open}
         isLoading={isLoading}
         colorClass="text-red-600"
         bgClass="bg-red-50"
