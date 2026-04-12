@@ -47,14 +47,19 @@ export function useSubmitICP(eventId: string) {
   })
 }
 
-export function useUpdateICP(eventId: string, teamId: string) {
+export function useUpdateICP(eventId: string, teamId: string | undefined) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: ({ id, dto }: { id: string; dto: UpdateICPDto }) =>
       Solve100ICPService.updateICP(id, dto),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['solve100-icp', eventId, teamId] })
+      // Only invalidate with teamId if it's a real value; otherwise broad invalidate
+      if (teamId) {
+        queryClient.invalidateQueries({ queryKey: ['solve100-icp', eventId, teamId] })
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['solve100-icp', eventId] })
+      }
       queryClient.invalidateQueries({ queryKey: ['solve100-event-icps', eventId] })
       toast.success('ICP updated (new version saved)')
     },
