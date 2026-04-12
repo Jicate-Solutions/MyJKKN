@@ -16,6 +16,33 @@
 
 Dependencies: None (foundation phase — must complete before Phase 2-4)
 
+### Task 0: Consent Gate
+
+**Files:**
+- Create: `app/(routes)/health/_components/consent-gate.tsx`
+
+**Step 1: Build consent gate component**
+
+A full-screen modal/overlay that wraps ALL health pages. If the learner has no consent record in `health_consents`, show:
+- Title: "Welcome to JKKN Health"
+- Bullet list: "We collect: mood & sleep data, health profile info, screening results"
+- Privacy note: "Your data is private. Only you and your assigned counselor can see individual data."
+- [I Agree] button → inserts consent record → reveals the health dashboard
+- [Learn More] link → expands detailed privacy explanation
+
+Use a React context provider (`HealthConsentProvider`) that wraps the health layout. Every health page checks consent status from context — no per-page duplication.
+
+**Step 2: Add `health_consents` table to Task 1's schema (see below)**
+
+**Step 3: Commit**
+
+```bash
+git add "app/(routes)/health/_components/consent-gate.tsx"
+git commit -m "feat(health): add DPDP consent gate for health module"
+```
+
+---
+
 ### Task 1: Database Schema — Core Health Tables
 
 **Files:**
