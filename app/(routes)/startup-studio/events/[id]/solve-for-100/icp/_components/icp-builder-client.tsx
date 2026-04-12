@@ -23,7 +23,7 @@ interface Props {
 const DRAFT_KEY = (eventId: string) => `solve100-icp-draft-${eventId}`
 
 export function ICPBuilderClient({ eventId }: Props) {
-  const { profile } = useAuth()
+  useAuth()
   const { data: registration, isLoading: regLoading } = useMyRegistration(eventId)
 
   const teamId = registration?.id ?? null
