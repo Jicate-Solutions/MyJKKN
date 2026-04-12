@@ -1,5 +1,20 @@
 // Solve for 100 — Weekly Tracking System Constants
 
+import type { Solve100AppStatus } from '@/types/startup-studio'
+
+/** Shared UUID validation (used by solve100 hooks) */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const isValidUUID = (id: string | undefined | null): boolean =>
+  !!id && !id.includes('%%drp:') && UUID_REGEX.test(id)
+
+/** Shared status color mapping for app status badges */
+export const STATUS_COLORS: Record<Solve100AppStatus, string> = {
+  live: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  needs_fixes: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+  building: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+  pivoting: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+}
+
 export const SOLVE100_WEEKS = 44 // 10 months
 export const CHECKIN_DEADLINE_DAY = 4 // Thursday (0=Sun, 4=Thu)
 export const CHECKIN_DEADLINE_HOUR = 23 // 11:59 PM
