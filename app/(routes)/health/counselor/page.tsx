@@ -315,8 +315,8 @@ function StatusUpdateDialog({ escalation, open, onClose }: StatusUpdateDialogPro
 // ============================================================================
 
 interface CounselorStatsData {
-  open_count: number;
-  contacted_count: number;
+  open: number;
+  contacted: number;
   resolved_today: number;
   total_active: number;
 }
