@@ -374,7 +374,7 @@ function StatsBar({ stats, isLoading }: { stats: CounselorStatsData | undefined;
       <StatCard
         icon={Phone}
         label="Contacted"
-        value={stats?.contacted_count}
+        value={stats?.contacted}
         isLoading={isLoading}
         colorClass="text-amber-600"
         bgClass="bg-amber-50"
