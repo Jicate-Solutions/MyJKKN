@@ -106,7 +106,7 @@ function ReviewCard({ checkin, eventId }: { checkin: Solve100WeeklyCheckin; even
               <Button
                 size="sm"
                 onClick={handleReview}
-                disabled={mentorReviewMutation.isPending}
+                disabled={mentorReviewMutation.isPending || !notes.trim()}
                 className="gap-1"
               >
                 {mentorReviewMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -116,6 +116,9 @@ function ReviewCard({ checkin, eventId }: { checkin: Solve100WeeklyCheckin; even
                 Cancel
               </Button>
             </div>
+            {mentorReviewMutation.isError && (
+              <p className="text-xs text-red-600">Failed to save review. Please try again.</p>
+            )}
           </div>
         )}
       </CardContent>
