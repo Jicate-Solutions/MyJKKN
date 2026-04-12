@@ -248,6 +248,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Notification Management
   '/admin/notifications': 'notifications.view',
   '/admin/notifications/new': 'notifications.create',
+  '/admin/notifications/compliance': 'notifications.view',
+  '/admin/notifications/audiences': 'notifications.view',
 
   // System Management
   // Work Pulse
