@@ -87,6 +87,30 @@ export function ICPBuilderClient({ eventId }: Props) {
       setHasTalkedToCustomer(existingICP.has_talked_to_customer ?? '')
       setTalkDate(existingICP.talk_date ?? '')
     } else {
+      // Reset all fields to defaults first to prevent stale data
+      setCustomerName('')
+      setCustomerAgeGender('')
+      setCustomerRole('')
+      setCustomerLocation('')
+      setCustomerIncome('')
+      setCustomerPhoneType('')
+      setProblemInTheirWords('')
+      setProblemFrequency('')
+      setProblemCost('')
+      setCurrentSolution('')
+      setCurrentSpend('')
+      setElevatorPitch('')
+      setProposedPrice('')
+      setValueJustification('')
+      setTopObjection('')
+      setObjectionResponse('')
+      setMarketSize50km('')
+      setWhereTheyGather('')
+      setPlanToReach10('')
+      setHasTalkedToCustomer('')
+      setTalkDate('')
+
+      // Then try loading from draft
       try {
         const draft = sessionStorage.getItem(DRAFT_KEY(eventId))
         if (draft) {
@@ -96,6 +120,22 @@ export function ICPBuilderClient({ eventId }: Props) {
           setCustomerAgeGender(p.customerAgeGender ?? '')
           setCustomerRole(p.customerRole ?? '')
           setCustomerLocation(p.customerLocation ?? '')
+          setCustomerIncome(p.customerIncome ?? '')
+          setCustomerPhoneType(p.customerPhoneType ?? '')
+          setProblemFrequency(p.problemFrequency ?? '')
+          setProblemCost(p.problemCost ?? '')
+          setCurrentSolution(p.currentSolution ?? '')
+          setCurrentSpend(p.currentSpend ?? '')
+          setElevatorPitch(p.elevatorPitch ?? '')
+          setProposedPrice(p.proposedPrice ?? '')
+          setValueJustification(p.valueJustification ?? '')
+          setTopObjection(p.topObjection ?? '')
+          setObjectionResponse(p.objectionResponse ?? '')
+          setMarketSize50km(p.marketSize50km ?? '')
+          setWhereTheyGather(p.whereTheyGather ?? '')
+          setPlanToReach10(p.planToReach10 ?? '')
+          setHasTalkedToCustomer(p.hasTalkedToCustomer ?? '')
+          setTalkDate(p.talkDate ?? '')
         }
       } catch { /* ignore */ }
     }
