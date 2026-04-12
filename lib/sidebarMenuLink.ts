@@ -2,6 +2,7 @@
 
 import {
   Home,
+  Heart,
   Users,
   Box,
   FileText,
