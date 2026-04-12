@@ -159,6 +159,8 @@ export function StepEntry({
             max={99999}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             onKeyDown={(e) => e.key === 'Enter' && handleSave()}
             placeholder="Enter step count"
             className={cn(
