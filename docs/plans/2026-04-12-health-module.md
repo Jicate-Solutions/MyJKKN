@@ -4,7 +4,7 @@
 
 **Goal:** Build a campus health intelligence system with daily tracking (steps, water, mood), health profiles, gamification, mental health screening, clinical integration, and NAAC analytics.
 
-**Architecture:** Client-side Supabase queries for student dashboard (real-time feel). Server-side API routes with `withAuth` for admin/counselor endpoints. React Query for data fetching in newer components. RLS policies enforce privacy (student sees own data only, counselor sees escalated students, leadership sees anonymized aggregates).
+**Architecture:** Two sprints. Sprint 1 (web): manual step entry, mood/water/profile, PHQ-9/GAD-7, counselor dashboard, consent gate, leaderboards. Sprint 2 (Capacitor native): auto step counting from Health Connect/HealthKit, push notifications, Play Store. Client-side Supabase queries for student dashboard. Server-side API routes with `withAuth` for admin/counselor endpoints. React Query for data fetching. RLS policies enforce privacy (student sees own data only, counselor sees escalated students, leadership sees anonymized aggregates).
 
 **Tech Stack:** Next.js App Router, Supabase (PostgreSQL + RLS + Realtime), React Query, shadcn/ui, Recharts for analytics, Web Pedometer API for step counting.
 
