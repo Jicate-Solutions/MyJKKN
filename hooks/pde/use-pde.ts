@@ -83,6 +83,10 @@ export const pdeQueryKeys = {
   agencyIndex: (learnerId: string, courseId?: string) =>
     [...pdeQueryKeys.agency(), 'index', learnerId, courseId] as const,
   agencyTrends: (learnerId: string) => [...pdeQueryKeys.agency(), 'trends', learnerId] as const,
+  // Activity
+  activity: () => [...pdeQueryKeys.all, 'activity'] as const,
+  recentActivity: (learnerId: string, limit?: number) =>
+    [...pdeQueryKeys.activity(), 'recent', learnerId, limit] as const,
 };
 
 // ============================================
@@ -365,27 +369,7 @@ export function useLearnerQuestSubmissions(learnerId: string | undefined, questI
   });
 }
 
-export function useCreateQuest() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: CreateQuestInput) => PDEService.createQuest(input),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: pdeQueryKeys.quests() });
-    },
-  });
-}
-
-export function useUpdateQuest() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: UpdateQuestInput }) =>
-      PDEService.updateQuest(id, input),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: pdeQueryKeys.questDetail(data.id) });
-      qc.invalidateQueries({ queryKey: pdeQueryKeys.quests() });
-    },
-  });
-}
+// useCreateQuest and useUpdateQuest moved to use-pde-phase2.ts
 
 export function useEnrollInQuest() {
   const qc = useQueryClient();
@@ -539,51 +523,9 @@ export function useLogAIInteraction() {
 }
 
 // ============================================
-// Phase 2: Channel Hooks
+// Phase 2: Channel Hooks (moved to use-pde-phase2.ts)
+// Import useChannels, useChannelMessages, usePostMessage, useToggleReaction from use-pde-phase2.ts
 // ============================================
-
-export function useChannels(type?: string, referenceId?: string) {
-  return useQuery({
-    queryKey: pdeQueryKeys.channelList(type, referenceId),
-    queryFn: () => PDEService.getChannels(type, referenceId),
-    staleTime: 60000,
-  });
-}
-
-export function useChannelMessages(channelId: string | undefined, limit = 50) {
-  return useQuery({
-    queryKey: pdeQueryKeys.channelMessages(channelId || ''),
-    queryFn: () => PDEService.getMessages(channelId!, limit),
-    enabled: !!channelId,
-    staleTime: 5000, // Messages refresh often
-    refetchInterval: 10000, // Poll every 10s for new messages
-  });
-}
-
-export function usePostMessage() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: PostMessageInput) => PDEService.postMessage(input),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: pdeQueryKeys.channelMessages(data.channel_id) });
-    },
-  });
-}
-
-export function useToggleReaction() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ messageId, userId, emoji, channelId }: {
-      messageId: string;
-      userId: string;
-      emoji: string;
-      channelId: string;
-    }) => PDEService.toggleReaction(messageId, userId, emoji),
-    onSuccess: (_, variables) => {
-      qc.invalidateQueries({ queryKey: pdeQueryKeys.channelMessages(variables.channelId) });
-    },
-  });
-}
 
 // ============================================
 // Phase 2: Reputation Hooks
@@ -609,13 +551,7 @@ export function useAddReputationPoints() {
   });
 }
 
-export function useLeaderboard(limit = 20) {
-  return useQuery({
-    queryKey: pdeQueryKeys.leaderboard(limit),
-    queryFn: () => PDEService.getLeaderboard(limit),
-    staleTime: 60000,
-  });
-}
+// useLeaderboard moved to use-pde-phase2.ts
 
 // ============================================
 // Phase 2: Badge Hooks
@@ -720,5 +656,18 @@ export function useAgencyTrends(learnerId: string | undefined) {
     queryFn: () => PDEService.getAgencyTrends(learnerId!),
     enabled: !!learnerId,
     staleTime: 60000,
+  });
+}
+
+// ============================================
+// Activity Feed Hook
+// ============================================
+
+export function useRecentActivity(learnerId: string | undefined, limit = 20) {
+  return useQuery({
+    queryKey: pdeQueryKeys.recentActivity(learnerId || '', limit),
+    queryFn: () => PDEService.getRecentActivity(learnerId!, limit),
+    enabled: !!learnerId,
+    staleTime: 30000,
   });
 }

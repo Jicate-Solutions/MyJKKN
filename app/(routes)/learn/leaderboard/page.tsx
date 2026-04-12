@@ -180,7 +180,7 @@ export default function LeaderboardPage() {
         ) : (
           <>
             {/* Podium */}
-            {top3.length >= 3 && (
+            {top3.length >= 1 && (
               <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto">
                 <div className="md:mt-4">
                   <PodiumCard entry={top3[1]} position={2} />

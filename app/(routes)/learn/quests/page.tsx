@@ -38,6 +38,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import toast from 'react-hot-toast';
 import type {
   PDEQuest,
   QuestType,
@@ -425,14 +426,14 @@ export default function QuestBoardPage() {
 
   const handleEnroll = async (questId: string) => {
     if (!user?.id) {
-      alert('Please log in to start a quest');
+      toast.error('Please log in to start a quest');
       return;
     }
     try {
       await enrollInQuest.mutateAsync({ questId, learnerId: user.id });
-      alert('Enrolled! Go to Build Arena to start working.');
+      toast.success('Enrolled! Head to Build Arena to start working.');
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to enroll');
+      toast.error(err instanceof Error ? err.message : 'Failed to enroll');
     }
   };
 
@@ -449,7 +450,7 @@ export default function QuestBoardPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Learn', href: '/vac' },
+          { label: 'Learn', href: '/learn/quests' },
           { label: 'Quest Board' },
         ]}
       />

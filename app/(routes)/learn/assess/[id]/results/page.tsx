@@ -108,7 +108,7 @@ export default function AssessmentResultsPage({
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Learn', href: '/vac' },
+          { label: 'Learn', href: '/learn/quests' },
           { label: 'Assessment', href: `/learn/assess/${assessmentId}` },
           { label: 'Results' },
         ]}
@@ -212,7 +212,7 @@ export default function AssessmentResultsPage({
               Retry Assessment
             </Button>
           )}
-          <Button variant="outline" onClick={() => router.push('/vac')} className="flex-1">
+          <Button variant="outline" onClick={() => router.push('/learn/quests')} className="flex-1">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Courses
           </Button>

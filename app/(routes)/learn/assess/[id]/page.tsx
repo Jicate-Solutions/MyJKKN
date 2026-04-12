@@ -164,7 +164,7 @@ export default function AssessmentTakerPage({
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
-            { label: 'Learn', href: '/vac' },
+            { label: 'Learn', href: '/learn/quests' },
             { label: 'Assessment' },
           ]}
         />
