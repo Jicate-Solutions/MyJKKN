@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CheckCircle2, AlertTriangle, Clock, TrendingUp, Users, Loader2 } from 'lucide-react'
-import type { Solve100WeeklyCheckin, Solve100AppStatus } from '@/types/startup-studio'
+import type { Solve100WeeklyCheckin } from '@/types/startup-studio'
 
 interface Props {
   eventId: string
