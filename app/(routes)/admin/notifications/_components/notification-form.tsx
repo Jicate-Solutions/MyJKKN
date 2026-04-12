@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -36,7 +36,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Bell, Send, Users, Paperclip, X, FileText, FileSpreadsheet, FileImage, Film, Music } from 'lucide-react';
+import { Bell, Send, Users, Paperclip, X, FileText, FileSpreadsheet, FileImage, Film, Music, Zap, ListChecks, Link2, Plus, Trash2 } from 'lucide-react';
 import {
   RichTextEditor,
   RichTextDisplay
@@ -51,6 +51,7 @@ import { useRoles } from '@/hooks/organization/use-roles';
 import { usePermissions } from '@/hooks/use-permissions';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
 import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 // Define categories for the dropdown
 const notificationCategories = [
@@ -60,7 +61,8 @@ const notificationCategories = [
   'Alert',
   'Event',
   'Update',
-  'Maintenance'
+  'Maintenance',
+  'Action Required'
 ];
 
 const notificationSchema = z.object({
@@ -86,7 +88,16 @@ const notificationSchema = z.object({
   audience_ids: z.array(z.string()).optional(),
   // Mandatory acknowledgment fields
   requires_acknowledgment: z.boolean().optional(),
-  acknowledgment_deadline_hours: z.number().min(1).max(168).optional()
+  acknowledgment_deadline_hours: z.number().min(1).max(168).optional(),
+  // Action Required fields
+  action_type: z.enum(['urgent', 'tracked']).optional(),
+  action_response_type: z.enum(['text', 'file', 'form', 'link']).optional(),
+  action_form_items: z.array(z.object({
+    id: z.string(),
+    title: z.string().min(1),
+    description: z.string().optional()
+  })).optional(),
+  action_link_url: z.string().url().optional().or(z.literal(''))
 });
 
 type NotificationFormData = z.infer<typeof notificationSchema>;
@@ -172,7 +183,11 @@ export function NotificationForm() {
       target_roles: [],
       audience_ids: [],
       requires_acknowledgment: false,
-      acknowledgment_deadline_hours: 4
+      acknowledgment_deadline_hours: 4,
+      action_type: undefined,
+      action_response_type: undefined,
+      action_form_items: [],
+      action_link_url: ''
     }
   });
 
@@ -375,7 +390,16 @@ export function NotificationForm() {
         requires_acknowledgment: data.requires_acknowledgment || false,
         acknowledgment_deadline_hours: data.requires_acknowledgment
           ? (data.acknowledgment_deadline_hours || 4)
-          : undefined
+          : undefined,
+        action_type: data.action_type || undefined,
+        action_config: data.action_type ? {
+          response_type: data.action_response_type || 'text',
+          form_items: data.action_response_type === 'form' ? data.action_form_items : undefined,
+          link_url: data.action_response_type === 'link' ? data.action_link_url : undefined,
+          min_text_length: 10,
+          max_file_size_mb: 25,
+          escalation_chain: ['hod', 'principal', 'super_admin']
+        } : undefined
       };
 
       const response = await fetch('/api/notifications/send', {
@@ -514,6 +538,13 @@ export function NotificationForm() {
     // Show "All Users" only if user has permission, otherwise show guidance
     return canSendToAll ? ['All Users'] : ['Select targeting criteria'];
   };
+
+  // Auto-enable requires_acknowledgment when category is 'Action Required'
+  useEffect(() => {
+    if (watchedValues.category === 'Action Required' && !watchedValues.requires_acknowledgment) {
+      form.setValue('requires_acknowledgment', true);
+    }
+  }, [watchedValues.category, watchedValues.requires_acknowledgment, form]);
 
   return (
     <div className='space-y-6'>
@@ -1162,6 +1193,198 @@ export function NotificationForm() {
               )}
             </div>
           </div>
+
+          {/* Action Configuration - shown only when category is 'Action Required' */}
+          {watchedValues.category === 'Action Required' && (
+            <>
+              <Separator />
+              <div>
+                <div className='mb-4'>
+                  <h3 className='text-lg font-medium flex items-center gap-2'>
+                    <Zap className='h-5 w-5' />
+                    Action Configuration
+                  </h3>
+                  <p className='text-sm text-muted-foreground mt-1'>
+                    Configure what response the recipient must provide.
+                  </p>
+                </div>
+                <div className='space-y-4'>
+                  {/* Action Urgency */}
+                  <FormField
+                    control={form.control}
+                    name='action_type'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Action Urgency</FormLabel>
+                        <FormControl>
+                          <RadioGroup
+                            onValueChange={field.onChange}
+                            value={field.value || ''}
+                            className='grid grid-cols-2 gap-3'
+                          >
+                            <div className='flex items-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors'>
+                              <RadioGroupItem value='urgent' id='action-urgent' />
+                              <label htmlFor='action-urgent' className='cursor-pointer flex-1'>
+                                <div className='text-sm font-medium'>Urgent</div>
+                                <div className='text-xs text-muted-foreground'>
+                                  Blocks app usage until responded
+                                </div>
+                              </label>
+                            </div>
+                            <div className='flex items-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors'>
+                              <RadioGroupItem value='tracked' id='action-tracked' />
+                              <label htmlFor='action-tracked' className='cursor-pointer flex-1'>
+                                <div className='text-sm font-medium'>Tracked</div>
+                                <div className='text-xs text-muted-foreground'>
+                                  Non-blocking, deadline enforced
+                                </div>
+                              </label>
+                            </div>
+                          </RadioGroup>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Response Type */}
+                  <FormField
+                    control={form.control}
+                    name='action_response_type'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Response Type</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value || ''}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder='Select what the recipient must submit' />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value='text'>Text Response</SelectItem>
+                            <SelectItem value='file'>File Upload</SelectItem>
+                            <SelectItem value='form'>Checklist / Form</SelectItem>
+                            <SelectItem value='link'>Confirm Link Visited</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {field.value === 'text' && 'Recipient writes a free-text response (min 10 characters).'}
+                          {field.value === 'file' && 'Recipient uploads a file (max 25MB).'}
+                          {field.value === 'form' && 'Recipient completes a checklist you define below.'}
+                          {field.value === 'link' && 'Recipient must visit a link and confirm they read it.'}
+                          {!field.value && 'Choose the type of response required from recipients.'}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Form Items Builder - shown when response type is 'form' */}
+                  {watchedValues.action_response_type === 'form' && (
+                    <div className='space-y-3'>
+                      <div className='flex items-center justify-between'>
+                        <Label className='text-sm font-medium flex items-center gap-2'>
+                          <ListChecks className='h-4 w-4' />
+                          Checklist Items
+                        </Label>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          onClick={() => {
+                            const current = form.getValues('action_form_items') || [];
+                            form.setValue('action_form_items', [
+                              ...current,
+                              { id: crypto.randomUUID(), title: '', description: '' }
+                            ]);
+                          }}
+                        >
+                          <Plus className='h-3.5 w-3.5 mr-1' />
+                          Add Item
+                        </Button>
+                      </div>
+                      <p className='text-xs text-muted-foreground'>
+                        Define the checklist items recipients must complete.
+                      </p>
+                      {(watchedValues.action_form_items || []).length === 0 && (
+                        <div className='p-4 border border-dashed rounded-lg text-center text-sm text-muted-foreground'>
+                          No checklist items yet. Click &quot;Add Item&quot; to create one.
+                        </div>
+                      )}
+                      {(watchedValues.action_form_items || []).map((item: any, index: number) => (
+                        <div key={item.id} className='flex items-start gap-2 p-3 border rounded-lg'>
+                          <div className='flex-1 space-y-2'>
+                            <Input
+                              placeholder={`Item ${index + 1} title (required)`}
+                              value={item.title}
+                              onChange={(e) => {
+                                const items = [...(form.getValues('action_form_items') || [])];
+                                items[index] = { ...items[index], title: e.target.value };
+                                form.setValue('action_form_items', items);
+                              }}
+                            />
+                            <Input
+                              placeholder='Description (optional)'
+                              value={item.description || ''}
+                              onChange={(e) => {
+                                const items = [...(form.getValues('action_form_items') || [])];
+                                items[index] = { ...items[index], description: e.target.value };
+                                form.setValue('action_form_items', items);
+                              }}
+                              className='text-sm'
+                            />
+                          </div>
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='icon'
+                            className='h-8 w-8 shrink-0 text-destructive hover:text-destructive'
+                            onClick={() => {
+                              const items = (form.getValues('action_form_items') || []).filter(
+                                (_: any, i: number) => i !== index
+                              );
+                              form.setValue('action_form_items', items);
+                            }}
+                          >
+                            <Trash2 className='h-4 w-4' />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Link URL - shown when response type is 'link' */}
+                  {watchedValues.action_response_type === 'link' && (
+                    <FormField
+                      control={form.control}
+                      name='action_link_url'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className='flex items-center gap-2'>
+                            <Link2 className='h-4 w-4' />
+                            Link URL
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='https://...'
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            The URL the recipient must visit and confirm they have read.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </div>
+              </div>
+            </>
+          )}
 
           <Separator />
 

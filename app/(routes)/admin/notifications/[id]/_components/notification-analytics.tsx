@@ -26,7 +26,16 @@ import {
   EyeOff,
   ChevronDown,
   ChevronUp,
-  BarChart3
+  BarChart3,
+  FileText,
+  Download,
+  CheckCircle2,
+  XCircle,
+  ExternalLink,
+  MessageSquare,
+  Paperclip,
+  Link2,
+  ListChecks
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -119,7 +128,7 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
 
       {/* ─── Tabs: Institution / Role / People ── */}
       <Tabs defaultValue="institution" className="w-full">
-        <TabsList className="w-full grid grid-cols-3">
+        <TabsList className="w-full grid grid-cols-4">
           <TabsTrigger value="institution" className="text-xs sm:text-sm">
             <Building2 className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" />
             By Institution
@@ -131,6 +140,10 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
           <TabsTrigger value="people" className="text-xs sm:text-sm">
             <Users className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" />
             People
+          </TabsTrigger>
+          <TabsTrigger value="responses" className="text-xs sm:text-sm">
+            <FileText className="h-3.5 w-3.5 mr-1.5 hidden sm:inline" />
+            Responses
           </TabsTrigger>
         </TabsList>
 
@@ -347,9 +360,226 @@ export function NotificationAnalytics({ notificationId }: NotificationAnalyticsP
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ─── Responses Tab ────────────────────── */}
+        <TabsContent value="responses" className="mt-4">
+          <ResponsesTab notificationId={notificationId} />
+        </TabsContent>
       </Tabs>
     </div>
   );
+}
+
+// ─── Responses Tab Component ────────────────────────
+function ResponsesTab({ notificationId }: { notificationId: string }) {
+  const [expandedResponse, setExpandedResponse] = useState<string | null>(null);
+
+  const { data: responses, isLoading: responsesLoading } = useQuery({
+    queryKey: ['notification-responses', notificationId],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/notifications/${notificationId}/responses`, {
+        cache: 'no-store'
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.responses || data || [];
+    },
+    refetchInterval: 30000
+  });
+
+  if (responsesLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-20 w-full" />
+      </div>
+    );
+  }
+
+  if (!responses || responses.length === 0) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+          <MessageSquare className="h-10 w-10 text-muted-foreground/40 mb-3" />
+          <p className="text-sm font-medium text-muted-foreground">No responses yet</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">
+            Responses will appear here as recipients submit them.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-muted-foreground">
+          {responses.length} response{responses.length !== 1 ? 's' : ''} received
+        </span>
+      </div>
+      {responses.map((response: any) => (
+        <Card key={response.id} className="overflow-hidden">
+          <CardContent className="p-3 sm:p-4">
+            {/* Header: user info + timestamp */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="min-w-0">
+                <div className="font-medium text-sm truncate">
+                  {response.user_name || response.user_email || 'Unknown User'}
+                </div>
+                <div className="text-xs text-muted-foreground truncate">
+                  {response.user_role && <span className="capitalize">{response.user_role}</span>}
+                  {response.institution_name && <span> · {response.institution_name}</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                <ResponseTypeBadge type={response.response_type} />
+                <span className="text-[11px] text-muted-foreground">
+                  {response.submitted_at
+                    ? format(new Date(response.submitted_at), 'MMM d, h:mm a')
+                    : ''}
+                </span>
+              </div>
+            </div>
+
+            {/* Response content based on type */}
+            <div className="mt-2">
+              {response.response_type === 'text' && (
+                <div className="text-sm bg-muted/50 rounded-lg p-3">
+                  {response.text_response && response.text_response.length > 200 ? (
+                    <>
+                      <p className="whitespace-pre-wrap">
+                        {expandedResponse === response.id
+                          ? response.text_response
+                          : `${response.text_response.substring(0, 200)}...`}
+                      </p>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs mt-1"
+                        onClick={() =>
+                          setExpandedResponse(
+                            expandedResponse === response.id ? null : response.id
+                          )
+                        }
+                      >
+                        {expandedResponse === response.id ? 'Show less' : 'Read more'}
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="whitespace-pre-wrap">{response.text_response || 'No text provided'}</p>
+                  )}
+                </div>
+              )}
+
+              {response.response_type === 'file' && (
+                <div className="flex items-center justify-between bg-muted/50 rounded-lg p-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Paperclip className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate">
+                        {response.file_name || 'Uploaded file'}
+                      </div>
+                      {response.file_size && (
+                        <div className="text-xs text-muted-foreground">
+                          {formatResponseFileSize(response.file_size)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {response.file_url && (
+                    <Button variant="outline" size="sm" asChild className="shrink-0 ml-2">
+                      <a href={response.file_url} target="_blank" rel="noopener noreferrer">
+                        <Download className="h-3.5 w-3.5 mr-1" />
+                        Download
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {response.response_type === 'form' && (
+                <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+                  {response.form_response && typeof response.form_response === 'object' ? (
+                    Object.entries(response.form_response).map(([itemId, checked]) => (
+                      <div key={itemId} className="flex items-center gap-2 text-sm">
+                        {checked ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                        )}
+                        <span className={cn(!checked && 'text-muted-foreground')}>
+                          {itemId}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No form data available</p>
+                  )}
+                </div>
+              )}
+
+              {response.response_type === 'link' && (
+                <div className="flex items-center gap-2 bg-muted/50 rounded-lg p-3">
+                  <Link2 className="h-4 w-4 shrink-0" />
+                  {response.link_confirmed ? (
+                    <Badge variant="outline" className="border-green-300 text-green-600">
+                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                      Confirmed
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="border-red-200 text-red-500">
+                      <XCircle className="h-3 w-3 mr-1" />
+                      Not confirmed
+                    </Badge>
+                  )}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function ResponseTypeBadge({ type }: { type: string }) {
+  const config: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
+    text: {
+      icon: <MessageSquare className="h-3 w-3" />,
+      label: 'Text',
+      className: 'border-blue-200 text-blue-600'
+    },
+    file: {
+      icon: <Paperclip className="h-3 w-3" />,
+      label: 'File',
+      className: 'border-purple-200 text-purple-600'
+    },
+    form: {
+      icon: <ListChecks className="h-3 w-3" />,
+      label: 'Form',
+      className: 'border-orange-200 text-orange-600'
+    },
+    link: {
+      icon: <Link2 className="h-3 w-3" />,
+      label: 'Link',
+      className: 'border-cyan-200 text-cyan-600'
+    }
+  };
+
+  const c = config[type] || config.text;
+  return (
+    <Badge variant="outline" className={cn('text-[10px] gap-1', c.className)}>
+      {c.icon}
+      {c.label}
+    </Badge>
+  );
+}
+
+function formatResponseFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // ─── Summary Card Component ─────────────────────────
