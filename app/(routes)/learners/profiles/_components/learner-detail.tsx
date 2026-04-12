@@ -949,6 +949,18 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
               </CardContent>
             </>
           )}
+
+          {activeSection === 'documents' && (
+            <>
+              <CardHeader>
+                <CardTitle>Documents</CardTitle>
+                <CardDescription>Generate and view documents for this learner</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <LearnerDocumentsTab learnerId={learner.id} institutionId={learner.institution_id} />
+              </CardContent>
+            </>
+          )}
         </Card>
       </div>
     </>
