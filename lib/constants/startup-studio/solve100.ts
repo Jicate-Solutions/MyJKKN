@@ -24,7 +24,7 @@ export const VALIDATION_STATUS_OPTIONS = [
   { value: 'no_guessing', label: 'No — just guessing', color: 'red' },
 ] as const
 
-export type ValidationStatus = 'yes_in_person' | 'yes_phone' | 'no_watched' | 'no_guessing'
+export type { Solve100ValidationStatus as ValidationStatus } from '@/types/startup-studio'
 
 /**
  * Calculate the current week number based on event start date.
