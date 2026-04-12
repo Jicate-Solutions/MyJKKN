@@ -178,3 +178,15 @@ export function getBoolParam(searchParams: URLSearchParams, key: string): boolea
   if (val === 'false') return false;
   return undefined;
 }
+
+/**
+ * Alias for successResponse (used by Solve for 100 module).
+ */
+export const successApiResponse = successResponse;
+
+
+/**
+ * 204 No Content response (alias for optionsResponse body semantics).
+ */
+export const noContentResponse = optionsResponse;
+

@@ -81,6 +81,9 @@ export class LeaveOndutySubCategoryService {
       name: data.name.trim(),
       description: data.description?.trim() || null,
       is_active: true,
+      // Sponsor-approval gate fields (Phase 1: stored, surfaced in admin UI)
+      requires_sponsor_approval: data.requires_sponsor_approval ?? false,
+      sponsor_role_hint: data.sponsor_role_hint?.trim() || null,
       created_by: createdBy,
     };
 
@@ -123,13 +126,18 @@ export class LeaveOndutySubCategoryService {
   }
 
   /**
-   * Update name/description of an existing sub-category.
+   * Update name/description/sponsor-gate fields of an existing sub-category.
    * Code is intentionally not editable — it's the stable identifier stored on
    * existing application rows.
    */
   static async update(
     id: string,
-    data: Partial<Pick<SubCategoryFormData, 'name' | 'description'>>
+    data: Partial<
+      Pick<
+        SubCategoryFormData,
+        'name' | 'description' | 'requires_sponsor_approval' | 'sponsor_role_hint'
+      >
+    >
   ): Promise<LeaveOndutySubCategoryRecord> {
     const supabase = getSupabase();
 
@@ -137,6 +145,10 @@ export class LeaveOndutySubCategoryService {
     if (data.name !== undefined) patch.name = data.name.trim();
     if (data.description !== undefined)
       patch.description = data.description?.trim() || null;
+    if (data.requires_sponsor_approval !== undefined)
+      patch.requires_sponsor_approval = data.requires_sponsor_approval;
+    if (data.sponsor_role_hint !== undefined)
+      patch.sponsor_role_hint = data.sponsor_role_hint?.trim() || null;
 
     const { data: updated, error } = await supabase
       .from('leave_onduty_sub_categories')

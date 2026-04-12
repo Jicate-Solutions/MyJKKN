@@ -671,6 +671,25 @@ export interface LeaveOndutySubCategoryRecord {
   name: string;
   description: string | null;
   is_active: boolean;
+
+  /**
+   * If true, applications using this sub-category must be approved by a
+   * sponsor (the person the learner is working with) BEFORE entering the
+   * configured academic approval chain. Typical for OnDuty sub-categories
+   * like Event Planning, Media Work, Young Indians, etc.
+   *
+   * Phase 1 (schema only): this flag is stored and surfaced in the admin UI.
+   * Phase 2 (follow-up PR): the application flow enforces the gate.
+   */
+  requires_sponsor_approval: boolean;
+
+  /**
+   * Free-text hint shown to learners when picking a sponsor.
+   * Example: "Event lead or faculty advisor".
+   * Max 200 chars (DB CHECK constraint).
+   */
+  sponsor_role_hint: string | null;
+
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -692,4 +711,10 @@ export interface SubCategoryFormData {
   code: string;
   name: string;
   description?: string | null;
+
+  /** Whether applications using this sub-category need sponsor pre-approval. */
+  requires_sponsor_approval?: boolean;
+
+  /** Hint text shown to learners picking a sponsor. Max 200 chars. */
+  sponsor_role_hint?: string | null;
 }

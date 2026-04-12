@@ -51,6 +51,78 @@ export interface NotificationTargeting {
   audience_ids?: string[];
 }
 
+// ==================== SAVED AUDIENCES ====================
+
+export type AudienceQueryType = 'built_in' | 'sql';
+
+export type BuiltInAudienceName =
+  | 'all_active_users'
+  | 'all_students'
+  | 'all_faculty'
+  | 'all_hods'
+  | 'hostel_residents'
+  | 'bus_commuters'
+  | 'work_pulse_laggards';
+
+export const VALID_BUILT_IN_AUDIENCE_NAMES: readonly BuiltInAudienceName[] = [
+  'all_active_users',
+  'all_students',
+  'all_faculty',
+  'all_hods',
+  'hostel_residents',
+  'bus_commuters',
+  'work_pulse_laggards'
+] as const;
+
+export interface AudienceQueryParamsBuiltIn {
+  name: BuiltInAudienceName;
+}
+
+export interface AudienceQueryParamsSql {
+  sql: string;
+}
+
+export type AudienceQueryParams =
+  | AudienceQueryParamsBuiltIn
+  | AudienceQueryParamsSql;
+
+export interface NotificationAudience {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  query_type: AudienceQueryType;
+  query_params: AudienceQueryParams;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAudienceRequest {
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  query_type: AudienceQueryType;
+  query_params: AudienceQueryParams;
+}
+
+export interface AudiencePreviewResponse {
+  audience_id: string;
+  name: string;
+  count: number;
+  preview_users: AudiencePreviewUser[];
+}
+
+export interface AudiencePreviewUser {
+  id: string;
+  full_name: string;
+  email: string;
+  role: string;
+  institution_id: string | null;
+  institution_name: string | null;
+}
+
 export interface SavedAudience {
   id: string;
   name: string;

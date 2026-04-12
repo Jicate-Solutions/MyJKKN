@@ -168,7 +168,7 @@ export function NotificationForm() {
       url: '',
       icon: '',
       priority: (searchParams.get('priority') as any) || 'normal',
-      category: searchParams.get('category') || undefined,
+      category: searchParams.get('category') || 'General',
       expires_at: '',
       institution_id: undefined,
       department_id: undefined,

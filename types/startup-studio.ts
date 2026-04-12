@@ -758,3 +758,9 @@ export interface TrackDeclarationSummary {
   count: number;
   percentage: number;
 }
+
+
+// Re-export all types from the subdirectory index
+// Phase 1 (Portfolio Intelligence), Phase 2 (Mentors), Phase 3 (Graduation),
+// Phase 4 (KPI), Phase 5 (Finance/Governance), Phase 6 (Marketing)
+export * from "./startup-studio/index";
