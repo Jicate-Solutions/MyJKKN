@@ -73,7 +73,10 @@ export class GeneralLetterGenerator extends BaseDocumentGenerator {
         this.yPosition += 5.5;
       }
     } else {
-      this.setTextStyle(10, 'italic', DEFAULT_COLORS.mutedText);
+      this.doc.setFontSize(10);
+      this.doc.setFont('helvetica', 'italic');
+      const mt = DEFAULT_COLORS.mutedText;
+      this.doc.setTextColor(mt.r, mt.g, mt.b);
       this.doc.text('[No body template configured. Please set body_template in template settings.]', this.margin, y);
     }
 
