@@ -758,3 +758,187 @@ export interface TrackDeclarationSummary {
   count: number;
   percentage: number;
 }
+
+// ============================================================
+// SOLVE FOR 100 — WEEKLY TRACKING SYSTEM
+// Added: 2026-04-12 — Spec: docs/SPEC-solve-for-100.md
+// ============================================================
+
+export type Solve100AppStatus = 'live' | 'needs_fixes' | 'building' | 'pivoting'
+export type Solve100ValidationStatus = 'yes_in_person' | 'yes_phone' | 'no_watched' | 'no_guessing'
+
+export interface Solve100WeeklyCheckin {
+  id: string
+  event_id: string
+  team_id: string
+  week_number: number
+
+  // Weekly Commitment
+  commitment: string
+  commitment_result: string | null
+  commitment_met: boolean | null
+
+  // Customer Metrics
+  verified_paid_users: number
+  total_users: number
+  active_users: number
+
+  // First Customer Plan
+  target_customer_name: string | null
+  target_customer_location: string | null
+  problem_description: string | null
+  pricing: string | null
+  acquisition_plan: string | null
+
+  // App Status
+  app_status: Solve100AppStatus | null
+  app_url: string | null
+
+  // Blockers
+  biggest_blocker: string | null
+  blocker_resolved: boolean
+
+  // Mentor Review
+  mentor_reviewed: boolean
+  mentor_notes: string | null
+  mentor_reviewed_by: string | null
+  mentor_reviewed_at: string | null
+
+  // Meta
+  submitted_by: string
+  submitted_at: string
+  created_at: string
+  updated_at: string
+
+  // Relations (from joins)
+  team?: Pick<EventRegistration, 'id' | 'team_name' | 'institution_id' | 'owner_id'>
+  team_name?: string
+  institution_name?: string
+}
+
+export interface Solve100ICPProfile {
+  id: string
+  event_id: string
+  team_id: string
+
+  // The Person
+  customer_name: string
+  customer_age_gender: string | null
+  customer_role: string | null
+  customer_location: string | null
+  customer_income: string | null
+  customer_phone_type: string | null
+
+  // The Problem
+  problem_in_their_words: string
+  problem_frequency: string | null
+  problem_cost: string | null
+  current_solution: string | null
+  current_spend: string | null
+
+  // The Sale
+  elevator_pitch: string | null
+  proposed_price: string | null
+  value_justification: string | null
+  top_objection: string | null
+  objection_response: string | null
+
+  // The Market
+  market_size_50km: string | null
+  where_they_gather: string | null
+  plan_to_reach_10: string | null
+  has_talked_to_customer: Solve100ValidationStatus | null
+  talk_date: string | null
+
+  // Meta
+  submitted_by: string
+  version: number
+  created_at: string
+  updated_at: string
+
+  // Relations (from joins)
+  team?: Pick<EventRegistration, 'id' | 'team_name' | 'institution_id'>
+  team_name?: string
+  institution_name?: string
+}
+
+// DTOs
+
+export interface SubmitWeeklyCheckinDto {
+  event_id: string
+  team_id: string
+  week_number: number
+  commitment: string
+  commitment_result?: string
+  commitment_met?: boolean
+  verified_paid_users?: number
+  total_users?: number
+  active_users?: number
+  target_customer_name?: string
+  target_customer_location?: string
+  problem_description?: string
+  pricing?: string
+  acquisition_plan?: string
+  app_status?: Solve100AppStatus
+  app_url?: string
+  biggest_blocker?: string
+  blocker_resolved?: boolean
+}
+
+export interface MentorReviewDto {
+  mentor_notes: string
+}
+
+export interface CreateICPDto {
+  event_id: string
+  team_id: string
+  customer_name: string
+  problem_in_their_words: string
+  customer_age_gender?: string
+  customer_role?: string
+  customer_location?: string
+  customer_income?: string
+  customer_phone_type?: string
+  problem_frequency?: string
+  problem_cost?: string
+  current_solution?: string
+  current_spend?: string
+  elevator_pitch?: string
+  proposed_price?: string
+  value_justification?: string
+  top_objection?: string
+  objection_response?: string
+  market_size_50km?: string
+  where_they_gather?: string
+  plan_to_reach_10?: string
+  has_talked_to_customer?: Solve100ValidationStatus
+  talk_date?: string
+}
+
+export type UpdateICPDto = Partial<Omit<CreateICPDto, 'event_id' | 'team_id'>>
+
+// Dashboard aggregates
+
+export interface Solve100DashboardStats {
+  total_teams: number
+  average_paid_users: number
+  teams_with_blockers: number
+  teams_by_app_status: Record<Solve100AppStatus, number>
+  teams_by_level: Record<number, number>
+  checkins_this_week: number
+  total_checkins: number
+}
+
+export interface Solve100TeamOverview {
+  team_id: string
+  team_name: string
+  institution_name: string | null
+  current_week: number
+  verified_paid_users: number
+  active_users: number
+  app_status: Solve100AppStatus | null
+  biggest_blocker: string | null
+  last_checkin_at: string | null
+  has_icp: boolean
+  weeks_submitted: number
+}
