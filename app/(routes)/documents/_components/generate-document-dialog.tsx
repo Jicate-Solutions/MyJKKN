@@ -93,7 +93,7 @@ export function GenerateDocumentDialog({
         documentType,
         learnerId: preselectedLearnerId || selectedLearner.id,
       },
-      userId: user.id,
+      userId: profile.id,
     });
   };
 
