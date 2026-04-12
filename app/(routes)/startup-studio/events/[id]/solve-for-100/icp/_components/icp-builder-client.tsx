@@ -14,6 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CheckCircle2, User, MessageSquare, DollarSign, Map, Loader2, AlertTriangle } from 'lucide-react'
+import { toast } from 'sonner'
+import Link from 'next/link'
 import type { CreateICPDto, UpdateICPDto, Solve100ValidationStatus } from '@/types/startup-studio'
 
 interface Props {
