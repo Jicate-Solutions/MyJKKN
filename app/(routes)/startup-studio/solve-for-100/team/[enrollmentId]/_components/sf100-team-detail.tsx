@@ -143,7 +143,12 @@ function OverviewTab({ enrollmentId }: { enrollmentId: string }) {
   }
 
   const phase = enrollment.current_phase ?? enrollment.phase ?? 'setup';
-  const members: any[] = enrollment.members ?? enrollment.team_members ?? [];
+  // Team members and team_name live under enrollment.registration (Supabase join)
+  const reg = enrollment.registration ?? {};
+  const members: any[] = reg.team_members ?? enrollment.members ?? enrollment.team_members ?? [];
+  const teamName = reg.team_name ?? enrollment.team_name ?? enrollment.teamName ?? 'Unknown Team';
+  const appName = reg.submission?.app_name ?? enrollment.app_name ?? enrollment.appName;
+  const appUrl = reg.submission?.live_app_url ?? enrollment.live_app_url;
   const value = enrollment.value_declaration ?? enrollment.valueDeclaration ?? {};
 
   return (
@@ -152,11 +157,11 @@ function OverviewTab({ enrollmentId }: { enrollmentId: string }) {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-xl font-bold">
-            {enrollment.app_name ?? enrollment.appName ?? enrollment.team_name ?? enrollment.teamName}
+            {appName ?? teamName}
           </h2>
-          {enrollment.app_name && (
+          {appName && (
             <p className="text-sm text-muted-foreground">
-              by {enrollment.team_name ?? enrollment.teamName}
+              by {teamName}
             </p>
           )}
         </div>
