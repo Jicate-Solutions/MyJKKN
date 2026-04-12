@@ -34,10 +34,7 @@ export class RecommendationLetterGenerator extends BaseDocumentGenerator {
     this.doc.text('LETTER OF RECOMMENDATION', this.pageWidth / 2, y, { align: 'center' });
     y += 8;
 
-    this.doc.setFontSize(11);
-    this.doc.setFont('helvetica', 'italic');
-    const muted = DEFAULT_COLORS.mutedText;
-    this.doc.setTextColor(muted.r, muted.g, muted.b);
+    this.setTextStyle(11, 'italic', DEFAULT_COLORS.mutedText);
     this.doc.text('To Whom It May Concern', this.pageWidth / 2, y, { align: 'center' });
     y += 10;
 
