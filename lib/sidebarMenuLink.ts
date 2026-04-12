@@ -1575,6 +1575,32 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      groupLabel: 'Health & Wellness',
+      menus: [
+        {
+          href: '/health/dashboard',
+          label: 'Health Dashboard',
+          active: pathname === '/health/dashboard',
+          icon: Heart,
+          submenus: []
+        },
+        {
+          href: '/health/profile',
+          label: 'My Health Profile',
+          active: pathname === '/health/profile',
+          icon: UserCheck,
+          submenus: []
+        },
+        {
+          href: '/health/leaderboard',
+          label: 'Leaderboard',
+          active: pathname === '/health/leaderboard',
+          icon: TrophyIcon,
+          submenus: []
+        }
+      ]
+    },
+    {
       groupLabel: 'Startup Studio',
       menus: (() => {
         // Extract active event ID from pathname: /startup-studio/events/[uuid]/...
