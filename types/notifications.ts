@@ -69,6 +69,8 @@ export interface CreateNotificationRequest {
   targeting: NotificationTargeting;
   requires_acknowledgment?: boolean;
   acknowledgment_deadline_hours?: number;
+  action_type?: ActionType;
+  action_config?: ActionConfig;
 }
 
 export interface NotificationStats {
