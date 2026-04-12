@@ -73,7 +73,7 @@ export class DocumentDataService {
         regulation_code: (data.regulations as Record<string, unknown> | null)?.regulation_code as string | undefined,
         tenth_marks: data.tenth_marks as LearnerCoreData['tenth_marks'],
         twelfth_marks: data.twelfth_marks as LearnerCoreData['twelfth_marks'],
-      } as LearnerCoreData;
+      } as unknown as LearnerCoreData;
     } catch (error) {
       console.error('[documents/data] Failed to fetch learner core data:', error);
       throw new Error(error instanceof Error ? error.message : 'Failed to fetch learner data');
