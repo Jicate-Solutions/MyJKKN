@@ -127,6 +127,11 @@ export function Solve100HubClient({ eventId, eventStartDate }: Props) {
               <Eye className="h-4 w-4" /> ICP Builder
             </Button>
           </Link>
+          <Link href={`/startup-studio/events/${eventId}/solve-for-100/mentor`}>
+            <Button size="sm" variant="outline" className="gap-1.5">
+              <UserCheck className="h-4 w-4" /> Mentor Review
+            </Button>
+          </Link>
         </div>
       </div>
 
