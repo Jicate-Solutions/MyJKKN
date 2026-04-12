@@ -48,7 +48,8 @@ export function isCheckinDeadlinePassed(eventStartDate: string, weekNumber: numb
   const weekStart = new Date(start.getTime() + (weekNumber - 1) * 7 * 24 * 60 * 60 * 1000)
   // Find next Thursday from week start
   const dayOfWeek = weekStart.getDay()
-  const daysUntilThursday = (CHECKIN_DEADLINE_DAY - dayOfWeek + 7) % 7
+  // If weekStart IS Thursday (daysUntilThursday would be 0), push to next Thursday (7 days)
+  const daysUntilThursday = ((CHECKIN_DEADLINE_DAY - dayOfWeek + 7) % 7) || 7
   const deadline = new Date(weekStart.getTime() + daysUntilThursday * 24 * 60 * 60 * 1000)
   deadline.setHours(CHECKIN_DEADLINE_HOUR, CHECKIN_DEADLINE_MINUTE, 59, 999)
   return new Date() > deadline
