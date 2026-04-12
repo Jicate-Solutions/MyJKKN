@@ -123,7 +123,19 @@ CREATE TABLE IF NOT EXISTS health_streaks (
   UNIQUE(learner_id, streak_type)
 );
 
+-- Consent tracking (DPDP Act compliance)
+CREATE TABLE IF NOT EXISTS health_consents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  learner_id uuid NOT NULL REFERENCES learners_profiles(id) ON DELETE CASCADE,
+  consent_version text NOT NULL DEFAULT '1.0',
+  consented_at timestamptz DEFAULT now(),
+  withdrawn_at timestamptz,
+  ip_address text,
+  UNIQUE(learner_id, consent_version)
+);
+
 -- Indexes
+CREATE INDEX IF NOT EXISTS idx_health_consents_learner ON health_consents(learner_id);
 CREATE INDEX IF NOT EXISTS idx_health_profiles_learner ON health_profiles(learner_id);
 CREATE INDEX IF NOT EXISTS idx_health_profiles_institution ON health_profiles(institution_id);
 CREATE INDEX IF NOT EXISTS idx_health_daily_logs_learner_date ON health_daily_logs(learner_id, log_date DESC);
