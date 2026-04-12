@@ -127,6 +127,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/my-bug-reports': 'learners.bug_reports.view',
   '/bug-leaderboard': 'learners.bug_reports.view',
 
+  // Documents
+  '/documents': 'documents.view',
+  '/documents/history': 'documents.history.view',
+  '/documents/settings': 'documents.settings.view',
+  '/documents/templates': 'documents.templates.view',
+
   // User Management
   '/users': 'users.view',
   '/users/dashboard': 'users.dashboard.view',
