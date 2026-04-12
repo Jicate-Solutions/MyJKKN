@@ -5,7 +5,7 @@
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { LearnerCoreData, AttendanceData, BillingData, AuthorityData, DocumentType } from '@/types/documents';
+import type { LearnerCoreData, BillingData, AuthorityData, DocumentType } from '@/types/documents';
 
 export class DocumentDataService {
   private static supabase = createClientSupabaseClient();
