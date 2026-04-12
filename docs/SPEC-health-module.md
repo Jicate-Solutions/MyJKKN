@@ -296,7 +296,7 @@ Dental College announces camp date in MyJKKN
 
 **Tables:** `health_profiles`, `health_daily_logs`, `health_goals`
 **Pages:** `/health/dashboard` (student), `/health/profile` (student), `/health/leaderboard`
-**Features:** Step counter (Web Pedometer API), water intake, health profile CRUD, gamification (streaks, badges), activity history from events
+**Features:** Step counter (manual entry from phone Health app; Capacitor native app in Sprint 2), water intake, health profile CRUD, gamification (streaks, badges by mood/water consistency), consent gate (simple one-time "I Agree" screen), activity history from events
 
 ### Phase 2: Mental Health + Escalation (Weeks 3-4)
 
