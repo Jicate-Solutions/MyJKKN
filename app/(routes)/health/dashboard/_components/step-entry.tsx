@@ -90,6 +90,7 @@ export function StepEntry({
 }: StepEntryProps) {
   const [inputValue, setInputValue] = useState(currentSteps > 0 ? String(currentSteps) : '');
   const [tipVisible, setTipVisible] = useState(false);
+  const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const mutation = useUpdateSteps();
 
@@ -98,8 +99,6 @@ export function StepEntry({
     if (focused) return;
     setInputValue(currentSteps > 0 ? String(currentSteps) : '');
   }, [currentSteps, focused]);
-
-  const [focused, setFocused] = useState(false);
   const parsedSteps = Math.max(0, Math.min(Number(inputValue) || 0, 99999));
   const displaySteps = focused ? parsedSteps : currentSteps;
   const pct = Math.round(Math.min((displaySteps / goal) * 100, 100));
