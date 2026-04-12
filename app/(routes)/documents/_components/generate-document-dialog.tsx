@@ -40,7 +40,7 @@ export function GenerateDocumentDialog({
   preselectedInstitutionId,
 }: Props) {
   const typeInfo = DOCUMENT_TYPE_INFO[documentType];
-  const { user, profile } = useAuth();
+  const { profile } = useAuth();
   const generateMutation = useGenerateDocument();
 
   const [searchQuery, setSearchQuery] = useState('');
