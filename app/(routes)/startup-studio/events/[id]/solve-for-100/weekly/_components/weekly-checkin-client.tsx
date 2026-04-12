@@ -138,7 +138,15 @@ export function WeeklyCheckinClient({ eventId, eventStartDate }: Props) {
     appStatus, appUrl, biggestBlocker, eventId, selectedWeek, existingCheckin])
 
   const handleSubmit = () => {
-    if (!teamId || !commitment.trim()) return
+    if (!teamId || !commitment.trim()) {
+      if (!commitment.trim()) toast.error('Commitment is required')
+      return
+    }
+    // Validate app_url if provided
+    if (appUrl.trim() && !appUrl.trim().startsWith('http://') && !appUrl.trim().startsWith('https://')) {
+      toast.error('App URL must start with http:// or https://')
+      return
+    }
 
     const dto: SubmitWeeklyCheckinDto = {
       event_id: eventId,
