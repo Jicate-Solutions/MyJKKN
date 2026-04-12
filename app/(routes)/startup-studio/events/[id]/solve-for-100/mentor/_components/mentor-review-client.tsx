@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useUnreviewedCheckins, useMentorReview, useSolve100TeamOverviews } from '@/hooks/startup-studio/use-solve100-weekly'
-import { getCurrentWeekNumber, APP_STATUS_OPTIONS } from '@/lib/constants/startup-studio/solve100'
+import { getCurrentWeekNumber, APP_STATUS_OPTIONS, STATUS_COLORS } from '@/lib/constants/startup-studio/solve100'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
