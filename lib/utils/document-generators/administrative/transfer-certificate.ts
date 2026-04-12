@@ -25,7 +25,6 @@ export class TransferCertificateGenerator extends BaseDocumentGenerator {
     const conduct = String(data.conduct || 'Good');
     const reason = String(data.leaving_reason || 'Completion of Course');
     const currentDate = formatDateLong(new Date().toISOString());
-    const primary = this.branding.primaryColor ?? DEFAULT_COLORS.primary;
 
     let y = this.drawLetterhead();
 
