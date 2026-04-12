@@ -26,6 +26,7 @@ import {
   LeaveOndutyApproval,
   ApprovalTimelineStep,
   UpdateFlowInput,
+  SponsorActionInput,
 } from '@/types/leave-onduty';
 import toast from 'react-hot-toast';
 import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
@@ -76,7 +77,97 @@ const KEYS = {
     impact: (applicationId: string) =>
       [...KEYS.attendance.all, 'impact', applicationId] as const,
   },
+  sponsor: {
+    all: ['leave-onduty', 'sponsor'] as const,
+    pending: (sponsorId: string) =>
+      [...KEYS.approvals.all, 'sponsor-pending', sponsorId] as const,
+    search: (institutionId: string, query: string) =>
+      [...KEYS.approvals.all, 'sponsor-search', institutionId, query] as const,
+  },
 };
+
+// =====================================================
+// SPONSOR APPROVAL HOOKS (Phase 2)
+// =====================================================
+
+/**
+ * List applications awaiting the current user's sponsor approval.
+ * Returns empty array when sponsorId is empty.
+ */
+export function useSponsorPendingApprovals(sponsorId: string | null | undefined) {
+  return useQuery({
+    queryKey: KEYS.sponsor.pending(sponsorId || ''),
+    queryFn: () =>
+      sponsorId
+        ? LeaveOndutyApplicationService.getPendingSponsorApprovals(sponsorId)
+        : Promise.resolve([]),
+    enabled: !!sponsorId,
+    staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Mutation — sponsor approves or rejects an application.
+ * Invalidates both the sponsor queue and the general approvals queue
+ * so the application disappears from the sponsor view and shows up in
+ * the HOD view once approved.
+ */
+export function useProcessSponsorApproval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SponsorActionInput) =>
+      LeaveOndutyApplicationService.processSponsorApproval({
+        application_id: input.application_id,
+        sponsor_id: input.sponsor_id,
+        decision: input.decision,
+        comments: input.comments,
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: KEYS.sponsor.all });
+      queryClient.invalidateQueries({ queryKey: KEYS.applications.all });
+      queryClient.invalidateQueries({ queryKey: KEYS.approvals.all });
+      toast.success(
+        variables.decision === 'approved'
+          ? 'Application approved and forwarded to HOD'
+          : 'Application rejected'
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to process sponsor action');
+    },
+  });
+}
+
+export interface EligibleSponsor {
+  id: string;
+  full_name: string;
+  email: string;
+  role: string;
+  department_name?: string | null;
+}
+
+/**
+ * Search eligible sponsors by name/email within the learner's institution.
+ * Returns empty array when query is empty (picker decides whether to show).
+ */
+export function useEligibleSponsors(
+  institutionId: string | null | undefined,
+  searchQuery: string,
+  enabled: boolean = true
+) {
+  return useQuery<EligibleSponsor[]>({
+    queryKey: KEYS.sponsor.search(institutionId || '', searchQuery),
+    queryFn: async () => {
+      if (!institutionId) return [];
+      return (await LeaveOndutyApplicationService.searchEligibleSponsors({
+        institutionId,
+        query: searchQuery,
+      })) as EligibleSponsor[];
+    },
+    enabled: enabled && !!institutionId,
+    staleTime: 60 * 1000,
+  });
+}
 
 // =====================================================
 // LEARNER HOOKS
