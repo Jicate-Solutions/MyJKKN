@@ -31,8 +31,10 @@ export function useSubmitICP(eventId: string) {
   const { profile } = useAuth()
 
   return useMutation({
-    mutationFn: (dto: CreateICPDto) =>
-      Solve100ICPService.createICP(dto, profile!.id),
+    mutationFn: (dto: CreateICPDto) => {
+      if (!profile?.id) throw new Error('Not authenticated')
+      return Solve100ICPService.createICP(dto, profile.id)
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['solve100-icp', eventId, data.team_id] })
       queryClient.invalidateQueries({ queryKey: ['solve100-event-icps', eventId] })
