@@ -64,8 +64,10 @@ export function useSubmitWeeklyCheckin(eventId: string) {
   const { profile } = useAuth()
 
   return useMutation({
-    mutationFn: (dto: SubmitWeeklyCheckinDto) =>
-      Solve100WeeklyCheckinService.submitCheckin(dto, profile!.id),
+    mutationFn: (dto: SubmitWeeklyCheckinDto) => {
+      if (!profile?.id) throw new Error('Not authenticated')
+      return Solve100WeeklyCheckinService.submitCheckin(dto, profile.id)
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['solve100-checkin', eventId] })
       queryClient.invalidateQueries({ queryKey: ['solve100-team-history', eventId, data.team_id] })
