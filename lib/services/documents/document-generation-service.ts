@@ -271,7 +271,7 @@ export class DocumentGenerationService {
       file_size_bytes: pdfBytes.byteLength,
     };
 
-    const { data: savedDoc, error: saveError } = await this.supabase
+    const { data: savedDoc, error: saveError } = await (this.supabase as any)
       .from('generated_documents')
       .insert(auditRecord)
       .select('*')
