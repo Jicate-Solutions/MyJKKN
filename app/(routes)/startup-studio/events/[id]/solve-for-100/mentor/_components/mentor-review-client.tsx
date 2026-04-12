@@ -42,7 +42,7 @@ function ReviewCard({ checkin, eventId }: { checkin: Solve100WeeklyCheckin; even
           </div>
           <div className="flex items-center gap-2">
             {checkin.app_status && (
-              <Badge className={statusColors[checkin.app_status]} variant="secondary">
+              <Badge className={STATUS_COLORS[checkin.app_status]} variant="secondary">
                 {APP_STATUS_OPTIONS.find(o => o.value === checkin.app_status)?.label}
               </Badge>
             )}
@@ -247,7 +247,7 @@ export function MentorReviewClient({ eventId, eventStartDate }: Props) {
                   </div>
                   <div className="flex items-center gap-2">
                     {team.app_status && (
-                      <Badge className={statusColors[team.app_status]} variant="secondary">
+                      <Badge className={STATUS_COLORS[team.app_status]} variant="secondary">
                         {APP_STATUS_OPTIONS.find(o => o.value === team.app_status)?.label}
                       </Badge>
                     )}
