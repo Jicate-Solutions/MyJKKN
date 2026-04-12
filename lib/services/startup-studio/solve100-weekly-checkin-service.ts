@@ -255,10 +255,10 @@ export class Solve100WeeklyCheckinService {
   /** Get unreviewed check-ins for mentor dashboard */
   static async getUnreviewedCheckins(
     eventId: string,
-    mentorId?: string
+    _mentorId?: string
   ): Promise<Solve100WeeklyCheckin[]> {
     const supabase = createClientSupabaseClient()
-    let query = (supabase as any)
+    const query = (supabase as any)
       .from('solve100_weekly_checkins')
       .select(`
         *,
