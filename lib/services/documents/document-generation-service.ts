@@ -291,7 +291,7 @@ export class DocumentGenerationService {
 
   static async getDocumentHistory(filters: DocumentHistoryFilters): Promise<DocumentHistoryListResponse> {
     try {
-      let query = this.supabase
+      let query = (this.supabase as any)
         .from('generated_documents')
         .select(`
           *,
@@ -340,7 +340,7 @@ export class DocumentGenerationService {
 
   static async getLearnerDocuments(learnerId: string): Promise<GeneratedDocument[]> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('generated_documents')
         .select('*')
         .eq('learner_id', learnerId)
@@ -357,7 +357,7 @@ export class DocumentGenerationService {
 
   static async verifyDocument(verificationCode: string): Promise<GeneratedDocument | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('generated_documents')
         .select(`
           *,
@@ -377,7 +377,7 @@ export class DocumentGenerationService {
 
   static async revokeDocument(documentId: string, reason: string, userId: string): Promise<GeneratedDocument> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('generated_documents')
         .update({
           status: 'revoked',
