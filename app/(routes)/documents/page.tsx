@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  FileText, Award, Mail, ClipboardList,
-  Download, Users, History, Settings,
+  Award, Mail, ClipboardList,
+  Download, History,
 } from 'lucide-react';
 import { DOCUMENT_TYPE_INFO, type DocumentType, type DocumentCategory } from '@/types/documents';
 import { GenerateDocumentDialog } from './_components/generate-document-dialog';
