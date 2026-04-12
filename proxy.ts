@@ -38,6 +38,9 @@ const isPublicPath = (path: string): boolean => {
   // Special cases
   if (path.startsWith('/api') || path.includes('favicon.ico')) return true;
 
+  // Public document verification
+  if (path.startsWith('/documents/verify/')) return true;
+
   return false;
 };
 

@@ -594,13 +594,23 @@ function AccessDenied() {
 }
 
 // ============================================================================
-// Main dashboard inner (data-consuming) — UNUSED DRAFT, replaced by WithCallbacks below
+// Main dashboard inner (data-consuming)
 // ============================================================================
 
-// (Removed — see CounselorDashboardInner_WithCallbacks at line ~838)
+function CounselorDashboardInner() {
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
 
-// Resolved history toggle placeholder removed — see CounselorDashboardWithDialog
-const _UNUSED_PLACEHOLDER = null; // keeps line numbers stable for diff
+  // Access control check
+  const hasAccess = useMemo(() => {
+    if (!profile) return false;
+    if (isSuperAdmin) return true;
+    return ALLOWED_ROLES.includes(profile.role as typeof ALLOWED_ROLES[number]);
+  }, [profile, isSuperAdmin]);
+
+  // Dialog state
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedEscalation, setSelectedEscalation] = useState<HealthEscalation | null>(null);
 
   // Resolved history toggle
   const [showResolved, setShowResolved] = useState(false);
