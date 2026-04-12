@@ -13,8 +13,8 @@ import { DocumentGenerationService } from '@/lib/services/documents/document-gen
 import { DocumentDataService } from '@/lib/services/documents/document-data-service';
 import type {
   DocumentType,
-  DocumentCategory,
   DocumentHistoryFilters,
+  DocumentHistoryListResponse,
   GenerateDocumentDto,
   UpsertDocumentSettingsDto,
   UpdateDocumentTemplateDto,
