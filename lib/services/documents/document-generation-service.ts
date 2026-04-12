@@ -183,7 +183,7 @@ export class DocumentGenerationService {
   ): Promise<string> {
     try {
       const year = new Date().getFullYear();
-      const { data, error } = await this.supabase.rpc('next_document_number', {
+      const { data, error } = await (this.supabase as any).rpc('next_document_number', {
         p_institution_id: institutionId,
         p_document_type: documentType,
         p_year: year,
