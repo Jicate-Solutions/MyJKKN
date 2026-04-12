@@ -1479,6 +1479,16 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admin/notifications/new',
               label: 'Send Notification',
               active: pathname === '/admin/notifications/new'
+            },
+            {
+              href: '/admin/notifications/compliance',
+              label: 'Compliance Dashboard',
+              active: pathname === '/admin/notifications/compliance'
+            },
+            {
+              href: '/admin/notifications/audiences',
+              label: 'Audiences',
+              active: pathname.startsWith('/admin/notifications/audiences')
             }
           ]
         },
