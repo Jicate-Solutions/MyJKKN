@@ -12,7 +12,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { FileText, Search, Download, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useDocumentHistory } from '@/hooks/documents/use-documents';
 import { DOCUMENT_TYPE_INFO, type DocumentCategory, type DocumentStatus } from '@/types/documents';
 
