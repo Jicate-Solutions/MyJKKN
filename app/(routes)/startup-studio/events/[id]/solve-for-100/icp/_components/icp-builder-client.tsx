@@ -405,7 +405,7 @@ export function ICPBuilderClient({ eventId }: Props) {
                 </SelectContent>
               </Select>
             </div>
-            {hasTalkedToCustomer && !hasTalkedToCustomer.startsWith('yes') && (
+            {hasTalkedToCustomer === 'no_guessing' && (
               <div className="space-y-1.5">
                 <Label>When will you talk to them?</Label>
                 <Input value={talkDate} onChange={(e) => setTalkDate(e.target.value)} placeholder="e.g., This Thursday" />
