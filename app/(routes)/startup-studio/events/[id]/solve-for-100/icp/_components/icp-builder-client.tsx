@@ -220,9 +220,12 @@ export function ICPBuilderClient({ eventId }: Props) {
 
   if (!registration) {
     return (
-      <p className="text-center text-muted-foreground py-10">
-        You are not registered for this event.
-      </p>
+      <div className="text-center py-10 space-y-3">
+        <p className="text-muted-foreground">You are not registered for this event.</p>
+        <Link href={`/startup-studio/events/${eventId}`}>
+          <Button variant="outline" size="sm">Go to Event Page</Button>
+        </Link>
+      </div>
     )
   }
 
