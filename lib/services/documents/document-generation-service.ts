@@ -36,7 +36,7 @@ export class DocumentGenerationService {
 
   static async getInstitutionSettings(institutionId: string): Promise<DocumentInstitutionSettings | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('document_institution_settings')
         .select('*')
         .eq('institution_id', institutionId)
@@ -54,7 +54,7 @@ export class DocumentGenerationService {
     dto: UpsertDocumentSettingsDto
   ): Promise<DocumentInstitutionSettings> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as any)
         .from('document_institution_settings')
         .upsert(
           { institution_id: institutionId, ...dto },
