@@ -52,12 +52,15 @@ export default async function MentorReviewPage({ params }: Props) {
   if (!isSuperAdmin && !staffAssignment) {
     return (
       <ContentLayout title="Mentor Review">
-        <div className="text-center space-y-2 py-10">
+        <div className="text-center space-y-3 py-10">
           <Users className="h-12 w-12 text-muted-foreground/40 mx-auto" />
           <h1 className="text-xl font-semibold">Mentor Access Required</h1>
           <p className="text-muted-foreground text-sm">
             This page is only available to assigned mentors.
           </p>
+          <Link href={`/startup-studio/events/${id}/solve-for-100`}>
+            <Button variant="outline" size="sm">Back to Solve for 100</Button>
+          </Link>
         </div>
       </ContentLayout>
     )
