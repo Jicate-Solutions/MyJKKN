@@ -147,8 +147,8 @@ export class DocumentGenerationService {
     const signatures: DocumentBranding['signatures'] = [];
     if (settings?.signatures) {
       for (const sig of settings.signatures) {
-        const signatureDataUrl = sig.signature_image_url
-          ? await fetchImageAsDataUrl(sig.signature_image_url)
+        const signatureDataUrl = sig.signatureImageUrl
+          ? await fetchImageAsDataUrl(sig.signatureImageUrl)
           : undefined;
         signatures.push({ ...sig, signatureDataUrl });
       }
