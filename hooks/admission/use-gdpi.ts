@@ -88,10 +88,10 @@ export function useGDPISessionDetail(sessionId: string) {
   const query = useQuery({
     queryKey: gdpiKeys.sessionDetail(sessionId),
     queryFn: async () => {
-      const res = await apiClient.get<ApiResponse<GDPISessionDetail>>(
+      // apiClient auto-unwraps { success, data } → returns GDPISessionDetail directly
+      return apiClient.get<GDPISessionDetail>(
         `/api/admission/gd-pi/${sessionId}`
       );
-      return res.data;
     },
     enabled: !!sessionId,
   });

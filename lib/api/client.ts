@@ -67,6 +67,24 @@ async function request<T>(
     );
   }
 
+  // Auto-unwrap API response envelope.
+  // All API routes return { success: true, data: T } or { success: true, data: T[], metadata }.
+  // Without unwrapping, React Query hooks expose the envelope as `data`, and components
+  // crash when they access `data.someField` (which is really `data.data.someField`).
+  //
+  // Non-paginated: { success, data: T }             → returns T
+  // Paginated:     { success, data: T[], metadata }  → returns { data: T[], metadata }
+  if (json && typeof json === 'object' && 'success' in json && 'data' in json) {
+    const { success: _s, ...rest } = json;
+    const keys = Object.keys(rest);
+    // If only `data` remains (non-paginated), unwrap to just the data value
+    if (keys.length === 1 && keys[0] === 'data') {
+      return rest.data as T;
+    }
+    // Otherwise keep structure minus `success` (preserves metadata, etc.)
+    return rest as T;
+  }
+
   return json as T;
 }
 

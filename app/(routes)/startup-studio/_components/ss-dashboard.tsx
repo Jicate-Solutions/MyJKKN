@@ -43,14 +43,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 };
 
 export function SSDashboard() {
-  const { data: statsRaw, isLoading: statsLoading, error: statsError } = useDashboardStats();
-  const { data: statusDistRaw, isLoading: statusLoading } = useCycleStatusDistribution();
-  const { data: stepRatesRaw, isLoading: stepsLoading } = useStepCompletionRates();
-
-  // Unwrap { data: ... } envelope from apiClient responses
-  const stats = ((statsRaw as any)?.data ?? statsRaw) as any;
-  const statusDist = ((statusDistRaw as any)?.data ?? statusDistRaw) as any;
-  const stepRates = ((stepRatesRaw as any)?.data ?? stepRatesRaw) as any;
+  const { data: stats, isLoading: statsLoading, error: statsError } = useDashboardStats();
+  const { data: statusDist, isLoading: statusLoading } = useCycleStatusDistribution();
+  const { data: stepRates, isLoading: stepsLoading } = useStepCompletionRates();
 
   const isLoading = statsLoading || statusLoading || stepsLoading;
 
