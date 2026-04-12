@@ -15,7 +15,9 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
-import { CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import { CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Loader2, Clock } from 'lucide-react'
+import { toast } from 'sonner'
+import Link from 'next/link'
 import type { SubmitWeeklyCheckinDto, Solve100AppStatus } from '@/types/startup-studio'
 
 interface Props {
