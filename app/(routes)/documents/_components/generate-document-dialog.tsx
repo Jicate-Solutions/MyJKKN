@@ -85,7 +85,7 @@ export function GenerateDocumentDialog({
   };
 
   const handleGenerate = async () => {
-    if (!selectedLearner || !user) return;
+    if (!selectedLearner || !profile) return;
 
     generateMutation.mutate({
       dto: {
