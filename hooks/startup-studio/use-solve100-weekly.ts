@@ -87,11 +87,14 @@ export function useMentorReview(eventId: string) {
   const { profile } = useAuth()
 
   return useMutation({
-    mutationFn: ({ checkinId, dto }: { checkinId: string; dto: MentorReviewDto }) =>
-      Solve100WeeklyCheckinService.mentorReview(checkinId, dto, profile!.id),
+    mutationFn: ({ checkinId, dto }: { checkinId: string; dto: MentorReviewDto }) => {
+      if (!profile?.id) throw new Error('Not authenticated')
+      return Solve100WeeklyCheckinService.mentorReview(checkinId, dto, profile.id)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['solve100-unreviewed', eventId] })
       queryClient.invalidateQueries({ queryKey: ['solve100-weekly-overview', eventId] })
+      queryClient.invalidateQueries({ queryKey: ['solve100-team-overviews', eventId] })
       toast.success('Review saved')
     },
     onError: (error: Error) => {
