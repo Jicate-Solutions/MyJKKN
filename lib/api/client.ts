@@ -105,8 +105,14 @@ function buildUrl(base: string, params?: Record<string, string | number | boolea
 
 export const apiClient = {
   /** GET request with optional query params */
-  get<T>(url: string, params?: Record<string, string | number | boolean | undefined | null>): Promise<T> {
-    return request<T>(buildUrl(url, params));
+  get<T>(url: string, params?: Record<string, any>): Promise<T> {
+    // Auto-detect { params: {...} } wrapper pattern used by 19 hooks.
+    // apiClient.get(url, { params: { key: val } }) should behave the same as
+    // apiClient.get(url, { key: val }) — extract the inner params object.
+    const resolved = params && typeof params === 'object' && 'params' in params && typeof (params as any).params === 'object'
+      ? (params as any).params
+      : params;
+    return request<T>(buildUrl(url, resolved));
   },
 
   /** POST request with JSON body */
