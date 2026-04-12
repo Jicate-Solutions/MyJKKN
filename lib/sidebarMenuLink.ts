@@ -2140,15 +2140,9 @@ export function GetRoleBasedPages(
                 // Admin-only pages: only visible to marathon admins
                 return isMarathonAdmin;
               }
-              // Non-admin pages (Registrations, Committees, Ops): visible to non-students
-              // Students only see Registrations (not committees or ops pages)
-              if (isStudent && submenu.href.includes('/committees')) {
-                return false;
-              }
-              if (isStudent && submenu.href.includes('/ops/')) {
-                // Allow student committee members to see ops pages
-                return userRole.permissions['events.marathon.ops.committee_access'] === true;
-              }
+              // Non-admin pages (Registrations, Committees, Ops): visible to all users
+              // Student committee members need access to committees and ops pages
+              // Page-level guards (useCommitteeMembership) handle actual access control
               return true;
             }
 

@@ -6,7 +6,8 @@ import {
   HeadphonesIcon, UserCog, Megaphone, SearchCheck, FolderTree,
   RefreshCw, FileBarChart, Package, CheckSquare, Wrench, ClipboardList,
   Bell, Gauge, History, BarChart3, Rocket, Activity, Brain, TrendingUp,
-  Key, Link2, Bug, Bot, LineChart, Building2, LucideIcon, FileCheck
+  Key, Link2, Bug, Bot, LineChart, Building2, LucideIcon, FileCheck,
+  Shirt, ScanLine, MapPin, QrCode,
 } from 'lucide-react';
 import { MENU_PERMISSIONS, GetPages } from '@/lib/sidebarMenuLink';
 import type { PageEntry } from './types';
@@ -451,7 +452,162 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['my profile', 'account', 'personal info', 'settings'],
     description: 'View and update your profile settings'
   },
+  // Events - Marathon
+  '/events/marathon': {
+    keywords: ['marathon', 'events', 'race', 'run', 'sports event'],
+    description: 'Browse and manage marathon events'
+  },
 };
+
+// ─── Marathon Dynamic Pages ─────────────────────────────────────────────────
+// These pages require an active marathon event ID. They are registered with
+// a [id] placeholder that gets resolved at navigation time.
+
+const MARATHON_DYNAMIC_PAGES: Array<{
+  suffix: string;
+  title: string;
+  keywords: string[];
+  description: string;
+  icon: LucideIcon;
+  iconName: string;
+  permission?: string;
+}> = [
+  {
+    suffix: 'dashboard',
+    title: 'Marathon Dashboard',
+    keywords: ['marathon dashboard', 'event overview', 'marathon stats', 'event dashboard'],
+    description: 'Marathon event overview and statistics dashboard',
+    icon: BarChart,
+    iconName: 'BarChart',
+    permission: 'events.marathon.view',
+  },
+  {
+    suffix: 'registrations',
+    title: 'Marathon Registrations',
+    keywords: ['marathon registration', 'participants', 'runners', 'sign up', 'bib', 'registered'],
+    description: 'View and manage marathon participant registrations',
+    icon: Users,
+    iconName: 'Users',
+    permission: 'events.marathon.registrations.manage',
+  },
+  {
+    suffix: 'sponsors',
+    title: 'Marathon Sponsors',
+    keywords: ['marathon sponsor', 'sponsorship', 'partner', 'funding'],
+    description: 'Manage marathon event sponsors and partnerships',
+    icon: Award,
+    iconName: 'Award',
+    permission: 'events.marathon.sponsors.manage',
+  },
+  {
+    suffix: 'committees',
+    title: 'Marathon Committees',
+    keywords: ['marathon committee', 'team', 'organizing', 'volunteer', 'members'],
+    description: 'Manage marathon organizing committees and members',
+    icon: Users,
+    iconName: 'Users',
+    permission: 'events.marathon.committees.manage',
+  },
+  {
+    suffix: 'budget',
+    title: 'Marathon Budget',
+    keywords: ['marathon budget', 'expense', 'cost', 'finance', 'spending'],
+    description: 'Track marathon event budget and expenses',
+    icon: FileBarChart,
+    iconName: 'FileBarChart',
+    permission: 'events.marathon.budget.manage',
+  },
+  {
+    suffix: 'ops/dashboard',
+    title: 'Ops Dashboard',
+    keywords: ['ops dashboard', 'live operations', 'real time', 'event day', 'live stats', 'operations'],
+    description: 'Live operations dashboard with real-time check-in and distribution stats',
+    icon: Activity,
+    iconName: 'Activity',
+    permission: 'events.marathon.live_ops.manage',
+  },
+  {
+    suffix: 'ops/check-in',
+    title: 'Marathon Check-in',
+    keywords: ['check in', 'checkin', 'scan', 'arrival', 'bib scan', 'qr scan', 'attendance'],
+    description: 'Scan BIB or QR codes to check in marathon participants',
+    icon: ScanLine,
+    iconName: 'ScanLine',
+    permission: 'events.marathon.live_ops.manage',
+  },
+  {
+    suffix: 'ops/tshirt',
+    title: 'T-Shirt Distribution',
+    keywords: ['tshirt', 't-shirt', 'shirt', 'distribution', 'collect', 'clothing', 'kit'],
+    description: 'Track and manage T-shirt distribution to marathon participants',
+    icon: Shirt,
+    iconName: 'Shirt',
+    permission: 'events.marathon.live_ops.manage',
+  },
+  {
+    suffix: 'ops/certificate',
+    title: 'Certificate Issuance',
+    keywords: ['certificate', 'award', 'completion', 'finisher', 'medal'],
+    description: 'Issue completion certificates to marathon participants',
+    icon: Award,
+    iconName: 'Award',
+    permission: 'events.marathon.live_ops.manage',
+  },
+  {
+    suffix: 'ops/stalls',
+    title: 'Marathon Stalls',
+    keywords: ['stall', 'collection point', 'station', 'booth', 'counter'],
+    description: 'View stall assignments and collection point status',
+    icon: MapPin,
+    iconName: 'MapPin',
+    permission: 'events.marathon.live_ops.manage',
+  },
+  {
+    suffix: 'ops/qr-codes',
+    title: 'Marathon QR Codes',
+    keywords: ['qr code', 'qr generate', 'participant qr', 'print qr', 'bib qr'],
+    description: 'Generate and manage QR codes for marathon participants',
+    icon: QrCode,
+    iconName: 'QrCode',
+    permission: 'events.marathon.live_ops.manage',
+  },
+  {
+    suffix: 'results',
+    title: 'Marathon Results',
+    keywords: ['marathon result', 'race result', 'timing', 'finish time', 'winner', 'leaderboard'],
+    description: 'View and manage marathon race results and timings',
+    icon: TrendingUp,
+    iconName: 'TrendingUp',
+    permission: 'events.marathon.results.manage',
+  },
+  {
+    suffix: 'analytics',
+    title: 'Marathon Analytics',
+    keywords: ['marathon analytics', 'event analytics', 'race stats', 'participation trends'],
+    description: 'Marathon event analytics and participation trends',
+    icon: LineChart,
+    iconName: 'LineChart',
+    permission: 'events.marathon.analytics.view',
+  },
+  {
+    suffix: 'certificates',
+    title: 'Marathon Certificates',
+    keywords: ['marathon certificate', 'certificate design', 'bulk certificate', 'template'],
+    description: 'Design and manage marathon completion certificate templates',
+    icon: FileCheck,
+    iconName: 'FileCheck',
+    permission: 'events.marathon.certificates.manage',
+  },
+  {
+    suffix: 'settings',
+    title: 'Marathon Settings',
+    keywords: ['marathon settings', 'event config', 'marathon configuration'],
+    description: 'Configure marathon event settings and categories',
+    icon: Settings,
+    iconName: 'Settings',
+    permission: 'events.marathon.settings.manage',
+  },
+];
 
 // ─── Icon Name Mapping ───────────────────────────────────────────────────────
 // Maps icon names (strings) to icon components for serialization/deserialization
@@ -464,7 +620,8 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   HeadphonesIcon, UserCog, Megaphone, SearchCheck, FolderTree,
   RefreshCw, FileBarChart, Package, CheckSquare, Wrench, ClipboardList,
   Bell, Gauge, History, BarChart3, Rocket, Activity, Brain, TrendingUp,
-  Key, Link2, Bug, Bot, LineChart, Building2, FileCheck
+  Key, Link2, Bug, Bot, LineChart, Building2, FileCheck,
+  Shirt, ScanLine, MapPin, QrCode,
 };
 
 function getIconName(icon: LucideIcon): string {
@@ -539,6 +696,26 @@ function buildRegistry(): PageEntry[] {
           });
         }
       }
+    }
+  }
+
+  // ── Inject marathon dynamic pages ──────────────────────────────────────────
+  // These use [id] placeholder; resolved at navigation time by the command palette.
+  for (const mp of MARATHON_DYNAMIC_PAGES) {
+    const path = `/events/marathon/[id]/${mp.suffix}`;
+    if (!seen.has(path)) {
+      seen.add(path);
+      registry.push({
+        path,
+        title: mp.title,
+        keywords: mp.keywords,
+        description: mp.description,
+        module: 'Events',
+        icon: mp.icon,
+        iconName: mp.iconName,
+        permission: mp.permission,
+        parentPath: '/events/marathon',
+      });
     }
   }
 

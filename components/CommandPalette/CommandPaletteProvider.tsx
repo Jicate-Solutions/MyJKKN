@@ -110,13 +110,27 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const navigateTo = useCallback(
     (path: string) => {
       close();
+
+      let resolvedPath = path;
+
+      // Resolve marathon [id] placeholder from current URL or redirect to listing
+      if (path.includes('/events/marathon/[id]/')) {
+        const marathonMatch = pathname.match(/\/events\/marathon\/([^/]+)/);
+        if (marathonMatch?.[1]) {
+          resolvedPath = path.replace('[id]', marathonMatch[1]);
+        } else {
+          // Not on a marathon page — go to marathon listing so user can pick an event
+          resolvedPath = '/events/marathon';
+        }
+      }
+
       // Defer navigation to avoid race condition with Dialog unmount
       // aborting the RSC payload fetch in Next.js 16
       requestAnimationFrame(() => {
-        router.push(path);
+        router.push(resolvedPath);
       });
     },
-    [close, router]
+    [close, router, pathname]
   );
 
   // Callback for modal to update permission refs (avoids hook in provider)

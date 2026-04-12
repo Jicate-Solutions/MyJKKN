@@ -33,6 +33,13 @@ export function filterByPermissions(
       if (!['student', 'graduated_student'].includes(userRole)) return false;
     }
 
+    // Marathon ops & committees pages — accessible to all authenticated users
+    // Page-level guards (useCommitteeMembership) handle actual access control
+    if (page.permission === 'events.marathon.live_ops.manage' ||
+        page.permission === 'events.marathon.committees.manage') {
+      return true;
+    }
+
     // Check specific permission from merged role permissions
     if (permissions[page.permission]) return true;
 
@@ -53,5 +60,8 @@ export function isPageAccessible(
   if (!permission) return true;
   if (['view_dashboard', 'view_profile'].includes(permission)) return true;
   if (isSuperAdmin) return true;
+  // Marathon ops & committees — page-level guards handle committee membership
+  if (permission === 'events.marathon.live_ops.manage' ||
+      permission === 'events.marathon.committees.manage') return true;
   return !!permissions[permission];
 }

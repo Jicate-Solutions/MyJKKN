@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
@@ -13,7 +13,6 @@ import {
 } from '@/lib/services/events/marathon/marathon-ops-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { OpsActionType, OpsScanResult } from '@/types/events-marathon';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 
 // ============================================================================
 // Query Keys
@@ -36,7 +35,6 @@ const KEYS = {
  */
 export function useOpsStats(eventId: string) {
   const queryClient = useQueryClient();
-  const channelRef = useRef<RealtimeChannel | null>(null);
   const [isRealtime, setIsRealtime] = useState(false);
 
   const query = useQuery({
@@ -70,11 +68,8 @@ export function useOpsStats(eventId: string) {
         setIsRealtime(status === 'SUBSCRIBED');
       });
 
-    channelRef.current = channel;
-
     return () => {
       supabase.removeChannel(channel);
-      channelRef.current = null;
       setIsRealtime(false);
     };
   }, [eventId, queryClient]);
