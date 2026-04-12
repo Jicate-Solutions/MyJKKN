@@ -14,3 +14,12 @@ export { competitiveMatrixService, CompetitiveMatrixService } from './competitiv
 export { portfolioDashboardService, PortfolioDashboardService } from './portfolio-dashboard-service';
 export { marketingService, MarketingService } from './marketing-service';
 export { SF100Service } from './sf100-service';
+export { PipelineService } from './pipeline-service';
+export type {
+  PipelineStage,
+  PipelineStageCount,
+  PipelineTeam,
+  PipelineActivity,
+  PipelineConversion,
+  PipelineSummary,
+} from './pipeline-service';

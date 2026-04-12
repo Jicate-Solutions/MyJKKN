@@ -18,3 +18,4 @@ export * from './use-ss-marketing';
 export * from './use-finance';
 export * from './use-governance';
 export * from './use-sf100';
+export * from './use-pipeline';
