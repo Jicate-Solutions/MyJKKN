@@ -2,11 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Solve100ICPService } from '@/lib/services/startup-studio/solve100-icp-service'
 import { useAuth } from '@/hooks/use-auth'
+import { isValidUUID } from '@/lib/constants/startup-studio/solve100'
 import type { CreateICPDto, UpdateICPDto } from '@/types/startup-studio'
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const isValidUUID = (id: string | undefined | null): boolean =>
-  !!id && !id.includes('%%drp:') && UUID_REGEX.test(id)
 
 // ── Queries ──────────────────────────────────────────────────
 
