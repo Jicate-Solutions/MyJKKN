@@ -19,13 +19,6 @@ interface Props {
   eventStartDate: string | null
 }
 
-const statusColors: Record<Solve100AppStatus, string> = {
-  live: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-  needs_fixes: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
-  building: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-  pivoting: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
-}
-
 export function Solve100HubClient({ eventId, eventStartDate }: Props) {
   const { data: stats, isLoading: statsLoading } = useSolve100Dashboard(eventId)
   const { data: teams, isLoading: teamsLoading } = useSolve100TeamOverviews(eventId)
