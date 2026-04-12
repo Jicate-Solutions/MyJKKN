@@ -433,46 +433,27 @@ git commit -m "feat(health): add 3-tap mood check-in component"
 
 ---
 
-### Task 8: Step Counter Integration
+### Task 8: Step Entry Component (Manual — Capacitor Auto-Sync in Sprint 2)
 
 **Files:**
-- Create: `lib/utils/pedometer.ts`
-- Create: `app/(routes)/health/dashboard/_components/step-counter.tsx`
+- Create: `app/(routes)/health/dashboard/_components/step-entry.tsx`
 
-**Step 1: Create pedometer utility**
+**Step 1: Build manual step entry card**
 
-Use the Web Sensor API (`Accelerometer`) or the experimental `Pedometer` API. Fallback: manual entry.
+Simple card with:
+- Circular progress ring showing steps / daily goal
+- Number input field (large, numeric keyboard on mobile)
+- Helper text: "Check your Google Fit, Samsung Health, or Apple Health app for today's count"
+- "Save" button → calls `useUpdateSteps()` mutation
+- Today's saved count persisted in `health_daily_logs.step_count`
 
-```typescript
-// lib/utils/pedometer.ts
-export async function isPedometerSupported(): Promise<boolean> {
-  // Check for Sensor API or navigator.permissions for 'accelerometer'
-}
+No pedometer.ts utility needed — Web Sensor API doesn't work on iOS and can't run in background. Manual entry is the v1 approach. Capacitor native wrapper (Sprint 2) will add automatic Health Connect / HealthKit sync.
 
-export async function requestPedometerPermission(): Promise<boolean> {
-  // Request sensor permission
-}
-
-export function createStepCounter(onStep: (count: number) => void): {
-  start: () => void;
-  stop: () => void;
-  getCount: () => number;
-} {
-  // Accelerometer-based step detection or manual fallback
-}
-```
-
-**Gotcha:** Web Pedometer API has limited browser support. Must gracefully degrade to manual step entry input. Test on Android Chrome first (best support).
-
-**Step 2: Build step counter card component**
-
-Shows: current steps / goal, circular progress ring, "Sync Steps" button (for manual entry fallback).
-
-**Step 3: Commit**
+**Step 2: Commit**
 
 ```bash
-git add lib/utils/pedometer.ts "app/(routes)/health/dashboard/_components/step-counter.tsx"
-git commit -m "feat(health): add pedometer utility + step counter component"
+git add "app/(routes)/health/dashboard/_components/step-entry.tsx"
+git commit -m "feat(health): add manual step entry component (Capacitor auto-sync in Sprint 2)"
 ```
 
 ---
