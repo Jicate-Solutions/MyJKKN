@@ -394,7 +394,7 @@ export abstract class BaseDocumentGenerator {
   }
 
   /** Set text styling shorthand */
-  protected setTextStyle(size: number, weight: 'normal' | 'bold' = 'normal', color?: RGBColor): void {
+  protected setTextStyle(size: number, weight: 'normal' | 'bold' | 'italic' = 'normal', color?: RGBColor): void {
     this.doc.setFontSize(size);
     this.doc.setFont('helvetica', weight);
     const c = color ?? DEFAULT_COLORS.darkText;
