@@ -187,7 +187,11 @@ export function ICPBuilderClient({ eventId }: Props) {
   })
 
   const handleSubmit = () => {
-    if (!teamId || !customerName.trim() || !problemInTheirWords.trim()) return
+    if (!teamId || !customerName.trim() || !problemInTheirWords.trim()) {
+      if (!customerName.trim()) toast.error('Customer Name is required')
+      else if (!problemInTheirWords.trim()) toast.error('Problem description is required')
+      return
+    }
 
     if (existingICP) {
       updateMutation.mutate({
