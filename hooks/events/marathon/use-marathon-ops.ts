@@ -1,15 +1,19 @@
 // hooks/events/marathon/use-marathon-ops.ts
 // React Query hooks for marathon event-day operations (scan, stats, search).
 // Created: 2026-04-11
+// Updated: 2026-04-12 - Added Supabase Realtime for live dashboard updates
 
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
   MarathonOpsService,
 } from '@/lib/services/events/marathon/marathon-ops-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { OpsActionType, OpsScanResult } from '@/types/events-marathon';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
 // ============================================================================
 // Query Keys
@@ -26,15 +30,56 @@ const KEYS = {
 // ============================================================================
 
 /**
- * Live ops stats with 10-second auto-refresh for the dashboard.
+ * Live ops stats with Supabase Realtime + 30s fallback polling.
+ * Subscribes to Postgres changes on events_registrations for the given event.
+ * Returns `isRealtime` to indicate if the Realtime channel is connected.
  */
 export function useOpsStats(eventId: string) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const [isRealtime, setIsRealtime] = useState(false);
+
+  const query = useQuery({
     queryKey: KEYS.stats(eventId),
     queryFn: () => MarathonOpsService.getOpsStats(eventId),
     enabled: !!eventId,
-    refetchInterval: 10_000,
+    refetchInterval: 30_000, // Fallback polling — 30s instead of 10s since realtime handles most updates
   });
+
+  useEffect(() => {
+    if (!eventId) return;
+
+    const supabase = createClientSupabaseClient();
+
+    const channel = supabase
+      .channel(`ops-dashboard-${eventId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'events_registrations',
+          filter: `event_id=eq.${eventId}`,
+        },
+        () => {
+          // Invalidate stats so React Query refetches
+          queryClient.invalidateQueries({ queryKey: KEYS.stats(eventId) });
+        }
+      )
+      .subscribe((status) => {
+        setIsRealtime(status === 'SUBSCRIBED');
+      });
+
+    channelRef.current = channel;
+
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+      setIsRealtime(false);
+    };
+  }, [eventId, queryClient]);
+
+  return { ...query, isRealtime };
 }
 
 /**

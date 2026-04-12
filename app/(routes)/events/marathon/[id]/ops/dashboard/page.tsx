@@ -316,7 +316,7 @@ export default function OpsDashboardPage() {
   const access = useMarathonAccess();
   const membership = useCommitteeMembership(eventId);
 
-  const { data: stats, isLoading, dataUpdatedAt } = useOpsStats(eventId);
+  const { data: stats, isLoading, dataUpdatedAt, isRealtime } = useOpsStats(eventId);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const { data: event } = useQuery({
@@ -385,13 +385,21 @@ export default function OpsDashboardPage() {
           {/* Live indicator */}
           <div className="flex items-center gap-3 rounded-full border bg-card px-4 py-2 shadow-sm">
             <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+              <span className={cn(
+                'animate-ping absolute inline-flex h-full w-full rounded-full opacity-75',
+                isRealtime ? 'bg-green-400' : 'bg-amber-400'
+              )} />
+              <span className={cn(
+                'relative inline-flex rounded-full h-2.5 w-2.5',
+                isRealtime ? 'bg-green-500' : 'bg-amber-500'
+              )} />
             </span>
             <span className="text-sm font-medium">
               {lastUpdated ? formatTime(lastUpdated) : '---'}
             </span>
-            <span className="text-xs text-muted-foreground hidden sm:inline">Auto-refresh 10s</span>
+            <span className="text-xs text-muted-foreground hidden sm:inline">
+              {isRealtime ? 'Live' : 'Polling 30s'}
+            </span>
           </div>
         </div>
 
