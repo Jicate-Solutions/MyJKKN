@@ -417,8 +417,9 @@ export function KpiDashboardView() {
     );
   }
 
-  const data = dashboardData as DashboardData | undefined;
-  if (!data) {
+  // Unwrap { data: ... } envelope from apiClient responses
+  const data = ((dashboardData as any)?.data ?? dashboardData) as DashboardData | undefined;
+  if (!data || !data.kpis_by_framework) {
     return (
       <Card>
         <CardContent className="py-10 text-center">
