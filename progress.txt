@@ -26,7 +26,7 @@
 - UI: COMPLETE (Document Center, history, verification, generate dialog, learner profile tab)
 - Sidebar: ADDED (Documents group with Document Center + History)
 - Learner profile: ADDED (Documents tab + generate dropdown with all 15 types)
-- Browser testing: NOT YET
+- Browser testing: DONE (see results below)
 
 ### What's Left
 1. Browser test — verify PDF generation end-to-end (start dev server, navigate, generate)
