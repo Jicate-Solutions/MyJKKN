@@ -23,17 +23,15 @@
 ### Current Status
 - Engine core: COMPLETE (all 15 generators, services, hooks)
 - Database: COMPLETE (4 tables + function + RLS + seeds applied to staging)
-- UI: PARTIAL (Document Center page + generate dialog done, history/settings pages pending)
-- Sidebar: ADDED
-- Learner profile integration: NOT YET (Documents tab + generate dropdown)
+- UI: COMPLETE (Document Center, history, verification, generate dialog, learner profile tab)
+- Sidebar: ADDED (Documents group with Document Center + History)
+- Learner profile: ADDED (Documents tab + generate dropdown with all 15 types)
 - Browser testing: NOT YET
 
 ### What's Left
-1. History page (`/documents/history`) — paginated table of generated documents
-2. Verification page (`/documents/verify/[code]`) — public verification card
-3. Learner profile integration — Documents tab + generate dropdown on learner detail
-4. Browser test — verify PDF generation end-to-end
-5. Settings page (`/documents/settings`) — institution branding config (optional, admin-only)
+1. Browser test — verify PDF generation end-to-end (start dev server, navigate, generate)
+2. Settings page (`/documents/settings`) — institution branding config (optional, admin-only)
+3. Bulk generation dialog (optional — UI for batch ZIP generation)
 
 ---
 
