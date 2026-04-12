@@ -14,7 +14,8 @@ export const APP_STATUS_OPTIONS = [
   { value: 'pivoting', label: 'Pivoting', color: 'orange' },
 ] as const
 
-export type AppStatus = 'live' | 'needs_fixes' | 'building' | 'pivoting'
+// Re-export the canonical type from types/startup-studio.ts to avoid shadowing
+export type { Solve100AppStatus as AppStatus } from '@/types/startup-studio'
 
 export const VALIDATION_STATUS_OPTIONS = [
   { value: 'yes_in_person', label: 'Yes — talked in person', color: 'green' },
