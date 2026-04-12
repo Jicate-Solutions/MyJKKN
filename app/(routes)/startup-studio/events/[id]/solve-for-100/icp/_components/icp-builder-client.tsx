@@ -342,6 +342,7 @@ export function ICPBuilderClient({ eventId }: Props) {
           <CardTitle className="text-base flex items-center gap-2">
             <DollarSign className="h-4 w-4" /> The Sale
           </CardTitle>
+          <CardDescription>How will you convince your first customer to pay?</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
