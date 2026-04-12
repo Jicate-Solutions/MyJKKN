@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useSolve100Dashboard, useSolve100TeamOverviews } from '@/hooks/startup-studio/use-solve100-weekly'
-import { APP_STATUS_OPTIONS, getCurrentWeekNumber } from '@/lib/constants/startup-studio/solve100'
+import { APP_STATUS_OPTIONS, getCurrentWeekNumber, STATUS_COLORS } from '@/lib/constants/startup-studio/solve100'
 import type { Solve100AppStatus } from '@/types/startup-studio'
 
 interface Props {
