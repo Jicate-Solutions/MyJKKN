@@ -141,18 +141,26 @@ export function ICPBuilderClient({ eventId }: Props) {
     }
   }, [existingICP, eventId])
 
-  // Auto-save draft
+  // Auto-save draft (all fields)
   useEffect(() => {
     if (existingICP) return
     const timer = setTimeout(() => {
       try {
         sessionStorage.setItem(DRAFT_KEY(eventId), JSON.stringify({
           customerName, problemInTheirWords, customerAgeGender, customerRole, customerLocation,
+          customerIncome, customerPhoneType, problemFrequency, problemCost, currentSolution,
+          currentSpend, elevatorPitch, proposedPrice, valueJustification, topObjection,
+          objectionResponse, marketSize50km, whereTheyGather, planToReach10,
+          hasTalkedToCustomer, talkDate,
         }))
       } catch { /* ignore */ }
     }, 1000)
     return () => clearTimeout(timer)
-  }, [customerName, problemInTheirWords, customerAgeGender, customerRole, customerLocation, eventId, existingICP])
+  }, [customerName, problemInTheirWords, customerAgeGender, customerRole, customerLocation,
+    customerIncome, customerPhoneType, problemFrequency, problemCost, currentSolution,
+    currentSpend, elevatorPitch, proposedPrice, valueJustification, topObjection,
+    objectionResponse, marketSize50km, whereTheyGather, planToReach10,
+    hasTalkedToCustomer, talkDate, eventId, existingICP])
 
   const buildPayload = () => ({
     customer_name: customerName.trim(),
