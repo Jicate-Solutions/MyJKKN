@@ -99,8 +99,9 @@ export function StepEntry({
     setInputValue(currentSteps > 0 ? String(currentSteps) : '');
   }, [currentSteps]);
 
+  const [focused, setFocused] = useState(false);
   const parsedSteps = Math.max(0, Math.min(Number(inputValue) || 0, 99999));
-  const displaySteps = document.activeElement === inputRef.current ? parsedSteps : currentSteps;
+  const displaySteps = focused ? parsedSteps : currentSteps;
   const pct = Math.round(Math.min((displaySteps / goal) * 100, 100));
   const goalReached = currentSteps >= goal;
 
