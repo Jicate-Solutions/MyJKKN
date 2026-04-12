@@ -143,9 +143,9 @@ export class Solve100WeeklyCheckinService {
     const totalTeams = latestCheckins.length
     const totalPaidUsers = latestCheckins.reduce((s, c) => s + (c.verified_paid_users || 0), 0)
 
-    // Current week (latest week_number in data)
+    // Current week: use reduce instead of Math.max(...spread) to avoid stack overflow with large arrays
     const currentWeek = checkins.length > 0
-      ? Math.max(...checkins.map(c => c.week_number))
+      ? checkins.reduce((max, c) => Math.max(max, c.week_number), 1)
       : 1
     const checkinsThisWeek = checkins.filter(c => c.week_number === currentWeek).length
 
