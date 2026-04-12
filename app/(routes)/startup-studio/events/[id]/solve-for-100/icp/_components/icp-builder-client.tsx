@@ -31,7 +31,7 @@ export function ICPBuilderClient({ eventId }: Props) {
   const teamId = registration?.id ?? null
   const { data: existingICP, isLoading: icpLoading } = useMyICP(eventId, teamId)
   const submitMutation = useSubmitICP(eventId)
-  const updateMutation = useUpdateICP(eventId, teamId ?? '')
+  const updateMutation = useUpdateICP(eventId, teamId ?? undefined)
 
   // Form state — The Person
   const [customerName, setCustomerName] = useState('')
