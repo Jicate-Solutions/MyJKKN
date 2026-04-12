@@ -17,7 +17,7 @@
  *   const { hasConsented } = useHealthConsentContext();
  */
 
-import React, {
+import {
   createContext,
   useContext,
   useState,
