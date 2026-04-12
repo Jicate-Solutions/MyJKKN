@@ -339,7 +339,7 @@ export function WeeklyCheckinClient({ eventId, eventStartDate }: Props) {
             <Input
               type="number" min={0}
               value={verifiedPaidUsers}
-              onChange={(e) => setVerifiedPaidUsers(parseInt(e.target.value) || 0)}
+              onChange={(e) => setVerifiedPaidUsers(Math.max(0, parseInt(e.target.value, 10) || 0))}
             />
           </div>
           <div className="space-y-1.5">
@@ -347,7 +347,7 @@ export function WeeklyCheckinClient({ eventId, eventStartDate }: Props) {
             <Input
               type="number" min={0}
               value={totalUsers}
-              onChange={(e) => setTotalUsers(parseInt(e.target.value) || 0)}
+              onChange={(e) => setTotalUsers(Math.max(0, parseInt(e.target.value, 10) || 0))}
             />
           </div>
           <div className="space-y-1.5">
@@ -355,7 +355,7 @@ export function WeeklyCheckinClient({ eventId, eventStartDate }: Props) {
             <Input
               type="number" min={0}
               value={activeUsers}
-              onChange={(e) => setActiveUsers(parseInt(e.target.value) || 0)}
+              onChange={(e) => setActiveUsers(Math.max(0, parseInt(e.target.value, 10) || 0))}
             />
           </div>
         </CardContent>
