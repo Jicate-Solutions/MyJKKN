@@ -125,3 +125,77 @@ export interface UnacknowledgedNotification {
     [key: string]: any;
   };
 }
+
+// ==================== ACTION REQUIRED SYSTEM ====================
+
+export type ActionType = 'urgent' | 'tracked';
+export type ResponseType = 'text' | 'file' | 'form' | 'link';
+
+export interface FormItem {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface ActionConfig {
+  response_type: ResponseType;
+  form_items?: FormItem[];
+  link_url?: string;
+  min_text_length?: number;
+  max_file_size_mb?: number;
+  allowed_file_types?: string[];
+  escalation_chain?: string[];
+}
+
+export interface ActionResponse {
+  id: string;
+  notification_id: string;
+  user_id: string;
+  response_type: ResponseType;
+  text_response?: string;
+  file_url?: string;
+  file_name?: string;
+  file_size?: number;
+  form_response?: Record<string, boolean>;
+  link_confirmed?: boolean;
+  submitted_at: string;
+  created_at: string;
+}
+
+export interface ExtensionRequest {
+  id: string;
+  notification_id: string;
+  user_id: string;
+  reason: string;
+  requested_deadline: string;
+  status: 'pending' | 'approved' | 'denied';
+  reviewed_by?: string;
+  reviewed_at?: string;
+  review_note?: string;
+  created_at: string;
+}
+
+export interface PendingAction {
+  id: string;
+  notification_id: string;
+  title: string;
+  body: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  category: string;
+  action_type: ActionType;
+  action_config: ActionConfig;
+  acknowledgment_deadline_hours: number;
+  sent_at: string;
+  created_by_name: string;
+  deadline_at: string;
+  is_overdue: boolean;
+  has_responded: boolean;
+  extension_request?: {
+    status: 'pending' | 'approved' | 'denied';
+    requested_deadline: string;
+  };
+  metadata?: {
+    attachments?: NotificationAttachment[];
+    [key: string]: any;
+  };
+}
