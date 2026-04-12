@@ -477,11 +477,15 @@ export function WeeklyCheckinClient({ eventId, eventStartDate }: Props) {
       <div className="flex items-center gap-3">
         <Button
           onClick={handleSubmit}
-          disabled={submitMutation.isPending || !commitment.trim()}
+          disabled={submitMutation.isPending || submitMutation.isSuccess || !profile || !commitment.trim()}
           className="gap-1.5"
         >
           {submitMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-          {existingCheckin ? 'Update Check-in' : 'Submit Check-in'}
+          {submitMutation.isSuccess ? (
+            <><CheckCircle2 className="h-4 w-4" /> Saved</>
+          ) : (
+            existingCheckin ? 'Update Check-in' : 'Submit Check-in'
+          )}
         </Button>
         {existingCheckin && (
           <Badge variant="outline" className="text-green-600 border-green-200">
