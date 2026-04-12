@@ -20,11 +20,8 @@ import {
   useSF100Enrollments,
   useSF100CheckIns,
   useAddSF100MentorFeedback,
+  useSF100Programs,
 } from '@/hooks/startup-studio';
-
-// Uses the current mentor's assigned enrollments
-// In production this would be scoped to the current user's profile
-const MENTOR_PROGRAM_ID = '';
 
 type TeamStatus = 'active' | 'warning' | 'probation';
 
@@ -250,12 +247,16 @@ export function SF100MentorDashboard() {
   const [selectedEnrollment, setSelectedEnrollment] = useState<any>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  // Fetches all enrollments for the mentor's programs.
-  // In production, the API should filter by current mentor profile.
-  const { data: raw, isLoading, error } = useSF100Enrollments(MENTOR_PROGRAM_ID, {
+  // Discover the active program
+  const { data: programsRaw } = useSF100Programs();
+  const programs = Array.isArray(programsRaw) ? programsRaw : (programsRaw as any)?.data || [];
+  const activeProgram = programs.find((p: any) => p.status === 'active') || programs[0];
+  const activeProgramId: string = activeProgram?.id ?? '';
+
+  const { data: raw, isLoading, error } = useSF100Enrollments(activeProgramId, {
     my_teams: true,
   });
-  const enrollments: any[] = Array.isArray(raw) ? raw : (raw as any)?.data ?? [];
+  const enrollments: any[] = Array.isArray(raw) ? raw : [];
 
   if (isLoading) {
     return (

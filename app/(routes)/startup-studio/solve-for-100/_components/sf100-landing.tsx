@@ -15,13 +15,11 @@ import {
   GraduationCap,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth-provider';
-import { useMySF100Enrollment, useSF100PublicStats } from '@/hooks/startup-studio';
+import { useMySF100Enrollment, useSF100PublicStats, useSF100Programs } from '@/hooks/startup-studio';
 
 const ADMIN_ROLES = ['super_admin', 'administrator', 'hod', 'principal'];
 const MENTOR_ROLES = ['faculty'];
 const LEARNER_ROLES = ['student'];
-
-const DEFAULT_PROGRAM_ID = 'current';
 
 interface RouteCard {
   href: string;
@@ -84,13 +82,17 @@ function ProgramStatsSkeleton() {
 export function SF100Landing() {
   const { profile, isLoading: authLoading } = useAuth();
 
-  const { data: statsRaw, isLoading: statsLoading } = useSF100PublicStats(DEFAULT_PROGRAM_ID);
-  const stats = (statsRaw as any)?.data ?? statsRaw;
+  // Discover active program instead of hardcoded 'current'
+  const { data: programsRaw } = useSF100Programs();
+  const programs = Array.isArray(programsRaw) ? programsRaw : (programsRaw as any)?.data || [];
+  const activeProgram = programs.find((p: any) => p.status === 'active') || programs[0];
+  const activeProgramId: string = activeProgram?.id ?? '';
 
-  const { data: myEnrollmentRaw, isLoading: enrollmentLoading } =
-    useMySF100Enrollment(DEFAULT_PROGRAM_ID);
-  const myEnrollment = (myEnrollmentRaw as any)?.data ?? myEnrollmentRaw;
-  const isEnrolled = !!myEnrollment?.id;
+  const { data: stats, isLoading: statsLoading } = useSF100PublicStats(activeProgramId);
+
+  const { data: myEnrollment, isLoading: enrollmentLoading } =
+    useMySF100Enrollment(activeProgramId);
+  const isEnrolled = !!(myEnrollment as any)?.id;
 
   const role = profile?.role ?? '';
   const isAdmin = ADMIN_ROLES.includes(role);

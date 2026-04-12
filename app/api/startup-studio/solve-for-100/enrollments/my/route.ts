@@ -19,9 +19,7 @@ export const GET = withAuth(async (request, auth) => {
 
   const enrollment = await SF100Service.getMyEnrollment(auth.user.id, programId)
 
-  if (!enrollment) {
-    return errorResponse('No enrollment found for this user in the specified program', 404)
-  }
-
-  return successApiResponse(enrollment)
+  // Return null (not 404) when not enrolled — the UI distinguishes "not enrolled"
+  // from "failed to load" based on whether data is null vs error thrown
+  return successApiResponse(enrollment || null)
 }, { requiredPermission: 'read' })
