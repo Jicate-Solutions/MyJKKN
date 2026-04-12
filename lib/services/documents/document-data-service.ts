@@ -134,7 +134,7 @@ export class DocumentDataService {
           academic_year_name: (d.academic_years as Record<string, unknown> | null)?.academic_year_name as string | undefined,
           batch_name: (d.batches as Record<string, unknown> | null)?.batch_name as string | undefined,
           regulation_code: (d.regulations as Record<string, unknown> | null)?.regulation_code as string | undefined,
-        } as LearnerCoreData;
+        } as unknown as LearnerCoreData;
       });
     } catch (error) {
       console.error('[documents/data] Failed to fetch section learners:', error);
