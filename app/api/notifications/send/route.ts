@@ -173,7 +173,9 @@ export async function POST(request: NextRequest) {
         targeting: notificationData.targeting,
         metadata: notificationData.metadata || {},
         requires_acknowledgment: notificationData.requires_acknowledgment || false,
-        acknowledgment_deadline_hours: notificationData.acknowledgment_deadline_hours || 4
+        acknowledgment_deadline_hours: notificationData.acknowledgment_deadline_hours || 4,
+        action_type: (notificationData as any).action_type || null,
+        action_config: (notificationData as any).action_config || null
       })
       .select()
       .single();
@@ -574,13 +576,18 @@ async function sendWebPushNotifications(
       .trim();
 
     const requiresAck = notification.requires_acknowledgment || false;
+    const isAction = notification.action_type != null;
     const pushPayload = JSON.stringify({
-      title: requiresAck
-        ? `⚠️ ACTION REQUIRED: ${notification.title}`
-        : notification.title,
-      body: requiresAck
-        ? `${plainBody}\n\nTap to acknowledge (mandatory)`
-        : plainBody,
+      title: isAction
+        ? `⚡ ACTION REQUIRED: ${notification.title}`
+        : requiresAck
+          ? `⚠️ ACKNOWLEDGE: ${notification.title}`
+          : notification.title,
+      body: isAction
+        ? `${plainBody}\n\nTap to submit your response`
+        : requiresAck
+          ? `${plainBody}\n\nTap to acknowledge (mandatory)`
+          : plainBody,
       icon: notification.icon || '/icons/icon-192x192.png',
       url: notification.url || '/notifications',
       requireInteraction: requiresAck,
