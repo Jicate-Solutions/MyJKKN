@@ -105,8 +105,8 @@ const COLUMN_MAPPING: Record<string, string> = {
 const TEMPLATE_COLUMNS = [
   { header: 'Name *', key: 'name', width: 25 },
   { header: 'Phone *', key: 'phone', width: 18 },
-  { header: 'Parent Name *', key: 'parent_name', width: 25 },
-  { header: 'Parent Phone *', key: 'parent_phone', width: 18 },
+  { header: 'Parent Name', key: 'parent_name', width: 25 },
+  { header: 'Parent Phone', key: 'parent_phone', width: 18 },
   { header: 'Email', key: 'email', width: 28 },
   { header: 'District', key: 'district', width: 18 },
   { header: '12th Marks', key: 'twelfth_marks', width: 14 },
@@ -235,10 +235,7 @@ export function BulkCaptureDialog({
           } else if (!isValidIndianPhone(mapped.phone)) {
             errors.push('Invalid phone');
           }
-          if (!mapped.parent_name) errors.push('Parent name required');
-          if (!mapped.parent_phone) {
-            errors.push('Parent phone required');
-          } else if (mapped.parent_phone && !isValidIndianPhone(mapped.parent_phone)) {
+          if (mapped.parent_phone && !isValidIndianPhone(mapped.parent_phone)) {
             errors.push('Invalid parent phone');
           }
 

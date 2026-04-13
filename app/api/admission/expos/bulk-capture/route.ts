@@ -131,15 +131,7 @@ export async function POST(request: NextRequest) {
         errors.push({ row: rowNum, message: `Invalid phone number: ${phone}` });
         continue;
       }
-      if (!parentName) {
-        errors.push({ row: rowNum, message: 'Parent name is required' });
-        continue;
-      }
-      if (!parentPhone) {
-        errors.push({ row: rowNum, message: 'Parent phone is required' });
-        continue;
-      }
-      if (!isValidIndianPhone(parentPhone)) {
+      if (parentPhone && !isValidIndianPhone(parentPhone)) {
         errors.push({ row: rowNum, message: `Invalid parent phone: ${parentPhone}` });
         continue;
       }
@@ -168,8 +160,8 @@ export async function POST(request: NextRequest) {
         first_name: firstName,
         last_name: lastName,
         phone: cleanedPhone,
-        parent_name: parentName.trim(),
-        parent_phone: cleanPhone(parentPhone),
+        parent_name: parentName ? parentName.trim() : null,
+        parent_phone: parentPhone ? cleanPhone(parentPhone) : null,
         email: (lead.email || '').trim() || null,
         district: (lead.district || '').trim() || null,
         notes: (lead.notes || '').trim() || null,
