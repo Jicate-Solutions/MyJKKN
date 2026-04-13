@@ -4,14 +4,14 @@ import { DataTable } from '@/components/data-table/data-table';
 import { getLeadColumns, FUNNEL_STAGES } from './columns';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X } from 'lucide-react';
+import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X, RefreshCw } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useLeadMutations, useExpoEvents, useCounselorsList } from '@/hooks/admission';
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,6 +59,14 @@ export function LeadsDataTable() {
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Auto-refetch when page becomes visible (e.g., user navigates back from lead detail/create)
+  useEffect(() => {
+    const handleFocus = () => setRefetchKey((prev) => prev + 1);
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
 
   // Attribution map: leadId -> primary consultant name (populated after each page load)
   const [attributionsMap, setAttributionsMap] = useState<Map<string, string>>(new Map());
@@ -256,9 +264,9 @@ export function LeadsDataTable() {
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className="space-y-2">
+    <div className="space-y-4 w-full">
       {/* Row 1: Action button + Filter dropdowns */}
-      <div className="flex w-full flex-col sm:flex-row sm:items-center gap-2">
+      <div className="flex w-full py-4 flex-col justify-between sm:flex-row sm:items-center gap-4">
         {/* Primary action */}
         {canCreate && (
           <Button
@@ -270,6 +278,21 @@ export function LeadsDataTable() {
             Add Lead
           </Button>
         )}
+
+        {/* Refresh button */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 px-2 shrink-0"
+          onClick={() => {
+            setIsRefreshing(true);
+            setRefetchKey((prev) => prev + 1);
+            setTimeout(() => setIsRefreshing(false), 1000);
+            toast.success('Leads refreshed');
+          }}
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+        </Button>
 
         {/* Filter dropdowns — scrollable on mobile */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0 scrollbar-none">
