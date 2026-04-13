@@ -95,12 +95,16 @@ export function SF100TeamDashboard() {
   ).length;
 
   // Step 4: Leaderboard position
+  // API returns { data: { phases: [{ phase, teams: [...] }], total_teams, ... } }
+  // Flatten all teams from all phases to find our enrollment
   const programId: string | undefined = (enrollment as any)?.program_id ?? (myEnrollment as any)?.program_id ?? activeProgramId;
   const { data: leaderboardRaw } = useSF100PublicLeaderboard(programId ?? '');
-  const leaderboard = Array.isArray(leaderboardRaw) ? leaderboardRaw : (leaderboardRaw as any)?.data || [];
-  const myLeaderboardEntry = leaderboard.find((e: any) => e.enrollment_id === enrollmentId) || null;
-  const leaderboardRank: number | null = myLeaderboardEntry?.rank ?? null;
-  const leaderboardPhaseLabel: string = myLeaderboardEntry?.phase_label ?? (enrollment as any)?.current_phase ?? '';
+  const leaderboardData = (leaderboardRaw as any)?.data ?? leaderboardRaw ?? {};
+  const leaderboardPhases = Array.isArray(leaderboardData.phases) ? leaderboardData.phases : [];
+  const allLeaderboardTeams = leaderboardPhases.flatMap((p: any) => Array.isArray(p.teams) ? p.teams : []);
+  const myLeaderboardEntry = allLeaderboardTeams.find((e: any) => e.enrollment_id === enrollmentId) || null;
+  const leaderboardRank: number | null = myLeaderboardEntry?.phase_rank ?? null;
+  const leaderboardPhaseLabel: string = myLeaderboardEntry?.current_phase ?? (enrollment as any)?.current_phase ?? '';
 
   const isLoading = programsLoading || enrollmentLoading || detailLoading || paidUsersLoading;
 
