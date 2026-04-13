@@ -958,7 +958,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                 <CardDescription>Generate and view documents for this learner</CardDescription>
               </CardHeader>
               <CardContent>
-                <LearnerDocumentsTab learnerId={learner.id} institutionId={learner.institution_id} />
+                <LearnerDocumentsTab learner={learner} />
               </CardContent>
             </>
           )}
