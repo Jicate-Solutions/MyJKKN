@@ -358,6 +358,23 @@ export function useLeadMutations() {
     }
   });
 
+  const permanentDeleteLead = useMutation({
+    mutationFn: async (id: string) => {
+      return LeadService.permanentDeleteLead(id);
+    },
+    onSuccess: () => {
+      toast.success('Lead permanently deleted');
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to permanently delete lead');
+    }
+  });
+
   const updateStage = useMutation({
     mutationFn: async ({ leadId, stage, notes }: { leadId: string; stage: FunnelStage; notes?: string }) => {
       return LeadService.updateStage(leadId, stage, notes);
@@ -507,6 +524,7 @@ export function useLeadMutations() {
     createLead,
     updateLead,
     deleteLead,
+    permanentDeleteLead,
     updateStage,
     toggleHotLead,
     togglePriority,

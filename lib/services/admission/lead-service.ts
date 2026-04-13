@@ -539,6 +539,30 @@ export class LeadService {
     }
   }
 
+  /**
+   * Permanently delete a lead (hard delete from database)
+   */
+  static async permanentDeleteLead(id: string): Promise<void> {
+    // Delete related records first (stage history, activities, scores, call logs)
+    await Promise.allSettled([
+      (this.supabase as any).from('admission_lead_stage_history').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_lead_activities').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_lead_scores').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_call_logs').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_tasks').delete().eq('lead_id', id),
+    ]);
+
+    const { error } = await (this.supabase as any)
+      .from('admission_leads')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('[LeadService] Error permanently deleting lead:', error);
+      throw new Error(`Failed to delete lead: ${error.message}`);
+    }
+  }
+
   // ============================================================================
   // STAGE MANAGEMENT
   // ============================================================================
