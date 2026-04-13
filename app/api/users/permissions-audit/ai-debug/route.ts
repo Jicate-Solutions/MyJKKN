@@ -286,7 +286,10 @@ ${contextBlock}`;
 
     // ── Call Gemini with streaming ──
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    // Use gemini-2.0-flash as the default model (fast, capable, widely available)
+    // Override with GEMINI_MODEL env var if needed (e.g., 'gemini-2.5-flash-preview-04-17')
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+    const model = genAI.getGenerativeModel({ model: modelName });
 
     const contents = [
       ...(conversationHistory || []).map((msg) => ({
@@ -296,10 +299,19 @@ ${contextBlock}`;
       { role: 'user' as const, parts: [{ text: query }] }
     ];
 
-    const result = await model.generateContentStream({
-      contents,
-      systemInstruction: systemPrompt
-    });
+    let result;
+    try {
+      result = await model.generateContentStream({
+        contents,
+        systemInstruction: systemPrompt
+      });
+    } catch (genError: any) {
+      console.error('[ai-debug] Gemini API error:', genError?.message || genError);
+      return NextResponse.json(
+        { error: `Gemini API error: ${genError?.message || 'Failed to generate response'}. Check your GEMINI_API_KEY and model name (${modelName}).` },
+        { status: 502 }
+      );
+    }
 
     // ── Stream as SSE ──
     const stream = new ReadableStream({
@@ -315,12 +327,14 @@ ${contextBlock}`;
             }
           }
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-        } catch (err) {
+        } catch (streamErr: any) {
+          console.error('[ai-debug] Stream error:', streamErr?.message || streamErr);
           controller.enqueue(
             encoder.encode(
-              `data: ${JSON.stringify({ error: 'Stream error' })}\n\n`
+              `data: ${JSON.stringify({ error: `Stream error: ${streamErr?.message || 'Unknown error'}` })}\n\n`
             )
           );
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         } finally {
           controller.close();
         }
