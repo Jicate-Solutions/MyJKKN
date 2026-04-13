@@ -543,15 +543,35 @@ export class LeadService {
    * Permanently delete a lead (hard delete from database)
    */
   static async permanentDeleteLead(id: string): Promise<void> {
-    // Delete related records first (stage history, activities, scores, call logs)
+    // Delete related records first — must clear ALL FK references before deleting the lead.
+    // CASCADE FKs (auto-deleted): stage_history, activities, lead_scores, tasks, expo_wa_message_queue, wa_personal_message_queue, wa_consent_log
+    // NO ACTION FKs (must delete manually): call_logs, sms_logs, whatsapp_logs, campaign_queue, email_logs, campaign_logs, drip_sequences, consultant_*
+    // SET NULL FKs (auto-nullified): wa_form_responses, admission_form_submissions, admission_integration_logs, wa_conversations, activity_alert_history, workflow_executions
+
+    // Batch 1: Delete NO ACTION FK records (these block the lead delete if not removed)
+    await Promise.allSettled([
+      (this.supabase as any).from('admission_call_logs').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_sms_logs').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_whatsapp_logs').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_email_logs').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_campaign_queue').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_campaign_logs').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_callback_queue').delete().eq('lead_id', id),
+      (this.supabase as any).from('admission_drip_sequences').delete().eq('lead_id', id),
+      (this.supabase as any).from('consultant_communications').delete().eq('lead_id', id),
+      (this.supabase as any).from('consultant_commission_transactions').delete().eq('lead_id', id),
+      (this.supabase as any).from('consultant_lead_attributions').delete().eq('lead_id', id),
+    ]);
+
+    // Batch 2: Delete CASCADE FK records (these auto-delete but we do it explicitly to be safe)
     await Promise.allSettled([
       (this.supabase as any).from('admission_lead_stage_history').delete().eq('lead_id', id),
       (this.supabase as any).from('admission_lead_activities').delete().eq('lead_id', id),
       (this.supabase as any).from('admission_lead_scores').delete().eq('lead_id', id),
-      (this.supabase as any).from('admission_call_logs').delete().eq('lead_id', id),
       (this.supabase as any).from('admission_tasks').delete().eq('lead_id', id),
     ]);
 
+    // Now delete the lead itself
     const { error } = await (this.supabase as any)
       .from('admission_leads')
       .delete()
