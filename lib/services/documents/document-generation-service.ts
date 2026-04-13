@@ -146,7 +146,7 @@ export class DocumentGenerationService {
     // Fetch document settings (may not exist)
     const settings = await this.getInstitutionSettings(institutionId);
 
-    const logoUrl = settings?.logo_url || inst?.logo_url || '';
+    const logoUrl = String(settings?.logo_url || inst?.logo_url || '');
     const logoDataUrl = await fetchImageAsDataUrl(logoUrl);
 
     // Pre-fetch signature images
@@ -161,13 +161,13 @@ export class DocumentGenerationService {
     }
 
     return {
-      institutionName: inst?.name || 'Institution',
-      institutionAddress: inst?.address_line1 || '',
-      institutionCity: inst?.city || '',
-      institutionState: inst?.state || '',
-      institutionPinCode: inst?.pin_code || '',
-      counsellingCode: inst?.counselling_code || undefined,
-      accreditedBy: inst?.accredited_by || undefined,
+      institutionName: String(inst?.name || 'Institution'),
+      institutionAddress: String(inst?.address_line1 || ''),
+      institutionCity: String(inst?.city || ''),
+      institutionState: String(inst?.state || ''),
+      institutionPinCode: String(inst?.pin_code || ''),
+      counsellingCode: inst?.counselling_code ? String(inst.counselling_code) : undefined,
+      accreditedBy: inst?.accredited_by ? String(inst.accredited_by) : undefined,
       logoDataUrl,
       headerText: settings?.header_text || undefined,
       footerText: settings?.footer_text || undefined,
