@@ -1,3 +1,46 @@
+## Session: 2026-04-13 (Morning) - Document Engine RESTRUCTURED — 29 files → 14 files
+
+### What happened
+- Self-critique revealed the centralized Document Generation Engine was 30% redundant, 20% premature, and architecturally wrong
+- Restructured into shared PDF utilities + module-integrated generation
+- Spec: docs/SPEC-document-engine-restructure.md
+- Plan: docs/plans/2026-04-13-document-engine-restructure.md
+
+### What was kept (crown jewels)
+- `lib/utils/pdf/base-document-generator.ts` — 453-line abstract base class with 20+ drawing methods
+- `lib/utils/pdf/brand-utils.ts` — Colors, QR, verification codes, date formatting
+- `lib/utils/pdf/types.ts` — Re-exports generator types from types/documents.ts
+- `lib/utils/pdf/generators/` — 5 genuinely new generators (bonafide, TC, general letter, fee notice, class roster)
+- `lib/services/document-audit-service.ts` — Standalone audit trail, verification, numbering
+- `app/documents/verify/[code]/page.tsx` — Public verification (server component)
+- `app/api/documents/verify/route.ts` — Public API
+- `types/documents.ts` — All type definitions (kept as-is)
+- Database tables: document_institution_settings, generated_documents, document_number_sequences, document_templates
+
+### What was deleted (waste)
+- 10 redundant/premature generators (completion cert, scholarship, attendance cert, achievement, training, admission letter, recommendation, report card, hall ticket, progress report)
+- Centralized orchestrator: document-generation-service.ts, document-data-service.ts
+- Centralized hooks: hooks/documents/use-documents.ts
+- Generator registry: generator-registry.ts
+- Hub page: app/(routes)/documents/ (page, dialog, history)
+- Sidebar Documents group + permission entries
+
+### What was rewired
+- `learner-documents-tab.tsx` → imports directly from `lib/utils/pdf/generators/`, uses `DocumentAuditService`
+- Verify API → uses `DocumentAuditService.verifyByCode()`
+- Sidebar → Documents group removed
+
+### Test results
+- Public verify page: 200 ✓
+- Hub page deleted: redirects (no route) ✓
+- Profiles page: loads correctly ✓
+- All TS errors are from worktree stale files only
+
+### File count: 29 → 14
+### Line count: ~4,649 → ~2,400
+
+---
+
 ## Session: 2026-04-12 (Evening) - Document Generation Engine — Phase A Build
 
 ### Accomplished
