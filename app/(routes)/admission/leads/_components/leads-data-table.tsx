@@ -4,13 +4,13 @@ import { DataTable } from '@/components/data-table/data-table';
 import { getLeadColumns, FUNNEL_STAGES } from './columns';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { Button } from '@/components/ui/button';
-import { Plus, TrashIcon, Flame, Star, Loader2 } from 'lucide-react';
+import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { useLeadMutations, useExpoEvents } from '@/hooks/admission';
+import { useLeadMutations, useExpoEvents, useCounselorsList } from '@/hooks/admission';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import {
   AlertDialog,
@@ -30,6 +30,21 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import toast from 'react-hot-toast';
+
+const LEAD_SOURCES = [
+  { value: 'walk_in', label: 'Walk-in' },
+  { value: 'education_fair', label: 'Edu Fair' },
+  { value: 'referral', label: 'Referral' },
+  { value: 'website', label: 'Website' },
+  { value: 'admission_form', label: 'Form' },
+  { value: 'facebook_ads', label: 'Facebook' },
+  { value: 'google_ads', label: 'Google' },
+  { value: 'social_media', label: 'Social' },
+  { value: 'newspaper', label: 'Press' },
+  { value: 'agent', label: 'Agent' },
+  { value: 'publisher', label: 'Publisher' },
+  { value: 'other', label: 'Other' },
+];
 
 export function LeadsDataTable() {
   const router = useRouter();
@@ -56,11 +71,22 @@ export function LeadsDataTable() {
   const [priorityFilter, setPriorityFilter] = useState<string>(
     searchParams.get('priority') || '_all'
   );
+  // Source filter
+  const [sourceFilter, setSourceFilter] = useState<string>(
+    searchParams.get('source') || '_all'
+  );
+  // Counselor filter
+  const [counselorFilter, setCounselorFilter] = useState<string>(
+    searchParams.get('counselor_id') || '_all'
+  );
   // Expo event filter
   const [expoFilter, setExpoFilter] = useState<string>(
     searchParams.get('expo_event_id') || '_all'
   );
+  // Advanced filters panel toggle
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const { data: expoEvents = [] } = useExpoEvents();
+  const { counselors = [] } = useCounselorsList(profile?.institution_id);
 
   const canCreate = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.create');
 
@@ -73,6 +99,10 @@ export function LeadsDataTable() {
   stageFilterRef.current = stageFilter;
   const priorityFilterRef = useRef(priorityFilter);
   priorityFilterRef.current = priorityFilter;
+  const sourceFilterRef = useRef(sourceFilter);
+  sourceFilterRef.current = sourceFilter;
+  const counselorFilterRef = useRef(counselorFilter);
+  counselorFilterRef.current = counselorFilter;
   const expoFilterRef = useRef(expoFilter);
   expoFilterRef.current = expoFilter;
 
@@ -88,6 +118,8 @@ export function LeadsDataTable() {
     try {
       const currentStageFilter = stageFilterRef.current;
       const currentPriorityFilter = priorityFilterRef.current;
+      const currentSourceFilter = sourceFilterRef.current;
+      const currentCounselorFilter = counselorFilterRef.current;
       const currentExpoFilter = expoFilterRef.current;
 
       const result = await LeadService.getLeads({
@@ -106,6 +138,14 @@ export function LeadsDataTable() {
         priority:
           currentPriorityFilter && currentPriorityFilter !== '_all'
             ? (currentPriorityFilter as any)
+            : undefined,
+        source:
+          currentSourceFilter && currentSourceFilter !== '_all'
+            ? (currentSourceFilter as any)
+            : undefined,
+        counselor_id:
+          currentCounselorFilter && currentCounselorFilter !== '_all'
+            ? currentCounselorFilter
             : undefined,
         expo_event_id:
           currentExpoFilter && currentExpoFilter !== '_all'
@@ -197,109 +237,198 @@ export function LeadsDataTable() {
     }
   };
 
+  // Count active advanced filters for badge
+  const activeAdvancedCount = [sourceFilter, counselorFilter, expoFilter]
+    .filter((f) => f !== '_all').length;
+
+  const clearAllFilters = useCallback(() => {
+    setStageFilter('_all');
+    setPriorityFilter('_all');
+    setSourceFilter('_all');
+    setCounselorFilter('_all');
+    setExpoFilter('_all');
+    setRefetchKey((prev) => prev + 1);
+  }, []);
+
   const renderCustomToolbar = (props: {
     selectedRows: any[];
     allSelectedIds: (string | number)[];
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className="flex items-center gap-2 flex-wrap">
-      {canCreate && (
-        <Button
-          onClick={() => router.push('/admission/leads/new')}
-          size="sm"
-          className="h-8"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Add Lead
-        </Button>
-      )}
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        {canCreate && (
+          <Button
+            onClick={() => router.push('/admission/leads/new')}
+            size="sm"
+            className="h-8"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            <span className="hidden sm:inline">Add Lead</span>
+            <span className="sm:hidden">Add</span>
+          </Button>
+        )}
 
-      <Select
-        value={stageFilter}
-        onValueChange={(value) => {
-          setStageFilter(value);
-          setRefetchKey((prev) => prev + 1);
-        }}
-      >
-        <SelectTrigger className="w-[170px] h-8">
-          <SelectValue placeholder="All Stages" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="_all">All Stages</SelectItem>
-          {FUNNEL_STAGES.map((stage) => (
-            <SelectItem key={stage.value} value={stage.value}>
-              {stage.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <Button
-        variant={priorityFilter === 'hot' ? 'default' : 'outline'}
-        size="sm"
-        className="h-8 gap-1"
-        onClick={() => {
-          const newVal = priorityFilter === 'hot' ? '_all' : 'hot';
-          setPriorityFilter(newVal);
-          setRefetchKey((prev) => prev + 1);
-        }}
-      >
-        <Flame className="h-4 w-4" />
-        Hot
-      </Button>
-
-      <Button
-        variant={priorityFilter === 'warm' ? 'default' : 'outline'}
-        size="sm"
-        className="h-8 gap-1"
-        onClick={() => {
-          const newVal = priorityFilter === 'warm' ? '_all' : 'warm';
-          setPriorityFilter(newVal);
-          setRefetchKey((prev) => prev + 1);
-        }}
-      >
-        <Star className="h-4 w-4" />
-        Warm
-      </Button>
-
-      {expoEvents.length > 0 && (
         <Select
-          value={expoFilter}
+          value={stageFilter}
           onValueChange={(value) => {
-            setExpoFilter(value);
+            setStageFilter(value);
             setRefetchKey((prev) => prev + 1);
           }}
         >
-          <SelectTrigger className="w-[180px] h-8">
-            <SelectValue placeholder="All Events" />
+          <SelectTrigger className="w-[130px] sm:w-[170px] h-8 text-xs sm:text-sm">
+            <SelectValue placeholder="All Stages" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="_all">All Sources</SelectItem>
-            {expoEvents.map((evt: any) => (
-              <SelectItem key={evt.id} value={evt.id}>
-                {evt.event_name}
+            <SelectItem value="_all">All Stages</SelectItem>
+            {FUNNEL_STAGES.map((stage) => (
+              <SelectItem key={stage.value} value={stage.value}>
+                {stage.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      )}
 
-      {props.selectedRows.length > 0 && (
-        <Button
-          onClick={() =>
-            handleBulkDelete(
-              props.selectedRows as AdmissionLead[],
-              props.resetSelection
-            )
-          }
-          variant="destructive"
-          size="sm"
-          className="h-8"
+        <Select
+          value={sourceFilter}
+          onValueChange={(value) => {
+            setSourceFilter(value);
+            setRefetchKey((prev) => prev + 1);
+          }}
         >
-          <TrashIcon className="mr-2 h-4 w-4" />
-          Mark as Lost ({props.selectedRows.length})
+          <SelectTrigger className="w-[120px] sm:w-[150px] h-8 text-xs sm:text-sm">
+            <SelectValue placeholder="All Sources" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">All Sources</SelectItem>
+            {LEAD_SOURCES.map((src) => (
+              <SelectItem key={src.value} value={src.value}>
+                {src.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button
+          variant={priorityFilter === 'hot' ? 'default' : 'outline'}
+          size="sm"
+          className="h-8 gap-1 px-2 sm:px-3"
+          onClick={() => {
+            const newVal = priorityFilter === 'hot' ? '_all' : 'hot';
+            setPriorityFilter(newVal);
+            setRefetchKey((prev) => prev + 1);
+          }}
+        >
+          <Flame className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline">Hot</span>
         </Button>
+
+        <Button
+          variant={priorityFilter === 'warm' ? 'default' : 'outline'}
+          size="sm"
+          className="h-8 gap-1 px-2 sm:px-3"
+          onClick={() => {
+            const newVal = priorityFilter === 'warm' ? '_all' : 'warm';
+            setPriorityFilter(newVal);
+            setRefetchKey((prev) => prev + 1);
+          }}
+        >
+          <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline">Warm</span>
+        </Button>
+
+        <Button
+          variant={showAdvanced ? 'secondary' : 'outline'}
+          size="sm"
+          className="h-8 gap-1 px-2 sm:px-3 relative"
+          onClick={() => setShowAdvanced((prev) => !prev)}
+        >
+          <Filter className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+          <span className="hidden sm:inline">Filters</span>
+          {activeAdvancedCount > 0 && (
+            <span className="ml-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+              {activeAdvancedCount}
+            </span>
+          )}
+        </Button>
+
+        {(stageFilter !== '_all' || priorityFilter !== '_all' || sourceFilter !== '_all' || counselorFilter !== '_all' || expoFilter !== '_all') && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 px-2 sm:px-3 text-muted-foreground"
+            onClick={clearAllFilters}
+          >
+            <X className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Clear all</span>
+          </Button>
+        )}
+
+        {props.selectedRows.length > 0 && (
+          <Button
+            onClick={() =>
+              handleBulkDelete(
+                props.selectedRows as AdmissionLead[],
+                props.resetSelection
+              )
+            }
+            variant="destructive"
+            size="sm"
+            className="h-8"
+          >
+            <TrashIcon className="mr-2 h-4 w-4" />
+            Mark as Lost ({props.selectedRows.length})
+          </Button>
+        )}
+      </div>
+
+      {showAdvanced && (
+        <div className="flex items-center gap-2 flex-wrap pl-1 pb-2 pt-2 border-t border-dashed">
+          <span className="text-xs text-muted-foreground font-medium shrink-0">Advanced:</span>
+
+          <Select
+            value={counselorFilter}
+            onValueChange={(value) => {
+              setCounselorFilter(value);
+              setRefetchKey((prev) => prev + 1);
+            }}
+          >
+            <SelectTrigger className="w-[140px] sm:w-[180px] h-8 text-xs sm:text-sm">
+              <SelectValue placeholder="All Counselors" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">All Counselors</SelectItem>
+              {(counselors || []).map((c: any) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {expoEvents.length > 0 && (
+            <Select
+              value={expoFilter}
+              onValueChange={(value) => {
+                setExpoFilter(value);
+                setRefetchKey((prev) => prev + 1);
+              }}
+            >
+              <SelectTrigger className="w-[140px] sm:w-[180px] h-8 text-xs sm:text-sm">
+                <SelectValue placeholder="All Expos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">All Expo Events</SelectItem>
+                {expoEvents.map((evt: any) => (
+                  <SelectItem key={evt.id} value={evt.id}>
+                    {evt.event_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       )}
     </div>
   );
