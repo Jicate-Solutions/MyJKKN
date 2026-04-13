@@ -1615,7 +1615,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           href: '/health/sports',
           label: 'Sports Profile',
           active: pathname === '/health/sports',
-          icon: Dumbbell,
+          icon: Activity,
           submenus: []
         },
         {
