@@ -149,7 +149,9 @@ export function SF100Landing() {
         primary: true,
       },
       {
-        href: '/startup-studio/solve-for-100/verification',
+        href: activeProgramId
+          ? `/startup-studio/solve-for-100/programs/${activeProgramId}/verification-queue`
+          : '/startup-studio/solve-for-100/programs',
         icon: ShieldCheck,
         iconColor: 'text-amber-600',
         title: 'Verification Queue',
