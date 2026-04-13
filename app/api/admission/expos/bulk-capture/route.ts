@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       // Also allow admins and admission role users
       const { data: profileCheck } = await (supabase as any)
         .from('profiles')
-        .select('system_role')
+        .select('role')
         .eq('id', capturedBy)
         .single();
 
@@ -83,8 +83,8 @@ export async function POST(request: NextRequest) {
         .select('custom_roles(role_key)')
         .eq('user_id', capturedBy);
 
-      const isAdmin = profileCheck?.system_role === 'admin' || profileCheck?.system_role === 'super_admin';
-      const isAdmissionRole = profileCheck?.system_role === 'admission' ||
+      const isAdmin = profileCheck?.role === 'admin' || profileCheck?.role === 'super_admin';
+      const isAdmissionRole = profileCheck?.role === 'admission' ||
         (userRoles || []).some((r: any) => r.custom_roles?.role_key === 'admission');
 
       if (!isAdmin && !isAdmissionRole) {
