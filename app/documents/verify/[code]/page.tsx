@@ -1,74 +1,53 @@
-'use client';
+/**
+ * Public Document Verification Page (Server Component)
+ * No client-side Supabase — fetches data via API route server-side.
+ * Renders static HTML that works without AuthProvider.
+ */
 
-import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
 import { CheckCircle2, XCircle, Shield, FileText } from 'lucide-react';
 import { DOCUMENT_TYPE_INFO, type DocumentType } from '@/types/documents';
 
-interface VerifyResult {
-  found: boolean;
-  document?: {
-    document_type: DocumentType;
-    category: string;
-    document_number: string;
-    title: string;
-    status: string;
-    generated_at: string;
-    revoked_at?: string;
-    revoke_reason?: string;
-    learner?: { first_name: string; last_name: string; roll_number?: string };
-    institution?: { name: string };
-  };
+interface PageProps {
+  params: Promise<{ code: string }>;
 }
 
-export default function DocumentVerifyPage() {
-  const params = useParams();
-  const code = params.code as string;
-  const [result, setResult] = useState<VerifyResult | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function verify() {
-      try {
-        const res = await fetch(`/api/documents/verify?code=${encodeURIComponent(code)}`);
-        const data = await res.json();
-        setResult(data);
-      } catch {
-        setResult({ found: false });
-      } finally {
-        setLoading(false);
-      }
-    }
-    if (code) verify();
-  }, [code]);
-
-  const formatDate = (dateStr: string) => {
-    try {
-      return new Date(dateStr).toLocaleDateString('en-IN', {
-        day: 'numeric', month: 'long', year: 'numeric',
-      });
-    } catch { return dateStr; }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-amber-50">
-        <div className="w-full max-w-md bg-white rounded-xl shadow-lg border p-12 text-center">
-          <Shield className="mx-auto h-10 w-10 text-gray-400 animate-pulse mb-4" />
-          <p className="text-gray-500">Verifying document...</p>
-        </div>
-      </div>
-    );
+async function verifyDocument(code: string) {
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const res = await fetch(`${baseUrl}/api/documents/verify?code=${encodeURIComponent(code)}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.found ? data.document : null;
+  } catch {
+    return null;
   }
+}
 
-  if (!result?.found || !result.document) {
+function formatDate(dateStr: string) {
+  try {
+    return new Date(dateStr).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'long', year: 'numeric',
+    });
+  } catch { return dateStr; }
+}
+
+export default async function DocumentVerifyPage({ params }: PageProps) {
+  const { code } = await params;
+  const doc = await verifyDocument(code);
+  const typeInfo = doc ? DOCUMENT_TYPE_INFO[doc.document_type as DocumentType] : null;
+  const isRevoked = doc?.status === 'revoked';
+
+  if (!doc) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-gray-50 p-4">
         <div className="w-full max-w-md bg-white rounded-xl shadow-lg border border-red-200 p-8 text-center">
           <XCircle className="mx-auto h-12 w-12 text-red-500 mb-4" />
           <h2 className="text-xl font-bold text-red-700 mb-2">Document Not Found</h2>
           <p className="text-gray-500">
-            No document matches verification code: <code className="font-mono bg-gray-100 px-2 py-0.5 rounded">{code}</code>
+            No document matches verification code:{' '}
+            <code className="font-mono bg-gray-100 px-2 py-0.5 rounded">{code}</code>
           </p>
           <p className="text-sm text-gray-400 mt-2">
             This code may be invalid or the document may have been revoked.
@@ -77,10 +56,6 @@ export default function DocumentVerifyPage() {
       </div>
     );
   }
-
-  const doc = result.document;
-  const typeInfo = DOCUMENT_TYPE_INFO[doc.document_type];
-  const isRevoked = doc.status === 'revoked';
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-amber-50 p-4">
