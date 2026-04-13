@@ -45,6 +45,9 @@ import {
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useRoles } from '@/hooks/organization/use-roles';
 import {
   Card,
   CardContent,
@@ -126,28 +129,41 @@ const audienceSchema = z
     icon: z.string().min(1, 'Select an icon'),
     query_type: z.enum(['built_in', 'sql']),
     built_in_type: z.string().optional(),
-    custom_sql: z.string().max(4096, 'SQL must be 4096 characters or fewer').optional()
+    custom_sql: z.string().max(4096).optional(),
+    // Visual builder fields
+    selected_roles: z.array(z.string()).optional(),
+    selected_institution_id: z.string().optional(),
+    login_direction: z.enum(['not_logged_in', 'logged_in']).optional(),
+    login_days: z.number().min(1).max(365).optional()
   })
   .superRefine((data, ctx) => {
-    if (data.query_type === 'built_in' && !data.built_in_type) {
+    if (!data.built_in_type) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Select a built-in audience type',
+        message: 'Select an audience condition',
         path: ['built_in_type']
       });
     }
-    if (data.query_type === 'sql') {
-      const sql = (data.custom_sql ?? '').trim();
-      if (!sql) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Custom SQL is required',
-          path: ['custom_sql']
-        });
-      }
-      // NOTE: no client-side regex check for `id` — it produced false positives
-      // (`profile_id` passed; `identity` failed). Server + DB-side validation
-      // in `resolve_audience` is authoritative.
+    if (data.built_in_type === 'role_filter' && (!data.selected_roles || data.selected_roles.length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Select at least one role',
+        path: ['selected_roles']
+      });
+    }
+    if (data.built_in_type === 'institution_filter' && !data.selected_institution_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Select an institution',
+        path: ['selected_institution_id']
+      });
+    }
+    if (data.built_in_type === 'login_recency' && !data.login_days) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Enter number of days',
+        path: ['login_days']
+      });
     }
   });
 
@@ -186,14 +202,28 @@ export function AudienceForm() {
       icon: 'Users',
       query_type: 'built_in',
       built_in_type: undefined,
-      custom_sql: ''
+      custom_sql: '',
+      selected_roles: [],
+      selected_institution_id: undefined,
+      login_direction: 'not_logged_in',
+      login_days: 7
     }
   });
 
   const queryType = form.watch('query_type');
   const selectedIcon = form.watch('icon');
+  const selectedCondition = form.watch('built_in_type');
   const IconPreview =
     ICON_OPTIONS.find((o) => o.value === selectedIcon)?.Icon ?? Users;
+
+  // Data for visual builder sub-forms
+  const { institutions: institutionsData } = useInstitutionsWithAccess({});
+  const institutions = institutionsData || [];
+  const { data: rolesData } = useRoles({ includeSystemRoles: true });
+  const availableRoles = (rolesData || []).map((r: any) => ({
+    value: r.role_key,
+    label: r.role_name
+  }));
 
   // Produces the API-compatible payload shape:
   //   { name, description, icon, query_type, query_params }
@@ -202,19 +232,24 @@ export function AudienceForm() {
       name: data.name,
       description: data.description || null,
       icon: data.icon,
-      query_type: data.query_type
+      query_type: 'built_in' as const
     };
 
-    if (data.query_type === 'built_in') {
-      return {
-        ...base,
-        query_params: { name: data.built_in_type }
-      };
+    const builtIn = data.built_in_type;
+
+    // Build query_params based on the condition type
+    if (builtIn === 'role_filter') {
+      return { ...base, query_params: { name: 'role_filter', roles: data.selected_roles } };
     }
-    return {
-      ...base,
-      query_params: { sql: (data.custom_sql ?? '').trim() }
-    };
+    if (builtIn === 'institution_filter') {
+      return { ...base, query_params: { name: 'institution_filter', institution_id: data.selected_institution_id } };
+    }
+    if (builtIn === 'login_recency') {
+      const key = data.login_direction === 'logged_in' ? 'logged_in_within_days' : 'not_logged_in_days';
+      return { ...base, query_params: { name: 'login_recency', [key]: data.login_days || 7 } };
+    }
+    // All other types: simple name-only query_params
+    return { ...base, query_params: { name: builtIn } };
   }
 
   // Save-then-preview flow:
@@ -427,106 +462,130 @@ export function AudienceForm() {
                 )}
               />
 
-              {/* Query type */}
-              <FormField
-                control={form.control}
-                name='query_type'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Query type *</FormLabel>
-                    <FormControl>
-                      <RadioGroup
-                        onValueChange={(val) => {
-                          field.onChange(val);
-                          setPreviewResult(null);
-                          setPreviewError(null);
-                        }}
-                        value={field.value}
-                        className='grid grid-cols-1 sm:grid-cols-2 gap-3'
-                      >
-                        <div
-                          className={cn(
-                            'flex items-start space-x-3 rounded-lg border p-3 cursor-pointer transition-colors',
-                            field.value === 'built_in'
-                              ? 'border-primary bg-primary/5'
-                              : 'hover:bg-muted/50'
-                          )}
-                        >
-                          <RadioGroupItem
-                            value='built_in'
-                            id='query-built-in'
-                            className='mt-1'
-                          />
-                          <Label
-                            htmlFor='query-built-in'
-                            className='flex-1 cursor-pointer'
-                          >
-                            <div className='font-medium text-sm'>
-                              Built-in
-                            </div>
-                            <div className='text-xs text-muted-foreground mt-1'>
-                              Pick from predefined audience types
-                            </div>
-                          </Label>
-                        </div>
-                        <div
-                          className={cn(
-                            'flex items-start space-x-3 rounded-lg border p-3 cursor-pointer transition-colors',
-                            field.value === 'sql'
-                              ? 'border-primary bg-primary/5'
-                              : 'hover:bg-muted/50'
-                          )}
-                        >
-                          <RadioGroupItem
-                            value='sql'
-                            id='query-custom'
-                            className='mt-1'
-                          />
-                          <Label
-                            htmlFor='query-custom'
-                            className='flex-1 cursor-pointer'
-                          >
-                            <div className='font-medium text-sm'>
-                              Custom SQL
-                            </div>
-                            <div className='text-xs text-muted-foreground mt-1'>
-                              Advanced: write your own SELECT
-                            </div>
-                          </Label>
-                        </div>
-                      </RadioGroup>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* Audience Condition — Visual Builder */}
+              <div className='space-y-4'>
+                <FormLabel>Who should be in this audience? *</FormLabel>
 
-              {/* Built-in select */}
-              {queryType === 'built_in' && (
+                {/* Condition Type Picker */}
                 <FormField
                   control={form.control}
                   name='built_in_type'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Built-in type *</FormLabel>
                       <Select
-                        onValueChange={field.onChange}
+                        onValueChange={(val) => {
+                          field.onChange(val);
+                          // Auto-set query_type to built_in for all visual options
+                          form.setValue('query_type', 'built_in');
+                          setPreviewResult(null);
+                          setPreviewError(null);
+                        }}
                         value={field.value || ''}
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder='Select built-in audience' />
+                            <SelectValue placeholder='Pick a condition...' />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {BUILT_IN_TYPES.map((t) => (
-                            <SelectItem key={t.value} value={t.value}>
-                              <div>
-                                <div className='font-medium'>{t.label}</div>
-                                <div className='text-xs text-muted-foreground'>
-                                  {t.description}
-                                </div>
-                              </div>
+                          <SelectItem value='_header_everyone' disabled>
+                            <span className='text-xs font-semibold text-muted-foreground uppercase'>Everyone</span>
+                          </SelectItem>
+                          <SelectItem value='all_active_users'>All Active Users</SelectItem>
+                          <SelectItem value='all_students'>All Students</SelectItem>
+                          <SelectItem value='all_faculty'>All Faculty (incl. HODs, Principals)</SelectItem>
+
+                          <SelectItem value='_header_role' disabled>
+                            <span className='text-xs font-semibold text-muted-foreground uppercase'>By Role</span>
+                          </SelectItem>
+                          <SelectItem value='all_hods'>All HODs</SelectItem>
+                          <SelectItem value='role_filter'>Pick specific roles...</SelectItem>
+
+                          <SelectItem value='_header_inst' disabled>
+                            <span className='text-xs font-semibold text-muted-foreground uppercase'>By Institution</span>
+                          </SelectItem>
+                          <SelectItem value='institution_filter'>Pick an institution...</SelectItem>
+
+                          <SelectItem value='_header_engage' disabled>
+                            <span className='text-xs font-semibold text-muted-foreground uppercase'>By Engagement</span>
+                          </SelectItem>
+                          <SelectItem value='login_recency'>By login activity...</SelectItem>
+                          <SelectItem value='push_subscribers'>Users WITH push notifications</SelectItem>
+                          <SelectItem value='no_push'>Users WITHOUT push notifications</SelectItem>
+
+                          <SelectItem value='_header_risk' disabled>
+                            <span className='text-xs font-semibold text-muted-foreground uppercase'>By Risk</span>
+                          </SelectItem>
+                          <SelectItem value='attendance_below'>At-risk students (low attendance)</SelectItem>
+                          <SelectItem value='work_pulse_laggards'>Work Pulse Laggards (no entry this week)</SelectItem>
+
+                          <SelectItem value='_header_future' disabled>
+                            <span className='text-xs font-semibold text-muted-foreground uppercase'>Coming Soon</span>
+                          </SelectItem>
+                          <SelectItem value='hostel_residents'>Hostel Residents (requires hostel module)</SelectItem>
+                          <SelectItem value='bus_commuters'>Bus Commuters (requires transport module)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              {/* Sub-form: Role Picker */}
+              {selectedCondition === 'role_filter' && (
+                <FormField
+                  control={form.control}
+                  name='selected_roles'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Select roles *</FormLabel>
+                      <FormDescription>Pick one or more roles to include in this audience</FormDescription>
+                      <div className='grid grid-cols-2 sm:grid-cols-3 gap-2'>
+                        {availableRoles.map((role: any) => (
+                          <div key={role.value} className='flex items-center gap-2 p-2 border rounded-lg hover:bg-muted/50'>
+                            <Checkbox
+                              id={`role-${role.value}`}
+                              checked={field.value?.includes(role.value) || false}
+                              onCheckedChange={(checked) => {
+                                const current = field.value || [];
+                                field.onChange(
+                                  checked
+                                    ? [...current, role.value]
+                                    : current.filter((r: string) => r !== role.value)
+                                );
+                              }}
+                            />
+                            <Label htmlFor={`role-${role.value}`} className='text-sm cursor-pointer'>
+                              {role.label}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {/* Sub-form: Institution Picker */}
+              {selectedCondition === 'institution_filter' && (
+                <FormField
+                  control={form.control}
+                  name='selected_institution_id'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Select institution *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ''}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Pick an institution...' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {institutions.map((inst: any) => (
+                            <SelectItem key={inst.id} value={inst.id}>
+                              {inst.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -537,38 +596,62 @@ export function AudienceForm() {
                 />
               )}
 
-              {/* Custom SQL */}
-              {queryType === 'sql' && (
-                <FormField
-                  control={form.control}
-                  name='custom_sql'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Custom SQL *</FormLabel>
-                      <div className='rounded-md border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950 p-3 mb-2 text-xs text-yellow-900 dark:text-yellow-200 flex items-start gap-2'>
-                        <AlertCircle className='h-4 w-4 shrink-0 mt-0.5' />
-                        <div>
-                          <strong>Advanced users only.</strong> Your query
-                          must return a column named{' '}
-                          <code className='bg-yellow-100 dark:bg-yellow-900 px-1 rounded'>
-                            id
-                          </code>{' '}
-                          containing the user_id. Read-only; dangerous
-                          statements will be rejected.
+              {/* Sub-form: Login Activity */}
+              {selectedCondition === 'login_recency' && (
+                <div className='space-y-3 p-4 border rounded-lg bg-muted/30'>
+                  <FormField
+                    control={form.control}
+                    name='login_direction'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Show users who...</FormLabel>
+                        <FormControl>
+                          <RadioGroup
+                            onValueChange={field.onChange}
+                            value={field.value || 'not_logged_in'}
+                            className='flex gap-4'
+                          >
+                            <div className='flex items-center gap-2'>
+                              <RadioGroupItem value='not_logged_in' id='login-inactive' />
+                              <Label htmlFor='login-inactive' className='text-sm cursor-pointer'>
+                                Have NOT logged in
+                              </Label>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                              <RadioGroupItem value='logged_in' id='login-active' />
+                              <Label htmlFor='login-active' className='text-sm cursor-pointer'>
+                                HAVE logged in
+                              </Label>
+                            </div>
+                          </RadioGroup>
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name='login_days'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Within the last...</FormLabel>
+                        <div className='flex items-center gap-2'>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min={1}
+                              max={365}
+                              className='w-24'
+                              value={field.value || 7}
+                              onChange={(e) => field.onChange(parseInt(e.target.value) || 7)}
+                            />
+                          </FormControl>
+                          <span className='text-sm text-muted-foreground'>days</span>
                         </div>
-                      </div>
-                      <FormControl>
-                        <Textarea
-                          placeholder='SELECT id FROM profiles WHERE role = $1'
-                          rows={6}
-                          className='font-mono text-xs'
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               )}
 
               {/* Preview result */}
