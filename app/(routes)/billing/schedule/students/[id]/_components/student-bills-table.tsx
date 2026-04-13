@@ -333,7 +333,7 @@ export function StudentBillsTable({
                 onClick={async () => {
                   try {
                     const { FeeNoticeLetterGenerator } = await import('@/lib/utils/pdf/generators/fee-notice-letter');
-                    const { DEFAULT_COLORS, getFullName } = await import('@/lib/utils/pdf/brand-utils');
+                    const { DEFAULT_COLORS } = await import('@/lib/utils/pdf/brand-utils');
                     const { DocumentAuditService } = await import('@/lib/services/document-audit-service');
                     const bill = selectedSelectableBills[0];
                     const branding = {
