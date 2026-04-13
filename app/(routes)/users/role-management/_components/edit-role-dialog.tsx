@@ -40,6 +40,14 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -57,6 +65,7 @@ interface EditRoleDialogProps {
       role_name?: string;
       description?: string;
       permissions?: Record<string, boolean>;
+      institution_scope?: 'all' | 'own';
     }
   ) => Promise<void>;
 }
@@ -180,6 +189,7 @@ export function EditRoleDialog({
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [institutionScope, setInstitutionScope] = useState<'all' | 'own'>(role?.institution_scope || 'own');
 
   // Check if this is the super_admin role
   const isSuperAdmin = role.role_key === SYSTEM_ROLES.SUPER_ADMIN;
@@ -268,6 +278,7 @@ export function EditRoleDialog({
   // Reset form when role changes
   useEffect(() => {
     form.reset(defaultFormValues);
+    setInstitutionScope(role?.institution_scope || 'own');
 
     // Debug form values after reset
     console.log('Form values after reset:', form.getValues());
@@ -292,7 +303,8 @@ export function EditRoleDialog({
       const updatePayload = {
         role_name: values.role_name,
         description: values.description || '',
-        permissions: flatPermissions // Use the flattened version
+        permissions: flatPermissions, // Use the flattened version
+        institution_scope: institutionScope
       };
 
       await onSubmit(role.role_key, updatePayload); // onSubmit expects flat permissions
@@ -538,6 +550,29 @@ export function EditRoleDialog({
                     </FormItem>
                   )}
                 />
+
+                <div className="space-y-2">
+                  <Label>Institution Access Scope</Label>
+                  <Select
+                    value={institutionScope}
+                    onValueChange={(v) => setInstitutionScope(v as 'all' | 'own')}
+                    disabled={role?.role_key === 'super_admin'}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="own">Own Institution Only</SelectItem>
+                      <SelectItem value="all">All Institutions (Cross-institutional)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {role?.role_key === 'super_admin'
+                      ? 'Super admin always has access to all institutions.'
+                      : 'Controls whether users with this role can access data from all institutions or only their own.'
+                    }
+                  </p>
+                </div>
               </TabsContent>
 
               <TabsContent value='permissions' className='mt-4 px-1 pb-4 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col data-[state=active]:overflow-hidden'>

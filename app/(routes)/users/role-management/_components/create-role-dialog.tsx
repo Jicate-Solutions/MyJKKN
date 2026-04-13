@@ -40,6 +40,14 @@ import { Search, Info } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { toast } from 'react-hot-toast';
 import {
   Tooltip,
@@ -56,6 +64,7 @@ interface CreateRoleDialogProps {
     role_name: string;
     description: string;
     permissions: Record<string, boolean>;
+    institution_scope: 'all' | 'own';
   }) => Promise<void>;
 }
 
@@ -88,6 +97,7 @@ export function CreateRoleDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [allPermissionKeys, setAllPermissionKeys] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [institutionScope, setInstitutionScope] = useState<'all' | 'own'>('own');
 
   useEffect(() => {
     const permissionKeys: string[] = [];
@@ -142,7 +152,8 @@ export function CreateRoleDialog({
         role_key: values.role_key,
         role_name: values.role_name,
         description: values.description || '',
-        permissions: completePermissions
+        permissions: completePermissions,
+        institution_scope: institutionScope
       });
 
       form.reset({
@@ -151,6 +162,7 @@ export function CreateRoleDialog({
         description: '',
         permissions: getDefaultPermissions()
       });
+      setInstitutionScope('own');
     } catch (error) {
       console.error('Error submitting form:', error);
     } finally {
@@ -315,6 +327,22 @@ export function CreateRoleDialog({
                     </FormItem>
                   )}
                 />
+
+                <div className="space-y-2">
+                  <Label>Institution Access Scope</Label>
+                  <Select value={institutionScope} onValueChange={(v) => setInstitutionScope(v as 'all' | 'own')}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="own">Own Institution Only</SelectItem>
+                      <SelectItem value="all">All Institutions (Cross-institutional)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Controls whether users with this role can access data from all institutions or only their own.
+                  </p>
+                </div>
               </TabsContent>
 
               <TabsContent value='permissions' className='mt-4'>

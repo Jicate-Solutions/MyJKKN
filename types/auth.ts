@@ -99,6 +99,7 @@ export interface CustomRole {
   role_name: string;
   description: string | null;
   is_system_role: boolean;
+  institution_scope: 'all' | 'own';
   permissions: Record<string, boolean>;
   created_at: string;
   updated_at: string;
@@ -128,6 +129,7 @@ export interface CustomRoleCreate {
   permissions?: Record<string, boolean>;
   is_system_role?: boolean;
   institution_id?: string | null;
+  institution_scope?: 'all' | 'own';
 }
 
 // Custom role update interface
@@ -135,6 +137,7 @@ export interface CustomRoleUpdate {
   role_name?: string;
   description?: string | null;
   permissions?: Record<string, boolean>;
+  institution_scope?: 'all' | 'own';
 }
 
 // User role assignment for database operations
