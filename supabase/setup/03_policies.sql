@@ -48,37 +48,26 @@ CREATE POLICY "profiles_insert_policy" ON profiles
 CREATE POLICY "profiles_insert_preregistered" ON profiles
     FOR INSERT WITH CHECK (is_pre_registered = true);
 
--- UPDATE policy - prevents infinite recursion
+-- UPDATE policy - Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "profiles_update_policy" ON profiles
     FOR UPDATE USING (
         -- Users can update their own profile
         id = auth.uid()
-        OR
-        -- Users with staff management permission can update profiles
-        (
-            can_user_manage_staff() = true
-            AND
-            -- Only for profiles in their institution (except super_admin)
-            (
-                get_current_user_role() = 'super_admin'
-                OR
-                institution_id = get_current_user_institution_id()
-            )
+        OR is_super_admin() OR is_admin()
+        OR (
+            institution_id = get_current_user_institution_id()
+            AND user_has_permission('staff.edit')
         )
     );
 
--- DELETE policy - prevents infinite recursion
+-- DELETE policy - Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "profiles_delete_policy" ON profiles
     FOR DELETE USING (
-        -- Only super_admin and admin can delete, or users with permission
-        get_current_user_role() IN ('super_admin', 'admin')
-        OR
-        (
-            can_user_manage_staff() = true
-            AND
+        is_super_admin() OR is_admin()
+        OR (
             institution_id = get_current_user_institution_id()
-            AND
-            id != auth.uid()  -- Cannot delete own profile
+            AND user_has_permission('staff.delete')
+            AND id != auth.uid()  -- Cannot delete own profile
         )
     );
 
@@ -98,21 +87,25 @@ ALTER TABLE institutions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "institutions_select_all" ON institutions
     FOR SELECT USING (true);
 
--- Allow admission role users (cross-institution, no institution_id) to read all institutions
--- Added: 2026-03-05 - Admission role users have NULL institution_id so existing policies excluded them
+-- ============================================================================
+-- DYNAMIC PERMISSION-BASED POLICIES (Migrated 2026-04-13)
+-- All policies below use user_has_permission() for dynamic role-based access.
+-- Role Management UI is now the single source of truth for access control.
+-- ============================================================================
+
 CREATE POLICY "institutions_select_admission_role" ON institutions
-    FOR SELECT USING (get_current_user_role() = 'admission');
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('organizations.institutions.view')
+    );
 
 CREATE POLICY "institutions_insert_super_admin" ON institutions
     FOR INSERT WITH CHECK (is_super_admin());
 
 CREATE POLICY "institutions_update_admin" ON institutions
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND user_has_permission('organizations.institutions.edit')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.institutions.edit'))
     );
 
 CREATE POLICY "institutions_delete_super_admin" ON institutions
@@ -169,76 +162,36 @@ CREATE POLICY "user_institution_access_delete_admin" ON user_institution_access
 -- Updated: 2026-03-05 - Added admission role policy (cross-institution users have NULL institution_id)
 ALTER TABLE academic_years ENABLE ROW LEVEL SECURITY;
 
--- Admission role users are cross-institution and need to read all academic years
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "academic_years_select_admission_role" ON academic_years
-    FOR SELECT USING (get_current_user_role() = 'admission');
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
+        OR user_has_permission('academic.years.view')
+    );
 
--- Optimized SELECT policy using security definer function
 CREATE POLICY "academic_years_select_optimized" ON academic_years
     FOR SELECT USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        OR
-        institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
     );
 
 CREATE POLICY "academic_years_insert_by_role" ON academic_years
     FOR INSERT WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-            WHERE p.id = auth.uid()
-            AND (
-                p.role IN ('super_admin', 'admin')
-                OR (cr.permissions->>'academic.years.create')::boolean = true
-            )
-            AND (
-                -- Super admins can create for any institution
-                p.role = 'super_admin'
-                OR
-                -- Other users must create for their own institution
-                institution_id = get_current_user_institution_id()
-            )
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.years.create'))
     );
 
 CREATE POLICY "academic_years_update_by_role" ON academic_years
     FOR UPDATE USING (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-            WHERE p.id = auth.uid()
-            AND (
-                p.role IN ('super_admin', 'admin')
-                OR (cr.permissions->>'academic.years.edit')::boolean = true
-            )
-            AND (
-                -- Super admins can update any institution's data
-                p.role = 'super_admin'
-                OR
-                -- Other users can only update their own institution's data
-                institution_id = get_current_user_institution_id()
-            )
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.years.edit'))
     );
 
 CREATE POLICY "academic_years_delete_by_role" ON academic_years
     FOR DELETE USING (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-            WHERE p.id = auth.uid()
-            AND (
-                p.role IN ('super_admin', 'admin')
-                OR (cr.permissions->>'academic.years.delete')::boolean = true
-            )
-            AND (
-                -- Super admins can delete any institution's data
-                p.role = 'super_admin'
-                OR
-                -- Other users can only delete their own institution's data
-                institution_id = get_current_user_institution_id()
-            )
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.years.delete'))
     );
 
 -- DEGREES TABLE (Optimized policies)
@@ -246,32 +199,36 @@ CREATE POLICY "academic_years_delete_by_role" ON academic_years
 -- Updated: 2026-03-05 - Added admission role policy
 ALTER TABLE degrees ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "degrees_select_admission_role" ON degrees
-    FOR SELECT USING (get_current_user_role() = 'admission');
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
+        OR user_has_permission('organizations.degrees.view')
+    );
 
 CREATE POLICY "degrees_select_optimized" ON degrees
     FOR SELECT USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        OR
-        institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
     );
 
 CREATE POLICY "degrees_insert_by_role" ON degrees
     FOR INSERT WITH CHECK (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.degrees.create'))
     );
 
 CREATE POLICY "degrees_update_by_role" ON degrees
     FOR UPDATE USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.degrees.edit'))
     );
 
 CREATE POLICY "degrees_delete_by_role" ON degrees
     FOR DELETE USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.degrees.delete'))
     );
 
 -- DEPARTMENTS TABLE (Optimized policies)
@@ -279,32 +236,36 @@ CREATE POLICY "degrees_delete_by_role" ON degrees
 -- Updated: 2026-03-05 - Added admission role policy
 ALTER TABLE departments ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "departments_select_admission_role" ON departments
-    FOR SELECT USING (get_current_user_role() = 'admission');
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
+        OR user_has_permission('organizations.departments.view')
+    );
 
 CREATE POLICY "departments_select_optimized" ON departments
     FOR SELECT USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        OR
-        institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
     );
 
 CREATE POLICY "departments_insert_by_role" ON departments
     FOR INSERT WITH CHECK (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.departments.create'))
     );
 
 CREATE POLICY "departments_update_by_role" ON departments
     FOR UPDATE USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.departments.edit'))
     );
 
 CREATE POLICY "departments_delete_by_role" ON departments
     FOR DELETE USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.departments.delete'))
     );
 
 -- PROGRAMS TABLE (Optimized policies)
@@ -312,159 +273,137 @@ CREATE POLICY "departments_delete_by_role" ON departments
 -- Updated: 2026-03-05 - Added admission role policy
 ALTER TABLE programs ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "programs_select_admission_role" ON programs
-    FOR SELECT USING (get_current_user_role() = 'admission');
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
+        OR user_has_permission('organizations.programs.view')
+    );
 
 CREATE POLICY "programs_select_optimized" ON programs
     FOR SELECT USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        OR
-        institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
     );
 
 CREATE POLICY "programs_insert_by_role" ON programs
     FOR INSERT WITH CHECK (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.programs.create'))
     );
 
 CREATE POLICY "programs_update_by_role" ON programs
     FOR UPDATE USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.programs.edit'))
     );
 
 CREATE POLICY "programs_delete_by_role" ON programs
     FOR DELETE USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.programs.delete'))
     );
 
 -- SEMESTERS TABLE (Optimized policies)
 -- Updated: 2025-12-15 - Changed to use security definer functions
 ALTER TABLE semesters ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "semesters_select_optimized" ON semesters
     FOR SELECT USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        OR
-        institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
     );
 
--- Updated: 2026-03-25 - Added admission role access for semesters (was missing, blocking enquiry form dropdowns)
 CREATE POLICY "semesters_select_admission_role" ON semesters
-    FOR SELECT USING (get_current_user_role() = 'admission');
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
+        OR user_has_permission('organizations.semesters.view')
+    );
 
 CREATE POLICY "semesters_insert_by_role" ON semesters
     FOR INSERT WITH CHECK (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.semesters.create'))
     );
 
 CREATE POLICY "semesters_update_by_role" ON semesters
     FOR UPDATE USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.semesters.edit'))
     );
 
 CREATE POLICY "semesters_delete_by_role" ON semesters
     FOR DELETE USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        AND institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.semesters.delete'))
     );
 
 -- SECTIONS TABLE (4 policies)
 -- Updated: 2025-12-15 - Optimized SELECT policy using security definer functions
 ALTER TABLE sections ENABLE ROW LEVEL SECURITY;
 
--- Optimized SELECT policy - prevents performance issues with profiles RLS
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "sections_select_optimized" ON sections
     FOR SELECT USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        OR
-        institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
     );
 
--- Updated: 2026-03-25 - Added admission role access for sections (was missing, blocking enquiry form dropdowns)
 CREATE POLICY "sections_select_admission_role" ON sections
-    FOR SELECT USING (get_current_user_role() = 'admission');
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
+        OR user_has_permission('organizations.sections.view')
+    );
 
 CREATE POLICY "sections_insert_admin" ON sections
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND user_has_permission('organizations.sections.create')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.sections.create'))
     );
 
 CREATE POLICY "sections_update_admin" ON sections
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND user_has_permission('organizations.sections.edit')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.sections.edit'))
     );
 
 CREATE POLICY "sections_delete_admin" ON sections
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND user_has_permission('organizations.sections.delete')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.sections.delete'))
     );
 
 -- COURSES TABLE (4 policies)
 -- Updated: 2025-12-15 - Optimized SELECT policy using security definer functions
 ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
 
--- Optimized SELECT policy - prevents performance issues with profiles RLS
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "courses_select_optimized" ON courses
     FOR SELECT USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        OR
-        institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
     );
 
--- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "courses_insert_admin" ON courses
     FOR INSERT WITH CHECK (
-        -- Check institution access from profiles table
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND
-        -- Custom role permission check
-        user_has_permission('organizations.courses.create')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.courses.create'))
     );
 
--- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "courses_update_admin" ON courses
     FOR UPDATE USING (
-        -- Check institution access from profiles table
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND
-        -- Custom role permission check
-        user_has_permission('organizations.courses.edit')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.courses.edit'))
     );
 
--- Updated: 2025-12-27 - Added support for custom role permissions
 CREATE POLICY "courses_delete_admin" ON courses
     FOR DELETE USING (
-        -- Check institution access from profiles table
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND
-        -- Custom role permission check
-        user_has_permission('organizations.courses.delete')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.courses.delete'))
     );
 
 -- COURSE_MAPPINGS TABLE (4 policies)
@@ -706,51 +645,40 @@ CREATE POLICY "students_all_admin" ON students
 -- Note: Previously only existed in migration files
 ALTER TABLE learners_profiles ENABLE ROW LEVEL SECURITY;
 
--- SELECT: Super admins or users with institution access
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
+-- SELECT: Super admins, admins, or users with institution access or permission
 CREATE POLICY "learners_profiles_select_policy" ON learners_profiles
     FOR SELECT USING (
-        is_super_admin()
+        is_super_admin() OR is_admin()
         OR user_has_institution_access(auth.uid(), institution_id)
+        OR user_has_permission('learners.profiles.view')
     );
 
--- Admission role users are cross-institution and need to read all learner profiles
--- Added: 2026-03-14 - Admission role users have NULL institution_id so existing policies excluded them
 CREATE POLICY "learners_profiles_select_admission_role" ON learners_profiles
-    FOR SELECT USING (get_current_user_role() = 'admission');
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('learners.profiles.view')
+    );
 
--- INSERT: Super admins or administrator/admission/faculty/hod with institution access
+-- INSERT: Super admins, admins, or users with institution access and permission
 CREATE POLICY "learners_profiles_insert_policy" ON learners_profiles
     FOR INSERT WITH CHECK (
-        is_super_admin()
-        OR (
-            user_has_institution_access(auth.uid(), institution_id)
-            AND (get_my_role() = ANY (ARRAY['administrator', 'admission', 'faculty', 'hod']))
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('learners.profiles.create'))
     );
 
--- UPDATE: Super admins, admission role (cross-institution), or administrator/faculty/hod with institution access
--- Fixed: 2026-03-22 - Admission role users have NULL institution_id so user_has_institution_access() returned false,
--- causing PGRST116 on status updates. Added same admission bypass as learners_profiles_select_admission_role (2026-03-14).
+-- UPDATE: Super admins, admins, or users with institution access and permission
 CREATE POLICY "learners_profiles_update_policy" ON learners_profiles
     FOR UPDATE USING (
-        is_super_admin()
-        OR get_current_user_role() = 'admission'
-        OR (
-            user_has_institution_access(auth.uid(), institution_id)
-            AND (get_my_role() = ANY (ARRAY['administrator', 'faculty', 'hod']))
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('learners.profiles.edit'))
     );
 
--- DELETE: Super admins or administrator/hod with institution access
--- Fixed: 2026-03-10 - Previously only allowed is_super_admin() OR is_admin(),
--- which excluded HOD role. Now HOD can delete learners in their institution.
+-- DELETE: Super admins, admins, or users with institution access and permission
 CREATE POLICY "learners_profiles_delete_policy" ON learners_profiles
     FOR DELETE USING (
-        is_super_admin()
-        OR (
-            user_has_institution_access(auth.uid(), institution_id)
-            AND (get_my_role() = ANY (ARRAY['administrator', 'hod']))
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('learners.profiles.delete'))
     );
 
 -- Student self-access: View own profile via profiles.learner_id linkage
@@ -940,71 +868,29 @@ CREATE POLICY "staff_service_role_full_access" ON staff
 -- Uses profiles.role and custom_roles.permissions for access control
 ALTER TABLE staff_plans ENABLE ROW LEVEL SECURITY;
 
--- Optimized SELECT policy for staff_plans
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "staff_plans_select_optimized" ON staff_plans
     FOR SELECT USING (
-        -- Super admin and admin can see all
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE id = auth.uid()
-            AND role IN ('super_admin', 'admin')
-        )
-        OR
-        -- Other users can see staff plans in their institution
-        institution_id IN (
-            SELECT institution_id FROM profiles WHERE id = auth.uid()
-        )
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
     );
 
 CREATE POLICY "staff_plans_insert_by_role" ON staff_plans
     FOR INSERT WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-            WHERE p.id = auth.uid()
-            AND (
-                p.role IN ('super_admin', 'admin')
-                OR
-                (cr.permissions->>'academic.staff.planning.edit')::boolean = true
-            )
-        )
-        AND institution_id IN (
-            SELECT institution_id FROM profiles WHERE id = auth.uid()
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.staff.planning.edit'))
     );
 
 CREATE POLICY "staff_plans_update_by_role" ON staff_plans
     FOR UPDATE USING (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-            WHERE p.id = auth.uid()
-            AND (
-                p.role IN ('super_admin', 'admin')
-                OR
-                (cr.permissions->>'academic.staff.planning.edit')::boolean = true
-            )
-        )
-        AND institution_id IN (
-            SELECT institution_id FROM profiles WHERE id = auth.uid()
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.staff.planning.edit'))
     );
 
 CREATE POLICY "staff_plans_delete_by_role" ON staff_plans
     FOR DELETE USING (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-            WHERE p.id = auth.uid()
-            AND (
-                p.role IN ('super_admin', 'admin')
-                OR
-                (cr.permissions->>'academic.staff.planning.delete')::boolean = true
-            )
-        )
-        AND institution_id IN (
-            SELECT institution_id FROM profiles WHERE id = auth.uid()
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.staff.planning.delete'))
     );
 
 -- STAFF_PLAN_COURSES TABLE (Optimized policies)
@@ -1012,63 +898,29 @@ CREATE POLICY "staff_plans_delete_by_role" ON staff_plans
 -- Uses get_user_staff_plan_access() function for better performance
 ALTER TABLE staff_plan_courses ENABLE ROW LEVEL SECURITY;
 
--- Optimized SELECT policy using security definer function
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "staff_plan_courses_select_optimized" ON staff_plan_courses
     FOR SELECT USING (
-        -- Super admin and admin can see all
-        EXISTS (
-            SELECT 1 FROM profiles
-            WHERE id = auth.uid()
-            AND role IN ('super_admin', 'admin')
-        )
-        OR
-        -- Other users can see courses for staff plans in their institution
-        staff_plan_id IN (SELECT staff_plan_id FROM get_user_staff_plan_access())
+        is_super_admin() OR is_admin()
+        OR staff_plan_id IN (SELECT staff_plan_id FROM get_user_staff_plan_access())
     );
 
 CREATE POLICY "staff_plan_courses_insert_by_role" ON staff_plan_courses
     FOR INSERT WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-            WHERE p.id = auth.uid()
-            AND (
-                p.role IN ('super_admin', 'admin')
-                OR
-                (cr.permissions->>'academic.staff.planning.edit')::boolean = true
-            )
-        )
-        AND staff_plan_id IN (SELECT staff_plan_id FROM get_user_staff_plan_access())
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('academic.staff.planning.edit') AND staff_plan_id IN (SELECT staff_plan_id FROM get_user_staff_plan_access()))
     );
 
 CREATE POLICY "staff_plan_courses_update_by_role" ON staff_plan_courses
     FOR UPDATE USING (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-            WHERE p.id = auth.uid()
-            AND (
-                p.role IN ('super_admin', 'admin')
-                OR
-                (cr.permissions->>'academic.staff.planning.edit')::boolean = true
-            )
-        )
-        AND staff_plan_id IN (SELECT staff_plan_id FROM get_user_staff_plan_access())
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('academic.staff.planning.edit') AND staff_plan_id IN (SELECT staff_plan_id FROM get_user_staff_plan_access()))
     );
 
 CREATE POLICY "staff_plan_courses_delete_by_role" ON staff_plan_courses
     FOR DELETE USING (
-        EXISTS (
-            SELECT 1 FROM profiles p
-            LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-            WHERE p.id = auth.uid()
-            AND (
-                p.role IN ('super_admin', 'admin')
-                OR
-                (cr.permissions->>'academic.staff.planning.delete')::boolean = true
-            )
-        )
-        AND staff_plan_id IN (SELECT staff_plan_id FROM get_user_staff_plan_access())
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('academic.staff.planning.delete') AND staff_plan_id IN (SELECT staff_plan_id FROM get_user_staff_plan_access()))
     );
 
 -- =============================================
@@ -1360,39 +1212,29 @@ CREATE POLICY "student_attendance_select_own_student" ON student_attendance
 -- Updated: 2025-12-15 - Optimized SELECT policy using security definer functions
 ALTER TABLE timetables ENABLE ROW LEVEL SECURITY;
 
--- Optimized SELECT policy - prevents performance issues with profiles RLS
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "timetables_select_optimized" ON timetables
     FOR SELECT USING (
-        get_current_user_role() IN ('super_admin', 'admin')
-        OR
-        institution_id = get_current_user_institution_id()
+        is_super_admin() OR is_admin()
+        OR institution_id = get_current_user_institution_id()
     );
 
 CREATE POLICY "timetables_insert_admin" ON timetables
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND user_has_permission('academics.timetables.create')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academics.timetables.create'))
     );
 
 CREATE POLICY "timetables_update_admin" ON timetables
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND user_has_permission('academics.timetables.edit')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academics.timetables.edit'))
     );
 
 CREATE POLICY "timetables_delete_admin" ON timetables
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM profiles
-            WHERE id = auth.uid() AND institution_id IS NOT NULL
-        )
-        AND user_has_permission('academics.timetables.delete')
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academics.timetables.delete'))
     );
 
 CREATE POLICY "timetables_select_active" ON timetables
@@ -1405,42 +1247,29 @@ CREATE POLICY "timetables_select_active" ON timetables
 -- BILLING_STUDENT_BILLS TABLE (8 policies)
 ALTER TABLE billing_student_bills ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "bills_select_institution" ON billing_student_bills
     FOR SELECT USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.bills.view'))
     );
 
 CREATE POLICY "bills_insert_admin" ON billing_student_bills
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.bills.create'))
     );
 
 CREATE POLICY "bills_update_admin" ON billing_student_bills
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.bills.edit'))
     );
 
 CREATE POLICY "bills_delete_admin" ON billing_student_bills
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.bills.delete'))
     );
 
 CREATE POLICY "bills_select_student" ON billing_student_bills
@@ -1454,42 +1283,29 @@ CREATE POLICY "bills_select_student" ON billing_student_bills
 -- BILLING_RECEIPTS TABLE (8 policies)
 ALTER TABLE billing_receipts ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "receipts_select_institution" ON billing_receipts
     FOR SELECT USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.receipts.view'))
     );
 
 CREATE POLICY "receipts_insert_admin" ON billing_receipts
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.receipts.create'))
     );
 
 CREATE POLICY "receipts_update_admin" ON billing_receipts
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.receipts.edit'))
     );
 
 CREATE POLICY "receipts_delete_admin" ON billing_receipts
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.receipts.delete'))
     );
 
 CREATE POLICY "receipts_select_student" ON billing_receipts
@@ -1506,42 +1322,29 @@ CREATE POLICY "receipts_select_accountant" ON billing_receipts
 -- BILLING_INVOICES TABLE (8 policies)
 ALTER TABLE billing_invoices ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "invoices_select_institution" ON billing_invoices
     FOR SELECT USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.invoices.view'))
     );
 
 CREATE POLICY "invoices_insert_admin" ON billing_invoices
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.invoices.create'))
     );
 
 CREATE POLICY "invoices_update_admin" ON billing_invoices
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.invoices.edit'))
     );
 
 CREATE POLICY "invoices_delete_admin" ON billing_invoices
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.invoices.delete'))
     );
 
 CREATE POLICY "invoices_select_student" ON billing_invoices
@@ -1555,190 +1358,143 @@ CREATE POLICY "invoices_select_student" ON billing_invoices
 -- BILLING_RECEIPT_ITEMS TABLE (1 policy)
 ALTER TABLE billing_receipt_items ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "receipt_items_all_billing" ON billing_receipt_items
     FOR ALL USING (
-        EXISTS (
+        is_super_admin() OR is_admin()
+        OR EXISTS (
             SELECT 1 FROM billing_receipts br
             WHERE br.id = billing_receipt_items.receipt_id
-            AND br.institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type IN ('admin', 'write', 'billing', 'read')
-                AND is_active = true
-            )
+            AND br.institution_id = get_current_user_institution_id()
+            AND user_has_permission('billing.receipts.view')
         )
     );
 
 -- BILLING_INVOICE_ITEMS TABLE (1 policy)
 ALTER TABLE billing_invoice_items ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "invoice_items_all_billing" ON billing_invoice_items
     FOR ALL USING (
-        EXISTS (
+        is_super_admin() OR is_admin()
+        OR EXISTS (
             SELECT 1 FROM billing_invoices bi
             WHERE bi.id = billing_invoice_items.invoice_id
-            AND bi.institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type IN ('admin', 'write', 'billing', 'read')
-                AND is_active = true
-            )
+            AND bi.institution_id = get_current_user_institution_id()
+            AND user_has_permission('billing.invoices.view')
         )
     );
 
 -- BILLING_DISCOUNTS TABLE (1 policy)
 ALTER TABLE billing_discounts ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "discounts_all_billing" ON billing_discounts
     FOR ALL USING (
-        EXISTS (
+        is_super_admin() OR is_admin()
+        OR EXISTS (
             SELECT 1 FROM billing_student_bills bsb
             WHERE bsb.id = billing_discounts.bill_id
-            AND bsb.institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type IN ('admin', 'write', 'billing')
-                AND is_active = true
-            )
+            AND bsb.institution_id = get_current_user_institution_id()
+            AND user_has_permission('billing.discounts.view')
         )
     );
 
 -- BILLING_REFUNDS TABLE (1 policy)
 ALTER TABLE billing_refunds ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "refunds_all_billing" ON billing_refunds
     FOR ALL USING (
-        EXISTS (
+        is_super_admin() OR is_admin()
+        OR EXISTS (
             SELECT 1 FROM billing_receipts br
             WHERE br.id = billing_refunds.receipt_id
-            AND br.institution_id IN (
-                SELECT institution_id FROM user_institution_access
-                WHERE user_id = auth.uid()
-                AND access_type IN ('admin', 'write', 'billing')
-                AND is_active = true
-            )
+            AND br.institution_id = get_current_user_institution_id()
+            AND user_has_permission('billing.refunds.view')
         )
     );
 
 -- BILLING CATEGORY TABLES (4 policies each)
 ALTER TABLE billing_parent_categories ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "parent_categories_select" ON billing_parent_categories
     FOR SELECT USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.view'))
     );
 
 CREATE POLICY "parent_categories_insert" ON billing_parent_categories
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.create'))
     );
 
 CREATE POLICY "parent_categories_update" ON billing_parent_categories
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.edit'))
     );
 
 CREATE POLICY "parent_categories_delete" ON billing_parent_categories
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.delete'))
     );
 
 ALTER TABLE billing_sub_categories ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "sub_categories_select" ON billing_sub_categories
     FOR SELECT USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.view'))
     );
 
 CREATE POLICY "sub_categories_insert" ON billing_sub_categories
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.create'))
     );
 
 CREATE POLICY "sub_categories_update" ON billing_sub_categories
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.edit'))
     );
 
 CREATE POLICY "sub_categories_delete" ON billing_sub_categories
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.delete'))
     );
 
 ALTER TABLE billing_item_categories ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 CREATE POLICY "item_categories_select" ON billing_item_categories
     FOR SELECT USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.view'))
     );
 
 CREATE POLICY "item_categories_insert" ON billing_item_categories
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.create'))
     );
 
 CREATE POLICY "item_categories_update" ON billing_item_categories
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write', 'billing')
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.edit'))
     );
 
 CREATE POLICY "item_categories_delete" ON billing_item_categories
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
-        )
+        is_super_admin() OR is_admin()
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.delete'))
     );
 
 -- ================================================================================
@@ -2396,6 +2152,7 @@ CREATE POLICY "Service role can manage usage_events_archive" ON public.usage_eve
 -- Updated: 2026-02-09
 -- ================================================================================
 
+-- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
 -- Service Types: All authenticated users can view active types
 CREATE POLICY "Authenticated users can view active service types"
     ON service_types FOR SELECT
@@ -2403,8 +2160,8 @@ CREATE POLICY "Authenticated users can view active service types"
 
 CREATE POLICY "Super admin can manage service types"
     ON service_types FOR ALL
-    USING (get_current_user_role() = 'super_admin')
-    WITH CHECK (get_current_user_role() = 'super_admin');
+    USING (is_super_admin() OR is_admin() OR user_has_permission('service_requests.manage_types'))
+    WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('service_requests.manage_types'));
 
 CREATE POLICY "Authenticated users can view service type fields"
     ON service_type_fields FOR SELECT
@@ -2412,8 +2169,8 @@ CREATE POLICY "Authenticated users can view service type fields"
 
 CREATE POLICY "Super admin can manage service type fields"
     ON service_type_fields FOR ALL
-    USING (get_current_user_role() = 'super_admin')
-    WITH CHECK (get_current_user_role() = 'super_admin');
+    USING (is_super_admin() OR is_admin() OR user_has_permission('service_requests.manage_types'))
+    WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('service_requests.manage_types'));
 
 CREATE POLICY "Authenticated users can view approval steps"
     ON service_request_approval_steps FOR SELECT
@@ -2421,8 +2178,8 @@ CREATE POLICY "Authenticated users can view approval steps"
 
 CREATE POLICY "Super admin can manage approval steps"
     ON service_request_approval_steps FOR ALL
-    USING (get_current_user_role() = 'super_admin')
-    WITH CHECK (get_current_user_role() = 'super_admin');
+    USING (is_super_admin() OR is_admin() OR user_has_permission('service_requests.manage_types'))
+    WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('service_requests.manage_types'));
 
 CREATE POLICY "Users can view own service requests"
     ON service_requests FOR SELECT
@@ -2431,7 +2188,7 @@ CREATE POLICY "Users can view own service requests"
 CREATE POLICY "Admins can view all service requests"
     ON service_requests FOR SELECT
     USING (
-        get_current_user_role() IN ('super_admin', 'administrator')
+        is_super_admin() OR is_admin()
         OR user_has_permission('service_requests.view_all')
     );
 
@@ -2442,7 +2199,7 @@ CREATE POLICY "Approvers can view pending requests"
             SELECT 1 FROM service_request_approval_steps sras
             WHERE sras.service_type_id = service_requests.service_type_id
             AND sras.step_order = service_requests.current_approval_step
-            AND sras.approver_role = get_current_user_role()
+            AND sras.approver_role = get_my_role()
         )
     );
 
@@ -2450,10 +2207,6 @@ CREATE POLICY "Users can create service requests"
     ON service_requests FOR INSERT
     WITH CHECK (requester_id = auth.uid());
 
--- Updated: 2026-02-24 - Added WITH CHECK so status transitions (draft/returned → submitted/cancelled)
--- are permitted. Without an explicit WITH CHECK, Postgres reuses the USING expression on the
--- *new* row, which blocks submit (status becomes 'submitted') and cancel (status becomes 'cancelled').
--- USING checks the existing row; WITH CHECK checks the row *after* the update.
 CREATE POLICY "Users can update own service requests"
     ON service_requests FOR UPDATE
     USING (requester_id = auth.uid() AND status IN ('draft', 'returned', 'submitted'))
@@ -2462,7 +2215,7 @@ CREATE POLICY "Users can update own service requests"
 CREATE POLICY "Approvers can update request status"
     ON service_requests FOR UPDATE
     USING (
-        get_current_user_role() IN ('super_admin', 'administrator')
+        is_super_admin() OR is_admin()
         OR user_has_permission('service_requests.approve')
     );
 
@@ -2476,7 +2229,7 @@ CREATE POLICY "Users can view approvals for their requests"
                 SELECT 1 FROM service_requests sr
                 WHERE sr.id = service_request_approvals.service_request_id
                 AND (sr.requester_id = auth.uid()
-                    OR get_current_user_role() IN ('super_admin', 'administrator'))
+                    OR is_super_admin() OR is_admin())
             )
         )
     );
@@ -2487,7 +2240,7 @@ CREATE POLICY "System can create approval records"
 
 CREATE POLICY "Approvers can update their approvals"
     ON service_request_approvals FOR UPDATE
-    USING (approver_id = auth.uid() OR get_current_user_role() IN ('super_admin', 'administrator'));
+    USING (approver_id = auth.uid() OR is_super_admin() OR is_admin() OR user_has_permission('service_requests.approve'));
 
 CREATE POLICY "Users can view timeline for own requests"
     ON service_request_timeline FOR SELECT
@@ -2497,13 +2250,13 @@ CREATE POLICY "Users can view timeline for own requests"
             WHERE sr.id = service_request_timeline.service_request_id
             AND (
                 sr.requester_id = auth.uid()
-                OR get_current_user_role() IN ('super_admin', 'administrator')
+                OR is_super_admin() OR is_admin()
                 OR user_has_permission('service_requests.approve')
             )
         )
         AND (
             is_internal = false
-            OR get_current_user_role() IN ('super_admin', 'administrator')
+            OR is_super_admin() OR is_admin()
             OR user_has_permission('service_requests.approve')
         )
     );
@@ -2519,7 +2272,7 @@ CREATE POLICY "Users can view attachments for accessible requests"
             SELECT 1 FROM service_requests sr
             WHERE sr.id = service_request_attachments.service_request_id
             AND (sr.requester_id = auth.uid()
-                OR get_current_user_role() IN ('super_admin', 'administrator')
+                OR is_super_admin() OR is_admin()
                 OR user_has_permission('service_requests.approve'))
         )
     );
@@ -2536,9 +2289,10 @@ CREATE POLICY "Users can upload attachments to own requests"
 -- Pattern: auth_institution_id() helper + super_admin bypass (matches 004_rls_policies.sql)
 -- ================================================================================
 
--- Ensure helper function exists (also defined in admission/004_rls_policies.sql)
+-- Ensure helper function exists (also defined in 02_functions.sql)
+-- Updated: 2026-04-13 - Changed to SECURITY DEFINER to match 02_functions.sql
 CREATE OR REPLACE FUNCTION auth_institution_id()
-RETURNS uuid LANGUAGE sql STABLE SECURITY INVOKER AS $$
+RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT institution_id FROM profiles WHERE id = auth.uid() LIMIT 1
 $$;
 

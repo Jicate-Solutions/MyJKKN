@@ -53,33 +53,30 @@ END;
 $$;
 
 -- Check if user is super admin
+-- Updated: 2026-04-13 - Changed to SECURITY DEFINER, SQL, STABLE for dynamic permission migration
 CREATE OR REPLACE FUNCTION public.is_super_admin()
 RETURNS boolean
-LANGUAGE plpgsql
-SECURITY INVOKER
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
 AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM profiles 
-        WHERE id = auth.uid() 
-        AND is_super_admin = true
-    );
-END;
+    SELECT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true);
 $$;
 
 -- Check if user is admin
-CREATE OR REPLACE FUNCTION public.is_admin(user_id uuid)
+-- Updated: 2026-04-13 - Changed to SECURITY DEFINER, SQL, STABLE; added DEFAULT auth.uid(); added 'administrator' role check
+CREATE OR REPLACE FUNCTION public.is_admin(user_id uuid DEFAULT auth.uid())
 RETURNS boolean
-LANGUAGE plpgsql
-SECURITY INVOKER
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
 AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1 FROM profiles 
-        WHERE id = user_id 
-        AND role IN ('admin', 'super_admin')
+    SELECT EXISTS (
+        SELECT 1 FROM profiles WHERE id = user_id
+        AND (is_super_admin = true OR role IN ('admin', 'super_admin', 'administrator'))
     );
-END;
 $$;
 
 -- ================================================================================
@@ -3211,28 +3208,33 @@ $$;
 
 -- User has permission (Multi-role support)
 -- Updated: 2025-12-27 - Check permissions through user_roles + custom_roles (multi-role system)
+-- Updated: 2026-04-13 - Changed to SECURITY DEFINER; added null/empty guard; super_admin bypass; uses ->> for boolean extraction
 CREATE OR REPLACE FUNCTION public.user_has_permission(permission_name text)
 RETURNS boolean
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
-    -- Check if current user has the specified permission through multi-role system
-    -- Returns true if ANY of the user's assigned roles grants the permission (OR logic)
-    RETURN EXISTS (
-        SELECT 1
-        FROM user_roles ur
+    IF permission_name IS NULL OR permission_name = '' THEN
+        RETURN false;
+    END IF;
+    IF EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true) THEN
+        RETURN true;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM user_roles ur
         INNER JOIN custom_roles cr ON ur.role_id = cr.id
         WHERE ur.user_id = auth.uid()
-        AND (cr.permissions->permission_name)::boolean = true
-    )
-    OR
-    -- Fallback: Check legacy single-role system for backward compatibility
-    EXISTS (
+        AND (cr.permissions->>permission_name)::boolean = true
+    ) THEN
+        RETURN true;
+    END IF;
+    RETURN EXISTS (
         SELECT 1 FROM profiles p
         JOIN custom_roles cr ON p.role = cr.role_key
         WHERE p.id = auth.uid()
-        AND (cr.permissions->permission_name)::boolean = true
+        AND (cr.permissions->>permission_name)::boolean = true
     );
 END;
 $$;
@@ -3835,25 +3837,32 @@ AS $$
     SELECT role FROM profiles WHERE id = auth.uid()
 $$;
 
+-- Alias: Get current user's role (shorthand used by dynamic RLS policies)
+-- Added: 2026-04-13 - Dynamic permission migration
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS text LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE
+AS $$ SELECT role FROM profiles WHERE id = auth.uid(); $$;
+
+-- Alias: Get current user's institution_id (shorthand used by dynamic RLS policies)
+-- Added: 2026-04-13 - Dynamic permission migration
+CREATE OR REPLACE FUNCTION public.auth_institution_id()
+RETURNS uuid LANGUAGE sql SECURITY DEFINER SET search_path = public STABLE
+AS $$ SELECT institution_id FROM profiles WHERE id = auth.uid(); $$;
+
 -- Check if current user can manage staff (create/edit)
-CREATE OR REPLACE FUNCTION can_user_manage_staff()
-RETURNS BOOLEAN
+-- Updated: 2026-04-13 - Changed to plpgsql; uses is_super_admin() and user_has_permission() helpers
+CREATE OR REPLACE FUNCTION public.can_user_manage_staff()
+RETURNS boolean
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-LANGUAGE sql
 STABLE
 AS $$
-    SELECT EXISTS (
-        SELECT 1
-        FROM profiles p
-        LEFT JOIN custom_roles cr ON LOWER(cr.role_name) = LOWER(p.role)
-        WHERE p.id = auth.uid()
-        AND (
-            p.role IN ('super_admin', 'admin')
-            OR (cr.permissions->>'staff.create')::boolean = true
-            OR (cr.permissions->>'staff.edit')::boolean = true
-        )
-    )
+BEGIN
+    IF is_super_admin() THEN RETURN true; END IF;
+    IF user_has_permission('staff.create') OR user_has_permission('staff.edit') THEN RETURN true; END IF;
+    RETURN EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin', 'admin'));
+END;
 $$;
 
 -- Get current user's institution_id without triggering RLS
