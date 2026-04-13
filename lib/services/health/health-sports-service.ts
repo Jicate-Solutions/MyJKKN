@@ -8,9 +8,7 @@ import type {
   HealthSportsProfile, HealthFitnessTest, HealthTrainingLog,
   HealthSportsCredit, HealthSportsScholarship, HealthTournamentPermission,
   HealthSportsInjury, HealthSportsAchievement,
-  SportEntry, TrainingType, TrainingIntensity, SportLevel, ApprovalStatus,
 } from '@/types/health-sports';
-import { CREDIT_RULES } from '@/types/health-sports';
 
 const supabase = createClientSupabaseClient();
 
