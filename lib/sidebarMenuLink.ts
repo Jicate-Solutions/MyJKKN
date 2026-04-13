@@ -530,6 +530,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/users/activity',
           icon: ClipboardCheck,
           submenus: []
+        },
+        {
+          href: '/users/permissions-audit',
+          label: 'Permissions Audit',
+          active: pathname === '/users/permissions-audit',
+          icon: ShieldCheck,
+          submenus: []
         }
       ]
     },
