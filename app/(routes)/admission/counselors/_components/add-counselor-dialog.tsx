@@ -56,10 +56,10 @@ interface ProfileSearchResult {
 
 interface LearnerResult {
   id: string;
-  full_name: string;
+  first_name: string | null;
+  last_name: string | null;
   student_email: string | null;
   college_email: string | null;
-  phone_number: string | null;
   roll_number: string | null;
 }
 
@@ -296,14 +296,14 @@ export function AddCounselorDialog({
       if (userType === 'learner') {
         let query = supabase
           .from('learners_profiles')
-          .select('id, full_name, student_email, college_email, phone_number, roll_number')
+          .select('id, first_name, last_name, student_email, college_email, roll_number')
           .eq('institution_id', existInstitutionId)
           .eq('lifecycle_status', 'active');
 
         if (semesterId) query = query.eq('semester_id', semesterId);
         if (sectionId) query = query.eq('section_id', sectionId);
 
-        const { data, error } = await query.order('full_name').limit(200);
+        const { data, error } = await query.order('first_name').limit(200);
 
         if (error) {
           console.error('[admission/counselors] Learner query failed:', error);
@@ -351,7 +351,7 @@ export function AddCounselorDialog({
     if (!userSearchFilter.trim()) return userResults;
     const q = userSearchFilter.toLowerCase();
     return userResults.filter((u) => {
-      const name = u.full_name?.toLowerCase() || '';
+      const name = getUserName(u).toLowerCase();
       if (userType === 'learner') {
         const learner = u as LearnerResult;
         const email = (learner.student_email || learner.college_email || '').toLowerCase();
@@ -371,9 +371,9 @@ export function AddCounselorDialog({
       const learner = user as LearnerResult;
       setSelectedUser({
         id: learner.id,
-        name: learner.full_name || '',
+        name: [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '',
         email: learner.student_email || learner.college_email || '',
-        phone: learner.phone_number || '',
+        phone: '',
       });
     } else {
       const fac = user as FacilitatorResult;
@@ -559,6 +559,15 @@ export function AddCounselorDialog({
   };
 
   // ---------- Helper to get display email for a user ----------
+  // Helper to get display name — learners use first_name+last_name, facilitators use full_name
+  const getUserName = (user: LearnerResult | FacilitatorResult) => {
+    if (userType === 'learner') {
+      const learner = user as LearnerResult;
+      return [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
+    }
+    return (user as FacilitatorResult).full_name || '';
+  };
+
   const getUserEmail = (user: LearnerResult | FacilitatorResult) => {
     if (userType === 'learner') {
       const learner = user as LearnerResult;
@@ -569,7 +578,7 @@ export function AddCounselorDialog({
 
   const getUserPhone = (user: LearnerResult | FacilitatorResult) => {
     if (userType === 'learner') {
-      return (user as LearnerResult).phone_number || '';
+      return ''; // learners_profiles has no phone_number column
     }
     return (user as FacilitatorResult).phone_number || '';
   };
@@ -959,7 +968,7 @@ export function AddCounselorDialog({
                                 onClick={() => handleSelectUser(user)}
                               >
                                 <p className="text-sm font-medium truncate">
-                                  {user.full_name}
+                                  {getUserName(user)}
                                 </p>
                                 <p className="text-xs text-muted-foreground truncate">
                                   {getUserSubtext(user)}
