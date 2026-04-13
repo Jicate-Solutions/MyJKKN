@@ -53,13 +53,12 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceRoleClient();
 
     // ── Verify team membership ──────────────────────────────────────────
-    // Use the get_my_expo_event_ids RPC to check if capturedBy user is on the team.
-    // Since we're using service role, we do a direct check on the expo_team_members table.
+    // Since we're using service role, we do a direct check on the expo_event_team_members table.
     const { data: teamCheck, error: teamError } = await (supabase as any)
-      .from('expo_team_members')
+      .from('expo_event_team_members')
       .select('id')
       .eq('expo_event_id', eventId)
-      .or(`staff_id.eq.${capturedBy},student_id.eq.${capturedBy},learner_id.eq.${capturedBy}`)
+      .or(`staff_id.eq.${capturedBy},student_id.eq.${capturedBy}`)
       .limit(1);
 
     if (teamError) {
@@ -71,16 +70,24 @@ export async function POST(request: NextRequest) {
     }
 
     if (!teamCheck || teamCheck.length === 0) {
-      // Also allow institution admins — check if user has admin/super_admin role
+      // Also allow admins and admission role users
       const { data: profileCheck } = await (supabase as any)
         .from('profiles')
         .select('system_role')
         .eq('id', capturedBy)
         .single();
 
-      const isAdmin = profileCheck?.system_role === 'admin' || profileCheck?.system_role === 'super_admin';
+      // Check custom roles for 'admission' role_key
+      const { data: userRoles } = await (supabase as any)
+        .from('user_roles')
+        .select('custom_roles(role_key)')
+        .eq('user_id', capturedBy);
 
-      if (!isAdmin) {
+      const isAdmin = profileCheck?.system_role === 'admin' || profileCheck?.system_role === 'super_admin';
+      const isAdmissionRole = profileCheck?.system_role === 'admission' ||
+        (userRoles || []).some((r: any) => r.custom_roles?.role_key === 'admission');
+
+      if (!isAdmin && !isAdmissionRole) {
         return NextResponse.json(
           { error: 'You are not a team member for this expo event' },
           { status: 403 }
