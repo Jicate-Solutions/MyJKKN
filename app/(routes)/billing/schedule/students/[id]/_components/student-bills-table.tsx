@@ -365,9 +365,9 @@ export function StudentBillsTable({
                     }));
                     const totalOutstanding = billsData.reduce((s, b) => s + b.balance, 0);
                     await generator.generateAndDownload({
-                      first_name: bill.student_name?.split(' ')[0] || '',
-                      last_name: bill.student_name?.split(' ').slice(1).join(' ') || '',
-                      roll_number: bill.roll_number || '',
+                      first_name: bill.student?.first_name || '',
+                      last_name: bill.student?.last_name || '',
+                      roll_number: bill.student?.roll_number || '',
                       program_name: '',
                       bills: billsData,
                       totalOutstanding,
