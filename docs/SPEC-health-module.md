@@ -250,6 +250,142 @@ Dental College announces camp date in MyJKKN
 
 ---
 
+## 10A. Sports & Fitness Integration (from JKKN Sports Policy)
+
+> **Source:** JKKN Institutions Comprehensive Sports Policy & SOPs (shared 2026-04-13).
+> This section digitalizes the existing paper-based sports policy into MyJKKN.
+
+### 10A.1 Sports Credit System (45 Hours = 1 Credit)
+
+Per JKKN policy, sports participation earns academic credits. Max 3 credits/semester.
+
+| Category | How Credits Are Earned | Credit Value |
+|----------|----------------------|--------------|
+| **Regular Practice** | 45 hours at 95%+ attendance = 1 credit. 85-94% = 0.75. 75-84% = 0.5 | 0.5-1.0 per 45h |
+| **Tournament Participation** | 4 hours/day for travel + playing | 0.1 per day |
+| **Winning** | National winner = 1.0, State = 0.75, District = 0.5, Local = 0.25 | 0.25-1.0 per event |
+| **Leadership** | Captain = 0.75, Event organizer = 0.5, Mentor = 0.5, Assistant = 0.25 | 0.25-0.75 per role |
+| **Sportsmanship** | Outstanding = 0.5, Good = 0.25 (rated by coaches) | 0.25-0.5 |
+
+### 10A.2 Evaluation Framework (100 Points)
+
+| Criterion | Weight | Metrics |
+|-----------|--------|---------|
+| **Participation** | 30% | Attendance rate (10%), multi-sport involvement (10%), team participation (10%) |
+| **Performance** | 30% | Skill development (10%), match performance (10%), physical fitness tests (10%) |
+| **Achievements** | 20% | Medals/awards (10%), personal bests/records (10%) |
+| **Sportsmanship & Leadership** | 20% | Fair play conduct (10%), leadership roles (10%) |
+
+### 10A.3 Scholarship Tables (Exact Amounts from Policy)
+
+**Freshers — Engineering & Arts and Science:**
+
+| Sport Type | Level | Position | Amount (Rs.) |
+|-----------|-------|----------|-------------|
+| Team (Volleyball, Basketball, Kho-Kho, Kabaddi, Handball, Badminton) | National | Winner/Runner | 33,000 |
+| | National | Participation | 30,000 |
+| | State | Winner/Runner | 19,000 |
+| | State | Participation | 16,000 |
+| | District | Winner | 14,000 |
+| | District | Runner/3rd | 8,000 |
+| | Zonal | Winner/Runner | 5,500 |
+| Individual (Wrestling, Powerlifting, Weightlifting, Athletics) | National | Gold/Silver/3rd | 55,000 |
+| | National | Participation | 44,000 |
+| | State | Gold/Silver/3rd | 38,500 |
+| | State | Participation | 27,500 |
+| | District | Gold/Silver/3rd | 11,000 |
+| | Zonal | Winner/Runner | 5,500 |
+
+**Existing Students — Engineering & Arts and Science:** Higher amounts (up to Rs. 55,000).
+**Medical, Para-Medical & Allied Health Science:** Separate table (National winner = Rs. 50,000, State = Rs. 20,000).
+
+Additional concessions: 25% hostel fee, bus fee waiver (zonal+), sports uniform provision.
+
+### 10A.4 Tournament Permission Workflow (5 Steps)
+
+```
+Student submits request form
+  → Step 1: Sports Coordinator verifies eligibility
+    → Step 2: HOD confirms no academic conflict
+      → Step 3: Principal reviews institutional alignment
+        → Step 4: PE Director coordinates logistics + final approval
+          → Tournament participation
+            → Post-event: participation log + report → credit hours
+```
+
+Each step has: approver, timestamp, notes, approval/rejection status.
+
+### 10A.5 Fitness Assessment Metrics (Khelo India-aligned)
+
+| Test | Measures | Unit |
+|------|----------|------|
+| Beep Test (Yo-Yo) | Cardiovascular endurance | Level.Shuttle (e.g. 8.5) |
+| Push-ups (1 min) | Upper body strength | Count |
+| Sit-ups (1 min) | Core strength | Count |
+| Grip Strength | Hand/forearm strength | kg |
+| Sit-and-Reach | Flexibility | cm |
+| 50m Sprint | Speed | seconds |
+| 4×10m Shuttle Run | Agility | seconds |
+| 6-min/12-min Run | Endurance | meters |
+| BMI | Body composition | kg/m² |
+| Body Fat % | Body composition | % |
+| Resting Heart Rate | Cardiovascular health | bpm |
+| VO2 Max (estimated) | Aerobic capacity | ml/kg/min (from beep test) |
+
+Fitness Score: 0-100 composite → Category: Poor / Below Average / Average / Good / Excellent.
+
+### 10A.6 JKKN Active Life Program (Daily/Weekly/Monthly)
+
+| Frequency | Activity | Tracked In Module |
+|-----------|----------|-------------------|
+| **Daily** | Morning fitness (yoga/aerobics/jog), PE classes | Training log |
+| **Weekly** | Sports hours, health workshops | Practice attendance |
+| **Monthly** | Intra-college tournaments, health challenges | Tournament permissions + achievements |
+| **Semester** | Sports fest, health fair, fitness assessments | Fitness tests + achievements |
+| **Annual** | Inter-college sports festival, scholarship review | Credits + scholarships |
+
+### 10A.7 Sports Injury Tracking
+
+Connected to health profile:
+- Injury record: date, sport, type, body part, severity (minor/moderate/severe)
+- Treatment log
+- Recovery status (recovering/recovered/chronic)
+- Cleared-to-play certification (by medical staff)
+- Links to health_profiles for blood group + emergency contacts during emergencies
+
+### 10A.8 Inter-College Collaboration
+
+| Initiative | Description | Digital Tracking |
+|-----------|-------------|-----------------|
+| Annual Inter-JKKN Sports Festival | All 8 colleges compete | Event + registrations |
+| Seasonal Leagues | Quarterly inter-college leagues | Tournament permissions |
+| Joint Training Camps | Shared coaching sessions | Practice attendance |
+| Coach Exchange | Coaches rotate between colleges | Staff scheduling |
+| Shared Facilities | Cross-campus facility access | Resource management module |
+| Combined Elite Training | Top athletes from all colleges train together | Training logs |
+
+### 10A.9 Compliance & Non-Compliance
+
+| Instance | Action |
+|----------|--------|
+| First | Verbal warning + counseling |
+| Second | Written warning + performance improvement plan |
+| Third | Scholarship reduction or suspension |
+| Continued | Scholarship revocation |
+
+Appeal rights: 15-day window, reviewed by committee, decision within 30 days.
+
+### 10A.10 Sports Pages in Health Module
+
+| Route | Purpose | Users |
+|-------|---------|-------|
+| `/health/sports` | Sports profile, credit tracker, scholarship status, tournament permissions | All students |
+| `/health/fitness` | Fitness test results, history, VO2 max, new test entry (faculty) | Students + PE faculty |
+| `/health/training` | Daily training log, injury tracker, weekly summary | Students + coaches |
+| `/health/achievements` | Medal wall, achievement history, level progression | Students + public |
+
+---
+
 ## 11. Success Criteria
 
 ### 3-Month Target: 50%+ Daily Active Users
