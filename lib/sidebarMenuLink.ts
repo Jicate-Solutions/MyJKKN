@@ -1324,26 +1324,6 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
     
     {
-      groupLabel: 'Documents',
-      menus: [
-        {
-          href: '/documents',
-          label: 'Document Center',
-          active: pathname === '/documents',
-          icon: FileText,
-          submenus: []
-        },
-        {
-          href: '/documents/history',
-          label: 'Document History',
-          active: pathname.startsWith('/documents/history'),
-          icon: Clock,
-          submenus: []
-        }
-      ]
-    },
-
-    {
       groupLabel: 'Resource Management',
       menus: [
         {
