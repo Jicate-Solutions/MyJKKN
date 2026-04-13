@@ -1,0 +1,27 @@
+title,category,tier,institution_name,description,max_holders,sort_order
+Learners General President,executive,tier_1,,Chief representative of all learners across JKKN,1,1
+Learners General Vice President,executive,tier_1,,Supports the President and acts in their absence,1,2
+Learners General Secretary,executive,tier_1,,Manages records and coordination across LC,1,3
+Institution President - JKKN Dental College,institution_president,tier_1,JKKN Dental College and Hospital,Represents all learners of JKKN Dental College,1,10
+Institution President - JKKN Engineering,institution_president,tier_1,JKKN College of Engineering and Technology,Represents all learners of JKKN Engineering,1,11
+Institution President - JKKN Pharmacy,institution_president,tier_1,JKKN College of Pharmacy,Represents all learners of JKKN Pharmacy,1,12
+Institution President - JKKN Allied Health Sciences,institution_president,tier_1,JKKN College of Allied Health Sciences,Represents all learners of JKKN Allied Health,1,13
+Institution President - JKKN Arts and Science (Aided),institution_president,tier_1,JKKN College of Arts and Science (Aided),Represents all learners of JKKN Arts (Aided),1,14
+Institution President - JKKN Arts and Science (Self),institution_president,tier_1,JKKN College of Arts and Science (Self),Represents all learners of JKKN Arts (Self),1,15
+Institution President - JKKN Nursing,institution_president,tier_1,JKKN College of Nursing and Research,Represents all learners of JKKN Nursing,1,16
+Institution President - JKKN Education,institution_president,tier_1,JKKN College of Education,Represents all learners of JKKN Education,1,17
+Portfolio Head - Academics and Research,portfolio_head,tier_1,,Oversees academic quality and research initiatives,1,20
+Portfolio Head - Sports and Culturals,portfolio_head,tier_1,,Coordinates sports events and cultural activities,1,21
+Portfolio Head - Campus Welfare and Facilities,portfolio_head,tier_1,,Manages campus infrastructure and welfare issues,1,22
+Portfolio Head - Hostel and Food Services,portfolio_head,tier_1,,Oversees hostel operations and mess quality,1,23
+Portfolio Head - Training and Placements,portfolio_head,tier_1,,Coordinates placement drives and skill training,1,24
+Portfolio Head - Extension Activities,portfolio_head,tier_1,,Manages NSS/NCC and industry relations,1,25
+Portfolio Head - Digital Governance and MyJKKN,portfolio_head,tier_1,,Drives digital adoption and MyJKKN feedback,1,26
+Portfolio Head - Grievance Redressal,portfolio_head,tier_1,,Facilitates learner grievance resolution,1,27
+Portfolio Head - Sustainability and Social Responsibility,portfolio_head,tier_1,,Leads sustainability and social impact programs,1,28
+At-Large Representative 1,at_large,tier_1,,Elected by learner body (gender/stream/year diversity),1,30
+At-Large Representative 2,at_large,tier_1,,Elected by learner body (gender/stream/year diversity),1,31
+At-Large Representative 3,at_large,tier_1,,Elected by learner body (gender/stream/year diversity),1,32
+At-Large Representative 4,at_large,tier_1,,Elected by learner body (gender/stream/year diversity),1,33
+At-Large Representative 5,at_large,tier_1,,Elected by learner body (gender/stream/year diversity),1,34
+At-Large Representative 6,at_large,tier_1,,Elected by learner body (gender/stream/year diversity),1,35
