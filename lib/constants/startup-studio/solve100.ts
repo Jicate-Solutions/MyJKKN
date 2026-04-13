@@ -1,0 +1,71 @@
+// Solve for 100 — Weekly Tracking System Constants
+
+import type { Solve100AppStatus } from '@/types/startup-studio'
+
+/** Shared UUID validation (used by solve100 hooks) */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+export const isValidUUID = (id: string | undefined | null): boolean =>
+  !!id && !id.includes('%%drp:') && UUID_REGEX.test(id)
+
+/** Shared status color mapping for app status badges */
+export const STATUS_COLORS: Record<Solve100AppStatus, string> = {
+  live: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  needs_fixes: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
+  building: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
+  pivoting: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',
+}
+
+export const SOLVE100_WEEKS = 44 // 10 months
+export const CHECKIN_DEADLINE_DAY = 4 // Thursday (0=Sun, 4=Thu)
+export const CHECKIN_DEADLINE_HOUR = 23 // 11:59 PM
+export const CHECKIN_DEADLINE_MINUTE = 59
+
+export const PAID_USER_BRACKETS = ['0', '1-5', '6-10', '11-25', '26-50', '51-100', '100+'] as const
+
+export const APP_STATUS_OPTIONS = [
+  { value: 'live', label: 'Live', color: 'green' },
+  { value: 'needs_fixes', label: 'Needs Fixes', color: 'yellow' },
+  { value: 'building', label: 'Building', color: 'blue' },
+  { value: 'pivoting', label: 'Pivoting', color: 'orange' },
+] as const
+
+// Re-export the canonical type from types/startup-studio.ts to avoid shadowing
+export type { Solve100AppStatus as AppStatus } from '@/types/startup-studio'
+
+export const VALIDATION_STATUS_OPTIONS = [
+  { value: 'yes_in_person', label: 'Yes — talked in person', color: 'green' },
+  { value: 'yes_phone', label: 'Yes — talked on phone', color: 'green' },
+  { value: 'no_watched', label: 'No — but observed them', color: 'yellow' },
+  { value: 'no_guessing', label: 'No — just guessing', color: 'red' },
+] as const
+
+export type { Solve100ValidationStatus as ValidationStatus } from '@/types/startup-studio'
+
+/**
+ * Calculate the current week number based on event start date.
+ * Week 1 starts on the event's start_date.
+ */
+export function getCurrentWeekNumber(eventStartDate: string): number {
+  const start = new Date(eventStartDate)
+  const now = new Date()
+  const diffMs = now.getTime() - start.getTime()
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  const week = Math.floor(diffDays / 7) + 1
+  return Math.max(1, Math.min(week, SOLVE100_WEEKS))
+}
+
+/**
+ * Check if the weekly check-in deadline has passed for a given week.
+ */
+export function isCheckinDeadlinePassed(eventStartDate: string, weekNumber: number): boolean {
+  const start = new Date(eventStartDate)
+  // Deadline is Thursday 11:59 PM of the given week
+  const weekStart = new Date(start.getTime() + (weekNumber - 1) * 7 * 24 * 60 * 60 * 1000)
+  // Find next Thursday from week start
+  const dayOfWeek = weekStart.getDay()
+  // If weekStart IS Thursday (daysUntilThursday would be 0), push to next Thursday (7 days)
+  const daysUntilThursday = ((CHECKIN_DEADLINE_DAY - dayOfWeek + 7) % 7) || 7
+  const deadline = new Date(weekStart.getTime() + daysUntilThursday * 24 * 60 * 60 * 1000)
+  deadline.setHours(CHECKIN_DEADLINE_HOUR, CHECKIN_DEADLINE_MINUTE, 59, 999)
+  return new Date() > deadline
+}
