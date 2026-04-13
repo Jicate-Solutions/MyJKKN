@@ -285,12 +285,12 @@ export function AIDebuggerTab() {
             <Badge variant="secondary">Gemini 4</Badge>
           </div>
           <div className="flex items-center gap-2">
-            <Select value={roleHint} onValueChange={setRoleHint}>
+            <Select value={roleHint || '__auto__'} onValueChange={(v) => setRoleHint(v === '__auto__' ? '' : v)}>
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="Auto-detect" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Auto-detect</SelectItem>
+                <SelectItem value="__auto__">Auto-detect</SelectItem>
                 {roles.map((r) => (
                   <SelectItem key={r.roleKey} value={r.roleKey}>
                     {r.roleName}
