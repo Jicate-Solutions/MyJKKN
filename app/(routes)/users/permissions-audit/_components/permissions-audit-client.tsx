@@ -13,6 +13,9 @@ import { SystemHealthTab } from './system-health-tab';
 import { UserResolverTab } from './user-resolver-tab';
 import { PermissionMatrixTab } from './permission-matrix-tab';
 import { ComparisonTab } from './comparison-tab';
+import { UnifiedAccessMapTab } from './unified-access-map-tab';
+import { RlsAuditTab } from './rls-audit-tab';
+import { ExportReportsTab } from './export-reports-tab';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
@@ -68,19 +71,30 @@ export function PermissionsAuditClient() {
           <div>
             <h2 className='text-2xl font-bold'>Permissions Audit Dashboard</h2>
             <p className='text-sm text-muted-foreground'>
-              Inspect, compare, and troubleshoot role permissions across the
-              system
+              Unified view of code permissions, database policies, and
+              navigation access across all roles and modules.
             </p>
           </div>
         </div>
 
-        <Tabs defaultValue='health' className='w-full'>
-          <TabsList className='grid w-full grid-cols-4'>
+        <Tabs defaultValue='unified' className='w-full'>
+          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-7'>
+            <TabsTrigger value='unified'>Unified Access</TabsTrigger>
+            <TabsTrigger value='rls'>RLS Audit</TabsTrigger>
             <TabsTrigger value='health'>System Health</TabsTrigger>
             <TabsTrigger value='resolver'>User Resolver</TabsTrigger>
             <TabsTrigger value='matrix'>Permission Matrix</TabsTrigger>
             <TabsTrigger value='comparison'>Comparison</TabsTrigger>
+            <TabsTrigger value='export'>Export</TabsTrigger>
           </TabsList>
+
+          <TabsContent value='unified'>
+            <UnifiedAccessMapTab />
+          </TabsContent>
+
+          <TabsContent value='rls'>
+            <RlsAuditTab />
+          </TabsContent>
 
           <TabsContent value='health'>
             <SystemHealthTab />
@@ -96,6 +110,10 @@ export function PermissionsAuditClient() {
 
           <TabsContent value='comparison'>
             <ComparisonTab />
+          </TabsContent>
+
+          <TabsContent value='export'>
+            <ExportReportsTab />
           </TabsContent>
         </Tabs>
       </div>

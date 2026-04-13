@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
+import type { UnifiedAccessResponse, CrudAccess } from '@/types/permissions-audit';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -239,6 +240,8 @@ export function UserResolverTab() {
     'all' | 'granted' | 'denied'
   >('all');
 
+  const [unifiedData, setUnifiedData] = useState<UnifiedAccessResponse | null>(null);
+
   const searchRef = useRef<HTMLDivElement>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -303,6 +306,14 @@ export function UserResolverTab() {
         if (!res.ok) throw new Error('Failed to resolve user permissions');
         const data: ResolvedUser = await res.json();
         setResolvedData(data);
+
+        // After resolved user data is set, fetch unified access for their primary role
+        if (data.primaryRole) {
+          fetch(`/api/users/permissions-audit/unified?roleKey=${encodeURIComponent(data.primaryRole)}`)
+            .then(res => res.ok ? res.json() : null)
+            .then(uData => setUnifiedData(uData))
+            .catch(() => setUnifiedData(null));
+        }
       } catch {
         setResolveError(
           'Failed to load permission data for this user. Please try again.'
@@ -321,6 +332,7 @@ export function UserResolverTab() {
     setSelectedUserName(result.full_name || result.email);
     setShowDropdown(false);
     setPermissionFilter('all');
+    setUnifiedData(null);
   }
 
   return (
@@ -346,6 +358,7 @@ export function UserResolverTab() {
                   if (selectedUserId) {
                     setSelectedUserId(null);
                     setResolvedData(null);
+                    setUnifiedData(null);
                   }
                 }}
                 onFocus={() => {
@@ -675,6 +688,68 @@ export function UserResolverTab() {
               )}
             </CardContent>
           </Card>
+
+          {/* Module Access Summary — Tri-Layer View */}
+          {unifiedData && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">
+                  Module Access Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="grid gap-2">
+                    {unifiedData.modules.map(mod => (
+                      <div
+                        key={mod.moduleName}
+                        className={`flex items-center justify-between p-3 rounded-lg border ${
+                          mod.conflicts.length > 0 ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20' : 'border-border'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium text-sm">{mod.moduleName}</span>
+                          {mod.conflicts.length > 0 && (
+                            <Badge variant="destructive" className="text-xs">
+                              {mod.conflicts.length} conflict{mod.conflicts.length !== 1 ? 's' : ''}
+                            </Badge>
+                          )}
+                          {mod.isConsistent && (mod.codePermissions.create || mod.codePermissions.read || mod.codePermissions.update || mod.codePermissions.delete) && (
+                            <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300">
+                              Consistent
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          {/* Code CRUD */}
+                          <div className="flex gap-1">
+                            {(['create', 'read', 'update', 'delete'] as const).map(op => (
+                              <span
+                                key={op}
+                                className={`w-5 h-5 inline-flex items-center justify-center rounded font-mono font-bold text-[10px] ${
+                                  mod.codePermissions[op] === true
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                    : mod.codePermissions[op] === false
+                                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                      : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'
+                                }`}
+                              >
+                                {op[0].toUpperCase()}
+                              </span>
+                            ))}
+                          </div>
+                          {/* Table count */}
+                          <span>{mod.tableAccess.length} tables</span>
+                          {/* Route count */}
+                          <span>{mod.routeAccess.filter(r => r.hasPermission).length}/{mod.routeAccess.length} routes</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 

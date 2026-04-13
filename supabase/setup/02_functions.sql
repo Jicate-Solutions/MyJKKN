@@ -5945,3 +5945,55 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION process_case_alerts TO authenticated;
+
+-- ============================================================================
+-- RLS INTROSPECTION FUNCTIONS (for Permissions Audit Dashboard)
+-- Updated: 2026-04-13 - Added for enhanced permissions audit
+-- ============================================================================
+
+-- Get all RLS policies from pg_policies system view
+CREATE OR REPLACE FUNCTION get_rls_policies()
+RETURNS TABLE (
+  schemaname text,
+  tablename text,
+  policyname text,
+  command text,
+  using_expression text,
+  with_check_expression text
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+  SELECT
+    p.schemaname::text,
+    p.tablename::text,
+    p.policyname::text,
+    p.cmd::text as command,
+    p.qual::text as using_expression,
+    p.with_check::text as with_check_expression
+  FROM pg_policies p
+  WHERE p.schemaname = 'public'
+  ORDER BY p.tablename, p.policyname;
+$$;
+
+-- Get all tables that have RLS enabled
+CREATE OR REPLACE FUNCTION get_tables_with_rls()
+RETURNS TABLE (
+  tablename text,
+  has_rls boolean
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+  SELECT
+    c.relname::text as tablename,
+    c.relrowsecurity as has_rls
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+    AND c.relkind = 'r'
+    AND c.relrowsecurity = true
+  ORDER BY c.relname;
+$$;
