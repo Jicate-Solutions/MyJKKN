@@ -137,7 +137,10 @@ export function DataTableRowActions<TData>({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
+              onClick={(e) => {
+                e.preventDefault();
+                handleDelete();
+              }}
               disabled={deleteLead.isPending}
               className="bg-red-600 hover:bg-red-700"
             >
