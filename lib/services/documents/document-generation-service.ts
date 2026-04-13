@@ -130,12 +130,18 @@ export class DocumentGenerationService {
    * 3. Pre-fetched image data URLs
    */
   static async assembleBranding(institutionId: string): Promise<DocumentBranding> {
-    // Fetch institution base data
-    const { data: inst } = await this.supabase
-      .from('institutions')
-      .select('name, logo_url, address_line1, city, state, pin_code, counselling_code, accredited_by')
-      .eq('id', institutionId)
-      .single();
+    // Fetch institution base data (wrapped to handle failures)
+    let inst: Record<string, unknown> | null = null;
+    try {
+      const { data } = await this.supabase
+        .from('institutions')
+        .select('name, logo_url, address_line1, city, state, pin_code, counselling_code, accredited_by')
+        .eq('id', institutionId)
+        .single();
+      inst = data as Record<string, unknown> | null;
+    } catch {
+      // Institution query failed — will use defaults
+    }
 
     // Fetch document settings (may not exist)
     const settings = await this.getInstitutionSettings(institutionId);
