@@ -213,8 +213,22 @@ export class DocumentGenerationService {
     // 1. Fetch template
     const template = await this.getTemplate(institutionId, documentType);
 
-    // 2. Assemble branding
-    const branding = await this.assembleBranding(institutionId);
+    // 2. Assemble branding (non-blocking — uses JKKN defaults if fails)
+    let branding: DocumentBranding;
+    try {
+      branding = await this.assembleBranding(institutionId);
+    } catch {
+      branding = {
+        institutionName: 'JKKN Institution',
+        institutionAddress: '', institutionCity: '', institutionState: '', institutionPinCode: '',
+        logoDataUrl: '',
+        primaryColor: { r: 11, g: 109, b: 65 },
+        secondaryColor: { r: 255, g: 222, b: 89 },
+        backgroundColor: { r: 251, g: 251, b: 238 },
+        signatures: [],
+        watermarkOpacity: 0.05,
+      };
+    }
 
     // 3. Generate document number
     const documentNumber = await this.generateDocumentNumber(
