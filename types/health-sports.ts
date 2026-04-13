@@ -261,7 +261,7 @@ export type AchievementType = 'gold' | 'silver' | 'bronze' | 'participation' | '
 
 export const JKKN_SPORTS = [
   'Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Badminton',
-  'Cricket', 'Football', 'Table Tennis', 'Tennis', 'Hockey',
+  'Football', 'Table Tennis', 'Tennis', 'Hockey',
   'Wrestling', 'Powerlifting', 'Weightlifting', 'Athletics',
   'Swimming', 'Chess', 'Carrom', 'Yoga',
 ] as const;
