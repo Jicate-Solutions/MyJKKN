@@ -222,6 +222,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/leave-onduty/apply': 'learners.leave_onduty.apply',
   '/learners/leave-onduty/my-applications': 'learners.leave_onduty.view',
 
+  // Exceptions & Privileges
+  '/academic/privileges': 'academic.privileges.view',
+  '/academic/privileges/new': 'academic.privileges.create',
+  '/academic/privileges/[id]': 'academic.privileges.view',
+  '/academic/privileges/[id]/members': 'academic.privileges.manage',
+  '/academic/privileges/[id]/review': 'academic.privileges.review',
+  '/academic/privileges/[id]/renewals': 'academic.privileges.manage',
+  '/academic/privileges/templates': 'academic.privileges.manage',
+  '/learners/privileges/my': 'learners.privileges.view',
+  '/learners/privileges/my/report': 'learners.privileges.report',
+
   '/academic/staff-planning': 'academic.staff.planning.view',
   '/academic/timetables': 'academic.timetables.view',
   '/academic/timetables/templates': 'academic.timetables.templates.view',
@@ -756,6 +767,24 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          href: '/academic/privileges',
+          label: 'Privileges',
+          active: pathname.startsWith('/academic/privileges'),
+          icon: Shield,
+          submenus: [
+            {
+              href: '/academic/privileges',
+              label: 'Manage Groups',
+              active: pathname === '/academic/privileges'
+            },
+            {
+              href: '/academic/privileges/templates',
+              label: 'Templates',
+              active: pathname === '/academic/privileges/templates'
+            }
+          ]
+        },
+        {
           href: '/academic/staff-planning',
           label: 'Staff Planning',
           active: pathname === '/academic/staff-planning',
@@ -1187,6 +1216,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),
           icon: Briefcase,
+          submenus: []
+        },
+        {
+          href: '/academic/privileges/my',
+          label: 'My Privileges',
+          active: pathname.startsWith('/academic/privileges/my'),
+          icon: Shield,
           submenus: []
         },
 
