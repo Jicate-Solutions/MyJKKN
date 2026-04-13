@@ -590,7 +590,7 @@ export class CounselorDailyViewService {
     // Fetch profile to seed the counselor record
     const { data: profile, error: profileError } = await (supabase as any)
       .from('profiles')
-      .select('full_name, email, phone_number, designation, institution_id')
+      .select('full_name, email, phone_number, institution_id')
       .eq('id', profileId)
       .single();
 
@@ -605,7 +605,6 @@ export class CounselorDailyViewService {
         name: profile.full_name || '',
         email: profile.email || null,
         phone: profile.phone_number || null,
-        designation: profile.designation || null,
         institution_id: institutionId || profile.institution_id || null,
         is_active: true,
       })

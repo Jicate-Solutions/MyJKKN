@@ -19,7 +19,11 @@ import type {
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error('Missing Supabase service role credentials');
+  if (!url || !key) {
+    // Service role key is only available server-side. When called from browser
+    // (e.g., LeadService.createLead on client), skip silently.
+    return null;
+  }
   return createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -141,6 +145,10 @@ export class WhatsAppPersonalAutoTriggerService {
     expoEventId?: string;
   }): Promise<{ triggered: number; queued: number; skipped: number }> {
     const supabase = getServiceClient();
+    if (!supabase) {
+      // Running on client-side where service_role is unavailable — skip silently
+      return { triggered: 0, queued: 0, skipped: 0 };
+    }
     let triggered = 0, queued = 0, skipped = 0;
 
     // 1. Find matching active rules
