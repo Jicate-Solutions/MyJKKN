@@ -463,7 +463,7 @@ export function EditRoleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-[900px] max-h-[95vh] flex flex-col'>
+      <DialogContent className='w-[95vw] max-w-[900px] max-h-[90vh] sm:max-h-[95vh] flex flex-col p-4 sm:p-6'>
         <DialogHeader>
           <DialogTitle>
             {isSuperAdmin
@@ -493,7 +493,7 @@ export function EditRoleDialog({
                   <TabsTrigger value='permissions'>Permissions</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value='details' className='space-y-4 mt-4 overflow-y-auto px-1 pb-4 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col'>
+                <TabsContent value='details' className='space-y-4 mt-3 sm:mt-4 overflow-y-auto px-0.5 sm:px-1 pb-4 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col'>
                 <FormField
                   control={form.control}
                   name='role_name'
@@ -575,7 +575,7 @@ export function EditRoleDialog({
                 </div>
               </TabsContent>
 
-              <TabsContent value='permissions' className='mt-4 px-1 pb-4 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col data-[state=active]:overflow-hidden'>
+              <TabsContent value='permissions' className='mt-3 sm:mt-4 px-0.5 sm:px-1 pb-4 data-[state=active]:flex-1 data-[state=active]:flex data-[state=active]:flex-col data-[state=active]:overflow-hidden'>
                 <Card className='mb-4'>
                   <CardHeader className='pb-2'>
                     {isSuperAdmin && (
@@ -604,7 +604,7 @@ export function EditRoleDialog({
                   </CardContent>
                 </Card>
 
-                <div className='flex-1 overflow-y-auto pr-4'>
+                <div className='flex-1 overflow-y-auto pr-1 sm:pr-4'>
                   <Accordion type='multiple' className='space-y-4'>
                     {filteredCategories.map((category) => {
                       const { active, total } = getCategoryActiveCount(
@@ -630,27 +630,26 @@ export function EditRoleDialog({
                           value={category.key}
                           className='border rounded-lg overflow-hidden'
                         >
-                          <AccordionTrigger className='px-4 py-3 hover:bg-muted/50 group'>
-                            <div className='flex items-center w-full justify-between pr-4'>
-                              <div>
-                                <span className='font-medium'>
-                                  {category.name}
-                                </span>
-                              </div>
+                          <AccordionTrigger className='px-3 sm:px-4 py-2.5 sm:py-3 hover:bg-muted/50 group'>
+                            <div className='flex items-center w-full justify-between pr-2 sm:pr-4'>
+                              <span className='font-medium text-sm sm:text-base'>
+                                {category.name}
+                              </span>
                               <div className='flex items-center gap-2'>
                                 <Badge
                                   variant={active > 0 ? 'default' : 'outline'}
+                                  className='text-[10px] sm:text-xs'
                                 >
-                                  {active}/{total} enabled
+                                  {active}/{total}
                                 </Badge>
                               </div>
                             </div>
                           </AccordionTrigger>
                           <AccordionContent className='px-4 pb-3 pt-1'>
                             {!isSuperAdmin && (
-                              <div className='flex justify-between items-center mb-3 px-1 pt-2'>
+                              <div className='flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3 px-1 pt-2'>
                                 <div className='flex items-center gap-1'>
-                                  <span className='text-sm font-medium'>
+                                  <span className='text-xs sm:text-sm font-medium'>
                                     All permissions in this category
                                   </span>
                                   <TooltipProvider>
@@ -826,12 +825,12 @@ export function EditRoleDialog({
                                     control={form.control}
                                     name={fieldName}
                                     render={({ field }) => (
-                                      <div className='flex items-center justify-between space-x-2 rounded-md border p-3 hover:bg-muted/50'>
-                                        <div className='space-y-0.5'>
-                                          <FormLabel className='text-sm'>
+                                      <div className='flex items-center justify-between space-x-2 rounded-md border p-2 sm:p-3 hover:bg-muted/50'>
+                                        <div className='space-y-0.5 min-w-0'>
+                                          <FormLabel className='text-xs sm:text-sm leading-tight'>
                                             {permission.label}
                                           </FormLabel>
-                                          <FormDescription className='text-xs'>
+                                          <FormDescription className='text-[10px] sm:text-xs truncate'>
                                             {permission.key}
                                           </FormDescription>
                                         </div>
@@ -884,7 +883,7 @@ export function EditRoleDialog({
               </Tabs>
             </div>
 
-            <DialogFooter className='mt-4'>
+            <DialogFooter className='mt-3 sm:mt-4 flex-col-reverse sm:flex-row gap-2'>
               <Button
                 type='button'
                 variant='outline'
