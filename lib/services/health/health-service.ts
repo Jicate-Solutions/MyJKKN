@@ -12,7 +12,6 @@ import type {
   MoodCheckinData,
   LeaderboardEntry,
   LeaderboardType,
-  LeaderboardPeriod,
 } from '@/types/health';
 import { CONSENT_VERSION } from '@/types/health';
 
