@@ -82,6 +82,7 @@ import {
   PieChart,
   Wallet,
   Scale,
+  ShieldCheck,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -143,6 +144,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/users/activity': 'users.activity.view',
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
+  '/users/permissions-audit': 'users.permissions_audit.view',
 
   // Application Hub
   '/application-hub': 'application_hub.view',
@@ -560,6 +562,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Activity Audit Logs',
           active: pathname === '/users/activity',
           icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          href: '/users/permissions-audit',
+          label: 'Permissions Audit',
+          active: pathname === '/users/permissions-audit',
+          icon: ShieldCheck,
           submenus: []
         }
       ]
