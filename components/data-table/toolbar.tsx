@@ -379,14 +379,14 @@ export function DataTableToolbar<TData extends ExportableData>({
   const allItems = getAllItems ? getAllItems() : [];
 
   return (
-    <div className='flex flex-wrap items-center justify-between'>
+    <div className='flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center justify-between gap-2'>
       <div className='flex flex-1 flex-wrap items-center gap-2'>
         {config.enableSearch && (
           <Input
             placeholder={config.searchPlaceholder || `Search ${entityName}...`}
             value={localSearch}
             onChange={handleSearchChange}
-            className={`w-[150px] lg:w-[250px] ${getInputSizeClass(
+            className={`w-full sm:w-[200px] lg:w-[300px] ${getInputSizeClass(
               config.size
             )}`}
           />
