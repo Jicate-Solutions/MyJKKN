@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
         source: 'education_fair',
         expo_event_id: eventId,
         captured_by: capturedBy,
-        referral_type: 'learner_ambassador',
+        referral_type: 'student',
         referred_by_id: capturedBy,
         funnel_stage: 'new',
         wa_opt_in: waOptIn,
