@@ -169,23 +169,23 @@ export async function GET(request: NextRequest) {
     // Parse RLS policies
     const rawPolicies = policiesResult.data ?? [];
     interface RawPolicy {
-      table_name: string;
-      policy_name: string;
+      tablename: string;
+      policyname: string;
       command: string;
       using_expression: string | null;
       with_check_expression: string | null;
-      permissive: string;
+      permissive?: string;
     }
 
     const parsedPolicies: (RlsPolicy & { permissive: boolean })[] = (rawPolicies as RawPolicy[]).map(
       (p: RawPolicy) => ({
-        tableName: p.table_name,
-        policyName: p.policy_name,
+        tableName: p.tablename,
+        policyName: p.policyname,
         command: p.command,
         usingExpression: p.using_expression,
         withCheckExpression: p.with_check_expression,
         parsed: parseRlsExpression(p.using_expression ?? p.with_check_expression),
-        module: getModuleForTable(p.table_name),
+        module: getModuleForTable(p.tablename),
         permissive: p.permissive !== 'RESTRICTIVE',
       })
     );
