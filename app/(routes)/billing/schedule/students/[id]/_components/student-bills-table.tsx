@@ -325,6 +325,64 @@ export function StudentBillsTable({
                   </span>
                 </Button>
               )}
+            {/* Fee Notice PDF */}
+            {selectedSelectableBills.length > 0 && (
+              <Button
+                size='sm'
+                variant='secondary'
+                onClick={async () => {
+                  try {
+                    const { FeeNoticeLetterGenerator } = await import('@/lib/utils/pdf/generators/fee-notice-letter');
+                    const { DEFAULT_COLORS, getFullName } = await import('@/lib/utils/pdf/brand-utils');
+                    const { DocumentAuditService } = await import('@/lib/services/document-audit-service');
+                    const bill = selectedSelectableBills[0];
+                    const branding = {
+                      institutionName: 'JKKN Institution',
+                      institutionAddress: '', institutionCity: '', institutionState: '', institutionPinCode: '',
+                      logoDataUrl: '',
+                      primaryColor: DEFAULT_COLORS.primary,
+                      secondaryColor: DEFAULT_COLORS.secondary,
+                      backgroundColor: DEFAULT_COLORS.background,
+                      signatures: [], watermarkOpacity: 0.05,
+                    };
+                    const docNumber = await DocumentAuditService.generateDocumentNumber(
+                      bill.institution_id || '', 'fee_notice_letter'
+                    );
+                    const metadata = {
+                      documentNumber: docNumber,
+                      documentType: 'fee_notice_letter' as const,
+                      category: 'letter' as const,
+                      generatedAt: new Date().toISOString(),
+                      generatedBy: '',
+                    };
+                    const generator = new FeeNoticeLetterGenerator(branding as any, metadata);
+                    const billsData = selectedSelectableBills.map(b => ({
+                      description: b.bill_description || 'Fee',
+                      amount: Number(b.final_amount) || 0,
+                      due_date: b.due_date || '',
+                      status: b.status || 'unpaid',
+                      balance: Number(b.balance_amount) || 0,
+                    }));
+                    const totalOutstanding = billsData.reduce((s, b) => s + b.balance, 0);
+                    await generator.generateAndDownload({
+                      first_name: bill.student_name?.split(' ')[0] || '',
+                      last_name: bill.student_name?.split(' ').slice(1).join(' ') || '',
+                      roll_number: bill.roll_number || '',
+                      program_name: '',
+                      bills: billsData,
+                      totalOutstanding,
+                    }, `Fee-Notice-${docNumber.replace(/\//g, '-')}.pdf`);
+                  } catch (e) {
+                    console.error('Fee notice generation failed:', e);
+                  }
+                }}
+                className='flex-1 sm:flex-initial'
+              >
+                <FileText className='mr-2 h-4 w-4' />
+                <span className='hidden sm:inline'>Fee Notice PDF</span>
+                <span className='sm:hidden'>Notice</span>
+              </Button>
+            )}
           </div>
         </div>
       )}
