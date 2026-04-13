@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { BeatLoader } from 'react-spinners';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -209,10 +209,9 @@ export function PermissionMatrixTab() {
 
               <tbody>
                 {groups.map((group) => (
-                  <>
+                  <Fragment key={`group-${group.categoryName}`}>
                     {/* Category group header row */}
                     <tr
-                      key={`group-${group.categoryName}`}
                       className='bg-indigo-50 border-y border-indigo-100'
                     >
                       <td
@@ -266,7 +265,7 @@ export function PermissionMatrixTab() {
                         })}
                       </tr>
                     ))}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>
