@@ -1636,7 +1636,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           href: '/health/achievements',
           label: 'Achievements',
           active: pathname === '/health/achievements',
-          icon: Medal,
+          icon: Star,
           submenus: []
         }
       ]
