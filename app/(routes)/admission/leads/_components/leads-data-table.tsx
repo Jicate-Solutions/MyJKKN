@@ -257,115 +257,127 @@ export function LeadsDataTable() {
     resetSelection: () => void;
   }) => (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Row 1: Action button + Filter dropdowns */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        {/* Primary action */}
         {canCreate && (
           <Button
             onClick={() => router.push('/admission/leads/new')}
             size="sm"
-            className="h-8"
+            className="h-8 shrink-0 w-full sm:w-auto"
           >
             <Plus className="mr-2 h-4 w-4" />
-            <span className="hidden sm:inline">Add Lead</span>
-            <span className="sm:hidden">Add</span>
+            Add Lead
           </Button>
         )}
 
-        <Select
-          value={stageFilter}
-          onValueChange={(value) => {
-            setStageFilter(value);
-            setRefetchKey((prev) => prev + 1);
-          }}
-        >
-          <SelectTrigger className="w-[130px] sm:w-[170px] h-8 text-xs sm:text-sm">
-            <SelectValue placeholder="All Stages" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">All Stages</SelectItem>
-            {FUNNEL_STAGES.map((stage) => (
-              <SelectItem key={stage.value} value={stage.value}>
-                {stage.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={sourceFilter}
-          onValueChange={(value) => {
-            setSourceFilter(value);
-            setRefetchKey((prev) => prev + 1);
-          }}
-        >
-          <SelectTrigger className="w-[120px] sm:w-[150px] h-8 text-xs sm:text-sm">
-            <SelectValue placeholder="All Sources" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">All Sources</SelectItem>
-            {LEAD_SOURCES.map((src) => (
-              <SelectItem key={src.value} value={src.value}>
-                {src.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Button
-          variant={priorityFilter === 'hot' ? 'default' : 'outline'}
-          size="sm"
-          className="h-8 gap-1 px-2 sm:px-3"
-          onClick={() => {
-            const newVal = priorityFilter === 'hot' ? '_all' : 'hot';
-            setPriorityFilter(newVal);
-            setRefetchKey((prev) => prev + 1);
-          }}
-        >
-          <Flame className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-          <span className="hidden sm:inline">Hot</span>
-        </Button>
-
-        <Button
-          variant={priorityFilter === 'warm' ? 'default' : 'outline'}
-          size="sm"
-          className="h-8 gap-1 px-2 sm:px-3"
-          onClick={() => {
-            const newVal = priorityFilter === 'warm' ? '_all' : 'warm';
-            setPriorityFilter(newVal);
-            setRefetchKey((prev) => prev + 1);
-          }}
-        >
-          <Star className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-          <span className="hidden sm:inline">Warm</span>
-        </Button>
-
-        <Button
-          variant={showAdvanced ? 'secondary' : 'outline'}
-          size="sm"
-          className="h-8 gap-1 px-2 sm:px-3 relative"
-          onClick={() => setShowAdvanced((prev) => !prev)}
-        >
-          <Filter className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-          <span className="hidden sm:inline">Filters</span>
-          {activeAdvancedCount > 0 && (
-            <span className="ml-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
-              {activeAdvancedCount}
-            </span>
-          )}
-        </Button>
-
-        {(stageFilter !== '_all' || priorityFilter !== '_all' || sourceFilter !== '_all' || counselorFilter !== '_all' || expoFilter !== '_all') && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1 px-2 sm:px-3 text-muted-foreground"
-            onClick={clearAllFilters}
+        {/* Filter dropdowns — scrollable on mobile */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 -mx-1 px-1 sm:mx-0 sm:px-0 scrollbar-none">
+          <Select
+            value={stageFilter}
+            onValueChange={(value) => {
+              setStageFilter(value);
+              setRefetchKey((prev) => prev + 1);
+            }}
           >
-            <X className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Clear all</span>
-          </Button>
-        )}
+            <SelectTrigger className="w-[130px] sm:w-[160px] h-8 text-xs shrink-0">
+              <SelectValue placeholder="All Stages" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">All Stages</SelectItem>
+              {FUNNEL_STAGES.map((stage) => (
+                <SelectItem key={stage.value} value={stage.value}>
+                  {stage.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-        {props.selectedRows.length > 0 && (
+          <Select
+            value={sourceFilter}
+            onValueChange={(value) => {
+              setSourceFilter(value);
+              setRefetchKey((prev) => prev + 1);
+            }}
+          >
+            <SelectTrigger className="w-[120px] sm:w-[150px] h-8 text-xs shrink-0">
+              <SelectValue placeholder="All Sources" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">All Sources</SelectItem>
+              {LEAD_SOURCES.map((src) => (
+                <SelectItem key={src.value} value={src.value}>
+                  {src.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Priority toggles */}
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant={priorityFilter === 'hot' ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 gap-1 px-2.5"
+              onClick={() => {
+                const newVal = priorityFilter === 'hot' ? '_all' : 'hot';
+                setPriorityFilter(newVal);
+                setRefetchKey((prev) => prev + 1);
+              }}
+            >
+              <Flame className="h-3.5 w-3.5" />
+              <span className="text-xs">Hot</span>
+            </Button>
+
+            <Button
+              variant={priorityFilter === 'warm' ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 gap-1 px-2.5"
+              onClick={() => {
+                const newVal = priorityFilter === 'warm' ? '_all' : 'warm';
+                setPriorityFilter(newVal);
+                setRefetchKey((prev) => prev + 1);
+              }}
+            >
+              <Star className="h-3.5 w-3.5" />
+              <span className="text-xs">Warm</span>
+            </Button>
+          </div>
+
+          {/* More filters + Clear */}
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant={showAdvanced ? 'secondary' : 'outline'}
+              size="sm"
+              className="h-8 gap-1 px-2.5 relative"
+              onClick={() => setShowAdvanced((prev) => !prev)}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              <span className="text-xs hidden sm:inline">More</span>
+              {activeAdvancedCount > 0 && (
+                <span className="ml-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                  {activeAdvancedCount}
+                </span>
+              )}
+            </Button>
+
+            {(stageFilter !== '_all' || priorityFilter !== '_all' || sourceFilter !== '_all' || counselorFilter !== '_all' || expoFilter !== '_all') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-muted-foreground"
+                onClick={clearAllFilters}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Bulk action bar */}
+      {props.selectedRows.length > 0 && (
+        <div className="flex items-center gap-2 p-2 bg-destructive/10 rounded-md border border-destructive/20">
           <Button
             onClick={() =>
               handleBulkDelete(
@@ -380,54 +392,56 @@ export function LeadsDataTable() {
             <TrashIcon className="mr-2 h-4 w-4" />
             Mark as Lost ({props.selectedRows.length})
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
+      {/* Advanced filters row */}
       {showAdvanced && (
-        <div className="flex items-center gap-2 flex-wrap pl-1 pb-2 pt-2 border-t border-dashed">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2 bg-muted/30 rounded-md border border-dashed">
           <span className="text-xs text-muted-foreground font-medium shrink-0">Advanced:</span>
-
-          <Select
-            value={counselorFilter}
-            onValueChange={(value) => {
-              setCounselorFilter(value);
-              setRefetchKey((prev) => prev + 1);
-            }}
-          >
-            <SelectTrigger className="w-[140px] sm:w-[180px] h-8 text-xs sm:text-sm">
-              <SelectValue placeholder="All Counselors" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="_all">All Counselors</SelectItem>
-              {(counselors || []).map((c: any) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {expoEvents.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
             <Select
-              value={expoFilter}
+              value={counselorFilter}
               onValueChange={(value) => {
-                setExpoFilter(value);
+                setCounselorFilter(value);
                 setRefetchKey((prev) => prev + 1);
               }}
             >
-              <SelectTrigger className="w-[140px] sm:w-[180px] h-8 text-xs sm:text-sm">
-                <SelectValue placeholder="All Expos" />
+              <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs">
+                <SelectValue placeholder="All Counselors" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="_all">All Expo Events</SelectItem>
-                {expoEvents.map((evt: any) => (
-                  <SelectItem key={evt.id} value={evt.id}>
-                    {evt.event_name}
+                <SelectItem value="_all">All Counselors</SelectItem>
+                {(counselors || []).map((c: any) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          )}
+
+            {expoEvents.length > 0 && (
+              <Select
+                value={expoFilter}
+                onValueChange={(value) => {
+                  setExpoFilter(value);
+                  setRefetchKey((prev) => prev + 1);
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-[180px] h-8 text-xs">
+                  <SelectValue placeholder="All Expo Events" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">All Expo Events</SelectItem>
+                  {expoEvents.map((evt: any) => (
+                    <SelectItem key={evt.id} value={evt.id}>
+                      {evt.event_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         </div>
       )}
     </div>
