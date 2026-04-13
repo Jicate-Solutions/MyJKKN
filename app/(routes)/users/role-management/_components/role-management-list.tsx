@@ -52,6 +52,7 @@ interface RoleManagementListProps {
       role_name?: string;
       description?: string;
       permissions?: Record<string, boolean>;
+      institution_scope?: 'all' | 'own';
     }
   ) => Promise<void>;
   onDeleteRole: (roleKey: string) => Promise<void>;

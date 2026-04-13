@@ -281,10 +281,15 @@ export class RoleService {
 
       // Create basic update
       const existingRoleData = this.toCustomRole(existingRole);
-      const basicUpdateData: CustomRoleDbUpdate = {
+      const basicUpdateData: Record<string, any> = {
         role_name: updates.role_name ?? existingRoleData.role_name,
         description: updates.description ?? existingRoleData.description
       };
+
+      // Include institution_scope if provided
+      if (updates.institution_scope) {
+        basicUpdateData.institution_scope = updates.institution_scope;
+      }
 
       // Update the basic info
       const { error: basicUpdateError } = await (this.supabase as any)
