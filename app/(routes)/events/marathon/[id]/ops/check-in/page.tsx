@@ -23,6 +23,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMarathonAccess } from '@/hooks/events/marathon/use-marathon-access';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { useProcessScan, useOpsStats } from '@/hooks/events/marathon/use-marathon-ops';
+import { useOpsProfileMap } from '@/hooks/events/marathon/use-ops-profile-map';
 import { MarathonAccessDenied } from '../../_components/marathon-access-denied';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { OpsScanResult } from '@/types/events-marathon';
@@ -127,62 +128,8 @@ export default function CheckInPage() {
     refetchInterval: 30_000,
   });
 
-  // Fetch profile mapping: email → institution + department + semester
-  // Uses two queries: profiles→institutions, and learners_profiles→departments+semesters
-  const { data: profileMap } = useQuery({
-    queryKey: ['marathon-ops-profile-map', eventId],
-    queryFn: async () => {
-      const supabase = createClientSupabaseClient();
-
-      // Query 1: profiles → institution
-      const { data: profiles } = await (supabase as any)
-        .from('profiles')
-        .select('id, email, learner_id, institution:institutions(id, name)')
-        .not('email', 'is', null)
-        .not('institution_id', 'is', null);
-
-      // Query 2: learners_profiles → department + semester
-      const { data: learners } = await (supabase as any)
-        .from('learners_profiles')
-        .select('id, department:departments(id, department_name), semester:semesters(id, semester_name)');
-
-      // Build learner lookup: learner_id → { department, semester }
-      const learnerLookup = new Map<string, { dept_id: string | null; dept_name: string | null; sem_id: string | null; sem_name: string | null }>();
-      for (const l of learners ?? []) {
-        learnerLookup.set(l.id, {
-          dept_id: l.department?.id ?? null,
-          dept_name: l.department?.department_name ?? null,
-          sem_id: l.semester?.id ?? null,
-          sem_name: l.semester?.semester_name ?? null,
-        });
-      }
-
-      // Build email → full profile map
-      const map = new Map<string, {
-        institution_id: string;
-        institution_name: string;
-        department_id: string | null;
-        department_name: string | null;
-        semester_id: string | null;
-        semester_name: string | null;
-      }>();
-
-      for (const p of profiles ?? []) {
-        if (!p.email || !p.institution) continue;
-        const learner = p.learner_id ? learnerLookup.get(p.learner_id) : null;
-        map.set(p.email.toLowerCase(), {
-          institution_id: (p.institution as any).id,
-          institution_name: (p.institution as any).name,
-          department_id: learner?.dept_id ?? null,
-          department_name: learner?.dept_name ?? null,
-          semester_id: learner?.sem_id ?? null,
-          semester_name: learner?.sem_name ?? null,
-        });
-      }
-      return map;
-    },
-    enabled: !!eventId,
-  });
+  // Fetch profile mapping via server-side API (bypasses RLS so all roles see all institutions)
+  const { data: profileMap } = useOpsProfileMap(eventId);
 
   // Enrich registrations with institution + department + semester
   const enrichedRegistrations = useMemo(() => {
@@ -499,8 +446,8 @@ export default function CheckInPage() {
                     </SelectContent>
                   </Select>
 
-                  {/* Department filter — only when institution selected */}
-                  {filterInstitution !== 'all' && filterInstitution !== '_external' && departmentOptions.length > 0 && (
+                  {/* Department filter */}
+                  {departmentOptions.length > 0 && (
                     <Select value={filterDepartment} onValueChange={(v) => setFilterDepartment(v)}>
                       <SelectTrigger className="w-full sm:w-[200px]">
                         <SelectValue placeholder="Department" />
@@ -516,8 +463,8 @@ export default function CheckInPage() {
                     </Select>
                   )}
 
-                  {/* Semester filter — only when department selected */}
-                  {filterDepartment !== 'all' && semesterOptions.length > 0 && (
+                  {/* Semester filter */}
+                  {semesterOptions.length > 0 && (
                     <Select value={filterSemester} onValueChange={(v) => setFilterSemester(v)}>
                       <SelectTrigger className="w-full sm:w-[160px]">
                         <SelectValue placeholder="Semester" />

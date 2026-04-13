@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { BentoGrid, BentoGridItem } from '@/components/ui/bento-grid';
 import AIChip from '@/components/ui/ai-chip';
@@ -8,18 +9,50 @@ interface DashboardBentoGridProps {
   currentUser: string;
 }
 
+// Deterministic pseudo-random using seed — same output on server & client
+function seededRandom(seed: number): number {
+  const x = Math.sin(seed * 9301 + 49297) * 233280;
+  return x - Math.floor(x);
+}
+
 // Get greeting based on time of day
-function getGreeting(): string {
-  const hour = new Date().getHours();
+function getGreeting(hour: number): string {
   if (hour < 12) return 'Good Morning';
   if (hour < 18) return 'Good Afternoon';
   return 'Good Evening';
 }
 
+// Pre-compute bubble styles so they're stable across renders
+const BUBBLE_COLORS = [
+  'rgba(16, 185, 129, 0.3)',
+  'rgba(5, 150, 105, 0.3)',
+  'rgba(4, 120, 87, 0.3)',
+  'rgba(6, 95, 70, 0.3)',
+  'rgba(110, 231, 183, 0.3)'
+];
+
+const BUBBLES = Array.from({ length: 12 }).map((_, i) => ({
+  width: seededRandom(i * 4) * 20 + 10,
+  height: seededRandom(i * 4 + 1) * 20 + 10,
+  top: seededRandom(i * 4 + 2) * 100,
+  left: seededRandom(i * 4 + 3) * 100,
+  color: BUBBLE_COLORS[Math.floor(seededRandom(i * 4 + 4) * 5)],
+  animY: seededRandom(i * 4 + 5) * -100 - 50,
+  animX: (seededRandom(i * 4 + 6) - 0.5) * 100,
+  duration: seededRandom(i * 4 + 7) * 10 + 10,
+  repeatDelay: seededRandom(i * 4 + 8) * 5
+}));
+
 export function DashboardBentoGrid({ currentUser }: DashboardBentoGridProps) {
-  // Client-side state for current date/time and greeting
-  const currentDate = new Date();
-  const greeting = getGreeting();
+  const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setNow(new Date());
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const greeting = getGreeting(now?.getHours() ?? 12);
 
   const items = [
     {
@@ -31,37 +64,29 @@ export function DashboardBentoGrid({ currentUser }: DashboardBentoGridProps) {
           transition={{ duration: 0.6 }}
         >
           {/* Enhanced background animations - floating bubbles with parallax */}
-          {Array.from({ length: 12 }).map((_, i) => (
+          {BUBBLES.map((b, i) => (
             <motion.div
               key={i}
               className='absolute rounded-full backdrop-blur-sm'
               style={{
-                width: `${Math.random() * 20 + 10}px`,
-                height: `${Math.random() * 20 + 10}px`,
-                top: `${Math.random() * 100}%`,
-                left: `${Math.random() * 100}%`,
-                background: `radial-gradient(circle, ${
-                  [
-                    'rgba(16, 185, 129, 0.3)',
-                    'rgba(5, 150, 105, 0.3)',
-                    'rgba(4, 120, 87, 0.3)',
-                    'rgba(6, 95, 70, 0.3)',
-                    'rgba(110, 231, 183, 0.3)'
-                  ][Math.floor(Math.random() * 5)]
-                }, transparent)`,
+                width: `${b.width}px`,
+                height: `${b.height}px`,
+                top: `${b.top}%`,
+                left: `${b.left}%`,
+                background: `radial-gradient(circle, ${b.color}, transparent)`,
                 boxShadow: '0 0 20px rgba(16, 185, 129, 0.2)'
               }}
               animate={{
-                y: [0, Math.random() * -100 - 50],
-                x: [0, (Math.random() - 0.5) * 100],
+                y: [0, b.animY],
+                x: [0, b.animX],
                 opacity: [0.6, 0],
                 scale: [0, 1.5, 0.5]
               }}
               transition={{
-                duration: Math.random() * 10 + 10,
+                duration: b.duration,
                 repeat: Infinity,
                 ease: 'easeInOut',
-                repeatDelay: Math.random() * 5
+                repeatDelay: b.repeatDelay
               }}
             />
           ))}
@@ -140,20 +165,24 @@ export function DashboardBentoGrid({ currentUser }: DashboardBentoGridProps) {
           >
             <div className='backdrop-blur-sm bg-white/30 dark:bg-black/20 rounded-xl px-3 sm:px-4 py-2 sm:py-3 border border-white/30 dark:border-white/20 shadow-[var(--glass-shadow-sm)]'>
               <div className='text-lg sm:text-xl lg:text-2xl font-mono font-bold text-green-700 dark:text-green-300 tabular-nums mb-1'>
-                {currentDate.toLocaleTimeString('en-US', {
-                  hour12: true,
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  second: '2-digit'
-                })}
+                {now
+                  ? now.toLocaleTimeString('en-US', {
+                      hour12: true,
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    })
+                  : '\u00A0'}
               </div>
               <div className='text-xs sm:text-sm font-medium text-green-600 dark:text-green-400'>
-                {currentDate.toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric'
-                })}
+                {now
+                  ? now.toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })
+                  : '\u00A0'}
               </div>
             </div>
           </motion.div>

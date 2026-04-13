@@ -4636,6 +4636,48 @@ CREATE POLICY "events_reg_public_event_update" ON public.events_registrations
     )
   );
 
+-- Updated: 2026-04-12 - Committee members (any role, including students) can update registrations
+-- for events where they are a committee lead or member. This ensures ops access even for non-public events.
+CREATE POLICY "events_reg_committee_member_update" ON public.events_registrations
+  FOR UPDATE TO authenticated USING (
+    event_id IN (
+      SELECT mc.event_id FROM public.marathon_committees mc
+      WHERE mc.lead_id = auth.uid()
+         OR auth.uid() = ANY(mc.member_ids)
+         OR mc.lead_name IN (
+              SELECT p.full_name FROM public.profiles p
+              WHERE p.id = auth.uid() AND p.full_name IS NOT NULL
+            )
+         OR EXISTS (
+              SELECT 1 FROM public.profiles p
+              WHERE p.id = auth.uid()
+                AND p.full_name IS NOT NULL
+                AND p.full_name = ANY(mc.member_names)
+            )
+    )
+  );
+
+-- Updated: 2026-04-12 - Committee members (any role, including students) can read ALL registrations
+-- for events where they are a committee lead or member. Needed for ops: scan any BIB, search participants.
+CREATE POLICY "events_reg_committee_member_read" ON public.events_registrations
+  FOR SELECT TO authenticated USING (
+    event_id IN (
+      SELECT mc.event_id FROM public.marathon_committees mc
+      WHERE mc.lead_id = auth.uid()
+         OR auth.uid() = ANY(mc.member_ids)
+         OR mc.lead_name IN (
+              SELECT p.full_name FROM public.profiles p
+              WHERE p.id = auth.uid() AND p.full_name IS NOT NULL
+            )
+         OR EXISTS (
+              SELECT 1 FROM public.profiles p
+              WHERE p.id = auth.uid()
+                AND p.full_name IS NOT NULL
+                AND p.full_name = ANY(mc.member_names)
+            )
+    )
+  );
+
 -- Authenticated users can read registrations where the registration's institution matches theirs
 CREATE POLICY "events_reg_institution_read" ON public.events_registrations
   FOR SELECT TO authenticated USING (
