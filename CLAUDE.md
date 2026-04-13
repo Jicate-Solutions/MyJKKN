@@ -1227,3 +1227,161 @@ bd list --status open --priority 0-1
 - add to this memory for when i create a custorm roles for organization permision access
 - add to memory for "learners module brand color schema"
 
+---
+
+## 🔐 Role Management & Dynamic Permission System
+
+### Architecture Overview
+
+MyJKKN uses a **fully dynamic permission system** where Role Management UI is the single source of truth for ALL access control — both UI rendering and database-level RLS.
+
+```
+Role Management UI
+  ├─ Permissions (what you can DO)     → user_has_permission()
+  ├─ Institution Scope (what you SEE)  → role_has_institution_access()
+  └─ Both enforced by Supabase RLS policies dynamically
+```
+
+### Key Database Tables
+
+| Table | Purpose |
+|-------|---------|
+| `custom_roles` | Role definitions with permissions JSONB + institution_scope |
+| `user_roles` | Many-to-many user-to-role assignment (multi-role support) |
+| `user_institution_access` | Per-user cross-institution grants |
+| `profiles` | User profile with legacy `role` field (synced via trigger) |
+
+### custom_roles Schema
+
+```sql
+id UUID PK
+role_key VARCHAR(50) UNIQUE     -- e.g., 'admission', 'hod', 'accounts'
+role_name VARCHAR(50)            -- Display name
+description TEXT
+permissions JSONB DEFAULT '{}'   -- { "module.action": true/false }
+institution_scope VARCHAR(10)    -- 'all' | 'own' (DEFAULT 'own')
+is_system_role BOOLEAN
+is_active BOOLEAN
+institution_id UUID (nullable)
+```
+
+### Core Permission Functions (ALL are SECURITY DEFINER)
+
+| Function | Purpose |
+|----------|---------|
+| `user_has_permission(permission_name)` | Checks if user's role(s) grant a permission. Includes super admin bypass, multi-role OR merging, legacy fallback. |
+| `role_has_institution_access(institution_id)` | Checks if user can access data for given institution based on role scope + own institution + user_institution_access grants. |
+| `is_super_admin()` | Checks `profiles.is_super_admin = true` |
+| `is_admin()` | Checks `is_super_admin OR role IN ('admin', 'super_admin', 'administrator')` |
+| `can_user_manage_staff()` | Uses `is_super_admin()` + `user_has_permission('staff.create/edit')` |
+| `get_current_user_role()` | Returns `profiles.role` (legacy single-role) |
+| `get_my_role()` | Alias for `get_current_user_role()` |
+| `get_current_user_institution_id()` | Returns `profiles.institution_id` |
+| `auth_institution_id()` | Alias for `get_current_user_institution_id()` |
+
+### Standardized RLS Policy Pattern
+
+**Every migrated table follows this pattern:**
+
+```sql
+-- For tables WITH institution_id:
+CREATE POLICY "table_select_permission" ON table_name
+FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('module.action.view')
+        AND role_has_institution_access(institution_id))
+);
+
+-- For tables WITHOUT institution_id (system-wide):
+CREATE POLICY "table_select_permission" ON table_name
+FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('module.action.view')
+);
+```
+
+### Institution Scope Values
+
+| Scope | Behavior | Default For |
+|-------|----------|-------------|
+| `'all'` | User sees ALL institutions' data | super_admin, admission, counselor |
+| `'own'` | User sees own institution + user_institution_access grants | All other roles |
+
+### Permission Key Convention
+
+Format: `module.submodule.action`
+
+Actions: `.view`, `.create`, `.edit`, `.delete`, `.manage`, `.approve`, `.export`
+
+Examples:
+- `admission.leads.view` — View admission leads
+- `billing.receipts.create` — Create billing receipts
+- `academic.attendance.mark` — Mark student attendance
+- `organizations.departments.edit` — Edit departments
+
+### Multi-Role System
+
+- Users can have MULTIPLE roles via `user_roles` table
+- Permissions merge with **OR logic** (any role granting = access granted)
+- Institution scope: if ANY role has `scope='all'`, user gets cross-institutional access
+- Primary role synced to `profiles.role` via trigger for backward compatibility
+
+### When Working on Permissions
+
+**ALWAYS:**
+- Use `user_has_permission('key')` in RLS policies, NEVER hardcode role names
+- Use `role_has_institution_access(institution_id)` for institution scoping
+- Include `is_super_admin() OR is_admin()` as first checks in every policy
+- Add new permission keys to `lib/constants/permissions.ts` PERMISSION_CATEGORIES
+- Test with the test login page at `/auth/test-login` (dev only)
+
+**NEVER:**
+- Hardcode role names in RLS policies (e.g., `profiles.role = 'admin'`)
+- Skip institution scoping on tables with `institution_id` column
+- Create RLS policies that query the same table (causes infinite recursion)
+- Use `SECURITY INVOKER` for permission-checking functions (must be DEFINER)
+
+### File Locations
+
+| File | Purpose |
+|------|---------|
+| `lib/constants/permissions.ts` | PERMISSION_CATEGORIES — all permission key definitions |
+| `lib/sidebarMenuLink.ts` | MENU_PERMISSIONS — route-to-permission mapping |
+| `hooks/use-permissions.ts` | usePermissions() — client-side permission checking |
+| `components/auth/permission-guard.tsx` | PermissionGuard + CanView/CanEdit/etc components |
+| `lib/services/roles/role-service.ts` | RoleService — role CRUD operations |
+| `lib/services/users/user-roles-service.ts` | UserRolesService — multi-role assignment |
+| `lib/services/users/user-institution-access-service.ts` | Institution access management |
+| `supabase/setup/02_functions.sql` | All permission-checking database functions |
+| `supabase/setup/03_policies.sql` | All RLS policy definitions |
+| `app/(routes)/users/role-management/` | Role Management UI |
+| `app/(routes)/users/permissions-audit/` | Permissions Audit Dashboard (8 tabs) |
+| `app/auth/test-login/page.tsx` | Dev-only test login for role testing |
+| `scripts/create-test-accounts.ts` | Creates test accounts for all roles |
+
+### Permissions Audit Dashboard (8 Tabs)
+
+| Tab | Purpose |
+|-----|---------|
+| **Unified Access Map** | Tri-layer view: code perms + RLS + nav per role per module |
+| **RLS Audit** | All database policies with expression classification |
+| **System Health** | Orphan users, role mismatches, permission coverage |
+| **User Resolver** | Search user → see effective permissions across all layers |
+| **Permission Matrix** | Roles × permissions grid |
+| **Comparison** | Side-by-side compare two roles |
+| **Export** | Excel/JSON compliance reports |
+| **AI Debugger** | Gemini 4 chat that analyzes permission issues across all 3 layers |
+
+### Test Accounts
+
+All at `/auth/test-login` with password `Test@1234`:
+- `test.superadmin@jkkn.ac.in` — Super Admin
+- `test.admin@jkkn.ac.in` — Administrator
+- `test.admission@jkkn.ac.in` — Admission Officer
+- `test.admission_staff@jkkn.ac.in` — Admission Staff
+- `test.hod@jkkn.ac.in` — HOD
+- `test.faculty@jkkn.ac.in` — Facilitator
+- `test.student@jkkn.ac.in` — Student
+- `test.accounts@jkkn.ac.in` — Accountant
+- ...and 11 more (one per role)
+
