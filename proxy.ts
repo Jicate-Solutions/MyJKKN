@@ -13,6 +13,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/login',
   '/auth/callback',
   '/auth/complete-profile',
+  '/auth/test-login', // Dev-only test login page for role permission testing
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
   '/billing/payment/success', // HDFC payment success callback
@@ -397,6 +398,6 @@ export const config = {
     '/guest/:path*',
     '/driver/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|icons|pwa-test.html).*)'
   ]
 };
