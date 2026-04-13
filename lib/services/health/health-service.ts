@@ -248,6 +248,33 @@ export class HealthService {
   }
 
   // --------------------------------------------------------------------------
+  // Update Goals (step goal, water goal)
+  // --------------------------------------------------------------------------
+
+  static async updateGoals(learnerId: string, stepGoal?: number, waterGoal?: number): Promise<void> {
+    const today = new Date().toISOString().split('T')[0];
+    const updates: any = { updated_at: new Date().toISOString() };
+    if (stepGoal !== undefined) updates.step_goal = stepGoal;
+    if (waterGoal !== undefined) updates.water_goal = waterGoal;
+
+    await (supabase as any)
+      .from('health_daily_logs')
+      .upsert({ learner_id: learnerId, log_date: today, ...updates }, { onConflict: 'learner_id,log_date' });
+  }
+
+  // --------------------------------------------------------------------------
+  // Delete Health Profile (data deletion right per DPDP Act)
+  // --------------------------------------------------------------------------
+
+  static async deleteAllHealthData(learnerId: string): Promise<void> {
+    // Delete in order of dependencies
+    await (supabase as any).from('health_daily_logs').delete().eq('learner_id', learnerId);
+    await (supabase as any).from('health_streaks').delete().eq('learner_id', learnerId);
+    await (supabase as any).from('health_profiles').delete().eq('learner_id', learnerId);
+    await (supabase as any).from('health_consents').delete().eq('learner_id', learnerId);
+  }
+
+  // --------------------------------------------------------------------------
   // Dashboard Composite
   // --------------------------------------------------------------------------
 
