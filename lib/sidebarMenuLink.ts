@@ -79,6 +79,9 @@ import {
   TreePine,
   UserCircle2,
   Trophy as TrophyIcon,
+  PieChart,
+  Wallet,
+  Scale,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -457,6 +460,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learn/leaderboard': 'pde.leaderboard.view',
 
   // Startup Studio
+  '/startup-studio/portfolio': 'startup_studio.analytics.view',
+  '/startup-studio/mentors': 'startup_studio.analytics.view',
+  '/startup-studio/alumni': 'startup_studio.analytics.view',
+  '/startup-studio/kpi': 'startup_studio.analytics.view',
+  '/startup-studio/marketing': 'startup_studio.analytics.view',
+  '/startup-studio/finance': 'startup_studio.analytics.view',
+  '/startup-studio/governance': 'startup_studio.analytics.view',
+  '/startup-studio/solve-for-100': 'startup_studio.events.view',
+  '/startup-studio/solve-for-100/dashboard': 'startup_studio.events.view',
+  '/startup-studio/solve-for-100/leaderboard': 'startup_studio.leaderboard.view',
+  '/startup-studio/solve-for-100/mentor': 'startup_studio.analytics.view',
+  '/startup-studio/solve-for-100/programs': 'startup_studio.analytics.view',
+  '/startup-studio/solve-for-100/admin': 'startup_studio.analytics.view',
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
@@ -1650,9 +1666,71 @@ export function GetPages(pathname: string): MenuGroup[] {
 
         return [
           {
+            href: '/startup-studio/portfolio',
+            label: 'Portfolio Intelligence',
+            active: pathname === '/startup-studio/portfolio',
+            icon: Gauge,
+            submenus: []
+          },
+          {
+            href: '/startup-studio/mentors',
+            label: 'Mentor Network',
+            active: pathname.startsWith('/startup-studio/mentors'),
+            icon: Users,
+            submenus: []
+          },
+          {
+            href: '/startup-studio/alumni',
+            label: 'Alumni Network',
+            active: pathname.startsWith('/startup-studio/alumni'),
+            icon: Award,
+            submenus: []
+          },
+          {
+            href: '/startup-studio/kpi',
+            label: 'KPI Dashboard',
+            active: pathname.startsWith('/startup-studio/kpi'),
+            icon: PieChart,
+            submenus: []
+          },
+          {
+            href: '/startup-studio/marketing',
+            label: 'Marketing',
+            active: pathname.startsWith('/startup-studio/marketing'),
+            icon: Megaphone,
+            submenus: []
+          },
+          {
+            href: '/startup-studio/finance',
+            label: 'Finance',
+            active: pathname.startsWith('/startup-studio/finance'),
+            icon: Wallet,
+            submenus: []
+          },
+          {
+            href: '/startup-studio/governance',
+            label: 'Governance',
+            active: pathname.startsWith('/startup-studio/governance'),
+            icon: Scale,
+            submenus: []
+          },
+          {
+            href: '/startup-studio/solve-for-100',
+            label: 'Solve for 100',
+            active: pathname.startsWith('/startup-studio/solve-for-100'),
+            icon: Target,
+            submenus: pathname.startsWith('/startup-studio/solve-for-100') ? [
+              { href: '/startup-studio/solve-for-100/dashboard', label: 'My Team', active: pathname.includes('/dashboard') },
+              { href: '/startup-studio/solve-for-100/leaderboard', label: 'Leaderboard', active: pathname.includes('/leaderboard') },
+              { href: '/startup-studio/solve-for-100/admin', label: 'Admin', active: pathname.includes('/admin') },
+              { href: '/startup-studio/solve-for-100/mentor', label: 'My Mentees', active: pathname.includes('/mentor') },
+              { href: '/startup-studio/solve-for-100/programs', label: 'Programs', active: pathname.includes('/programs') },
+            ] : []
+          },
+          {
             href: '/startup-studio/events',
             label: 'Events',
-            active: pathname.startsWith('/startup-studio'),
+            active: pathname.startsWith('/startup-studio/events'),
             icon: Rocket,
             submenus: activeId ? [
               {
