@@ -1362,11 +1362,15 @@ function LeadDetailPageContent() {
                   <DropdownMenuItem
                     className="text-destructive"
                     onClick={() => {
-                      if (window.confirm('Are you sure you want to delete this lead? This action cannot be undone.')) {
-                        deleteLead.mutate(leadId, {
-                          onSuccess: () => router.push('/admission/leads'),
-                        });
-                      }
+                      // Use setTimeout to escape Radix dropdown's focus trap
+                      // which blocks window.confirm() from working properly
+                      setTimeout(() => {
+                        if (window.confirm('Are you sure you want to delete this lead? This action cannot be undone.')) {
+                          deleteLead.mutate(leadId, {
+                            onSuccess: () => router.push('/admission/leads'),
+                          });
+                        }
+                      }, 100);
                     }}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
