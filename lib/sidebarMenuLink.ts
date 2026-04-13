@@ -2,6 +2,7 @@
 
 import {
   Home,
+  Heart,
   Users,
   Box,
   FileText,
@@ -78,9 +79,6 @@ import {
   TreePine,
   UserCircle2,
   Trophy as TrophyIcon,
-  PieChart,
-  Wallet,
-  Scale,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -129,6 +127,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
   '/bug-leaderboard': 'learners.bug_reports.view',
+
+  // Documents
+  '/documents': 'documents.view',
+  '/documents/history': 'documents.history.view',
+  '/documents/settings': 'documents.settings.view',
+  '/documents/templates': 'documents.templates.view',
 
   // User Management
   '/users': 'users.view',
@@ -240,9 +244,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/batches': 'academic.batches.view',
   '/academic/batches/new': 'academic.batches.create',
   '/academic/batches/[id]/edit': 'academic.batches.edit',
-  // Internal Marks (CIA)
-  '/academic/internal-marks': 'academic.internal-marks.view',
-  '/academic/internal-marks/report': 'academic.internal-marks.reports',
 
   // Notification Management
   '/admin/notifications': 'notifications.view',
@@ -327,7 +328,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
-  '/billing/onboarding': 'billing.onboarding.view',
 
 
   // Resource Management
@@ -417,7 +417,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/marketing/chat': 'admission.marketing.chat.view',
   '/admission/marketing/chat/performance': 'admission.marketing.chat.view',
   '/admission/marketing/chat/settings': 'admission.marketing.chat.manage',
-  '/admission/marketing/whatsapp-broadcast': 'admission.marketing.chat.view',
   '/admission/marketing/chatbot': 'admission.marketing.chatbot.view',
   '/admission/marketing/chatbot/analytics': 'admission.marketing.chatbot.view',
   '/admission/marketing/chatbot/knowledge': 'admission.marketing.chatbot.manage',
@@ -448,8 +447,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/workflow-config': 'admission.settings.workflows.manage',
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
-  '/admission/settings/forms': 'admission.settings.forms.view',
-  '/admission/settings/forms/new': 'admission.settings.forms.manage',
 
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',
@@ -473,26 +470,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/vote': 'startup_studio.events.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
   '/startup-studio/events/[id]/dashboard': 'startup_studio.analytics.view',
-
-  // Events Module (Marathon)
-  '/events': 'events.view',
-  '/events/marathon': 'events.marathon.view',
-  '/events/marathon/[id]/dashboard': 'events.marathon.view',
-  '/events/marathon/[id]/registrations': 'events.marathon.registrations.manage',
-  '/events/marathon/[id]/sponsors': 'events.marathon.sponsors.manage',
-  '/events/marathon/[id]/committees': 'events.marathon.committees.manage',
-  '/events/marathon/[id]/budget': 'events.marathon.budget.manage',
-  '/events/marathon/[id]/live': 'events.marathon.live_ops.manage',
-  '/events/marathon/[id]/results': 'events.marathon.results.manage',
-  '/events/marathon/[id]/analytics': 'events.marathon.analytics.view',
-  '/events/marathon/[id]/certificates': 'events.marathon.certificates.manage',
-  '/events/marathon/[id]/settings': 'events.marathon.settings.manage',
-  '/events/marathon/[id]/ops/dashboard': 'events.marathon.live_ops.manage',
-  '/events/marathon/[id]/ops/check-in': 'events.marathon.live_ops.manage',
-  '/events/marathon/[id]/ops/tshirt': 'events.marathon.live_ops.manage',
-  '/events/marathon/[id]/ops/certificate': 'events.marathon.live_ops.manage',
-  '/events/marathon/[id]/ops/stalls': 'events.marathon.live_ops.manage',
-  '/events/marathon/[id]/ops/qr-codes': 'events.marathon.live_ops.manage',
+  '/startup-studio/events/[id]/solve-for-100': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/solve-for-100/weekly': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/solve-for-100/icp': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/solve-for-100/mentor': 'startup_studio.evaluations.manage',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -822,24 +803,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname.startsWith('/academic/attendance/consolidation')
             }
           ]
-        },
-        {
-          href: '/academic/internal-marks',
-          label: 'Internal Marks',
-          active: pathname.startsWith('/academic/internal-marks'),
-          icon: ClipboardList,
-          submenus: [
-            {
-              href: '/academic/internal-marks',
-              label: 'Mark Entry',
-              active: pathname === '/academic/internal-marks'
-            },
-            {
-              href: '/academic/internal-marks/report',
-              label: 'Reports',
-              active: pathname.startsWith('/academic/internal-marks/report')
-            }
-          ]
         }
       ]
     },
@@ -1010,8 +973,13 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/marketing/campaigns/roi'
             },
             {
+              href: '/admission/marketing/campaigns/segments',
+              label: 'Segments',
+              active: pathname === '/admission/marketing/campaigns/segments'
+            },
+            {
               href: '/admission/marketing/chat',
-              label: 'WhatsApp',
+              label: 'WhatsApp Chat',
               active: pathname.startsWith('/admission/marketing/chat')
             },
             {
@@ -1023,6 +991,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/marketing/parent-communication',
               label: 'Parent Communication',
               active: pathname === '/admission/marketing/parent-communication'
+            },
+            {
+              href: '/admission/marketing/re-engagement',
+              label: 'Re-engagement',
+              active: pathname === '/admission/marketing/re-engagement'
             },
             {
               href: '/admission/marketing/remarketing',
@@ -1119,11 +1092,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/settings/sources',
               label: 'Lead Sources',
               active: pathname === '/admission/settings/sources'
-            },
-            {
-              href: '/admission/settings/forms',
-              label: 'Form Builder',
-              active: pathname.startsWith('/admission/settings/forms')
             },
             {
               href: '/admission/settings/templates',
@@ -1312,13 +1280,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
-          href: '/billing/onboarding',
-          label: 'Learner Onboarding',
-          active: pathname.startsWith('/billing/onboarding'),
-          icon: UserCheck,
-          submenus: []
-        },
-        {
           href: '/billing/receipts',
           label: 'Receipts',
           active: pathname.startsWith('/billing/receipts'),
@@ -1368,6 +1329,26 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     
+    {
+      groupLabel: 'Documents',
+      menus: [
+        {
+          href: '/documents',
+          label: 'Document Center',
+          active: pathname === '/documents',
+          icon: FileText,
+          submenus: []
+        },
+        {
+          href: '/documents/history',
+          label: 'Document History',
+          active: pathname.startsWith('/documents/history'),
+          icon: Clock,
+          submenus: []
+        }
+      ]
+    },
+
     {
       groupLabel: 'Resource Management',
       menus: [
@@ -1607,6 +1588,32 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      groupLabel: 'Health & Wellness',
+      menus: [
+        {
+          href: '/health/dashboard',
+          label: 'Health Dashboard',
+          active: pathname === '/health/dashboard',
+          icon: Heart,
+          submenus: []
+        },
+        {
+          href: '/health/profile',
+          label: 'My Health Profile',
+          active: pathname === '/health/profile',
+          icon: UserCheck,
+          submenus: []
+        },
+        {
+          href: '/health/leaderboard',
+          label: 'Leaderboard',
+          active: pathname === '/health/leaderboard',
+          icon: TrophyIcon,
+          submenus: []
+        }
+      ]
+    },
+    {
       groupLabel: 'Startup Studio',
       menus: (() => {
         // Extract active event ID from pathname: /startup-studio/events/[uuid]/...
@@ -1615,70 +1622,9 @@ export function GetPages(pathname: string): MenuGroup[] {
 
         return [
           {
-            href: '/startup-studio/portfolio',
-            label: 'Portfolio Intelligence',
-            active: pathname === '/startup-studio/portfolio',
-            icon: Gauge,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/mentors',
-            label: 'Mentor Network',
-            active: pathname.startsWith('/startup-studio/mentors'),
-            icon: Users,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/alumni',
-            label: 'Alumni Network',
-            active: pathname.startsWith('/startup-studio/alumni'),
-            icon: Award,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/kpi',
-            label: 'KPI Dashboard',
-            active: pathname.startsWith('/startup-studio/kpi'),
-            icon: PieChart,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/marketing',
-            label: 'Marketing',
-            active: pathname.startsWith('/startup-studio/marketing'),
-            icon: Megaphone,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/finance',
-            label: 'Finance',
-            active: pathname.startsWith('/startup-studio/finance'),
-            icon: Wallet,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/governance',
-            label: 'Governance',
-            active: pathname.startsWith('/startup-studio/governance'),
-            icon: Scale,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/solve-for-100',
-            label: 'Solve for 100',
-            active: pathname.startsWith('/startup-studio/solve-for-100'),
-            icon: Target,
-            submenus: pathname.startsWith('/startup-studio/solve-for-100') ? [
-              { href: '/startup-studio/solve-for-100/dashboard', label: 'My Team', active: pathname.includes('/dashboard') },
-              { href: '/startup-studio/solve-for-100/leaderboard', label: 'Leaderboard', active: pathname.includes('/leaderboard') },
-              { href: '/startup-studio/solve-for-100/mentor', label: 'My Mentees', active: pathname.includes('/mentor') },
-              { href: '/startup-studio/solve-for-100/programs', label: 'Program Admin', active: pathname.includes('/programs') },
-            ] : []
-          },
-          {
             href: '/startup-studio/events',
             label: 'Events',
-            active: pathname.startsWith('/startup-studio/events'),
+            active: pathname.startsWith('/startup-studio'),
             icon: Rocket,
             submenus: activeId ? [
               {
@@ -1751,47 +1697,12 @@ export function GetPages(pathname: string): MenuGroup[] {
                 label: 'Case Study',
                 active: pathname.includes('/case-study')
               },
+              {
+                href: `/startup-studio/events/${activeId}/solve-for-100`,
+                label: 'Solve for 100',
+                active: pathname.includes('/solve-for-100')
+              },
             ] : []
-          }
-        ];
-      })()
-    },
-    {
-      groupLabel: 'Events',
-      menus: (() => {
-        // Extract active marathon event ID from pathname: /events/marathon/[uuid]/...
-        const marathonMatch = pathname.match(/\/events\/marathon\/([^/]+)/);
-        const activeMarathonId = marathonMatch?.[1] ? marathonMatch[1] : null;
-
-        // All marathon sub-pages (admin-only pages marked)
-        const allSubmenus = activeMarathonId ? [
-          { href: `/events/marathon/${activeMarathonId}/dashboard`, label: 'Dashboard', active: pathname.includes('/dashboard'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/registrations`, label: 'Registrations', active: pathname.includes('/registrations'), adminOnly: false },
-          { href: `/events/marathon/${activeMarathonId}/sponsors`, label: 'Sponsors', active: pathname.includes('/sponsors'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/committees`, label: 'Committees', active: pathname.includes('/committees'), adminOnly: false },
-          { href: `/events/marathon/${activeMarathonId}/budget`, label: 'Budget', active: pathname.includes('/budget'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/live`, label: 'Live Ops', active: pathname.includes('/live'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/results`, label: 'Results', active: pathname.includes('/results'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/analytics`, label: 'Analytics', active: pathname.includes('/analytics'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/certificates`, label: 'Certificates', active: pathname.includes('/certificates'), adminOnly: true },
-          { href: `/events/marathon/${activeMarathonId}/settings`, label: 'Settings', active: pathname.includes('/settings'), adminOnly: true },
-          // Operations sub-pages (visible to all institution roles + admins, not students)
-          { href: `/events/marathon/${activeMarathonId}/ops/dashboard`, label: 'Ops Dashboard', active: pathname.includes('/ops/dashboard'), adminOnly: false },
-          { href: `/events/marathon/${activeMarathonId}/ops/check-in`, label: 'Check-in', active: pathname.includes('/ops/check-in'), adminOnly: false },
-          { href: `/events/marathon/${activeMarathonId}/ops/tshirt`, label: 'T-Shirt', active: pathname.includes('/ops/tshirt'), adminOnly: false },
-          { href: `/events/marathon/${activeMarathonId}/ops/certificate`, label: 'Certificate', active: pathname.includes('/ops/certificate'), adminOnly: false },
-          { href: `/events/marathon/${activeMarathonId}/ops/stalls`, label: 'Stalls', active: pathname.includes('/ops/stalls'), adminOnly: false },
-          { href: `/events/marathon/${activeMarathonId}/ops/qr-codes`, label: 'QR Codes', active: pathname.includes('/ops/qr-codes'), adminOnly: false },
-        ] : [];
-
-        return [
-          {
-            href: '/events/marathon',
-            label: 'Marathon Events',
-            active: pathname.startsWith('/events'),
-            icon: CalendarDays,
-            // Sub-menus will be filtered by GetRoleBasedPages based on adminOnly flag
-            submenus: allSubmenus
           }
         ];
       })()
@@ -2041,12 +1952,6 @@ export function GetRoleBasedPages(
             return true;
           }
 
-          // Events module is always visible for all authenticated users
-          // Role-based access is handled at the submenu and page level
-          if (menu.href === '/events/marathon' || menu.href === '/events') {
-            return true;
-          }
-
           // Check if menu requires super admin
           if ((menu as any).requiresSuperAdmin) {
             return false; // Hide from non-super admin users
@@ -2130,24 +2035,6 @@ export function GetRoleBasedPages(
               if (submenu.href.includes('/leaderboard')) return true;
               if (userRole.role_key === 'faculty' && submenu.href.includes('/checklists')) return true;
               return false;
-            }
-
-            // Marathon events: admin-only pages restricted to admin/coordinator roles.
-            // Non-admin users only see Registrations and Committees sub-pages.
-            if (submenu.href.includes('/events/marathon/') && (submenu as any).adminOnly !== undefined) {
-              const marathonAdminRoles = ['admin', 'administrator', 'event_coordinator'];
-              const isMarathonAdmin =
-                marathonAdminRoles.includes(userRole.role_key || '') ||
-                userRole.permissions['events.marathon.view'] === true;
-
-              if ((submenu as any).adminOnly) {
-                // Admin-only pages: only visible to marathon admins
-                return isMarathonAdmin;
-              }
-              // Non-admin pages (Registrations, Committees, Ops): visible to all users
-              // Student committee members need access to committees and ops pages
-              // Page-level guards (useCommitteeMembership) handle actual access control
-              return true;
             }
 
             const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
