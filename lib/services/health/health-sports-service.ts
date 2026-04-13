@@ -212,4 +212,64 @@ export class HealthSportsService {
     if (error) throw error;
     return data;
   }
+
+  static async updateAchievement(id: string, updates: Partial<HealthSportsAchievement>): Promise<void> {
+    const { error } = await (supabase as any)
+      .from('health_sports_achievements').update(updates).eq('id', id);
+    if (error) throw error;
+  }
+
+  static async deleteAchievement(id: string): Promise<void> {
+    const { error } = await (supabase as any)
+      .from('health_sports_achievements').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  // --------------------------------------------------------------------------
+  // Update + Delete: Training Logs
+  // --------------------------------------------------------------------------
+
+  static async updateTrainingLog(id: string, updates: Partial<HealthTrainingLog>): Promise<void> {
+    const { error } = await (supabase as any)
+      .from('health_training_logs').update(updates).eq('id', id);
+    if (error) throw error;
+  }
+
+  static async deleteTrainingLog(id: string): Promise<void> {
+    const { error } = await (supabase as any)
+      .from('health_training_logs').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  // --------------------------------------------------------------------------
+  // Update + Delete: Injuries
+  // --------------------------------------------------------------------------
+
+  static async updateInjury(id: string, updates: Partial<HealthSportsInjury>): Promise<void> {
+    const { error } = await (supabase as any)
+      .from('health_sports_injuries').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+  }
+
+  static async deleteInjury(id: string): Promise<void> {
+    const { error } = await (supabase as any)
+      .from('health_sports_injuries').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  // --------------------------------------------------------------------------
+  // Update + Delete: Fitness Tests
+  // --------------------------------------------------------------------------
+
+  static async updateFitnessTest(id: string, updates: Partial<HealthFitnessTest>): Promise<void> {
+    const { error } = await (supabase as any)
+      .from('health_fitness_tests').update(updates).eq('id', id);
+    if (error) throw error;
+  }
+
+  static async deleteFitnessTest(id: string): Promise<void> {
+    const { error } = await (supabase as any)
+      .from('health_fitness_tests').delete().eq('id', id);
+    if (error) throw error;
+  }
 }
