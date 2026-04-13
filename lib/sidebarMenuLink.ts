@@ -1610,6 +1610,34 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/health/leaderboard',
           icon: TrophyIcon,
           submenus: []
+        },
+        {
+          href: '/health/sports',
+          label: 'Sports Profile',
+          active: pathname === '/health/sports',
+          icon: Activity,
+          submenus: []
+        },
+        {
+          href: '/health/fitness',
+          label: 'Fitness Tests',
+          active: pathname === '/health/fitness' || pathname.startsWith('/health/fitness/'),
+          icon: Activity,
+          submenus: []
+        },
+        {
+          href: '/health/training',
+          label: 'Training Log',
+          active: pathname === '/health/training',
+          icon: ClipboardList,
+          submenus: []
+        },
+        {
+          href: '/health/achievements',
+          label: 'Achievements',
+          active: pathname === '/health/achievements',
+          icon: TrophyIcon,
+          submenus: []
         }
       ]
     },
