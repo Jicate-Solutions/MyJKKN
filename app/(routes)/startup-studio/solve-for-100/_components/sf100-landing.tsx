@@ -200,19 +200,19 @@ export function SF100Landing() {
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
                 <p className="text-xl font-bold tabular-nums">
-                  {stats.active_enrollments ?? stats.activeTeams ?? '—'}
+                  {(stats as any)?.data?.total_teams ?? (stats as any)?.total_teams ?? stats.active_enrollments ?? '—'}
                 </p>
                 <p className="text-xs text-muted-foreground">Active Teams</p>
               </div>
               <div>
                 <p className="text-xl font-bold tabular-nums">
-                  {stats.total_paid_users ?? stats.totalPaidUsers ?? '—'}
+                  {(stats as any)?.data?.total_paid_users ?? (stats as any)?.total_paid_users ?? stats.total_paid_users ?? '—'}
                 </p>
                 <p className="text-xs text-muted-foreground">Paid Users Logged</p>
               </div>
               <div>
                 <p className="text-xl font-bold tabular-nums">
-                  {stats.graduated_teams ?? stats.graduatedTeams ?? '—'}
+                  {(stats as any)?.data?.total_graduated ?? (stats as any)?.total_graduated ?? stats.graduated_teams ?? '—'}
                 </p>
                 <p className="text-xs text-muted-foreground">Graduated to NIF</p>
               </div>
