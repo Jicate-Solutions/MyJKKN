@@ -1629,7 +1629,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           href: '/health/training',
           label: 'Training Log',
           active: pathname === '/health/training',
-          icon: Timer,
+          icon: ClipboardList,
           submenus: []
         },
         {
