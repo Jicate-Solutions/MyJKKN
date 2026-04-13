@@ -183,7 +183,6 @@ export async function POST(request: NextRequest) {
           wa_opt_in_at: new Date().toISOString(),
           wa_opt_in_source: 'expo_bulk_upload',
         }),
-        lead_number: `LEAD-${new Date().getFullYear().toString().slice(-2)}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
       });
     }
 
@@ -191,15 +190,9 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < validRows.length; i += BATCH_SIZE) {
       const batch = validRows.slice(i, i + BATCH_SIZE);
 
-      // Generate unique lead numbers per row in batch
-      const batchWithNumbers = batch.map((row) => ({
-        ...row,
-        lead_number: `LEAD-${new Date().getFullYear().toString().slice(-2)}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-      }));
-
       const { error: insertError } = await (supabase as any)
         .from('admission_leads')
-        .insert(batchWithNumbers);
+        .insert(batch);
 
       if (insertError) {
         console.error(
