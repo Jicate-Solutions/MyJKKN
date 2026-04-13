@@ -108,7 +108,7 @@ export class HealthSportsService {
     return {
       total_minutes: logs.reduce((s: number, l: any) => s + (l.duration_minutes || 0), 0),
       sessions: logs.length,
-      sports: [...new Set(logs.map((l: any) => l.sport))],
+      sports: [...new Set(logs.map((l: any) => l.sport))] as string[],
     };
   }
 
