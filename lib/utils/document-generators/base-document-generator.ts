@@ -13,6 +13,14 @@ import 'jspdf-autotable';
 import type { DocumentBranding, DocumentMetadata, PageOrientation, PageSize } from '@/types/documents';
 import { DEFAULT_COLORS, type RGBColor, generateQRDataUrl, formatDateIndian } from './brand-utils';
 
+// Augment jsPDF with autoTable from jspdf-autotable
+declare module 'jspdf' {
+  interface jsPDF {
+    autoTable: (options: Record<string, unknown>) => void;
+    lastAutoTable: { finalY: number };
+  }
+}
+
 export interface GeneratorOptions {
   orientation: PageOrientation;
   pageSize: PageSize;

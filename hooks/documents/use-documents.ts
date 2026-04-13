@@ -114,16 +114,12 @@ export function useGenerateDocument() {
       return DocumentGenerationService.generateDocument(dto, userId);
     },
     onSuccess: (result) => {
-      // Trigger browser download
-      const blob = new Blob([result.pdfBytes], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${result.document.document_number.replace(/\//g, '-')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // Use file-saver for reliable download (Blob URL + anchor click is unreliable from async callbacks)
+      import('file-saver').then(({ saveAs }) => {
+        const blob = new Blob([result.pdfBytes], { type: 'application/pdf' });
+        const filename = `${result.document.document_number.replace(/\//g, '-')}.pdf`;
+        saveAs(blob, filename);
+      });
 
       queryClient.invalidateQueries({ queryKey: documentKeys.all });
       toast.success(`${result.document.title} generated successfully`);
@@ -227,15 +223,10 @@ export function useGenerateBulkDocuments() {
       return { zipBlob, count: learners.length, auditRecords };
     },
     onSuccess: (result) => {
-      // Trigger ZIP download
-      const url = URL.createObjectURL(result.zipBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `documents_${Date.now()}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // Use file-saver for reliable download (Blob URL + anchor click is unreliable from async callbacks)
+      import('file-saver').then(({ saveAs }) => {
+        saveAs(result.zipBlob, `documents_${Date.now()}.zip`);
+      });
 
       queryClient.invalidateQueries({ queryKey: documentKeys.all });
       toast.success(`${result.count} documents generated and downloaded`);

@@ -64,8 +64,7 @@ export class FeeNoticeLetterGenerator extends BaseDocumentGenerator {
         `Rs. ${Number(b.balance).toLocaleString('en-IN')}`,
       ]);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.doc as any).autoTable({
+      this.doc.autoTable({
         startY: y,
         margin: { left: this.margin, right: this.margin },
         head: [['#', 'Description', 'Amount', 'Due Date', 'Status', 'Balance']],
@@ -88,8 +87,7 @@ export class FeeNoticeLetterGenerator extends BaseDocumentGenerator {
         },
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      y = (this.doc as any).lastAutoTable.finalY + 8;
+      y = this.doc.lastAutoTable.finalY + 8;
     } else {
       this.setTextStyle(10, 'normal', muted);
       this.doc.text('No outstanding bills found.', this.margin, y);

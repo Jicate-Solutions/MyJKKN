@@ -89,8 +89,7 @@ export class HallTicketGenerator extends BaseDocumentGenerator {
         c.time || '',
       ]);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.doc as any).autoTable({
+      this.doc.autoTable({
         startY: y,
         margin: { left: this.margin, right: this.margin },
         head: [['#', 'Code', 'Course', 'Date', 'Time']],
@@ -111,8 +110,7 @@ export class HallTicketGenerator extends BaseDocumentGenerator {
         },
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      y = (this.doc as any).lastAutoTable.finalY + 6;
+      y = this.doc.lastAutoTable.finalY + 6;
     }
 
     // Instructions

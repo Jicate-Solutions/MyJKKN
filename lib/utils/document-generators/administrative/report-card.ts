@@ -61,8 +61,7 @@ export class ReportCardGenerator extends BaseDocumentGenerator {
         `${c.percentage.toFixed(1)}%`,
       ]);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.doc as any).autoTable({
+      this.doc.autoTable({
         startY: y,
         margin: { left: this.margin, right: this.margin },
         head: [['#', 'Code', 'Course', 'Total', 'Present', 'Absent', '%']],
@@ -86,8 +85,7 @@ export class ReportCardGenerator extends BaseDocumentGenerator {
         },
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      y = (this.doc as any).lastAutoTable.finalY + 6;
+      y = this.doc.lastAutoTable.finalY + 6;
     } else {
       this.setTextStyle(9, 'italic', DEFAULT_COLORS.mutedText);
       this.doc.text('Course-wise attendance data not available.', this.margin, y);

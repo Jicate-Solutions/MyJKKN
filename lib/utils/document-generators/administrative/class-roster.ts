@@ -60,8 +60,7 @@ export class ClassRosterGenerator extends BaseDocumentGenerator {
         s.student_mobile || '',
       ]);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (this.doc as any).autoTable({
+      this.doc.autoTable({
         startY: y,
         margin: { left: this.margin, right: this.margin },
         head: [['#', 'Roll No', 'Reg. No', 'Student Name', 'Gender', "Father's Name", 'Mobile']],
