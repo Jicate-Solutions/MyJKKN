@@ -100,6 +100,37 @@ export function DataTableRowActions<TData>({
             <Edit className='mr-2 h-4 w-4' />
             Edit
           </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={async () => {
+              try {
+                const { ClassRosterGenerator } = await import('@/lib/utils/pdf/generators/class-roster');
+                const { DEFAULT_COLORS } = await import('@/lib/utils/pdf/brand-utils');
+                const { DocumentAuditService } = await import('@/lib/services/document-audit-service');
+                const branding = {
+                  institutionName: 'JKKN Institution',
+                  institutionAddress: '', institutionCity: '', institutionState: '', institutionPinCode: '',
+                  logoDataUrl: '', primaryColor: DEFAULT_COLORS.primary,
+                  secondaryColor: DEFAULT_COLORS.secondary, backgroundColor: DEFAULT_COLORS.background,
+                  signatures: [], watermarkOpacity: 0.05,
+                };
+                const docNumber = await DocumentAuditService.generateDocumentNumber(section.institution_id, 'class_roster');
+                const metadata = { documentNumber: docNumber, documentType: 'class_roster' as const, category: 'administrative' as const, generatedAt: new Date().toISOString(), generatedBy: '' };
+                const generator = new ClassRosterGenerator(branding as any, metadata);
+                await generator.generateAndDownload({
+                  section_name: section.section_name,
+                  semester_name: '',
+                  program_name: '',
+                  department_name: '',
+                  academic_year_name: '',
+                  students: [],
+                }, `Class-Roster-${section.section_name || 'Section'}.pdf`);
+                toast.success('Class roster downloaded');
+              } catch (e) { toast.error('Failed to generate roster'); console.error(e); }
+            }}
+          >
+            <FileText className='mr-2 h-4 w-4' />
+            Export Roster
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => canDelete && setShowDeleteAlert(true)}
