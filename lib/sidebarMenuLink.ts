@@ -3,6 +3,10 @@
 import {
   Home,
   Heart,
+  Dumbbell,
+  Activity,
+  Timer,
+  Medal,
   Users,
   Box,
   FileText,
