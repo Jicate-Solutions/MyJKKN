@@ -307,7 +307,7 @@ function MoodCheckinCTA({ todayMood }: { todayMood: MoodScore | null }) {
             <p className="text-xs text-slate-500">Quick check-in — takes 10 seconds</p>
           </div>
         </div>
-        <Link href="/health/checkin">
+        <Link href="/health/assessments">
           <Button
             size="sm"
             className="bg-violet-600 hover:bg-violet-700 text-white shrink-0"
