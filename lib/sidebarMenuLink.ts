@@ -501,6 +501,30 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/solve-for-100/weekly': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/icp': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/mentor': 'startup_studio.evaluations.manage',
+
+  // Learners Council
+  '/learners-council': 'learners_council.dashboard.view',
+  '/learners-council/structure': 'learners_council.structure.view',
+  '/learners-council/structure/members': 'learners_council.structure.view',
+  '/learners-council/structure/terms': 'learners_council.structure.view',
+  '/learners-council/structure/yuva': 'learners_council.structure.view',
+  '/learners-council/structure/verticals': 'learners_council.structure.view',
+  '/learners-council/communication': 'learners_council.communication.view',
+  '/learners-council/communication/polls': 'learners_council.communication.view',
+  '/learners-council/communication/forums': 'learners_council.communication.view',
+  '/learners-council/communication/chat': 'learners_council.communication.view',
+  '/learners-council/events': 'learners_council.events.view',
+  '/learners-council/events/calendar': 'learners_council.events.view',
+  '/learners-council/events/proposals': 'learners_council.events.view',
+  '/learners-council/od': 'learners_council.od.view',
+  '/learners-council/od/approvals': 'learners_council.od.view',
+  '/learners-council/od/chains': 'learners_council.od.view',
+  '/learners-council/selection': 'learners_council.selection.view',
+  '/learners-council/selection/nominations': 'learners_council.selection.view',
+  '/learners-council/selection/interviews': 'learners_council.selection.view',
+  '/learners-council/selection/elections': 'learners_council.selection.view',
+  '/learners-council/issues': 'learners_council.issues.view',
+  '/learners-council/settings': 'learners_council.settings.view',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1937,6 +1961,67 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Impact',
           active: pathname.startsWith('/work-pulse/impact'),
           icon: TrendingUp,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Learners Council',
+      menus: [
+        {
+          href: '/learners-council',
+          label: 'Dashboard',
+          active: pathname === '/learners-council',
+          icon: Award,
+          submenus: []
+        },
+        {
+          href: '/learners-council/structure',
+          label: 'Structure',
+          active: pathname.startsWith('/learners-council/structure'),
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/learners-council/communication',
+          label: 'Communication',
+          active: pathname.startsWith('/learners-council/communication'),
+          icon: MessagesSquare,
+          submenus: []
+        },
+        {
+          href: '/learners-council/events',
+          label: 'Events',
+          active: pathname.startsWith('/learners-council/events'),
+          icon: CalendarDays,
+          submenus: []
+        },
+        {
+          href: '/learners-council/od',
+          label: 'OD Requests',
+          active: pathname.startsWith('/learners-council/od'),
+          icon: Briefcase,
+          submenus: []
+        },
+        {
+          href: '/learners-council/selection',
+          label: 'Selection',
+          active: pathname.startsWith('/learners-council/selection'),
+          icon: Vote,
+          submenus: []
+        },
+        {
+          href: '/learners-council/issues',
+          label: 'Issues',
+          active: pathname.startsWith('/learners-council/issues'),
+          icon: Bug,
+          submenus: []
+        },
+        {
+          href: '/learners-council/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/learners-council/settings'),
+          icon: Settings,
           submenus: []
         }
       ]
