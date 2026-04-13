@@ -2,6 +2,7 @@
 
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as HotToaster } from 'react-hot-toast';
+import { Toaster as SonnerToaster } from 'sonner';
 import AdminPanelLayout from '@/components/layout/admin-panel-layout';
 import { QueryClientProvider } from '@/providers/query-provider';
 import { BugReporterWidget } from '@/components/bug-reporter/bug-reporter-widget';
@@ -19,6 +20,7 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
       <AdminPanelLayout>
         {children}
         <Toaster />
+        <SonnerToaster position="top-right" richColors closeButton />
         <HotToaster
           position="top-right"
           reverseOrder={false}
