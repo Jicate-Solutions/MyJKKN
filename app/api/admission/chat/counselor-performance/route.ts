@@ -34,7 +34,21 @@ export async function GET(request: NextRequest) {
       .single();
 
     const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
-    if (!isSuperAdmin && profile?.institution_id !== institutionId) {
+
+    // Check custom role permissions for non-super-admins
+    let hasAccess = isSuperAdmin;
+    if (!hasAccess) {
+      const { data: userRolesData } = await supabase
+        .from('user_roles')
+        .select('role_id, custom_roles!inner(role_key, permissions, institution_scope)')
+        .eq('user_id', user.id);
+
+      hasAccess = (userRolesData || []).some(
+        (ur: any) => ur.custom_roles?.permissions?.['admission.counselors.performance.view'] === true
+      );
+    }
+
+    if (!hasAccess && profile?.institution_id !== institutionId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 

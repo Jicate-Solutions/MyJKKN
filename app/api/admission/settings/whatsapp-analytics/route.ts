@@ -44,7 +44,21 @@ export async function GET(request: NextRequest) {
     const isProfileMatch = profile?.institution_id === institutionId;
     const isSuperAdmin = profile?.role === 'super_admin';
 
-    if (!isProfileMatch && !isSuperAdmin) {
+    let hasAccess = isProfileMatch || isSuperAdmin;
+
+    // Check custom role permissions for non-super-admins
+    if (!hasAccess) {
+      const { data: userRolesData } = await supabase
+        .from('user_roles')
+        .select('role_id, custom_roles!inner(role_key, permissions, institution_scope)')
+        .eq('user_id', user.id);
+
+      hasAccess = (userRolesData || []).some(
+        (ur: any) => ur.custom_roles?.permissions?.['admission.settings.whatsapp.view'] === true
+      );
+    }
+
+    if (!hasAccess) {
       const { data: access } = await supabase
         .from('user_institution_access')
         .select('id')

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     // Get institution_id from user's profile (same pattern as chat routes)
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id, role')
+      .select('institution_id, role, is_super_admin')
       .eq('id', user.id)
       .single();
 
@@ -39,12 +39,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No institution found for user' }, { status: 403 });
     }
 
-    // Only super_admin can launch broadcast campaigns
-    if (profile.role !== 'super_admin') {
-      return NextResponse.json(
-        { error: 'Only super admins can send broadcast campaigns' },
-        { status: 403 }
+    // Check if user has broadcast permission (not just super_admin)
+    const isSuperAdmin = profile.is_super_admin === true || profile.role === 'super_admin';
+    if (!isSuperAdmin) {
+      // Check custom role permissions
+      const { data: userRolesData } = await supabase
+        .from('user_roles')
+        .select('role_id, custom_roles!inner(permissions)')
+        .eq('user_id', user.id);
+
+      const hasBroadcastPermission = (userRolesData || []).some(
+        (ur: any) => ur.custom_roles?.permissions?.['admission.marketing.chat.manage'] === true
       );
+
+      if (!hasBroadcastPermission) {
+        return NextResponse.json(
+          { error: 'You do not have permission to send broadcast campaigns' },
+          { status: 403 }
+        );
+      }
     }
 
     const body = await request.json();
@@ -153,15 +166,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only super_admin can view broadcast campaigns
+    // Check if user has permission to view broadcast campaigns
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id, role')
+      .select('institution_id, role, is_super_admin')
       .eq('id', user.id)
       .single();
 
-    if (profile?.role !== 'super_admin') {
-      return NextResponse.json({ error: 'Only super admins can access broadcasts' }, { status: 403 });
+    const isGetSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
+    if (!isGetSuperAdmin) {
+      const { data: getRolesData } = await supabase
+        .from('user_roles')
+        .select('role_id, custom_roles!inner(permissions)')
+        .eq('user_id', user.id);
+
+      const hasViewPermission = (getRolesData || []).some(
+        (ur: any) => ur.custom_roles?.permissions?.['admission.marketing.chat.manage'] === true
+      );
+
+      if (!hasViewPermission) {
+        return NextResponse.json({ error: 'You do not have permission to access broadcasts' }, { status: 403 });
+      }
     }
 
     const { searchParams } = new URL(request.url);

@@ -37,25 +37,27 @@ export async function GET(request: NextRequest) {
 
   const isSuperAdmin = profile.role === 'super_admin';
 
+  // Check custom_roles for admission or counselor role (and institution_scope)
+  const { data: userRoles } = await supabase
+    .from('user_roles')
+    .select('role_id, custom_roles!inner(role_key, institution_scope)')
+    .eq('user_id', user.id);
+
+  // Check if user has any role with institution_scope='all' (dynamic, not hardcoded)
+  let isAdmissionGlobalUser = isSuperAdmin;
+  if (!isAdmissionGlobalUser) {
+    isAdmissionGlobalUser = (userRoles || []).some(
+      (ur: any) => ur.custom_roles?.institution_scope === 'all'
+    );
+  }
+
   // Check if user has admission or counselor custom role
-  let isAdmissionGlobalUser = isSuperAdmin || profile.role === 'admission';
   let isAdmissionUser = isAdmissionGlobalUser;
-
   if (!isAdmissionUser) {
-    // Check custom_roles for admission or counselor role
-    const { data: userRoles } = await supabase
-      .from('user_roles')
-      .select('role_id, custom_roles!inner(role_key)')
-      .eq('user_id', user.id)
-      .in('custom_roles.role_key', ['admission', 'counselor']);
-
-    if (userRoles && userRoles.length > 0) {
-      isAdmissionUser = true;
-      // Admission role gets global (all-institution) access
-      isAdmissionGlobalUser = userRoles.some(
-        (r: any) => r.custom_roles?.role_key === 'admission'
-      );
-    }
+    const admissionRoleKeys = ['admission', 'counselor'];
+    isAdmissionUser = (userRoles || []).some(
+      (r: any) => admissionRoleKeys.includes(r.custom_roles?.role_key)
+    );
   }
 
   if (!isAdmissionUser) {

@@ -73,19 +73,23 @@ export async function POST(request: NextRequest) {
       // Also allow admins and admission role users
       const { data: profileCheck } = await (supabase as any)
         .from('profiles')
-        .select('role')
+        .select('role, is_super_admin')
         .eq('id', capturedBy)
         .single();
 
-      // Check custom roles for 'admission' role_key
+      // Check custom roles for admission permission
       const { data: userRoles } = await (supabase as any)
         .from('user_roles')
-        .select('custom_roles(role_key)')
+        .select('role_id, custom_roles!inner(role_key, permissions)')
         .eq('user_id', capturedBy);
 
-      const isAdmin = profileCheck?.role === 'admin' || profileCheck?.role === 'super_admin';
-      const isAdmissionRole = profileCheck?.role === 'admission' ||
-        (userRoles || []).some((r: any) => r.custom_roles?.role_key === 'admission');
+      const isAdmin = profileCheck?.is_super_admin === true || profileCheck?.role === 'super_admin' || profileCheck?.role === 'admin';
+
+      // Check custom roles for admission permission dynamically
+      const isAdmissionRole = isAdmin || (userRoles || []).some(
+        (ur: any) => ur.custom_roles?.permissions?.['admission.leads.create'] === true
+          || ur.custom_roles?.role_key === 'admission'
+      );
 
       if (!isAdmin && !isAdmissionRole) {
         return NextResponse.json(

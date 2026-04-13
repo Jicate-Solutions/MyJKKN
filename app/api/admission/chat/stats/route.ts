@@ -23,11 +23,24 @@ export async function GET(_request: NextRequest) {
 
     const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
 
-    if (!profile?.institution_id && !isSuperAdmin) {
+    // Check custom role permissions for non-super-admins
+    let hasAccess = isSuperAdmin;
+    if (!hasAccess) {
+      const { data: userRolesData } = await supabase
+        .from('user_roles')
+        .select('role_id, custom_roles!inner(role_key, permissions, institution_scope)')
+        .eq('user_id', user.id);
+
+      hasAccess = (userRolesData || []).some(
+        (ur: any) => ur.custom_roles?.permissions?.['admission.marketing.chat.view'] === true
+      );
+    }
+
+    if (!profile?.institution_id && !hasAccess) {
       return NextResponse.json({ error: 'No institution assigned' }, { status: 403 });
     }
 
-    // Super admins without an institution get default empty stats
+    // Users with access but without an institution get default empty stats
     if (!profile?.institution_id) {
       return NextResponse.json({
         data: {

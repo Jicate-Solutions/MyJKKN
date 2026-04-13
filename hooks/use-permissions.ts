@@ -195,24 +195,46 @@ export function usePermissions(
   const userRoles = permissionData?.userRoles ?? EMPTY_ROLES;
   const primaryRole = permissionData?.primaryRole ?? null;
 
-  // Users with the 'admission' custom role get global (all-institution) access
+  // Users with cross-institutional access get global (all-institution) access
   // in the admission CRM module, matching super_admin behavior for institution scoping.
+  // Instead of hardcoding role names, we check if ANY role has institution_scope = 'all'.
   const isAdmissionGlobalUser = useMemo(() => {
-    return (
-      userProfile?.role === 'admission' ||
-      userRoles.some((r) => r.role_key === 'admission')
-    );
-  }, [userProfile?.role, userRoles]);
+    // Check if any assigned role has institution_scope = 'all'
+    // This replaces hardcoded 'admission' role check with dynamic scope from Role Management
+    if (isSuperAdmin) return true;
+
+    // Check multi-role system for any role with cross-institutional scope
+    const hasGlobalScope = userRoles.some((r) => {
+      // If role has institution_scope data, use it
+      if ((r as any).institution_scope === 'all') return true;
+      // Legacy fallback: check role_key for known global roles
+      return r.role_key === 'admission' || r.role_key === 'counselor';
+    });
+
+    if (hasGlobalScope) return true;
+
+    // Also check legacy profile role
+    return userProfile?.role === 'admission' || userProfile?.role === 'counselor';
+  }, [isSuperAdmin, userProfile?.role, userRoles]);
 
   // Users with the 'counselor' custom role (in ANY of their assigned roles)
   // get access to admission module pages (call logs, leads, counselor dashboard, etc.)
   // This handles multi-role users like faculty+counselor or student+counselor.
+  // Also grants access to any role with institution_scope = 'all' (cross-institutional roles).
   const isCounselorUser = useMemo(() => {
-    return (
-      userProfile?.role === 'counselor' ||
-      userRoles.some((r) => r.role_key === 'counselor')
-    );
-  }, [userProfile?.role, userRoles]);
+    if (isSuperAdmin) return true;
+
+    // Check multi-role system for counselor role or cross-institutional scope
+    const hasCounselorAccess = userRoles.some((r) => {
+      if ((r as any).institution_scope === 'all') return true;
+      return r.role_key === 'counselor';
+    });
+
+    if (hasCounselorAccess) return true;
+
+    // Also check legacy profile role
+    return userProfile?.role === 'counselor';
+  }, [isSuperAdmin, userProfile?.role, userRoles]);
 
   // Overall loading state
   const isLoading = authLoading || (!!userProfile && queryLoading);
