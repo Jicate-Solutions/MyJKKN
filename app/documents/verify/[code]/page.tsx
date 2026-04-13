@@ -4,7 +4,7 @@
  * Renders static HTML that works without AuthProvider.
  */
 
-import { CheckCircle2, XCircle, Shield, FileText } from 'lucide-react';
+import { CheckCircle2, XCircle, FileText } from 'lucide-react';
 import { DOCUMENT_TYPE_INFO, type DocumentType } from '@/types/documents';
 
 interface PageProps {
