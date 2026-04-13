@@ -266,7 +266,7 @@ export const JKKN_SPORTS = [
   'Swimming', 'Chess', 'Carrom', 'Yoga',
 ] as const;
 
-export const TEAM_SPORTS = ['Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Badminton', 'Cricket', 'Football', 'Hockey'] as const;
+export const TEAM_SPORTS = ['Volleyball', 'Basketball', 'Kho-Kho', 'Kabaddi', 'Handball', 'Badminton', 'Football', 'Hockey'] as const;
 export const INDIVIDUAL_SPORTS = ['Wrestling', 'Powerlifting', 'Weightlifting', 'Athletics', 'Swimming', 'Chess', 'Table Tennis', 'Tennis', 'Yoga'] as const;
 
 export const SPORT_LEVELS: { value: SportLevel; label: string }[] = [
