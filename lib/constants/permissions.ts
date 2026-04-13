@@ -143,7 +143,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'roles.assign', label: 'Assign Roles' },
       { key: 'roles.create', label: 'Create Roles' },
       { key: 'roles.edit', label: 'Edit Roles' },
-      { key: 'roles.delete', label: 'Delete Roles' }
+      { key: 'roles.delete', label: 'Delete Roles' },
+      { key: 'users.permissions_audit.view', label: 'View Permissions Audit Dashboard' }
     ]
   },
   {
