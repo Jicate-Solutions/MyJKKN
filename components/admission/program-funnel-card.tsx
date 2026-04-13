@@ -174,9 +174,9 @@ export function ProgramFunnelCard({ institutionId }: ProgramFunnelCardProps) {
       </CardHeader>
       <CardContent>
         <div>
-          {programs.map((row) => (
+          {programs.map((row, index) => (
             <ProgramFunnelRowItem
-              key={`${row.name}::${row.institution}`}
+              key={`${row.name}::${row.institution}::${index}`}
               row={row}
               max={maxTotal}
             />
