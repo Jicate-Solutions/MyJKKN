@@ -258,7 +258,7 @@ export function LeadsDataTable() {
   }) => (
     <div className="space-y-2">
       {/* Row 1: Action button + Filter dropdowns */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+      <div className="flex w-full flex-col sm:flex-row sm:items-center gap-2">
         {/* Primary action */}
         {canCreate && (
           <Button
@@ -508,7 +508,10 @@ export function LeadsDataTable() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={confirmDelete}
+              onClick={(e) => {
+                e.preventDefault(); // Prevent auto-close so async confirmDelete can complete
+                confirmDelete();
+              }}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
