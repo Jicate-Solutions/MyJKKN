@@ -5997,3 +5997,19 @@ AS $$
     AND c.relrowsecurity = true
   ORDER BY c.relname;
 $$;
+
+-- Safe SQL execution wrapper for AI Permission Debugger
+-- Updated: 2026-04-13 - Added for AI-suggested fix execution
+CREATE OR REPLACE FUNCTION exec_sql_safe(query text)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  EXECUTE query;
+  RETURN json_build_object('success', true, 'message', 'SQL executed successfully');
+EXCEPTION WHEN OTHERS THEN
+  RETURN json_build_object('success', false, 'error', SQLERRM, 'code', SQLSTATE);
+END;
+$$;
