@@ -285,14 +285,18 @@ export class DocumentGenerationService {
       file_size_bytes: pdfBytes.byteLength,
     };
 
-    const { data: savedDoc, error: saveError } = await (this.supabase as any)
-      .from('generated_documents')
-      .insert(auditRecord)
-      .select('*')
-      .single();
-
-    if (saveError) {
-      console.error('[documents/service] Failed to save audit record:', saveError);
+    // Audit insert is NON-BLOCKING — PDF already generated, don't lose it
+    let savedDoc = null;
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('generated_documents')
+        .insert(auditRecord)
+        .select('*')
+        .single();
+      if (!error) savedDoc = data;
+      else console.error('[documents/service] Audit insert failed (non-blocking):', error.message);
+    } catch (e) {
+      console.error('[documents/service] Audit insert error (non-blocking):', e);
     }
 
     return {

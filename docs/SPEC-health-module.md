@@ -426,31 +426,46 @@ Appeal rights: 15-day window, reviewed by committee, decision within 30 days.
 
 ---
 
-## 13. Phased Implementation
+## 13. Phased Implementation (Revised with Sports)
 
-### Phase 1: Health Profile + Physical Tracking (Weeks 1-2)
+### Sprint 1: Health Profile + Daily Tracking + Mental Health (Weeks 1-3) — BUILT
 
-**Tables:** `health_profiles`, `health_daily_logs`, `health_goals`
-**Pages:** `/health/dashboard` (student), `/health/profile` (student), `/health/leaderboard`
-**Features:** Step counter (manual entry from phone Health app; Capacitor native app in Sprint 2), water intake, health profile CRUD, gamification (streaks, badges by mood/water consistency), consent gate (simple one-time "I Agree" screen), activity history from events
+**Tables:** `health_consents`, `health_profiles`, `health_daily_logs`, `health_streaks`, `health_assessments`, `health_escalations`, `health_peer_support`
+**Pages:** `/health/dashboard`, `/health/profile`, `/health/leaderboard`, `/health/assessments` (PHQ-9/GAD-7), `/health/counselor`
+**Components:** consent-gate, mood-checkin, water-tracker, step-entry
+**Features:** Consent gate, health profile CRUD, mood check-in (3 taps), water tracker, manual step entry, gamification (streaks/leaderboard), PHQ-9 + GAD-7 screening, auto-escalation, counselor dashboard
+**Status:** Code built, PR #135 created. DB tables on production.
 
-### Phase 2: Mental Health + Escalation (Weeks 3-4)
+### Sprint 2: Sports & Fitness (Weeks 4-6) — BUILDING NOW
 
-**Tables:** `health_assessments`, `health_escalations`, `health_peer_support`
-**Pages:** `/health/mood` (check-in), `/health/assessments` (PHQ-9/GAD-7), `/health/counselor` (counselor dashboard)
-**Features:** Daily mood check-in (3 taps), PHQ-9/GAD-7 auto-scored instruments, auto-escalation to counselor, counselor alert dashboard, anonymous peer support forum
+**Tables:** `health_sports_profiles`, `health_fitness_tests`, `health_training_logs`, `health_sports_injuries`, `health_sports_achievements`, `health_sports_credits`, `health_sports_scholarships`, `health_tournament_permissions`, `health_practice_sessions`, `health_practice_attendance`
+**Pages:**
+- `/health/sports` — Sports profile, credit tracker, scholarship status, tournament permissions
+- `/health/fitness` — Fitness test results (Khelo India metrics), history timeline, VO2 max, new test entry (faculty)
+- `/health/training` — Daily training log + injury tracker (two tabs)
+- `/health/achievements` — Medal wall, achievement history, level progression pyramid
+**Features:**
+- Sports credit system (45h = 1 credit, max 3/semester per JKKN policy)
+- Scholarship tracking with exact amounts from policy fee concession tables
+- 5-step tournament permission workflow (Student → Coordinator → HOD → Principal → PE Director)
+- Fitness assessments: beep test, push-ups, sit-ups, grip strength, sit-and-reach, sprint, shuttle, endurance, BMI, VO2 max
+- Training log with intensity, coach feedback, self-rating
+- Injury tracking with recovery status and clearance certification
+- Achievement tracking with verification workflow
+- Practice session scheduling + attendance tracking for credit calculation
+- Evaluation framework: Participation (30%) + Performance (30%) + Achievements (20%) + Sportsmanship (20%) = 100 points
 
-### Phase 3: Clinical Integration (Weeks 5-8)
+### Sprint 3: Clinical Integration (Weeks 7-10)
 
 **Tables:** `health_screenings`, `health_practicum_hours`, `health_camps`
-**Pages:** `/health/screenings` (screener view), `/health/camps` (camp management), `/health/practicum` (hours tracker)
-**Features:** Screening workflows (dental, nursing, pharmacy, physio), auto-credit practicum hours, camp scheduling + registration, cross-college screening support
+**Pages:** `/health/screenings`, `/health/camps`, `/health/practicum`
+**Features:** Cross-college health screening workflows (dental/nursing/pharmacy/physio), auto-credit practicum hours, camp scheduling, JKKN Active Life Program tracking
 
-### Phase 4: Analytics + Accreditation (Weeks 9-12)
+### Sprint 4: Analytics + NAAC + Capacitor (Weeks 11-14)
 
 **Tables:** `health_analytics_snapshots`
-**Pages:** `/health/analytics` (admin), `/health/reports` (NAAC generator)
-**Features:** Institution health dashboard, attendance-health correlation, NAAC wellness report auto-generation, SDG 3 mapping, anonymized research export
+**Pages:** `/health/analytics`, `/health/reports`
+**Features:** Institution health dashboard, attendance-health correlation, NAAC wellness report auto-generation, SDG 3 mapping, anonymized research export, Capacitor native app wrapper (auto step counting, push notifications, Play Store listing)
 
 ---
 
