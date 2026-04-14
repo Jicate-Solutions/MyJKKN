@@ -89,12 +89,12 @@ export default function FacultyAnalyticsPage() {
               In-depth analysis of Learner engagement, performance, and growth patterns
             </p>
           </div>
-          <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
+          <Select value={selectedCourseId || 'all'} onValueChange={(v) => setSelectedCourseId(v === 'all' ? '' : v)}>
             <SelectTrigger className="w-[280px]">
               <SelectValue placeholder="All courses" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Courses</SelectItem>
+              <SelectItem value="all">All Courses</SelectItem>
               {courses.map((c: { id: string; name: string }) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}

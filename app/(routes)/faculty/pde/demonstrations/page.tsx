@@ -99,12 +99,12 @@ export default function FacultyDemonstrationsPage() {
               <span className="text-sm font-medium text-muted-foreground">
                 Filter by capability category:
               </span>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <Select value={categoryFilter || 'all'} onValueChange={(v) => setCategoryFilter(v === 'all' ? '' : v)}>
                 <SelectTrigger className="w-[240px]">
                   <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Categories</SelectItem>
+                  <SelectItem value="all">All Categories</SelectItem>
                   <SelectItem value="technical">Technical</SelectItem>
                   <SelectItem value="analytical">Analytical</SelectItem>
                   <SelectItem value="creative">Creative</SelectItem>
