@@ -7,7 +7,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 import { parseRlsExpression } from '@/lib/utils/rls-expression-parser';
-import { getModuleForTable } from '@/lib/constants/table-module-map';
+import { getModuleForTable, getSubModuleForTable } from '@/lib/constants/table-module-map';
 import type { RlsAuditResponse, RlsPolicy } from '@/types/permissions-audit';
 
 const ALL_OPERATIONS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
@@ -114,6 +114,7 @@ export async function GET(request: NextRequest) {
     for (const raw of rawPolicies) {
       const tableName = raw.tablename;
       const module = getModuleForTable(tableName);
+      const subModule = getSubModuleForTable(tableName);
       const parsed = parseRlsExpression(raw.qual ?? raw.with_check ?? null);
 
       const policy: RlsPolicy = {
@@ -123,7 +124,8 @@ export async function GET(request: NextRequest) {
         usingExpression: raw.qual ?? null,
         withCheckExpression: raw.with_check ?? null,
         parsed,
-        module
+        module,
+        subModule
       };
 
       if (!tableMap.has(tableName)) {
@@ -160,6 +162,9 @@ export async function GET(request: NextRequest) {
       const module = entry.policies.length > 0
         ? entry.policies[0].module
         : getModuleForTable(tableName);
+      const subModule = entry.policies.length > 0
+        ? entry.policies[0].subModule
+        : getSubModuleForTable(tableName);
 
       const missingOperations = ALL_OPERATIONS.filter(
         (op) => !entry.coveredOps.has(op)
@@ -173,6 +178,7 @@ export async function GET(request: NextRequest) {
       tables.push({
         tableName,
         module,
+        subModule,
         policies: entry.policies,
         missingOperations,
         hasRls: rlsEnabledTables.has(tableName)

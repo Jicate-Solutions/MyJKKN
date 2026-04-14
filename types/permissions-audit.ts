@@ -10,6 +10,7 @@ export interface RlsPolicy {
   withCheckExpression: string | null;
   parsed: ParsedExpression;
   module: string;
+  subModule: string;
 }
 
 // ── Unified Access Types ──
@@ -88,6 +89,7 @@ export interface RlsAuditResponse {
   tables: {
     tableName: string;
     module: string;
+    subModule: string;
     policies: RlsPolicy[];
     missingOperations: string[];
     hasRls: boolean;

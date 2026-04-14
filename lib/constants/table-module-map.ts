@@ -27,6 +27,7 @@ export const TABLE_OVERRIDES: Record<string, string> = {
   periods: 'Academic',
   timetables: 'Academic',
   student_attendance: 'Academic',
+  daily_attendance: 'Academic',
   class_incharges: 'Academic',
   api_keys: 'System',
 };
@@ -50,7 +51,62 @@ export const MODULE_PREFIXES: [string, string][] = [
   ['events_', 'Events'],
   ['vac_', 'VAC'],
   ['privilege_', 'Privileges'],
+  // Added 2026-04-14: modules that were previously bucketed into "Other"
+  ['ss_', 'Startup Studio'],
+  ['work_', 'Work Pulse'],
+  ['okr_', 'Work Pulse'],
+  ['pulse_', 'Work Pulse'],
+  ['health_', 'Health'],
+  ['marathon_', 'Marathon'],
+  ['hostel_', 'Campus Living'],
+  ['mess_', 'Campus Living'],
+  ['pde_', 'PDE Learning'],
+  ['chatbot_', 'Chatbot'],
+  ['chat_', 'Chatbot'],
+  ['expo_', 'Expo'],
+  ['scholarship', 'Billing'],
+  ['counselor_', 'Admission'],
+  ['consultant_', 'Admission'],
+  ['lead_', 'Admission'],
+  ['application_', 'Applications'],
+  ['workflow_', 'System'],
+  ['audit_', 'System'],
+  ['integration_', 'System'],
+  ['template_', 'System'],
 ];
+
+/**
+ * Sub-module overrides — when a table name doesn't follow the
+ * standard `module_submodule_*` pattern, map it explicitly.
+ */
+const SUBMODULE_OVERRIDES: Record<string, string> = {
+  // Users sub-modules
+  profiles: 'Profiles',
+  custom_roles: 'Roles',
+  user_roles: 'Roles',
+  user_institution_access: 'Access Control',
+  user_activity_logs: 'Activity Logs',
+  push_subscriptions: 'Notifications',
+  // Organization sub-modules
+  institutions: 'Institutions',
+  departments: 'Departments',
+  programs: 'Programs',
+  degrees: 'Degrees',
+  semesters: 'Semesters',
+  sections: 'Sections',
+  courses: 'Courses',
+  course_mappings: 'Courses',
+  academic_years: 'Academic Years',
+  regulations: 'Regulations',
+  batches: 'Batches',
+  // Academic sub-modules
+  periods: 'Periods',
+  timetables: 'Timetables',
+  student_attendance: 'Attendance',
+  daily_attendance: 'Attendance',
+  class_incharges: 'Class Incharges',
+  api_keys: 'API Keys',
+};
 
 /**
  * Returns the application module name for a given Supabase table name.
@@ -70,6 +126,42 @@ export function getModuleForTable(tableName: string): string {
   }
 
   return 'Other';
+}
+
+/**
+ * Returns the sub-module name for a given table, derived from its structure.
+ *
+ * Logic:
+ *   1. If the table is in SUBMODULE_OVERRIDES, use that.
+ *   2. Otherwise extract the segment after the module prefix. For example:
+ *      - `billing_invoices` → "Invoices"
+ *      - `admission_lead_activities` → "Lead Activities"
+ *      - `ss_kpi_definitions` → "Kpi Definitions"
+ *   3. If no prefix matches, returns "General".
+ *
+ * Sub-module names are Title Case with underscores replaced by spaces.
+ */
+export function getSubModuleForTable(tableName: string): string {
+  if (SUBMODULE_OVERRIDES[tableName]) {
+    return SUBMODULE_OVERRIDES[tableName];
+  }
+
+  // Find which prefix matched
+  for (const [prefix] of MODULE_PREFIXES) {
+    if (tableName.startsWith(prefix)) {
+      const remainder = tableName.slice(prefix.length);
+      if (!remainder) return 'General';
+      // Take first 2 words of remainder as sub-module name (handles things
+      // like "lead_activities" → "Lead Activities")
+      const words = remainder.split('_').filter(Boolean);
+      const subModuleWords = words.slice(0, 2);
+      return subModuleWords
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+    }
+  }
+
+  return 'General';
 }
 
 /**
