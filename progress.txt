@@ -1,3 +1,77 @@
+## Session: 2026-04-14 (Evening) — HR-App Sprint 1 FOUNDATION shipped
+
+### What happened
+Sprint 1 of the MyJKKN HR module built as a full-path execution of /myjkkn-chain (interview → spec → build → verify → PR). Shadow-tenant architecture landed zero-impact on MyJKKN core, verified via EXPLAIN ANALYZE diff.
+
+### Specs produced (9 interview rounds + 8 spec documents)
+- `specs/myjkkn-hr-module-spec.md` — v1 foundational
+- `specs/myjkkn-hr-module-spec-v2-deep.md` — v2 first-principles + cross-module reuse corrections
+- `specs/myjkkn-hr-module-spec-v3-final.md` — v3 consolidated decisions
+- `specs/myjkkn-hr-module-spec-v4-evidence.md` — v4 FINAL with engineering standards
+- `specs/myjkkn-hr-sprint-01-plan.md` — Sprint 1 task breakdown
+- `specs/hrapp-issues-capture.md` — 1,678 customer complaint messages from JKKN HR Issues chat space (55% attendance, 23% app bugs)
+- `specs/hrapp-features-benchmark.md` — Competitor feature inventory from hrapp.in
+- `specs/sprint-01-baselines.txt` — EXPLAIN ANALYZE proof of zero MyJKKN core impact
+- Vault doc: `jkknkb/MyJKKN/Architecture/shadow-tenant-pattern.md` (fully reusable pattern)
+
+### What was built (5 migrations, 11 TypeScript files)
+#### Database (Sprint 1 Phase A + B)
+- `hr_organizations` (11 rows backfilled, 1 per JKKN institution)
+- `user_hr_access` (ready for Phase B population)
+- `auth_hr_organization_id()` RLS helper function
+- `sync_institution_to_hr_org()` trigger function + AFTER INSERT trigger on institutions
+- `hr_cadres` (33 rows: 3 per institution × 11 institutions)
+- `hr_designations` (143 rows: 13 per institution from HR manual §13)
+- `hr_employees` (393 rows backfilled from staff as employment_type='full_time', polymorphic for guest/student_ta/vendor_monitored)
+- RLS policies on all 5 new HR tables (mirrors 46-policy super_admin bypass pattern)
+
+#### Application (Phase C + D)
+- `types/hr.ts` — HR types re-exported from Supabase
+- `lib/services/hr/employee-service.ts` — list/get/create/update/deactivate
+- `features/hr/employees/types.ts` — Zod schemas with polymorphic refinement
+- `hooks/hr/use-employees.ts` — React Query hooks
+- `app/api/hr/employees/route.ts` — GET list + POST create
+- `app/api/hr/employees/[id]/route.ts` — GET/PATCH/DELETE single
+- `app/(routes)/hr/page.tsx` — Central HR Command Center stub (4-quadrant dashboard placeholder)
+- `app/(routes)/hr/employees/page.tsx` — Employee list with filters + pagination
+- `app/(routes)/hr/employees/new/page.tsx` — New employee form (guest + vendor_monitored for v1)
+- `app/(routes)/hr/employees/[id]/page.tsx` — Detail page with deactivate flow
+- Sidebar entry: `lib/sidebarMenuLink.ts` — "HR (Sprint 1)" group added
+
+### What was verified
+- **E1 Build:** Next.js build compiled HR-App code cleanly. Build failure on pre-existing `/learn/profile/activity` page is unrelated to Sprint 1 (useRecentActivity missing export — existed before this session).
+- **E2 EXPLAIN ANALYZE diff:** 5 baseline queries (staff, learners_profiles, institutions, departments, admission_counselors) ALL IDENTICAL pre- and post-Phase-A. Zero MyJKKN core impact — shadow-tenant guarantee verified. Proof file: `specs/sprint-01-baselines.txt`.
+- **E3 SQL smoke test:** JOIN across hr_employees + hr_designations + hr_cadres + hr_organizations returns data in shape expected by UI.
+- **E5 silent-failure-auditor:** 0 findings in HR-App files. 282 findings project-wide are pre-existing, outside scope.
+- **Typecheck:** 0 errors in HR-App files; only errors are in stale `.next/dev/types/*` auto-generated files (not production code).
+
+### Interview decisions locked (all 9 rounds)
+- Tenant: shadow-tenant pattern (hr_organization_id), zero MyJKKN core change
+- Employee: polymorphic 4 types (full_time + guest + student_ta + vendor_monitored)
+- Attendance: biometric-first + class-proxy fallback (integrates MyJKKN academic daily_attendance)
+- Leave: EXTEND existing institution_leaves + leave_approval_chains (dormant, clean canvas)
+- Grievance: REUSE existing service_requests with HR categories
+- Statutory: TDS + Form 16 + PF in v1; ESIC/Gratuity/PT deferred
+- Mobile: PWA only, no native
+- Cutover: big-bang + 2-week parallel + 30-day hrapp.co read-only backup
+- SLA: 99.9% application uptime (device/edge best-effort)
+- Auto-approve: CL + Permission + OD at 72h; Vacation/Sabbatical never
+- Self-healing: 3-step (class-proxy → WhatsApp confirm → shift-end default + HR notify)
+- Champion: skipped; Central HR officer is sole UAT
+- Appraisal: DELEGATED to sibling SAMS module (not in HR-App scope)
+
+### What's next (Sprint 2)
+Policy Management UI — 18 CRUD tables for Policy-as-Data architecture:
+hr_leave_policies, hr_pay_scales, hr_allowances, hr_work_schedules, hr_public_holidays, hr_memo_rules, hr_termination_rules, hr_incentive_schemes, hr_promotion_criteria, hr_training_programs, hr_welfare_events, hr_conduct_rules, hr_role_descriptions, hr_onboarding_checklists, hr_required_documents, hr_disciplinary_penalties, hr_feedback_dimensions, hr_approval_flows
+
+### Status at session end
+- HR-App foundation shipped to local staging DB (hhprjbgknupaplivtoib)
+- Branch: omm-dev
+- 5 migrations applied (hr_sprint01_a2, a3, a4, a5_a6_a7, b1_b2, b3_b4, b5_b6, b7, b8)
+- PR not yet opened; awaiting user confirmation to open PR against Jicate-Solutions/MyJKKN
+
+---
+
 ## Session: 2026-04-13 (Morning) - Document Engine RESTRUCTURED — 29 files → 14 files
 
 ### What happened

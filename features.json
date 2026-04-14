@@ -1,7 +1,13 @@
 {
   "project": "MyJKKN - Exotel Integration",
-  "lastUpdated": "2026-04-05",
+  "lastUpdated": "2026-04-14",
   "features": [
+    {
+      "id": "hr-app-sprint-1-foundation",
+      "name": "HR-App Sprint 1 \u2014 Shadow Tenant + Employee Master",
+      "status": "local-verified-awaiting-pr",
+      "notes": "Sprint 1 of 13-sprint HR module. Shadow-tenant pattern + 5 new tables (hr_organizations, user_hr_access, hr_cadres, hr_designations, hr_employees). 393 staff backfilled, 143 designations + 33 cadres seeded from HR manual \u00a713. Central HR dashboard stub + Employee CRUD (list, detail, new, deactivate). EXPLAIN ANALYZE diff proves 0 MyJKKN core impact. 0 silent-failure findings. Spec v4: specs/myjkkn-hr-module-spec-v4-evidence.md"
+    },
     {
       "id": "exotel-core",
       "name": "Exotel API Client + Click-to-Call",
@@ -42,7 +48,7 @@
       "id": "call-details-page",
       "name": "Call Details Page",
       "status": "self-verified",
-      "notes": "PR #11 merged. Clickable rows → detail page with info, audio player, notes editor, lead card, call history."
+      "notes": "PR #11 merged. Clickable rows \u2192 detail page with info, audio player, notes editor, lead card, call history."
     },
     {
       "id": "exotel-price-classification",
@@ -60,7 +66,7 @@
       "id": "call-transcription",
       "name": "Call Recording Transcription",
       "status": "planned",
-      "notes": "Phase 2. Recording URLs IP-restricted. Need whitelist then: download → transcribe → extract intent."
+      "notes": "Phase 2. Recording URLs IP-restricted. Need whitelist then: download \u2192 transcribe \u2192 extract intent."
     },
     {
       "id": "multi-college-leads",
