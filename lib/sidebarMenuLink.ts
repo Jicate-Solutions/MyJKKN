@@ -466,10 +466,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/vote': 'startup_studio.events.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
   '/startup-studio/events/[id]/dashboard': 'startup_studio.analytics.view',
-  '/startup-studio/events/[id]/solve-for-100': 'startup_studio.events.view',
-  '/startup-studio/events/[id]/solve-for-100/weekly': 'startup_studio.events.view',
-  '/startup-studio/events/[id]/solve-for-100/icp': 'startup_studio.events.view',
-  '/startup-studio/events/[id]/solve-for-100/mentor': 'startup_studio.evaluations.manage',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
