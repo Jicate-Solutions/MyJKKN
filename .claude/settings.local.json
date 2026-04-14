@@ -251,7 +251,9 @@
       "Bash(rm ~/Library/LaunchAgents/com.claude.jkkn-browser.plist)",
       "Read(//Users/omm/.claude/scripts/**)",
       "Bash(sed -i.bak '/browser-testing-setup/,+2d; /4b. Persistent Browser/d' ~/.claude/scripts/session-start.sh)",
-      "Read(//Users/omm/Library/LaunchAgents/**)"
+      "Read(//Users/omm/Library/LaunchAgents/**)",
+      "Bash(rm ~/.claude/scripts/browser-testing-setup.sh)",
+      "Bash(rm ~/.claude/scripts/jkkn-browser-persistent.sh)"
     ],
     "deny": [],
     "ask": []
