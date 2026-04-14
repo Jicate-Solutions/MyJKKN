@@ -109,7 +109,7 @@ export function LeadsDataTable() {
   useEffect(() => {
     if (isManager || !profile?.id) return; // Managers see all leads
     const supabase = createClientSupabaseClient();
-    supabase
+    (supabase as any)
       .from('admission_counselors')
       .select('id')
       .eq('user_id', profile.id)
