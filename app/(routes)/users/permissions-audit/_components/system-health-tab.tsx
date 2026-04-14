@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { PlainHealthCards } from './plain-health-cards';
 import { BeatLoader } from 'react-spinners';
 import {
   Card,
@@ -125,6 +126,7 @@ export function SystemHealthTab() {
   const [data, setData] = useState<HealthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<'plain' | 'technical'>('plain');
 
   useEffect(() => {
     const fetchHealth = async () => {
@@ -178,32 +180,62 @@ export function SystemHealthTab() {
 
   return (
     <div className='space-y-6'>
-      {/* ── Stat Cards ── */}
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
-        <StatCard
-          label='Total Users'
-          value={totals.users}
-          icon={<Users className='h-6 w-6 text-slate-400' />}
-          variant='neutral'
-        />
-        <StatCard
-          label='Orphan Users'
-          value={totals.orphans}
-          icon={<AlertTriangle className='h-6 w-6' />}
-          variant={totals.orphans > 0 ? 'danger' : 'success'}
-        />
-        <StatCard
-          label='Role Mismatches'
-          value={totals.mismatches}
-          icon={<AlertCircle className='h-6 w-6' />}
-          variant={totals.mismatches > 0 ? 'danger' : 'success'}
-        />
-        <StatCard
-          label='Active Roles'
-          value={totals.roles}
-          icon={<Shield className='h-6 w-6 text-slate-400' />}
-          variant='neutral'
-        />
+      {/* ── View Toggle + Stat Cards ── */}
+      <div>
+        <div className='flex justify-between items-center mb-4'>
+          <div className='text-xs text-muted-foreground'>
+            Toggle between plain-English summary and technical counts
+          </div>
+          <div className='inline-flex rounded-md border overflow-hidden'>
+            <button
+              onClick={() => setView('plain')}
+              className={`px-3 py-1 text-xs transition-colors ${
+                view === 'plain' ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'
+              }`}
+            >
+              Plain English
+            </button>
+            <button
+              onClick={() => setView('technical')}
+              className={`px-3 py-1 text-xs transition-colors ${
+                view === 'technical' ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'
+              }`}
+            >
+              Technical
+            </button>
+          </div>
+        </div>
+
+        {view === 'plain' ? (
+          <PlainHealthCards data={data} />
+        ) : (
+          <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
+            <StatCard
+              label='Total Users'
+              value={totals.users}
+              icon={<Users className='h-6 w-6 text-slate-400' />}
+              variant='neutral'
+            />
+            <StatCard
+              label='Orphan Users'
+              value={totals.orphans}
+              icon={<AlertTriangle className='h-6 w-6' />}
+              variant={totals.orphans > 0 ? 'danger' : 'success'}
+            />
+            <StatCard
+              label='Role Mismatches'
+              value={totals.mismatches}
+              icon={<AlertCircle className='h-6 w-6' />}
+              variant={totals.mismatches > 0 ? 'danger' : 'success'}
+            />
+            <StatCard
+              label='Active Roles'
+              value={totals.roles}
+              icon={<Shield className='h-6 w-6 text-slate-400' />}
+              variant='neutral'
+            />
+          </div>
+        )}
       </div>
 
       {/* ── Users Per Role Table ── */}
