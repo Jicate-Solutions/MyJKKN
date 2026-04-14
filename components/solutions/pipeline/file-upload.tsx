@@ -121,7 +121,11 @@ export function FileUpload({
   };
 
   const handleDelete = () => {
-    onDelete?.();
+    if (!onDelete) {
+      toast.error('Delete handler not configured');
+      return;
+    }
+    onDelete();
     toast.success('File removed');
   };
 

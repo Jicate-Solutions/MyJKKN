@@ -21,7 +21,7 @@ interface PortalNavProps {
     email?: string | null
     avatarUrl?: string | null
   }
-  onSignOut?: () => void
+  onSignOut?: () => void | Promise<void>
 }
 
 const navigation = [
@@ -36,7 +36,11 @@ export function PortalNav({ user, onSignOut }: PortalNavProps) {
   const router = useRouter()
 
   const handleSignOut = async () => {
-    onSignOut?.()
+    if (!onSignOut) {
+      console.warn('[portal-nav] onSignOut handler missing — refusing to navigate (session would remain active)')
+      return
+    }
+    await onSignOut()
     router.push('/auth/login')
   }
 
