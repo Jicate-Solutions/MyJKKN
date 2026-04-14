@@ -1141,6 +1141,25 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      groupLabel: 'HR (Sprint 1)',
+      menus: [
+        {
+          href: '/hr',
+          label: 'HR Command Center',
+          active: pathname === '/hr',
+          icon: Building,
+          submenus: []
+        },
+        {
+          href: '/hr/employees',
+          label: 'Employees',
+          active: pathname.startsWith('/hr/employees'),
+          icon: Users,
+          submenus: []
+        }
+      ]
+    },
+    {
       groupLabel: 'Learners',
       menus: [
         // Learner Portal (Student Self-Service) - Only for role='student'
