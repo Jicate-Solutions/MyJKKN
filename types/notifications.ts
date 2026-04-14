@@ -199,3 +199,20 @@ export interface PendingAction {
     [key: string]: any;
   };
 }
+
+// ============================================================================
+// Built-in audience names (whitelist)
+// ============================================================================
+// The known handler names for notification audiences created with
+// `query_type: 'built_in'`. Two API routes import this constant
+// (app/api/admin/notifications/audiences/route.ts and [id]/route.ts),
+// but it was never added to this file — blocking all production deploys
+// since the notifications module merged. See the audience form for the
+// UI side: app/(routes)/admin/notifications/audiences/_components/audience-form.tsx
+export const VALID_BUILT_IN_AUDIENCE_NAMES = [
+  'role_filter',
+  'institution_filter',
+  'login_recency',
+] as const;
+
+export type BuiltInAudienceName = typeof VALID_BUILT_IN_AUDIENCE_NAMES[number];
