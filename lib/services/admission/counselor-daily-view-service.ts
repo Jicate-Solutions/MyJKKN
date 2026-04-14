@@ -120,10 +120,24 @@ export class CounselorDailyViewService {
       .eq('id', user.id)
       .single();
 
-    const isManager = !!(
+    // Check if user is a manager via permission system first, then fallback to hardcoded roles
+    let isManager = !!(
       profile?.is_super_admin ||
       (profile?.role && MANAGER_ROLES.has(profile.role))
     );
+
+    // Also check custom role permissions for dynamic role support
+    if (!isManager) {
+      const { data: userRolesData } = await (supabase as any)
+        .from('user_roles')
+        .select('custom_roles!inner(permissions)')
+        .eq('user_id', user.id);
+
+      isManager = (userRolesData || []).some(
+        (ur: any) => ur.custom_roles?.permissions?.['admission.counselors.view'] === true
+          || ur.custom_roles?.permissions?.['admission.counselors.performance.view'] === true
+      );
+    }
 
     // 3. If manager-only action, enforce it
     if (requireManager && !isManager) {
@@ -174,6 +188,39 @@ export class CounselorDailyViewService {
     const supabase = createClientSupabaseClient();
     const { data: { user } } = await (supabase as any).auth.getUser();
     if (!user) throw new Error('Not authenticated');
+
+    // Validate viewAsUserId belongs to the same institution (prevent cross-institution viewing)
+    if (viewAsUserId && viewAsUserId !== user.id) {
+      const { data: profile } = await (supabase as any)
+        .from('profiles')
+        .select('institution_id, is_super_admin, role')
+        .eq('id', user.id)
+        .single();
+
+      const { data: targetProfile } = await (supabase as any)
+        .from('profiles')
+        .select('institution_id')
+        .eq('id', viewAsUserId)
+        .single();
+
+      // Allow if: super admin, or same institution, or has global scope
+      const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
+      if (!isSuperAdmin && targetProfile?.institution_id !== profile?.institution_id) {
+        // Check if user has cross-institutional scope
+        const { data: userRolesData } = await (supabase as any)
+          .from('user_roles')
+          .select('custom_roles!inner(institution_scope)')
+          .eq('user_id', user.id);
+
+        const hasGlobalScope = (userRolesData || []).some(
+          (ur: any) => ur.custom_roles?.institution_scope === 'all'
+        );
+
+        if (!hasGlobalScope) {
+          throw new Error('Not authorized to view this counselor\'s data');
+        }
+      }
+    }
 
     const { data, error } = await (supabase as any)
       .rpc('get_counselor_daily_view', {

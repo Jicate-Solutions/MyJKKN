@@ -17,6 +17,32 @@ export async function GET(request: NextRequest) {
     const institutionId = url.searchParams.get('institution_id');
     const dateStr = url.searchParams.get('date') || new Date().toISOString().split('T')[0];
 
+    // Validate institution access
+    if (institutionId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('institution_id, is_super_admin, role')
+        .eq('id', user.id)
+        .single();
+
+      const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
+      if (!isSuperAdmin) {
+        // Check if user has access to this institution
+        const { data: userRolesData } = await supabase
+          .from('user_roles')
+          .select('custom_roles!inner(institution_scope)')
+          .eq('user_id', user.id);
+
+        const hasGlobalScope = (userRolesData || []).some(
+          (ur: any) => ur.custom_roles?.institution_scope === 'all'
+        );
+
+        if (!hasGlobalScope && profile?.institution_id !== institutionId) {
+          return NextResponse.json({ error: 'No access to this institution' }, { status: 403 });
+        }
+      }
+    }
+
     // Date range for the requested day
     const dayStart = `${dateStr}T00:00:00`;
     const dayEnd = `${dateStr}T23:59:59`;
