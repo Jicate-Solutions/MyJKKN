@@ -43,6 +43,8 @@ export class DashboardService {
         // If they have access to zero institutions, return zero stats.
         return {
           institutionCount: 0,
+          adminOfficeCount: 0,
+          companyCount: 0,
           degreeCount: 0,
           departmentCount: 0,
           programCount: 0,
@@ -75,21 +77,24 @@ export class DashboardService {
       inst_ids: filterInstitutionIds
     };
 
-    // Special handling for institution count
-    const institutionCountPromise = () => {
-      if (filterInstitutionIds) {
-        return Promise.resolve({
-          count: filterInstitutionIds.length,
-          error: null
-        });
-      }
-      return supabase
+    // Build per-entity-type count queries on the institutions table.
+    // When filterInstitutionIds is set, scope counts to just those rows so
+    // a regular user only sees stats for entities they actually have access to.
+    const buildEntityTypeCountQuery = (entityType: 'institution' | 'admin_office' | 'company') => {
+      let q = supabase
         .from('institutions')
-        .select('id', { count: 'exact', head: true });
+        .select('id', { count: 'exact', head: true })
+        .eq('entity_type', entityType);
+      if (filterInstitutionIds) {
+        q = q.in('id', filterInstitutionIds);
+      }
+      return q;
     };
 
     const [
       institutionCount,
+      adminOfficeCount,
+      companyCount,
       degreeCount,
       departmentCount,
       programCount,
@@ -103,7 +108,9 @@ export class DashboardService {
       recentDegrees,
       recentDepartments
     ] = await Promise.all([
-      institutionCountPromise(),
+      buildEntityTypeCountQuery('institution'),
+      buildEntityTypeCountQuery('admin_office'),
+      buildEntityTypeCountQuery('company'),
       createQuery('degrees'),
       createQuery('departments'),
       createQuery('programs'),
@@ -116,6 +123,7 @@ export class DashboardService {
       supabase
         .from('institutions')
         .select('id, name, created_at')
+        .eq('entity_type', 'institution')
         .order('created_at', { ascending: false })
         .limit(3),
       supabase
@@ -154,6 +162,8 @@ export class DashboardService {
 
     return {
       institutionCount: institutionCount.count ?? 0,
+      adminOfficeCount: adminOfficeCount.count ?? 0,
+      companyCount: companyCount.count ?? 0,
       degreeCount: degreeCount.count ?? 0,
       departmentCount: departmentCount.count ?? 0,
       programCount: programCount.count ?? 0,

@@ -13,7 +13,9 @@ type StatCardVariant =
   | 'red'
   | 'cyan'
   | 'pink'
-  | 'indigo';
+  | 'indigo'
+  | 'slate'
+  | 'amber';
 
 interface StatCardProps {
   title: string;
@@ -63,6 +65,16 @@ const variantStyles = {
     iconContainer: 'bg-indigo-100 dark:bg-indigo-800/50',
     icon: 'text-indigo-600 dark:text-indigo-400',
     border: 'hover:border-indigo-200 dark:hover:border-indigo-700'
+  },
+  slate: {
+    iconContainer: 'bg-slate-100 dark:bg-slate-800/50',
+    icon: 'text-slate-600 dark:text-slate-400',
+    border: 'hover:border-slate-200 dark:hover:border-slate-700'
+  },
+  amber: {
+    iconContainer: 'bg-amber-100 dark:bg-amber-800/50',
+    icon: 'text-amber-600 dark:text-amber-400',
+    border: 'hover:border-amber-200 dark:hover:border-amber-700'
   }
 };
 

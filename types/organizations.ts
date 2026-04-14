@@ -553,6 +553,8 @@ export interface CourseMappingListResponse {
 
 export interface OrganizationStats {
   institutionCount: number;
+  adminOfficeCount: number;
+  companyCount: number;
   degreeCount: number;
   departmentCount: number;
   programCount: number;
