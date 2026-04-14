@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useAlertRules, useAlertHistory, useAlertMutations, useEventTypes } from '@/hooks/admission/use-activity-alerts';
@@ -32,8 +33,19 @@ const EVENT_ICONS: Record<string, React.ElementType> = {
 };
 
 function AlertsPageContent() {
-  const { selectedInstitutionId: institutionId } = useUserInstitutionAccess();
+  const { selectedInstitutionId, institutions, canAccessAllInstitutions } = useUserInstitutionAccess();
+  const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
   const [activeTab, setActiveTab] = useState('rules');
+
+  // For global users without a default institution, require picking one
+  const institutionId = chosenInstitutionId || selectedInstitutionId;
+
+  // Get all institutions for the picker (global users need this)
+  const allInstitutions = useMemo(() => {
+    if (!canAccessAllInstitutions) return institutions;
+    // For global users, we show whatever institutions are available
+    return institutions;
+  }, [institutions, canAccessAllInstitutions]);
 
   const { rules, isLoading: rulesLoading, refetch } = useAlertRules(institutionId);
   const { entries: history, total: historyTotal, isLoading: historyLoading } = useAlertHistory({
@@ -88,13 +100,50 @@ function AlertsPageContent() {
                 <RefreshCw className="h-4 w-4 mr-2" />Refresh
               </Button>
               {rules.length === 0 && (
-                <Button onClick={handleInitialize} disabled={initializeRules.isPending}>
+                <Button onClick={handleInitialize} disabled={initializeRules.isPending || !institutionId}>
                   {initializeRules.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Settings2 className="h-4 w-4 mr-2" />}
                   Initialize Alerts
                 </Button>
               )}
             </div>
           </div>
+
+          {/* Institution picker — shown when no institution auto-selected */}
+          {!institutionId && allInstitutions.length > 0 && (
+            <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800">
+              <span className="text-sm font-medium text-amber-700 dark:text-amber-400 shrink-0">Select institution:</span>
+              <Select value={chosenInstitutionId} onValueChange={setChosenInstitutionId}>
+                <SelectTrigger className="w-full sm:w-[280px] h-8 text-sm">
+                  <SelectValue placeholder="Choose an institution..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {allInstitutions.map((inst) => (
+                    <SelectItem key={inst.institution_id} value={inst.institution_id}>
+                      {inst.institution_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {canAccessAllInstitutions && institutionId && allInstitutions.length > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Institution:</span>
+              <Select value={chosenInstitutionId || institutionId} onValueChange={setChosenInstitutionId}>
+                <SelectTrigger className="w-[250px] h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {allInstitutions.map((inst) => (
+                    <SelectItem key={inst.institution_id} value={inst.institution_id}>
+                      {inst.institution_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* Header */}
           <div className="flex items-center gap-3">
