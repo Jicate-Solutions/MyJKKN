@@ -6,6 +6,10 @@ import { BillingWidget } from '../widgets/student/billing-widget';
 import { MyCelebrationWidget } from '../widgets/student/my-celebration-widget';
 import { CelebrationsTodayWidget } from '../widgets/shared/celebrations-today-widget';
 import { DashboardSettingsDialog } from '../dashboard-settings-dialog';
+import { StreakLevelBar } from '../widgets/student/streak-level-bar';
+import { QuickActions } from '../widgets/student/quick-actions';
+import { BadgeStrip } from '../widgets/student/badge-strip';
+import { useStudentBilling } from '@/hooks/dashboard/use-student-dashboard';
 
 interface StudentDashboardProps {
   userId: string;
@@ -22,6 +26,10 @@ export default function StudentDashboard({
   role,
   visibilityMap
 }: StudentDashboardProps) {
+  // Fetch billing to check for outstanding bills (for quick actions)
+  const { data: billing } = useStudentBilling(studentId);
+  const hasOutstandingBills = (billing?.outstanding_balance ?? 0) > 0;
+
   return (
     <div className='space-y-4 sm:space-y-6'>
       {/* Dashboard Header with Customize Button */}
@@ -31,6 +39,18 @@ export default function StudentDashboard({
         </h2>
         <DashboardSettingsDialog userId={userId} role={role} />
       </div>
+
+      {/* Streak & Level Bar — Oura-inspired hero numbers */}
+      <StreakLevelBar
+        studentId={studentId}
+        isVisible={visibilityMap.student_streak_level ?? true}
+      />
+
+      {/* Quick Actions — navigation shortcut pills */}
+      <QuickActions
+        isVisible={visibilityMap.student_quick_actions ?? true}
+        hasOutstandingBills={hasOutstandingBills}
+      />
 
       {/* Mobile: 1 column, Tablet: 2 columns, Desktop: 3 columns */}
       <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6'>
@@ -62,6 +82,12 @@ export default function StudentDashboard({
           isVisible={visibilityMap.celebrations_today ?? true}
         />
       </div>
+
+      {/* Badge Strip — recently earned PDE badges */}
+      <BadgeStrip
+        studentId={studentId}
+        isVisible={visibilityMap.student_badges ?? true}
+      />
     </div>
   );
 }
