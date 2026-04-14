@@ -64,7 +64,7 @@ type ToolFormValues = z.infer<typeof toolFormSchema>;
 interface LtiToolDialogProps {
   mode: 'create' | 'edit';
   tool?: LtiTool;
-  onSuccess?: () => void;
+  onSuccess: () => void;
   children: React.ReactNode;
 }
 
@@ -147,7 +147,7 @@ export function LtiToolDialog({ mode, tool, onSuccess, children }: LtiToolDialog
 
       setOpen(false);
       form.reset();
-      onSuccess?.();
+      onSuccess();
     } catch (error: any) {
       console.error('Failed to save tool:', error);
       toast({
