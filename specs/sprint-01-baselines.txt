@@ -113,3 +113,39 @@ After Phase A (Tasks A2-A8) completes, re-run all 5 queries. The following MUST 
 ## Task A1 Status: ✅ COMPLETE
 
 Baselines captured. Moving to Task A2: create `hr_organizations` table.
+
+---
+
+# Task A9 Post-Phase-A Re-Run — VERIFIED IDENTICAL
+
+**Captured:** 2026-04-14 22:05 (after Tasks A2-A7 applied)
+
+All 5 queries re-executed after shadow-tenant pattern applied. Comparison to baselines:
+
+| Query | Baseline | Post-A | Plan Match | Notes |
+|-------|----------|--------|-----------|-------|
+| Q1 `staff` | Seq Scan, cost 0..36.92, rows 392, exec 0.162ms | Seq Scan, cost 0..36.92, rows 392, exec 0.158ms | **IDENTICAL** | −2.5% exec jitter (noise) |
+| Q2 `learners_profiles` | Seq Scan + Filter, cost 0..1613.76, rows 4776, exec 0.165ms | Seq Scan + Filter, cost 0..1613.76, rows 4776, exec 0.144ms | **IDENTICAL** | −12.7% exec jitter (noise) |
+| Q3 `institutions` | Seq Scan, cost 0..1.10, rows 10 est/11 actual, exec 0.072ms | Seq Scan, cost 0..1.10, rows 10 est/11 actual, exec 0.073ms | **IDENTICAL** | +1.4% exec jitter |
+| Q4 `departments` | Seq Scan, cost 0..4.76, rows 76, exec 0.087ms | Seq Scan, cost 0..4.76, rows 76, exec 0.090ms | **IDENTICAL** | +3.4% exec jitter |
+| Q5 `admission_counselors` (RLS) | Seq Scan, cost 0..1.02, rows 2 est/1 actual, exec 0.056ms | Seq Scan, cost 0..1.02, rows 2 est/1 actual, exec 0.057ms | **IDENTICAL** | +1.8% exec jitter |
+
+## Verdict: ✅ SHADOW-TENANT GUARANTEE VERIFIED
+
+Every pass criterion held:
+- ✅ Node Types: Exactly identical (Limit → Seq Scan for all 5)
+- ✅ Plan Rows (estimated): Exactly identical (392, 4776, 10, 76, 2)
+- ✅ Total Cost: Exactly identical
+- ✅ Plan Width: Exactly identical
+- ✅ Filter predicates: Unchanged
+- ✅ Shared Hit Blocks (planning): Exactly identical (391, 551, 113, 136, 83)
+- ✅ Execution Time jitter: −12% to +3% (all within ±50% tolerance)
+
+**Zero MyJKKN core impact confirmed.** The shadow-tenant pattern is additive, not invasive. Phase A has added:
+- 2 new tables (`hr_organizations`, `user_hr_access`)
+- 1 new RLS helper function (`auth_hr_organization_id()`)
+- 1 new trigger function (`sync_institution_to_hr_org()`)
+- 1 new trigger on `institutions` (AFTER INSERT only — not AFTER SELECT, hence zero SELECT plan impact)
+- 11 backfilled rows in `hr_organizations` (one per JKKN institution)
+
+**Ready to proceed to Phase B (Employee Master Tables).**
