@@ -22,6 +22,7 @@ import {
 import BeatLoader from 'react-spinners/BeatLoader';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 import type { UnifiedAccessResponse, CrudAccess } from '@/types/permissions-audit';
+import { SeeAsUserButton } from './see-as-user-button';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -477,6 +478,11 @@ export function UserResolverTab() {
                   <span className="text-xs text-muted-foreground">
                     Last login: {formatDate(resolvedData.user.lastLogin)}
                   </span>
+                  <SeeAsUserButton
+                    targetUserId={resolvedData.user.id}
+                    targetName={resolvedData.user.fullName}
+                    targetEmail={resolvedData.user.email}
+                  />
                 </div>
               </div>
 
