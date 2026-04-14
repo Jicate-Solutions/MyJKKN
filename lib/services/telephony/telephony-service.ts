@@ -217,7 +217,7 @@ export class TelephonyService {
 
     let query = supabase
       .from('admission_call_logs')
-      .select('*, lead:admission_leads(id, full_name, phone), counselor:profiles(id, full_name)', { count: 'exact' });
+      .select('*, lead:admission_leads(id, full_name, phone), counselor:profiles!admission_call_logs_counselor_id_fkey(id, full_name)', { count: 'exact' });
 
     if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
     if (filters.lead_id) query = query.eq('lead_id', filters.lead_id);
