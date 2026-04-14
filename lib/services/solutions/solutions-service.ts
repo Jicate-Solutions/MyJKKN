@@ -1,0 +1,429 @@
+// lib/services/solutions/solutions-service.ts
+// CRUD operations for sh_solutions table
+
+import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
+import type {
+  Solution,
+  SolutionType,
+  SolutionStatus,
+  CreateSolutionInput,
+  PaginationParams,
+  Client,
+} from './types';
+
+// ============================================
+// TYPES
+// ============================================
+
+export interface SolutionWithClient extends Solution {
+  client?: Client;
+  department?: {
+    id: string;
+    name: string;
+    code: string;
+  };
+}
+
+export interface SolutionFilters extends PaginationParams {
+  solution_type?: SolutionType;
+  status?: SolutionStatus;
+  client_id?: string;
+  lead_department_id?: string;
+}
+
+export interface UpdateSolutionInput {
+  title?: string;
+  description?: string;
+  status?: SolutionStatus;
+  lead_department_id?: string;
+  base_price?: number;
+  discount_percentage?: number;
+  final_price?: number;
+  start_date?: string;
+  target_date?: string;
+  completion_date?: string;
+}
+
+export interface SolutionStats {
+  total: number;
+  bySolutionType: Record<SolutionType, number>;
+  byStatus: Record<SolutionStatus, number>;
+  totalValue: number;
+}
+
+// ============================================
+// SERVICE CLASS
+// ============================================
+
+export class SolutionsService extends BaseService {
+  /**
+   * Calculate partner discount based on partner status
+   */
+  private static async getPartnerDiscount(clientId: string): Promise<number> {
+    const { data: client, error } = await this.supabase
+      .from('sh_clients')
+      .select('partner_status')
+      .eq('id', clientId)
+      .single();
+
+    if (error || !client) return 0;
+
+    // Partner status auto-discount (50% for yi, alumni, mou, referral)
+    if (client.partner_status !== 'standard') {
+      return 0.5;
+    }
+
+    return 0;
+  }
+
+  /**
+   * Calculate final price with partner and HOD discount
+   */
+  private static async calculateFinalPrice(
+    clientId: string,
+    basePrice: number,
+    hodDiscount: number = 0
+  ): Promise<{ finalPrice: number; partnerDiscount: number }> {
+    const partnerDiscount = await this.getPartnerDiscount(clientId);
+
+    // Calculate HOD discount amount (0-10% from department's share)
+    const priceAfterPartnerDiscount = basePrice * (1 - partnerDiscount);
+    const hodDiscountAmount = priceAfterPartnerDiscount * (hodDiscount / 100);
+    const finalPrice = priceAfterPartnerDiscount - hodDiscountAmount;
+
+    return { finalPrice, partnerDiscount };
+  }
+
+  /**
+   * Generate solution code in format: JKKN-SOL-YYYY-XXX
+   */
+  private static async generateSolutionCode(): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `JKKN-SOL-${year}-`;
+
+    const { data, error } = await this.supabase
+      .from('sh_solutions')
+      .select('solution_code')
+      .like('solution_code', `${prefix}%`)
+      .order('solution_code', { ascending: false })
+      .limit(1);
+
+    if (error) throw error;
+
+    let nextNumber = 1;
+    if (data && data.length > 0) {
+      const lastCode = data[0].solution_code;
+      const lastNumber = parseInt(lastCode.replace(prefix, ''), 10);
+      if (isNaN(lastNumber)) {
+        return `${prefix}001`;
+      }
+      nextNumber = lastNumber + 1;
+    }
+
+    return `${prefix}${String(nextNumber).padStart(3, '0')}`;
+  }
+  /**
+   * Get all solutions with optional filters and pagination
+   */
+  static async getSolutions(
+    filters?: SolutionFilters
+  ): Promise<BaseListResponse<SolutionWithClient>> {
+    const { page, limit } = this.validate(filters?.page, filters?.limit);
+
+    let query = this.supabase
+      .from('sh_solutions')
+      .select(
+        `
+        *,
+        client:sh_clients(*),
+        department:departments(id, name:department_name, code:department_code)
+      `,
+        { count: 'exact' }
+      )
+      .order('created_at', { ascending: false });
+
+    // Apply filters
+    if (filters?.solution_type) {
+      query = query.eq('solution_type', filters.solution_type);
+    }
+
+    if (filters?.status) {
+      query = query.eq('status', filters.status);
+    }
+
+    if (filters?.client_id) {
+      query = query.eq('client_id', filters.client_id);
+    }
+
+    if (filters?.lead_department_id) {
+      query = query.eq('lead_department_id', filters.lead_department_id);
+    }
+
+    if (filters?.search) {
+      const escaped = sanitizeSearch(filters.search);
+      query = query.or(`title.ilike.%${escaped}%,solution_code.ilike.%${escaped}%`);
+    }
+
+    // Apply pagination
+    const start = (page - 1) * limit;
+    const end = start + limit - 1;
+    query = query.range(start, end);
+
+    const { data, count, error } = await query;
+
+    if (error) throw new Error(`Failed to fetch solutions: ${error.message}`);
+
+    const total = count || 0;
+    return {
+      data: (data || []) as SolutionWithClient[],
+      metadata: {
+        total,
+        page,
+        limit,
+        totalPages: total > 0 ? Math.ceil(total / limit) : 0,
+      },
+    };
+  }
+
+  /**
+   * Get a single solution by ID with related data
+   */
+  static async getSolutionById(id: string): Promise<SolutionWithClient | null> {
+    const { data, error } = await this.supabase
+      .from('sh_solutions')
+      .select(
+        `
+        *,
+        client:sh_clients(*),
+        department:departments(id, name:department_name, code:department_code)
+      `
+      )
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw new Error(`Failed to fetch solution: ${error.message}`);
+    }
+
+    return data as SolutionWithClient;
+  }
+
+  /**
+   * Get solutions by client ID
+   */
+  static async getSolutionsByClientId(
+    clientId: string,
+    params?: PaginationParams
+  ): Promise<BaseListResponse<SolutionWithClient>> {
+    return this.getSolutions({ ...params, client_id: clientId });
+  }
+
+  /**
+   * Get solutions by department ID
+   */
+  static async getSolutionsByDepartmentId(
+    departmentId: string,
+    params?: PaginationParams
+  ): Promise<BaseListResponse<SolutionWithClient>> {
+    return this.getSolutions({ ...params, lead_department_id: departmentId });
+  }
+
+  /**
+   * Create a new solution
+   */
+  static async createSolution(input: CreateSolutionInput): Promise<Solution> {
+    // Generate solution code
+    const solutionCode = await this.generateSolutionCode();
+
+    // Validate discount (0-10%)
+    const discountPct = Math.min(Math.max(input.discount_percentage || 0, 0), 10);
+
+    // Calculate final price if base price is provided
+    let finalPrice = input.base_price;
+    let partnerDiscount = 0;
+
+    if (input.base_price) {
+      const pricing = await this.calculateFinalPrice(input.client_id, input.base_price, discountPct);
+      finalPrice = pricing.finalPrice;
+      partnerDiscount = pricing.partnerDiscount;
+    }
+
+    const totalDiscountPct = partnerDiscount > 0 ? (partnerDiscount * 100) + discountPct : discountPct;
+
+    // Build metadata with networker integration data (if provided)
+    const metadata: Record<string, unknown> = {};
+    if (input.networker_contact_id) {
+      metadata.networker_contact_id = input.networker_contact_id;
+    }
+    if (input.client_name) {
+      metadata.client_name = input.client_name;
+    }
+    if (input.client_organization) {
+      metadata.client_organization = input.client_organization;
+    }
+
+    const { data, error } = await this.supabase
+      .from('sh_solutions')
+      .insert({
+        solution_code: solutionCode,
+        client_id: input.client_id,
+        solution_type: input.solution_type,
+        title: input.title,
+        description: input.description,
+        lead_department_id: input.lead_department_id,
+        institution_id: input.institution_id,
+        base_price: input.base_price,
+        discount_percentage: totalDiscountPct > 0 ? totalDiscountPct : null,
+        discount_reason: partnerDiscount > 0 ? `Partner ${partnerDiscount * 100}%` + (discountPct > 0 ? ` + HOD ${discountPct}%` : '') : (discountPct > 0 ? `HOD ${discountPct}%` : null),
+        final_price: finalPrice,
+        start_date: input.start_date || null,
+        target_date: input.target_date || null,
+        created_by: input.created_by,
+        status: 'active' as SolutionStatus,
+        metadata: Object.keys(metadata).length > 0 ? metadata : null,
+      })
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to create solution: ${error.message}`);
+    return data as Solution;
+  }
+
+  /**
+   * Update an existing solution
+   */
+  static async updateSolution(id: string, input: UpdateSolutionInput): Promise<Solution> {
+    const updatedInput: Record<string, unknown> = { ...input };
+
+    // Validate discount if provided
+    if (input.discount_percentage !== undefined) {
+      updatedInput.discount_percentage = Math.min(Math.max(input.discount_percentage, 0), 10);
+    }
+
+    // Recalculate final price if base_price or discount is being updated
+    if (input.base_price !== undefined || input.discount_percentage !== undefined) {
+      const { data: solution } = await this.supabase
+        .from('sh_solutions')
+        .select('client_id, base_price, discount_percentage')
+        .eq('id', id)
+        .single();
+
+      if (solution) {
+        const basePrice = input.base_price ?? solution.base_price;
+        const discountPct = input.discount_percentage ?? solution.discount_percentage ?? 0;
+
+        if (basePrice) {
+          const pricing = await this.calculateFinalPrice(solution.client_id, basePrice, discountPct);
+          updatedInput.final_price = pricing.finalPrice;
+        }
+      }
+    }
+
+    const { data, error } = await this.supabase
+      .from('sh_solutions')
+      .update({
+        ...updatedInput,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update solution: ${error.message}`);
+    return data as Solution;
+  }
+
+  /**
+   * Delete a solution
+   */
+  static async deleteSolution(id: string): Promise<void> {
+    const { error } = await this.supabase.from('sh_solutions').delete().eq('id', id);
+
+    if (error) throw new Error(`Failed to delete solution: ${error.message}`);
+  }
+
+  /**
+   * Get solution statistics
+   */
+  static async getSolutionStats(): Promise<SolutionStats> {
+    const { data, error } = await this.supabase
+      .from('sh_solutions')
+      .select('solution_type, status, final_price');
+
+    if (error) throw new Error(`Failed to fetch solution stats: ${error.message}`);
+
+    const stats: SolutionStats = {
+      total: data?.length || 0,
+      bySolutionType: {
+        software: 0,
+        training: 0,
+        content: 0,
+        consulting: 0,
+        research: 0,
+        audit: 0,
+      },
+      byStatus: {
+        active: 0,
+        on_hold: 0,
+        completed: 0,
+        cancelled: 0,
+        in_amc: 0,
+      },
+      totalValue: 0,
+    };
+
+    data?.forEach((solution) => {
+      if (solution.solution_type) {
+        stats.bySolutionType[solution.solution_type as SolutionType]++;
+      }
+      if (solution.status) {
+        stats.byStatus[solution.status as SolutionStatus]++;
+      }
+      if (solution.final_price) {
+        stats.totalValue += Number(solution.final_price);
+      }
+    });
+
+    return stats;
+  }
+
+  /**
+   * Update solution status
+   */
+  static async updateSolutionStatus(id: string, status: SolutionStatus): Promise<Solution> {
+    const updateData: Record<string, unknown> = {
+      status,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Set completion date if status is completed
+    if (status === 'completed') {
+      updateData.completion_date = new Date().toISOString().split('T')[0];
+    }
+
+    const { data, error } = await this.supabase
+      .from('sh_solutions')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update solution status: ${error.message}`);
+    return data as Solution;
+  }
+}
+
+// Export singleton instance methods
+export const solutionsService = {
+  getSolutions: SolutionsService.getSolutions.bind(SolutionsService),
+  getSolutionById: SolutionsService.getSolutionById.bind(SolutionsService),
+  getSolutionsByClientId: SolutionsService.getSolutionsByClientId.bind(SolutionsService),
+  getSolutionsByDepartmentId: SolutionsService.getSolutionsByDepartmentId.bind(SolutionsService),
+  createSolution: SolutionsService.createSolution.bind(SolutionsService),
+  updateSolution: SolutionsService.updateSolution.bind(SolutionsService),
+  deleteSolution: SolutionsService.deleteSolution.bind(SolutionsService),
+  getSolutionStats: SolutionsService.getSolutionStats.bind(SolutionsService),
+  updateSolutionStatus: SolutionsService.updateSolutionStatus.bind(SolutionsService),
+};
