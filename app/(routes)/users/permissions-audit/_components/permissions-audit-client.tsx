@@ -18,6 +18,7 @@ import { RlsAuditTab } from './rls-audit-tab';
 import { ExportReportsTab } from './export-reports-tab';
 import { AIDebuggerTab } from './ai-debugger-tab';
 import { AskTab } from './ask-tab';
+import { ActivityTimelineTab } from './activity-timeline-tab';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
@@ -82,8 +83,9 @@ export function PermissionsAuditClient() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
-          <TabsList className='grid w-full grid-cols-3 sm:grid-cols-5 lg:grid-cols-9'>
+          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-5 lg:grid-cols-10'>
             <TabsTrigger value='ask'>Ask</TabsTrigger>
+            <TabsTrigger value='activity'>What Changed</TabsTrigger>
             <TabsTrigger value='unified'>Unified Access</TabsTrigger>
             <TabsTrigger value='rls'>RLS Audit</TabsTrigger>
             <TabsTrigger value='health'>System Health</TabsTrigger>
@@ -96,6 +98,10 @@ export function PermissionsAuditClient() {
 
           <TabsContent value='ask'>
             <AskTab />
+          </TabsContent>
+
+          <TabsContent value='activity'>
+            <ActivityTimelineTab />
           </TabsContent>
 
           <TabsContent value='unified'>
