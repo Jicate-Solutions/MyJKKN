@@ -355,6 +355,8 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.phases.all, 'by-solution', solutionId] as const,
     stats: () =>
       [...solutionsHubKeys.phases.all, 'stats'] as const,
+    nextNumber: (solutionId: string) =>
+      [...solutionsHubKeys.phases.all, 'next-number', solutionId] as const,
   },
 
   builders: {
@@ -365,6 +367,8 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.builders.all, 'detail', id] as const,
     stats: () =>
       [...solutionsHubKeys.builders.all, 'stats'] as const,
+    available: (phaseId: string) =>
+      [...solutionsHubKeys.builders.all, 'available', phaseId] as const,
   },
 
   training: {
@@ -418,12 +422,26 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.payments.all, 'detail', id] as const,
     bySolution: (solutionId: string) =>
       [...solutionsHubKeys.payments.all, 'by-solution', solutionId] as const,
+    stats: () =>
+      [...solutionsHubKeys.payments.all, 'stats'] as const,
+    monthlyBatch: (month: number, year: number) =>
+      [...solutionsHubKeys.payments.all, 'monthly-batch', month, year] as const,
   },
 
   earnings: {
     all: ['solutions-hub', 'earnings'] as const,
     list: (filters?: Record<string, unknown>) =>
       [...solutionsHubKeys.earnings.all, 'list', filters] as const,
+    summary: () =>
+      [...solutionsHubKeys.earnings.all, 'summary'] as const,
+    byDepartment: (departmentId: string, fromDate?: string, toDate?: string) =>
+      [...solutionsHubKeys.earnings.all, 'department', departmentId, fromDate, toDate] as const,
+    byRecipient: (recipientType: string, recipientId: string) =>
+      [...solutionsHubKeys.earnings.all, 'recipient', recipientType, recipientId] as const,
+    monthlyReport: (month: number, year: number) =>
+      [...solutionsHubKeys.earnings.all, 'monthly', month, year] as const,
+    total: (recipientType: string, recipientId: string) =>
+      [...solutionsHubKeys.earnings.all, 'total', recipientType, recipientId] as const,
   },
 
   discovery: {
@@ -440,6 +458,10 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.publications.all, 'list', filters] as const,
     detail: (id: string) =>
       [...solutionsHubKeys.publications.all, 'detail', id] as const,
+    stats: () =>
+      [...solutionsHubKeys.publications.all, 'stats'] as const,
+    contributors: (publicationId: string) =>
+      [...solutionsHubKeys.publications.all, 'contributors', publicationId] as const,
   },
 
   mous: {
@@ -448,6 +470,8 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.mous.all, 'list', filters] as const,
     bySolution: (solutionId: string) =>
       [...solutionsHubKeys.mous.all, 'by-solution', solutionId] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.mous.all, 'detail', id] as const,
   },
 
   prospects: {
@@ -462,6 +486,10 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.prospects.all, 'pipeline-board'] as const,
     activities: (prospectId: string) =>
       [...solutionsHubKeys.prospects.all, 'activities', prospectId] as const,
+    analytics: () =>
+      [...solutionsHubKeys.prospects.all, 'analytics'] as const,
+    overdue: () =>
+      [...solutionsHubKeys.prospects.all, 'overdue'] as const,
   },
 
   products: {
@@ -474,6 +502,16 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.products.all, 'stats'] as const,
     rdifScore: () =>
       [...solutionsHubKeys.products.all, 'rdif-score'] as const,
+    rdifPrerequisites: () =>
+      [...solutionsHubKeys.products.all, 'rdif-prerequisites'] as const,
+    retainedIP: () =>
+      [...solutionsHubKeys.products.all, 'retained-ip'] as const,
+    trlHistory: (productId: string) =>
+      [...solutionsHubKeys.products.all, 'trl-history', productId] as const,
+    validations: (productId: string) =>
+      [...solutionsHubKeys.products.all, 'validations', productId] as const,
+    nextMilestones: () =>
+      [...solutionsHubKeys.products.all, 'next-milestones'] as const,
   },
 
   departmentTracker: {
@@ -505,6 +543,14 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.builderPortal.all, 'profile'] as const,
     assignments: (filters?: Record<string, unknown>) =>
       [...solutionsHubKeys.builderPortal.all, 'assignments', filters] as const,
+    availablePhases: (builderId: string) =>
+      [...solutionsHubKeys.builderPortal.all, 'available-phases', builderId] as const,
+    overview: (builderId: string) =>
+      [...solutionsHubKeys.builderPortal.all, 'overview', builderId] as const,
+    skills: (builderId: string) =>
+      [...solutionsHubKeys.builderPortal.all, 'skills', builderId] as const,
+    earnings: (builderId: string) =>
+      [...solutionsHubKeys.builderPortal.all, 'earnings', builderId] as const,
   },
   cohortPortal: {
     all: ['solutions-hub', 'cohort-portal'] as const,
@@ -512,6 +558,22 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.cohortPortal.all, 'profile'] as const,
     assignments: (filters?: Record<string, unknown>) =>
       [...solutionsHubKeys.cohortPortal.all, 'assignments', filters] as const,
+    completed: (memberId: string) =>
+      [...solutionsHubKeys.cohortPortal.all, 'completed', memberId] as const,
+    earnings: (memberId: string) =>
+      [...solutionsHubKeys.cohortPortal.all, 'earnings', memberId] as const,
+    levelProgress: (memberId: string) =>
+      [...solutionsHubKeys.cohortPortal.all, 'level-progress', memberId] as const,
+    member: (memberId: string) =>
+      [...solutionsHubKeys.cohortPortal.all, 'member', memberId] as const,
+    schedule: (memberId: string) =>
+      [...solutionsHubKeys.cohortPortal.all, 'schedule', memberId] as const,
+    upcoming: (memberId: string) =>
+      [...solutionsHubKeys.cohortPortal.all, 'upcoming', memberId] as const,
+    availableSessions: (memberId: string, level?: number) =>
+      [...solutionsHubKeys.cohortPortal.all, 'available-sessions', memberId, level] as const,
+    dashboard: (memberId: string) =>
+      [...solutionsHubKeys.cohortPortal.all, 'dashboard', memberId] as const,
   },
   productionPortal: {
     all: ['solutions-hub', 'production-portal'] as const,
@@ -519,6 +581,22 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.productionPortal.all, 'profile'] as const,
     assignments: (filters?: Record<string, unknown>) =>
       [...solutionsHubKeys.productionPortal.all, 'assignments', filters] as const,
+    allAvailableWork: () =>
+      [...solutionsHubKeys.productionPortal.all, 'all-available-work'] as const,
+    earnings: (learnerId: string) =>
+      [...solutionsHubKeys.productionPortal.all, 'earnings', learnerId] as const,
+    learner: (userId: string) =>
+      [...solutionsHubKeys.productionPortal.all, 'learner', userId] as const,
+    myActiveWork: (learnerId: string) =>
+      [...solutionsHubKeys.productionPortal.all, 'my-active-work', learnerId] as const,
+    myWork: (learnerId: string) =>
+      [...solutionsHubKeys.productionPortal.all, 'my-work', learnerId] as const,
+    stats: (learnerId: string) =>
+      [...solutionsHubKeys.productionPortal.all, 'stats', learnerId] as const,
+    availableWork: (learnerId: string, division?: string) =>
+      [...solutionsHubKeys.productionPortal.all, 'available-work', learnerId, division] as const,
+    submission: (deliverableId: string, learnerId: string) =>
+      [...solutionsHubKeys.productionPortal.all, 'submission', deliverableId, learnerId] as const,
   },
   clientPortal: {
     all: ['solutions-hub', 'client-portal'] as const,
@@ -552,6 +630,158 @@ export const solutionsHubKeys = {
     all: ['solutions-hub', 'matlab-analytics'] as const,
     dashboard: (filters?: Record<string, unknown>) =>
       [...solutionsHubKeys.matlabAnalytics.all, 'dashboard', filters] as const,
+  },
+
+  accreditation: {
+    all: ['solutions-hub', 'accreditation'] as const,
+    metrics: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.accreditation.all, 'metrics', filters] as const
+  },
+
+  bugs: {
+    all: ['solutions-hub', 'bugs'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.bugs.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.bugs.all, 'detail', id] as const,
+    byPhase: (phaseId: string) =>
+      [...solutionsHubKeys.bugs.all, 'phase', phaseId] as const,
+    byIteration: (iterationId: string) =>
+      [...solutionsHubKeys.bugs.all, 'iteration', iterationId] as const,
+    stats: () =>
+      [...solutionsHubKeys.bugs.all, 'stats'] as const,
+    openCount: (phaseId: string) =>
+      [...solutionsHubKeys.bugs.all, 'open-count', phaseId] as const
+  },
+
+  builderAssignments: {
+    all: ['solutions-hub', 'builder-assignments'] as const,
+    pending: () =>
+      [...solutionsHubKeys.builderAssignments.all, 'pending'] as const,
+    byStatus: (status: string) =>
+      [...solutionsHubKeys.builderAssignments.all, 'status', status] as const,
+    approvalCheck: (phaseId: string) =>
+      [...solutionsHubKeys.builderAssignments.all, 'approval-check', phaseId] as const
+  },
+
+  cohortMembers: {
+    all: ['solutions-hub', 'cohort-members'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.cohortMembers.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.cohortMembers.all, 'detail', id] as const,
+    byUser: (userId: string) =>
+      [...solutionsHubKeys.cohortMembers.all, 'user', userId] as const,
+    stats: () =>
+      [...solutionsHubKeys.cohortMembers.all, 'stats'] as const,
+    availableSessions: (memberId: string) =>
+      [...solutionsHubKeys.cohortMembers.all, 'available-sessions', memberId] as const
+  },
+
+  communications: {
+    all: ['solutions-hub', 'communications'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.communications.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.communications.all, 'detail', id] as const,
+    byClient: (clientId: string) =>
+      [...solutionsHubKeys.communications.all, 'client', clientId] as const
+  },
+
+  contentDeliverables: {
+    all: ['solutions-hub', 'content-deliverables'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.contentDeliverables.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.contentDeliverables.all, 'detail', id] as const,
+    byOrder: (orderId: string) =>
+      [...solutionsHubKeys.contentDeliverables.all, 'order', orderId] as const
+  },
+
+  contentOrders: {
+    all: ['solutions-hub', 'content-orders'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.contentOrders.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.contentOrders.all, 'detail', id] as const,
+    bySolution: (solutionId: string) =>
+      [...solutionsHubKeys.contentOrders.all, 'solution', solutionId] as const,
+    byDivision: (division: string) =>
+      [...solutionsHubKeys.contentOrders.all, 'division', division] as const,
+    stats: () =>
+      [...solutionsHubKeys.contentOrders.all, 'stats'] as const
+  },
+
+  deployments: {
+    all: ['solutions-hub', 'deployments'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.deployments.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.deployments.all, 'detail', id] as const,
+    byPhase: (phaseId: string) =>
+      [...solutionsHubKeys.deployments.all, 'phase', phaseId] as const,
+    latest: (phaseId: string, environment: string) =>
+      [...solutionsHubKeys.deployments.all, 'latest', phaseId, environment] as const,
+    stats: () =>
+      [...solutionsHubKeys.deployments.all, 'stats'] as const,
+    activeUrl: (phaseId: string, environment: string) =>
+      [...solutionsHubKeys.deployments.all, 'active-url', phaseId, environment] as const
+  },
+
+  discoveryVisits: {
+    all: ['solutions-hub', 'discovery-visits'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.discoveryVisits.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.discoveryVisits.all, 'detail', id] as const,
+    byClient: (clientId: string) =>
+      [...solutionsHubKeys.discoveryVisits.all, 'client', clientId] as const
+  },
+
+  iterations: {
+    all: ['solutions-hub', 'iterations'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.iterations.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.iterations.all, 'detail', id] as const,
+    byPhase: (phaseId: string) =>
+      [...solutionsHubKeys.iterations.all, 'phase', phaseId] as const,
+    latest: (phaseId: string) =>
+      [...solutionsHubKeys.iterations.all, 'latest', phaseId] as const,
+    stats: () =>
+      [...solutionsHubKeys.iterations.all, 'stats'] as const
+  },
+
+  productionLearners: {
+    all: ['solutions-hub', 'production-learners'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.productionLearners.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.productionLearners.all, 'detail', id] as const,
+    byUser: (userId: string) =>
+      [...solutionsHubKeys.productionLearners.all, 'user', userId] as const
+  },
+
+  trainingPrograms: {
+    all: ['solutions-hub', 'training-programs'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.trainingPrograms.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.trainingPrograms.all, 'detail', id] as const,
+    bySolution: (solutionId: string) =>
+      [...solutionsHubKeys.trainingPrograms.all, 'solution', solutionId] as const
+  },
+
+  trainingSessions: {
+    all: ['solutions-hub', 'training-sessions'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.trainingSessions.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.trainingSessions.all, 'detail', id] as const,
+    byProgram: (programId: string) =>
+      [...solutionsHubKeys.trainingSessions.all, 'program', programId] as const,
+    canSelfClaim: (sessionId: string) =>
+      [...solutionsHubKeys.trainingSessions.all, 'can-self-claim', sessionId] as const
   },
 };
 
