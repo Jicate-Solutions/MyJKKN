@@ -1,0 +1,548 @@
+'use client';
+
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import Link from 'next/link';
+import {
+  Hammer,
+  BookOpen,
+  Video,
+  IndianRupee,
+  TrendingUp,
+  Building2,
+  FileText,
+  Plus,
+  ArrowRight,
+  AlertCircle,
+  Lightbulb,
+  Shield,
+  Target,
+  Sparkles,
+} from 'lucide-react';
+import { useSolutionStats } from '@/hooks/solutions/use-solutions';
+import { useBuilderStats } from '@/hooks/solutions/use-builders';
+import { useCohortMemberStats } from '@/hooks/solutions/use-training';
+import { useContentOrderStats } from '@/hooks/solutions/use-content';
+import { usePhaseStats } from '@/hooks/solutions/use-phases';
+import { useProductStats, useRDIFReadinessScore } from '@/hooks/solutions/use-products';
+import { useProspectStats } from '@/hooks/solutions/use-prospects';
+import { OverdueAlertBanner } from '@/components/solutions/pipeline/overdue-alert-banner';
+// DepartmentTrackerSummary retired April 2026 — replaced by paradigm-shift dashboard
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+export function SolutionsDashboard() {
+  // Fetch real data from hooks
+  const { data: solutionStats, isLoading: statsLoading, error: statsError } = useSolutionStats();
+  const { data: builderStats, isLoading: buildersLoading } = useBuilderStats();
+  const { data: cohortStats, isLoading: cohortLoading } = useCohortMemberStats();
+  const { data: contentStats, isLoading: contentLoading } = useContentOrderStats();
+  const { data: phaseStats, isLoading: phasesLoading } = usePhaseStats();
+  const { data: productStats, isLoading: productsLoading } = useProductStats();
+  const { data: rdifScore } = useRDIFReadinessScore();
+  const { data: prospectStats, isLoading: prospectsLoading } = useProspectStats();
+
+  const isLoading = statsLoading || buildersLoading || cohortLoading || contentLoading || phasesLoading;
+
+  // Compute active phases from byStatus (all statuses that are in-progress work)
+  const activePhaseCount = phaseStats?.byStatus
+    ? Object.entries(phaseStats.byStatus)
+        .filter(([status]) =>
+          ['prospecting', 'discovery', 'prd_writing', 'prototype_building', 'client_demo', 'revisions', 'approved', 'deploying', 'training'].includes(status)
+        )
+        .reduce((sum, [, count]) => sum + (count as number), 0)
+    : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Overdue Follow-up Reminders */}
+      <OverdueAlertBanner />
+
+      {/* Department Tracker Summary — retired April 2026, replaced by Paradigm Shift */}
+
+      {/* Paradigm Shift Banner */}
+      <Card className="border-green-200 bg-gradient-to-r from-green-50 to-emerald-50">
+        <CardContent className="flex items-center justify-between py-4">
+          <div className="flex items-center gap-3">
+            <Sparkles className="h-6 w-6 text-green-600" />
+            <div>
+              <p className="font-semibold text-green-900">Research Paradigm Shift</p>
+              <p className="text-sm text-green-700">
+                {new Date() >= new Date('2026-04-01')
+                  ? 'All departments are now Solutions Departments'
+                  : 'Every department becomes a Solutions Department from April 1, 2026'}
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" asChild className="border-green-300 text-green-700 hover:bg-green-100">
+            <Link href="/solutions/paradigm-shift">
+              View Dashboard
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Quick Actions */}
+      <div className="flex flex-wrap gap-2">
+        <Button asChild>
+          <Link href="/solutions/new">
+            <Plus className="mr-2 h-4 w-4" />
+            New Solution
+          </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link href="/solutions/clients/new">
+            <Building2 className="mr-2 h-4 w-4" />
+            Add Client
+          </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link href="/solutions/pipeline/new">
+            <Target className="mr-2 h-4 w-4" />
+            Add Prospect
+          </Link>
+        </Button>
+      </div>
+
+      {/* Error State */}
+      {statsError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Failed to load dashboard stats. Please try refreshing the page.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Software</CardTitle>
+            <Hammer className="h-4 w-4 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-20" />
+            ) : (
+              <div className="text-2xl font-bold">
+                {solutionStats?.bySolutionType?.software || 0}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">Active solutions</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Training</CardTitle>
+            <BookOpen className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-20" />
+            ) : (
+              <div className="text-2xl font-bold">
+                {solutionStats?.bySolutionType?.training || 0}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">Active programs</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Content</CardTitle>
+            <Video className="h-4 w-4 text-purple-600" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-20" />
+            ) : (
+              <div className="text-2xl font-bold">
+                {solutionStats?.bySolutionType?.content || 0}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">Active orders</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+            <IndianRupee className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : (
+              <div className="text-2xl font-bold">
+                {formatCurrency(solutionStats?.totalValue || 0)}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">All solutions</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pipeline</CardTitle>
+            <Target className="h-4 w-4 text-amber-600" />
+          </CardHeader>
+          <CardContent>
+            {prospectsLoading ? (
+              <Skeleton className="h-8 w-20" />
+            ) : (
+              <div className="text-2xl font-bold">
+                {prospectStats?.total || 0}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {prospectStats?.overdueFollowUps
+                ? `${prospectStats.overdueFollowUps} overdue`
+                : 'Active prospects'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Module Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        {/* Software Module */}
+        <Card className="hover:border-blue-300 transition-colors">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Hammer className="h-5 w-5 text-blue-600" />
+              Software Development
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Active Phases</p>
+                {phasesLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{activePhaseCount}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-muted-foreground">Builders</p>
+                {buildersLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{builderStats?.total || 0}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/software">
+                  Overview
+                  <ArrowRight className="ml-2 h-3 w-3" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/software/builders">Builders</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Training Module */}
+        <Card className="hover:border-green-300 transition-colors">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-green-600" />
+              Training Programs
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Sessions</p>
+                {isLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{solutionStats?.bySolutionType?.training || 0}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-muted-foreground">Cohort</p>
+                {cohortLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{cohortStats?.total || 0}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/training">
+                  Overview
+                  <ArrowRight className="ml-2 h-3 w-3" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/training/cohort">Cohort</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Content Module */}
+        <Card className="hover:border-purple-300 transition-colors">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Video className="h-5 w-5 text-purple-600" />
+              Content Production
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Orders</p>
+                {contentLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{contentStats?.total || 0}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-muted-foreground">Divisions</p>
+                {contentLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">
+                    {contentStats?.byDivision
+                      ? Object.values(contentStats.byDivision).filter((v) => (v as number) > 0).length
+                      : 0}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/content">
+                  Overview
+                  <ArrowRight className="ml-2 h-3 w-3" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/content/queue">Queue</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Products & TRL Module */}
+        <Card className="hover:border-orange-300 transition-colors">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lightbulb className="h-5 w-5 text-orange-600" />
+              Products & TRL
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Products</p>
+                {productsLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{productStats?.total || 0}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-muted-foreground">Avg TRL</p>
+                {productsLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">
+                    {productStats?.averageTRL ? productStats.averageTRL.toFixed(1) : '—'}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">
+                <span className="font-medium">RDIF Ready:</span> {rdifScore?.score ?? 0} of {rdifScore?.total ?? 9}
+              </div>
+              <div className="w-full bg-muted rounded-full h-1.5">
+                <div className="bg-orange-600 h-1.5 rounded-full" style={{ width: `${rdifScore?.percentage ?? 0}%` }} />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/products">
+                  Products
+                  <ArrowRight className="ml-2 h-3 w-3" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/products/rdif">RDIF</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Pipeline Module */}
+        <Card className="hover:border-amber-300 transition-colors">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5 text-amber-600" />
+              Pipeline
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Prospects</p>
+                {prospectsLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{prospectStats?.total || 0}</p>
+                )}
+              </div>
+              <div>
+                <p className="text-muted-foreground">Value</p>
+                {prospectsLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">
+                    {formatCurrency(prospectStats?.totalPipelineValue || 0)}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/pipeline">
+                  Board
+                  <ArrowRight className="ml-2 h-3 w-3" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/pipeline/new">Add Lead</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Quick Links */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/list">
+            <CardContent className="flex items-center gap-3 py-4">
+              <FileText className="h-8 w-8 text-muted-foreground" />
+              <div>
+                <p className="font-medium">All Solutions</p>
+                <p className="text-sm text-muted-foreground">View complete list</p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/clients">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Building2 className="h-8 w-8 text-muted-foreground" />
+              <div>
+                <p className="font-medium">Clients</p>
+                <p className="text-sm text-muted-foreground">Manage clients</p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/payments">
+            <CardContent className="flex items-center gap-3 py-4">
+              <IndianRupee className="h-8 w-8 text-muted-foreground" />
+              <div>
+                <p className="font-medium">Payments</p>
+                <p className="text-sm text-muted-foreground">Track revenue</p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/earnings">
+            <CardContent className="flex items-center gap-3 py-4">
+              <TrendingUp className="h-8 w-8 text-muted-foreground" />
+              <div>
+                <p className="font-medium">Earnings</p>
+                <p className="text-sm text-muted-foreground">Revenue splits</p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/products">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Lightbulb className="h-8 w-8 text-orange-600" />
+              <div>
+                <p className="font-medium">Products & TRL</p>
+                <p className="text-sm text-muted-foreground">Track R&D portfolio</p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/products/rdif">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Shield className="h-8 w-8 text-orange-600" />
+              <div>
+                <p className="font-medium">RDIF Readiness</p>
+                <p className="text-sm text-muted-foreground">
+                  {rdifScore ? `${rdifScore.score} of ${rdifScore.total} criteria met` : 'Track RDIF progress'}
+                </p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/pipeline">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Target className="h-8 w-8 text-amber-600" />
+              <div>
+                <p className="font-medium">Pipeline</p>
+                <p className="text-sm text-muted-foreground">
+                  {prospectStats
+                    ? `${prospectStats.total} active, ${formatCurrency(prospectStats.totalPipelineValue)} value`
+                    : 'Track prospects'}
+                </p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/paradigm-shift">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Sparkles className="h-8 w-8 text-green-600" />
+              <div>
+                <p className="font-medium">Paradigm Shift</p>
+                <p className="text-sm text-muted-foreground">Department readiness scores</p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+      </div>
+    </div>
+  );
+}

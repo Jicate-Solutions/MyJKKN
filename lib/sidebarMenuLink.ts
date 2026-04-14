@@ -33,6 +33,7 @@ import {
   Lock,
   LucideIcon,
   LayoutGrid,
+  Lightbulb,
   Building,
   Boxes,
   CalendarClock,
@@ -49,6 +50,7 @@ import {
   UserCheck,
   Package,
   Bookmark,
+  Compass,
   Cpu,
   Award,
   CheckSquare,
@@ -503,6 +505,35 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/solve-for-100/weekly': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/icp': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/mentor': 'startup_studio.evaluations.manage',
+
+  // Solution Hub
+  '/solutions': 'solutions.dashboard.view',
+  '/solutions/list': 'solutions.dashboard.view',
+  '/solutions/pipeline': 'solutions.pipeline.view',
+  '/solutions/pipeline/list': 'solutions.pipeline.view',
+  '/solutions/pipeline/analytics': 'solutions.pipeline.analytics.view',
+  '/solutions/clients': 'solutions.clients.view',
+  '/solutions/builders': 'solutions.builders.view',
+  '/solutions/training': 'solutions.training.view',
+  '/solutions/training/programs': 'solutions.training.programs.view',
+  '/solutions/training/sessions': 'solutions.training.sessions.view',
+  '/solutions/training/cohort': 'solutions.training.cohort.view',
+  '/solutions/content': 'solutions.content.view',
+  '/solutions/content/deliverables': 'solutions.content.deliverables.view',
+  '/solutions/content/production': 'solutions.content.production.view',
+  '/solutions/content/queue': 'solutions.content.queue.view',
+  '/solutions/payments': 'solutions.payments.view',
+  '/solutions/earnings': 'solutions.earnings.view',
+  '/solutions/discovery': 'solutions.discovery.view',
+  '/solutions/publications': 'solutions.publications.view',
+  '/solutions/products': 'solutions.products.view',
+  '/solutions/software': 'solutions.software.view',
+  '/solutions/software/builders': 'solutions.software.builders.view',
+  '/solutions/software/phases': 'solutions.software.phases.view',
+  '/solutions/matlab': 'solutions.matlab.view',
+  '/solutions/paradigm-shift': 'solutions.paradigm_shift.view',
+  '/solutions/compliance': 'solutions.compliance.view',
+  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift
 
   // Learners Council
   '/learners-council': 'learners_council.dashboard.view',
@@ -1881,6 +1912,133 @@ export function GetPages(pathname: string): MenuGroup[] {
           }
         ];
       })()
+    },
+    {
+      groupLabel: 'Solution Hub',
+      menus: [
+        {
+          href: '/solutions',
+          label: 'Dashboard',
+          active: pathname === '/solutions' || pathname === '/solutions/list',
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
+          href: '/solutions/pipeline',
+          label: 'Pipeline',
+          active: pathname.startsWith('/solutions/pipeline'),
+          icon: Workflow,
+          submenus: [
+            { href: '/solutions/pipeline', label: 'Board View', active: pathname === '/solutions/pipeline' },
+            { href: '/solutions/pipeline/list', label: 'List View', active: pathname === '/solutions/pipeline/list' },
+            { href: '/solutions/pipeline/analytics', label: 'Analytics', active: pathname === '/solutions/pipeline/analytics' }
+          ]
+        },
+        {
+          href: '/solutions/clients',
+          label: 'Clients',
+          active: pathname.startsWith('/solutions/clients'),
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/solutions/builders',
+          label: 'Builders',
+          active: pathname.startsWith('/solutions/builders'),
+          icon: Hammer,
+          submenus: []
+        },
+        {
+          href: '/solutions/training',
+          label: 'Training',
+          active: pathname.startsWith('/solutions/training'),
+          icon: GraduationCap,
+          submenus: [
+            { href: '/solutions/training', label: 'Overview', active: pathname === '/solutions/training' },
+            { href: '/solutions/training/programs', label: 'Programs', active: pathname === '/solutions/training/programs' },
+            { href: '/solutions/training/sessions', label: 'Sessions', active: pathname === '/solutions/training/sessions' },
+            { href: '/solutions/training/cohort', label: 'Cohort', active: pathname.startsWith('/solutions/training/cohort') }
+          ]
+        },
+        {
+          href: '/solutions/content',
+          label: 'Content',
+          active: pathname.startsWith('/solutions/content'),
+          icon: FileText,
+          submenus: [
+            { href: '/solutions/content', label: 'Orders', active: pathname === '/solutions/content' },
+            { href: '/solutions/content/deliverables', label: 'Deliverables', active: pathname.startsWith('/solutions/content/deliverables') },
+            { href: '/solutions/content/production', label: 'Production', active: pathname.startsWith('/solutions/content/production') },
+            { href: '/solutions/content/queue', label: 'Queue', active: pathname === '/solutions/content/queue' }
+          ]
+        },
+        {
+          href: '/solutions/payments',
+          label: 'Payments',
+          active: pathname.startsWith('/solutions/payments') || pathname.startsWith('/solutions/earnings'),
+          icon: Wallet,
+          submenus: [
+            { href: '/solutions/payments', label: 'Payments', active: pathname === '/solutions/payments' },
+            { href: '/solutions/earnings', label: 'Earnings', active: pathname === '/solutions/earnings' }
+          ]
+        },
+        {
+          href: '/solutions/discovery',
+          label: 'Discovery',
+          active: pathname.startsWith('/solutions/discovery') || pathname.startsWith('/solutions/publications'),
+          icon: Compass,
+          submenus: [
+            { href: '/solutions/discovery', label: 'Visits', active: pathname === '/solutions/discovery' },
+            { href: '/solutions/publications', label: 'Publications', active: pathname.startsWith('/solutions/publications') }
+          ]
+        },
+        {
+          href: '/solutions/products',
+          label: 'Products',
+          active: pathname.startsWith('/solutions/products'),
+          icon: Package,
+          submenus: []
+        },
+        {
+          href: '/solutions/software',
+          label: 'Software',
+          active: pathname.startsWith('/solutions/software'),
+          icon: Cpu,
+          submenus: [
+            { href: '/solutions/software', label: 'Overview', active: pathname === '/solutions/software' },
+            { href: '/solutions/software/builders', label: 'Builders', active: pathname.startsWith('/solutions/software/builders') },
+            { href: '/solutions/software/phases', label: 'Phases', active: pathname.startsWith('/solutions/software/phases') }
+          ]
+        },
+        {
+          href: '/solutions/matlab',
+          label: 'MATLAB',
+          active: pathname.startsWith('/solutions/matlab'),
+          icon: Cpu,
+          submenus: []
+        },
+        {
+          href: '/solutions/paradigm-shift',
+          label: 'Paradigm Shift',
+          active: pathname.startsWith('/solutions/paradigm-shift'),
+          icon: Lightbulb,
+          submenus: []
+        },
+        {
+          href: '/solutions/compliance',
+          label: 'Compliance',
+          active: pathname.startsWith('/solutions/compliance'),
+          icon: ShieldCheck,
+          submenus: []
+        },
+        {
+          href: '/solutions/paradigm-shift',
+          label: 'Departments',
+          active: pathname.startsWith('/solutions/paradigm-shift'),
+          icon: Building2,
+          submenus: []
+        }
+      ]
     },
     {
       groupLabel: 'Value Added Courses',

@@ -1,0 +1,461 @@
+'use client';
+
+/**
+ * Solutions Hub - Production Portal Hooks
+ * Purpose: React Query hooks for production learner portal (talent-facing)
+ * Connected to: /api/solutions/production-portal/* routes, /api/solutions/content/* routes
+ */
+
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { solutionsHubKeys } from '@/lib/query-keys';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { apiClient } from '@/lib/api/client';
+import type {
+  ContentDivision,
+  ProductionLearner,
+  ProductionLearnerFilters,
+  CreateProductionLearnerInput,
+  UpdateProductionLearnerInput,
+  SkillLevel,
+} from '@/lib/services/solutions';
+
+// Re-export types for consumers
+export type {
+  ContentDivision,
+  ProductionLearnerFilters,
+  CreateProductionLearnerInput,
+  UpdateProductionLearnerInput,
+  SkillLevel,
+};
+
+// ============================================
+// QUERY HOOKS - PROFILE
+// ============================================
+
+/**
+ * Get production learner by user ID (for logged-in user)
+ * Uses direct query by user_id for efficiency (instead of fetching all learners)
+ */
+export function useLearnerByUserId(userId: string | undefined) {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionPortal.learner(userId || ''),
+    queryFn: () => apiClient.get<ProductionLearner>('/api/solutions/production-portal/profile'),
+    enabled: !!userId,
+    ...QUERY_CONFIG.USER_SESSION_DATA,
+  });
+}
+
+/**
+ * Get production learner by ID
+ */
+export function useProductionLearner(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionLearners.detail(learnerId || ''),
+    queryFn: () => apiClient.get<ProductionLearner>(`/api/solutions/production-portal/learners/${learnerId}`),
+    enabled: !!learnerId,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+/**
+ * Get all production learners with filters
+ */
+export function useProductionLearners(filters?: ProductionLearnerFilters) {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionLearners.list(filters),
+    queryFn: () => apiClient.get('/api/solutions/production-portal/learners', { params: filters as Record<string, any> }),
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
+/**
+ * Get portal statistics for learner
+ */
+export function useMyStats(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionPortal.stats(learnerId || ''),
+    queryFn: async () => {
+      // Get learner profile for total earnings
+      const learner = await apiClient.get<ProductionLearner>(`/api/solutions/production-portal/learners/${learnerId}`);
+      if (!learner) {
+        return {
+          totalAssignments: 0,
+          completed: 0,
+          inProgress: 0,
+          inReview: 0,
+          totalEarnings: 0,
+          avgRating: null as number | null,
+        };
+      }
+
+      // Get all assignments for this learner
+      const assignments = await apiClient.get<any[]>('/api/solutions/production-portal/my-work');
+
+      // Calculate stats from assignments
+      const completed = assignments.filter((a) => a.completed_at).length;
+      const inProgress = assignments.filter(
+        (a) => !a.completed_at && a.deliverable?.status === 'in_progress'
+      ).length;
+      const inReview = assignments.filter(
+        (a) => !a.completed_at && a.deliverable?.status === 'review'
+      ).length;
+
+      // Calculate average rating from completed assignments with ratings
+      const ratedAssignments = assignments.filter(
+        (a) => a.completed_at && a.quality_rating !== null && a.quality_rating !== undefined
+      );
+      const avgRating =
+        ratedAssignments.length > 0
+          ? ratedAssignments.reduce((sum, a) => sum + (a.quality_rating || 0), 0) /
+            ratedAssignments.length
+          : null;
+
+      return {
+        totalAssignments: assignments.length,
+        completed,
+        inProgress,
+        inReview,
+        totalEarnings: learner.total_earnings || 0,
+        avgRating,
+      };
+    },
+    enabled: !!learnerId,
+    ...QUERY_CONFIG.DASHBOARD_DATA,
+  });
+}
+
+/**
+ * Get production learner statistics (admin view)
+ */
+export function useProductionLearnerStats() {
+  return useQuery({
+    queryKey: [...solutionsHubKeys.productionLearners.all, 'stats'],
+    queryFn: () => apiClient.get('/api/solutions/production-portal/learners/stats'),
+    ...QUERY_CONFIG.DASHBOARD_DATA,
+  });
+}
+
+// ============================================
+// QUERY HOOKS - AVAILABLE WORK
+// ============================================
+
+/**
+ * Get available work for a division
+ */
+export function useAvailableWork(
+  learnerId: string | undefined,
+  division?: ContentDivision
+) {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionPortal.availableWork(learnerId || '', division),
+    queryFn: () => {
+      if (division) {
+        return apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division } });
+      }
+      // If no division specified, get available work across all divisions
+      return Promise.all([
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'video' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'design' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'writing' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'animation' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'social' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'other' } }),
+      ]).then((results) => results.flat());
+    },
+    enabled: !!learnerId,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
+/**
+ * Get all available work across divisions
+ */
+export function useAllAvailableWork() {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionPortal.allAvailableWork(),
+    queryFn: async () => {
+      const divisions: ContentDivision[] = ['video', 'design', 'writing', 'animation', 'social', 'other'];
+      const results = await Promise.all(
+        divisions.map((div) => apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: div } }))
+      );
+      return results.flat();
+    },
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
+// ============================================
+// QUERY HOOKS - MY WORK
+// ============================================
+
+/**
+ * Get my work (all assignments)
+ */
+export function useMyWork(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionPortal.myWork(learnerId || ''),
+    queryFn: () => apiClient.get<any[]>('/api/solutions/production-portal/my-work'),
+    enabled: !!learnerId,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
+/**
+ * Get my active work (not completed)
+ */
+export function useMyActiveWork(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionPortal.myActiveWork(learnerId || ''),
+    queryFn: async () => {
+      const assignments = await apiClient.get<any[]>('/api/solutions/production-portal/my-work');
+      return assignments.filter((a) => !a.completed_at);
+    },
+    enabled: !!learnerId,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+}
+
+// ============================================
+// QUERY HOOKS - EARNINGS
+// ============================================
+
+/**
+ * Get my earnings
+ */
+export function useMyProductionEarnings(learnerId: string | undefined) {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionPortal.earnings(learnerId || ''),
+    queryFn: async () => {
+      const result = await apiClient.get<{
+        total_earnings: number;
+        orders_completed: number;
+        recent_assignments: any[];
+        earnings_from_assignments: number;
+      }>('/api/solutions/production-portal/earnings');
+
+      const completedWithEarnings = (result.recent_assignments || []).filter((a: any) => a.completed_at && a.earnings);
+
+      return {
+        total: result.total_earnings || 0,
+        assignments: completedWithEarnings,
+      };
+    },
+    enabled: !!learnerId,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+// ============================================
+// QUERY HOOKS - SUBMISSION
+// ============================================
+
+/**
+ * Get deliverable for submission
+ */
+export function useDeliverableForSubmission(
+  deliverableId: string,
+  learnerId: string | undefined
+) {
+  return useQuery({
+    queryKey: solutionsHubKeys.productionPortal.submission(deliverableId, learnerId || ''),
+    queryFn: async () => {
+      const deliverable = await apiClient.get<any>(`/api/solutions/content/deliverables/${deliverableId}`);
+      if (!deliverable) return null;
+
+      // Check if learner is assigned to this deliverable
+      const isAssigned = deliverable.assignments?.some(
+        (a: any) => a.learner_id === learnerId
+      );
+
+      return {
+        deliverable,
+        isAssigned,
+        canSubmit: isAssigned && deliverable.status !== 'approved',
+      };
+    },
+    enabled: !!deliverableId && !!learnerId,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
+// ============================================
+// MUTATION HOOKS
+// ============================================
+
+/**
+ * Claim a deliverable
+ */
+export function useClaimWork() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      deliverableId,
+      learnerId,
+    }: {
+      deliverableId: string;
+      learnerId: string;
+    }) => apiClient.post('/api/solutions/production-portal/claim', { deliverable_id: deliverableId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionPortal.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
+    },
+  });
+}
+
+/**
+ * Submit work
+ */
+export function useSubmitWork() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      deliverableId,
+      fileUrl,
+      fileType,
+    }: {
+      deliverableId: string;
+      fileUrl: string;
+      fileType?: string;
+    }) => apiClient.post(`/api/solutions/content/deliverables/${deliverableId}/submit`, { file_url: fileUrl, file_type: fileType }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionPortal.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
+    },
+  });
+}
+
+/**
+ * Complete an assignment
+ */
+export function useCompleteAssignment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      assignmentId,
+      earnings,
+      qualityRating,
+    }: {
+      assignmentId: string;
+      earnings?: number;
+      qualityRating?: number;
+    }) => apiClient.post('/api/solutions/production-portal/submit', { assignment_id: assignmentId, earnings, quality_rating: qualityRating }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionPortal.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
+    },
+  });
+}
+
+/**
+ * Create a new production learner
+ */
+export function useCreateProductionLearner() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: CreateProductionLearnerInput) =>
+      apiClient.post<ProductionLearner>('/api/solutions/production-portal/learners', input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
+    },
+  });
+}
+
+/**
+ * Update a production learner
+ */
+export function useUpdateProductionLearner() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateProductionLearnerInput }) =>
+      apiClient.patch<ProductionLearner>(`/api/solutions/production-portal/learners/${id}`, input),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
+      // data is ProductionLearner from updateLearner - id is always present
+      const learner = data as ProductionLearner | null;
+      if (learner?.id) {
+        queryClient.setQueryData(solutionsHubKeys.productionLearners.detail(learner.id), learner);
+      }
+    },
+  });
+}
+
+/**
+ * Delete a production learner
+ */
+export function useDeleteProductionLearner() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/production-portal/learners/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
+    },
+  });
+}
+
+/**
+ * Add earnings to a learner
+ */
+export function useAddLearnerEarnings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ learnerId, amount }: { learnerId: string; amount: number }) =>
+      apiClient.post<ProductionLearner>(`/api/solutions/production-portal/learners/${learnerId}/earnings`, { amount }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionPortal.all });
+    },
+  });
+}
+
+/**
+ * Update learner skill level
+ */
+export function useUpdateLearnerSkillLevel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ learnerId, skillLevel }: { learnerId: string; skillLevel: SkillLevel }) =>
+      apiClient.patch<ProductionLearner>(`/api/solutions/production-portal/learners/${learnerId}/skill-level`, { skill_level: skillLevel }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
+    },
+  });
+}
+
+// ============================================
+// LEGACY ALIAS EXPORTS (for backward compatibility)
+// ============================================
+
+/**
+ * @deprecated Use useLearnerByUserId instead
+ */
+export const useProductionProfile = useLearnerByUserId;
+
+/**
+ * @deprecated Use useAllAvailableWork instead
+ */
+export const useAvailableWork2 = useAllAvailableWork;
+
+/**
+ * @deprecated Use useClaimWork instead
+ */
+export function useClaimDeliverable() {
+  return useClaimWork();
+}
+
+/**
+ * @deprecated Use useMyStats instead
+ */
+export const useMyProductionStats = useMyStats;
+
+/**
+ * @deprecated Use useDeliverableForSubmission instead
+ */
+export const useDeliverableById = useDeliverableForSubmission;
