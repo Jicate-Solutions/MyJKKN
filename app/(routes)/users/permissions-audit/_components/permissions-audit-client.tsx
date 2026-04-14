@@ -23,6 +23,8 @@ export function PermissionsAuditClient() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  // Controlled tabs so children (e.g. SystemHealthTab health cards) can switch tabs
+  const [activeTab, setActiveTab] = useState('ask');
 
   useEffect(() => {
     const checkAccess = async () => {
@@ -79,7 +81,7 @@ export function PermissionsAuditClient() {
           </div>
         </div>
 
-        <Tabs defaultValue='ask' className='w-full'>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
           <TabsList className='grid w-full grid-cols-3 sm:grid-cols-5 lg:grid-cols-9'>
             <TabsTrigger value='ask'>Ask</TabsTrigger>
             <TabsTrigger value='unified'>Unified Access</TabsTrigger>
@@ -105,7 +107,7 @@ export function PermissionsAuditClient() {
           </TabsContent>
 
           <TabsContent value='health'>
-            <SystemHealthTab />
+            <SystemHealthTab onSwitchTab={setActiveTab} />
           </TabsContent>
 
           <TabsContent value='resolver'>

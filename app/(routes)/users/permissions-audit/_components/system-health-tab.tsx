@@ -122,11 +122,41 @@ function StatCard({ label, value, icon, variant = 'neutral' }: StatCardProps) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function SystemHealthTab() {
+interface SystemHealthTabProps {
+  /** Allow child action buttons (e.g. "View RLS audit") to switch the parent's tabs */
+  onSwitchTab?: (tab: string) => void;
+}
+
+export function SystemHealthTab({ onSwitchTab }: SystemHealthTabProps = {}) {
   const [data, setData] = useState<HealthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'plain' | 'technical'>('plain');
+
+  // Action handler for PlainHealthCards buttons
+  const handleHealthAction = (
+    action: 'show-orphans' | 'show-mismatches' | 'show-super-admins' | 'show-tables'
+  ) => {
+    switch (action) {
+      case 'show-orphans':
+      case 'show-mismatches':
+        // Both orphan counts and role mismatches show in the "Users Per Role" table
+        // (Profiles vs User Roles columns + Delta column)
+        document
+          .getElementById('users-per-role-section')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        break;
+      case 'show-super-admins':
+        document
+          .getElementById('super-admins-section')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        break;
+      case 'show-tables':
+        // Switch the parent tabs container to the RLS Audit tab
+        onSwitchTab?.('rls');
+        break;
+    }
+  };
 
   useEffect(() => {
     const fetchHealth = async () => {
@@ -207,7 +237,7 @@ export function SystemHealthTab() {
         </div>
 
         {view === 'plain' ? (
-          <PlainHealthCards data={data} />
+          <PlainHealthCards data={data} onAction={handleHealthAction} />
         ) : (
           <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4'>
             <StatCard
@@ -239,7 +269,7 @@ export function SystemHealthTab() {
       </div>
 
       {/* ── Users Per Role Table ── */}
-      <Card className='hover:shadow-md transition-shadow'>
+      <Card id='users-per-role-section' className='hover:shadow-md transition-shadow scroll-mt-20'>
         <CardHeader className='pb-3'>
           <CardTitle className='text-base font-semibold flex items-center gap-2'>
             <Users className='h-4 w-4 text-indigo-500' />
@@ -362,7 +392,7 @@ export function SystemHealthTab() {
       </Card>
 
       {/* ── Super Admin List Table ── */}
-      <Card className='hover:shadow-md transition-shadow'>
+      <Card id='super-admins-section' className='hover:shadow-md transition-shadow scroll-mt-20'>
         <CardHeader className='pb-3'>
           <CardTitle className='text-base font-semibold flex items-center gap-2'>
             <ShieldCheck className='h-4 w-4 text-indigo-500' />
