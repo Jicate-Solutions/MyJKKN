@@ -352,13 +352,56 @@ export async function GET(request: NextRequest) {
         }
       };
 
-      // If no profile exists, create one using admin client to bypass RLS
-      // Fixed: 2025-12-27 - Use service role client to prevent RLS policy violations
+      // INVITE-ONLY POLICY (2026-04-14):
+      // If no profile exists, the user is not authorized. We no longer auto-create
+      // 'guest' profiles. Legitimate onboarding paths are:
+      //   (a) Pre-registered profile — linked by link_pre_registered_profile trigger on auth.users
+      //   (b) Approved learner — has a row in learners_profiles with matching college_email
+      //   (c) Admin-created profile — via /users/new
+      // If none of these apply, we sign the user out, delete their auth.users row, and
+      // redirect to /auth/access-denied.
       if (!actualProfile) {
+        console.log('[Auth Callback] No profile found for user — checking approved learner path');
+
+        // Check for an approved/active/graduated learner matching this email
+        const { data: approvedLearner } = await adminClient
+          .from('learners_profiles')
+          .select('id, institution_id, department_id, lifecycle_status')
+          .ilike('college_email', user.email ?? '')
+          .in('lifecycle_status', ['approved', 'active', 'graduated'])
+          .maybeSingle();
+
+        if (!approvedLearner) {
+          // UNKNOWN USER — delete the auth row and redirect to access denied.
+          // No audit log kept: authorized users are created inside the app, so
+          // any denied attempt is simply an unauthorized login we don't need to track.
+          console.warn('[Auth Callback] Access denied — unknown user:', user.email);
+
+          // Delete the auth.users row so the user can be re-provisioned cleanly if admin adds them
+          try {
+            await adminClient.auth.admin.deleteUser(user.id);
+          } catch (deleteErr) {
+            console.error('[Auth Callback] Failed to delete unauthorized auth user (non-blocking):', deleteErr);
+          }
+
+          // Clear the session cookie before redirect
+          await supabase.auth.signOut();
+
+          return NextResponse.redirect(
+            new URL(
+              `/auth/access-denied?email=${encodeURIComponent(user.email ?? '')}&reason=not_registered`,
+              origin
+            )
+          );
+        }
+
+        // Approved learner path — create profile WITHOUT specifying role.
+        // The DB default ('student') + auto_link_profile_to_approved_learner trigger
+        // will populate role, learner_id, institution_id, department_id correctly.
+        console.log('[Auth Callback] Approved learner found — creating student profile');
         const newProfile = {
           id: user.id,
           email: user.email,
-          role: 'guest',
           profile_completed: false,
           is_active: true
         };
@@ -366,27 +409,27 @@ export async function GET(request: NextRequest) {
         const { error: insertError } = await adminClient
           .from('profiles')
           .insert([newProfile]);
+
         if (insertError) {
-          console.error('[Auth Callback] Profile creation failed:', insertError);
-          throw insertError;
+          console.error('[Auth Callback] Profile creation for approved learner failed:', insertError);
+          // Fail-safe: treat as unauthorized
+          try {
+            await adminClient.auth.admin.deleteUser(user.id);
+          } catch (_) {}
+          await supabase.auth.signOut();
+          return NextResponse.redirect(new URL('/auth/access-denied?reason=profile_creation_failed', origin));
         }
 
-        // Log login activity for new user
-        await logLoginActivity(newProfile);
+        // Log login activity for new (legitimate) user
+        await logLoginActivity({ ...newProfile, role: 'student' });
 
-        // Create session tracking record for new user
-        console.log('[Auth Callback] 🆕 Creating session for NEW user...');
-        console.log('[Auth Callback] 👤 User ID:', user.id);
-        console.log('[Auth Callback] 🎭 User role:', newProfile.role);
-
+        // Create session tracking record
         try {
           const sessionInfo = await SessionTrackingService.createSession({
             userId: user.id,
-            role: newProfile.role || 'guest',
+            role: 'student',
             request
           });
-
-          console.log('[Auth Callback] 📊 New user session result:', sessionInfo);
 
           if (sessionInfo) {
             cookieStore.set('analytics_session_id', sessionInfo.sessionId, {
@@ -395,15 +438,9 @@ export async function GET(request: NextRequest) {
               sameSite: 'lax',
               maxAge: 60 * 60 * 24
             });
-            console.log('[Auth Callback] ✅ New user session created:', sessionInfo.sessionId);
-          } else {
-            console.warn('[Auth Callback] ⚠️ New user session creation returned null');
           }
         } catch (sessionError) {
-          console.error('[Auth Callback] ❌ Session tracking failed for new user (non-blocking):', sessionError);
-          if (sessionError instanceof Error) {
-            console.error('[Auth Callback] ❌ Error stack:', sessionError.stack);
-          }
+          console.error('[Auth Callback] Session tracking failed for new learner (non-blocking):', sessionError);
         }
 
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { Profile } from '@/types/auth';
 
@@ -20,6 +20,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Ref mirrors `profile` so the onAuthStateChange callback sees the latest value
+  // instead of the stale closure captured when the effect first ran.
+  const profileRef = useRef<Profile | null>(null);
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
 
   // Memoize the supabase client to prevent re-creation
   const supabase = useMemo(() => createClientSupabaseClient(), []);
@@ -105,6 +112,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === 'SIGNED_OUT' && !session) {
         setProfile(null);
         setIsLoading(false);
+        return;
+      }
+
+      // Supabase re-fires SIGNED_IN on tab visibility change. If we already have a
+      // profile loaded for the same user, skip the reload to prevent flipping
+      // isLoading back to true — which unmounts protected page content (forms,
+      // data tables) and causes unsaved input to be lost.
+      if (event === 'SIGNED_IN' && session?.user?.id && profileRef.current?.id === session.user.id) {
         return;
       }
 

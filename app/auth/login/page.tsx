@@ -144,20 +144,15 @@ export default function LoginPage() {
             }
           }
 
-          // Determine destination based on role (non-students only)
+          // Determine destination based on role (non-students only).
+          // Invite-only policy (2026-04-14): guest profiles no longer exist.
           let destination = '/';
-          if (profileData?.role === 'guest') {
-            destination = '/guest';
-          } else if (profileData?.role === 'driver') {
+          if (profileData?.role === 'driver') {
             destination = '/driver';
           }
 
-          // For non-student, non-guest users, allow redirectedFrom as before
-          if (
-            redirectedFrom &&
-            profileData?.role !== 'guest' &&
-            profileData?.role !== 'student'
-          ) {
+          // For non-student users, allow redirectedFrom as before
+          if (redirectedFrom && profileData?.role !== 'student') {
             destination = redirectedFrom;
           }
 
@@ -165,10 +160,7 @@ export default function LoginPage() {
           const currentPath = window.location.pathname;
           if (destination === currentPath || destination === '/auth/login') {
             console.warn('[Login Page] Preventing redirect loop to:', destination);
-            // Default to role-based dashboard instead
-            if (profileData?.role === 'guest') {
-              destination = '/guest';
-            } else if (profileData?.role === 'driver') {
+            if (profileData?.role === 'driver') {
               destination = '/driver';
             } else {
               destination = '/';
@@ -479,6 +471,13 @@ export default function LoginPage() {
                   </div>
                 )}
               </Button>
+
+              {/* Invite-only notice */}
+              <p className='text-xs text-gray-600 dark:text-gray-400 text-center leading-relaxed border-t pt-3'>
+                Access is restricted to pre-registered JKKN staff, faculty, and
+                enrolled students. If you haven&apos;t been onboarded, please
+                contact your administrator.
+              </p>
 
               {/* Terms */}
               <p className='text-xs text-gray-500 dark:text-gray-400 text-center leading-relaxed'>

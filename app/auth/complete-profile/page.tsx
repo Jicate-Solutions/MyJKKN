@@ -101,24 +101,15 @@ export default function CompleteProfile() {
           throw new Error(`Profile fetch failed: ${profileError.message || JSON.stringify(profileError)}`);
         }
 
-        // If profile not found, create one
+        // If profile not found — this should never happen since the callback route
+        // enforces invite-only policy. If we reach here, treat as access denied.
         if (!profile) {
-          console.log('[Complete Profile] No profile found, creating new one');
-          const { error: insertError } = await supabase
-            .from('profiles')
-            .insert([
-              {
-                id: user.id,
-                email: user.email,
-                role: 'guest',
-                profile_completed: false
-              }
-            ] as any);
-
-          if (insertError) {
-            console.error('[Complete Profile] Profile creation failed:', insertError);
-            throw insertError;
-          }
+          console.error('[Complete Profile] No profile found — possible data integrity issue or bypassed callback');
+          await supabase.auth.signOut();
+          router.push(
+            `/auth/access-denied?reason=no_profile&email=${encodeURIComponent(user.email ?? '')}`
+          );
+          return;
         } else {
           console.log('[Complete Profile] Profile found:', {
             role: profile.role,
