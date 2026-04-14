@@ -9,6 +9,14 @@ export async function OPTIONS() {
 }
 
 export const GET = withAuth(async (request, auth) => {
+  const url = new URL(request.url)
+  const bridgeStatus = url.searchParams.get('bridge_status') === 'true'
+
+  if (bridgeStatus) {
+    const result = await RDIFService.getThreeYearBridgeStatus()
+    return successApiResponse(result)
+  }
+
   const result = await RDIFService.calculateRDIFScore()
   return successApiResponse(result)
 }, { requiredPermission: 'read' })
