@@ -228,7 +228,7 @@ export function useRDIFReadinessScore() {
  */
 export function useThreeYearBridgeStatus() {
   return useQuery({
-    queryKey: solutionsHubKeys.products.bridgeStatus(),
+    queryKey: [...solutionsHubKeys.products.all, 'bridge-status'] as const,
     queryFn: () => apiClient.get<ThreeYearBridgeStatus>('/api/solutions/products/rdif/readiness', { params: { bridge_status: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
@@ -469,7 +469,7 @@ export function useUpdatePrerequisite() {
         queryKey: solutionsHubKeys.products.rdifScore(),
       });
       queryClient.invalidateQueries({
-        queryKey: solutionsHubKeys.products.bridgeStatus(),
+        queryKey: [...solutionsHubKeys.products.all, 'bridge-status'] as const,
       });
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.products.nextMilestones(),
