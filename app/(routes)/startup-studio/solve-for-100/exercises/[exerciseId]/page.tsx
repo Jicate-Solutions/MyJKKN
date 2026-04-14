@@ -9,7 +9,9 @@
  * 3. All team responses (full transparency)
  */
 
-import { use } from 'react';
+import { use, useState } from 'react';
+import { toast } from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +26,7 @@ import {
   useMySF100Enrollment,
   useTeamExerciseResponse,
 } from '@/hooks/startup-studio';
+import { startupStudioKeys } from '@/lib/query-keys';
 import { SF100ExerciseForm } from '../../_components/sf100-exercise-form';
 import { SF100ExerciseResponses } from '../../_components/sf100-exercise-responses';
 import type { SF100Exercise, SF100ExerciseResponse } from '@/types/startup-studio/sf100';
@@ -56,6 +59,17 @@ export default function ExerciseDetailPage({
 
   const ex = exercise as SF100Exercise | undefined;
   const isLoading = loadingExercise;
+
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<string>(enrollmentId ? 'form' : 'responses');
+
+  const handleSubmitSuccess = () => {
+    toast.success('Response submitted');
+    queryClient.invalidateQueries({
+      queryKey: startupStudioKeys.sf100.exercises.responses(exerciseId),
+    });
+    setActiveTab('responses');
+  };
 
   if (isLoading) {
     return (
@@ -135,7 +149,7 @@ export default function ExerciseDetailPage({
         <Separator />
 
         {/* Tabbed view: Form / All Responses */}
-        <Tabs defaultValue={enrollmentId ? 'form' : 'responses'} className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList>
             {enrollmentId && (
               <TabsTrigger value="form" className="gap-1.5">
@@ -176,6 +190,7 @@ export default function ExerciseDetailPage({
                       exerciseId={ex.id}
                       enrollmentId={enrollmentId}
                       initialData={(existingResponse as SF100ExerciseResponse | null)?.response_data}
+                      onSuccess={handleSubmitSuccess}
                     />
                   )}
                 </CardContent>
