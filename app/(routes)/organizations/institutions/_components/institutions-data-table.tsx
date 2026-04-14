@@ -78,6 +78,7 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
             : search.status === 'inactive'
             ? false
             : undefined,
+        entityType: search.entity_type || ('all' as const),
         // Apply user-based filtering - only super admin can bypass institution filter
         userId: profile?.id,
         bypassInstitutionFilter: isSuperAdmin
@@ -263,7 +264,7 @@ export function InstitutionsDataTable({ search }: InstitutionsDataTableProps) {
           className='h-8'
         >
           <Plus className='mr-2 h-4 w-4' />
-          Add Institution
+          Add New
         </Button>
       )}
 

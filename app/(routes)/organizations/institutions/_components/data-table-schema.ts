@@ -8,7 +8,8 @@ export const institutionsSearchParamsSchema = z.object({
   sortOrder: z.enum(['asc', 'desc']).optional(),
 
   // Custom filters for institutions
-  status: z.enum(['active', 'inactive']).optional()
+  status: z.enum(['active', 'inactive']).optional(),
+  entity_type: z.enum(['institution', 'admin_office', 'company']).optional()
 });
 
 export type InstitutionsSearchParams = z.infer<

@@ -14,7 +14,8 @@ import { OrganizationService } from '@/lib/services/organization/organization-se
 import {
   INSTITUTION_TYPES,
   INSTITUTION_CATEGORIES,
-  TIMETABLE_TYPES
+  TIMETABLE_TYPES,
+  ENTITY_TYPES
 } from '@/lib/constants/institutions';
 import { Button } from '@/components/ui/button';
 import {
@@ -53,6 +54,7 @@ const contactSchema = z
 
 // Main form schema
 const institutionSchema = z.object({
+  entity_type: z.enum(['institution', 'admin_office', 'company']).default('institution'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   counselling_code: z
     .string()
@@ -63,10 +65,11 @@ const institutionSchema = z.object({
       'Code can only contain uppercase letters, numbers, underscores, and hyphens'
     )
     .transform((val) => val.toUpperCase()),
-  institution_type: z.enum(['self', 'autonomous', 'aided']),
-  category: z.enum(['ug', 'pg', 'ug_pg']),
-  timetable_type: z.enum(['day_order', 'week_order']),
-  accredited_by: z.string().min(1, 'Accreditation info is required'),
+  // Institution-specific fields (optional for non-institution entity types)
+  institution_type: z.enum(['self', 'autonomous', 'aided']).optional(),
+  category: z.enum(['ug', 'pg', 'ug_pg']).optional(),
+  timetable_type: z.enum(['day_order', 'week_order']).optional(),
+  accredited_by: z.string().optional(),
   address_line1: z.string().min(1, 'Address is required'),
   address_line2: z.string().optional(),
   address_line3: z.string().optional(),
@@ -110,6 +113,7 @@ export function InstitutionForm({
   const form = useForm<FormValues>({
     resolver: zodResolver(institutionSchema),
     defaultValues: {
+      entity_type: institution?.entity_type || 'institution',
       name: institution?.name || '',
       counselling_code: institution?.counselling_code || '',
       institution_type: institution?.institution_type || 'self',
@@ -128,9 +132,13 @@ export function InstitutionForm({
       website: institution?.website || '',
       logo_url: institution?.logo_url || '',
       is_active: institution?.is_active ?? true,
-      departments: institution?.departments || undefined // Make this undefined by default
+      departments: institution?.departments || undefined
     }
   });
+
+  // Watch entity_type to conditionally show/hide institution-specific fields
+  const entityType = form.watch('entity_type');
+  const isInstitution = entityType === 'institution';
 
   // Add effect to check code and name
   useEffect(() => {
@@ -172,8 +180,9 @@ export function InstitutionForm({
         await OrganizationService.createInstitution(values as any);
       }
 
+      const entityLabel = entityType === 'institution' ? 'Institution' : entityType === 'admin_office' ? 'Office' : 'Company';
       toast.success(
-        `Institution ${isEditing ? 'updated' : 'created'} successfully`
+        `${entityLabel} ${isEditing ? 'updated' : 'created'} successfully`
       );
 
       // Invalidate all queries related to institutions to refetch data
@@ -202,12 +211,42 @@ export function InstitutionForm({
             <div className='grid gap-6 md:grid-cols-2'>
               <FormField
                 control={form.control}
+                name='entity_type'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Entity Type</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select entity type' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {ENTITY_TYPES.map((type) => (
+                          <SelectItem key={type.value} value={type.value}>
+                            {type.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name='name'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Institution Name</FormLabel>
+                    <FormLabel>
+                      {isInstitution ? 'Institution Name' : 'Organization Name'}
+                    </FormLabel>
                     <FormControl>
-                      <Input placeholder='Enter institution name' {...field} />
+                      <Input
+                        placeholder={isInstitution ? 'Enter institution name' : 'Enter organization name'}
+                        {...field}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -219,10 +258,12 @@ export function InstitutionForm({
                 name='counselling_code'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Counselling Code</FormLabel>
+                    <FormLabel>
+                      {isInstitution ? 'Counselling Code' : 'Organization Code'}
+                    </FormLabel>
                     <FormControl>
                       <Input
-                        placeholder='Enter counselling code'
+                        placeholder={isInstitution ? 'Enter counselling code' : 'Enter organization code'}
                         {...field}
                         value={field.value?.toUpperCase()}
                         onChange={(e) =>
@@ -235,113 +276,121 @@ export function InstitutionForm({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name='institution_type'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Institution Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select type' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {INSTITUTION_TYPES.map((type) => (
-                          <SelectItem key={type.value} value={type.value}>
-                            {type.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {isInstitution && (
+                <FormField
+                  control={form.control}
+                  name='institution_type'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Institution Type</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || 'self'}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select type' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {INSTITUTION_TYPES.map((type) => (
+                            <SelectItem key={type.value} value={type.value}>
+                              {type.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
-              <FormField
-                control={form.control}
-                name='category'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Category</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select category' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {INSTITUTION_CATEGORIES.map((category) => (
-                          <SelectItem
-                            key={category.value}
-                            value={category.value}
-                          >
-                            {category.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {isInstitution && (
+                <FormField
+                  control={form.control}
+                  name='category'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Category</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || 'ug'}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select category' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {INSTITUTION_CATEGORIES.map((category) => (
+                            <SelectItem
+                              key={category.value}
+                              value={category.value}
+                            >
+                              {category.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
-              <FormField
-                control={form.control}
-                name='timetable_type'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Timetable Type</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder='Select timetable type' />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {TIMETABLE_TYPES.map((type) => (
-                          <SelectItem key={type.value} value={type.value}>
-                            {type.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {isInstitution && (
+                <FormField
+                  control={form.control}
+                  name='timetable_type'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Timetable Type</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || 'day_order'}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder='Select timetable type' />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {TIMETABLE_TYPES.map((type) => (
+                            <SelectItem key={type.value} value={type.value}>
+                              {type.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
-              <FormField
-                control={form.control}
-                name='accredited_by'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Accredited By</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder='Enter accreditation details'
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {isInstitution && (
+                <FormField
+                  control={form.control}
+                  name='accredited_by'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Accredited By</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder='Enter accreditation details'
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <FormField
                 control={form.control}
                 name='logo_url'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Institution Logo</FormLabel>
+                    <FormLabel>Logo</FormLabel>
                     <FormControl>
                       <LogoUpload
                         value={field.value}
                         onChange={field.onChange}
                         onRemove={() => field.onChange('')}
-                        institutionId={institution?.id || 'temp-' + Date.now()} // Use temporary ID for new institutions
+                        institutionId={institution?.id || 'temp-' + Date.now()}
                       />
                     </FormControl>
                     <FormMessage />
@@ -514,48 +563,50 @@ export function InstitutionForm({
           </CardContent>
         </Card>
 
-        {/* Department Contact Information */}
-        <Card>
-          <CardContent className='p-6 space-y-8'>
-            <h2 className='text-xl font-semibold'>Department Contacts</h2>
+        {/* Department Contact Information — only for educational institutions */}
+        {isInstitution && (
+          <Card>
+            <CardContent className='p-6 space-y-8'>
+              <h2 className='text-xl font-semibold'>Department Contacts</h2>
 
-            <DepartmentContactForm
-              form={form}
-              department='transportation'
-              label='Transportation Department'
-            />
+              <DepartmentContactForm
+                form={form}
+                department='transportation'
+                label='Transportation Department'
+              />
 
-            <DepartmentContactForm
-              form={form}
-              department='administration'
-              label='Administration Department'
-            />
+              <DepartmentContactForm
+                form={form}
+                department='administration'
+                label='Administration Department'
+              />
 
-            <DepartmentContactForm
-              form={form}
-              department='accounts'
-              label='Accounts Department'
-            />
+              <DepartmentContactForm
+                form={form}
+                department='accounts'
+                label='Accounts Department'
+              />
 
-            <DepartmentContactForm
-              form={form}
-              department='admission'
-              label='Admission Department'
-            />
+              <DepartmentContactForm
+                form={form}
+                department='admission'
+                label='Admission Department'
+              />
 
-            <DepartmentContactForm
-              form={form}
-              department='placement'
-              label='Placement Department'
-            />
+              <DepartmentContactForm
+                form={form}
+                department='placement'
+                label='Placement Department'
+              />
 
-            <DepartmentContactForm
-              form={form}
-              department='antiRagging'
-              label='Anti-Ragging Cell Department'
-            />
-          </CardContent>
-        </Card>
+              <DepartmentContactForm
+                form={form}
+                department='antiRagging'
+                label='Anti-Ragging Cell Department'
+              />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Status */}
         <Card>
@@ -600,7 +651,7 @@ export function InstitutionForm({
                 : 'Creating...'
               : isEditing
               ? 'Save Changes'
-              : 'Create Institution'}
+              : `Create ${isInstitution ? 'Institution' : entityType === 'admin_office' ? 'Office' : 'Company'}`}
           </Button>
         </div>
       </form>

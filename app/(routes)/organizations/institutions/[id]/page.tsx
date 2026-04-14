@@ -23,7 +23,8 @@ import Image from 'next/image';
 import {
   INSTITUTION_TYPES,
   INSTITUTION_CATEGORIES,
-  TIMETABLE_TYPES
+  TIMETABLE_TYPES,
+  ENTITY_TYPES
 } from '@/lib/constants/institutions';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -82,6 +83,11 @@ export default function InstitutionDetailsPage({
   }
 
   const { institution, departments } = data;
+  const isInstitution = !institution.entity_type || institution.entity_type === 'institution';
+
+  const getEntityTypeLabel = (value: string) => {
+    return ENTITY_TYPES.find((type) => type.value === value)?.label || value;
+  };
 
   const getInstitutionTypeLabel = (value: string) => {
     return (
@@ -171,36 +177,49 @@ export default function InstitutionDetailsPage({
                 </div>
               )}
               <div className='space-y-4'>
-                <Badge
-                  variant={institution.is_active ? 'default' : 'secondary'}
-                >
-                  {institution.is_active ? 'Active' : 'Inactive'}
-                </Badge>
+                <div className='flex gap-2'>
+                  <Badge
+                    variant={institution.is_active ? 'default' : 'secondary'}
+                  >
+                    {institution.is_active ? 'Active' : 'Inactive'}
+                  </Badge>
+                  <Badge variant='outline'>
+                    {getEntityTypeLabel(institution.entity_type || 'institution')}
+                  </Badge>
+                </div>
                 <div className='grid gap-4 grid-cols-1 md:grid-cols-2'>
                   <p className='text-base text-muted-foreground'>
                     <span className='font-medium text-black'>Code: </span>
                     {institution.counselling_code}
                   </p>
-                  <p className='text-base text-muted-foreground'>
-                    <span className='font-medium text-black'>Type: </span>
-                    {getInstitutionTypeLabel(institution.institution_type)}
-                  </p>
-                  <p className='text-base text-muted-foreground'>
-                    <span className='font-medium text-black'>Category: </span>
-                    {getInstitutionCategoryLabel(institution.category)}
-                  </p>
-                  <p className='text-base text-muted-foreground'>
-                    <span className='font-medium text-black'>
-                      Timetable Type:{' '}
-                    </span>
-                    {getTimetableTypeLabel(institution.timetable_type)}
-                  </p>
-                  <p className='text-base text-muted-foreground'>
-                    <span className='font-medium text-black'>
-                      Accredited By:{' '}
-                    </span>
-                    {institution.accredited_by}
-                  </p>
+                  {isInstitution && institution.institution_type && (
+                    <p className='text-base text-muted-foreground'>
+                      <span className='font-medium text-black'>Type: </span>
+                      {getInstitutionTypeLabel(institution.institution_type)}
+                    </p>
+                  )}
+                  {isInstitution && institution.category && (
+                    <p className='text-base text-muted-foreground'>
+                      <span className='font-medium text-black'>Category: </span>
+                      {getInstitutionCategoryLabel(institution.category)}
+                    </p>
+                  )}
+                  {isInstitution && institution.timetable_type && (
+                    <p className='text-base text-muted-foreground'>
+                      <span className='font-medium text-black'>
+                        Timetable Type:{' '}
+                      </span>
+                      {getTimetableTypeLabel(institution.timetable_type)}
+                    </p>
+                  )}
+                  {isInstitution && institution.accredited_by && (
+                    <p className='text-base text-muted-foreground'>
+                      <span className='font-medium text-black'>
+                        Accredited By:{' '}
+                      </span>
+                      {institution.accredited_by}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

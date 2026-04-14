@@ -44,6 +44,7 @@ END $$;
 -- =====================================================
 
 -- Profiles table (extends Supabase auth.users)
+-- Updated: 2026-04-14 - Added chk_role_not_guest to enforce invite-only policy
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email TEXT,
@@ -62,7 +63,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     is_super_admin BOOLEAN,
     institution_id UUID,
     department_id UUID,
-    learner_id UUID
+    learner_id UUID,
+    CONSTRAINT chk_role_not_guest CHECK (role <> 'guest')
 );
 
 -- User Institution Access (Multi-tenancy)
@@ -124,7 +126,10 @@ CREATE TABLE IF NOT EXISTS public.institutions (
     placement_dept JSONB,
     anti_ragging_dept JSONB,
     institution_type VARCHAR(20),
-    pin_code VARCHAR(20)
+    pin_code VARCHAR(20),
+    -- Updated: 2026-04-14 - Added entity_type to distinguish institutions from admin offices and companies
+    entity_type VARCHAR(20) NOT NULL DEFAULT 'institution'
+    CONSTRAINT chk_entity_type CHECK (entity_type IN ('institution', 'admin_office', 'company'))
 );
 
 -- Institution Departments (Contact Information)

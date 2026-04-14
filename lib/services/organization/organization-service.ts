@@ -7,7 +7,8 @@ import type {
   CreateInstitutionDto,
   UpdateInstitutionDto,
   InstitutionFilters,
-  OrganizationListResponse
+  OrganizationListResponse,
+  EntityType
 } from '@/types/organizations';
 import { StorageService } from '@/lib/storage/storage-service';
 import type { Database } from '@/types/database.types';
@@ -67,7 +68,8 @@ export class OrganizationService {
         phone: data.phone,
         website: data.website,
         logo_url: data.logo_url,
-        is_active: data.is_active
+        is_active: data.is_active,
+        entity_type: data.entity_type || 'institution'
       };
 
       // First create the institution record
@@ -142,6 +144,7 @@ export class OrganizationService {
         website: data.website,
         logo_url: data.logo_url,
         is_active: data.is_active,
+        entity_type: data.entity_type,
         updated_at: new Date().toISOString()
       };
 
@@ -399,6 +402,11 @@ export class OrganizationService {
         query = query.eq('is_active', filters.isActive);
       }
 
+      // Apply entity type filter (default: show all in getInstitutions for the management page)
+      if (filters.entityType && filters.entityType !== 'all') {
+        query = query.eq('entity_type', filters.entityType);
+      }
+
       // Apply institution filtering based on user access if userId is provided
       if (filters.userId && !filters.bypassInstitutionFilter) {
         const accessibleInstitutionIds =
@@ -540,14 +548,16 @@ export class OrganizationService {
 
   static async getInstitutionNames(
     isActive?: boolean,
-    userId?: string
+    userId?: string,
+    entityType: EntityType | 'all' = 'institution'
   ): Promise<{ id: string; name: string; counselling_code: string }[]> {
     try {
       // If userId is provided, use institution filtering
       if (userId) {
         const { data: institutions } = await this.getInstitutions({
           isActive,
-          userId
+          userId,
+          entityType
         });
         return institutions.map((inst) => ({
           id: inst.id,
@@ -563,6 +573,11 @@ export class OrganizationService {
 
       if (isActive !== undefined) {
         query = query.eq('is_active', isActive);
+      }
+
+      // Default: only return institutions (not offices/companies) for dropdown usage
+      if (entityType && entityType !== 'all') {
+        query = query.eq('entity_type', entityType);
       }
 
       const { data, error } = await query.order('name');

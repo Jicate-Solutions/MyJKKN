@@ -2,16 +2,18 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
+import type { EntityType } from '@/types/organizations';
 
 interface UseInstitutionsWithAccessOptions {
   isActive?: boolean;
   autoFetch?: boolean;
+  entityType?: EntityType | 'all'; // Defaults to 'institution' — only shows educational institutions in dropdowns
 }
 
 export function useInstitutionsWithAccess(
   options: UseInstitutionsWithAccessOptions = {}
 ) {
-  const { isActive = true, autoFetch = true } = options;
+  const { isActive = true, autoFetch = true, entityType = 'institution' } = options;
   const { profile } = useAuth();
   const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
 
@@ -39,13 +41,16 @@ export function useInstitutionsWithAccess(
         // admission role users are cross-institution (no institution_id on their profile)
         // so user-based filtering would return an empty list.
         institutionNames = await OrganizationService.getInstitutionNames(
-          isActive
+          isActive,
+          undefined,
+          entityType
         );
       } else {
         // Regular users see only accessible institutions - pass userId for filtering
         institutionNames = await OrganizationService.getInstitutionNames(
           isActive,
-          profile.id
+          profile.id,
+          entityType
         );
       }
 
@@ -59,7 +64,7 @@ export function useInstitutionsWithAccess(
     } finally {
       setLoading(false);
     }
-  }, [profile?.id, isSuperAdmin, isAdmissionGlobalUser, isActive]);
+  }, [profile?.id, isSuperAdmin, isAdmissionGlobalUser, isActive, entityType]);
 
   // Memoize the effect dependencies to prevent unnecessary re-runs
   const shouldFetch = useMemo(

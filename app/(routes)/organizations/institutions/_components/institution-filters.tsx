@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
 import { InstitutionsSearchParams } from './data-table-schema';
+import { ENTITY_TYPES } from '@/lib/constants/institutions';
 
 interface InstitutionFiltersProps {
   searchParams: InstitutionsSearchParams;
@@ -23,7 +24,7 @@ export function InstitutionFilter({
   onFilterChange,
   onClearFilters
 }: InstitutionFiltersProps) {
-  const hasActiveFilters = !!searchParams.status;
+  const hasActiveFilters = !!searchParams.status || !!searchParams.entity_type;
 
   return (
     <div className='space-y-4'>
@@ -43,6 +44,27 @@ export function InstitutionFilter({
                 <SelectItem value='all'>All Status</SelectItem>
                 <SelectItem value='active'>Active</SelectItem>
                 <SelectItem value='inactive'>Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className='min-w-[200px]'>
+            <Select
+              value={searchParams.entity_type || 'all'}
+              onValueChange={(value) =>
+                onFilterChange('entity_type', value === 'all' ? undefined : value)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='All Entity Types' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>All Entity Types</SelectItem>
+                {ENTITY_TYPES.map((type) => (
+                  <SelectItem key={type.value} value={type.value}>
+                    {type.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

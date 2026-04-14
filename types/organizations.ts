@@ -19,6 +19,7 @@ export interface InstitutionDepartments {
 export type InstitutionType = 'self' | 'autonomous' | 'aided';
 export type InstitutionCategory = 'ug' | 'pg' | 'ug_pg';
 export type TimetableType = 'day_order' | 'week_order';
+export type EntityType = 'institution' | 'admin_office' | 'company';
 
 export interface Institution {
   id: string;
@@ -39,7 +40,8 @@ export interface Institution {
   phone: string;
   website?: string;
   logo_url?: string;
-  departments?: InstitutionDepartments; // Make departments optional
+  departments?: InstitutionDepartments;
+  entity_type: EntityType;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -55,6 +57,7 @@ export interface UpdateInstitutionDto extends Partial<CreateInstitutionDto> {}
 export interface InstitutionFilters {
   search?: string;
   isActive?: boolean;
+  entityType?: EntityType | 'all'; // Filter by entity type; defaults to 'all' in getInstitutions, 'institution' in getInstitutionNames
   page?: number;
   limit?: number;
   userId?: string; // For applying user-based institution filtering

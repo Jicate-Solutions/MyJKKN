@@ -2362,6 +2362,7 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           email: string | null
+          entity_type: string
           id: string
           institution_type: string | null
           is_active: boolean | null
@@ -2392,6 +2393,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           email?: string | null
+          entity_type?: string
           id?: string
           institution_type?: string | null
           is_active?: boolean | null
@@ -2422,6 +2424,7 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           email?: string | null
+          entity_type?: string
           id?: string
           institution_type?: string | null
           is_active?: boolean | null
