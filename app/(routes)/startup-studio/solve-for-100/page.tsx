@@ -1,7 +1,9 @@
 import { Metadata } from 'next';
+import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { SF100Landing } from './_components/sf100-landing';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SF100SmartRouter } from './_components/sf100-smart-router';
 
 export const metadata: Metadata = {
   title: 'Solve for 100 | Startup Studio',
@@ -26,7 +28,9 @@ export default function SolveFor100Page() {
             Build a real product, get 100 paying users, graduate to NIF
           </p>
         </div>
-        <SF100Landing />
+        <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
+          <SF100SmartRouter />
+        </Suspense>
       </div>
     </ContentLayout>
   );

@@ -15,7 +15,7 @@ export default function SF100AdminPage() {
         items={[
           { label: 'Home', href: '/' },
           { label: 'Startup Studio', href: '/startup-studio' },
-          { label: 'Solve for 100', href: '/startup-studio/solve-for-100' },
+          { label: 'Solve for 100', href: '/startup-studio/solve-for-100?view=landing' },
           { label: 'Program Admin' },
         ]}
       />
