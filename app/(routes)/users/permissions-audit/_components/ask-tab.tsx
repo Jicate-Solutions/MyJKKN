@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import BeatLoader from 'react-spinners/BeatLoader';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -71,8 +71,11 @@ export function AskTab() {
   const [result, setResult] = useState<AskResult | null>(null);
   const [ambiguous, setAmbiguous] = useState<AskError | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const resultAreaRef = useRef<HTMLDivElement | null>(null);
 
   const reset = () => {
+    abortRef.current?.abort();
     setResult(null);
     setAmbiguous(null);
     setError(null);
@@ -81,23 +84,44 @@ export function AskTab() {
 
   const ask = async (q: string) => {
     const trimmed = q.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed) return;
+
+    // Cancel any in-flight request — latest click always wins
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setLoading(true);
     setResult(null);
     setAmbiguous(null);
     setError(null);
 
+    // Scroll the loading/result area into view immediately so the user
+    // sees feedback after clicking a chip (previous bug: silent loading
+    // below the fold made clicks appear to do nothing)
+    setTimeout(() => {
+      resultAreaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+
     try {
-      const res = await fetch('/api/users/permissions-audit/ask', {
+      // Call /ai-debug directly with who-can-do mode — avoids the
+      // Vercel serverless self-fetch round trip that was timing out.
+      const res = await fetch('/api/users/permissions-audit/ai-debug', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: trimmed }),
+        body: JSON.stringify({
+          query: trimmed,
+          mode: 'who-can-do',
+          includeUsers: true,
+        }),
+        signal: controller.signal,
+        credentials: 'same-origin',
       });
 
       const json: AskResponse = await res.json();
 
       if (!res.ok) {
+        console.error('[ask-tab] API error:', res.status, json);
         setError((json as any).error ?? `Request failed (${res.status})`);
         return;
       }
@@ -108,11 +132,15 @@ export function AskTab() {
         setResult(json as AskResult);
       }
     } catch (err) {
+      if ((err as any)?.name === 'AbortError') return; // User re-clicked, ignore
+      console.error('[ask-tab] Network error:', err);
       setError(
         err instanceof Error ? err.message : 'An unexpected error occurred.'
       );
     } finally {
-      setLoading(false);
+      if (abortRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
@@ -190,11 +218,16 @@ export function AskTab() {
         </CardContent>
       </Card>
 
+      {/* Scroll anchor — jumped to when a chip is clicked so the user sees
+          immediate feedback even if their viewport was scrolled */}
+      <div ref={resultAreaRef} />
+
       {/* Loading state */}
       {loading && (
-        <div className="flex flex-col items-center gap-3 py-12">
+        <div className="flex flex-col items-center gap-3 py-12 bg-indigo-50/50 rounded-lg border border-indigo-100">
           <BeatLoader color="#6366f1" size={10} />
-          <p className="text-sm text-muted-foreground">Interpreting your question&hellip;</p>
+          <p className="text-sm font-medium text-indigo-700">Interpreting your question&hellip;</p>
+          <p className="text-xs text-muted-foreground">This usually takes 5&ndash;10 seconds</p>
         </div>
       )}
 
