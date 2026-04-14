@@ -83,12 +83,13 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
   const fetchCounselors = useCallback(async () => {
     setIsLoading(true);
     try {
+      // 1. Fetch counselors from admission_counselors table
       const { data, error } = await supabase
         .from('admission_counselors')
         .select(`
           id, name, email, phone, is_active, max_leads, current_leads, specializations,
           institution_id, user_id, created_at,
-          institutions!inner(name)
+          institutions(name)
         `)
         .order('name');
 
@@ -100,9 +101,58 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
 
       const records = (data || []) as unknown as CounselorRecord[];
 
-      // Fetch profile roles for counselors that have a user_id
+      // 2. Fetch users with counselor role who may NOT be in admission_counselors table
+      const { data: roleUsers } = await supabase
+        .from('user_roles')
+        .select(`
+          user_id,
+          custom_roles!inner(role_key),
+          profiles!inner(id, full_name, email, phone_number, role, institution_id)
+        `)
+        .eq('custom_roles.role_key', 'counselor');
+
+      // 3. Find role-based counselors not already in admission_counselors
+      const existingUserIds = new Set(records.filter(c => c.user_id).map(c => c.user_id));
+
+      if (roleUsers) {
+        for (const ru of roleUsers as any[]) {
+          const profile = ru.profiles;
+          if (!profile || existingUserIds.has(profile.id)) continue;
+
+          // Get institution name
+          let instName: string | null = null;
+          if (profile.institution_id) {
+            const { data: inst } = await supabase
+              .from('institutions')
+              .select('name')
+              .eq('id', profile.institution_id)
+              .single();
+            instName = inst?.name || null;
+          }
+
+          // Add as a virtual counselor record (from role, not from table)
+          records.push({
+            id: `role-${profile.id}`, // prefix to distinguish from table records
+            name: profile.full_name || profile.email || '',
+            email: profile.email,
+            phone: profile.phone_number,
+            is_active: true,
+            max_leads: 50,
+            current_leads: 0,
+            specializations: null,
+            institution_id: profile.institution_id || '',
+            user_id: profile.id,
+            created_at: '',
+            institutions: instName ? { name: instName } : null,
+            profile_role: profile.role,
+            profile_full_name: profile.full_name,
+          });
+        }
+      }
+
+      // 4. Fetch profile roles for table-based counselors that have a user_id
       const userIds = records
-        .filter((c) => c.user_id)
+        .filter((c) => c.user_id && !c.profile_role)
         .map((c) => c.user_id as string);
 
       if (userIds.length > 0) {
@@ -118,7 +168,7 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
           }
 
           for (const counselor of records) {
-            if (counselor.user_id && profileMap.has(counselor.user_id)) {
+            if (counselor.user_id && !counselor.profile_role && profileMap.has(counselor.user_id)) {
               const prof = profileMap.get(counselor.user_id)!;
               counselor.profile_role = prof.role;
               counselor.profile_full_name = prof.full_name;
@@ -126,6 +176,9 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
           }
         }
       }
+
+      // Sort by name
+      records.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
       setCounselors(records);
     } catch {
@@ -140,6 +193,10 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
   }, [fetchCounselors]);
 
   const handleToggleActive = async (counselorId: string, currentActive: boolean) => {
+    if (counselorId.startsWith('role-')) {
+      toast.error('This counselor has no table record. Add them via "Add Counselor" first to manage their status.');
+      return;
+    }
     setTogglingIds((prev) => new Set(prev).add(counselorId));
     try {
       const { error } = await supabase
@@ -175,19 +232,23 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
     e.preventDefault();
     setRemovingId(counselorId);
     try {
-      // 1. Delete from admission_counselors
-      const { error: deleteError } = await supabase
-        .from('admission_counselors')
-        .delete()
-        .eq('id', counselorId);
+      const isRoleOnly = counselorId.startsWith('role-');
 
-      if (deleteError) {
-        toast.error('Failed to remove counselor');
-        console.error('[admission/counselors] Failed to delete counselor:', deleteError);
-        return;
+      // 1. Delete from admission_counselors (if it's a table record, not role-only)
+      if (!isRoleOnly) {
+        const { error: deleteError } = await supabase
+          .from('admission_counselors')
+          .delete()
+          .eq('id', counselorId);
+
+        if (deleteError) {
+          toast.error('Failed to remove counselor');
+          console.error('[admission/counselors] Failed to delete counselor:', deleteError);
+          return;
+        }
       }
 
-      // 2. Remove counselor role from user_roles (if user has it)
+      // 2. Remove counselor role from user_roles
       if (userId) {
         const { data: counselorRole } = await supabase
           .from('custom_roles')
@@ -201,6 +262,30 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
             .delete()
             .eq('user_id', userId)
             .eq('role_id', counselorRole.id);
+        }
+
+        // 3. Update profiles.role if it's set to 'counselor' (legacy sync)
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id, role')
+          .eq('id', userId)
+          .single();
+
+        if (profile?.role === 'counselor') {
+          // Find their next role from user_roles, or set to 'guest' as fallback
+          const { data: remainingRoles } = await supabase
+            .from('user_roles')
+            .select('custom_roles!inner(role_key)')
+            .eq('user_id', userId)
+            .eq('is_primary', true)
+            .limit(1);
+
+          const nextRole = (remainingRoles as any)?.[0]?.custom_roles?.role_key || 'guest';
+
+          await supabase
+            .from('profiles')
+            .update({ role: nextRole })
+            .eq('id', userId);
         }
       }
 
