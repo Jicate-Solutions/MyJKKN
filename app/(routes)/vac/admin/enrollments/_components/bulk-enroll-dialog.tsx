@@ -54,9 +54,10 @@ export function BulkEnrollDialog({
 
   // Step 1: Selection state
   const [selectedCourseId, setSelectedCourseId] = useState('');
-  const [selectedProgramme, setSelectedProgramme] = useState('');
-  const [selectedSemester, setSelectedSemester] = useState('');
-  const [selectedSection, setSelectedSection] = useState('');
+  // Radix Select requires non-empty string values — use 'all' sentinel.
+  const [selectedProgramme, setSelectedProgramme] = useState('all');
+  const [selectedSemester, setSelectedSemester] = useState('all');
+  const [selectedSection, setSelectedSection] = useState('all');
   const [waiveFee, setWaiveFee] = useState(false);
 
   // Step 2: Learner selection state
@@ -75,9 +76,9 @@ export function BulkEnrollDialog({
 
   const filters = useMemo(
     () => ({
-      programme_id: selectedProgramme || undefined,
-      semester_id: selectedSemester || undefined,
-      section_id: selectedSection || undefined,
+      programme_id: selectedProgramme !== 'all' ? selectedProgramme : undefined,
+      semester_id: selectedSemester !== 'all' ? selectedSemester : undefined,
+      section_id: selectedSection !== 'all' ? selectedSection : undefined,
     }),
     [selectedProgramme, selectedSemester, selectedSection]
   );
@@ -150,9 +151,9 @@ export function BulkEnrollDialog({
     setTimeout(() => {
       setStep('select');
       setSelectedCourseId('');
-      setSelectedProgramme('');
-      setSelectedSemester('');
-      setSelectedSection('');
+      setSelectedProgramme('all');
+      setSelectedSemester('all');
+      setSelectedSection('all');
       setWaiveFee(false);
       setSelectedLearnerIds(new Set());
       setLearnerSearch('');
@@ -208,7 +209,7 @@ export function BulkEnrollDialog({
                       <SelectValue placeholder="All programmes" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Programmes</SelectItem>
+                      <SelectItem value="all">All Programmes</SelectItem>
                       {programmes.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
                           {p.program_name}
@@ -225,7 +226,7 @@ export function BulkEnrollDialog({
                       <SelectValue placeholder="All semesters" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Semesters</SelectItem>
+                      <SelectItem value="all">All Semesters</SelectItem>
                       {semesters.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.semester_name}
@@ -242,7 +243,7 @@ export function BulkEnrollDialog({
                       <SelectValue placeholder="All sections" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Sections</SelectItem>
+                      <SelectItem value="all">All Sections</SelectItem>
                       {sections.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.section_name}

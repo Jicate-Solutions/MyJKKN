@@ -498,9 +498,9 @@ function CreateElectionDialog({
                     </SelectItem>
                   ))}
                   {terms.length === 0 && (
-                    <SelectItem value="" disabled>
+                    <div className="py-6 px-2 text-center text-sm text-muted-foreground">
                       No active terms available
-                    </SelectItem>
+                    </div>
                   )}
                 </SelectContent>
               </Select>
