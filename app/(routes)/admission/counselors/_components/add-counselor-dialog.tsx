@@ -89,6 +89,40 @@ export function AddCounselorDialog({
   const { institutions } = useInstitutionsWithAccess();
   const supabase = createClientSupabaseClient();
 
+  // Auto-assign counselor role to a user (non-blocking — best effort)
+  const assignCounselorRole = async (profileId: string) => {
+    try {
+      // Get the counselor role ID
+      const { data: counselorRole } = await supabase
+        .from('custom_roles')
+        .select('id')
+        .eq('role_key', 'counselor')
+        .single();
+
+      if (!counselorRole) return;
+
+      // Check if user already has this role
+      const { data: existing } = await supabase
+        .from('user_roles')
+        .select('id')
+        .eq('user_id', profileId)
+        .eq('role_id', counselorRole.id)
+        .maybeSingle();
+
+      if (existing) return; // Already has the role
+
+      // Assign the counselor role (not as primary — keep their existing primary role)
+      await supabase.from('user_roles').insert({
+        user_id: profileId,
+        role_id: counselorRole.id,
+        is_primary: false,
+      });
+    } catch (err) {
+      // Non-blocking — counselor record was already created, role assignment is best-effort
+      console.warn('[admission/counselors] Failed to auto-assign counselor role:', err);
+    }
+  };
+
   // Tab state
   const [activeTab, setActiveTab] = useState<'existing' | 'manual'>('existing');
 
@@ -513,6 +547,11 @@ export function AddCounselorDialog({
           return;
         }
 
+        // Auto-assign counselor role if user has a profile
+        if (userId) {
+          await assignCounselorRole(userId);
+        }
+
         toast.success('Counselor added successfully');
         onSuccess?.();
         onOpenChange(false);
@@ -562,6 +601,11 @@ export function AddCounselorDialog({
         if (error) {
           toast.error(error.message || 'Failed to add counselor');
           return;
+        }
+
+        // Auto-assign counselor role if user was linked
+        if (manualSelectedUserId) {
+          await assignCounselorRole(manualSelectedUserId);
         }
 
         toast.success('Counselor added successfully');
