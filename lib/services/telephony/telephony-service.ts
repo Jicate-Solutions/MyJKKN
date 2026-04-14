@@ -272,7 +272,7 @@ export class TelephonyService {
   ): Promise<CallStats> {
     let query = supabase
       .from('admission_call_logs')
-      .select('status, call_disposition, direction, duration_seconds, call_notes, counselor_id, created_at, counselor:profiles(id, full_name)');
+      .select('status, call_disposition, direction, duration_seconds, call_notes, counselor_id, created_at, counselor:profiles!admission_call_logs_counselor_id_fkey(id, full_name)');
 
     // When institutionId is provided, scope to that institution.
     // Super admins omit it to aggregate across all institutions.
