@@ -268,7 +268,7 @@ export default function RDIFDashboardPage() {
         </div>
 
         {/* Three-Year Bridge Timeline */}
-        {bridgeData && (
+        {bridgeData && Array.isArray(bridgeData.nextMilestones) && (
           <Card>
             <CardHeader>
               <CardTitle>Three-Year Bridge to RDIF Readiness</CardTitle>
