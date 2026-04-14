@@ -1266,6 +1266,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/hr/employees'),
           icon: Users,
           submenus: []
+        },
+        {
+          href: '/hr/policies',
+          label: 'Policies',
+          active: pathname.startsWith('/hr/policies'),
+          icon: ClipboardList,
+          submenus: []
         }
       ]
     },
