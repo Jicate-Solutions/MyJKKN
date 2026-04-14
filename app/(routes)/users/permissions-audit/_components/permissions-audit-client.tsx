@@ -19,6 +19,7 @@ import { ExportReportsTab } from './export-reports-tab';
 import { AIDebuggerTab } from './ai-debugger-tab';
 import { AskTab } from './ask-tab';
 import { ActivityTimelineTab } from './activity-timeline-tab';
+import { ComplianceReportButton } from './compliance-report-button';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
@@ -71,15 +72,18 @@ export function PermissionsAuditClient() {
           ]}
         />
 
-        <div className='flex items-center gap-3'>
-          <ShieldCheck className='h-8 w-8 text-indigo-500' />
-          <div>
-            <h2 className='text-2xl font-bold'>Permissions Audit Dashboard</h2>
-            <p className='text-sm text-muted-foreground'>
-              Unified view of code permissions, database policies, and
-              navigation access across all roles and modules.
-            </p>
+        <div className='flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3'>
+          <div className='flex items-center gap-3'>
+            <ShieldCheck className='h-8 w-8 text-indigo-500' />
+            <div>
+              <h2 className='text-2xl font-bold'>Permissions Audit Dashboard</h2>
+              <p className='text-sm text-muted-foreground'>
+                Unified view of code permissions, database policies, and
+                navigation access across all roles and modules.
+              </p>
+            </div>
           </div>
+          <ComplianceReportButton />
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
