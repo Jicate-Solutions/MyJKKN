@@ -636,7 +636,11 @@ function CounselorPerformancePageContent() {
           </div>
 
           {view === 'manage' ? (
-            <CounselorList onRefresh={() => refetch()} />
+            <CounselorList
+              onRefresh={() => refetch()}
+              institutionId={institutionId}
+              isGlobalUser={isGlobalUser}
+            />
           ) : (
             <>
           {error && (

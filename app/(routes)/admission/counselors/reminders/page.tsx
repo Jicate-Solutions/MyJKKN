@@ -880,7 +880,7 @@ function AddRuleDialog({
 // REMINDER CARD
 // ============================================================================
 
-function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss, isCompleting, isSnoozing }: {
+function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss, isCompleting, isSnoozing, canEdit }: {
   reminder: FollowUpReminder;
   onComplete: () => void;
   onSnooze: () => void;
@@ -888,6 +888,7 @@ function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss,
   onDismiss: () => void;
   isCompleting?: boolean;
   isSnoozing?: boolean;
+  canEdit?: boolean;
 }) {
   const dueStatus = getDueDateStatus(reminder.dueDate);
   const isOverdue = isPast(new Date(reminder.dueDate)) && !isToday(new Date(reminder.dueDate));
@@ -943,31 +944,35 @@ function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss,
               {reminder.priority}
             </Badge>
             <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onSnooze}
-                disabled={isSnoozing || isCompleting}
-              >
-                {isSnoozing ? (
-                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                ) : (
-                  <Clock className="h-3 w-3 mr-1" />
-                )}
-                Snooze
-              </Button>
-              <Button
-                size="sm"
-                onClick={onComplete}
-                disabled={isCompleting || isSnoozing}
-              >
-                {isCompleting ? (
-                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                ) : (
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                )}
-                Done
-              </Button>
+              {canEdit && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={onSnooze}
+                    disabled={isSnoozing || isCompleting}
+                  >
+                    {isSnoozing ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <Clock className="h-3 w-3 mr-1" />
+                    )}
+                    Snooze
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={onComplete}
+                    disabled={isCompleting || isSnoozing}
+                  >
+                    {isCompleting ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                    )}
+                    Done
+                  </Button>
+                </>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="sm" variant="ghost">
@@ -981,14 +986,18 @@ function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss,
                     <ExternalLink className="h-4 w-4 mr-2" />
                     View Lead
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onReschedule}>
-                    <Calendar className="h-4 w-4 mr-2" />
-                    Reschedule
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-600" onClick={onDismiss}>
-                    <AlertCircle className="h-4 w-4 mr-2" />
-                    Dismiss
-                  </DropdownMenuItem>
+                  {canEdit && (
+                    <>
+                      <DropdownMenuItem onClick={onReschedule}>
+                        <Calendar className="h-4 w-4 mr-2" />
+                        Reschedule
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="text-red-600" onClick={onDismiss}>
+                        <AlertCircle className="h-4 w-4 mr-2" />
+                        Dismiss
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -1090,8 +1099,11 @@ function RemindersSkeleton() {
 
 function AdmissionRemindersPageContent() {
   const { profile } = useAuth();
-  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
   const institutionId = (isSuperAdmin || isAdmissionGlobalUser) ? undefined : profile?.institution_id;
+  const canCreateReminder = canAccess('admission', 'counselors.create')
+    || canAccess('admission', 'counselors.edit');
+  const canEditReminder = canAccess('admission', 'counselors.edit');
   const { reminders, isLoading, refetch } = useFollowUpReminders(institutionId);
   const completeReminder = useCompleteReminder();
   const snoozeReminder = useSnoozeReminder();
@@ -1238,10 +1250,12 @@ function AdmissionRemindersPageContent() {
                 )}
                 Refresh
               </Button>
-              <Button onClick={() => setCreateDialogOpen(true)}>
-                <Bell className="h-4 w-4 mr-2" />
-                Create Reminder
-              </Button>
+              {canCreateReminder && (
+                <Button onClick={() => setCreateDialogOpen(true)}>
+                  <Bell className="h-4 w-4 mr-2" />
+                  Create Reminder
+                </Button>
+              )}
             </div>
           </div>
 
@@ -1384,6 +1398,7 @@ function AdmissionRemindersPageContent() {
                       onSnooze={() => handleSnooze(reminder.id)}
                       onReschedule={() => handleReschedule(reminder)}
                       onDismiss={() => handleDismiss(reminder)}
+                      canEdit={canEditReminder}
                       isCompleting={completingIds.has(reminder.id)}
                       isSnoozing={snoozingIds.has(reminder.id)}
                     />

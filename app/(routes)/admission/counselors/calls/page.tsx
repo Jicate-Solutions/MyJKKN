@@ -182,6 +182,7 @@ function CallNotesDialog({
   currentNotes,
   currentDisposition,
   currentFollowUp,
+  canEdit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -189,6 +190,7 @@ function CallNotesDialog({
   currentNotes: string | null;
   currentDisposition: CallDisposition | null;
   currentFollowUp: string | null;
+  canEdit: boolean;
 }) {
   const [notes, setNotes] = useState(currentNotes || '');
   const [disposition, setDisposition] = useState<string>(currentDisposition || '');
@@ -258,10 +260,12 @@ function CallNotesDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={isUpdatingNotes}>
-            {isUpdatingNotes && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Save Notes
-          </Button>
+          {canEdit && (
+            <Button onClick={handleSave} disabled={isUpdatingNotes}>
+              {isUpdatingNotes && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save Notes
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -274,8 +278,11 @@ function CallNotesDialog({
 
 function CallLogDashboardContent() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
+  const institutionId = isGlobalUser ? undefined : profile?.institution_id;
+  const canEditNotes = canAccess('admission', 'counselors.calls.edit')
+    || canAccess('admission', 'counselors.edit');
 
   // Filter state
   const [page, setPage] = useState(1);
@@ -744,6 +751,7 @@ function CallLogDashboardContent() {
             currentNotes={selectedCall.notes}
             currentDisposition={selectedCall.disposition}
             currentFollowUp={selectedCall.followUp}
+            canEdit={canEditNotes}
           />
         )}
       </ContentLayout>

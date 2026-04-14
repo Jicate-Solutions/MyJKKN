@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useAlertRules, useAlertHistory, useAlertMutations, useEventTypes } from '@/hooks/admission/use-activity-alerts';
 import {
@@ -34,6 +35,10 @@ const EVENT_ICONS: Record<string, React.ElementType> = {
 
 function AlertsPageContent() {
   const { selectedInstitutionId, institutions, canAccessAllInstitutions } = useUserInstitutionAccess();
+  const { canAccess } = usePermissions();
+  const canInitialize = canAccess('admission', 'counselors.create')
+    || canAccess('admission', 'counselors.edit');
+  const canToggleRules = canAccess('admission', 'counselors.edit');
   const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
   const [activeTab, setActiveTab] = useState('rules');
 
@@ -99,7 +104,7 @@ function AlertsPageContent() {
               <Button variant="outline" size="sm" onClick={() => refetch()}>
                 <RefreshCw className="h-4 w-4 mr-2" />Refresh
               </Button>
-              {rules.length === 0 && (
+              {rules.length === 0 && canInitialize && (
                 <Button onClick={handleInitialize} disabled={initializeRules.isPending || !institutionId}>
                   {initializeRules.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Settings2 className="h-4 w-4 mr-2" />}
                   Initialize Alerts
@@ -171,9 +176,11 @@ function AlertsPageContent() {
                     <Bell className="h-12 w-12 mx-auto mb-4 opacity-30" />
                     <p className="text-lg font-medium mb-2">No alert rules configured</p>
                     <p className="mb-4">Click "Initialize Alerts" to set up default alert rules for all event types.</p>
-                    <Button onClick={handleInitialize} disabled={initializeRules.isPending}>
-                      Initialize Default Rules
-                    </Button>
+                    {canInitialize && (
+                      <Button onClick={handleInitialize} disabled={initializeRules.isPending}>
+                        Initialize Default Rules
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ) : (
@@ -206,8 +213,8 @@ function AlertsPageContent() {
                           </div>
                           <Switch
                             checked={rule?.is_enabled || false}
-                            onCheckedChange={() => rule && handleToggle(rule.id, rule.is_enabled)}
-                            disabled={!rule}
+                            onCheckedChange={() => rule && canToggleRules && handleToggle(rule.id, rule.is_enabled)}
+                            disabled={!rule || !canToggleRules}
                           />
                         </CardContent>
                       </Card>

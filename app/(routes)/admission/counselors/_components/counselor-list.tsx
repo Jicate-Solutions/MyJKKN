@@ -49,6 +49,8 @@ interface CounselorRecord {
 
 interface CounselorListProps {
   onRefresh?: () => void;
+  institutionId?: string;
+  isGlobalUser?: boolean;
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -69,7 +71,7 @@ function getRoleLabel(role: string | null | undefined): string {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
 
-export function CounselorList({ onRefresh }: CounselorListProps) {
+export function CounselorList({ onRefresh, institutionId, isGlobalUser }: CounselorListProps) {
   const supabase = createClientSupabaseClient();
   const { canAccess } = usePermissions();
   const canDelete = canAccess('admission', 'counselors.delete');
@@ -84,7 +86,8 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
     setIsLoading(true);
     try {
       // 1. Fetch counselors from admission_counselors table
-      const { data, error } = await supabase
+      // Scope by institution unless caller is a global user (super admin / admission-global)
+      let counselorQuery = supabase
         .from('admission_counselors')
         .select(`
           id, name, email, phone, is_active, max_leads, current_leads, specializations,
@@ -92,6 +95,12 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
           institutions(name)
         `)
         .order('name');
+
+      if (!isGlobalUser && institutionId) {
+        counselorQuery = counselorQuery.eq('institution_id', institutionId);
+      }
+
+      const { data, error } = await counselorQuery;
 
       if (error) {
         toast.error('Failed to load counselors');
@@ -123,11 +132,17 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
         const missingUserIds = roleUserIds.filter((uid: string) => !existingUserIds.has(uid));
 
         if (missingUserIds.length > 0) {
-          // Step C: Fetch profiles for missing users
-          const { data: missingProfiles } = await supabase
+          // Step C: Fetch profiles for missing users (scoped by institution when not global)
+          let profileQuery = supabase
             .from('profiles')
             .select('id, full_name, email, phone_number, role, institution_id')
             .in('id', missingUserIds);
+
+          if (!isGlobalUser && institutionId) {
+            profileQuery = profileQuery.eq('institution_id', institutionId);
+          }
+
+          const { data: missingProfiles } = await profileQuery;
 
           // Step D: Fetch institution names for these profiles
           const instIds = [...new Set((missingProfiles || []).map((p: any) => p.institution_id).filter(Boolean))];
@@ -202,7 +217,7 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, institutionId, isGlobalUser]);
 
   useEffect(() => {
     fetchCounselors();

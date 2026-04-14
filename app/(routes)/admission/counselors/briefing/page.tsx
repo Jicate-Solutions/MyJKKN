@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useLatestBriefing, useGenerateBriefing } from '@/hooks/admission/use-briefing-notifications';
@@ -220,6 +221,9 @@ function HighlightCard({
 function BriefingPageContent() {
   const { profile } = useAuth();
   const { selectedInstitutionId: institutionId } = useUserInstitutionAccess();
+  const { canAccess } = usePermissions();
+  const canGenerate = canAccess('admission', 'counselors.edit')
+    || canAccess('admission', 'counselors.create');
 
   const { data: briefing, isLoading, refetch, isRefetching } = useLatestBriefing(institutionId);
   const generateBriefing = useGenerateBriefing();
@@ -275,18 +279,20 @@ function BriefingPageContent() {
                   your admission pipeline summary, hot leads, and action items for today.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3 mt-6 w-full sm:w-auto">
-                  <Button
-                    className="w-full sm:w-auto"
-                    onClick={handleGenerate}
-                    disabled={generateBriefing.isPending || !institutionId}
-                  >
-                    {generateBriefing.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-4 w-4 mr-2" />
-                    )}
-                    Generate Today&apos;s Briefing
-                  </Button>
+                  {canGenerate && (
+                    <Button
+                      className="w-full sm:w-auto"
+                      onClick={handleGenerate}
+                      disabled={generateBriefing.isPending || !institutionId}
+                    >
+                      {generateBriefing.isPending ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4 mr-2" />
+                      )}
+                      Generate Today&apos;s Briefing
+                    </Button>
+                  )}
                   <Button variant="outline" className="w-full sm:w-auto" asChild>
                     <Link href="/admission/dashboard">Go to Dashboard</Link>
                   </Button>
