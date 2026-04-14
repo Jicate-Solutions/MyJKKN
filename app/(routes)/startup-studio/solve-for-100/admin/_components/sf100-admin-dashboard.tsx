@@ -1,24 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Users,
   DollarSign,
   GraduationCap,
   AlertTriangle,
-  ShieldCheck,
   Target,
-  AlertCircle,
   TrendingUp,
-  Clock,
-  CheckCircle2,
-  XCircle,
+  Calendar,
+  ArrowRight,
+  Plus,
 } from 'lucide-react';
 import {
   useSF100Programs,
@@ -27,6 +28,8 @@ import {
   useSF100VerificationQueue,
   useSF100Enrollments,
 } from '@/hooks/startup-studio';
+import { SF100EnrollmentsTable } from '../../programs/[programId]/enrollments/_components/sf100-enrollments-table';
+import { SF100VerificationQueue as SF100VerificationQueueRich } from '../../programs/[programId]/verification-queue/_components/sf100-verification-queue';
 
 // ── Phase colors ────────────────────────────────────────────────────
 const PHASE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -39,6 +42,16 @@ const PHASE_CONFIG: Record<string, { label: string; color: string; bg: string }>
   stalled: { label: 'Stalled', color: 'text-red-700', bg: 'bg-red-100' },
   eliminated: { label: 'Eliminated', color: 'text-gray-700', bg: 'bg-gray-100' },
 };
+
+const PROGRAM_STATUS_CONFIG: Record<string, { label: string; className: string }> = {
+  draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700 border-gray-200' },
+  enrolling: { label: 'Enrolling', className: 'bg-blue-100 text-blue-700 border-blue-200' },
+  active: { label: 'Active', className: 'bg-green-100 text-green-700 border-green-200' },
+  completed: { label: 'Completed', className: 'bg-purple-100 text-purple-700 border-purple-200' },
+  archived: { label: 'Archived', className: 'bg-gray-100 text-gray-500 border-gray-200' },
+};
+
+const VALID_TABS = ['overview', 'programs', 'enrollments', 'verification'] as const;
 
 // ── Loading skeleton ────────────────────────────────────────────────
 function AdminSkeleton() {
@@ -79,6 +92,45 @@ function StatCard({ title, value, icon: Icon, accent }: {
   );
 }
 
+// ── Action Required Banner ──────────────────────────────────────────
+function ActionRequiredBanner({
+  pendingVerifications,
+  stalledTeams,
+  onJumpToVerification,
+}: {
+  pendingVerifications: number;
+  stalledTeams: number;
+  onJumpToVerification: () => void;
+}) {
+  const hasActions = pendingVerifications > 0 || stalledTeams > 0;
+  if (!hasActions) return null;
+
+  return (
+    <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-900/10">
+      <AlertTriangle className="h-4 w-4 text-amber-600" />
+      <AlertDescription className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="flex flex-wrap gap-4 text-sm">
+          {pendingVerifications > 0 && (
+            <span className="font-medium">
+              <strong className="text-amber-700 dark:text-amber-400">{pendingVerifications}</strong> verifications pending review
+            </span>
+          )}
+          {stalledTeams > 0 && (
+            <span className="font-medium">
+              <strong className="text-red-700 dark:text-red-400">{stalledTeams}</strong> teams stalled (14+ days)
+            </span>
+          )}
+        </div>
+        {pendingVerifications > 0 && (
+          <Button size="sm" variant="outline" onClick={onJumpToVerification} className="shrink-0">
+            Review now
+          </Button>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 // ── Phase Funnel ────────────────────────────────────────────────────
 function PhaseFunnel({ data }: { data: any[] }) {
   if (!data || data.length === 0) {
@@ -114,135 +166,152 @@ function PhaseFunnel({ data }: { data: any[] }) {
   );
 }
 
-// ── Verification Queue ──────────────────────────────────────────────
-function VerificationQueue({ items }: { items: any[] }) {
-  if (!items || items.length === 0) {
+// ── Programs Grid (new) ─────────────────────────────────────────────
+function ProgramsGrid({ programs }: { programs: any[] }) {
+  if (!programs || programs.length === 0) {
     return (
-      <div className="text-center py-8">
-        <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto mb-2" />
-        <p className="text-sm font-medium">All clear</p>
-        <p className="text-xs text-muted-foreground">No pending verifications</p>
+      <div className="flex flex-col items-center justify-center py-16 text-center border rounded-lg bg-muted/30">
+        <Plus className="h-10 w-10 text-muted-foreground mb-3" />
+        <p className="text-lg font-medium">No programs yet</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Create your first Solve for 100 program to get started.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      {items.slice(0, 10).map((item: any, idx: number) => (
-        <div key={idx} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{item.team_name || 'Unknown Team'}</p>
-            <p className="text-xs text-muted-foreground">
-              {item.paid_users_count ?? 0} paid users reported
-            </p>
-          </div>
-          <Badge variant="outline" className="shrink-0 text-xs">
-            Pending
-          </Badge>
-        </div>
-      ))}
-      {items.length > 10 && (
-        <p className="text-xs text-muted-foreground text-center">
-          +{items.length - 10} more
-        </p>
-      )}
-    </div>
-  );
-}
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {programs.map((program: any) => {
+        const statusConfig = PROGRAM_STATUS_CONFIG[program.status] ?? PROGRAM_STATUS_CONFIG.draft;
+        const deadline = program.hard_deadline
+          ? new Date(program.hard_deadline).toLocaleDateString('en-IN', {
+              day: 'numeric', month: 'short', year: 'numeric',
+            })
+          : 'No deadline set';
 
-// ── Enrollments Table ───────────────────────────────────────────────
-function EnrollmentsTable({ enrollments }: { enrollments: any[] }) {
-  if (!enrollments || enrollments.length === 0) {
-    return <p className="text-sm text-muted-foreground text-center py-8">No enrollments yet</p>;
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b text-left">
-            <th className="pb-2 font-medium text-muted-foreground">Team</th>
-            <th className="pb-2 font-medium text-muted-foreground">Phase</th>
-            <th className="pb-2 font-medium text-muted-foreground text-right">Paid Users</th>
-            <th className="pb-2 font-medium text-muted-foreground text-right">Revenue</th>
-            <th className="pb-2 font-medium text-muted-foreground">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {enrollments.map((e: any) => {
-            const phase = PHASE_CONFIG[e.current_phase] || { label: e.current_phase, color: 'text-gray-700', bg: 'bg-gray-100' };
-            const teamName = e.registration?.team_name || e.team_name || 'Unknown';
-            return (
-              <tr key={e.id} className="border-b last:border-0 hover:bg-muted/50">
-                <td className="py-3">
+        return (
+          <Card key={program.id} className="hover:shadow-md transition-shadow">
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between gap-2">
+                <CardTitle className="text-base leading-tight line-clamp-2">
+                  {program.name}
+                </CardTitle>
+                <Badge
+                  variant="outline"
+                  className={`shrink-0 text-xs font-medium ${statusConfig.className}`}
+                >
+                  {statusConfig.label}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5" />
+                  {program.team_count ?? 0} teams
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5" />
+                  {deadline}
+                </span>
+              </div>
+              <div className="flex justify-end">
+                <Button asChild size="sm" variant="outline">
                   <Link
-                    href={`/startup-studio/solve-for-100/team/${e.id}`}
-                    className="font-medium hover:underline"
+                    href={`/startup-studio/solve-for-100/programs/${program.id}`}
+                    className="flex items-center gap-1.5"
                   >
-                    {teamName}
+                    Open
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
-                </td>
-                <td className="py-3">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded ${phase.bg} ${phase.color}`}>
-                    {phase.label}
-                  </span>
-                </td>
-                <td className="py-3 text-right font-mono">{e.cumulative_paid_users || 0}</td>
-                <td className="py-3 text-right font-mono">
-                  {e.total_revenue ? `₹${Number(e.total_revenue).toLocaleString()}` : '₹0'}
-                </td>
-                <td className="py-3">
-                  <Badge variant={e.status === 'active' ? 'default' : 'secondary'} className="text-xs">
-                    {e.status}
-                  </Badge>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
 
 // ── Main Admin Dashboard ────────────────────────────────────────────
 export function SF100AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('overview');
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
 
-  // Step 1: Discover active program
+  // URL query param support — deep linkable tabs
+  const urlTab = searchParams.get('tab');
+  const initialTab = (urlTab && (VALID_TABS as readonly string[]).includes(urlTab)) ? urlTab : 'overview';
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  // Program selector (defaults to active program, but admin can switch)
   const { data: programsRaw, isLoading: programsLoading } = useSF100Programs();
   const programs = Array.isArray(programsRaw) ? programsRaw : (programsRaw as any)?.data || [];
-  const activeProgram = programs.find((p: any) => p.status === 'active') || programs[0];
-  const programId: string = activeProgram?.id ?? '';
+  const defaultProgram = programs.find((p: any) => p.status === 'active') || programs[0];
 
-  // Step 2: Fetch all data for the active program
+  const urlProgramId = searchParams.get('program');
+  const [selectedProgramId, setSelectedProgramId] = useState<string>(urlProgramId || '');
+
+  // Sync programId once programs load
+  useEffect(() => {
+    if (!selectedProgramId && defaultProgram?.id) {
+      setSelectedProgramId(defaultProgram.id);
+    }
+  }, [defaultProgram?.id, selectedProgramId]);
+
+  const programId = selectedProgramId || defaultProgram?.id || '';
+
+  // Update URL when tab or program changes
+  const updateUrl = (tab: string, progId: string) => {
+    const params = new URLSearchParams();
+    if (tab !== 'overview') params.set('tab', tab);
+    if (progId && progId !== defaultProgram?.id) params.set('program', progId);
+    const qs = params.toString();
+    router.replace(`${pathname}${qs ? `?${qs}` : ''}`, { scroll: false });
+  };
+
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    updateUrl(tab, programId);
+  };
+
+  const handleProgramChange = (newId: string) => {
+    setSelectedProgramId(newId);
+    updateUrl(activeTab, newId);
+  };
+
+  // Fetch data for the selected program
   const { data: program, isLoading: programLoading } = useSF100Program(programId);
   const { data: funnelRaw, isLoading: funnelLoading } = useSF100PhaseFunnel(programId);
   const { data: queueRaw } = useSF100VerificationQueue(programId);
   const { data: enrollmentsRaw, isLoading: enrollmentsLoading } = useSF100Enrollments(programId);
 
-  // Normalize data
+  // Normalize
   const funnelData: any[] = Array.isArray(funnelRaw) ? funnelRaw : [];
   const verificationQueue: any[] = Array.isArray(queueRaw) ? queueRaw : [];
   const enrollments: any[] = Array.isArray(enrollmentsRaw) ? enrollmentsRaw : (enrollmentsRaw as any)?.data || [];
   const prog: any = program || {};
 
   const isLoading = programsLoading || programLoading || funnelLoading || enrollmentsLoading;
-
   if (isLoading) return <AdminSkeleton />;
 
-  if (!programId) {
+  if (programs.length === 0) {
     return (
       <Card>
         <CardContent className="py-10 text-center">
           <Target className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">No Solve for 100 program found</p>
+          <p className="text-sm text-muted-foreground mb-4">No Solve for 100 programs yet</p>
+          <Button>
+            <Plus className="h-4 w-4 mr-2" /> Create Program
+          </Button>
         </CardContent>
       </Card>
     );
   }
 
-  // Compute stats
+  // Stats
   const totalEnrolled = enrollments.length;
   const activeEnrolled = enrollments.filter((e: any) => e.status === 'active').length;
   const totalPaidUsers = enrollments.reduce((sum: number, e: any) => sum + (e.cumulative_paid_users || 0), 0);
@@ -255,20 +324,46 @@ export function SF100AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Program Header */}
+      {/* Action Required Banner */}
+      <ActionRequiredBanner
+        pendingVerifications={verificationQueue.length}
+        stalledTeams={stalledCount}
+        onJumpToVerification={() => handleTabChange('verification')}
+      />
+
+      {/* Program Header + Selector */}
       <Card>
         <CardContent className="py-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <h2 className="font-semibold">{prog.name || 'Solve for 100'}</h2>
-              <p className="text-xs text-muted-foreground">
-                {prog.enrollment_start && `Started ${new Date(prog.enrollment_start).toLocaleDateString()}`}
-                {prog.hard_deadline && ` · Deadline ${new Date(prog.hard_deadline).toLocaleDateString()}`}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-semibold">{prog.name || 'Solve for 100'}</h2>
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${(PROGRAM_STATUS_CONFIG[prog.status] ?? PROGRAM_STATUS_CONFIG.draft).className}`}
+                >
+                  {(PROGRAM_STATUS_CONFIG[prog.status] ?? PROGRAM_STATUS_CONFIG.draft).label}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {prog.enrollment_start && `Started ${new Date(prog.enrollment_start).toLocaleDateString('en-IN')}`}
+                {prog.hard_deadline && ` · Deadline ${new Date(prog.hard_deadline).toLocaleDateString('en-IN')}`}
               </p>
             </div>
-            <Badge variant={prog.status === 'active' ? 'default' : 'secondary'}>
-              {prog.status || 'unknown'}
-            </Badge>
+            {programs.length > 1 && (
+              <Select value={programId} onValueChange={handleProgramChange}>
+                <SelectTrigger className="w-full sm:w-[240px]">
+                  <SelectValue placeholder="Select program" />
+                </SelectTrigger>
+                <SelectContent>
+                  {programs.map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -282,15 +377,18 @@ export function SF100AdminDashboard() {
         <StatCard title="Stalled (14d+)" value={stalledCount} icon={AlertTriangle} accent={stalledCount > 0 ? 'text-red-600' : 'text-green-600'} />
       </div>
 
-      {/* Tabs: Overview / Enrollments / Verification */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full justify-start">
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
+        <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="overview">Phase Funnel</TabsTrigger>
-          <TabsTrigger value="enrollments">
-            Enrollments ({totalEnrolled})
-          </TabsTrigger>
+          <TabsTrigger value="programs">Programs ({programs.length})</TabsTrigger>
+          <TabsTrigger value="enrollments">Enrollments ({totalEnrolled})</TabsTrigger>
           <TabsTrigger value="verification">
-            Verification Queue ({verificationQueue.length})
+            Verification{verificationQueue.length > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-xs font-bold px-1.5 min-w-[1.25rem] h-5">
+                {verificationQueue.length}
+              </span>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -308,32 +406,31 @@ export function SF100AdminDashboard() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="enrollments">
+        <TabsContent value="programs">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Users className="h-5 w-5" />
-                All Enrollments
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Target className="h-5 w-5" />
+                  All Programs
+                </CardTitle>
+                <Button size="sm" variant="outline">
+                  <Plus className="h-4 w-4 mr-1.5" /> New Program
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <EnrollmentsTable enrollments={enrollments} />
+              <ProgramsGrid programs={programs} />
             </CardContent>
           </Card>
         </TabsContent>
 
+        <TabsContent value="enrollments">
+          <SF100EnrollmentsTable programId={programId} />
+        </TabsContent>
+
         <TabsContent value="verification">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck className="h-5 w-5" />
-                Pending Verifications
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <VerificationQueue items={verificationQueue} />
-            </CardContent>
-          </Card>
+          <SF100VerificationQueueRich programId={programId} />
         </TabsContent>
       </Tabs>
     </div>
