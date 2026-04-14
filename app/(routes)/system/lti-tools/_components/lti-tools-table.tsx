@@ -15,7 +15,8 @@ import {
   XCircle,
   Calendar,
   ExternalLink,
-  AlertTriangle
+  AlertTriangle,
+  Plus
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -158,7 +159,7 @@ export function LtiToolsTable() {
         <p className="text-sm text-gray-400 mb-4">
           Register your first tool to enable LTI integrations
         </p>
-        <LtiToolDialog mode="create">
+        <LtiToolDialog mode="create" onSuccess={fetchTools}>
           <Button>Register First Tool</Button>
         </LtiToolDialog>
       </div>
@@ -167,6 +168,14 @@ export function LtiToolsTable() {
 
   return (
     <>
+      <div className="flex justify-end mb-4">
+        <LtiToolDialog mode="create" onSuccess={fetchTools}>
+          <Button className="gap-2">
+            <Plus className="h-4 w-4" />
+            Register New Tool
+          </Button>
+        </LtiToolDialog>
+      </div>
       <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <Table>
           <TableHeader>

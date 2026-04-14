@@ -1,5 +1,5 @@
 'use client';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import { getColumns } from './columns';
 import { useAuth } from '@/hooks/use-auth';
@@ -8,6 +8,11 @@ import { AssignmentRulesService } from '@/lib/services/admission/assignment-rule
 export function AssignmentRulesDataTable() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id || '';
+  // Bumped by row-action mutations (toggle/delete) so the DataTable re-fetches
+  // and reflects the change. Without this, the table used to silently stay stale
+  // after edits — the row-actions fire `onRefetch?.()` but no handler was wired.
+  const [refetchKey, setRefetchKey] = useState(0);
+  const triggerRefetch = useCallback(() => setRefetchKey((k) => k + 1), []);
 
   const fetchData = useCallback(async (params: DataFetchParams) => {
     const data = await AssignmentRulesService.getAssignmentRules(institutionId);
@@ -33,7 +38,8 @@ export function AssignmentRulesDataTable() {
   return (
     <DataTable
       fetchDataFn={fetchData as any}
-      getColumns={(handleRowDeselection) => getColumns(handleRowDeselection) as any}
+      getColumns={(handleRowDeselection) => getColumns(handleRowDeselection, triggerRefetch) as any}
+      refetchKey={refetchKey}
       exportConfig={{
         entityName: 'assignment-rules',
         columnMapping: {},

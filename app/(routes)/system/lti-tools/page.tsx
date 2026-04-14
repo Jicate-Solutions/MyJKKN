@@ -7,13 +7,11 @@
 
 import { Suspense } from 'react';
 import { Metadata } from 'next';
-import { Plus, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LtiToolsTable } from './_components/lti-tools-table';
-import { LtiToolDialog } from './_components/lti-tool-dialog';
 
 export const metadata: Metadata = {
   title: 'LTI Tools Management | MyJKKN',
@@ -31,21 +29,15 @@ export default function LtiToolsPage() {
         ]}
       />
       <div className="space-y-6 mt-4">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">LTI Tools Management</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">
-              Manage Learning Tools Interoperability (LTI) 1.3 integrations
-            </p>
-          </div>
-
-          <LtiToolDialog mode="create">
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" />
-              Register New Tool
-            </Button>
-          </LtiToolDialog>
+        {/* Header — the "Register New Tool" button is rendered inside
+            <LtiToolsTable /> so it shares fetchTools() and refreshes the
+            table after creation. Previously the button lived here and
+            created tools without refreshing (silent-failure pattern (e)). */}
+        <div>
+          <h1 className="text-2xl font-bold">LTI Tools Management</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">
+            Manage Learning Tools Interoperability (LTI) 1.3 integrations
+          </p>
         </div>
 
       {/* Info Alert */}
