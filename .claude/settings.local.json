@@ -247,7 +247,11 @@
       "mcp__exotel__getVoiceCallCallbacks",
       "mcp__exotel__getBulkCallDetails",
       "Read(//Users/omm/.claude/skills/fresh-eyes/reports/myjkkn-lo-subcats/20260411-201959/**)",
-      "Bash(mkdir -p /Users/omm/.claude/skills/fresh-eyes/reports/myjkkn-lo-subcats/20260411-201959/)"
+      "Bash(mkdir -p /Users/omm/.claude/skills/fresh-eyes/reports/myjkkn-lo-subcats/20260411-201959/)",
+      "Bash(rm ~/Library/LaunchAgents/com.claude.jkkn-browser.plist)",
+      "Read(//Users/omm/.claude/scripts/**)",
+      "Bash(sed -i.bak '/browser-testing-setup/,+2d; /4b. Persistent Browser/d' ~/.claude/scripts/session-start.sh)",
+      "Read(//Users/omm/Library/LaunchAgents/**)"
     ],
     "deny": [],
     "ask": []
