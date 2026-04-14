@@ -102,51 +102,67 @@ export function CounselorList({ onRefresh }: CounselorListProps) {
       const records = (data || []) as unknown as CounselorRecord[];
 
       // 2. Fetch users with counselor role who may NOT be in admission_counselors table
-      const { data: roleUsers } = await supabase
-        .from('user_roles')
-        .select(`
-          user_id,
-          custom_roles!inner(role_key),
-          profiles!inner(id, full_name, email, phone_number, role, institution_id)
-        `)
-        .eq('custom_roles.role_key', 'counselor');
+      // Step A: Get the counselor role ID
+      const { data: counselorRoleData } = await supabase
+        .from('custom_roles')
+        .select('id')
+        .eq('role_key', 'counselor')
+        .single();
 
-      // 3. Find role-based counselors not already in admission_counselors
-      const existingUserIds = new Set(records.filter(c => c.user_id).map(c => c.user_id));
+      if (counselorRoleData) {
+        // Step B: Get all user_ids with counselor role
+        const { data: roleAssignments } = await supabase
+          .from('user_roles')
+          .select('user_id')
+          .eq('role_id', counselorRoleData.id);
 
-      if (roleUsers) {
-        for (const ru of roleUsers as any[]) {
-          const profile = ru.profiles;
-          if (!profile || existingUserIds.has(profile.id)) continue;
+        const roleUserIds = (roleAssignments || []).map((r: any) => r.user_id);
 
-          // Get institution name
-          let instName: string | null = null;
-          if (profile.institution_id) {
-            const { data: inst } = await supabase
+        // 3. Find role-based counselors not already in admission_counselors
+        const existingUserIds = new Set(records.filter(c => c.user_id).map(c => c.user_id));
+        const missingUserIds = roleUserIds.filter((uid: string) => !existingUserIds.has(uid));
+
+        if (missingUserIds.length > 0) {
+          // Step C: Fetch profiles for missing users
+          const { data: missingProfiles } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, phone_number, role, institution_id')
+            .in('id', missingUserIds);
+
+          // Step D: Fetch institution names for these profiles
+          const instIds = [...new Set((missingProfiles || []).map((p: any) => p.institution_id).filter(Boolean))];
+          let instMap = new Map<string, string>();
+          if (instIds.length > 0) {
+            const { data: insts } = await supabase
               .from('institutions')
-              .select('name')
-              .eq('id', profile.institution_id)
-              .single();
-            instName = inst?.name || null;
+              .select('id, name')
+              .in('id', instIds);
+            if (insts) {
+              for (const inst of insts as any[]) {
+                instMap.set(inst.id, inst.name);
+              }
+            }
           }
 
-          // Add as a virtual counselor record (from role, not from table)
-          records.push({
-            id: `role-${profile.id}`, // prefix to distinguish from table records
-            name: profile.full_name || profile.email || '',
-            email: profile.email,
-            phone: profile.phone_number,
-            is_active: true,
-            max_leads: 50,
-            current_leads: 0,
-            specializations: null,
-            institution_id: profile.institution_id || '',
-            user_id: profile.id,
-            created_at: '',
-            institutions: instName ? { name: instName } : null,
-            profile_role: profile.role,
-            profile_full_name: profile.full_name,
-          });
+          // Step E: Add as virtual counselor records
+          for (const profile of (missingProfiles || []) as any[]) {
+            records.push({
+              id: `role-${profile.id}`,
+              name: profile.full_name || profile.email || '',
+              email: profile.email,
+              phone: profile.phone_number,
+              is_active: true,
+              max_leads: 50,
+              current_leads: 0,
+              specializations: null,
+              institution_id: profile.institution_id || '',
+              user_id: profile.id,
+              created_at: '',
+              institutions: profile.institution_id ? { name: instMap.get(profile.institution_id) || '' } : null,
+              profile_role: profile.role,
+              profile_full_name: profile.full_name,
+            });
+          }
         }
       }
 
