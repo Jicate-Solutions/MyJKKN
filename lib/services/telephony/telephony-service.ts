@@ -160,6 +160,7 @@ export interface UpdateCallNotesInput {
   call_notes?: string;
   call_disposition?: CallDisposition;
   follow_up_date?: string | null;
+  updated_by?: string;
 }
 
 export interface ExotelCallbackPayload {
@@ -556,10 +557,13 @@ export class TelephonyService {
   }
 
   static async updateCallNotes(callId: string, input: UpdateCallNotesInput, supabase: any): Promise<CallLog> {
-    const update: Record<string, any> = {};
+    const update: Record<string, any> = {
+      updated_at: new Date().toISOString(),
+    };
     if (input.call_notes !== undefined) update.call_notes = input.call_notes;
     if (input.call_disposition !== undefined) update.call_disposition = input.call_disposition;
     if (input.follow_up_date !== undefined) update.follow_up_date = input.follow_up_date;
+    if (input.updated_by) update.updated_by = input.updated_by;
 
     const { data, error } = await supabase
       .from('admission_call_logs')

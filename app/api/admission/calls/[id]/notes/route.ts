@@ -41,10 +41,52 @@ export async function PUT(
     });
 
     const supabase = createServiceRoleClient();
+
+    // Verify user has access to this call's institution before allowing update
+    const { data: callRecord } = await supabase
+      .from('admission_call_logs')
+      .select('institution_id')
+      .eq('id', id)
+      .single();
+
+    if (!callRecord) {
+      return NextResponse.json(
+        { error: 'NOT_FOUND', message: 'Call record not found' },
+        { status: 404 }
+      );
+    }
+
+    // Check authorization: super admin, global scope, or same institution
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('institution_id, is_super_admin, role')
+      .eq('id', user.id)
+      .single();
+
+    const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
+    if (!isSuperAdmin && callRecord.institution_id !== profile?.institution_id) {
+      const { data: userRolesData } = await supabase
+        .from('user_roles')
+        .select('role_id, custom_roles!inner(institution_scope)')
+        .eq('user_id', user.id);
+
+      const hasGlobalScope = (userRolesData || []).some(
+        (ur: any) => ur.custom_roles?.institution_scope === 'all'
+      );
+
+      if (!hasGlobalScope) {
+        return NextResponse.json(
+          { error: 'FORBIDDEN', message: 'No access to this call record' },
+          { status: 403 }
+        );
+      }
+    }
+
     const updatedLog = await TelephonyService.updateCallNotes(id, {
       call_notes,
       call_disposition: call_disposition as CallDisposition,
       follow_up_date: follow_up_date || null,
+      updated_by: user.id, // Track who updated the notes
     }, supabase);
 
     return NextResponse.json({
