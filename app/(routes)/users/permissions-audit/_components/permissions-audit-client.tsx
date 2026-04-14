@@ -17,6 +17,7 @@ import { UnifiedAccessMapTab } from './unified-access-map-tab';
 import { RlsAuditTab } from './rls-audit-tab';
 import { ExportReportsTab } from './export-reports-tab';
 import { AIDebuggerTab } from './ai-debugger-tab';
+import { AskTab } from './ask-tab';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
@@ -78,8 +79,9 @@ export function PermissionsAuditClient() {
           </div>
         </div>
 
-        <Tabs defaultValue='unified' className='w-full'>
-          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-8'>
+        <Tabs defaultValue='ask' className='w-full'>
+          <TabsList className='grid w-full grid-cols-3 sm:grid-cols-5 lg:grid-cols-9'>
+            <TabsTrigger value='ask'>Ask</TabsTrigger>
             <TabsTrigger value='unified'>Unified Access</TabsTrigger>
             <TabsTrigger value='rls'>RLS Audit</TabsTrigger>
             <TabsTrigger value='health'>System Health</TabsTrigger>
@@ -89,6 +91,10 @@ export function PermissionsAuditClient() {
             <TabsTrigger value='export'>Export</TabsTrigger>
             <TabsTrigger value='ai-debug'>AI Debugger</TabsTrigger>
           </TabsList>
+
+          <TabsContent value='ask'>
+            <AskTab />
+          </TabsContent>
 
           <TabsContent value='unified'>
             <UnifiedAccessMapTab />

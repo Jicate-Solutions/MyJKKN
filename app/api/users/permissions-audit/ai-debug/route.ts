@@ -5,12 +5,21 @@ import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 
 interface AIDebugRequest {
   query: string;
+  question?: string; // alias for query — accepted from /ask wrapper
+  mode?: 'debug' | 'who-can-do';
+  includeUsers?: boolean;
   roleKey?: string;
   conversationHistory?: { role: 'user' | 'assistant'; content: string }[];
 }
+
+// Flat list of all permission keys for injection into the who-can-do prompt
+const ALL_PERMISSION_KEYS: string[] = PERMISSION_CATEGORIES.flatMap((cat) =>
+  cat.permissions.map((p) => p.key)
+);
 
 export async function POST(request: NextRequest) {
   await connection();
@@ -68,8 +77,11 @@ export async function POST(request: NextRequest) {
 
     // ── Parse request body ──
     const body: AIDebugRequest = await request.json();
-    const { query, conversationHistory } = body;
+    // Accept 'question' as an alias for 'query' (used by the /ask wrapper)
+    const rawQuery = body.query || body.question || '';
+    const { conversationHistory, mode = 'debug', includeUsers = false } = body;
     let { roleKey } = body;
+    const query = rawQuery;
 
     if (!query || typeof query !== 'string' || query.trim().length === 0) {
       return NextResponse.json(
@@ -77,6 +89,139 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // ── WHO-CAN-DO MODE ──
+    if (mode === 'who-can-do') {
+      const keysJson = JSON.stringify(ALL_PERMISSION_KEYS);
+      const whoCanDoPrompt = `You are a permission system interpreter for MyJKKN, a university ERP.
+
+Given a plain-English question about WHO can perform an action, identify the relevant permission key(s) from the list below. Do NOT make up permission keys — only use those in this list.
+
+AVAILABLE PERMISSION KEYS:
+${keysJson}
+
+Response format — JSON ONLY, no markdown code fences:
+{
+  "interpretedPermissions": ["module.action.key", ...],
+  "summary": "One short plain-English sentence answering the question",
+  "technicalNote": "Brief explanation of which permission keys you matched and why"
+}
+
+If the question is ambiguous or you cannot identify a matching permission, return:
+{
+  "error": "ambiguous",
+  "suggestions": ["alternative phrasing 1", "alternative phrasing 2", "alternative phrasing 3"]
+}`;
+
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+      const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+      const model = genAI.getGenerativeModel({ model: modelName });
+
+      let geminiResult;
+      try {
+        geminiResult = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: query }] }],
+          systemInstruction: whoCanDoPrompt
+        });
+      } catch (genError: any) {
+        console.error('[ai-debug/who-can-do] Gemini API error:', genError?.message || genError);
+        return NextResponse.json(
+          { error: `Gemini API error: ${genError?.message || 'Failed to generate response'}` },
+          { status: 502 }
+        );
+      }
+
+      const rawText = geminiResult.response.text().trim();
+
+      // Strip markdown fences if present
+      let jsonText = rawText;
+      const fenceMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) {
+        jsonText = fenceMatch[1].trim();
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonText);
+      } catch {
+        console.error('[ai-debug/who-can-do] Failed to parse Gemini JSON:', rawText);
+        return NextResponse.json(
+          { error: 'Failed to parse AI response', raw: rawText },
+          { status: 500 }
+        );
+      }
+
+      // If Gemini returned an ambiguous response, return it immediately
+      if (parsed.error === 'ambiguous') {
+        return NextResponse.json(parsed);
+      }
+
+      const interpretedPermissions: string[] = parsed.interpretedPermissions || [];
+
+      // If not requesting user data, return lightweight response
+      if (!includeUsers || interpretedPermissions.length === 0) {
+        return NextResponse.json({
+          interpretedPermissions,
+          summary: parsed.summary || '',
+          groupedUsers: [],
+          technicalNote: parsed.technicalNote || ''
+        });
+      }
+
+      // ── Query users who hold roles with matching permissions ──
+      const { data: allRoles, error: rolesError } = await supabase
+        .from('custom_roles')
+        .select('id, role_key, role_name, permissions');
+
+      if (rolesError) {
+        console.error('[ai-debug/who-can-do] Failed to fetch roles:', rolesError);
+        return NextResponse.json(
+          { error: 'Failed to fetch roles from database' },
+          { status: 500 }
+        );
+      }
+
+      const matchingRoles = (allRoles || []).filter((r) =>
+        interpretedPermissions.some((k) => r.permissions?.[k] === true)
+      );
+
+      const groupedUsers = await Promise.all(
+        matchingRoles.map(async (role) => {
+          const { data } = await supabase
+            .from('user_roles')
+            .select('profiles!inner(id, full_name, email)')
+            .eq('role_id', role.id)
+            .limit(50);
+          return {
+            role: role.role_key,
+            roleDisplayName: role.role_name,
+            users: (data || []).map((d: any) => d.profiles)
+          };
+        })
+      );
+
+      // Always prepend super admins — they bypass all permission checks
+      const { data: superAdmins } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .or('is_super_admin.eq.true,role.eq.super_admin');
+
+      if (superAdmins && superAdmins.length > 0) {
+        groupedUsers.unshift({
+          role: 'super_admin',
+          roleDisplayName: 'Super Admin (bypass)',
+          users: superAdmins
+        });
+      }
+
+      return NextResponse.json({
+        interpretedPermissions,
+        summary: parsed.summary || '',
+        groupedUsers,
+        technicalNote: parsed.technicalNote || ''
+      });
+    }
+    // ── END WHO-CAN-DO MODE ──
 
     // ── Resolve roleKey from query if not provided ──
     if (!roleKey) {
