@@ -171,6 +171,7 @@ export function RlsAuditTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [moduleFilter, setModuleFilter] = useState('all');
+  const [subModuleFilter, setSubModuleFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [expandedExpression, setExpandedExpression] = useState<string | null>(
     null
@@ -229,10 +230,24 @@ export function RlsAuditTab() {
     new Set(data.tables.map((t) => t.module))
   ).sort();
 
+  // ── Derive sub-modules for the currently selected module ──
+
+  const subModules =
+    moduleFilter === 'all'
+      ? []
+      : Array.from(
+          new Set(
+            data.tables
+              .filter((t) => t.module === moduleFilter)
+              .map((t) => t.subModule)
+          )
+        ).sort();
+
   // ── Filter tables ──
 
   const filteredTables = data.tables.filter((t) => {
     if (moduleFilter !== 'all' && t.module !== moduleFilter) return false;
+    if (subModuleFilter !== 'all' && t.subModule !== subModuleFilter) return false;
     if (typeFilter !== 'all') {
       // Keep table if any policy matches the type filter
       const hasMatchingPolicy = t.policies.some(
@@ -295,16 +310,48 @@ export function RlsAuditTab() {
       </div>
 
       {/* ── Filter Row ── */}
-      <div className="flex gap-3">
-        <Select value={moduleFilter} onValueChange={setModuleFilter}>
+      <div className="flex flex-wrap gap-3">
+        <Select
+          value={moduleFilter}
+          onValueChange={(v) => {
+            setModuleFilter(v);
+            setSubModuleFilter('all'); // Reset sub-module when module changes
+          }}
+        >
           <SelectTrigger className="w-[220px]">
             <SelectValue placeholder="All Modules" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Modules</SelectItem>
+            <SelectItem value="all">All Modules ({modules.length})</SelectItem>
             {modules.map((m) => (
               <SelectItem key={m} value={m}>
                 {m}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={subModuleFilter}
+          onValueChange={setSubModuleFilter}
+          disabled={moduleFilter === 'all' || subModules.length === 0}
+        >
+          <SelectTrigger className="w-[220px]">
+            <SelectValue
+              placeholder={
+                moduleFilter === 'all'
+                  ? 'Select a module first'
+                  : 'All Sub-Modules'
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">
+              All Sub-Modules ({subModules.length})
+            </SelectItem>
+            {subModules.map((sm) => (
+              <SelectItem key={sm} value={sm}>
+                {sm}
               </SelectItem>
             ))}
           </SelectContent>
