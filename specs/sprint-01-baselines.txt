@@ -1,0 +1,115 @@
+# Sprint 1 — EXPLAIN ANALYZE Baselines (Pre-HR-App)
+
+**Captured:** 2026-04-14 21:55
+**Target DB:** Staging (`hhprjbgknupaplivtoib`)
+**Purpose:** Baseline query plans for 5 MyJKKN core tables BEFORE adding any HR-App tables.
+**Success criterion:** After Phase A (shadow tenant + triggers), these plans must be IDENTICAL (node types, costs within ±10%). If ANY plan changes shape, roll back — the shadow-tenant guarantee has been violated.
+
+---
+
+## Baseline 1: `staff` — SELECT * LIMIT 50
+
+```
+Plan:
+  Limit (cost=0..4.71 rows=50 width=395)
+  → Seq Scan on staff (cost=0..36.92 rows=392 width=395)
+Planning Time: 1.217 ms
+Execution Time: 0.162 ms
+Shared Hit Blocks: 3
+Actual Rows: 50 of 392 estimated
+```
+
+**Table size:** ~392 rows (JKKN staff master)
+
+---
+
+## Baseline 2: `learners_profiles` — SELECT by institution_id NOT NULL LIMIT 50
+
+```
+Plan:
+  Limit (cost=0..16.89 rows=50 width=44)
+  → Seq Scan on learners_profiles (cost=0..1613.76 rows=4776 width=44)
+      Filter: (institution_id IS NOT NULL)
+Planning Time: 1.504 ms
+Execution Time: 0.165 ms
+Shared Hit Blocks: 9
+Actual Rows: 50 (0 removed by filter in first page)
+```
+
+**Table size:** ~4,776 rows (JKKN students)
+
+---
+
+## Baseline 3: `institutions` — SELECT id, name LIMIT 50
+
+```
+Plan:
+  Limit (cost=0..1.10 rows=10 width=52)
+  → Seq Scan on institutions (cost=0..1.10 rows=10 width=52)
+Planning Time: 0.466 ms
+Execution Time: 0.072 ms
+Shared Hit Blocks: 1
+Actual Rows: 11
+```
+
+**Table size:** 11 institutions (matches JKKN 6-10 institutions + 1 main office)
+
+---
+
+## Baseline 4: `departments` — SELECT id, department_name, institution_id LIMIT 50
+
+**Schema note:** Column is `department_name`, not `name`. HR-App schema must reference correctly.
+
+```
+Plan:
+  Limit (cost=0..3.13 rows=50 width=53)
+  → Seq Scan on departments (cost=0..4.76 rows=76 width=53)
+Planning Time: 0.440 ms
+Execution Time: 0.087 ms
+Shared Hit Blocks: 1
+Actual Rows: 50 of 76 estimated
+```
+
+**Table size:** ~76 departments (memory says 81; 5 may be inactive)
+
+---
+
+## Baseline 5: `admission_counselors` (RLS-enabled, institution-scoped) — SELECT LIMIT 50
+
+**Why this table:** It has active RLS with `institution_id` scoping. If shadow-tenant pattern leaks into existing RLS, this plan would change.
+
+```
+Plan:
+  Limit (cost=0..1.02 rows=2 width=64)
+  → Seq Scan on admission_counselors (cost=0..1.02 rows=2 width=64)
+Planning Time: 0.408 ms
+Execution Time: 0.056 ms
+Shared Hit Blocks: 1
+Actual Rows: 1
+```
+
+**Table size:** ~2 rows (staging DB has minimal data)
+
+---
+
+## Pass Criteria (Post-Phase-A Re-Run)
+
+After Phase A (Tasks A2-A8) completes, re-run all 5 queries. The following MUST hold:
+
+| Metric | Tolerance |
+|--------|-----------|
+| Node Type (Seq Scan / Index Scan / Limit) | **Exactly identical** — zero deviation |
+| Relation Name in each plan | **Exactly identical** |
+| Plan Rows (estimated) | Within ±10% (small schema changes may shift stats) |
+| Planning Time | Within ±100% (planning is fast enough that jitter is tolerable) |
+| Execution Time | Within ±50% (sub-millisecond jitter is noise) |
+| Shared Hit Blocks | Within ±5 blocks (page-level stability) |
+| Filter/Index predicates | **Exactly identical** |
+
+**If any Node Type changes, or a new join/filter appears on an MyJKKN core table, ROLL BACK Phase A immediately.** The shadow-tenant pattern has been violated.
+
+---
+
+## Task A1 Status: ✅ COMPLETE
+
+Baselines captured. Moving to Task A2: create `hr_organizations` table.
