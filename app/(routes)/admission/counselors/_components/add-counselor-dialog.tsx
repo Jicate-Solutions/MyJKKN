@@ -7,10 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -21,14 +18,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Search,
   Loader2,
   User,
   GraduationCap,
   Check,
-  UserPlus,
+  Users,
 } from 'lucide-react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
@@ -45,13 +41,6 @@ interface AddCounselorDialogProps {
   onOpenChange: (open: boolean) => void;
   institutionId?: string;
   onSuccess?: () => void;
-}
-
-interface ProfileSearchResult {
-  id: string;
-  full_name: string;
-  email: string;
-  phone: string | null;
 }
 
 interface LearnerResult {
@@ -89,7 +78,7 @@ export function AddCounselorDialog({
   const { institutions } = useInstitutionsWithAccess();
   const supabase = createClientSupabaseClient();
 
-  // Auto-assign counselor role to a user (non-blocking — best effort)
+  // Auto-assign counselor role to a user (non-blocking -- best effort)
   const assignCounselorRole = async (profileId: string) => {
     try {
       // Get the counselor role ID
@@ -111,22 +100,19 @@ export function AddCounselorDialog({
 
       if (existing) return; // Already has the role
 
-      // Assign the counselor role (not as primary — keep their existing primary role)
+      // Assign the counselor role (not as primary -- keep their existing primary role)
       await supabase.from('user_roles').insert({
         user_id: profileId,
         role_id: counselorRole.id,
         is_primary: false,
       });
     } catch (err) {
-      // Non-blocking — counselor record was already created, role assignment is best-effort
+      // Non-blocking -- counselor record was already created, role assignment is best-effort
       console.warn('[admission/counselors] Failed to auto-assign counselor role:', err);
     }
   };
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState<'existing' | 'manual'>('existing');
-
-  // ---------- Tab 1: Select Existing User ----------
+  // ---------- State ----------
   const [userType, setUserType] = useState<UserType>('learner');
 
   // Hierarchy filter state
@@ -143,20 +129,9 @@ export function AddCounselorDialog({
   const [userSearchFilter, setUserSearchFilter] = useState('');
   const [selectedUser, setSelectedUser] = useState<SelectedUser | null>(null);
 
-  // Counselor settings (shared between tabs)
+  // Counselor settings
   const [maxLeads, setMaxLeads] = useState(50);
   const [specializations, setSpecializations] = useState('');
-
-  // ---------- Tab 2: Manual Entry ----------
-  const [manualInstitutionId, setManualInstitutionId] = useState(propInstitutionId || '');
-  const [manualSelectedUserId, setManualSelectedUserId] = useState<string | null>(null);
-  const [manualName, setManualName] = useState('');
-  const [manualEmail, setManualEmail] = useState('');
-  const [manualPhone, setManualPhone] = useState('');
-  const [manualSearchQuery, setManualSearchQuery] = useState('');
-  const [manualSearchResults, setManualSearchResults] = useState<ProfileSearchResult[]>([]);
-  const [isManualSearching, setIsManualSearching] = useState(false);
-  const [showManualResults, setShowManualResults] = useState(false);
 
   // Submit state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -203,14 +178,12 @@ export function AddCounselorDialog({
   useEffect(() => {
     if (propInstitutionId) {
       setExistInstitutionId(propInstitutionId);
-      setManualInstitutionId(propInstitutionId);
     }
   }, [propInstitutionId]);
 
   // ---------- Reset form when dialog closes ----------
   useEffect(() => {
     if (!open) {
-      setActiveTab('existing');
       setUserType('learner');
       setExistInstitutionId(propInstitutionId || '');
       setDegreeId('');
@@ -223,14 +196,6 @@ export function AddCounselorDialog({
       setSelectedUser(null);
       setMaxLeads(50);
       setSpecializations('');
-      setManualInstitutionId(propInstitutionId || '');
-      setManualSelectedUserId(null);
-      setManualName('');
-      setManualEmail('');
-      setManualPhone('');
-      setManualSearchQuery('');
-      setManualSearchResults([]);
-      setShowManualResults(false);
     }
   }, [open, propInstitutionId]);
 
@@ -261,7 +226,6 @@ export function AddCounselorDialog({
     setUserSearchFilter('');
   };
 
-  // When degree changes, reset department and below
   const handleDegreeChange = (value: string) => {
     setDegreeId(value);
     setDepartmentId('');
@@ -273,7 +237,6 @@ export function AddCounselorDialog({
     setUserSearchFilter('');
   };
 
-  // When department changes, reset program and below
   const handleDepartmentChange = (value: string) => {
     setDepartmentId(value);
     setProgramId('');
@@ -284,7 +247,6 @@ export function AddCounselorDialog({
     setUserSearchFilter('');
   };
 
-  // When program changes, reset semester and below
   const handleProgramChange = (value: string) => {
     setProgramId(value);
     setSemesterId('');
@@ -294,7 +256,6 @@ export function AddCounselorDialog({
     setUserSearchFilter('');
   };
 
-  // When semester changes, reset section
   const handleSemesterChange = (value: string) => {
     setSemesterId(value);
     setSectionId('');
@@ -406,7 +367,7 @@ export function AddCounselorDialog({
       const learnerEmail = learner.student_email || learner.college_email || '';
       const learnerName = [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
 
-      // Look up profiles.id via email — admission_counselors.user_id FK references profiles.id
+      // Look up profiles.id via email -- admission_counselors.user_id FK references profiles.id
       let profileId: string | null = null;
       if (learnerEmail) {
         const { data: profile } = await supabase
@@ -427,7 +388,7 @@ export function AddCounselorDialog({
     } else {
       const fac = user as FacilitatorResult;
       setSelectedUser({
-        id: fac.id, // profiles.id — already correct for facilitators
+        id: fac.id, // profiles.id -- already correct for facilitators
         name: fac.full_name || '',
         email: fac.email || '',
         phone: fac.phone_number || '',
@@ -439,210 +400,70 @@ export function AddCounselorDialog({
     setSelectedUser(null);
   };
 
-  // ---------- Manual entry: profile search ----------
-  const searchProfiles = useCallback(
-    async (query: string) => {
-      if (query.length < 2) {
-        setManualSearchResults([]);
-        setShowManualResults(false);
-        return;
-      }
-
-      setIsManualSearching(true);
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('id, full_name, email, phone')
-          .or(`full_name.ilike.%${query}%,email.ilike.%${query}%`)
-          .limit(10);
-
-        if (error) {
-          console.error('[admission/counselors] Profile search failed:', error);
-          return;
-        }
-
-        setManualSearchResults(data || []);
-        setShowManualResults(true);
-      } catch (err) {
-        console.error('[admission/counselors] Profile search error:', err);
-      } finally {
-        setIsManualSearching(false);
-      }
-    },
-    [supabase]
-  );
-
-  // Debounce manual search
-  useEffect(() => {
-    if (manualSearchQuery.length < 2) {
-      setManualSearchResults([]);
-      setShowManualResults(false);
+  // ---------- Submit ----------
+  const handleSubmit = async () => {
+    if (!selectedUser) {
+      toast.error('Please select a user');
+      return;
+    }
+    if (!existInstitutionId) {
+      toast.error('Please select an institution');
       return;
     }
 
-    const timer = setTimeout(() => {
-      searchProfiles(manualSearchQuery);
-    }, 300);
+    const specs = specializations
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-    return () => clearTimeout(timer);
-  }, [manualSearchQuery, searchProfiles]);
+    setIsSubmitting(true);
+    try {
+      // user_id must reference profiles.id -- set null if learner has no profile
+      const userId = (selectedUser as any)._hasProfile === false ? null : selectedUser.id;
 
-  const handleManualSelectProfile = (profile: ProfileSearchResult) => {
-    setManualSelectedUserId(profile.id);
-    setManualName(profile.full_name || '');
-    setManualEmail(profile.email || '');
-    setManualPhone(profile.phone || '');
-    setManualSearchQuery(profile.full_name || profile.email || '');
-    setShowManualResults(false);
-  };
+      const { error } = await supabase
+        .from('admission_counselors')
+        .insert({
+          user_id: userId,
+          institution_id: existInstitutionId,
+          name: selectedUser.name,
+          email: selectedUser.email,
+          phone: selectedUser.phone || null,
+          max_leads: maxLeads,
+          specializations: specs,
+          is_active: true,
+        })
+        .select()
+        .single();
 
-  const handleManualClearProfile = () => {
-    setManualSelectedUserId(null);
-    setManualSearchQuery('');
-    setManualName('');
-    setManualEmail('');
-    setManualPhone('');
-  };
-
-  // ---------- Submit ----------
-  const handleSubmit = async () => {
-    if (activeTab === 'existing') {
-      // Validate existing user tab
-      if (!selectedUser) {
-        toast.error('Please select a user');
-        return;
-      }
-      if (!existInstitutionId) {
-        toast.error('Please select an institution');
+      if (error) {
+        toast.error(error.message || 'Failed to add counselor');
         return;
       }
 
-      const specs = specializations
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      setIsSubmitting(true);
-      try {
-        // user_id must reference profiles.id — set null if learner has no profile
-        const userId = (selectedUser as any)._hasProfile === false ? null : selectedUser.id;
-
-        const { error } = await supabase
-          .from('admission_counselors')
-          .insert({
-            user_id: userId,
-            institution_id: existInstitutionId,
-            name: selectedUser.name,
-            email: selectedUser.email,
-            phone: selectedUser.phone || null,
-            max_leads: maxLeads,
-            specializations: specs,
-            is_active: true,
-          })
-          .select()
-          .single();
-
-        if (error) {
-          toast.error(error.message || 'Failed to add counselor');
-          return;
-        }
-
-        // Auto-assign counselor role if user has a profile
-        if (userId) {
-          await assignCounselorRole(userId);
-        }
-
-        toast.success('Counselor added successfully');
-        onSuccess?.();
-        onOpenChange(false);
-      } catch (err) {
-        toast.error('An unexpected error occurred');
-        console.error('[admission/counselors] Add counselor error:', err);
-      } finally {
-        setIsSubmitting(false);
-      }
-    } else {
-      // Manual entry tab
-      if (!manualName.trim()) {
-        toast.error('Name is required');
-        return;
-      }
-      if (!manualEmail.trim()) {
-        toast.error('Email is required');
-        return;
-      }
-      if (!manualInstitutionId) {
-        toast.error('Please select an institution');
-        return;
+      // Auto-assign counselor role if user has a profile
+      if (userId) {
+        await assignCounselorRole(userId);
       }
 
-      const specs = specializations
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      setIsSubmitting(true);
-      try {
-        const { error } = await supabase
-          .from('admission_counselors')
-          .insert({
-            user_id: manualSelectedUserId || null,
-            institution_id: manualInstitutionId,
-            name: manualName.trim(),
-            email: manualEmail.trim(),
-            phone: manualPhone.trim() || null,
-            max_leads: maxLeads,
-            specializations: specs,
-            is_active: true,
-          })
-          .select()
-          .single();
-
-        if (error) {
-          toast.error(error.message || 'Failed to add counselor');
-          return;
-        }
-
-        // Auto-assign counselor role if user was linked
-        if (manualSelectedUserId) {
-          await assignCounselorRole(manualSelectedUserId);
-        }
-
-        toast.success('Counselor added successfully');
-        onSuccess?.();
-        onOpenChange(false);
-      } catch (err) {
-        toast.error('An unexpected error occurred');
-        console.error('[admission/counselors] Add counselor error:', err);
-      } finally {
-        setIsSubmitting(false);
-      }
+      toast.success('Counselor added successfully');
+      onSuccess?.();
+      onOpenChange(false);
+    } catch (err) {
+      toast.error('An unexpected error occurred');
+      console.error('[admission/counselors] Add counselor error:', err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // ---------- Helper to get display email for a user ----------
-  // Helper to get display name — learners use first_name+last_name, facilitators use full_name
+  // ---------- Helpers ----------
   const getUserName = (user: LearnerResult | FacilitatorResult) => {
     if (userType === 'learner') {
       const learner = user as LearnerResult;
       return [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
     }
     return (user as FacilitatorResult).full_name || '';
-  };
-
-  const getUserEmail = (user: LearnerResult | FacilitatorResult) => {
-    if (userType === 'learner') {
-      const learner = user as LearnerResult;
-      return learner.student_email || learner.college_email || '';
-    }
-    return (user as FacilitatorResult).email || '';
-  };
-
-  const getUserPhone = (user: LearnerResult | FacilitatorResult) => {
-    if (userType === 'learner') {
-      return ''; // learners_profiles has no phone_number column
-    }
-    return (user as FacilitatorResult).phone_number || '';
   };
 
   const getUserSubtext = (user: LearnerResult | FacilitatorResult) => {
@@ -657,607 +478,434 @@ export function AddCounselorDialog({
     return parts.join(' | ');
   };
 
+  // Whether the user has set enough filters to show the "select filters" empty state vs "no results"
+  const hasMinFilters = userType === 'facilitator' ? !!existInstitutionId : !!existInstitutionId && !!semesterId;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-[600px] max-h-[90vh] flex flex-col p-0">
-        <DialogHeader className="px-4 pt-4 sm:px-6 sm:pt-6">
-          <DialogTitle>Add Counselor</DialogTitle>
-          <DialogDescription>
-            Select an existing user or manually enter counselor details.
+      <DialogContent className="w-[95vw] max-w-[550px] max-h-[85vh] sm:max-h-[90vh] flex flex-col p-0">
+        {/* Header */}
+        <DialogHeader className="p-4 pb-3">
+          <DialogTitle className="text-base">Add Counselor</DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Select an existing user to add as a counselor.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-6">
-          <Tabs
-            value={activeTab}
-            onValueChange={(v) => setActiveTab(v as 'existing' | 'manual')}
-            className="w-full"
-          >
-            <TabsList className="grid w-full grid-cols-2 mb-4">
-              <TabsTrigger value="existing" className="text-xs sm:text-sm gap-1.5">
-                <User className="h-3.5 w-3.5 hidden sm:inline" />
-                Select Existing User
-              </TabsTrigger>
-              <TabsTrigger value="manual" className="text-xs sm:text-sm gap-1.5">
-                <UserPlus className="h-3.5 w-3.5 hidden sm:inline" />
-                Manual Entry
-              </TabsTrigger>
-            </TabsList>
+        {/* Scrollable content */}
+        <div className="overflow-y-auto flex-1 px-4 pb-4 space-y-4">
+          {/* User type selector */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">User Type</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={userType === 'learner' ? 'default' : 'outline'}
+                className={cn(
+                  'h-9 text-sm gap-2',
+                  userType === 'learner'
+                    ? ''
+                    : 'text-muted-foreground'
+                )}
+                onClick={() => setUserType('learner')}
+              >
+                <GraduationCap className="h-4 w-4" />
+                Learner
+              </Button>
+              <Button
+                type="button"
+                variant={userType === 'facilitator' ? 'default' : 'outline'}
+                className={cn(
+                  'h-9 text-sm gap-2',
+                  userType === 'facilitator'
+                    ? ''
+                    : 'text-muted-foreground'
+                )}
+                onClick={() => setUserType('facilitator')}
+              >
+                <User className="h-4 w-4" />
+                Facilitator
+              </Button>
+            </div>
+          </div>
 
-            {/* ===== Tab 1: Select Existing User ===== */}
-            <TabsContent value="existing" className="mt-0 space-y-4">
-              {/* Step 1: User type */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">User Type</Label>
-                <RadioGroup
-                  value={userType}
-                  onValueChange={(v) => setUserType(v as UserType)}
-                  className="flex gap-4"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="learner" id="type-learner" />
-                    <Label
-                      htmlFor="type-learner"
-                      className="flex items-center gap-1.5 cursor-pointer text-sm"
-                    >
-                      <GraduationCap className="h-4 w-4" />
-                      Learner
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="facilitator" id="type-facilitator" />
-                    <Label
-                      htmlFor="type-facilitator"
-                      className="flex items-center gap-1.5 cursor-pointer text-sm"
-                    >
-                      <User className="h-4 w-4" />
-                      Facilitator
-                    </Label>
-                  </div>
-                </RadioGroup>
-              </div>
+          {/* Hierarchy filters */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {/* Institution -- always full width */}
+            <div className="sm:col-span-2 space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">
+                Institution <span className="text-red-500">*</span>
+              </Label>
+              <Select value={existInstitutionId} onValueChange={handleExistInstitutionChange}>
+                <SelectTrigger className="w-full h-9 text-sm">
+                  <SelectValue placeholder="Select institution" />
+                </SelectTrigger>
+                <SelectContent>
+                  {institutions.map((inst) => (
+                    <SelectItem key={inst.id} value={inst.id}>
+                      {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-              {/* Step 2: Cascading hierarchy filters */}
-              <div className="space-y-3">
-                {/* Institution */}
-                <div className="space-y-1.5">
-                  <Label className="text-sm">
-                    Institution <span className="text-red-500">*</span>
-                  </Label>
-                  <Select value={existInstitutionId} onValueChange={handleExistInstitutionChange}>
+            {/* Learner hierarchy: Degree, Department, Program, Semester, Section */}
+            {userType === 'learner' && (
+              <>
+                {/* Degree */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-muted-foreground">Degree</Label>
+                  <Select
+                    value={degreeId}
+                    onValueChange={handleDegreeChange}
+                    disabled={!existInstitutionId}
+                  >
                     <SelectTrigger className="w-full h-9 text-sm">
-                      <SelectValue placeholder="Select institution" />
+                      <SelectValue
+                        placeholder={isLoadingDegrees ? 'Loading...' : 'Select degree'}
+                      />
                     </SelectTrigger>
                     <SelectContent>
-                      {institutions.map((inst) => (
-                        <SelectItem key={inst.id} value={inst.id}>
-                          {inst.name}
+                      {degrees.map((d: { id: string; degree_name: string }) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.degree_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                {/* Learner-specific hierarchy: Degree → Department → Program → Semester → Section */}
-                {userType === 'learner' && (
-                  <>
-                    {/* Degree */}
-                    <div className="space-y-1.5">
-                      <Label className="text-sm">Degree</Label>
-                      <Select
-                        value={degreeId}
-                        onValueChange={handleDegreeChange}
-                        disabled={!existInstitutionId}
-                      >
-                        <SelectTrigger className="w-full h-9 text-sm">
-                          <SelectValue
-                            placeholder={
-                              isLoadingDegrees ? 'Loading...' : 'Select degree'
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {degrees.map(
-                            (d: { id: string; degree_name: string }) => (
-                              <SelectItem key={d.id} value={d.id}>
-                                {d.degree_name}
-                              </SelectItem>
-                            )
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                {/* Department */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-muted-foreground">Department</Label>
+                  <Select
+                    value={departmentId}
+                    onValueChange={handleDepartmentChange}
+                    disabled={!degreeId}
+                  >
+                    <SelectTrigger className="w-full h-9 text-sm">
+                      <SelectValue
+                        placeholder={isLoadingDepartments ? 'Loading...' : 'Select department'}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from(
+                        new Map(
+                          departments.map((d: { id: string; department_name: string }) => [
+                            d.department_name,
+                            d,
+                          ])
+                        ).values()
+                      ).map((d: { id: string; department_name: string }) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.department_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                    {/* Department */}
-                    <div className="space-y-1.5">
-                      <Label className="text-sm">Department</Label>
-                      <Select
-                        value={departmentId}
-                        onValueChange={handleDepartmentChange}
-                        disabled={!degreeId}
-                      >
-                        <SelectTrigger className="w-full h-9 text-sm">
-                          <SelectValue
-                            placeholder={
-                              isLoadingDepartments ? 'Loading...' : 'Select department'
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from(
-                            new Map(
-                              departments.map(
-                                (d: { id: string; department_name: string }) => [
-                                  d.department_name,
-                                  d,
-                                ]
-                              )
-                            ).values()
-                          ).map((d: { id: string; department_name: string }) => (
-                            <SelectItem key={d.id} value={d.id}>
-                              {d.department_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                {/* Program */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-muted-foreground">Program</Label>
+                  <Select
+                    value={programId}
+                    onValueChange={handleProgramChange}
+                    disabled={!departmentId}
+                  >
+                    <SelectTrigger className="w-full h-9 text-sm">
+                      <SelectValue
+                        placeholder={isLoadingPrograms ? 'Loading...' : 'Select program'}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from(
+                        new Map(
+                          programs.map((p: { id: string; program_name: string }) => [
+                            p.program_name,
+                            p,
+                          ])
+                        ).values()
+                      ).map((p: { id: string; program_name: string }) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.program_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                    {/* Program */}
-                    <div className="space-y-1.5">
-                      <Label className="text-sm">Program</Label>
-                      <Select
-                        value={programId}
-                        onValueChange={handleProgramChange}
-                        disabled={!departmentId}
-                      >
-                        <SelectTrigger className="w-full h-9 text-sm">
-                          <SelectValue
-                            placeholder={
-                              isLoadingPrograms ? 'Loading...' : 'Select program'
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from(
-                            new Map(
-                              programs.map(
-                                (p: { id: string; program_name: string }) => [
-                                  p.program_name,
-                                  p,
-                                ]
-                              )
-                            ).values()
-                          ).map((p: { id: string; program_name: string }) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.program_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Semester */}
-                    <div className="space-y-1.5">
-                      <Label className="text-sm">
-                        Semester <span className="text-red-500">*</span>
-                      </Label>
-                      <Select
-                        value={semesterId}
-                        onValueChange={handleSemesterChange}
-                        disabled={!programId}
-                      >
-                        <SelectTrigger className="w-full h-9 text-sm">
-                          <SelectValue
-                            placeholder={
-                              isLoadingSemesters ? 'Loading...' : 'Select semester'
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from(
-                            new Map(
-                              semesters.map(
-                                (s: { id: string; semester_name: string }) => [
-                                  s.semester_name,
-                                  s,
-                                ]
-                              )
-                            ).values()
-                          ).map((s: { id: string; semester_name: string }) => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {s.semester_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Section (optional) */}
-                    <div className="space-y-1.5">
-                      <Label className="text-sm">Section (optional)</Label>
-                      <Select
-                        value={sectionId}
-                        onValueChange={handleSectionChange}
-                        disabled={!semesterId}
-                      >
-                        <SelectTrigger className="w-full h-9 text-sm">
-                          <SelectValue
-                            placeholder={
-                              isLoadingSections ? 'Loading...' : 'Select section'
-                            }
-                          />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Array.from(
-                            new Map(
-                              sections.map(
-                                (s: { id: string; section_name: string }) => [
-                                  s.section_name,
-                                  s,
-                                ]
-                              )
-                            ).values()
-                          ).map((s: { id: string; section_name: string }) => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {s.section_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </>
-                )}
-
-                {/* Facilitator-specific hierarchy: just Department */}
-                {userType === 'facilitator' && (
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Department (optional)</Label>
-                    <Select
-                      value={departmentId}
-                      onValueChange={handleDepartmentChange}
-                      disabled={!existInstitutionId}
-                    >
-                      <SelectTrigger className="w-full h-9 text-sm">
-                        <SelectValue
-                          placeholder={
-                            isLoadingDepartments ? 'Loading...' : 'Select department'
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from(
-                          new Map(
-                            departments.map(
-                              (d: { id: string; department_name: string }) => [
-                                d.department_name,
-                                d,
-                              ]
-                            )
-                          ).values()
-                        ).map((d: { id: string; department_name: string }) => (
-                          <SelectItem key={d.id} value={d.id}>
-                            {d.department_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-
-              {/* Step 3: User list */}
-              {canFetchUsers && (
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">
-                    Matching {userType === 'learner' ? 'Learners' : 'Facilitators'}
-                    {userResults.length > 0 && (
-                      <span className="text-muted-foreground font-normal ml-1">
-                        ({filteredUsers.length}
-                        {filteredUsers.length !== userResults.length
-                          ? ` of ${userResults.length}`
-                          : ''}
-                        )
-                      </span>
-                    )}
+                {/* Semester */}
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Semester <span className="text-red-500">*</span>
                   </Label>
-
-                  {/* Search filter */}
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search by name, email, or roll number..."
-                      value={userSearchFilter}
-                      onChange={(e) => setUserSearchFilter(e.target.value)}
-                      className="pl-9 h-9 text-sm"
-                    />
-                  </div>
-
-                  {/* Selected user card */}
-                  {selectedUser && (
-                    <div className="border rounded-lg p-3 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="flex-shrink-0 h-8 w-8 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
-                            <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {selectedUser.name}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {[selectedUser.email, selectedUser.phone]
-                                .filter(Boolean)
-                                .join(' | ')}
-                            </p>
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs flex-shrink-0 h-7"
-                          onClick={handleChangeUser}
-                        >
-                          Change
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* User list */}
-                  {!selectedUser && (
-                    <div className="border rounded-lg overflow-hidden">
-                      {isLoadingUsers ? (
-                        <div className="flex items-center justify-center py-8">
-                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                          <span className="ml-2 text-sm text-muted-foreground">
-                            Loading users...
-                          </span>
-                        </div>
-                      ) : filteredUsers.length === 0 ? (
-                        <div className="text-center py-8 text-sm text-muted-foreground">
-                          {userResults.length === 0
-                            ? 'No users found matching the selected filters'
-                            : 'No users match your search'}
-                        </div>
-                      ) : (
-                        <ScrollArea className="max-h-48">
-                          <div className="divide-y">
-                            {filteredUsers.map((user) => (
-                              <button
-                                key={user.id}
-                                type="button"
-                                className="w-full text-left px-3 py-2.5 hover:bg-accent transition-colors focus:bg-accent focus:outline-none"
-                                onClick={() => handleSelectUser(user)}
-                              >
-                                <p className="text-sm font-medium truncate">
-                                  {getUserName(user)}
-                                </p>
-                                <p className="text-xs text-muted-foreground truncate">
-                                  {getUserSubtext(user)}
-                                </p>
-                              </button>
-                            ))}
-                          </div>
-                        </ScrollArea>
-                      )}
-                    </div>
-                  )}
+                  <Select
+                    value={semesterId}
+                    onValueChange={handleSemesterChange}
+                    disabled={!programId}
+                  >
+                    <SelectTrigger className="w-full h-9 text-sm">
+                      <SelectValue
+                        placeholder={isLoadingSemesters ? 'Loading...' : 'Select semester'}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from(
+                        new Map(
+                          semesters.map((s: { id: string; semester_name: string }) => [
+                            s.semester_name,
+                            s,
+                          ])
+                        ).values()
+                      ).map((s: { id: string; semester_name: string }) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.semester_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
 
-              {/* Step 4: Counselor settings (shown after user selected) */}
-              {selectedUser && (
-                <div className="space-y-3 pt-2 border-t">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="exist-max-leads" className="text-sm">
-                      Max Leads
-                    </Label>
-                    <Input
-                      id="exist-max-leads"
-                      type="number"
-                      min={1}
-                      value={maxLeads}
-                      onChange={(e) => setMaxLeads(parseInt(e.target.value) || 50)}
-                      className="h-9 text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="exist-specializations" className="text-sm">
-                      Specializations
-                    </Label>
-                    <Input
-                      id="exist-specializations"
-                      placeholder="e.g. Engineering, Medical, Arts (comma-separated)"
-                      value={specializations}
-                      onChange={(e) => setSpecializations(e.target.value)}
-                      className="h-9 text-sm"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Enter comma-separated values
-                    </p>
-                  </div>
+                {/* Section (optional) -- full width */}
+                <div className="sm:col-span-2 space-y-1">
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Section (optional)
+                  </Label>
+                  <Select
+                    value={sectionId}
+                    onValueChange={handleSectionChange}
+                    disabled={!semesterId}
+                  >
+                    <SelectTrigger className="w-full h-9 text-sm">
+                      <SelectValue
+                        placeholder={isLoadingSections ? 'Loading...' : 'Select section'}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from(
+                        new Map(
+                          sections.map((s: { id: string; section_name: string }) => [
+                            s.section_name,
+                            s,
+                          ])
+                        ).values()
+                      ).map((s: { id: string; section_name: string }) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.section_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-            </TabsContent>
+              </>
+            )}
 
-            {/* ===== Tab 2: Manual Entry ===== */}
-            <TabsContent value="manual" className="mt-0 space-y-4">
-              {/* Link to existing user */}
-              <div className="space-y-2">
-                <Label htmlFor="manual-search-user" className="text-sm">
-                  Link to Existing User (optional)
+            {/* Facilitator hierarchy: just Department */}
+            {userType === 'facilitator' && (
+              <div className="sm:col-span-2 space-y-1">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Department (optional)
                 </Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="manual-search-user"
-                    placeholder="Search by name or email..."
-                    value={manualSearchQuery}
-                    onChange={(e) => {
-                      setManualSearchQuery(e.target.value);
-                      if (manualSelectedUserId) {
-                        handleManualClearProfile();
-                      }
-                    }}
-                    className="pl-9 h-9 text-sm"
-                  />
-                  {isManualSearching && (
-                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
-                  )}
-                </div>
-                {showManualResults && manualSearchResults.length > 0 && (
-                  <div className="border rounded-md max-h-40 overflow-y-auto bg-popover">
-                    {manualSearchResults.map((profile) => (
-                      <button
-                        key={profile.id}
-                        type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-accent text-sm transition-colors"
-                        onClick={() => handleManualSelectProfile(profile)}
-                      >
-                        <p className="font-medium">{profile.full_name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {profile.email}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {showManualResults &&
-                  manualSearchResults.length === 0 &&
-                  !isManualSearching && (
-                    <p className="text-xs text-muted-foreground px-1">
-                      No users found
-                    </p>
-                  )}
-                {manualSelectedUserId && (
-                  <div className="flex items-center justify-between text-xs text-green-600 bg-green-50 dark:bg-green-950/30 rounded px-2 py-1">
-                    <span>Linked to existing user profile</span>
-                    <button
-                      type="button"
-                      className="text-red-500 hover:text-red-700 font-medium"
-                      onClick={handleManualClearProfile}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Name */}
-              <div className="space-y-1.5">
-                <Label htmlFor="manual-name" className="text-sm">
-                  Name <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="manual-name"
-                  placeholder="Full name"
-                  value={manualName}
-                  onChange={(e) => setManualName(e.target.value)}
-                  className="h-9 text-sm"
-                />
-              </div>
-
-              {/* Email */}
-              <div className="space-y-1.5">
-                <Label htmlFor="manual-email" className="text-sm">
-                  Email <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="manual-email"
-                  type="email"
-                  placeholder="Email address"
-                  value={manualEmail}
-                  onChange={(e) => setManualEmail(e.target.value)}
-                  className="h-9 text-sm"
-                />
-              </div>
-
-              {/* Phone */}
-              <div className="space-y-1.5">
-                <Label htmlFor="manual-phone" className="text-sm">
-                  Phone
-                </Label>
-                <Input
-                  id="manual-phone"
-                  placeholder="Phone number (optional)"
-                  value={manualPhone}
-                  onChange={(e) => setManualPhone(e.target.value)}
-                  className="h-9 text-sm"
-                />
-              </div>
-
-              {/* Institution */}
-              <div className="space-y-1.5">
-                <Label htmlFor="manual-institution" className="text-sm">
-                  Institution <span className="text-red-500">*</span>
-                </Label>
-                <Select value={manualInstitutionId} onValueChange={setManualInstitutionId}>
+                <Select
+                  value={departmentId}
+                  onValueChange={handleDepartmentChange}
+                  disabled={!existInstitutionId}
+                >
                   <SelectTrigger className="w-full h-9 text-sm">
-                    <SelectValue placeholder="Select institution" />
+                    <SelectValue
+                      placeholder={isLoadingDepartments ? 'Loading...' : 'Select department'}
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    {institutions.map((inst) => (
-                      <SelectItem key={inst.id} value={inst.id}>
-                        {inst.name}
+                    {Array.from(
+                      new Map(
+                        departments.map((d: { id: string; department_name: string }) => [
+                          d.department_name,
+                          d,
+                        ])
+                      ).values()
+                    ).map((d: { id: string; department_name: string }) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.department_name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+            )}
+          </div>
 
-              {/* Max Leads */}
-              <div className="space-y-1.5">
-                <Label htmlFor="manual-max-leads" className="text-sm">
-                  Max Leads
-                </Label>
-                <Input
-                  id="manual-max-leads"
-                  type="number"
-                  min={1}
-                  value={maxLeads}
-                  onChange={(e) => setMaxLeads(parseInt(e.target.value) || 50)}
-                  className="h-9 text-sm"
-                />
+          {/* User list section */}
+          {canFetchUsers ? (
+            <div className="space-y-2">
+              {/* Header row: count badge + search */}
+              <div className="flex items-center gap-2">
+                {!isLoadingUsers && userResults.length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium bg-muted px-2 py-0.5 rounded-full whitespace-nowrap">
+                    {filteredUsers.length}
+                    {filteredUsers.length !== userResults.length
+                      ? ` / ${userResults.length}`
+                      : ''}{' '}
+                    found
+                  </span>
+                )}
+                <div className="relative flex-1">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name, email, or roll number..."
+                    value={userSearchFilter}
+                    onChange={(e) => setUserSearchFilter(e.target.value)}
+                    className="pl-8 h-8 text-sm"
+                  />
+                </div>
               </div>
 
-              {/* Specializations */}
-              <div className="space-y-1.5">
-                <Label htmlFor="manual-specializations" className="text-sm">
-                  Specializations
-                </Label>
-                <Input
-                  id="manual-specializations"
-                  placeholder="e.g. Engineering, Medical, Arts (comma-separated)"
-                  value={specializations}
-                  onChange={(e) => setSpecializations(e.target.value)}
-                  className="h-9 text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Enter comma-separated values
-                </p>
+              {/* Selected user card */}
+              {selectedUser && (
+                <div className="p-3 rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/30 dark:border-green-800">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex-shrink-0 h-7 w-7 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                        <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{selectedUser.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {[selectedUser.email, selectedUser.phone].filter(Boolean).join(' | ')}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-xs flex-shrink-0 h-7"
+                      onClick={handleChangeUser}
+                    >
+                      Change
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* User list */}
+              {!selectedUser && (
+                <div className="border rounded-lg overflow-hidden">
+                  {isLoadingUsers ? (
+                    <div className="space-y-0">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="px-3 py-2 border-b last:border-b-0">
+                          <div className="h-4 w-32 bg-muted animate-pulse rounded" />
+                          <div className="h-3 w-48 bg-muted animate-pulse rounded mt-1.5" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : filteredUsers.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                      <Users className="h-8 w-8 mb-2 opacity-40" />
+                      <p className="text-sm">
+                        {userResults.length === 0
+                          ? 'No users found matching the selected filters'
+                          : 'No users match your search'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="max-h-40 sm:max-h-48 overflow-y-auto divide-y">
+                      {filteredUsers.map((user) => (
+                        <button
+                          key={user.id}
+                          type="button"
+                          className={cn(
+                            'w-full text-left py-2 px-3 hover:bg-accent transition-colors focus:bg-accent focus:outline-none',
+                            selectedUser?.id === user.id &&
+                              'border-l-2 border-l-green-500 bg-green-50/50 dark:bg-green-950/20'
+                          )}
+                          onClick={() => handleSelectUser(user)}
+                        >
+                          <p className="font-medium text-sm truncate">{getUserName(user)}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {getUserSubtext(user)}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Empty state: no filters set yet */
+            <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+              <Search className="h-8 w-8 mb-2 opacity-40" />
+              <p className="text-sm text-center">
+                {userType === 'learner'
+                  ? 'Select institution and semester above to find learners'
+                  : 'Select an institution above to find facilitators'}
+              </p>
+            </div>
+          )}
+
+          {/* Counselor settings (after user selection) */}
+          {selectedUser && (
+            <div className="space-y-2 pt-3 border-t">
+              <Label className="text-xs font-medium text-muted-foreground">Counselor Settings</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="max-leads" className="text-xs font-medium text-muted-foreground">
+                    Max Leads
+                  </Label>
+                  <Input
+                    id="max-leads"
+                    type="number"
+                    min={1}
+                    value={maxLeads}
+                    onChange={(e) => setMaxLeads(parseInt(e.target.value) || 50)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="specializations"
+                    className="text-xs font-medium text-muted-foreground"
+                  >
+                    Specializations
+                  </Label>
+                  <Input
+                    id="specializations"
+                    placeholder="e.g. Engineering, Medical"
+                    value={specializations}
+                    onChange={(e) => setSpecializations(e.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
               </div>
-            </TabsContent>
-          </Tabs>
+              <p className="text-[11px] text-muted-foreground">
+                Enter specializations as comma-separated values
+              </p>
+            </div>
+          )}
         </div>
 
-        <DialogFooter className="px-4 pb-4 sm:px-6 sm:pb-6 gap-2 sm:gap-0 border-t pt-4">
+        {/* Footer */}
+        <div className="border-t p-4 flex gap-2">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting}
-            className="h-9 text-sm"
+            className="flex-1 sm:flex-none h-9 text-sm"
           >
             Cancel
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="h-9 text-sm"
+            disabled={isSubmitting || !selectedUser}
+            className="flex-1 sm:flex-none h-9 text-sm"
           >
             {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Add Counselor
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );
