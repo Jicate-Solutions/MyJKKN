@@ -1090,8 +1090,8 @@ function RemindersSkeleton() {
 
 function AdmissionRemindersPageContent() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const institutionId = (isSuperAdmin || isAdmissionGlobalUser) ? undefined : profile?.institution_id;
   const { reminders, isLoading, refetch } = useFollowUpReminders(institutionId);
   const completeReminder = useCompleteReminder();
   const snoozeReminder = useSnoozeReminder();

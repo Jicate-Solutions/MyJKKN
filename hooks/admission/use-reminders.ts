@@ -32,11 +32,11 @@ export function useFollowUpReminders(
   institutionId: string | null | undefined,
   filters?: Omit<ReminderFilters, 'institutionId'>
 ) {
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const query = useQuery({
     queryKey: remindersKeys.list(institutionId || '', filters),
     queryFn: () => RemindersService.getFollowUpReminders(institutionId ?? undefined, filters),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: isSuperAdmin || isAdmissionGlobalUser || !!institutionId,
   });
 
   return {
