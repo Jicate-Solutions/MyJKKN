@@ -46,7 +46,7 @@ export class HRPersonService {
         .select(
           `
             id, first_name, last_name, email, phone, staff_id, department_id, date_of_joining, is_active, institution_id,
-            hr_staff_details!inner (
+            hr_staff_details!hr_staff_details_staff_id_fkey!inner (
               staff_id, hr_organization_id, designation_id, cadre_id, hr_employee_code,
               organization:hr_organization_id (id, name),
               designation:designation_id (id, name),
