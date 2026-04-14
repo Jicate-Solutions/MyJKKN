@@ -4527,3 +4527,250 @@ CREATE POLICY "case_graduation_requirements_write" ON case_graduation_requiremen
       SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'
     )
   );
+
+-- ============================================================
+-- RLS: SOLVE FOR 100 — Weekly Tracking System
+-- Added: 2026-04-14 — Spec: docs/SPEC-solve-for-100.md
+-- ============================================================
+
+-- ---- solve100_weekly_checkins policies ----
+
+-- SELECT: team members and team owner can see their own check-ins
+CREATE POLICY "solve100_checkins_select_own_team"
+  ON solve100_weekly_checkins FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM event_team_members etm
+      WHERE etm.registration_id = solve100_weekly_checkins.team_id
+        AND etm.profile_id = auth.uid()
+        AND etm.status = 'accepted'
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = solve100_weekly_checkins.team_id
+        AND er.owner_id = auth.uid()
+    )
+  );
+
+-- SELECT: super_admin/admin/faculty/hod/principal can see all
+CREATE POLICY "solve100_checkins_select_admin"
+  ON solve100_weekly_checkins FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin', 'faculty', 'hod', 'principal')
+    )
+  );
+
+-- SELECT: assigned mentors can see check-ins for their assigned teams
+CREATE POLICY "solve100_checkins_select_mentor"
+  ON solve100_weekly_checkins FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM event_staff_assignments esa
+      JOIN event_team_venue_allocations etva
+        ON etva.venue_assignment_id = esa.venue_assignment_id
+       AND etva.event_id = esa.event_id
+      JOIN staff s ON s.id = esa.staff_id
+      WHERE etva.registration_id = solve100_weekly_checkins.team_id
+        AND esa.event_id = solve100_weekly_checkins.event_id
+        AND esa.role IN ('mentor', 'lead_mentor')
+        AND s.profile_id = auth.uid()
+    )
+  );
+
+-- INSERT: team leader (registration owner) can submit check-in for their team
+CREATE POLICY "solve100_checkins_insert_leader"
+  ON solve100_weekly_checkins FOR INSERT
+  WITH CHECK (
+    submitted_by = auth.uid()
+    AND (
+      EXISTS (
+        SELECT 1 FROM event_registrations er
+        WHERE er.id = team_id
+          AND er.owner_id = auth.uid()
+      )
+      OR
+      EXISTS (
+        SELECT 1 FROM event_team_members etm
+        WHERE etm.registration_id = team_id
+          AND etm.profile_id = auth.uid()
+          AND etm.status = 'accepted'
+          AND etm.is_leader = true
+      )
+    )
+  );
+
+-- UPDATE: team leader can update their own check-ins
+CREATE POLICY "solve100_checkins_update_leader"
+  ON solve100_weekly_checkins FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = solve100_weekly_checkins.team_id
+        AND er.owner_id = auth.uid()
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM event_team_members etm
+      WHERE etm.registration_id = solve100_weekly_checkins.team_id
+        AND etm.profile_id = auth.uid()
+        AND etm.status = 'accepted'
+        AND etm.is_leader = true
+    )
+  );
+
+-- UPDATE: mentor can update review fields for their assigned teams
+CREATE POLICY "solve100_checkins_update_mentor"
+  ON solve100_weekly_checkins FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM event_staff_assignments esa
+      JOIN event_team_venue_allocations etva
+        ON etva.venue_assignment_id = esa.venue_assignment_id
+       AND etva.event_id = esa.event_id
+      JOIN staff s ON s.id = esa.staff_id
+      WHERE etva.registration_id = solve100_weekly_checkins.team_id
+        AND esa.event_id = solve100_weekly_checkins.event_id
+        AND esa.role IN ('mentor', 'lead_mentor')
+        AND s.profile_id = auth.uid()
+    )
+  );
+
+-- UPDATE: super_admin/admin can update any check-in
+CREATE POLICY "solve100_checkins_update_admin"
+  ON solve100_weekly_checkins FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin', 'faculty', 'hod', 'principal')
+    )
+  );
+
+-- DELETE: super_admin/admin only
+CREATE POLICY "solve100_checkins_delete_admin"
+  ON solve100_weekly_checkins FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin')
+    )
+  );
+
+-- ---- solve100_icp_profiles policies ----
+
+-- SELECT: team members and owner can see their own ICP
+CREATE POLICY "solve100_icp_select_own_team"
+  ON solve100_icp_profiles FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM event_team_members etm
+      WHERE etm.registration_id = solve100_icp_profiles.team_id
+        AND etm.profile_id = auth.uid()
+        AND etm.status = 'accepted'
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = solve100_icp_profiles.team_id
+        AND er.owner_id = auth.uid()
+    )
+  );
+
+-- SELECT: super_admin/admin/faculty/hod/principal can see all
+CREATE POLICY "solve100_icp_select_admin"
+  ON solve100_icp_profiles FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin', 'faculty', 'hod', 'principal')
+    )
+  );
+
+-- SELECT: assigned mentors can see ICPs for their assigned teams
+CREATE POLICY "solve100_icp_select_mentor"
+  ON solve100_icp_profiles FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM event_staff_assignments esa
+      JOIN event_team_venue_allocations etva
+        ON etva.venue_assignment_id = esa.venue_assignment_id
+       AND etva.event_id = esa.event_id
+      JOIN staff s ON s.id = esa.staff_id
+      WHERE etva.registration_id = solve100_icp_profiles.team_id
+        AND esa.event_id = solve100_icp_profiles.event_id
+        AND esa.role IN ('mentor', 'lead_mentor')
+        AND s.profile_id = auth.uid()
+    )
+  );
+
+-- INSERT: team leader can create ICP for their team
+CREATE POLICY "solve100_icp_insert_leader"
+  ON solve100_icp_profiles FOR INSERT
+  WITH CHECK (
+    submitted_by = auth.uid()
+    AND (
+      EXISTS (
+        SELECT 1 FROM event_registrations er
+        WHERE er.id = team_id
+          AND er.owner_id = auth.uid()
+      )
+      OR
+      EXISTS (
+        SELECT 1 FROM event_team_members etm
+        WHERE etm.registration_id = team_id
+          AND etm.profile_id = auth.uid()
+          AND etm.status = 'accepted'
+          AND etm.is_leader = true
+      )
+    )
+  );
+
+-- UPDATE: team leader can update ICP
+CREATE POLICY "solve100_icp_update_leader"
+  ON solve100_icp_profiles FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = solve100_icp_profiles.team_id
+        AND er.owner_id = auth.uid()
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM event_team_members etm
+      WHERE etm.registration_id = solve100_icp_profiles.team_id
+        AND etm.profile_id = auth.uid()
+        AND etm.status = 'accepted'
+        AND etm.is_leader = true
+    )
+  );
+
+-- UPDATE: super_admin/admin can update any ICP
+CREATE POLICY "solve100_icp_update_admin"
+  ON solve100_icp_profiles FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin', 'faculty', 'hod', 'principal')
+    )
+  );
+
+-- DELETE: super_admin/admin only
+CREATE POLICY "solve100_icp_delete_admin"
+  ON solve100_icp_profiles FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin')
+    )
+  );

@@ -3166,6 +3166,116 @@ CREATE TABLE IF NOT EXISTS case_graduation_requirements (
 CREATE INDEX IF NOT EXISTS idx_case_gr_programme ON case_graduation_requirements(programme_id);
 CREATE INDEX IF NOT EXISTS idx_case_gr_institution ON case_graduation_requirements(institution_id);
 
+-- ============================================================
+-- SOLVE FOR 100 — Weekly Tracking System
+-- Added: 2026-04-14 — Spec: docs/SPEC-solve-for-100.md
+-- Replaces external AI Forms with native MyJKKN forms.
+-- ============================================================
+
+-- Weekly Check-ins: One row per team per week (44 weeks total)
+CREATE TABLE IF NOT EXISTS public.solve100_weekly_checkins (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    team_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+    week_number INTEGER NOT NULL CHECK (week_number >= 1 AND week_number <= 44),
+
+    -- Weekly Commitment (what they'll DO this week)
+    commitment TEXT NOT NULL,
+    commitment_result TEXT,
+    commitment_met BOOLEAN,
+
+    -- Customer Metrics (self-reported)
+    verified_paid_users INTEGER DEFAULT 0,
+    total_users INTEGER DEFAULT 0,
+    active_users INTEGER DEFAULT 0,
+
+    -- First Customer Plan
+    target_customer_name TEXT,
+    target_customer_location TEXT,
+    problem_description TEXT,
+    pricing TEXT,
+    acquisition_plan TEXT,
+
+    -- App Status
+    app_status TEXT CHECK (app_status IN ('live', 'needs_fixes', 'building', 'pivoting')),
+    app_url TEXT,
+
+    -- Blockers
+    biggest_blocker TEXT,
+    blocker_resolved BOOLEAN DEFAULT false,
+
+    -- Mentor Review
+    mentor_reviewed BOOLEAN DEFAULT false,
+    mentor_notes TEXT,
+    mentor_reviewed_by UUID REFERENCES profiles(id),
+    mentor_reviewed_at TIMESTAMPTZ,
+
+    -- Meta
+    submitted_by UUID NOT NULL REFERENCES profiles(id),
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    UNIQUE(event_id, team_id, week_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_solve100_checkins_event ON solve100_weekly_checkins(event_id);
+CREATE INDEX IF NOT EXISTS idx_solve100_checkins_team ON solve100_weekly_checkins(team_id);
+CREATE INDEX IF NOT EXISTS idx_solve100_checkins_week ON solve100_weekly_checkins(event_id, week_number);
+
+ALTER TABLE solve100_weekly_checkins ENABLE ROW LEVEL SECURITY;
+
+-- ICP Profiles: One ICP per team. Updated as teams learn more about their customer.
+CREATE TABLE IF NOT EXISTS public.solve100_icp_profiles (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    team_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+
+    -- SECTION 1: THE PERSON
+    customer_name TEXT NOT NULL,
+    customer_age_gender TEXT,
+    customer_role TEXT,
+    customer_location TEXT,
+    customer_income TEXT,
+    customer_phone_type TEXT,
+
+    -- SECTION 2: THE PROBLEM
+    problem_in_their_words TEXT NOT NULL,
+    problem_frequency TEXT,
+    problem_cost TEXT,
+    current_solution TEXT,
+    current_spend TEXT,
+
+    -- SECTION 3: THE SALE
+    elevator_pitch TEXT,
+    proposed_price TEXT,
+    value_justification TEXT,
+    top_objection TEXT,
+    objection_response TEXT,
+
+    -- SECTION 4: THE MARKET
+    market_size_50km TEXT,
+    where_they_gather TEXT,
+    plan_to_reach_10 TEXT,
+    has_talked_to_customer TEXT CHECK (has_talked_to_customer IN (
+        'yes_in_person', 'yes_phone', 'no_watched', 'no_guessing'
+    )),
+    talk_date TEXT,
+
+    -- Meta
+    submitted_by UUID NOT NULL REFERENCES profiles(id),
+    version INTEGER DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    UNIQUE(event_id, team_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_solve100_icp_event ON solve100_icp_profiles(event_id);
+CREATE INDEX IF NOT EXISTS idx_solve100_icp_team ON solve100_icp_profiles(team_id);
+
+ALTER TABLE solve100_icp_profiles ENABLE ROW LEVEL SECURITY;
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

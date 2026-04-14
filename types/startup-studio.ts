@@ -758,3 +758,254 @@ export interface TrackDeclarationSummary {
   count: number;
   percentage: number;
 }
+
+// ============================================================
+// SOLVE FOR 100 — Weekly Tracking System
+// Added: 2026-04-14 — Spec: docs/SPEC-solve-for-100.md
+// ============================================================
+
+/** App build status reported each week */
+export type AppStatus = 'live' | 'needs_fixes' | 'building' | 'pivoting';
+
+/** Has the team actually talked to a real customer? */
+export type ValidationStatus =
+  | 'yes_in_person'
+  | 'yes_phone'
+  | 'no_watched'
+  | 'no_guessing';
+
+// ----- Weekly Check-in -----
+
+/**
+ * One row per (event, team, week) — captures weekly commitment, customer
+ * metrics, customer plan, app status and biggest blocker.
+ */
+export interface Solve100WeeklyCheckin {
+  id: string;
+  event_id: string;
+  team_id: string;
+  week_number: number; // 1..44
+
+  // Weekly commitment
+  commitment: string;
+  commitment_result: string | null;
+  commitment_met: boolean | null;
+
+  // Customer metrics (self-reported)
+  verified_paid_users: number;
+  total_users: number;
+  active_users: number;
+
+  // First customer plan
+  target_customer_name: string | null;
+  target_customer_location: string | null;
+  problem_description: string | null;
+  pricing: string | null;
+  acquisition_plan: string | null;
+
+  // App status
+  app_status: AppStatus | null;
+  app_url: string | null;
+
+  // Blockers
+  biggest_blocker: string | null;
+  blocker_resolved: boolean;
+
+  // Mentor review
+  mentor_reviewed: boolean;
+  mentor_notes: string | null;
+  mentor_reviewed_by: string | null;
+  mentor_reviewed_at: string | null;
+
+  // Meta
+  submitted_by: string;
+  submitted_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Required + optional fields for creating a check-in (submitted_by added by service). */
+export interface CreateWeeklyCheckinDto {
+  event_id: string;
+  team_id: string;
+  week_number: number;
+  commitment: string;
+
+  // Optional commitment result (for filling last week's outcome alongside this week's plan)
+  commitment_result?: string;
+  commitment_met?: boolean;
+
+  // Customer metrics
+  verified_paid_users?: number;
+  total_users?: number;
+  active_users?: number;
+
+  // First customer plan
+  target_customer_name?: string;
+  target_customer_location?: string;
+  problem_description?: string;
+  pricing?: string;
+  acquisition_plan?: string;
+
+  // App status
+  app_status?: AppStatus;
+  app_url?: string;
+
+  // Blockers
+  biggest_blocker?: string;
+  blocker_resolved?: boolean;
+}
+
+/** Partial update for a check-in — all fields optional. */
+export interface UpdateWeeklyCheckinDto {
+  commitment?: string;
+  commitment_result?: string | null;
+  commitment_met?: boolean | null;
+  verified_paid_users?: number;
+  total_users?: number;
+  active_users?: number;
+  target_customer_name?: string | null;
+  target_customer_location?: string | null;
+  problem_description?: string | null;
+  pricing?: string | null;
+  acquisition_plan?: string | null;
+  app_status?: AppStatus | null;
+  app_url?: string | null;
+  biggest_blocker?: string | null;
+  blocker_resolved?: boolean;
+}
+
+/** Mentor review payload — only the review fields. */
+export interface MentorReviewDto {
+  mentor_notes: string;
+  mentor_reviewed: true;
+}
+
+// ----- ICP Profile -----
+
+/** One ideal customer profile per team. Versioned on each update. */
+export interface Solve100ICPProfile {
+  id: string;
+  event_id: string;
+  team_id: string;
+
+  // Section 1: The Person
+  customer_name: string;
+  customer_age_gender: string | null;
+  customer_role: string | null;
+  customer_location: string | null;
+  customer_income: string | null;
+  customer_phone_type: string | null;
+
+  // Section 2: The Problem
+  problem_in_their_words: string;
+  problem_frequency: string | null;
+  problem_cost: string | null;
+  current_solution: string | null;
+  current_spend: string | null;
+
+  // Section 3: The Sale
+  elevator_pitch: string | null;
+  proposed_price: string | null;
+  value_justification: string | null;
+  top_objection: string | null;
+  objection_response: string | null;
+
+  // Section 4: The Market
+  market_size_50km: string | null;
+  where_they_gather: string | null;
+  plan_to_reach_10: string | null;
+  has_talked_to_customer: ValidationStatus | null;
+  talk_date: string | null;
+
+  // Meta
+  submitted_by: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Required + optional fields for creating an ICP (submitted_by added by service). */
+export interface CreateICPDto {
+  event_id: string;
+  team_id: string;
+  customer_name: string;
+  problem_in_their_words: string;
+
+  customer_age_gender?: string;
+  customer_role?: string;
+  customer_location?: string;
+  customer_income?: string;
+  customer_phone_type?: string;
+
+  problem_frequency?: string;
+  problem_cost?: string;
+  current_solution?: string;
+  current_spend?: string;
+
+  elevator_pitch?: string;
+  proposed_price?: string;
+  value_justification?: string;
+  top_objection?: string;
+  objection_response?: string;
+
+  market_size_50km?: string;
+  where_they_gather?: string;
+  plan_to_reach_10?: string;
+  has_talked_to_customer?: ValidationStatus;
+  talk_date?: string;
+}
+
+/** Partial update for an ICP — all fields optional, increments version. */
+export interface UpdateICPDto {
+  customer_name?: string;
+  customer_age_gender?: string | null;
+  customer_role?: string | null;
+  customer_location?: string | null;
+  customer_income?: string | null;
+  customer_phone_type?: string | null;
+
+  problem_in_their_words?: string;
+  problem_frequency?: string | null;
+  problem_cost?: string | null;
+  current_solution?: string | null;
+  current_spend?: string | null;
+
+  elevator_pitch?: string | null;
+  proposed_price?: string | null;
+  value_justification?: string | null;
+  top_objection?: string | null;
+  objection_response?: string | null;
+
+  market_size_50km?: string | null;
+  where_they_gather?: string | null;
+  plan_to_reach_10?: string | null;
+  has_talked_to_customer?: ValidationStatus | null;
+  talk_date?: string | null;
+}
+
+// ----- Dashboard aggregates -----
+
+/** Aggregate metrics for the Solve for 100 hub page. */
+export interface Solve100DashboardStats {
+  total_teams: number;
+  teams_by_level: Record<1 | 2 | 3 | 4 | 5, number>;
+  total_paid_users: number;
+  teams_with_blockers: number;
+  current_week: number;
+}
+
+/** Single row in the team overview table on the hub page. */
+export interface Solve100TeamRow {
+  team_id: string;
+  team_name: string;
+  institution_name: string;
+  current_week: number;
+  verified_paid_users: number;
+  total_users: number;
+  active_users: number;
+  app_status: string;
+  biggest_blocker: string | null;
+  progression_level: number;
+  last_checkin_at: string;
+}
