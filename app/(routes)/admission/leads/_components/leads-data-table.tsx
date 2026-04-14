@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X, RefreshCw } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LeadService } from '@/lib/services/admission/lead-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
@@ -97,10 +98,27 @@ export function LeadsDataTable() {
   const { counselors = [] } = useCounselorsList(profile?.institution_id);
 
   const canCreate = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.create');
+  const isManager = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'counselors.view');
 
   // Super admins and admission global users can see leads across all institutions.
   // Regular users are scoped to their own institution_id.
   const institutionId = (isSuperAdmin || isAdmissionGlobalUser) ? undefined : profile?.institution_id;
+
+  // Auto-detect counselor ID for non-manager counselors (they only see assigned leads)
+  const [myCounselorId, setMyCounselorId] = useState<string | null>(null);
+  useEffect(() => {
+    if (isManager || !profile?.id) return; // Managers see all leads
+    const supabase = createClientSupabaseClient();
+    supabase
+      .from('admission_counselors')
+      .select('id')
+      .eq('user_id', profile.id)
+      .eq('is_active', true)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.id) setMyCounselorId(data.id);
+      });
+  }, [isManager, profile?.id]);
 
   // Use refs for filter values so fetchData callback identity stays stable
   const stageFilterRef = useRef(stageFilter);
@@ -113,6 +131,8 @@ export function LeadsDataTable() {
   counselorFilterRef.current = counselorFilter;
   const expoFilterRef = useRef(expoFilter);
   expoFilterRef.current = expoFilter;
+  const myCounselorIdRef = useRef(myCounselorId);
+  myCounselorIdRef.current = myCounselorId;
 
   const fetchData = useCallback(async (params: {
     page: number;
@@ -154,6 +174,7 @@ export function LeadsDataTable() {
         counselor_id:
           currentCounselorFilter && currentCounselorFilter !== '_all'
             ? currentCounselorFilter
+            : (!isManager && myCounselorIdRef.current) ? myCounselorIdRef.current  // Auto-filter for counselors
             : undefined,
         expo_event_id:
           currentExpoFilter && currentExpoFilter !== '_all'
