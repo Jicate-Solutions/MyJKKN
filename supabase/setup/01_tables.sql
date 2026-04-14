@@ -618,20 +618,26 @@ CREATE TABLE IF NOT EXISTS public.staff (
     designation TEXT NOT NULL,
     category_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    department_id UUID NOT NULL,
+    -- Updated: 2026-04-14 - Made nullable; department_id is only required for teaching staff.
+    -- Conditional requirement enforced by trigger validate_staff_department_scope().
+    department_id UUID,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     created_by UUID,
     updated_by UUID,
-    institution_email TEXT NOT NULL
+    institution_email TEXT NOT NULL,
+    -- Updated: 2026-04-14 - role_key FK to custom_roles.role_key; drives dynamic role assignment on profile sync.
+    role_key VARCHAR(50) NOT NULL DEFAULT 'faculty' REFERENCES public.custom_roles(role_key) ON UPDATE CASCADE
 );
 
 -- Employment Categories
+-- Updated: 2026-04-14 - Added is_teaching flag to discriminate teaching vs non-teaching staff
 CREATE TABLE IF NOT EXISTS public.employment_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    category_name TEXT NOT NULL,
+    category_name TEXT NOT NULL UNIQUE,
     description TEXT,
+    is_teaching BOOLEAN NOT NULL DEFAULT false,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),

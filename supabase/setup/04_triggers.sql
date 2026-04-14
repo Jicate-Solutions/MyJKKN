@@ -191,8 +191,16 @@ CREATE TRIGGER trigger_validate_student_semester_consistency BEFORE INSERT OR UP
 -- Sync staff to profiles (INSERT OR UPDATE)
 -- Updated: 2025-10-15 - Changed to BEFORE trigger to allow storing profile_id
 -- Updated: 2025-10-15 - Removed duplicate triggers, this handles ALL sync
+-- Updated: 2026-04-14 - Dynamic role (role_key) support; added dept-scope validation trigger below.
 CREATE TRIGGER trg_sync_staff_to_profiles BEFORE INSERT OR UPDATE ON staff
     FOR EACH ROW EXECUTE FUNCTION sync_staff_to_profiles();
+
+-- Validate department scope based on category.is_teaching
+-- Updated: 2026-04-14 - Enforces: teaching => department_id required; non-teaching => department_id must be NULL.
+-- Must run BEFORE sync_staff_to_profiles so the profile row mirrors validated/cleared values.
+DROP TRIGGER IF EXISTS trg_validate_staff_department_scope ON staff;
+CREATE TRIGGER trg_validate_staff_department_scope BEFORE INSERT OR UPDATE OF category_id, department_id, role_key ON staff
+    FOR EACH ROW EXECUTE FUNCTION validate_staff_department_scope();
 
 -- Delete staff profile when staff is deleted
 -- Updated: 2025-10-15 - Added to sync staff deletion to profiles table

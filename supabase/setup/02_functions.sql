@@ -1867,7 +1867,10 @@ BEGIN
 END;
 $$;
 
--- Sync staff to profiles (Updated: 2025-10-15 - Store profile_id back in staff table)
+-- Sync staff to profiles
+-- Updated: 2025-10-15 - Store profile_id back in staff table
+-- Updated: 2026-04-14 - Role is now dynamic (NEW.role_key) instead of hardcoded 'faculty'.
+--                       Supports teaching + non-teaching onboarding. UPDATE branch also resyncs role.
 CREATE OR REPLACE FUNCTION public.sync_staff_to_profiles()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1875,16 +1878,13 @@ AS $$
 DECLARE
     existing_profile_id UUID;
 BEGIN
-    -- Only create profile if institution_email is provided
     IF NEW.institution_email IS NOT NULL AND NEW.institution_email != '' THEN
-        -- Check if profile already exists with this email
         SELECT id INTO existing_profile_id
         FROM profiles
         WHERE email = NEW.institution_email
         LIMIT 1;
 
         IF existing_profile_id IS NOT NULL THEN
-            -- Update existing profile (but DON'T change is_pre_registered)
             UPDATE profiles
             SET
                 full_name = CONCAT(NEW.first_name, ' ', NEW.last_name),
@@ -1893,17 +1893,15 @@ BEGIN
                 department_id = NEW.department_id,
                 gender = NEW.gender,
                 designation = NEW.designation,
+                role = NEW.role_key,
                 is_active = NEW.is_active,
                 updated_at = NOW()
             WHERE id = existing_profile_id;
 
-            -- Store profile_id back in staff table
             NEW.profile_id := existing_profile_id;
         ELSE
-            -- Generate new profile ID
             existing_profile_id := gen_random_uuid();
 
-            -- Create new pre-registered profile with all staff details
             INSERT INTO profiles (
                 id,
                 email,
@@ -1926,14 +1924,45 @@ BEGIN
                 NEW.department_id,
                 NEW.gender,
                 NEW.designation,
-                'faculty',
+                NEW.role_key,
                 true,
                 NEW.is_active
             );
 
-            -- Store profile_id back in staff table
             NEW.profile_id := existing_profile_id;
         END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+-- Updated: 2026-04-14 - Validates department requirement based on category.is_teaching.
+-- Teaching categories require department_id; non-teaching must leave it NULL (auto-cleared).
+CREATE OR REPLACE FUNCTION public.validate_staff_department_scope()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_is_teaching BOOLEAN;
+BEGIN
+    SELECT is_teaching INTO v_is_teaching
+    FROM employment_categories
+    WHERE id = NEW.category_id;
+
+    IF v_is_teaching IS NULL THEN
+        RAISE EXCEPTION 'Invalid category_id %: employment category not found', NEW.category_id
+            USING ERRCODE = '23503';
+    END IF;
+
+    IF v_is_teaching = true AND NEW.department_id IS NULL THEN
+        RAISE EXCEPTION 'department_id is required for teaching staff (category.is_teaching=true)'
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF v_is_teaching = false AND NEW.department_id IS NOT NULL THEN
+        -- Non-teaching staff should not carry a department_id; auto-clear for safety.
+        NEW.department_id := NULL;
     END IF;
 
     RETURN NEW;

@@ -45,6 +45,8 @@ import { StaffImageUpload } from '@/components/ImageUpload/staff-image-upload';
 import { DateInput } from '@/components/ui/date-input';
 import { StorageService } from '@/lib/storage/storage-service';
 import { getFirstErrorField } from '@/lib/utils/form-errors';
+import { RoleService } from '@/lib/services/roles/role-service';
+import type { CustomRole } from '@/types/auth';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -80,8 +82,10 @@ const staffSchema = z.object({
   }),
   designation: z.string().min(2, 'Designation is required'),
   category_id: z.string().min(1, 'Category is required'),
+  role_key: z.string().min(1, 'Role is required'),
   institution_id: z.string().min(1, 'Institution is required'),
-  department_id: z.string().min(1, 'Department is required'),
+  // Department is now conditionally required based on category.is_teaching (see superRefine below)
+  department_id: z.string().optional().nullable(),
   is_active: z.boolean().default(true)
 });
 
@@ -111,6 +115,7 @@ const staffFieldOrder: Array<keyof FormValues> = [
   'date_of_joining',
   'designation',
   'category_id',
+  'role_key',
   'institution_id',
   'department_id',
   'is_active'
@@ -143,8 +148,9 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     Array<{ id: string; name: string }>
   >([]);
   const [categories, setCategories] = useState<
-    Array<{ id: string; category_name: string }>
+    Array<{ id: string; category_name: string; is_teaching: boolean }>
   >([]);
+  const [roles, setRoles] = useState<CustomRole[]>([]);
 
   const [departments, setDepartments] = useState<
     Array<{ id: string; department_name: string }>
@@ -178,6 +184,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         : undefined,
       designation: staff?.designation || '',
       category_id: staff?.category_id || '',
+      role_key: (staff as any)?.role_key || '',
       institution_id: staff?.institution_id || '',
       department_id: staff?.department_id || '',
       is_active: staff?.is_active ?? true
@@ -186,6 +193,13 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
   // Watch institution_id for departments loading
   const watchedInstitutionId = form.watch('institution_id');
+  // Watch category to drive conditional department visibility
+  const watchedCategoryId = form.watch('category_id');
+  const selectedCategory = useMemo(
+    () => categories.find((c) => c.id === watchedCategoryId),
+    [categories, watchedCategoryId]
+  );
+  const isTeachingCategory = selectedCategory?.is_teaching ?? false;
 
   // Reset form when staff data changes (for edit mode)
   useEffect(() => {
@@ -214,6 +228,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           : undefined,
         designation: staff.designation || '',
         category_id: staff.category_id || '',
+        role_key: (staff as any).role_key || '',
         institution_id: staff.institution_id || '',
         department_id: staff.department_id || '',
         is_active: staff.is_active ?? true
@@ -231,13 +246,15 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           ? OrganizationService.getInstitutionNames(true, profile.id)
           : OrganizationService.getInstitutionNames(true);
 
-        const [institutionsData, categoriesData] = await Promise.all([
+        const [institutionsData, categoriesData, rolesData] = await Promise.all([
           institutionsPromise,
-          CategoryService.getCategories({ isActive: true })
+          CategoryService.getCategories({ isActive: true }),
+          RoleService.getStaffAssignableRoles()
         ]);
 
         setInstitutions(institutionsData);
-        setCategories(categoriesData.data);
+        setCategories(categoriesData.data as any);
+        setRoles(rolesData);
 
         // For HOD users, automatically set their institution if they have only one
         if (profile?.role === 'hod' && institutionsData.length === 1 && !isEditing) {
@@ -297,6 +314,16 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     isInitialLoad
   ]);
 
+  // When category switches to non-teaching, clear department_id
+  // (DB trigger also clears it defensively; this keeps the form state consistent).
+  useEffect(() => {
+    if (selectedCategory && !selectedCategory.is_teaching) {
+      if (form.getValues('department_id')) {
+        form.setValue('department_id', '');
+      }
+    }
+  }, [selectedCategory, form]);
+
   const onInvalid = (errors: FieldErrors<FormValues>) => {
     const firstErrorField = getFirstErrorField(errors, staffFieldOrder);
     if (!firstErrorField) {
@@ -329,6 +356,16 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
   const onSubmit = async (values: FormValues) => {
     try {
+      // Conditional department enforcement (mirrors DB trigger).
+      const cat = categories.find((c) => c.id === values.category_id);
+      if (cat?.is_teaching && !values.department_id) {
+        form.setError('department_id', {
+          type: 'manual',
+          message: 'Department is required for teaching staff'
+        });
+        return;
+      }
+
       setIsSubmitting(true);
 
       // Check if profile picture was removed
@@ -337,9 +374,14 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         toast.success('Profile picture deleted from storage.');
       }
 
+      // Non-teaching staff must not carry department_id.
+      const normalizedDepartmentId =
+        cat?.is_teaching === false ? null : values.department_id || null;
+
       // Format dates to ISO strings
       const formattedValues = {
         ...values,
+        department_id: normalizedDepartmentId,
         date_of_birth: values.date_of_birth.toISOString(),
         date_of_joining: values.date_of_joining.toISOString(),
         institution_email: values.institution_email || ''
@@ -765,10 +807,43 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                       {categories.map((category) => (
                         <SelectItem key={category.id} value={category.id}>
                           {category.category_name}
+                          {category.is_teaching ? ' (Teaching)' : ' (Non-Teaching)'}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='role_key'
+              render={({ field }) => (
+                <FormItem data-field='role_key'>
+                  <FormLabel>Role</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder='Select role' />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {roles.map((role) => (
+                        <SelectItem key={role.role_key} value={role.role_key}>
+                          {role.role_name}
+                          <span className='ml-2 text-xs text-muted-foreground'>
+                            ({role.role_key})
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className='text-xs text-muted-foreground'>
+                    Drives the user&apos;s permissions after first login. Pick the role
+                    that matches the staff member&apos;s responsibilities.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}
@@ -808,39 +883,45 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               )}
             />
 
-            <FormField
-              control={form.control}
-              name='department_id'
-              render={({ field }) => (
-                <FormItem data-field='department_id'>
-                  <FormLabel>Department</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                    disabled={!form.watch('institution_id')}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select department' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept.id} value={dept.id}>
-                          {dept.department_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                  {profile?.role === 'hod' && departments.length > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      You can create staff for any department in your institution
-                    </p>
-                  )}
-                </FormItem>
-              )}
-            />
+            {isTeachingCategory ? (
+              <FormField
+                control={form.control}
+                name='department_id'
+                render={({ field }) => (
+                  <FormItem data-field='department_id'>
+                    <FormLabel>Department</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value ?? ''}
+                      disabled={!form.watch('institution_id')}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='Select department' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.department_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                    {profile?.role === 'hod' && departments.length > 0 && (
+                      <p className='text-xs text-muted-foreground'>
+                        You can create staff for any department in your institution
+                      </p>
+                    )}
+                  </FormItem>
+                )}
+              />
+            ) : watchedCategoryId ? (
+              <div className='flex items-center rounded-lg border border-dashed bg-muted/30 p-3 text-sm text-muted-foreground'>
+                Non-teaching staff don&apos;t require a department.
+              </div>
+            ) : null}
           </div>
         </div>
 

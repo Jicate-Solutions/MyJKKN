@@ -4,6 +4,14 @@
 
 **This is the ONLY place to track all SQL files. DO NOT create duplicate SQL files.**
 
+## 📝 Recent Changes
+
+- **2026-04-14** — Staff onboarding: dynamic role_key + conditional department scope
+  - `01_tables.sql`: `staff.role_key` (FK → custom_roles), `staff.department_id` nullable, `employment_categories.is_teaching`, unique constraint on `category_name`
+  - `02_functions.sql`: `sync_staff_to_profiles()` uses `NEW.role_key` instead of hardcoded `'faculty'`; UPDATE branch now resyncs role. New `validate_staff_department_scope()` enforces teaching→dept required, non-teaching→dept null.
+  - `04_triggers.sql`: added `trg_validate_staff_department_scope` BEFORE INSERT/UPDATE on staff.
+  - Seed: 12 new `employment_categories` rows (Facilitator + 11 non-teaching).
+
 ## 📁 Directory Structure
 
 ```

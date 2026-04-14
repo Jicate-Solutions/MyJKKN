@@ -43,6 +43,7 @@ import { CategoryService } from '@/lib/services/staff/category-service';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
+import { RoleService } from '@/lib/services/roles/role-service';
 
 interface ValidationResult {
   isValid: boolean;
@@ -50,6 +51,7 @@ interface ValidationResult {
   valid_institution_id: string;
   valid_department_id: string;
   valid_category_id: string;
+  valid_role_key: string;
   converted_date_of_birth?: string;
   converted_date_of_joining?: string;
 }
@@ -286,6 +288,15 @@ const validateDate = (date: string | number) => {
   };
 };
 
+const RESERVED_BULK_ROLE_KEYS = new Set([
+  'student',
+  'super_admin',
+  'administrator',
+  'admission',
+  'counselor',
+  'guest'
+]);
+
 const validateRow = async (
   row: any,
   categoryNames: string[],
@@ -297,7 +308,11 @@ const validateRow = async (
   }[],
   categoryMap: Map<string, string>,
   institutionIdMap: Map<string, string>,
-  departmentIdMap: Map<string, { name: string; institution_id: string }>
+  departmentIdMap: Map<string, { name: string; institution_id: string }>,
+  // Added: 2026-04-14 - look up categories by id to check is_teaching
+  categoryTeachingMap: Map<string, boolean>,
+  // Added: 2026-04-14 - valid role_keys (from custom_roles)
+  validRoleKeys: Set<string>
 ): Promise<ValidationResult> => {
   const errors: string[] = [];
 
@@ -378,10 +393,37 @@ const validateRow = async (
     errors.push('Either institution_id or institution_name is required');
   }
 
-  // Get or validate department
+  // Get or validate category (RESOLVED FIRST so we know is_teaching for dept check)
+  let valid_category_id = '';
+  if (row.category_id) {
+    if (categoryMap.has(row.category_id)) {
+      valid_category_id = row.category_id;
+    } else {
+      errors.push(`Invalid category ID: ${row.category_id}`);
+    }
+  } else if (row.category_name) {
+    const categoryId = categoryNames.includes(row.category_name)
+      ? [...categoryMap.entries()].find(
+          ([id, name]) => name === row.category_name
+        )?.[0]
+      : undefined;
+
+    if (categoryId) {
+      valid_category_id = categoryId;
+    } else {
+      errors.push(`Invalid category name: ${row.category_name}`);
+    }
+  } else {
+    errors.push('Either category_id or category_name is required');
+  }
+
+  const isTeachingRow = valid_category_id
+    ? categoryTeachingMap.get(valid_category_id) === true
+    : false;
+
+  // Get or validate department — REQUIRED only for teaching categories.
   let valid_department_id = '';
   if (row.department_id) {
-    // Check if the department ID is valid
     if (departmentIdMap.has(row.department_id)) {
       const dept = departmentIdMap.get(row.department_id);
       if (
@@ -415,34 +457,29 @@ const validateRow = async (
     } else {
       errors.push('Cannot validate department without a valid institution');
     }
-  } else {
-    errors.push('Either department_id or department_name is required');
+  } else if (isTeachingRow) {
+    // Only teaching categories require a department.
+    errors.push('Either department_id or department_name is required for teaching staff');
   }
 
-  // Get or validate category
-  let valid_category_id = '';
-  if (row.category_id) {
-    // Check if the category ID is valid
-    if (categoryMap.has(row.category_id)) {
-      valid_category_id = row.category_id;
-    } else {
-      errors.push(`Invalid category ID: ${row.category_id}`);
-    }
-  } else if (row.category_name) {
-    // Try to get category ID from name
-    const categoryId = categoryNames.includes(row.category_name)
-      ? [...categoryMap.entries()].find(
-          ([id, name]) => name === row.category_name
-        )?.[0]
-      : undefined;
+  // If non-teaching, drop any supplied department_id (DB trigger will also clear it).
+  if (!isTeachingRow) {
+    valid_department_id = '';
+  }
 
-    if (categoryId) {
-      valid_category_id = categoryId;
-    } else {
-      errors.push(`Invalid category name: ${row.category_name}`);
-    }
+  // Validate role_key — REQUIRED, must exist, must not be reserved.
+  let valid_role_key = '';
+  if (!row.role_key) {
+    errors.push('role_key is required');
   } else {
-    errors.push('Either category_id or category_name is required');
+    const rk = String(row.role_key).trim();
+    if (RESERVED_BULK_ROLE_KEYS.has(rk)) {
+      errors.push(`Role "${rk}" cannot be assigned via staff bulk upload`);
+    } else if (!validRoleKeys.has(rk)) {
+      errors.push(`Invalid role_key: "${rk}"`);
+    } else {
+      valid_role_key = rk;
+    }
   }
 
   // Optional field validations
@@ -545,6 +582,7 @@ const validateRow = async (
     valid_institution_id,
     valid_department_id,
     valid_category_id,
+    valid_role_key,
     converted_date_of_birth,
     converted_date_of_joining
   };
@@ -592,11 +630,12 @@ export default function BulkUploadStaff() {
   const processFile = async (file: File) => {
     try {
       // Load validation data
-      const [categoriesResult, institutions, departmentsData] =
+      const [categoriesResult, institutions, departmentsData, rolesData] =
         await Promise.all([
           CategoryService.getCategories({ isActive: true, limit: 100 }),
           OrganizationService.getInstitutionNames(true),
-          DepartmentService.getDepartments({ isActive: true, limit: 1000 })
+          DepartmentService.getDepartments({ isActive: true, limit: 1000 }),
+          RoleService.getStaffAssignableRoles()
         ]);
 
       // Create category maps
@@ -609,6 +648,11 @@ export default function BulkUploadStaff() {
       const categoryNameToIdMap = new Map(
         categoriesResult.data.map((cat) => [cat.category_name, cat.id])
       );
+      // Added: 2026-04-14 - is_teaching lookup + role_key allow-list
+      const categoryTeachingMap = new Map<string, boolean>(
+        categoriesResult.data.map((cat) => [cat.id, (cat as any).is_teaching === true])
+      );
+      const validRoleKeys = new Set<string>(rolesData.map((r) => r.role_key));
 
       // Create institution maps
       const institutionMap = new Map(
@@ -653,7 +697,9 @@ export default function BulkUploadStaff() {
             departmentsData.data,
             categoryMap,
             institutionIdMap,
-            departmentIdMap
+            departmentIdMap,
+            categoryTeachingMap,
+            validRoleKeys
           );
 
           return {
@@ -663,8 +709,9 @@ export default function BulkUploadStaff() {
             errors: validation.errors,
             // Use validated IDs
             institution_id: validation.valid_institution_id || '',
-            department_id: validation.valid_department_id || '',
+            department_id: validation.valid_department_id || null,
             category_id: validation.valid_category_id || '',
+            role_key: validation.valid_role_key || '',
             // Keep reference to name fields for display purposes
             institution_name:
               row.institution_name ||

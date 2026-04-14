@@ -15,6 +15,8 @@ import { StaffFilters as StaffFilterType } from '@/types/staff';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 
 import { DepartmentService } from '@/lib/services/organization/department-service';
+import { RoleService } from '@/lib/services/roles/role-service';
+import type { CustomRole } from '@/types/auth';
 
 interface StaffFiltersProps {
   filters: StaffFilterType;
@@ -26,8 +28,9 @@ const StaffFiltersComponent = ({ filters, onFilterChange }: StaffFiltersProps) =
     Array<{ id: string; name: string }>
   >([]);
   const [categories, setCategories] = useState<
-    Array<{ id: string; category_name: string }>
+    Array<{ id: string; category_name: string; is_teaching?: boolean }>
   >([]);
+  const [roles, setRoles] = useState<CustomRole[]>([]);
 
   const [departments, setDepartments] = useState<
     Array<{ id: string; department_name: string }>
@@ -36,12 +39,14 @@ const StaffFiltersComponent = ({ filters, onFilterChange }: StaffFiltersProps) =
   useEffect(() => {
     async function loadData() {
       try {
-        const [institutionsData, categoriesData] = await Promise.all([
+        const [institutionsData, categoriesData, rolesData] = await Promise.all([
           OrganizationService.getInstitutionNames(true),
-          CategoryService.getCategories({ isActive: true })
+          CategoryService.getCategories({ isActive: true }),
+          RoleService.getStaffAssignableRoles()
         ]);
         setInstitutions(institutionsData);
-        setCategories(categoriesData.data);
+        setCategories(categoriesData.data as any);
+        setRoles(rolesData);
 
         if (filters.institution_id) {
           const depsData = await DepartmentService.getDepartmentsByInstitution(
@@ -60,7 +65,57 @@ const StaffFiltersComponent = ({ filters, onFilterChange }: StaffFiltersProps) =
 
   return (
     <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 md:grid-cols-4'>
+      <div className='grid gap-4 md:grid-cols-5'>
+
+        <Select
+          value={
+            filters.is_teaching === true
+              ? 'teaching'
+              : filters.is_teaching === false
+              ? 'non_teaching'
+              : 'all'
+          }
+          onValueChange={(value) =>
+            onFilterChange({
+              is_teaching:
+                value === 'teaching'
+                  ? true
+                  : value === 'non_teaching'
+                  ? false
+                  : undefined
+            })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='Teaching type' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All staff</SelectItem>
+            <SelectItem value='teaching'>Teaching</SelectItem>
+            <SelectItem value='non_teaching'>Non-Teaching</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={filters.role_key || 'all'}
+          onValueChange={(value) =>
+            onFilterChange({
+              role_key: value === 'all' ? undefined : value
+            })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='Select role' />
+          </SelectTrigger>
+          <SelectContent className='max-h-60 overflow-y-auto'>
+            <SelectItem value='all'>All Roles</SelectItem>
+            {roles.map((r) => (
+              <SelectItem key={r.role_key} value={r.role_key}>
+                {r.role_name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Select
           value={filters.category_id || 'all'}
@@ -78,6 +133,8 @@ const StaffFiltersComponent = ({ filters, onFilterChange }: StaffFiltersProps) =
             {categories.map((cat) => (
               <SelectItem key={cat.id} value={cat.id}>
                 {cat.category_name}
+                {typeof cat.is_teaching === 'boolean' &&
+                  (cat.is_teaching ? ' (Teaching)' : ' (Non-Teaching)')}
               </SelectItem>
             ))}
           </SelectContent>

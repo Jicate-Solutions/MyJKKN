@@ -4,6 +4,7 @@ export interface EmploymentCategory {
   id: string;
   category_name: string;
   description?: string | null;
+  is_teaching: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -14,6 +15,7 @@ export interface EmploymentCategory {
 export interface CreateEmploymentCategoryDto {
   category_name: string;
   description?: string;
+  is_teaching?: boolean;
   is_active?: boolean;
 }
 
@@ -76,7 +78,8 @@ export interface Staff {
   // Foreign keys
   category_id: string;
   institution_id: string;
-  department_id: string;
+  department_id: string | null;
+  role_key: string;
 
   // Related data
   category?: EmploymentCategory;
@@ -118,9 +121,21 @@ export interface CreateStaffDto {
   category_id: string;
   institution_id: string;
   institution_email: string;
-  department_id: string;
+  department_id?: string | null;
+  role_key: string;
   is_active?: boolean;
 }
+
+// Reserved role keys that MUST NOT appear in the Staff onboarding dropdown.
+// (Learner/admin roles are managed elsewhere; exposing them here would bypass proper flows.)
+export const RESERVED_STAFF_ROLE_KEYS = new Set([
+  'student',
+  'super_admin',
+  'administrator',
+  'admission',
+  'counselor',
+  'guest'
+]);
 
 export interface UpdateStaffDto extends Partial<CreateStaffDto> {}
 
@@ -133,6 +148,8 @@ export interface StaffFilters {
   institution_id?: string;
   institution_email?: string;
   department_id?: string;
+  role_key?: string;
+  is_teaching?: boolean;
   isActive?: boolean;
   page?: number;
   limit?: number;

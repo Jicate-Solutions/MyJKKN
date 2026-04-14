@@ -4,6 +4,7 @@ import { FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import * as XLSX from 'xlsx';
 import { CategoryService } from '@/lib/services/staff/category-service';
+import { RoleService } from '@/lib/services/roles/role-service';
 import { useEffect, useState } from 'react';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
@@ -37,7 +38,10 @@ const ID_BASED_SAMPLE_DATA = [
     institution_email: 'john.doe@institution.edu',
     category_id: '[Enter Category ID]',
     institution_id: '[Enter Institution ID]',
-    department_id: '[Enter Department ID]',
+    // Teaching staff only — leave blank for non-teaching
+    department_id: '[Enter Department ID (teaching only)]',
+    // Required: one of the valid custom_roles.role_key values (e.g. faculty, accounts, librarian)
+    role_key: '[Enter role_key]',
     is_active: 'true'
   }
 ];
@@ -64,7 +68,10 @@ const NAME_BASED_SAMPLE_DATA = [
     institution_email: 'john.doe@institution.edu',
     category_name: '[Enter exact Category Name]',
     institution_name: '[Enter exact Institution Name]',
-    department_name: '[Enter exact Department Name]',
+    // Teaching staff only — leave blank for non-teaching
+    department_name: '[Enter exact Department Name (teaching only)]',
+    // Required: one of the valid custom_roles.role_key values
+    role_key: '[Enter role_key]',
     is_active: 'true'
   }
 ];
@@ -206,27 +213,37 @@ const NAME_BASED_INSTRUCTIONS = [
 
 export default function DownloadStaffTemplateButton() {
   const [categories, setCategories] = useState<
-    Array<{ id: string; name: string }>
+    Array<{ id: string; name: string; is_teaching: boolean }>
+  >([]);
+  const [roles, setRoles] = useState<
+    Array<{ role_key: string; role_name: string }>
   >([]);
   const { institutions } = useInstitutionsWithAccess({});
   const { data: departmentsData } = useDepartments({ limit: 100 });
   const departments = departmentsData?.data || [];
 
   useEffect(() => {
-    async function loadCategories() {
+    async function loadData() {
       try {
-        const { data } = await CategoryService.getCategories({
-          isActive: true,
-          limit: 100
-        });
+        const [{ data: catData }, rolesData] = await Promise.all([
+          CategoryService.getCategories({ isActive: true, limit: 100 }),
+          RoleService.getStaffAssignableRoles()
+        ]);
         setCategories(
-          data.map((cat) => ({ id: cat.id, name: cat.category_name }))
+          catData.map((cat) => ({
+            id: cat.id,
+            name: cat.category_name,
+            is_teaching: (cat as any).is_teaching === true
+          }))
+        );
+        setRoles(
+          rolesData.map((r) => ({ role_key: r.role_key, role_name: r.role_name }))
         );
       } catch (error) {
-        console.error('Error loading categories:', error);
+        console.error('Error loading template data:', error);
       }
     }
-    loadCategories();
+    loadData();
   }, []);
 
   // Create the correct array for the example worksheet
@@ -326,8 +343,12 @@ export default function DownloadStaffTemplateButton() {
         ...instructions,
         [''],
         ['Available Categories:'],
-        ['ID', 'Name'],
-        ...categories.map((cat) => [cat.id, cat.name]),
+        ['ID', 'Name', 'Teaching?'],
+        ...categories.map((cat) => [cat.id, cat.name, cat.is_teaching ? 'Yes' : 'No']),
+        [''],
+        ['Available Roles (role_key):'],
+        ['role_key', 'role_name'],
+        ...roles.map((r) => [r.role_key, r.role_name]),
         [''],
         ['Available Institutions:'],
         ['ID', 'Name'],

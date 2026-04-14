@@ -409,6 +409,32 @@ export class RoleService {
   }
 
   /**
+   * Get roles assignable to staff (teaching + non-teaching).
+   * Filters out reserved role_keys (student, super_admin, administrator,
+   * admission, counselor, guest) that belong to other onboarding flows.
+   * Added: 2026-04-14 for dynamic staff role onboarding.
+   */
+  static async getStaffAssignableRoles(): Promise<CustomRole[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('custom_roles')
+        .select('*')
+        .not('role_key', 'in', '(student,super_admin,administrator,admission,counselor,guest)')
+        .order('role_name');
+
+      if (error) {
+        console.error('[RoleService] Error fetching staff-assignable roles:', error);
+        throw error;
+      }
+
+      return data ? data.map(row => this.toCustomRole(row)) : [];
+    } catch (error) {
+      console.error('[RoleService] Error in getStaffAssignableRoles:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get available roles for assignment
    */
   static async getAssignableRoles(): Promise<CustomRole[]> {

@@ -42,6 +42,8 @@ export default function StaffPage() {
     category_id: '',
     institution_id: '',
     department_id: '',
+    role_key: undefined,
+    is_teaching: undefined,
     isActive: undefined,
     page: 1,
     limit: 20 // Optimized limit to balance performance and user experience (reduced from 50)

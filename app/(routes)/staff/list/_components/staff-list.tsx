@@ -288,7 +288,36 @@ const StaffListComponent = ({
         header: 'Category',
         cell: ({ row }) => {
           const staff = row.original;
-          return staff.category?.category_name || '-';
+          const name = staff.category?.category_name;
+          if (!name) return '-';
+          const isTeaching = (staff.category as any)?.is_teaching;
+          return (
+            <span className='inline-flex items-center gap-1.5'>
+              {name}
+              {typeof isTeaching === 'boolean' && (
+                <Badge
+                  variant={isTeaching ? 'default' : 'outline'}
+                  className='text-[10px]'
+                >
+                  {isTeaching ? 'Teaching' : 'Non-Teaching'}
+                </Badge>
+              )}
+            </span>
+          );
+        }
+      },
+      {
+        id: 'role',
+        header: 'Role',
+        cell: ({ row }) => {
+          const staff = row.original as any;
+          return staff.role_key ? (
+            <Badge variant='secondary' className='font-mono text-xs'>
+              {staff.role_key}
+            </Badge>
+          ) : (
+            '-'
+          );
         }
       },
       {

@@ -25,6 +25,7 @@ import {
   buildStaffSearchConditions,
   resolveStaffFiltersForUser
 } from '@/lib/utils/staff-search';
+import { RESERVED_STAFF_ROLE_KEYS } from '@/types/staff';
 
 interface CreateStaffDto {
   first_name: string;
@@ -46,7 +47,9 @@ interface CreateStaffDto {
   institution_email: string;
   category_id: string;
   institution_id: string;
-  department_id: string;
+  // Nullable: teaching staff require it, non-teaching must leave null
+  department_id?: string | null;
+  role_key: string;
   is_active: boolean;
 }
 
@@ -68,6 +71,31 @@ export class StaffService {
 
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
+
+      // Role key validation: must exist, must not be reserved.
+      // Added: 2026-04-14 for dynamic staff role onboarding.
+      if (!data.role_key) {
+        throw new Error('role_key is required');
+      }
+      if (RESERVED_STAFF_ROLE_KEYS.has(data.role_key)) {
+        throw new Error(
+          `Role "${data.role_key}" cannot be assigned via staff onboarding`
+        );
+      }
+
+      // Conditional department: non-teaching categories must not carry department_id.
+      // The DB trigger auto-clears this, but we also clear client-side to match form semantics.
+      const { data: category } = await this.supabase
+        .from('employment_categories')
+        .select('id, is_teaching')
+        .eq('id', data.category_id)
+        .single();
+
+      if (category && (category as any).is_teaching === false) {
+        data.department_id = null;
+      } else if (category && (category as any).is_teaching === true && !data.department_id) {
+        throw new Error('Department is required for teaching staff');
+      }
 
       // Check if staff_id already exists
       if (data.staff_id) {
@@ -142,6 +170,38 @@ export class StaffService {
       }
 
       if (error) throw error;
+
+      // Assign role to the pre-registered profile via user_roles (multi-role table).
+      // The sync_staff_to_profiles trigger has already created/updated profile and set staff.profile_id
+      // and written profiles.role = NEW.role_key. We now mirror that into user_roles so the
+      // merged-permission flow works for staff even before their first OAuth login.
+      // Added: 2026-04-14
+      if (staff?.profile_id && staff?.role_key) {
+        try {
+          const { data: roleRow } = await this.supabase
+            .from('custom_roles')
+            .select('id')
+            .eq('role_key', staff.role_key)
+            .maybeSingle();
+
+          if (roleRow?.id) {
+            const { UserRolesService } = await import(
+              '@/lib/services/users/user-roles-service'
+            );
+            await UserRolesService.assignRoles(
+              staff.profile_id,
+              [roleRow.id],
+              roleRow.id
+            );
+          }
+        } catch (roleAssignError) {
+          // Non-fatal: profile.role still carries the role string; user_roles can be synced later.
+          console.warn(
+            '[StaffService] user_roles assignment failed (profile.role still set):',
+            roleAssignError
+          );
+        }
+      }
 
       // Profile auto-creation is handled by the database trigger (sync_staff_to_profiles)
       // The trigger creates/updates a profile when staff with institution_email is created
@@ -238,6 +298,35 @@ export class StaffService {
 
       if (error) throw error;
 
+      // If role_key changed, resync user_roles (single primary role).
+      // profile.role is already synced by the DB trigger.
+      // Added: 2026-04-14
+      if (data.role_key && staff?.profile_id) {
+        try {
+          const { data: roleRow } = await this.supabase
+            .from('custom_roles')
+            .select('id')
+            .eq('role_key', data.role_key)
+            .maybeSingle();
+
+          if (roleRow?.id) {
+            const { UserRolesService } = await import(
+              '@/lib/services/users/user-roles-service'
+            );
+            await UserRolesService.assignRoles(
+              staff.profile_id,
+              [roleRow.id],
+              roleRow.id
+            );
+          }
+        } catch (roleAssignError) {
+          console.warn(
+            '[StaffService] user_roles resync failed on update:',
+            roleAssignError
+          );
+        }
+      }
+
       // If institution_id was updated and staff has an institution_email, update the profile
       const institutionEmail = currentStaff?.institution_email || staff?.institution_email;
       if (data.institution_id && institutionEmail) {
@@ -327,7 +416,8 @@ export class StaffService {
           *,
           category:employment_categories(
             id,
-            category_name
+            category_name,
+            is_teaching
           ),
           institution:institutions(
             id,
@@ -368,6 +458,26 @@ export class StaffService {
 
       if (filters.department_id) {
         query = query.eq('department_id', filters.department_id);
+      }
+
+      // Added: 2026-04-14 - role_key & is_teaching filters for non-teaching staff listing.
+      if ((filters as any).role_key) {
+        query = query.eq('role_key', (filters as any).role_key);
+      }
+      if (typeof (filters as any).is_teaching === 'boolean') {
+        // PostgREST can't filter by joined column on root select; fetch matching
+        // category IDs first, then constrain staff.category_id by IN (...).
+        const { data: catRows } = await this.supabase
+          .from('employment_categories')
+          .select('id')
+          .eq('is_teaching', (filters as any).is_teaching);
+        const ids = (catRows || []).map((c: any) => c.id);
+        if (ids.length === 0) {
+          // Explicit empty-result case — no categories match the flag.
+          query = query.in('category_id', ['00000000-0000-0000-0000-000000000000']);
+        } else {
+          query = query.in('category_id', ids);
+        }
       }
 
       if (filters.isActive !== undefined) {
@@ -495,7 +605,8 @@ export class StaffService {
           *,
           category:employment_categories(
             id,
-            category_name
+            category_name,
+            is_teaching
           ),
           institution:institutions(
             id,
@@ -552,7 +663,8 @@ export class StaffService {
           *,
           category:employment_categories(
             id,
-            category_name
+            category_name,
+            is_teaching
           ),
           institution:institutions(
             id,
@@ -662,7 +774,8 @@ export class StaffService {
           *,
           category:employment_categories(
             id,
-            category_name
+            category_name,
+            is_teaching
           ),
           institution:institutions(
             id,

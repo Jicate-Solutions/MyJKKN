@@ -14,6 +14,11 @@ export const staffSearchParamsSchema = z.object({
   category_id: z.string().optional(),
   institution_id: z.string().optional(),
   department_id: z.string().optional(),
+  role_key: z.string().optional(),
+  is_teaching: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((val) => (val === 'true' ? true : val === 'false' ? false : undefined)),
   isActive: z
     .enum(['true', 'false'])
     .optional()
