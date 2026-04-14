@@ -1704,11 +1704,6 @@ export function GetPages(pathname: string): MenuGroup[] {
                 label: 'Case Study',
                 active: pathname.includes('/case-study')
               },
-              {
-                href: `/startup-studio/events/${activeId}/solve-for-100`,
-                label: 'Solve for 100',
-                active: pathname.includes('/solve-for-100')
-              },
             ] : []
           }
         ];
