@@ -382,7 +382,8 @@ export function ActivityTimelineTab() {
 
   // Filters
   const [dateRange, setDateRange] = useState('30');
-  const [actionTypeFilter, setActionTypeFilter] = useState('');
+  // Radix Select requires non-empty string values — use 'all' sentinel instead of ''.
+  const [actionTypeFilter, setActionTypeFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -405,7 +406,7 @@ export function ActivityTimelineTab() {
         page: String(p),
         pageSize: String(PAGE_SIZE),
         ...(dateRange !== '0' && { days: dateRange }),
-        ...(actionTypeFilter && { actionType: actionTypeFilter }),
+        ...(actionTypeFilter !== 'all' && { actionType: actionTypeFilter }),
         ...(search && { search }),
       });
       return `/api/users/permissions-audit/activity?${params.toString()}`;
@@ -544,7 +545,7 @@ export function ActivityTimelineTab() {
                 <SelectValue placeholder="All change types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All change types</SelectItem>
+                <SelectItem value="all">All change types</SelectItem>
                 {(Object.keys(ACTION_TYPE_LABELS) as ActionType[]).map((key) => (
                   <SelectItem key={key} value={key}>
                     {ACTION_TYPE_LABELS[key]}
@@ -564,14 +565,14 @@ export function ActivityTimelineTab() {
             </div>
 
             {/* Clear filters */}
-            {(dateRange !== '30' || actionTypeFilter || search) && (
+            {(dateRange !== '30' || actionTypeFilter !== 'all' || search) && (
               <Button
                 variant="outline"
                 size="sm"
                 className="shrink-0 text-xs"
                 onClick={() => {
                   setDateRange('30');
-                  setActionTypeFilter('');
+                  setActionTypeFilter('all');
                   setSearchInput('');
                   setSearch('');
                 }}
