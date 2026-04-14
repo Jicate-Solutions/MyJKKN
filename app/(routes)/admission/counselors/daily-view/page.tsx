@@ -79,7 +79,8 @@ const STAGE_FILTER_OPTIONS = [
 
 function CounselorViewPageContent() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
+  const isAdmissionManager = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'counselors.view');
   const { institutions } = useInstitutionsWithAccess();
   const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
   // Multi-institution users: default to "all" (undefined) — prompt them to pick.
@@ -97,7 +98,7 @@ function CounselorViewPageContent() {
     isError,
     error,
     refetch,
-    isManager,
+    isManager: isManagerFromRPC,
     isNotCounselor,
     kpis,
     followups,
@@ -105,6 +106,9 @@ function CounselorViewPageContent() {
     todayActivities,
     unassignedCount,
   } = useCounselorDailyView(institutionId, selectedCounselorUserId || undefined);
+
+  // Manager status: from RPC OR from client-side permission check
+  const isManager = isManagerFromRPC || isAdmissionManager;
 
   const { leads: unassignedLeads, isLoading: isLoadingUnassigned } = useUnassignedLeads(
     institutionId,
@@ -138,8 +142,9 @@ function CounselorViewPageContent() {
 
   const hasActiveFilters = stageFilter !== 'all' || academicYearFilter !== 'all';
 
-  // Not a counselor
-  if (isNotCounselor && !isLoading) {
+  // Not a counselor — only show for non-managers
+  // Managers/officers see the manager overview even if they're not personally a counselor
+  if (isNotCounselor && !isLoading && !isAdmissionManager) {
     return (
       <div className="p-6 max-w-lg mx-auto mt-12">
         <Alert>
