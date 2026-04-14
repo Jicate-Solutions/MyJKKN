@@ -7,6 +7,7 @@ import { ThemeProvider } from '@/providers/theme-provider';
 import { AuthProvider } from '@/hooks/use-auth-provider';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import Script from 'next/script';
+import { PreviewBanner } from '@/components/layout/preview-banner';
 
 const poppins = Poppins({
   weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
@@ -188,6 +189,9 @@ export default function RootLayout({
         >
           <AuthProvider>
             <PWAProvider>
+              {/* Sticky preview banner — renders only when a preview session
+                  cookie is active. Non-dismissible by design. */}
+              <PreviewBanner />
               <PushNotificationProvider>{children}</PushNotificationProvider>
               <SpeedInsights />
             </PWAProvider>

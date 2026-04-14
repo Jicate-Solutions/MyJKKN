@@ -12,6 +12,11 @@ import { BaseService } from '@/lib/services/base-service'
 import { corsHeaders } from '@/lib/api-keys/cors'
 import { errorResponse } from '@/lib/api/response'
 import { createClient } from '@supabase/supabase-js'
+import {
+  getPreviewClaimsFromCookies,
+  writePreviewAudit,
+  DIRECTOR_EMAIL,
+} from '@/lib/auth/preview-session'
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -159,6 +164,59 @@ export function withAuth(handler: AuthenticatedHandler, options?: AuthOptions) {
             `Insufficient role. Required: ${options.requireRole.join(' or ')}`,
             403
           )
+        }
+      }
+
+      // ── Step 2.5: Preview session enforcement ───────────────
+      // If the request carries a valid sb-preview-session cookie, the caller
+      // is a super admin impersonating a target user. We enforce:
+      //   - Read-mode sessions: BLOCK any non-GET/HEAD request with 403
+      //   - Write-mode sessions: ONLY allowed when originator_email is
+      //     DIRECTOR_EMAIL (defense in depth — don't trust the JWT claim alone)
+      // Preview is orthogonal to API key auth, so we only check it on session flow.
+      if (auth.authMethod === 'session') {
+        const previewClaims = await getPreviewClaimsFromCookies()
+        if (previewClaims) {
+          const method = request.method.toUpperCase()
+          const isMutation = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
+
+          if (isMutation) {
+            // Re-verify: even write-mode requires the originator's email to match.
+            const writeAllowed =
+              previewClaims.mode === 'write' &&
+              previewClaims.originator_email?.toLowerCase() === DIRECTOR_EMAIL.toLowerCase()
+
+            if (!writeAllowed) {
+              // Audit the blocked attempt so we have forensic visibility.
+              writePreviewAudit({
+                actionType: 'preview_mutation_blocked',
+                actorUserId: previewClaims.originator,
+                actorName: previewClaims.originator_email || 'Unknown super admin',
+                targetUserId: previewClaims.sub,
+                mode: previewClaims.mode,
+                sessionId: previewClaims.sessionId,
+                description: `Blocked ${method} ${request.nextUrl.pathname} during ${previewClaims.mode}-mode preview`,
+                extra: { method, path: request.nextUrl.pathname },
+              }).catch(() => {
+                /* audit failure must not leak */
+              })
+
+              return errorResponse(
+                previewClaims.mode === 'read'
+                  ? 'This action is not available during read-only preview. Exit preview to modify data.'
+                  : 'Write-mode preview is restricted. Contact the director if you need write access.',
+                403,
+              )
+            }
+          }
+
+          // Swap the user id so all downstream RLS queries run as the target.
+          // We deliberately keep originator metadata so audit/logging still
+          // records WHO is previewing, not just who they're previewing AS.
+          auth.user = {
+            ...auth.user,
+            id: previewClaims.sub,
+          }
         }
       }
 
