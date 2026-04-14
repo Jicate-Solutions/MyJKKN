@@ -2,6 +2,7 @@
 
 import { useState, useMemo, Suspense } from 'react';
 import { AddCounselorDialog } from './_components/add-counselor-dialog';
+import { CounselorList } from './_components/counselor-list';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -507,6 +508,7 @@ function CounselorPerformancePageContent() {
   const [dateRange, setDateRange] = useState('30');
   const [isRefetching, setIsRefetching] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [view, setView] = useState<'performance' | 'manage'>('performance');
 
   // Calculate date range for query — memoized so the object reference is stable
   // and the React Query key doesn't change on every render (which would cause infinite refetches)
@@ -615,6 +617,28 @@ function CounselorPerformancePageContent() {
             </div>
           </div>
 
+          {/* View Toggle */}
+          <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit">
+            <Button
+              variant={view === 'performance' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setView('performance')}
+            >
+              Performance
+            </Button>
+            <Button
+              variant={view === 'manage' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setView('manage')}
+            >
+              Manage
+            </Button>
+          </div>
+
+          {view === 'manage' ? (
+            <CounselorList onRefresh={() => refetch()} />
+          ) : (
+            <>
           {error && (
             <Card className="border-red-200 bg-red-50">
               <CardContent className="pt-4">
@@ -694,6 +718,8 @@ function CounselorPerformancePageContent() {
 
               {/* Leaderboard */}
               <CounselorLeaderboard counselors={counselors} dateRange={dateRange} />
+            </>
+          )}
             </>
           )}
         </div>
