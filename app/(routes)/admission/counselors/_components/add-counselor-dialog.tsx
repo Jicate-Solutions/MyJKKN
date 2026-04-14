@@ -366,19 +366,34 @@ export function AddCounselorDialog({
   }, [userResults, userSearchFilter, userType]);
 
   // ---------- Select a user from the list ----------
-  const handleSelectUser = (user: LearnerResult | FacilitatorResult) => {
+  const handleSelectUser = async (user: LearnerResult | FacilitatorResult) => {
     if (userType === 'learner') {
       const learner = user as LearnerResult;
+      const learnerEmail = learner.student_email || learner.college_email || '';
+      const learnerName = [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
+
+      // Look up profiles.id via email — admission_counselors.user_id FK references profiles.id
+      let profileId: string | null = null;
+      if (learnerEmail) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id')
+          .or(`email.eq.${learnerEmail}`)
+          .single();
+        profileId = profile?.id || null;
+      }
+
       setSelectedUser({
-        id: learner.id,
-        name: [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '',
-        email: learner.student_email || learner.college_email || '',
+        id: profileId || learner.id, // prefer profiles.id, fallback to learner id
+        name: learnerName,
+        email: learnerEmail,
         phone: '',
-      });
+        _hasProfile: !!profileId, // track if we found a matching profile
+      } as any);
     } else {
       const fac = user as FacilitatorResult;
       setSelectedUser({
-        id: fac.id,
+        id: fac.id, // profiles.id — already correct for facilitators
         name: fac.full_name || '',
         email: fac.email || '',
         phone: fac.phone_number || '',
@@ -475,10 +490,13 @@ export function AddCounselorDialog({
 
       setIsSubmitting(true);
       try {
+        // user_id must reference profiles.id — set null if learner has no profile
+        const userId = (selectedUser as any)._hasProfile === false ? null : selectedUser.id;
+
         const { error } = await supabase
           .from('admission_counselors')
           .insert({
-            user_id: selectedUser.id,
+            user_id: userId,
             institution_id: existInstitutionId,
             name: selectedUser.name,
             email: selectedUser.email,
