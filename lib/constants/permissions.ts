@@ -753,6 +753,36 @@ export const PERMISSION_CATEGORIES = [
       { key: 'work_pulse.agents.view', label: 'View Agent Opportunity Board' },
       { key: 'work_pulse.impact.view', label: 'View Impact Dashboard' }
     ]
+  },
+  // ======================================================================
+  // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15)
+  // ======================================================================
+  {
+    name: 'Faculty Innovation',
+    key: 'faculty_innovation',
+    permissions: [
+      // Initiative actions
+      { key: 'faculty_innovation.initiative.submit', label: 'Submit Initiative' },
+      { key: 'faculty_innovation.initiative.view_own', label: 'View Own Initiatives' },
+      { key: 'faculty_innovation.initiative.view_all_institution', label: 'View All Institution Initiatives' },
+      { key: 'faculty_innovation.initiative.approve', label: 'Approve Initiatives' },
+      { key: 'faculty_innovation.initiative.reject', label: 'Reject Initiatives' },
+      { key: 'faculty_innovation.initiative.withdraw', label: 'Withdraw Own Initiative' },
+      { key: 'faculty_innovation.initiative.export', label: 'Export Initiatives (NAAC/NBA/AICTE)' },
+
+      // IP (confidentiality-sensitive — Week 2 features; keys reserved now)
+      { key: 'faculty_innovation.ip.view', label: 'View IP / Patent Filings' },
+      { key: 'faculty_innovation.ip.edit', label: 'Edit IP / Patent Filings' },
+      { key: 'faculty_innovation.ip.register', label: 'Register New IP Filing' },
+
+      // Collaboration requests
+      { key: 'faculty_innovation.collab_request.create', label: 'Create Cross-College Collab Request' },
+      { key: 'faculty_innovation.collab_request.respond', label: 'Respond to Collab Request' },
+
+      // Admin actions
+      { key: 'faculty_innovation.admin.retro_load', label: 'Retro-load Initiatives' },
+      { key: 'faculty_innovation.admin.bulk_import', label: 'Bulk Import Initiatives' }
+    ]
   }
 ];
 
