@@ -4228,4 +4228,8 @@ CREATE TABLE IF NOT EXISTS dashboard_config (
 INSERT INTO dashboard_config (scope) VALUES ('global') ON CONFLICT (scope) DO NOTHING;
 ALTER TABLE dashboard_config ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-04-15 — Dashboard v2 Week-2 Counselor view: daily call target for hero tile
+ALTER TABLE dashboard_config
+  ADD COLUMN IF NOT EXISTS counselor_daily_call_target INT NOT NULL DEFAULT 25;
+
 -- END Dashboard v2 tables

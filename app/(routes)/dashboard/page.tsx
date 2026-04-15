@@ -15,6 +15,9 @@ import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
 import { HeroStrip } from '@/components/dashboard/hero-strip';
+import { CounselorHeroStrip } from '@/components/dashboard/counselor-hero-strip';
+import { getCounselorMetrics } from '@/lib/services/dashboard/counselor-metrics-service';
+import { getDashboardPersona } from '@/lib/services/dashboard/dashboard-role-service';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
@@ -58,6 +61,12 @@ async function LiveHeroStrip({
     ? `/dashboard/i/${institutionId}${departmentId ? `/d/${departmentId}` : ''}`
     : '/dashboard';
   return <HeroStrip metrics={metrics} drillBase={drillBase} />;
+}
+
+// Week-2 addition: counselor-scoped hero strip
+async function LiveCounselorHero() {
+  const metrics = await getCounselorMetrics();
+  return <CounselorHeroStrip metrics={metrics} />;
 }
 
 // ============================================================================
@@ -177,6 +186,9 @@ export default async function DashboardV2Page({
 }) {
   const sp = await searchParams;
   const filter = normalizeFilter(sp.queue);
+  // Week-2: role-aware persona resolution. Director = existing view; counselor = new hero strip.
+  const persona = await getDashboardPersona();
+  const isCounselor = persona === 'counselor';
 
   return (
     <ContentLayout title='Dashboard'>
@@ -196,15 +208,17 @@ export default async function DashboardV2Page({
           <LiveMorningBrief />
         </Suspense>
 
-        {/* Hero Strip — 4 tiles with live data (spec §7.1) */}
+        {/* Hero Strip — role-aware (§7.1 Director / §5+§8 Counselor) */}
         <Suspense fallback={<HeroSkeleton />}>
-          <LiveHeroStrip />
+          {isCounselor ? <LiveCounselorHero /> : <LiveHeroStrip />}
         </Suspense>
 
-        {/* Institution quick-drill chips */}
-        <Suspense fallback={null}>
-          <InstitutionChips />
-        </Suspense>
+        {/* Institution quick-drill chips — director-only (counselor scope is self-only) */}
+        {!isCounselor && (
+          <Suspense fallback={null}>
+            <InstitutionChips />
+          </Suspense>
+        )}
 
         {/* Decision Queue with live data + inline actions (spec §7.2) */}
         <Suspense fallback={<QueueSkeleton />}>
