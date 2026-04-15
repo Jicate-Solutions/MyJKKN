@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
       search: url.searchParams.get('search') ?? undefined,
       page: url.searchParams.get('page') ? parseInt(url.searchParams.get('page')!, 10) : 1,
       pageSize: url.searchParams.get('pageSize') ? parseInt(url.searchParams.get('pageSize')!, 10) : 25,
+      include_staff: url.searchParams.get('include_staff') === 'false' ? false : undefined,
     };
 
     const result = await HRPersonService.list(supabase, filters);

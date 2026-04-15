@@ -64,7 +64,7 @@ export default function NewHREmployeePage() {
   };
 
   return (
-    <ContentLayout title="HR — New Employee">
+    <ContentLayout title="HR — Add Non-Staff Employee">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -75,12 +75,12 @@ export default function NewHREmployeePage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/hr/employees">Employees</Link>
+              <Link href="/hr/employees">Non-Staff Workforce</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>New</BreadcrumbPage>
+            <BreadcrumbPage>Add</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -88,7 +88,11 @@ export default function NewHREmployeePage() {
       <div className="mt-6 max-w-2xl">
         <Card>
           <CardHeader>
-            <CardTitle>New Employee</CardTitle>
+            <CardTitle>Add Non-Staff Employee</CardTitle>
+            <p className="text-xs text-muted-foreground pt-1">
+              Guest lecturer, vendor-monitored worker, or unpaid volunteer.
+              Full-time staff are added at <Link href="/staff/list" className="underline">Employee Management</Link>.
+            </p>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">

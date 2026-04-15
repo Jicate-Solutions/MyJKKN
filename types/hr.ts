@@ -167,6 +167,11 @@ export interface HRPersonFilters {
   search?: string;
   page?: number;
   pageSize?: number;
+  // When false, the list endpoint skips full-time staff rows entirely.
+  // Used by /hr/employees (scoped to non-staff: guests, vendors, TAs, volunteers).
+  // Full-time staff are managed on /staff/list; showing them in both places caused
+  // visible-but-not-real duplication (the two URLs showed the same 393 rows).
+  include_staff?: boolean;
 }
 
 // === API response ===
