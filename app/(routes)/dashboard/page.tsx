@@ -15,6 +15,8 @@ import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
 import { HeroStrip } from '@/components/dashboard/hero-strip';
+import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
+import { createClient } from '@/lib/supabase/server';
 
 export const revalidate = 30; // Re-fetch metrics every 30s (matches SLA leaderboard cadence)
 
