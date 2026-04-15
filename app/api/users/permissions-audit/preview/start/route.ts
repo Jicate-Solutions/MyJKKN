@@ -12,7 +12,6 @@ import {
   mintPreviewToken,
   writePreviewAudit,
   PREVIEW_COOKIE_NAME,
-  DIRECTOR_EMAIL,
   canUseWriteMode,
   type PreviewMode,
 } from '@/lib/auth/preview-session';
@@ -130,7 +129,7 @@ export async function POST(request: NextRequest) {
     if (isWriteRequested && !canUseWriteMode(callerProfile.email)) {
       return NextResponse.json(
         {
-          error: `Write-mode preview is restricted to ${DIRECTOR_EMAIL}. You may preview in read-only mode.`,
+          error: `Write-mode preview is restricted to the director and the MyJKKN lead developer. You may preview in read-only mode.`,
         },
         { status: 403 },
       );
@@ -303,12 +302,14 @@ export async function POST(request: NextRequest) {
       actionType: 'preview_session_started',
       actorUserId: callerProfile.id,
       actorName: callerProfile.full_name || callerProfile.email || 'Unknown',
+      actorEmail: callerProfile.email ?? null,
+      actorRole: callerProfile.role ?? null,
       targetUserId: target.id,
+      targetEmail: target.email,
       mode: effectiveMode,
       sessionId,
       description: `${callerProfile.full_name || callerProfile.email} started a ${effectiveMode} preview session as ${targetLabel}`,
       extra: {
-        target_email: target.email,
         target_role: target.role,
       },
     });

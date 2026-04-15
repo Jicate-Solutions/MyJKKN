@@ -37,8 +37,19 @@ import { createClient } from '@supabase/supabase-js'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-/** Email allowed to use WRITE mode. All other super admins are read-only. */
+/**
+ * Emails allowed to use WRITE mode. All other super admins are read-only.
+ * - director@jkkn.ac.in — institutional director
+ * - boobalan.a@jkkn.ac.in — MyJKKN lead developer (needs write preview for
+ *   verifying bug fixes as real target users)
+ * DIRECTOR_EMAIL stays exported as the canonical "primary" entry for backwards
+ * compat with any other code that imports it.
+ */
 export const DIRECTOR_EMAIL = 'director@jkkn.ac.in'
+export const WRITE_MODE_ALLOWED_EMAILS: readonly string[] = [
+  'director@jkkn.ac.in',
+  'boobalan.a@jkkn.ac.in',
+] as const
 
 /** Cookie name carrying the preview JWT. */
 export const PREVIEW_COOKIE_NAME = 'sb-preview-session'
@@ -187,7 +198,10 @@ export async function writePreviewAudit(params: {
   actionType: 'preview_session_started' | 'preview_session_ended' | 'preview_mutation_blocked'
   actorUserId: string
   actorName: string
+  actorEmail?: string | null
+  actorRole?: string | null
   targetUserId: string
+  targetEmail?: string | null
   mode: PreviewMode
   sessionId: string
   description: string
@@ -195,20 +209,38 @@ export async function writePreviewAudit(params: {
 }): Promise<void> {
   try {
     const sb = getServiceRoleClient()
+    // Pull email/role out of `extra` for callers that still pass them the legacy
+    // way (target_email / target_role inside extra). Dedicated params win.
+    const extra = (params.extra ?? {}) as Record<string, unknown>
+    const targetEmail =
+      params.targetEmail ??
+      (typeof extra.target_email === 'string' ? (extra.target_email as string) : null)
+    const targetRoleFromExtra =
+      typeof extra.target_role === 'string' ? (extra.target_role as string) : undefined
+
+    const metadata = {
+      mode: params.mode,
+      sessionId: params.sessionId,
+      ...(targetRoleFromExtra ? { target_role: targetRoleFromExtra } : {}),
+      ...extra,
+    }
+
     await sb.from('role_audit_log').insert({
       action_type: params.actionType,
       actor_user_id: params.actorUserId,
       actor_name: params.actorName,
+      actor_email: params.actorEmail ?? null,
+      actor_role: params.actorRole ?? null,
       target_user_id: params.targetUserId,
-      new_value: {
-        mode: params.mode,
-        sessionId: params.sessionId,
-        ...(params.extra ?? {}),
-      },
+      target_email: targetEmail,
+      metadata,
+      // Keep the legacy columns populated too so existing audit UIs that read
+      // `new_value` / `description` don't regress.
+      new_value: metadata,
       description: params.description,
     })
   } catch (err) {
-    console.error('[preview-session] audit write failed:', err)
+    console.error('[preview-session] Audit write failed — Non-fatal', err)
   }
 }
 
@@ -220,7 +252,10 @@ export async function writePreviewAudit(params: {
  */
 export function allowedPreviewModeFor(email: string | null | undefined): PreviewMode {
   if (!email) return 'read'
-  return email.toLowerCase() === DIRECTOR_EMAIL.toLowerCase() ? 'write' : 'read'
+  const normalized = email.toLowerCase()
+  return WRITE_MODE_ALLOWED_EMAILS.some((e) => e.toLowerCase() === normalized)
+    ? 'write'
+    : 'read'
 }
 
 export function canUseWriteMode(email: string | null | undefined): boolean {

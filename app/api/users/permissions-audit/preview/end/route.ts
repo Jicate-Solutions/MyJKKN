@@ -1,7 +1,6 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
@@ -17,12 +16,23 @@ import { PREVIEW_ADMIN_BACKUP_COOKIE } from '../start/route';
 // POST /api/users/permissions-audit/preview/end
 //
 // Ends the current preview session:
-//   1. Audit the end event (if a live preview existed)
-//   2. Wipe the target's Supabase auth cookies from the browser
-//   3. Restore the admin's original auth cookies from PREVIEW_ADMIN_BACKUP
-//   4. Delete the preview marker + backup cookies
+//   1. Audit the end event (if a live preview existed) via service-role
+//   2. Replace every sb-*-auth-token* cookie on the browser with the admin's
+//      backed-up value (or delete it if not in the backup).
+//   3. Delete the preview marker + backup cookies.
 //
-// Always safe to call — if no preview was active, it's effectively a no-op.
+// IMPORTANT — why we DO NOT call supabase.auth.signOut() any more:
+//   Earlier versions used `signOut({scope: 'local'})` to wipe cookies. That
+//   call sets Set-Cookie headers for each auth-token chunk to EMPTY via
+//   supabase-ssr's adapter. We then tried to set the SAME cookie names back
+//   to the admin's backup values on the same response. In practice the two
+//   sets of Set-Cookie headers collided and the browser ended up with either
+//   empty or the "last wins" cookie — inconsistent across chunks — so the
+//   admin landed on `/` fully logged out.
+//
+//   The fix: skip the wipe, just write the admin's backed-up cookie values
+//   directly. Any cookie whose name matches sb-*-auth-token* but is NOT in
+//   the backup gets explicitly deleted so orphan target chunks can't leak.
 // ============================================================================
 
 interface BackedUpCookie {
@@ -36,29 +46,43 @@ export async function POST() {
   try {
     const cookieStore = await cookies();
 
-    // Read preview claims first so we can audit correctly — we need them
-    // BEFORE any cookie mutation because the whole session is about to be
-    // wiped.
+    // Read preview claims FIRST — we need them before any cookie mutation
+    // because the session is about to be restored to the admin's.
     const claims = await getPreviewClaimsFromCookies();
 
     // ── Audit (best-effort) ────────────────────────────────────────────────
     if (claims) {
-      // Look up the admin's profile via service-role. We can't trust the
-      // current session — it's the target's, not the admin's.
+      // Look up the admin's + target's profiles via service-role. We can't
+      // trust the current session — it's the target's, not the admin's.
       let actorName = 'Unknown';
+      let actorEmail: string | null = null;
+      let actorRole: string | null = null;
+      let targetEmail: string | null = null;
       try {
         const serviceClient = createClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
           { auth: { autoRefreshToken: false, persistSession: false } },
         );
-        const { data: adminProfile } = await serviceClient
-          .from('profiles')
-          .select('full_name, email')
-          .eq('id', claims.originator)
-          .single();
+        const [{ data: adminProfile }, { data: targetProfile }] = await Promise.all([
+          serviceClient
+            .from('profiles')
+            .select('full_name, email, role')
+            .eq('id', claims.originator)
+            .single(),
+          serviceClient
+            .from('profiles')
+            .select('email')
+            .eq('id', claims.sub)
+            .single(),
+        ]);
         if (adminProfile) {
           actorName = adminProfile.full_name || adminProfile.email || 'Unknown';
+          actorEmail = adminProfile.email ?? null;
+          actorRole = adminProfile.role ?? null;
+        }
+        if (targetProfile) {
+          targetEmail = targetProfile.email ?? null;
         }
       } catch (auditLookupErr) {
         console.error(
@@ -71,7 +95,10 @@ export async function POST() {
         actionType: 'preview_session_ended',
         actorUserId: claims.originator,
         actorName,
+        actorEmail,
+        actorRole,
         targetUserId: claims.sub,
+        targetEmail,
         mode: claims.mode,
         sessionId: claims.sessionId,
         description: `${actorName} ended preview session`,
@@ -82,68 +109,73 @@ export async function POST() {
     const res = NextResponse.json({ ok: true });
     const secureFlag = process.env.NODE_ENV === 'production';
 
-    // 1. Wipe the target's Supabase session from the browser using
-    //    supabase-ssr's own adapter so chunk names (sb-<ref>-auth-token.*)
-    //    are cleared using the same naming scheme Supabase used to write
-    //    them. scope:'local' means we only forget the cookies; we don't
-    //    revoke the token server-side (admin could re-preview any time).
-    try {
-      const wipeClient = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          cookies: {
-            get(name: string) {
-              return cookieStore.get(name)?.value;
-            },
-            set(name: string, value: string, options: any) {
-              res.cookies.set(name, value, {
-                ...options,
-                secure: secureFlag,
-                sameSite: 'lax',
-                path: '/',
-              });
-            },
-            remove(name: string, options: any) {
-              res.cookies.set(name, '', { ...options, maxAge: 0, path: '/' });
-            },
-          },
-        },
-      );
-      await wipeClient.auth.signOut({ scope: 'local' });
-    } catch (wipeErr) {
-      console.error(
-        '[preview/end] Session wipe failed — Non-fatal, continuing to restore admin',
-        wipeErr,
-      );
-    }
-
-    // 2. Restore admin's original auth cookies from the backup.
+    // Parse the backup (may be absent if preview expired and cookie already
+    // rolled off, or if the admin hit /end without ever starting).
     const backupRaw = cookieStore.get(PREVIEW_ADMIN_BACKUP_COOKIE)?.value;
-    if (backupRaw) {
+    const backup: BackedUpCookie[] = (() => {
+      if (!backupRaw) return [];
       try {
-        const backup = JSON.parse(backupRaw) as BackedUpCookie[];
-        if (Array.isArray(backup)) {
-          for (const c of backup) {
-            if (typeof c?.name === 'string' && typeof c?.value === 'string') {
-              res.cookies.set(c.name, c.value, {
-                httpOnly: true,
-                secure: secureFlag,
-                sameSite: 'lax',
-                path: '/',
-              });
-            }
-          }
-        }
+        const parsed = JSON.parse(backupRaw);
+        return Array.isArray(parsed) ? (parsed as BackedUpCookie[]) : [];
       } catch (parseErr) {
         console.error(
           '[preview/end] Admin backup cookie parse failed — Admin will need to re-login',
           parseErr,
         );
+        return [];
+      }
+    })();
+
+    const backupByName = new Map<string, string>();
+    for (const c of backup) {
+      if (typeof c?.name === 'string' && typeof c?.value === 'string') {
+        backupByName.set(c.name, c.value);
       }
     }
 
-    // 3. Delete the preview marker + backup cookies.
+    // Collect every current sb-*-auth-token* cookie on the browser (currently
+    // the TARGET's session). For each one: if the admin had it in the backup,
+    // overwrite with the admin's value; otherwise delete it (it's an orphan
+    // target chunk that mustn't be left behind).
+    const currentAuthCookies = cookieStore
+      .getAll()
+      .filter((c) => c.name.startsWith('sb-') && c.name.includes('-auth-token'));
+
+    const processedNames = new Set<string>();
+    for (const c of currentAuthCookies) {
+      processedNames.add(c.name);
+      const adminValue = backupByName.get(c.name);
+      if (adminValue !== undefined) {
+        res.cookies.set(c.name, adminValue, {
+          httpOnly: true,
+          secure: secureFlag,
+          sameSite: 'lax',
+          path: '/',
+        });
+      } else {
+        res.cookies.set(c.name, '', {
+          httpOnly: true,
+          secure: secureFlag,
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 0,
+        });
+      }
+    }
+
+    // Any cookie in the backup that DOES NOT currently exist on the browser
+    // (e.g. the admin had more chunks than the target) — restore those too.
+    for (const [name, value] of backupByName.entries()) {
+      if (processedNames.has(name)) continue;
+      res.cookies.set(name, value, {
+        httpOnly: true,
+        secure: secureFlag,
+        sameSite: 'lax',
+        path: '/',
+      });
+    }
+
+    // Delete preview marker + backup cookies.
     res.cookies.set(PREVIEW_COOKIE_NAME, '', {
       httpOnly: true,
       secure: secureFlag,
