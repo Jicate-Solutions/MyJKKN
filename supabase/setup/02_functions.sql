@@ -6051,3 +6051,158 @@ EXCEPTION WHEN OTHERS THEN
   RETURN json_build_object('success', false, 'error', SQLERRM, 'code', SQLSTATE);
 END;
 $$;
+
+
+-- =====================================================
+-- Dashboard v2 — fn_dashboard_metrics (Day 2)
+-- Added: 2026-04-15 - Single RPC returning all 4 hero tile metrics
+-- Scoped by institution_id (NULL = all JKKN) and department_id (NULL = all)
+-- SECURITY DEFINER — aggregates across RLS-protected tables
+-- Returns JSONB: { ohs, pipeline, attendance, pending_decisions, scope }
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION fn_dashboard_metrics(
+  p_institution_id UUID DEFAULT NULL,
+  p_department_id UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_today DATE := (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date;
+  v_att_total INT := 0;
+  v_att_present INT := 0;
+  v_att_pct NUMERIC := NULL;
+  v_att_baseline_pct NUMERIC := NULL;
+  v_att_score INT := 100;
+  v_sla_compliance INT := 100;
+  v_fee_today NUMERIC := 0;
+  v_fee_plan NUMERIC := 100000;
+  v_fee_score INT := 100;
+  v_escalations_open INT := 0;
+  v_escalations_score INT := 100;
+  v_ohs_score INT;
+  v_pipeline_inr NUMERIC := 0;
+  v_pipeline_count INT := 0;
+  v_pending_decisions INT := 0;
+  v_cfg dashboard_config;
+BEGIN
+  SELECT * INTO v_cfg FROM dashboard_config WHERE scope = 'global' LIMIT 1;
+
+  -- Attendance: aggregate JSONB
+  SELECT COALESCE(SUM(cnt_total), 0), COALESCE(SUM(cnt_present), 0)
+  INTO v_att_total, v_att_present
+  FROM (
+    SELECT
+      (SELECT COUNT(*) FROM jsonb_path_query_array(sa.attendance_data, '$.*.students[*]') AS ja(v))::int AS cnt_total,
+      (SELECT COUNT(*) FROM jsonb_path_query_array(sa.attendance_data, '$.*.students[*] ? (@.status == "Present")') AS jp(v))::int AS cnt_present
+    FROM student_attendance sa
+    WHERE sa.attendance_date = v_today
+      AND (p_institution_id IS NULL OR sa.institution_id = p_institution_id)
+      AND (p_department_id IS NULL OR sa.department_id = p_department_id)
+  ) agg;
+
+  IF v_att_total > 0 THEN
+    v_att_pct := ROUND((v_att_present::numeric * 100.0) / v_att_total, 1);
+  END IF;
+
+  -- 7-day baseline
+  SELECT AVG(daily_pct) INTO v_att_baseline_pct
+  FROM (
+    SELECT CASE WHEN SUM(tot) > 0 THEN (SUM(pres)::numeric * 100.0 / SUM(tot)) ELSE NULL END AS daily_pct
+    FROM (
+      SELECT sa.attendance_date,
+        (SELECT COUNT(*) FROM jsonb_path_query_array(sa.attendance_data, '$.*.students[*]') AS ja(v)) AS tot,
+        (SELECT COUNT(*) FROM jsonb_path_query_array(sa.attendance_data, '$.*.students[*] ? (@.status == "Present")') AS jp(v)) AS pres
+      FROM student_attendance sa
+      WHERE sa.attendance_date BETWEEN v_today - INTERVAL '7 days' AND v_today - INTERVAL '1 day'
+        AND (p_institution_id IS NULL OR sa.institution_id = p_institution_id)
+        AND (p_department_id IS NULL OR sa.department_id = p_department_id)
+    ) by_day
+    GROUP BY attendance_date
+  ) daily;
+
+  IF v_att_pct IS NOT NULL AND v_att_baseline_pct IS NOT NULL AND v_att_baseline_pct > 0 THEN
+    v_att_score := LEAST(100, GREATEST(0, ROUND((v_att_pct / v_att_baseline_pct) * 100)::int));
+  ELSIF v_att_pct IS NOT NULL THEN
+    v_att_score := LEAST(100, GREATEST(0, ROUND(v_att_pct)::int));
+  END IF;
+
+  -- SLA compliance
+  SELECT CASE WHEN COUNT(*) = 0 THEN 100
+    ELSE ROUND(COUNT(*) FILTER (WHERE first_touch_at IS NOT NULL
+      AND EXTRACT(EPOCH FROM (first_touch_at - created_at))/3600.0 <= v_cfg.cold_lead_threshold_hours
+    )::numeric * 100.0 / COUNT(*))::int END
+  INTO v_sla_compliance
+  FROM admission_leads
+  WHERE created_at >= NOW() - INTERVAL '24 hours'
+    AND score >= 70
+    AND (p_institution_id IS NULL OR institution_id = p_institution_id);
+
+  -- Fee collection
+  SELECT COALESCE(SUM(payment_amount), 0) INTO v_fee_today
+  FROM billing_receipts
+  WHERE (receipt_date::date = v_today OR payment_paid_date::date = v_today)
+    AND (p_institution_id IS NULL OR institution_id = p_institution_id);
+  v_fee_score := LEAST(100, GREATEST(0, ROUND((v_fee_today / NULLIF(v_fee_plan, 0)) * 100)::int));
+
+  -- Escalations
+  SELECT COUNT(*) INTO v_escalations_open
+  FROM grievance_tickets
+  WHERE status NOT IN ('resolved', 'closed', 'cancelled')
+    AND sla_deadline IS NOT NULL AND sla_deadline < NOW()
+    AND (p_institution_id IS NULL OR institution_id = p_institution_id);
+  v_escalations_score := GREATEST(0, 100 - (v_escalations_open * 5));
+
+  -- OHS composite
+  v_ohs_score := ROUND(
+    (v_att_score * v_cfg.ohs_attendance_weight) +
+    (v_sla_compliance * v_cfg.ohs_sla_weight) +
+    (v_fee_score * v_cfg.ohs_fees_weight) +
+    (v_escalations_score * v_cfg.ohs_escalations_weight)
+  )::int;
+
+  -- Pipeline value
+  SELECT
+    COALESCE(SUM(COALESCE(conversion_probability, 0.5) * 100000), 0),
+    COUNT(*) FILTER (WHERE score >= 70 AND funnel_stage::text NOT IN ('enrolled','lost','withdrew','declined','expired'))
+  INTO v_pipeline_inr, v_pipeline_count
+  FROM admission_leads
+  WHERE funnel_stage::text NOT IN ('enrolled','lost','withdrew','declined','expired')
+    AND (p_institution_id IS NULL OR institution_id = p_institution_id);
+
+  -- Pending decisions (requires_acknowledgment unacknowledged)
+  SELECT COUNT(*) INTO v_pending_decisions
+  FROM user_notifications un
+  JOIN notifications n ON n.id = un.notification_id
+  WHERE un.user_id = auth.uid()
+    AND un.acknowledged_at IS NULL
+    AND n.requires_acknowledgment = TRUE
+    AND (n.expires_at IS NULL OR n.expires_at > NOW());
+
+  RETURN jsonb_build_object(
+    'ohs', jsonb_build_object(
+      'score', v_ohs_score,
+      'band', CASE WHEN v_ohs_score < v_cfg.ohs_red_ceiling THEN 'red'
+                   WHEN v_ohs_score < v_cfg.ohs_amber_ceiling THEN 'amber'
+                   ELSE 'green' END,
+      'components', jsonb_build_object(
+        'attendance', v_att_score, 'sla', v_sla_compliance,
+        'fees', v_fee_score, 'escalations', v_escalations_score
+      )
+    ),
+    'pipeline', jsonb_build_object('value_inr', v_pipeline_inr, 'lead_count', v_pipeline_count),
+    'attendance', jsonb_build_object('pct_today', v_att_pct, 'pct_baseline', v_att_baseline_pct,
+      'present', v_att_present, 'total', v_att_total),
+    'pending_decisions', jsonb_build_object('count', v_pending_decisions),
+    'scope', jsonb_build_object('institution_id', p_institution_id,
+      'department_id', p_department_id, 'computed_at', NOW())
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION fn_dashboard_metrics(UUID, UUID) TO authenticated;
+
+-- END Dashboard v2 functions
