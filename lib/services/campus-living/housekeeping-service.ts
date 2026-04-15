@@ -154,7 +154,8 @@ export class HousekeepingService {
   ) {
     try {
       const supabase = createClientSupabaseClient();
-      let query = supabase
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let query: any = supabase
         .from('hostel_cleaning_tasks')
         .select('*', { count: 'exact' })
         .eq('institution_id', institutionId);
