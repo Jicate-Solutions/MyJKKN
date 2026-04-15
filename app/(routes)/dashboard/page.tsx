@@ -17,7 +17,12 @@ import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-
 import { HeroStrip } from '@/components/dashboard/hero-strip';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
+import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
 import type { QueueFilter } from '@/lib/services/dashboard/decision-queue-service';
+import {
+  getSlaDailyLeaderboard,
+  getConversionMonthlyLeaderboard
+} from '@/lib/services/dashboard/leaderboard-service';
 import { createClient } from '@/lib/supabase/server';
 
 const VALID_FILTERS: QueueFilter[] = [
