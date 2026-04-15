@@ -6847,6 +6847,60 @@ $function$;
 -- =====================================================
 
 CREATE OR REPLACE FUNCTION fn_counselor_metrics()
+-- =====================================================================
+-- 2026-04-15 — Dashboard v2: Web Push delivery trigger functions
+-- Spec: specs/myjkkn-dashboard-v2-spec.md §4.4, §6.2
+-- Agent B (PR feat/dashboard-v2-push-send)
+-- Fires /api/dashboard/push-send via pg_net when an urgent/high
+-- acknowledgment-required dashboard notification is queued.
+-- Requires runtime config:
+--   ALTER DATABASE postgres SET app.push_send_endpoint = 'https://www.jkkn.ai/api/dashboard/push-send';
+--   ALTER DATABASE postgres SET app.service_role_key = '<SERVICE_ROLE_KEY>';
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_trigger_push_send(p_user_notification_id UUID)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+DECLARE
+  v_endpoint TEXT;
+  v_service_key TEXT;
+  v_request_id BIGINT;
+BEGIN
+  BEGIN
+    v_endpoint := current_setting('app.push_send_endpoint', true);
+    v_service_key := current_setting('app.service_role_key', true);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[fn_trigger_push_send] settings lookup failed: %', SQLERRM;
+    RETURN;
+  END;
+
+  IF v_endpoint IS NULL OR v_endpoint = '' OR v_service_key IS NULL OR v_service_key = '' THEN
+    RAISE WARNING '[fn_trigger_push_send] app.push_send_endpoint / app.service_role_key not configured — skipping user_notification %', p_user_notification_id;
+    RETURN;
+  END IF;
+
+  BEGIN
+    SELECT extensions.http_post(
+      url := v_endpoint,
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || v_service_key
+      ),
+      body := jsonb_build_object('userNotificationId', p_user_notification_id::text)
+    ) INTO v_request_id;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[fn_trigger_push_send] pg_net call failed for %: %', p_user_notification_id, SQLERRM;
+  END;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.fn_trigger_push_send(UUID) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.trg_notify_push_on_queue_insert_fn()
+RETURNS TRIGGER
 -- ================================================================================
 -- DASHBOARD V2 — MATERIALIZED VIEW REFRESH
 -- Added: 2026-04-15 — Vercel Cron scheduled refresh for dashboard leaderboards.
@@ -7042,6 +7096,24 @@ $$;
 GRANT EXECUTE ON FUNCTION fn_counselor_metrics() TO authenticated;
 
 -- END Dashboard v2 Week-2 Counselor functions
+  v_priority TEXT;
+  v_category TEXT;
+  v_requires_ack BOOLEAN;
+BEGIN
+  SELECT n.priority, n.category, COALESCE(n.requires_acknowledgment, false)
+    INTO v_priority, v_category, v_requires_ack
+  FROM notifications n
+  WHERE n.id = NEW.notification_id;
+
+  IF v_priority IN ('urgent', 'high')
+     AND v_requires_ack = TRUE
+     AND v_category LIKE 'dashboard:%' THEN
+    PERFORM public.fn_trigger_push_send(NEW.id);
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
     v_refreshed TEXT;
     v_ran_at TIMESTAMPTZ := NOW();
 BEGIN
