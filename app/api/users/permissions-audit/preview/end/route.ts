@@ -46,19 +46,34 @@ export async function POST() {
       // Look up the admin's profile via service-role. We can't trust the
       // current session — it's the target's, not the admin's.
       let actorName = 'Unknown';
+      let actorEmail: string | null = null;
+      let actorRole: string | null = null;
+      let targetEmail: string | null = null;
       try {
         const serviceClient = createClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
           { auth: { autoRefreshToken: false, persistSession: false } },
         );
-        const { data: adminProfile } = await serviceClient
-          .from('profiles')
-          .select('full_name, email')
-          .eq('id', claims.originator)
-          .single();
+        const [{ data: adminProfile }, { data: targetProfile }] = await Promise.all([
+          serviceClient
+            .from('profiles')
+            .select('full_name, email, role')
+            .eq('id', claims.originator)
+            .single(),
+          serviceClient
+            .from('profiles')
+            .select('email')
+            .eq('id', claims.sub)
+            .single(),
+        ]);
         if (adminProfile) {
           actorName = adminProfile.full_name || adminProfile.email || 'Unknown';
+          actorEmail = adminProfile.email ?? null;
+          actorRole = adminProfile.role ?? null;
+        }
+        if (targetProfile) {
+          targetEmail = targetProfile.email ?? null;
         }
       } catch (auditLookupErr) {
         console.error(
@@ -71,7 +86,10 @@ export async function POST() {
         actionType: 'preview_session_ended',
         actorUserId: claims.originator,
         actorName,
+        actorEmail,
+        actorRole,
         targetUserId: claims.sub,
+        targetEmail,
         mode: claims.mode,
         sessionId: claims.sessionId,
         description: `${actorName} ended preview session`,

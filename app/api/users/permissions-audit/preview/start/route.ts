@@ -303,12 +303,14 @@ export async function POST(request: NextRequest) {
       actionType: 'preview_session_started',
       actorUserId: callerProfile.id,
       actorName: callerProfile.full_name || callerProfile.email || 'Unknown',
+      actorEmail: callerProfile.email ?? null,
+      actorRole: callerProfile.role ?? null,
       targetUserId: target.id,
+      targetEmail: target.email,
       mode: effectiveMode,
       sessionId,
       description: `${callerProfile.full_name || callerProfile.email} started a ${effectiveMode} preview session as ${targetLabel}`,
       extra: {
-        target_email: target.email,
         target_role: target.role,
       },
     });
