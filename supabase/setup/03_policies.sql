@@ -4802,3 +4802,28 @@ CREATE POLICY "staff_plans_delete_permission" ON staff_plans FOR DELETE USING (
   is_super_admin() OR is_admin()
   OR (user_has_permission('academic.staff.planning.delete') AND role_has_institution_access(institution_id))
 );
+
+-- ---- user_roles --------------------------------------------------------------
+-- Updated: 2026-04-15 - Replace hardcoded profiles.role IN ('super_admin','admin')
+-- checks with the standard contract using roles.{create,edit,delete} permission keys.
+-- Self-view stays open (a user can always read their own user_roles rows).
+DROP POLICY IF EXISTS "Admins can insert user roles"   ON user_roles;
+DROP POLICY IF EXISTS "Admins can update user roles"   ON user_roles;
+DROP POLICY IF EXISTS "Admins can delete user roles"   ON user_roles;
+DROP POLICY IF EXISTS "Admins can view all user roles" ON user_roles;
+DROP POLICY IF EXISTS "user_roles_select_admin"        ON user_roles;
+
+CREATE POLICY "user_roles_select_admin" ON user_roles FOR SELECT USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.edit')
+);
+CREATE POLICY "user_roles_insert_permission" ON user_roles FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.create')
+);
+CREATE POLICY "user_roles_update_permission" ON user_roles FOR UPDATE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.edit')
+);
+CREATE POLICY "user_roles_delete_permission" ON user_roles FOR DELETE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.delete')
+);
+-- "Users can view own roles" + user_roles_select_own pre-existing self-view policies
+-- are intentionally preserved so users can always read their own assignments.

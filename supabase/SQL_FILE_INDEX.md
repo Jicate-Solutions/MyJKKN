@@ -6,6 +6,11 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-15** — `user_roles` RLS aligned to permission contract; staff edit no longer fails on no-op role resync
+  - `03_policies.sql`: dropped 4 hardcoded `profiles.role IN ('super_admin','admin')` policies on `user_roles`. Added 4 contract policies keyed on `roles.{create,edit,delete}`. Self-view policies preserved.
+  - `lib/services/staff/staff-service.ts`: `updateStaff` now skips `assignRoles` when `data.role_key === currentStaff.role_key` (avoided unnecessary DELETE+INSERT cycle that surfaced as a 42501 RLS error for callers without `roles.create`). Pre-fetch select extended to include `role_key`.
+  - Migration: `user_roles_align_to_permission_contract`.
+
 - **2026-04-15** — Per-module access scope (Option A) for custom roles
   - `01_tables.sql`: `custom_roles.module_scopes JSONB DEFAULT '{}'` (per-module scope override of `institution_scope`).
   - `02_functions.sql`: `get_user_module_scope(module_key)` returns most-permissive scope across user's roles; `role_has_module_access(module_key, institution_id, owner_email)` combines that with row-level checks.
