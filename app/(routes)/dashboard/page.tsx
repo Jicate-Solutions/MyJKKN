@@ -199,6 +199,16 @@ export default async function DashboardV2Page({
           <DecisionQueue filter={filter} />
         </Suspense>
 
+        {/* Leaderboards (spec §7.6) — side-by-side on desktop, stacked on mobile */}
+        <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
+          <Suspense fallback={<LeaderboardSkeleton />}>
+            <LiveSlaLeaderboard />
+          </Suspense>
+          <Suspense fallback={<LeaderboardSkeleton />}>
+            <LiveConversionLeaderboard />
+          </Suspense>
+        </div>
+
         {/* Footer link to classic */}
         <div className='text-center text-xs text-neutral-400 dark:text-neutral-600 pt-4'>
           Prefer the old dashboard?{' '}
