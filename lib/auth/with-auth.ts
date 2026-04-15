@@ -15,7 +15,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   getPreviewClaimsFromCookies,
   writePreviewAudit,
-  DIRECTOR_EMAIL,
+  canUseWriteMode,
 } from '@/lib/auth/preview-session'
 
 // ── Types ────────────────────────────────────────────────────
@@ -181,10 +181,14 @@ export function withAuth(handler: AuthenticatedHandler, options?: AuthOptions) {
           const isMutation = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
 
           if (isMutation) {
-            // Re-verify: even write-mode requires the originator's email to match.
+            // Re-verify: even write-mode requires the originator's email to be
+            // on the write-mode allowlist (director + lead developer). We
+            // don't trust the JWT's `mode: write` claim alone — an attacker
+            // who forged/stole a write token still can't mutate unless the
+            // email claim matches an allowed one.
             const writeAllowed =
               previewClaims.mode === 'write' &&
-              previewClaims.originator_email?.toLowerCase() === DIRECTOR_EMAIL.toLowerCase()
+              canUseWriteMode(previewClaims.originator_email)
 
             if (!writeAllowed) {
               // Audit the blocked attempt so we have forensic visibility.
