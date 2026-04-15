@@ -208,15 +208,17 @@ export default async function DashboardV2Page({
           <LiveMorningBrief />
         </Suspense>
 
-        {/* Hero Strip — 4 tiles with live data (spec §7.1) */}
+        {/* Hero Strip — role-aware (§7.1 Director / §5+§8 Counselor) */}
         <Suspense fallback={<HeroSkeleton />}>
-          <LiveHeroStrip />
+          {isCounselor ? <LiveCounselorHero /> : <LiveHeroStrip />}
         </Suspense>
 
-        {/* Institution quick-drill chips */}
-        <Suspense fallback={null}>
-          <InstitutionChips />
-        </Suspense>
+        {/* Institution quick-drill chips — director-only (counselor scope is self-only) */}
+        {!isCounselor && (
+          <Suspense fallback={null}>
+            <InstitutionChips />
+          </Suspense>
+        )}
 
         {/* Decision Queue with live data + inline actions (spec §7.2) */}
         <Suspense fallback={<QueueSkeleton />}>
