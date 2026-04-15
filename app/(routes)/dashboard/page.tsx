@@ -16,7 +16,22 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
 import { HeroStrip } from '@/components/dashboard/hero-strip';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
+import { DecisionQueue } from '@/components/dashboard/decision-queue';
+import type { QueueFilter } from '@/lib/services/dashboard/decision-queue-service';
 import { createClient } from '@/lib/supabase/server';
+
+const VALID_FILTERS: QueueFilter[] = [
+  'all',
+  'approval',
+  'escalation',
+  'rescue',
+  'anomaly'
+];
+
+function normalizeFilter(raw: string | string[] | undefined): QueueFilter {
+  if (!raw || Array.isArray(raw)) return 'all';
+  return (VALID_FILTERS as string[]).includes(raw) ? (raw as QueueFilter) : 'all';
+}
 
 export const revalidate = 30; // Re-fetch metrics every 30s (matches SLA leaderboard cadence)
 
