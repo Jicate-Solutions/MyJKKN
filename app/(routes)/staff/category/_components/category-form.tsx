@@ -29,6 +29,7 @@ import {
 const categorySchema = z.object({
   category_name: z.string().min(2, 'Name must be at least 2 characters'),
   description: z.string().optional(),
+  is_teaching: z.boolean().default(false),
   is_active: z.boolean().default(true)
 });
 
@@ -51,6 +52,7 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
     defaultValues: {
       category_name: category?.category_name || '',
       description: category?.description || '',
+      is_teaching: category?.is_teaching ?? false,
       is_active: category?.is_active ?? true
     }
   });
@@ -113,6 +115,30 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
                       Additional details about the category
                     </FormDescription>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='is_teaching'
+                render={({ field }) => (
+                  <FormItem className='flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm'>
+                    <div className='space-y-0.5'>
+                      <FormLabel>Teaching Category</FormLabel>
+                      <div className='text-sm text-muted-foreground'>
+                        Enable for categories whose staff teach students
+                        (Faculty, Facilitator, Principal). Teaching staff
+                        must be assigned to a department; non-teaching staff
+                        are institution-scoped only.
+                      </div>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
                   </FormItem>
                 )}
               />
