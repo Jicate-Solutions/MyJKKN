@@ -803,6 +803,14 @@ export function BugReporterWidget() {
       return;
     }
 
+    if (!capturedScreenshot) {
+      const proceed = window.confirm(
+        'No screenshot is attached — auto-capture may have failed. ' +
+          'Submit this bug report without a screenshot?'
+      );
+      if (!proceed) return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -988,6 +996,16 @@ export function BugReporterWidget() {
       const reportData = result.data || result;
 
       toast.success(successMessage);
+
+      if (result?.warnings?.screenshotUploadError) {
+        logger.warn('bug-reports', 'Screenshot upload warning', {
+          message: result.warnings.screenshotUploadError
+        });
+        toast(
+          `Bug saved, but the screenshot did not upload: ${result.warnings.screenshotUploadError}`,
+          { icon: '⚠️', duration: 8000 }
+        );
+      }
 
       setDescription('');
       setCategory('bug');

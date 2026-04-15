@@ -292,6 +292,7 @@ export async function POST(request: Request) {
 
     // Handle screenshot upload if provided
     let screenshotUrl: string | null = null;
+    let screenshotUploadError: string | null = null;
     if (validatedData.screenshot_data_url) {
       // Add screenshot upload task
       tasks.push(
@@ -315,6 +316,7 @@ export async function POST(request: Request) {
 
             if (uploadError) {
               logger.error('bug-reports/api', 'Screenshot upload error', uploadError);
+              screenshotUploadError = uploadError.message || 'Upload failed';
               return null;
             }
 
@@ -326,6 +328,8 @@ export async function POST(request: Request) {
             return screenshotUrl;
           } catch (error) {
             logger.error('bug-reports/api', 'Screenshot processing error', error);
+            screenshotUploadError =
+              error instanceof Error ? error.message : 'Unknown processing error';
             return null;
           }
         })()
@@ -423,12 +427,15 @@ export async function POST(request: Request) {
 
       if (updateError) {
         logger.error('bug-reports/api', 'Failed to update report with image URLs', updateError);
-        // Return original report even if update failed
         return NextResponse.json(
           {
             success: true,
             data: newReport,
-            message: 'Bug report created successfully (images upload pending)'
+            message: 'Bug report created successfully (images upload pending)',
+            warnings: {
+              screenshotUploadError:
+                screenshotUploadError ?? 'Failed to persist screenshot URL'
+            }
           },
           { status: 201 }
         );
@@ -438,7 +445,10 @@ export async function POST(request: Request) {
         {
           success: true,
           data: updatedReport,
-          message: `Bug report created successfully with ${finalScreenshotUrl ? 'screenshot' : ''}${finalScreenshotUrl && finalAttachmentUrls.length > 0 ? ' and ' : ''}${finalAttachmentUrls.length > 0 ? `${finalAttachmentUrls.length} additional image(s)` : ''}`
+          message: `Bug report created successfully with ${finalScreenshotUrl ? 'screenshot' : ''}${finalScreenshotUrl && finalAttachmentUrls.length > 0 ? ' and ' : ''}${finalAttachmentUrls.length > 0 ? `${finalAttachmentUrls.length} additional image(s)` : ''}`,
+          ...(screenshotUploadError && !finalScreenshotUrl
+            ? { warnings: { screenshotUploadError } }
+            : {})
         },
         { status: 201 }
       );
@@ -448,7 +458,10 @@ export async function POST(request: Request) {
       {
         success: true,
         data: newReport,
-        message: 'Bug report created successfully'
+        message: 'Bug report created successfully',
+        ...(screenshotUploadError
+          ? { warnings: { screenshotUploadError } }
+          : {})
       },
       { status: 201 }
     );
