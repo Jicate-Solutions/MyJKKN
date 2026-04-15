@@ -158,7 +158,14 @@ async function InstitutionChips() {
 // ============================================================================
 // Main page (server component — fetches RPC, renders)
 // ============================================================================
-export default function DashboardV2Page() {
+export default async function DashboardV2Page({
+  searchParams
+}: {
+  searchParams: Promise<{ queue?: string }>;
+}) {
+  const sp = await searchParams;
+  const filter = normalizeFilter(sp.queue);
+
   return (
     <ContentLayout title='Dashboard'>
       {/* Animated glass background */}
@@ -184,8 +191,10 @@ export default function DashboardV2Page() {
           <InstitutionChips />
         </Suspense>
 
-        {/* Decision Queue (spec §7.2) — wires Day 3 */}
-        <DecisionQueuePlaceholder />
+        {/* Decision Queue with live data + inline actions (spec §7.2) */}
+        <Suspense fallback={<QueueSkeleton />}>
+          <DecisionQueue filter={filter} />
+        </Suspense>
 
         {/* Footer link to classic */}
         <div className='text-center text-xs text-neutral-400 dark:text-neutral-600 pt-4'>
