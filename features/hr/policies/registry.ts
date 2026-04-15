@@ -45,21 +45,12 @@ export interface PolicyTableDef {
 
 export const POLICY_TABLES: PolicyTableDef[] = [
   // ── Leave & Approval ──────────────────────────────────────
-  {
-    table: 'hr_leave_types',
-    label: 'Leave Types',
-    description: 'Leave catalog (CL, Vacation, OD, Permission, etc.)',
-    category: 'Leave & Approval',
-    displayField: 'name',
-    fields: [
-      { name: 'name', label: 'Name', type: 'text', required: true },
-      { name: 'code', label: 'Code', type: 'text', required: true, helpText: 'Short uppercase code, e.g. CL, OD, VAC' },
-      { name: 'description', label: 'Description', type: 'textarea' },
-      { name: 'is_paid', label: 'Paid leave', type: 'boolean' },
-      { name: 'is_active', label: 'Active', type: 'boolean' },
-      { name: 'display_order', label: 'Display order', type: 'number' },
-    ],
-  },
+  // NOTE: `hr_leave_types` was unified into the pre-existing `leave_types` catalog
+  //       on 2026-04-15. Staff types live in `leave_types` with scope='staff'.
+  //       The PolicyEditor entry is removed because PolicyEditor is single-table
+  //       CRUD; the unified `leave_types` needs scope-aware admin UI (follow-up).
+  //       For now, staff leave types are seeded (66 rows, 6 per org) and edits
+  //       go through the Supabase dashboard or a dedicated /hr/leave/types admin page.
   {
     table: 'hr_leave_policies',
     label: 'Leave Policies',
