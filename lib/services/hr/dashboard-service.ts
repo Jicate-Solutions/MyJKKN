@@ -16,7 +16,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   getCurrentFiscalYear,
-  getFiscalYearOffset,
   isFYEndWindow,
   APPROVAL_ESCALATE_AFTER_HOURS,
   TREND_WINDOW_MONTHS,
@@ -27,7 +26,6 @@ import {
   type DashboardBanner,
   type HRDashboardPayload,
   type ViewerRole,
-  type DashboardScope,
   type DashboardMode,
   type TrendPoint,
   type DashboardAccessLogEntry,
