@@ -136,14 +136,14 @@ function BuildBanner() {
         <span className='text-lg leading-none'>🏗️</span>
         <div className='flex-1 text-sm'>
           <div className='font-semibold text-blue-900 dark:text-blue-100'>
-            Dashboard v2 — Day 3 · Decision Queue live
+            Dashboard v2 — Day 4 · Rescue · Leaderboards · Push
           </div>
           <div className='text-blue-800/80 dark:text-blue-200/80 mt-1 leading-relaxed'>
-            Live hero tiles + inline queue actions + tab-title badge
-            (WhatsApp-style pull). 4 item types (approval/escalation/rescue/
-            anomaly), idempotency-keyed server actions prevent double-submit.
-            Broadcast rescue + leaderboards + push arrive Day 4. Morning brief
-            + polish Day 5. Old dashboard still at{' '}
+            Broadcast Rescue with SELECT FOR UPDATE claim mutex (first-to-commit
+            wins), SLA + Conversion leaderboards live from materialized views,
+            Web Push subscription flow (service worker + /api/dashboard/push-subscribe).
+            Ghost-claim auto-return + strike logging functional.
+            Morning brief + polish + PR Day 5. Old dashboard still at{' '}
             <Link
               href='/dashboard/classic'
               className='font-semibold underline decoration-blue-400 hover:text-blue-700'
