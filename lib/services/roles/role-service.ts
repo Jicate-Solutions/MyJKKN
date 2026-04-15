@@ -29,6 +29,7 @@ export class RoleService {
       description: row.description,
       is_system_role: row.is_system_role ?? false,
       institution_scope: (row as any).institution_scope ?? 'own',
+      module_scopes: ((row as any).module_scopes as Record<string, any>) ?? {},
       permissions: (row.permissions as Record<string, boolean>) || {},
       created_at: row.created_at ?? new Date().toISOString(),
       updated_at: row.updated_at ?? new Date().toISOString(),
@@ -290,6 +291,11 @@ export class RoleService {
       // Include institution_scope if provided
       if (updates.institution_scope) {
         basicUpdateData.institution_scope = updates.institution_scope;
+      }
+
+      // Include module_scopes if provided (per-module override of institution_scope)
+      if (updates.module_scopes) {
+        basicUpdateData.module_scopes = updates.module_scopes;
       }
 
       // Update the basic info

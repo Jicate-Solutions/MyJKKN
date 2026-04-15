@@ -4719,21 +4719,26 @@ DROP POLICY IF EXISTS "staff_delete_by_admin_access"       ON staff;
 
 CREATE POLICY "staff_select_permission" ON staff FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('staff.view') AND role_has_institution_access(institution_id))
+  OR (user_has_permission('staff.view')
+      AND role_has_module_access('staff', institution_id, institution_email))
   OR institution_email = (SELECT auth.email())  -- self-view by institution_email
 );
+-- INSERT keeps institution-only check: 'own_records' doesn't apply to creation
+-- (the row doesn't exist yet, so there's no owner_email to compare against).
 CREATE POLICY "staff_insert_permission" ON staff FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
   OR (user_has_permission('staff.create') AND role_has_institution_access(institution_id))
 );
 CREATE POLICY "staff_update_permission" ON staff FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('staff.edit') AND role_has_institution_access(institution_id))
+  OR (user_has_permission('staff.edit')
+      AND role_has_module_access('staff', institution_id, institution_email))
   OR institution_email = (SELECT auth.email())  -- self-update by institution_email
 );
 CREATE POLICY "staff_delete_permission" ON staff FOR DELETE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('staff.delete') AND role_has_institution_access(institution_id))
+  OR (user_has_permission('staff.delete')
+      AND role_has_module_access('staff', institution_id, institution_email))
 );
 
 -- ---- employment_categories ---------------------------------------------------

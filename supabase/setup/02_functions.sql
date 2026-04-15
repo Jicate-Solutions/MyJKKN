@@ -6116,3 +6116,77 @@ BEGIN
     RETURN false;
 END;
 $function$;
+
+-- Updated: 2026-04-15 - Per-module access scope helpers (Option A).
+-- get_user_module_scope returns the most permissive scope across the user's
+-- roles for the given module_key. role_has_module_access combines that with
+-- per-row institution_id and an optional owner_email so RLS policies can do
+-- a single function call per row.
+CREATE OR REPLACE FUNCTION public.get_user_module_scope(module_key text)
+RETURNS text
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  scope text;
+BEGIN
+  IF is_super_admin() THEN
+    RETURN 'all_institutions';
+  END IF;
+
+  SELECT CASE
+    WHEN bool_or((cr.module_scopes ->> module_key) = 'all_institutions') THEN 'all_institutions'
+    WHEN bool_or((cr.module_scopes ->> module_key) = 'own_institution')  THEN 'own_institution'
+    WHEN bool_or((cr.module_scopes ->> module_key) = 'own_records')      THEN 'own_records'
+    ELSE NULL
+  END INTO scope
+  FROM user_roles ur
+  JOIN custom_roles cr ON cr.id = ur.role_id
+  WHERE ur.user_id = auth.uid();
+
+  IF scope IS NOT NULL THEN
+    RETURN scope;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = auth.uid() AND cr.institution_scope = 'all'
+  ) THEN
+    RETURN 'all_institutions';
+  END IF;
+
+  RETURN 'own_institution';
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.role_has_module_access(
+  module_key text,
+  target_institution_id uuid,
+  target_owner_email text DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  scope text;
+BEGIN
+  IF is_super_admin() THEN RETURN true; END IF;
+
+  scope := get_user_module_scope(module_key);
+
+  IF scope = 'all_institutions' THEN
+    RETURN true;
+  ELSIF scope = 'own_institution' THEN
+    RETURN role_has_institution_access(target_institution_id);
+  ELSIF scope = 'own_records' THEN
+    RETURN target_owner_email IS NOT NULL
+       AND target_owner_email = auth.email();
+  END IF;
+
+  RETURN false;
+END;
+$function$;

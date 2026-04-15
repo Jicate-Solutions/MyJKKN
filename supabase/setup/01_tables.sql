@@ -1418,8 +1418,16 @@ CREATE TABLE IF NOT EXISTS public.custom_roles (
     is_active BOOLEAN DEFAULT true,
     created_by UUID,
     created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    -- Updated: 2026-04-15 - Per-module access scope override. Shape:
+    --   {"<module_key>": "own_records"|"own_institution"|"all_institutions"}
+    -- Missing keys fall back to custom_roles.institution_scope.
+    module_scopes JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+
+-- Idempotent column add for existing databases
+ALTER TABLE public.custom_roles
+  ADD COLUMN IF NOT EXISTS module_scopes JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 -- =====================================================
 -- CHILD APP AUTHENTICATION MODULE

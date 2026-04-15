@@ -6,6 +6,12 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-15** — Per-module access scope (Option A) for custom roles
+  - `01_tables.sql`: `custom_roles.module_scopes JSONB DEFAULT '{}'` (per-module scope override of `institution_scope`).
+  - `02_functions.sql`: `get_user_module_scope(module_key)` returns most-permissive scope across user's roles; `role_has_module_access(module_key, institution_id, owner_email)` combines that with row-level checks.
+  - `03_policies.sql`: staff SELECT/UPDATE/DELETE policies switched to `role_has_module_access('staff', institution_id, institution_email)`. INSERT stays institution-only ('own_records' doesn't apply to creation). Self-view via `institution_email = auth.email()` preserved.
+  - Migration: `add_module_scopes_to_custom_roles` + `staff_rls_use_module_scope`. UI: new "Module Access Scope" section in Role Management edit dialog.
+
 - **2026-04-15** — Staff module RLS aligned to permission contract (Tier C audit fix)
   - `02_functions.sql`: mirrored `role_has_institution_access(check_institution_id uuid)` back into source (was DB-only drift). SECURITY DEFINER, STABLE.
   - `03_policies.sql`: rewrote 4 `staff` policies + `employment_categories`, `custom_roles`, and `staff_plans` insert/update/delete policies to the standard contract `is_super_admin() OR is_admin() OR (user_has_permission(...) AND role_has_institution_access(institution_id))`. Dropped legacy hardcoded-role policies (incl. `staff_select_event_coordinator`, "Admins can manage staff_plans...", duplicate `custom_roles` SELECT policies). Preserved staff service-role bypass and email-based self-view/self-edit.
