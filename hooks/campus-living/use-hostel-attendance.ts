@@ -1,0 +1,104 @@
+'use client';
+
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { HostelAttendanceService } from '@/lib/services/campus-living/hostel-attendance-service';
+import { usePermissions } from '@/hooks/use-permissions';
+import type {
+  HostelAttendance,
+  CreateHostelAttendanceDTO,
+  AttendanceFilters,
+} from '@/types/campus-living';
+
+// Query key factory
+export const hostelAttendanceKeys = {
+  all: ['hostel-attendance'] as const,
+  list: (filters: Record<string, unknown>) => ['hostel-attendance', 'list', filters] as const,
+  byDate: (institutionId: string, date: string) => ['hostel-attendance', 'by-date', institutionId, date] as const,
+  detail: (id: string) => ['hostel-attendance', 'detail', id] as const,
+};
+
+// --- Query hooks ---
+
+export function useHostelAttendance(institutionId: string, filters?: AttendanceFilters) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: hostelAttendanceKeys.list({ institutionId, ...filters }),
+    queryFn: () => HostelAttendanceService.getAttendance(institutionId, filters),
+    enabled: isSuperAdmin || !!institutionId,
+  });
+}
+
+export function useAttendanceByDate(institutionId: string, date: string) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: hostelAttendanceKeys.byDate(institutionId, date),
+    queryFn: () => HostelAttendanceService.getAttendanceByDate(institutionId, date),
+    enabled: (isSuperAdmin || !!institutionId) && !!date,
+  });
+}
+
+// Note: No single-record-by-id getter exists on the service.
+// Use useAttendanceByDate or useHostelAttendance with filters instead.
+
+// --- Mutation hooks ---
+
+export function useMarkAttendance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateHostelAttendanceDTO[]) =>
+      HostelAttendanceService.bulkMarkAttendance(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
+      toast.success('Attendance marked');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to mark attendance: ${error.message}`);
+    },
+  });
+}
+
+export function useCreateHostelAttendance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateHostelAttendanceDTO) =>
+      HostelAttendanceService.markAttendance(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
+      toast.success('Attendance recorded');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to record attendance: ${error.message}`);
+    },
+  });
+}
+
+export function useUpdateHostelAttendance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateHostelAttendanceDTO> }) =>
+      HostelAttendanceService.updateAttendance(id, payload),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
+      queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.detail(variables.id) });
+      toast.success('Attendance updated');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update attendance: ${error.message}`);
+    },
+  });
+}
+
+export function useDeleteHostelAttendance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => HostelAttendanceService.deleteAttendance(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
+      toast.success('Attendance record deleted');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to delete attendance: ${error.message}`);
+    },
+  });
+}

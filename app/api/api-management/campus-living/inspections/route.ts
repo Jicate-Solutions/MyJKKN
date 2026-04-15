@@ -1,0 +1,47 @@
+import { NextResponse } from 'next/server';
+import { corsHeaders } from '@/lib/api-keys/cors';
+import { withAuth } from '@/lib/auth/with-auth';
+import { paginatedResponse, createdResponse, errorResponse } from '@/lib/api-keys/response-helpers';
+import { getPaginationParams, getStringParam, getUuidParam, getDateRangeParams , sanitizeBody } from '@/lib/api-keys/query-helpers';
+
+export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
+
+export const GET = withAuth(async (request, auth) => {
+  const url = new URL(request.url);
+  const { page, limit, from, to } = getPaginationParams(url);
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
+
+  const inspectionType = getStringParam(url, 'inspection_type');
+  const blockId = getUuidParam(url, 'block_id');
+  const followUpRequired = getStringParam(url, 'follow_up_required');
+  const { dateFrom, dateTo } = getDateRangeParams(url);
+
+  let query = (auth.supabase as any)
+    .from('hostel_inspections')
+    .select('*', { count: 'exact' })
+    .eq('institution_id', institutionId);
+
+  if (inspectionType) query = query.eq('inspection_type', inspectionType);
+  if (blockId) query = query.eq('block_id', blockId);
+  if (followUpRequired) query = query.eq('follow_up_required', followUpRequired === 'true');
+  if (dateFrom) query = query.gte('inspection_date', dateFrom);
+  if (dateTo) query = query.lte('inspection_date', dateTo);
+
+  query = query.range(from, to).order('inspection_date', { ascending: false });
+  const { data, error, count } = await query;
+  if (error) throw error;
+  return paginatedResponse(data ?? [], count ?? 0, page, limit);
+}, { allowApiKey: true, requiredPermission: 'read' });
+
+export const POST = withAuth(async (request, auth) => {
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
+  const body = await request.json();
+  const { data, error } = await (auth.supabase as any)
+    .from('hostel_inspections')
+    .insert({ ...sanitizeBody(body), institution_id: institutionId })
+    .select().single();
+  if (error) throw error;
+  return createdResponse(data);
+}, { allowApiKey: true, requiredPermission: 'write' });

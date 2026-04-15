@@ -85,6 +85,16 @@ import {
   Wallet,
   Scale,
   ShieldCheck,
+  // Campus Living Icons
+  Hotel,
+  UtensilsCrossed,
+  WashingMachine,
+  HeartPulse,
+  ClipboardPlus,
+  SprayCan,
+  Stethoscope,
+  LayoutDashboard,
+  UsersRound,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -552,6 +562,50 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners-council/issues': 'learners_council.issues.view',
   '/learners-council/settings': 'learners_council.settings.view',
 
+  // Campus Living Module
+  '/campus-living': 'campus_living.dashboard.view',
+  '/campus-living/blocks': 'campus_living.blocks.view',
+  '/campus-living/allocations': 'campus_living.allocations.view',
+  '/campus-living/allocations/roommate-matching': 'campus_living.allocations.view',
+  '/campus-living/attendance': 'campus_living.attendance.view',
+  '/campus-living/leave': 'campus_living.leave.view',
+  '/campus-living/gate-passes': 'campus_living.gate_passes.view',
+  '/campus-living/mess': 'campus_living.mess.view',
+  '/campus-living/mess/menu': 'campus_living.mess.menu.view',
+  '/campus-living/mess/meals': 'campus_living.mess.meals.view',
+  '/campus-living/mess/billing': 'campus_living.mess.billing.view',
+  '/campus-living/mess/feedback': 'campus_living.mess.feedback.view',
+  '/campus-living/mess/waste': 'campus_living.mess.waste.view',
+  '/campus-living/visitors': 'campus_living.visitors.view',
+  '/campus-living/maintenance': 'campus_living.maintenance.view',
+  '/campus-living/maintenance/preventive': 'campus_living.maintenance.view',
+  '/campus-living/maintenance/preventive/tasks': 'campus_living.maintenance.view',
+  '/campus-living/allocations/onboarding': 'campus_living.allocations.view',
+  '/campus-living/allocations/onboarding/templates': 'campus_living.allocations.view',
+  '/campus-living/wellness': 'campus_living.wellness.view',
+  '/campus-living/wellness/surveys': 'campus_living.wellness.view',
+  '/campus-living/laundry': 'campus_living.laundry.view',
+  '/campus-living/laundry/orders': 'campus_living.laundry.view',
+  '/campus-living/laundry/schedule': 'campus_living.laundry.view',
+  '/campus-living/laundry/settings': 'campus_living.laundry.view',
+  '/campus-living/maintenance/contracts': 'campus_living.maintenance.view',
+  '/campus-living/housekeeping': 'campus_living.housekeeping.view',
+  '/campus-living/housekeeping/schedules': 'campus_living.housekeeping.view',
+  '/campus-living/housekeeping/tasks': 'campus_living.housekeeping.view',
+  '/campus-living/health': 'campus_living.health.view',
+  '/campus-living/dashboard': 'campus_living.dashboard.view',
+  '/campus-living/activity': 'campus_living.activity.view',
+  '/campus-living/calendar': 'campus_living.calendar.view',
+  '/campus-living/community': 'campus_living.community.view',
+  '/campus-living/community/settings': 'campus_living.community.manage',
+  '/campus-living/safety': 'campus_living.safety.view',
+  '/campus-living/safety/incidents': 'campus_living.safety.incidents.view',
+  '/campus-living/safety/anti-ragging': 'campus_living.safety.anti_ragging.view',
+  '/campus-living/safety/inspections': 'campus_living.safety.inspections.view',
+  '/campus-living/analytics': 'campus_living.analytics.view',
+  '/campus-living/reports': 'campus_living.reports.view',
+  '/campus-living/settings': 'campus_living.settings.view',
+
   // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15)
   '/faculty/innovation': 'faculty_innovation.initiative.submit',
   '/faculty/innovation/submit': 'faculty_innovation.initiative.submit',
@@ -910,6 +964,250 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname.startsWith('/academic/attendance/consolidation')
             }
           ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Campus Living',
+      menus: [
+        {
+          href: '/campus-living',
+          label: 'Overview',
+          active: pathname === '/campus-living',
+          icon: Building2,
+          submenus: []
+        },
+        {
+          href: '/campus-living/dashboard',
+          label: 'Mgmt Dashboard',
+          active: pathname === '/campus-living/dashboard',
+          icon: LayoutDashboard,
+          submenus: []
+        },
+        {
+          href: '/campus-living/activity',
+          label: 'Activity Feed',
+          active: pathname === '/campus-living/activity',
+          icon: Activity,
+          submenus: []
+        },
+        {
+          href: '/campus-living/calendar',
+          label: 'Calendar',
+          active: pathname === '/campus-living/calendar',
+          icon: Calendar,
+          submenus: []
+        },
+        {
+          href: '/campus-living/community',
+          label: 'Community',
+          active: pathname.startsWith('/campus-living/community'),
+          icon: UsersRound,
+          submenus: []
+        },
+        {
+          href: '/campus-living/blocks',
+          label: 'Hostel Blocks',
+          active: pathname.startsWith('/campus-living/blocks'),
+          icon: Hotel,
+          submenus: [
+            {
+              href: '/campus-living/allocations',
+              label: 'Room Allocations',
+              active: pathname.startsWith('/campus-living/allocations') && !pathname.startsWith('/campus-living/allocations/onboarding')
+            },
+            {
+              href: '/campus-living/allocations/roommate-matching',
+              label: 'Roommate Matching',
+              active: pathname === '/campus-living/allocations/roommate-matching'
+            },
+            {
+              href: '/campus-living/allocations/onboarding',
+              label: 'Onboarding',
+              active: pathname.startsWith('/campus-living/allocations/onboarding')
+            }
+          ]
+        },
+        {
+          href: '/campus-living/attendance',
+          label: 'Attendance',
+          active: pathname.startsWith('/campus-living/attendance'),
+          icon: UserCheck,
+          submenus: [
+            {
+              href: '/campus-living/leave',
+              label: 'Leave Management',
+              active: pathname.startsWith('/campus-living/leave')
+            },
+            {
+              href: '/campus-living/gate-passes',
+              label: 'Gate Passes',
+              active: pathname.startsWith('/campus-living/gate-passes')
+            }
+          ]
+        },
+        {
+          href: '/campus-living/mess',
+          label: 'Mess & Cafeteria',
+          active: pathname.startsWith('/campus-living/mess'),
+          icon: UtensilsCrossed,
+          submenus: [
+            {
+              href: '/campus-living/mess/menu',
+              label: 'Menu',
+              active: pathname.startsWith('/campus-living/mess/menu')
+            },
+            {
+              href: '/campus-living/mess/meals',
+              label: 'Meal Tracking',
+              active: pathname.startsWith('/campus-living/mess/meals')
+            },
+            {
+              href: '/campus-living/mess/billing',
+              label: 'Mess Billing',
+              active: pathname.startsWith('/campus-living/mess/billing')
+            },
+            {
+              href: '/campus-living/mess/feedback',
+              label: 'Feedback',
+              active: pathname === '/campus-living/mess/feedback'
+            },
+            {
+              href: '/campus-living/mess/waste',
+              label: 'Waste Tracking',
+              active: pathname === '/campus-living/mess/waste'
+            }
+          ]
+        },
+        {
+          href: '/campus-living/visitors',
+          label: 'Visitors',
+          active: pathname.startsWith('/campus-living/visitors'),
+          icon: UserPlus,
+          submenus: []
+        },
+        {
+          href: '/campus-living/maintenance',
+          label: 'Maintenance',
+          active: pathname.startsWith('/campus-living/maintenance'),
+          icon: Wrench,
+          submenus: [
+            {
+              href: '/campus-living/maintenance/preventive',
+              label: 'Preventive Schedules',
+              active: pathname.startsWith('/campus-living/maintenance/preventive')
+            },
+            {
+              href: '/campus-living/maintenance/preventive/tasks',
+              label: 'PM Tasks',
+              active: pathname === '/campus-living/maintenance/preventive/tasks'
+            },
+            {
+              href: '/campus-living/maintenance/contracts',
+              label: 'AMC Contracts',
+              active: pathname.startsWith('/campus-living/maintenance/contracts')
+            }
+          ]
+        },
+        {
+          href: '/campus-living/housekeeping',
+          label: 'Housekeeping',
+          active: pathname.startsWith('/campus-living/housekeeping'),
+          icon: SprayCan,
+          submenus: [
+            {
+              href: '/campus-living/housekeeping/schedules',
+              label: 'Schedules',
+              active: pathname.startsWith('/campus-living/housekeeping/schedules')
+            },
+            {
+              href: '/campus-living/housekeeping/tasks',
+              label: 'Tasks',
+              active: pathname === '/campus-living/housekeeping/tasks'
+            }
+          ]
+        },
+        {
+          href: '/campus-living/laundry',
+          label: 'Laundry',
+          active: pathname.startsWith('/campus-living/laundry'),
+          icon: WashingMachine,
+          submenus: [
+            {
+              href: '/campus-living/laundry/orders',
+              label: 'Orders',
+              active: pathname.startsWith('/campus-living/laundry/orders')
+            },
+            {
+              href: '/campus-living/laundry/settings',
+              label: 'Configuration',
+              active: pathname === '/campus-living/laundry/settings'
+            }
+          ]
+        },
+        {
+          href: '/campus-living/wellness',
+          label: 'Wellness',
+          active: pathname.startsWith('/campus-living/wellness'),
+          icon: HeartPulse,
+          submenus: [
+            {
+              href: '/campus-living/wellness/surveys',
+              label: 'Pulse Surveys',
+              active: pathname.startsWith('/campus-living/wellness/surveys')
+            }
+          ]
+        },
+        {
+          href: '/campus-living/health',
+          label: 'Health Cases',
+          active: pathname.startsWith('/campus-living/health'),
+          icon: Stethoscope,
+          submenus: []
+        },
+        {
+          href: '/campus-living/safety',
+          label: 'Safety & Compliance',
+          active: pathname.startsWith('/campus-living/safety'),
+          icon: ShieldCheck,
+          submenus: [
+            {
+              href: '/campus-living/safety/incidents',
+              label: 'Incidents',
+              active: pathname.startsWith('/campus-living/safety/incidents')
+            },
+            {
+              href: '/campus-living/safety/anti-ragging',
+              label: 'Anti-Ragging',
+              active: pathname === '/campus-living/safety/anti-ragging'
+            },
+            {
+              href: '/campus-living/safety/inspections',
+              label: 'Inspections',
+              active: pathname.startsWith('/campus-living/safety/inspections')
+            }
+          ]
+        },
+        {
+          href: '/campus-living/analytics',
+          label: 'Analytics',
+          active: pathname.startsWith('/campus-living/analytics'),
+          icon: BarChart3,
+          submenus: []
+        },
+        {
+          href: '/campus-living/reports',
+          label: 'Reports',
+          active: pathname.startsWith('/campus-living/reports'),
+          icon: FileText,
+          submenus: []
+        },
+        {
+          href: '/campus-living/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/campus-living/settings'),
+          icon: Settings,
+          submenus: []
         }
       ]
     },

@@ -1,0 +1,54 @@
+import { NextResponse } from 'next/server';
+import { corsHeaders } from '@/lib/api-keys/cors';
+import { withAuth } from '@/lib/auth/with-auth';
+import { successApiResponse, errorResponse } from '@/lib/api-keys/response-helpers';
+import { isValidUuid } from '@/lib/api-keys/query-helpers';
+
+export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
+
+export const GET = withAuth(async (request, auth, context) => {
+  const params = await context?.params;
+  const id = params?.id;
+  if (!id || !isValidUuid(id)) return errorResponse('Valid laundry order UUID is required', 400);
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
+
+  const { data, error } = await (auth.supabase as any)
+    .from('hostel_laundry_orders')
+    .select('*')
+    .eq('id', id)
+    .eq('institution_id', institutionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return errorResponse('Laundry order not found', 404);
+    throw error;
+  }
+  return successApiResponse(data);
+}, { allowApiKey: true, requiredPermission: 'read' });
+
+export const PATCH = withAuth(async (request, auth, context) => {
+  const params = await context?.params;
+  const id = params?.id;
+  if (!id || !isValidUuid(id)) return errorResponse('Valid laundry order UUID is required', 400);
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
+
+  const body = await request.json();
+  delete body.institution_id; delete body.id;
+  if (Object.keys(body).length === 0) return errorResponse('No fields to update', 400);
+
+  const { data, error } = await (auth.supabase as any)
+    .from('hostel_laundry_orders')
+    .update(body)
+    .eq('id', id)
+    .eq('institution_id', institutionId)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return errorResponse('Laundry order not found', 404);
+    throw error;
+  }
+  return successApiResponse(data);
+}, { allowApiKey: true, requiredPermission: 'write' });
