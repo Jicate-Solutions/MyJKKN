@@ -24,6 +24,7 @@ import {
 // import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
   useWhatsAppBroadcastCampaigns,
@@ -186,6 +187,9 @@ function NewCampaignWizard({
 
   const uploadMutation = useUploadContacts();
   const sendMutation = useSendBroadcast();
+  const { canAccess } = usePermissions();
+  const canSendBroadcast = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage');
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -428,9 +432,15 @@ function NewCampaignWizard({
             </div>
 
             <div className="flex gap-3">
-              <Button onClick={() => setShowConfirm(true)} className="flex-1" size="lg">
-                <Send className="h-4 w-4 mr-2" /> Send Now
-              </Button>
+              {canSendBroadcast ? (
+                <Button onClick={() => setShowConfirm(true)} className="flex-1" size="lg">
+                  <Send className="h-4 w-4 mr-2" /> Send Now
+                </Button>
+              ) : (
+                <p className="flex-1 text-sm text-muted-foreground">
+                  You don&apos;t have permission to send broadcasts.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -448,7 +458,7 @@ function NewCampaignWizard({
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowConfirm(false)}>Cancel</Button>
-            <Button onClick={handleSend} disabled={sendMutation.isPending}>
+            <Button onClick={handleSend} disabled={sendMutation.isPending || !canSendBroadcast}>
               {sendMutation.isPending ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending...</>
               ) : (

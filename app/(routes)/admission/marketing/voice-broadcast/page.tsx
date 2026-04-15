@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { BroadcastStatus } from '@/lib/services/telephony/voice-broadcast-service';
 import {
   useVoiceBroadcastCampaigns,
@@ -46,6 +47,9 @@ function VoiceBroadcastPageContent() {
   });
   const { stats, isLoading: statsLoading } = useVoiceBroadcastStats(institutionId);
   const { startCampaign, pauseCampaign, cancelCampaign } = useVoiceBroadcastMutations();
+  const { canAccess } = usePermissions();
+  const canControlCampaign = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage');
 
   const formatPercent = (val: number) => `${val.toFixed(1)}%`;
   const formatCurrency = (amount: number) => {
@@ -221,49 +225,51 @@ function VoiceBroadcastPageContent() {
                             )}
                           </div>
                           {/* Action buttons */}
-                          <div className="flex gap-1">
-                            {isDraft && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => startCampaign.mutate(campaign.id)}
-                                disabled={startCampaign.isPending}
-                              >
-                                <Play className="h-3 w-3 mr-1" />Start
-                              </Button>
-                            )}
-                            {isRunning && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => pauseCampaign.mutate(campaign.id)}
-                                disabled={pauseCampaign.isPending}
-                              >
-                                <Pause className="h-3 w-3 mr-1" />Pause
-                              </Button>
-                            )}
-                            {isPaused && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => startCampaign.mutate(campaign.id)}
-                                disabled={startCampaign.isPending}
-                              >
-                                <Play className="h-3 w-3 mr-1" />Resume
-                              </Button>
-                            )}
-                            {(isRunning || isPaused) && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-destructive"
-                                onClick={() => cancelCampaign.mutate(campaign.id)}
-                                disabled={cancelCampaign.isPending}
-                              >
-                                <XCircle className="h-3 w-3 mr-1" />Cancel
-                              </Button>
-                            )}
-                          </div>
+                          {canControlCampaign && (
+                            <div className="flex gap-1">
+                              {isDraft && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => startCampaign.mutate(campaign.id)}
+                                  disabled={startCampaign.isPending}
+                                >
+                                  <Play className="h-3 w-3 mr-1" />Start
+                                </Button>
+                              )}
+                              {isRunning && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => pauseCampaign.mutate(campaign.id)}
+                                  disabled={pauseCampaign.isPending}
+                                >
+                                  <Pause className="h-3 w-3 mr-1" />Pause
+                                </Button>
+                              )}
+                              {isPaused && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => startCampaign.mutate(campaign.id)}
+                                  disabled={startCampaign.isPending}
+                                >
+                                  <Play className="h-3 w-3 mr-1" />Resume
+                                </Button>
+                              )}
+                              {(isRunning || isPaused) && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-destructive"
+                                  onClick={() => cancelCampaign.mutate(campaign.id)}
+                                  disabled={cancelCampaign.isPending}
+                                >
+                                  <XCircle className="h-3 w-3 mr-1" />Cancel
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );

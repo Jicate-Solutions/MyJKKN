@@ -27,6 +27,7 @@ import { useChatStats } from '@/hooks/admission/use-chat-stats';
 import { useCostDashboard } from '@/hooks/admission/use-communication-costs';
 import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { Conversation } from '@/lib/services/whatsapp/whatsapp-chat-service';
 
 type Channel = 'inbox' | 'personal' | 'broadcast' | 'segments' | 'reengage' | 'analytics';
@@ -47,7 +48,13 @@ function ChatInboxContent() {
   const [mobileView, setMobileView] = useState<MobileView>('list');
   const [showProfile, setShowProfile] = useState(false);
   const { profile } = useAuth();
+  const { canAccess, isSuperAdmin: hasSuperAdminRole, isAdmissionGlobalUser } = usePermissions();
   const institutionId = profile?.institution_id;
+  // Broadcast = cost-incurring. Gate by permission, not raw role.
+  const canBroadcast = hasSuperAdminRole
+    || isAdmissionGlobalUser
+    || canAccess('admission', 'edit')
+    || canAccess('admission', 'manage');
 
   // Reset mobile state on viewport resize
   useEffect(() => {
@@ -150,7 +157,7 @@ function ChatInboxContent() {
           <div className="flex items-center rounded-lg border p-0.5 gap-0.5 overflow-x-auto">
             {TABS.filter(tab => {
               // Hide Broadcast tab for non-super-admins
-              if (tab.id === 'broadcast' && profile?.role !== 'super_admin' && profile?.is_super_admin !== true) return false;
+              if (tab.id === 'broadcast' && !canBroadcast) return false;
               return true;
             }).map(tab => {
               const Icon = tab.icon;
@@ -279,7 +286,7 @@ function ChatInboxContent() {
           {channel === 'broadcast' && (
             <Card className="overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
               <div className="h-full overflow-y-auto p-6">
-                <BroadcastTab institutionId={institutionId || ''} isSuperAdmin={profile?.role === 'super_admin' || profile?.is_super_admin === true} />
+                <BroadcastTab institutionId={institutionId || ''} isSuperAdmin={canBroadcast} />
               </div>
             </Card>
           )}

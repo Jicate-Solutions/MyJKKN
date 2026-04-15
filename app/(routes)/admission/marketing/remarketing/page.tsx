@@ -14,6 +14,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useRemarketingRules,
   useAdAccountStatus,
@@ -51,6 +52,9 @@ function RemarketingPageContent() {
   const { accounts, isLoading: accountsLoading } = useAdAccountStatus();
   const { history, isLoading: historyLoading } = useSyncHistory(selectedRuleId);
   const { syncAudience, deleteRule, isSyncing } = useRemarketingMutations();
+  const { canAccess } = usePermissions();
+  const canEditRules = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage');
 
   return (
     <PermissionGuard module="admission" action="view">
@@ -217,21 +221,23 @@ function RemarketingPageContent() {
                               )}
                             </div>
                             <div className="flex items-center gap-2 ml-4">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  syncAudience.mutate(rule.id);
-                                }}
-                                disabled={isSyncing}
-                              >
-                                {isSyncing ? (
-                                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                ) : (
-                                  <Zap className="h-3 w-3 mr-1" />
-                                )}
-                                Sync Now
-                              </Button>
+                              {canEditRules && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    syncAudience.mutate(rule.id);
+                                  }}
+                                  disabled={isSyncing}
+                                >
+                                  {isSyncing ? (
+                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                  ) : (
+                                    <Zap className="h-3 w-3 mr-1" />
+                                  )}
+                                  Sync Now
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="sm"

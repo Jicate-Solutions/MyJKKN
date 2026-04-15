@@ -53,6 +53,7 @@ import {
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { usePhoneValidationStats, useInvalidPhones, usePhoneIssueBreakdown } from "@/hooks/admission/use-data-quality";
 
 function PhoneValidationPageContent() {
@@ -65,6 +66,9 @@ function PhoneValidationPageContent() {
   const { data: phoneStats, isLoading: statsLoading, refetch: refetchStats } = usePhoneValidationStats();
   const { data: invalidPhones, isLoading: phonesLoading, refetch: refetchPhones } = useInvalidPhones({ search: searchTerm, issueFilter: filterIssue });
   const { data: issueBreakdown, isLoading: breakdownLoading, refetch: refetchBreakdown } = usePhoneIssueBreakdown();
+  const { canAccess } = usePermissions();
+  const canEditPhones = canAccess('admission', 'edit') || canAccess('admission', 'manage');
+  const canDeletePhones = canAccess('admission', 'delete') || canAccess('admission', 'manage');
 
   const handleValidateAll = async () => {
     setIsValidating(true);
@@ -295,16 +299,20 @@ function PhoneValidationPageContent() {
                     <SelectItem value="Missing phone">Missing phone</SelectItem>
                   </SelectContent>
                 </Select>
-                {selectedPhones.length > 0 && (
+                {selectedPhones.length > 0 && (canEditPhones || canDeletePhones) && (
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="gap-2">
-                      <Edit className="h-4 w-4" />
-                      Edit Selected ({selectedPhones.length})
-                    </Button>
-                    <Button variant="destructive" size="sm" className="gap-2">
-                      <Trash2 className="h-4 w-4" />
-                      Remove Selected
-                    </Button>
+                    {canEditPhones && (
+                      <Button variant="outline" size="sm" className="gap-2">
+                        <Edit className="h-4 w-4" />
+                        Edit Selected ({selectedPhones.length})
+                      </Button>
+                    )}
+                    {canDeletePhones && (
+                      <Button variant="destructive" size="sm" className="gap-2">
+                        <Trash2 className="h-4 w-4" />
+                        Remove Selected
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>

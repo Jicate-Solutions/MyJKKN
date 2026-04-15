@@ -47,6 +47,7 @@ import {
 } from '@/components/ui/table';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useColdLeads,
   useReEngagementCampaigns,
@@ -107,6 +108,9 @@ function getColdnessLevel(days: number) {
 }
 
 function CampaignCard({ campaign }: { campaign: any }) {
+  const { canAccess } = usePermissions();
+  const canEditCampaign = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage');
   const [isLaunching, setIsLaunching] = useState(false);
   const totalSteps = campaign.total_steps || campaign.totalSteps || 1;
   const currentStep = campaign.current_step_index || campaign.currentStep || 0;
@@ -157,7 +161,7 @@ function CampaignCard({ campaign }: { campaign: any }) {
           <Progress value={progress} className="h-2" />
         </div>
         <div className="flex justify-end gap-2">
-          {campaign.status === 'draft' && (
+          {campaign.status === 'draft' && canEditCampaign && (
             <Button size="sm" disabled={isLaunching} onClick={async () => {
               setIsLaunching(true);
               try {
@@ -184,10 +188,12 @@ function CampaignCard({ campaign }: { campaign: any }) {
           )}
           {campaign.status === 'active' && (
             <>
-              <Button size="sm" variant="outline" onClick={() => toast.success('Campaign paused')}>
-                <Pause className="h-4 w-4 mr-1" />
-                Pause
-              </Button>
+              {canEditCampaign && (
+                <Button size="sm" variant="outline" onClick={() => toast.success('Campaign paused')}>
+                  <Pause className="h-4 w-4 mr-1" />
+                  Pause
+                </Button>
+              )}
               <Button size="sm" variant="outline" onClick={() => toast.success('Opening campaign details')}>View Details</Button>
             </>
           )}

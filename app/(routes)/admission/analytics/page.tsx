@@ -24,6 +24,7 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import {
   useAdmissionDashboard,
   useFunnelAnalyticsDashboard
@@ -432,8 +433,16 @@ function StuckLeadsTable({
 
 function AdmissionAnalyticsPageContent() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
+  const { institutions } = useInstitutionsWithAccess();
+  const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
+  // Global users default to "all"; scoped users auto-resolve to their accessible institution(s).
+  const defaultInstitutionId = isGlobalUser ? undefined : profile?.institution_id;
+  const resolvedChoice = chosenInstitutionId === '__all' ? undefined : chosenInstitutionId;
+  const institutionId = resolvedChoice
+    || (institutions.length === 1 ? institutions[0]?.id : defaultInstitutionId)
+    || undefined;
   const [dateRange, setDateRange] = useState('30');
 
   // Phase 1 hooks
@@ -497,6 +506,21 @@ function AdmissionAnalyticsPageContent() {
             </Breadcrumb>
 
             <div className="flex items-center gap-2">
+              {(isGlobalUser || institutions.length > 1) && (
+                <Select value={chosenInstitutionId} onValueChange={setChosenInstitutionId}>
+                  <SelectTrigger className="w-[220px]">
+                    <SelectValue placeholder={isGlobalUser ? 'All Institutions' : 'Select institution'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isGlobalUser && <SelectItem value="__all">All Institutions</SelectItem>}
+                    {institutions.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={dateRange} onValueChange={setDateRange}>
                 <SelectTrigger className="w-[150px]">
                   <Calendar className="h-4 w-4 mr-2" />

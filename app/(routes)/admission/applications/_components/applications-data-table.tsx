@@ -165,7 +165,7 @@ export function ApplicationsDataTable() {
         </SelectContent>
       </Select>
 
-      {props.selectedRows.length > 0 && (
+      {props.selectedRows.length > 0 && canAccess('admission', 'applications.edit') && (
         <Button
           onClick={() =>
             handleBulkWithdraw(

@@ -24,6 +24,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useAssignmentRuleMutations } from '@/hooks/admission';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { AssignmentRule } from '@/lib/services/admission/assignment-rules-service';
 
 interface DataTableRowActionsProps<TData> {
@@ -38,6 +39,10 @@ export function DataTableRowActions<TData>({
   const rule = row.original as AssignmentRule;
   const { deleteRule, toggleStatus, isToggling } = useAssignmentRuleMutations();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const { canAccess } = usePermissions();
+  const canEdit = canAccess('admission', 'edit') || canAccess('admission', 'manage');
+  const canDelete = canAccess('admission', 'delete') || canAccess('admission', 'manage');
+  if (!canEdit && !canDelete) return null;
 
   const handleToggle = async () => {
     try {
@@ -71,27 +76,31 @@ export function DataTableRowActions<TData>({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-[180px]">
-          <DropdownMenuItem onSelect={handleToggle} disabled={isToggling}>
-            {rule.is_active ? (
-              <>
-                <Pause className="h-4 w-4 mr-2" />
-                Pause Rule
-              </>
-            ) : (
-              <>
-                <Play className="h-4 w-4 mr-2" />
-                Activate Rule
-              </>
-            )}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() => setShowDeleteDialog(true)}
-            className="text-red-600"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete Rule
-          </DropdownMenuItem>
+          {canEdit && (
+            <DropdownMenuItem onSelect={handleToggle} disabled={isToggling}>
+              {rule.is_active ? (
+                <>
+                  <Pause className="h-4 w-4 mr-2" />
+                  Pause Rule
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 mr-2" />
+                  Activate Rule
+                </>
+              )}
+            </DropdownMenuItem>
+          )}
+          {canEdit && canDelete && <DropdownMenuSeparator />}
+          {canDelete && (
+            <DropdownMenuItem
+              onSelect={() => setShowDeleteDialog(true)}
+              className="text-red-600"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Rule
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

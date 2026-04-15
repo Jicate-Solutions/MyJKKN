@@ -12,13 +12,32 @@ export class GroupDashboardService {
   private static supabase = createClientSupabaseClient();
 
   /**
-   * Get admission summary across all institutions the user has access to
+   * Get admission summary across the institutions the user has access to.
+   * When `institutionIds` is provided, the query is explicitly scoped to those IDs.
+   * When undefined, callers must be global users — RLS on `institutions` enforces scope.
    */
-  static async getGroupDashboard(): Promise<GroupDashboardData> {
-    // Get all institutions the user has access to
-    const { data: institutions, error: instError } = await this.supabase
+  static async getGroupDashboard(institutionIds?: string[]): Promise<GroupDashboardData> {
+    let instQuery = this.supabase
       .from('institutions')
       .select('id, name');
+
+    if (institutionIds !== undefined) {
+      if (institutionIds.length === 0) {
+        return {
+          institutions: [],
+          totals: {
+            total_leads: 0,
+            total_applied: 0,
+            total_enrolled: 0,
+            total_seats: 0,
+            overall_fill_percentage: 0,
+          },
+        };
+      }
+      instQuery = instQuery.in('id', institutionIds);
+    }
+
+    const { data: institutions, error: instError } = await instQuery;
 
     if (instError) {
       console.error('[admission/group] Failed to fetch institutions:', instError);

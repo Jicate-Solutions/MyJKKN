@@ -44,6 +44,7 @@ import {
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useLeadsWithParents,
   useParentCommLogs,
@@ -207,6 +208,9 @@ function SendMessageDialog({ lead, parent }: { lead: LeadWithParentsUI; parent?:
   const [channel, setChannel] = useState<string>('whatsapp');
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const { canAccess } = usePermissions();
+  const canSend = canAccess('admission', 'edit') || canAccess('admission', 'manage');
+  if (!canSend) return null;
 
   const handleSend = async () => {
     setIsSending(true);
@@ -298,6 +302,9 @@ function AddParentInfoDialog({ lead }: { lead: LeadWithParentsUI }) {
   const [parentPhone, setParentPhone] = useState('');
   const [parentEmail, setParentEmail] = useState('');
   const updateParentInfo = useUpdateParentInfo();
+  const { canAccess } = usePermissions();
+  const canEdit = canAccess('admission', 'edit') || canAccess('admission', 'manage');
+  if (!canEdit) return null;
 
   const handleSave = async () => {
     if (!parentName || !parentPhone) {

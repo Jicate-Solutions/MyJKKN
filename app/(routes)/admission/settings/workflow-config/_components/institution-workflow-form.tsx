@@ -23,6 +23,7 @@ interface InstitutionWorkflowFormProps {
     config_name: string;
   }) => void;
   isSaving: boolean;
+  readOnly?: boolean;
 }
 
 function getCurrentAcademicYear(): string {
@@ -36,6 +37,7 @@ export function InstitutionWorkflowForm({
   institutionId,
   onSave,
   isSaving,
+  readOnly = false,
 }: InstitutionWorkflowFormProps) {
   const defaultStages = ALL_ADMISSION_STAGES.map((s) => s.id);
 
@@ -199,16 +201,18 @@ export function InstitutionWorkflowForm({
       </div>
 
       {/* Save Button */}
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={isSaving}>
-          {isSaving ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <Save className="h-4 w-4 mr-2" />
-          )}
-          Save Configuration
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="flex justify-end">
+          <Button onClick={handleSave} disabled={isSaving}>
+            {isSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
+            Save Configuration
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

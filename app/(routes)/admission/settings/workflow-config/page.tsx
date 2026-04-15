@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useActiveWorkflowConfig,
   useUpsertWorkflowConfig,
@@ -23,6 +24,10 @@ import { InstitutionWorkflowForm } from './_components/institution-workflow-form
 export default function WorkflowConfigPage() {
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const institutionId = selectedInstitutionId;
+  const { canAccess } = usePermissions();
+  const canEditConfig = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage')
+    || canAccess('admission.settings', 'edit');
 
   const { data: config, isLoading, isError, error } = useActiveWorkflowConfig(institutionId);
   const upsertMutation = useUpsertWorkflowConfig();
@@ -136,8 +141,9 @@ export default function WorkflowConfigPage() {
             <InstitutionWorkflowForm
               config={config || null}
               institutionId={institutionId}
-              onSave={(data) => upsertMutation.mutate(data)}
+              onSave={canEditConfig ? (data) => upsertMutation.mutate(data) : () => undefined}
               isSaving={upsertMutation.isPending}
+              readOnly={!canEditConfig}
             />
           )}
         </div>

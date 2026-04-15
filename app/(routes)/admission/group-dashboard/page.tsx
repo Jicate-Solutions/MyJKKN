@@ -21,10 +21,21 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useMemo } from 'react';
 
 export default function GroupDashboardPage() {
   const queryClient = useQueryClient();
-  const { data, isLoading, isFetching, isError, error } = useGroupDashboard();
+  const { institutions: accessibleInstitutions, canAccessAllInstitutions } =
+    useUserInstitutionAccess();
+
+  // Scope: global users see all (undefined); scoped users only see their accessible set
+  const scopedInstitutionIds = useMemo(() => {
+    if (canAccessAllInstitutions) return undefined;
+    return accessibleInstitutions.map((i) => i.institution_id);
+  }, [canAccessAllInstitutions, accessibleInstitutions]);
+
+  const { data, isLoading, isFetching, isError, error } = useGroupDashboard(scopedInstitutionIds);
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });

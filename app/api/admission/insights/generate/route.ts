@@ -261,6 +261,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   console.log('[insights/generate] ✓ Institution ID:', institutionId);
 
+  // ── Step 3b: Verify the caller has access to this institution ─────────────
+  // Prevents a user from passing another tenant's institution_id.
+  const { data: hasAccess, error: accessError } = await supabase.rpc(
+    'role_has_institution_access',
+    { check_institution_id: institutionId }
+  );
+  if (accessError) {
+    console.error('[insights/generate] Access check failed:', accessError.message);
+    return NextResponse.json({ error: 'Failed to verify institution access' }, { status: 500 });
+  }
+  if (!hasAccess) {
+    console.warn('[insights/generate] Forbidden: user', user.email, 'attempted to generate for institution', institutionId);
+    return NextResponse.json({ error: 'Forbidden — you do not have access to this institution' }, { status: 403 });
+  }
+  console.log('[insights/generate] ✓ Institution access verified');
+
   // ── Step 4: Fetch lead data (service role bypasses RLS) ───────────────────
   let serviceClient: ReturnType<typeof createServiceRoleClient>;
   try {

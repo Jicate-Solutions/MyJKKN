@@ -44,6 +44,7 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
@@ -552,6 +553,12 @@ function WorkflowBuilderPageContent() {
     isDeleting,
     isDuplicating
   } = useWorkflowMutations();
+  const { canAccess } = usePermissions();
+  const canEditWorkflows = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage')
+    || canAccess('admission.settings', 'edit');
+  const canDeleteWorkflows = canAccess('admission', 'delete')
+    || canAccess('admission', 'manage');
 
   const isLoading = accessLoading || workflowsLoading;
   const hasError = workflowsError || statsError;
@@ -572,6 +579,7 @@ function WorkflowBuilderPageContent() {
   };
 
   const handleToggle = async (id: string, currentStatus: boolean) => {
+    if (!canEditWorkflows) return;
     try {
       await toggleStatus.mutateAsync({ id, isActive: !currentStatus });
     } catch {
@@ -581,6 +589,7 @@ function WorkflowBuilderPageContent() {
 
   const handleDelete = async () => {
     if (!deleteConfirmId || !selectedInstitutionId) return;
+    if (!canDeleteWorkflows) return;
     try {
       await deleteWorkflow.mutateAsync({ id: deleteConfirmId, institutionId: selectedInstitutionId });
       setDeleteConfirmId(null);
@@ -590,6 +599,7 @@ function WorkflowBuilderPageContent() {
   };
 
   const handleDuplicate = async (id: string) => {
+    if (!canEditWorkflows) return;
     try {
       await duplicateWorkflow.mutateAsync(id);
     } catch {
@@ -674,10 +684,12 @@ function WorkflowBuilderPageContent() {
                 )}
                 Refresh
               </Button>
-              <Button onClick={() => setIsCreateOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Workflow
-              </Button>
+              {canEditWorkflows && (
+                <Button onClick={() => setIsCreateOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Workflow
+                </Button>
+              )}
             </div>
           </div>
 
@@ -768,10 +780,12 @@ function WorkflowBuilderPageContent() {
                       ? 'Create your first workflow to automate lead communication'
                       : 'Try adjusting your filter'}
                   </p>
-                  <Button onClick={() => setIsCreateOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Workflow
-                  </Button>
+                  {canEditWorkflows && (
+                    <Button onClick={() => setIsCreateOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create Workflow
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ) : (

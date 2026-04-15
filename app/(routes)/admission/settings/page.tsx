@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -252,6 +253,10 @@ function ChannelConfig({
 function AdmissionSettingsPageContent() {
   const { profile, isLoading: accessLoading } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
+  const { canAccess } = usePermissions();
+  const canEditSettings = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage')
+    || canAccess('admission', 'settings.edit');
   const [settings, setSettings] = useState<FrequencySettings>(DEFAULT_SETTINGS);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
@@ -368,10 +373,10 @@ function AdmissionSettingsPageContent() {
             </Breadcrumb>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={handleReset}>
+              <Button variant="outline" onClick={handleReset} disabled={!canEditSettings}>
                 Reset to Defaults
               </Button>
-              <Button onClick={handleSave} disabled={!hasChanges || isSaving}>
+              <Button onClick={handleSave} disabled={!hasChanges || isSaving || !canEditSettings}>
                 <Save className="h-4 w-4 mr-2" />
                 {isSaving ? 'Saving...' : 'Save Changes'}
               </Button>
@@ -777,7 +782,7 @@ function AdmissionSettingsPageContent() {
               <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
                 You have unsaved changes
               </span>
-              <Button size="sm" onClick={handleSave} disabled={isSaving}>
+              <Button size="sm" onClick={handleSave} disabled={isSaving || !canEditSettings}>
                 {isSaving ? 'Saving...' : 'Save Now'}
               </Button>
             </div>

@@ -5,14 +5,15 @@ import { GroupDashboardService } from '@/lib/services/admission/group-dashboard-
 
 export const groupDashboardKeys = {
   all: ['admission-group-dashboard'] as const,
-  overview: () => [...groupDashboardKeys.all, 'overview'] as const,
+  overview: (institutionIds?: string[]) =>
+    [...groupDashboardKeys.all, 'overview', institutionIds ?? 'all'] as const,
   duplicates: () => [...groupDashboardKeys.all, 'duplicates'] as const,
 };
 
-export function useGroupDashboard() {
+export function useGroupDashboard(institutionIds?: string[]) {
   return useQuery({
-    queryKey: groupDashboardKeys.overview(),
-    queryFn: () => GroupDashboardService.getGroupDashboard(),
+    queryKey: groupDashboardKeys.overview(institutionIds),
+    queryFn: () => GroupDashboardService.getGroupDashboard(institutionIds),
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
   });

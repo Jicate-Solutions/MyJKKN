@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/breadcrumb';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +47,12 @@ function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { session, isLoading, isError } = useGDPISessionDetail(id);
   const { markAttendance, updateSession, publishResults } = useGDPIMutations();
+  const { canAccess } = usePermissions();
+  const canEditSession = canAccess('admission', 'gd-pi.edit')
+    || canAccess('admission', 'edit');
+  const canPublishResults = canAccess('admission', 'gd-pi.edit')
+    || canAccess('admission', 'gd-pi.approve')
+    || canAccess('admission', 'edit');
 
   if (isLoading) {
     return (
@@ -115,24 +122,28 @@ function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
             </Button>
             <div className="flex items-center gap-2">
-              {session.status === 'draft' && (
+              {session.status === 'draft' && canEditSession && (
                 <Button size="sm" onClick={() => handleStatusChange('scheduled')}>
                   <PlayCircle className="h-4 w-4 mr-1" /> Mark Scheduled
                 </Button>
               )}
-              {session.status === 'scheduled' && (
+              {session.status === 'scheduled' && canEditSession && (
                 <Button size="sm" onClick={() => handleStatusChange('in_progress')}>
                   <PlayCircle className="h-4 w-4 mr-1" /> Start Session
                 </Button>
               )}
               {session.status === 'in_progress' && (
                 <>
-                  <Button size="sm" variant="outline" onClick={() => router.push(`/admission/gd-pi/${id}/evaluate`)}>
-                    <Award className="h-4 w-4 mr-1" /> Evaluate
-                  </Button>
-                  <Button size="sm" onClick={handlePublish}>
-                    <CheckCircle2 className="h-4 w-4 mr-1" /> Publish Results
-                  </Button>
+                  {canEditSession && (
+                    <Button size="sm" variant="outline" onClick={() => router.push(`/admission/gd-pi/${id}/evaluate`)}>
+                      <Award className="h-4 w-4 mr-1" /> Evaluate
+                    </Button>
+                  )}
+                  {canPublishResults && (
+                    <Button size="sm" onClick={handlePublish}>
+                      <CheckCircle2 className="h-4 w-4 mr-1" /> Publish Results
+                    </Button>
+                  )}
                 </>
               )}
             </div>
@@ -260,7 +271,7 @@ function SessionDetailContent({ params }: { params: Promise<{ id: string }> }) {
                                 </span>
                               </TableCell>
                             )}
-                            {['scheduled', 'in_progress'].includes(session.status) && (
+                            {['scheduled', 'in_progress'].includes(session.status) && canEditSession && (
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
                                   <Button

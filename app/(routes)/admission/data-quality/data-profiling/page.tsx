@@ -41,6 +41,7 @@ import {
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useDataProfilingMetrics, useFieldAnalysis, useDataIssues } from "@/hooks/admission/use-data-quality";
 
 function DataProfilingPageContent() {
@@ -51,6 +52,11 @@ function DataProfilingPageContent() {
   const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useDataProfilingMetrics();
   const { data: fieldAnalysis, isLoading: fieldsLoading, refetch: refetchFields } = useFieldAnalysis();
   const { data: dataIssues, isLoading: issuesLoading, refetch: refetchIssues } = useDataIssues();
+  const { canAccess } = usePermissions();
+  const canRunProfiling = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage');
+  const canExport = canAccess('admission', 'export')
+    || canRunProfiling;
 
   const handleRunProfiling = async () => {
     setIsRunning(true);
@@ -140,14 +146,18 @@ function DataProfilingPageContent() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={handleExportReport} disabled={isExporting}>
-            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            {isExporting ? "Exporting..." : "Export Report"}
-          </Button>
-          <Button onClick={handleRunProfiling} disabled={isRunning} className="gap-2 bg-[#0b6d41] hover:bg-[#095232]">
-            {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {isRunning ? "Running..." : "Run Profiling"}
-          </Button>
+          {canExport && (
+            <Button variant="outline" className="gap-2" onClick={handleExportReport} disabled={isExporting}>
+              {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {isExporting ? "Exporting..." : "Export Report"}
+            </Button>
+          )}
+          {canRunProfiling && (
+            <Button onClick={handleRunProfiling} disabled={isRunning} className="gap-2 bg-[#0b6d41] hover:bg-[#095232]">
+              {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {isRunning ? "Running..." : "Run Profiling"}
+            </Button>
+          )}
         </div>
       </div>
 

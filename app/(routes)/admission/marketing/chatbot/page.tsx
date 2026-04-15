@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useChatbotConfig, useChatbotConfigMutations } from '@/hooks/admission/use-chatbot-config';
 import { useChatbotAnalytics } from '@/hooks/admission/use-chatbot-analytics';
@@ -188,6 +189,9 @@ function ChatbotPageContent() {
 
   const { config, isLoading: configLoading } = useChatbotConfig(institutionId || undefined);
   const { saveConfig, toggleActive } = useChatbotConfigMutations();
+  const { canAccess } = usePermissions();
+  const canEditChatbot = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage');
 
   const { analytics, isLoading: analyticsLoading } = useChatbotAnalytics({
     chatbot_id: config?.id || '',
@@ -214,6 +218,7 @@ function ChatbotPageContent() {
   const isLoading = accessLoading || configLoading;
 
   const handleSaveConfig = async () => {
+    if (!canEditChatbot) return;
     setIsSaving(true);
     try {
       await saveConfig.mutateAsync({
@@ -227,6 +232,7 @@ function ChatbotPageContent() {
   };
 
   const handleToggle = async (active: boolean) => {
+    if (!canEditChatbot) return;
     if (!config?.id) {
       // Create config first
       await saveConfig.mutateAsync({

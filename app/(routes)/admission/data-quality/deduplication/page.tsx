@@ -58,6 +58,7 @@ import {
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useDeduplicationStats, useDuplicateGroups } from "@/hooks/admission/use-data-quality";
 import type { DuplicateGroup } from "@/lib/services/admission/data-quality-service";
 
@@ -81,6 +82,11 @@ function DeduplicationPageContent() {
 
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useDeduplicationStats();
   const { data: groups, isLoading: groupsLoading, refetch: refetchGroups } = useDuplicateGroups();
+  const { canAccess } = usePermissions();
+  // Merge + ignore are destructive. Gate behind admission.edit / admission.delete.
+  const canMergeDuplicates = canAccess('admission', 'edit')
+    || canAccess('admission', 'delete')
+    || canAccess('admission', 'manage');
 
   const dedupeStats = stats || { totalLeads: 0, duplicateGroups: 0, totalDuplicates: 0, duplicatePercentage: 0 };
   const duplicateGroups = groups || [];
@@ -347,7 +353,7 @@ function DeduplicationPageContent() {
                     className="pl-9"
                   />
                 </div>
-                {selectedGroups.length > 0 && (
+                {selectedGroups.length > 0 && canMergeDuplicates && (
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm" className="gap-2">
                       <Merge className="h-4 w-4" />
@@ -463,14 +469,16 @@ function DeduplicationPageContent() {
                         <Eye className="h-4 w-4 mr-2" />
                         View Details
                       </Button>
-                      <Button
-                        size="sm"
-                        className="bg-[#0b6d41] hover:bg-[#095232]"
-                        onClick={() => openMergeDialog(group)}
-                      >
-                        <Merge className="h-4 w-4 mr-2" />
-                        Merge Records
-                      </Button>
+                      {canMergeDuplicates && (
+                        <Button
+                          size="sm"
+                          className="bg-[#0b6d41] hover:bg-[#095232]"
+                          onClick={() => openMergeDialog(group)}
+                        >
+                          <Merge className="h-4 w-4 mr-2" />
+                          Merge Records
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

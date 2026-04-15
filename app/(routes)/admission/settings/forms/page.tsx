@@ -61,7 +61,13 @@ function FormsListContent() {
   const { profile } = useAuth();
   const { selectedInstitutionId, getAccessibleInstitutionIds } =
     useUserInstitutionAccess();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, canAccess } = usePermissions();
+  const canEditForms = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage')
+    || canAccess('admission', 'settings.edit');
+  const canDeleteForms = canAccess('admission', 'delete')
+    || canAccess('admission', 'manage')
+    || canAccess('admission', 'settings.delete');
   const [createOpen, setCreateOpen] = useState(false);
   const [newForm, setNewForm] = useState({
     name: '',
@@ -193,10 +199,12 @@ function FormsListContent() {
               Create public admission forms that capture leads directly into your CRM
             </p>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create Form
-          </Button>
+          {canEditForms && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create Form
+            </Button>
+          )}
         </div>
 
         {isLoading ? (
@@ -213,10 +221,12 @@ function FormsListContent() {
               <p className="text-sm text-muted-foreground mb-4">
                 Create your first admission form to start collecting leads
               </p>
-              <Button onClick={() => setCreateOpen(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Form
-              </Button>
+              {canEditForms && (
+                <Button onClick={() => setCreateOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Form
+                </Button>
+              )}
             </CardContent>
           </Card>
         ) : (
@@ -262,13 +272,15 @@ function FormsListContent() {
                     <Button size="sm" variant="ghost" onClick={() => handleCopyLink(form.slug)}>
                       <Link2 className="h-3.5 w-3.5" />
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDelete(form.id, form.name)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                    </Button>
+                    {canDeleteForms && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDelete(form.id, form.name)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>

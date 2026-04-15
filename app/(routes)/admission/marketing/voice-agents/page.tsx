@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useVoiceAgentConfigs,
   useVoiceAgentCalls,
@@ -60,12 +61,17 @@ function VoiceAgentsPageContent() {
   });
   const { initializeConfigs, toggleAgent, isInitializing } = useVoiceAgentMutations();
   const { agentTypes } = useAgentTypeInfo();
+  const { canAccess } = usePermissions();
+  const canEditAgents = canAccess('admission', 'edit')
+    || canAccess('admission', 'manage');
 
   const handleInitialize = () => {
+    if (!canEditAgents) return;
     if (institutionId) initializeConfigs.mutate(institutionId);
   };
 
   const handleToggle = (configId: string, currentState: boolean) => {
+    if (!canEditAgents) return;
     toggleAgent.mutate({ id: configId, isEnabled: !currentState });
   };
 
