@@ -1251,7 +1251,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'HR (Sprint 1)',
+      groupLabel: 'HR (Sprints 1-3)',
       menus: [
         {
           href: '/hr',
@@ -1273,6 +1273,20 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/hr/policies'),
           icon: ClipboardList,
           submenus: []
+        },
+        {
+          href: '/hr/leave',
+          label: 'Leave',
+          active: pathname.startsWith('/hr/leave'),
+          icon: CalendarDays,
+          submenus: [
+            { href: '/hr/leave/apply',            label: 'Apply',           active: pathname === '/hr/leave/apply' },
+            { href: '/hr/leave/my-applications',  label: 'My Applications', active: pathname === '/hr/leave/my-applications' },
+            { href: '/hr/leave/approve',          label: 'Approve Inbox',   active: pathname === '/hr/leave/approve' },
+            { href: '/hr/leave/calendar',         label: 'Calendar',        active: pathname === '/hr/leave/calendar' },
+            { href: '/hr/leave/balance',          label: 'Balance',         active: pathname === '/hr/leave/balance' },
+            { href: '/hr/leave/encashment',       label: 'Encashment',      active: pathname === '/hr/leave/encashment' },
+          ]
         }
       ]
     },

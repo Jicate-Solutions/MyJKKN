@@ -225,3 +225,167 @@ export const HR_ROLE_LABELS: Record<HRRole, string> = {
   payroll_officer: 'Payroll Officer',
   employee: 'Employee',
 };
+
+// === Sprint 3 — Leave Workflow ===
+
+export type LeaveApplicationStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
+  | 'withdrawn'
+  | 'escalated';
+
+export type LeaveDurationType = 'full' | 'first_half' | 'second_half' | 'hourly';
+
+export interface LeaveApprovalStep {
+  step_order: number;
+  approver_role: string;
+  approver_user_id?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'skipped';
+  decided_at?: string | null;
+  decided_by?: string | null;
+  comment?: string | null;
+  escalate_after_hours: number;
+}
+
+export interface LeaveDocument {
+  name: string;
+  storage_path: string;
+  uploaded_at: string;
+}
+
+export interface HRLeaveApplication {
+  id: string;
+  hr_organization_id: string;
+  employee_id: string;
+  leave_type_id: string;
+  academic_year_id: string | null;
+
+  start_date: string;
+  end_date: string;
+  duration_type: LeaveDurationType;
+  start_time: string | null;
+  end_time: string | null;
+  total_days: number;
+
+  reason: string;
+  documents: LeaveDocument[];
+  is_emergency: boolean;
+
+  status: LeaveApplicationStatus;
+  approval_chain: LeaveApprovalStep[];
+  current_step: number;
+  final_approver_id: string | null;
+  final_decided_at: string | null;
+  rejection_reason: string | null;
+
+  applied_by: string;
+  superseded_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HRLeaveApplicationInsert {
+  hr_organization_id: string;
+  employee_id: string;
+  leave_type_id: string;
+  academic_year_id?: string | null;
+  start_date: string;
+  end_date: string;
+  duration_type: LeaveDurationType;
+  start_time?: string | null;
+  end_time?: string | null;
+  reason: string;
+  documents?: LeaveDocument[];
+  is_emergency?: boolean;
+  approval_chain: LeaveApprovalStep[];
+  applied_by: string;
+  status?: LeaveApplicationStatus;
+}
+
+export interface HRLeaveBalance {
+  employee_id: string;
+  leave_type_id: string;
+  academic_year_id: string;
+  hr_organization_id: string;
+  entitled: number;
+  used: number;
+  carried_forward: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HRLeaveBalanceWithType extends HRLeaveBalance {
+  leave_type_name: string;
+  leave_type_code: string;
+  duration_type: LeaveDurationType;
+  allow_half_day: boolean;
+  allow_hourly: boolean;
+}
+
+export interface HRLeaveEncashment {
+  id: string;
+  hr_organization_id: string;
+  employee_id: string;
+  academic_year_id: string;
+  leave_type_id: string;
+  days_encashed: number;
+  per_diem_rate: number;
+  total_amount: number;
+  status: 'pending' | 'approved' | 'rejected' | 'paid';
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HRLeaveBlackout {
+  id: string;
+  hr_organization_id: string;
+  title: string;
+  start_date: string;
+  end_date: string;
+  leave_type_ids: string[] | null;
+  reason: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface HRLeaveApplicationComment {
+  id: string;
+  application_id: string;
+  author_id: string;
+  body: string;
+  created_at: string;
+}
+
+export interface HRCalendarEntry {
+  application_id: string;
+  employee_id: string;
+  employee_name: string;
+  start_date: string;
+  end_date: string;
+  duration_type: LeaveDurationType;
+  // Per decision 23 — name + generic 'On Leave' (type hidden from peers)
+  display_label: 'On Leave';
+  status: LeaveApplicationStatus;
+}
+
+export const LEAVE_STATUS_LABELS: Record<LeaveApplicationStatus, string> = {
+  pending: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  cancelled: 'Cancelled',
+  withdrawn: 'Withdrawn',
+  escalated: 'Escalated',
+};
+
+export const LEAVE_DURATION_LABELS: Record<LeaveDurationType, string> = {
+  full: 'Full day',
+  first_half: 'First half (AM)',
+  second_half: 'Second half (PM)',
+  hourly: 'Hourly',
+};
