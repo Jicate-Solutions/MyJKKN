@@ -38,7 +38,7 @@ import {
 // =====================================================================================
 
 async function safeCount(
-  fn: () => Promise<{ count: number | null; error: unknown }>
+  fn: () => PromiseLike<{ count: number | null; error: unknown }>
 ): Promise<number> {
   const { count, error } = await fn();
   if (error) throw error;
