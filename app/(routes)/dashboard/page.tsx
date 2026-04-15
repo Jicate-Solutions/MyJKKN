@@ -191,7 +191,10 @@ export default async function DashboardV2Page({
           crumbs={[{ label: 'JKKN — All Institutions', active: true }]}
         />
 
-        <BuildBanner />
+        {/* 8am Morning Brief (spec §7.7) — dismissible per-day */}
+        <Suspense fallback={null}>
+          <LiveMorningBrief />
+        </Suspense>
 
         {/* Hero Strip — 4 tiles with live data (spec §7.1) */}
         <Suspense fallback={<HeroSkeleton />}>
