@@ -1583,6 +1583,17 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/balance',          label: 'Balance',         active: pathname === '/hr/leave/balance' },
             { href: '/hr/leave/encashment',       label: 'Encashment',      active: pathname === '/hr/leave/encashment' },
           ]
+        },
+        {
+          href: '/hr/recruitment',
+          label: 'Recruitment',
+          active: pathname.startsWith('/hr/recruitment'),
+          icon: Briefcase,
+          submenus: [
+            { href: '/hr/recruitment/submit',    label: 'Submit Candidate', active: pathname === '/hr/recruitment/submit' },
+            { href: '/hr/recruitment/my',        label: 'My Candidates',    active: pathname === '/hr/recruitment/my' },
+            { href: '/hr/recruitment/approvals', label: 'Approvals',        active: pathname === '/hr/recruitment/approvals' },
+          ]
         }
       ]
     },
