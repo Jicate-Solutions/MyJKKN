@@ -101,16 +101,14 @@ function BuildBanner() {
         <span className='text-lg leading-none'>🏗️</span>
         <div className='flex-1 text-sm'>
           <div className='font-semibold text-blue-900 dark:text-blue-100'>
-            Dashboard v2 — Day 2 · Live Hero Strip
+            Dashboard v2 — Day 3 · Decision Queue live
           </div>
           <div className='text-blue-800/80 dark:text-blue-200/80 mt-1 leading-relaxed'>
-            Hero tiles reading live metrics from{' '}
-            <code className='px-1 rounded bg-blue-100/60 dark:bg-blue-900/40 text-[11px]'>
-              fn_dashboard_metrics
-            </code>{' '}
-            RPC (one round-trip, 4 tiles). Decision queue + inline actions
-            arrive Day 3. Broadcast rescue + leaderboards + push Day 4. Morning
-            brief + polish Day 5. Old dashboard still at{' '}
+            Live hero tiles + inline queue actions + tab-title badge
+            (WhatsApp-style pull). 4 item types (approval/escalation/rescue/
+            anomaly), idempotency-keyed server actions prevent double-submit.
+            Broadcast rescue + leaderboards + push arrive Day 4. Morning brief
+            + polish Day 5. Old dashboard still at{' '}
             <Link
               href='/dashboard/classic'
               className='font-semibold underline decoration-blue-400 hover:text-blue-700'

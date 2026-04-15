@@ -6206,3 +6206,220 @@ $$;
 GRANT EXECUTE ON FUNCTION fn_dashboard_metrics(UUID, UUID) TO authenticated;
 
 -- END Dashboard v2 functions
+
+
+-- =====================================================
+-- Dashboard v2 Day 3 — Decision Queue RPCs
+-- Added: 2026-04-15 — list/action/escalate functions
+-- Spec: specs/myjkkn-dashboard-v2-spec.md §7.2, §4.2
+-- =====================================================
+
+-- List queue items for auth.uid() — filtered, severity-sorted, counts per type
+CREATE OR REPLACE FUNCTION fn_dashboard_queue_list(
+  p_filter TEXT DEFAULT 'all',
+  p_limit INT DEFAULT 50
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user UUID := auth.uid();
+  v_items JSONB;
+  v_counts JSONB;
+BEGIN
+  IF v_user IS NULL THEN
+    RETURN jsonb_build_object('items', '[]'::jsonb, 'counts',
+      jsonb_build_object('total', 0, 'approval', 0, 'escalation', 0, 'rescue', 0, 'anomaly', 0));
+  END IF;
+
+  SELECT jsonb_build_object(
+    'total', COUNT(*),
+    'approval', COUNT(*) FILTER (WHERE n.category = 'dashboard:approval'),
+    'escalation', COUNT(*) FILTER (WHERE n.category = 'dashboard:escalation'),
+    'rescue', COUNT(*) FILTER (WHERE n.category = 'dashboard:rescue'),
+    'anomaly', COUNT(*) FILTER (WHERE n.category = 'dashboard:anomaly')
+  )
+  INTO v_counts
+  FROM user_notifications un
+  JOIN notifications n ON n.id = un.notification_id
+  WHERE un.user_id = v_user
+    AND un.acknowledged_at IS NULL
+    AND n.requires_acknowledgment = TRUE
+    AND n.category LIKE 'dashboard:%'
+    AND (n.expires_at IS NULL OR n.expires_at > NOW())
+    AND n.superseded_by IS NULL;
+
+  SELECT jsonb_agg(row_to_json(q)::jsonb ORDER BY severity_order ASC, created_at ASC)
+  INTO v_items
+  FROM (
+    SELECT
+      un.id AS user_notification_id, n.id AS notification_id,
+      n.title, n.body, n.category, n.priority, n.action_type, n.action_config,
+      n.created_at, n.acknowledgment_deadline_hours,
+      un.escalated_at, un.escalation_level,
+      EXTRACT(EPOCH FROM (NOW() - n.created_at))::bigint AS age_seconds,
+      CASE n.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END AS severity_order,
+      CASE n.priority WHEN 'urgent' THEN 'red' WHEN 'high' THEN 'amber' ELSE 'neutral' END AS severity_band,
+      CASE n.category
+        WHEN 'dashboard:approval' THEN 'approval'
+        WHEN 'dashboard:escalation' THEN 'escalation'
+        WHEN 'dashboard:rescue' THEN 'rescue'
+        WHEN 'dashboard:anomaly' THEN 'anomaly'
+        ELSE 'other' END AS queue_type
+    FROM user_notifications un
+    JOIN notifications n ON n.id = un.notification_id
+    WHERE un.user_id = v_user
+      AND un.acknowledged_at IS NULL
+      AND n.requires_acknowledgment = TRUE
+      AND n.category LIKE 'dashboard:%'
+      AND (n.expires_at IS NULL OR n.expires_at > NOW())
+      AND n.superseded_by IS NULL
+      AND (p_filter = 'all' OR n.category = 'dashboard:' || p_filter)
+    LIMIT p_limit
+  ) q;
+
+  RETURN jsonb_build_object('items', COALESCE(v_items, '[]'::jsonb), 'counts', v_counts, 'fetched_at', NOW());
+END;
+$$;
+GRANT EXECUTE ON FUNCTION fn_dashboard_queue_list(TEXT, INT) TO authenticated;
+
+-- Perform inline action on queue item — idempotent via p_idempotency_key
+CREATE OR REPLACE FUNCTION fn_dashboard_queue_action(
+  p_user_notification_id UUID,
+  p_action TEXT,
+  p_note TEXT DEFAULT NULL,
+  p_delegate_to UUID DEFAULT NULL,
+  p_snooze_minutes INT DEFAULT NULL,
+  p_idempotency_key TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user UUID := auth.uid();
+  v_un user_notifications;
+  v_notif notifications;
+  v_already_processed BOOLEAN := FALSE;
+BEGIN
+  IF v_user IS NULL THEN RETURN jsonb_build_object('ok', FALSE, 'error', 'not_authenticated'); END IF;
+  IF p_action NOT IN ('approve','reject','delegate','snooze','acknowledge','false_alarm') THEN
+    RETURN jsonb_build_object('ok', FALSE, 'error', 'invalid_action');
+  END IF;
+
+  IF p_idempotency_key IS NOT NULL THEN
+    SELECT EXISTS (SELECT 1 FROM notifications WHERE idempotency_key = p_idempotency_key AND acted_by IS NOT NULL)
+    INTO v_already_processed;
+    IF v_already_processed THEN RETURN jsonb_build_object('ok', TRUE, 'idempotent', TRUE, 'action', p_action); END IF;
+  END IF;
+
+  SELECT * INTO v_un FROM user_notifications WHERE id = p_user_notification_id AND user_id = v_user FOR UPDATE;
+  IF v_un.id IS NULL THEN RETURN jsonb_build_object('ok', FALSE, 'error', 'not_found_or_not_owned'); END IF;
+  IF v_un.acknowledged_at IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', TRUE, 'idempotent', TRUE, 'already_acknowledged_at', v_un.acknowledged_at);
+  END IF;
+
+  SELECT * INTO v_notif FROM notifications WHERE id = v_un.notification_id;
+
+  IF p_action = 'snooze' THEN
+    UPDATE user_notifications SET created_at = NOW() + (COALESCE(p_snooze_minutes, 120) || ' minutes')::interval
+      WHERE id = p_user_notification_id;
+    RETURN jsonb_build_object('ok', TRUE, 'action', 'snooze', 'resumes_at', NOW() + (COALESCE(p_snooze_minutes, 120) || ' minutes')::interval);
+  END IF;
+
+  IF p_action = 'delegate' AND p_delegate_to IS NOT NULL THEN
+    UPDATE notifications SET acted_by = v_user, idempotency_key = COALESCE(p_idempotency_key, idempotency_key), updated_at = NOW()
+      WHERE id = v_un.notification_id;
+    INSERT INTO user_notifications (notification_id, user_id, created_at) VALUES (v_un.notification_id, p_delegate_to, NOW()) ON CONFLICT DO NOTHING;
+    UPDATE user_notifications SET acknowledged_at = NOW() WHERE id = p_user_notification_id;
+    RETURN jsonb_build_object('ok', TRUE, 'action', 'delegate', 'delegated_to', p_delegate_to);
+  END IF;
+
+  UPDATE user_notifications SET acknowledged_at = NOW() WHERE id = p_user_notification_id;
+  UPDATE notifications
+    SET acted_by = v_user, idempotency_key = COALESCE(p_idempotency_key, idempotency_key), updated_at = NOW(),
+        metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+          'dashboard_action', p_action, 'dashboard_action_note', p_note, 'dashboard_action_at', NOW())
+    WHERE id = v_un.notification_id;
+
+  IF p_action = 'false_alarm' AND v_notif.category = 'dashboard:anomaly' THEN
+    UPDATE notifications SET expires_at = NOW() + INTERVAL '24 hours' WHERE id = v_un.notification_id;
+  END IF;
+
+  RETURN jsonb_build_object('ok', TRUE, 'action', p_action, 'acknowledged_at', NOW(), 'note', p_note);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION fn_dashboard_queue_action(UUID, TEXT, TEXT, UUID, INT, TEXT) TO authenticated;
+
+-- Auto-escalation (phase 1: no-op without CoS id per spec §15 Q1)
+CREATE OR REPLACE FUNCTION fn_dashboard_queue_escalate(p_cos_user_id UUID DEFAULT NULL)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_escalated_count INT := 0;
+  v_returned_count INT := 0;
+  v_cfg dashboard_config;
+  v_threshold INTERVAL;
+BEGIN
+  SELECT * INTO v_cfg FROM dashboard_config WHERE scope = 'global' LIMIT 1;
+  v_threshold := (v_cfg.queue_escalation_hours || ' hours')::interval;
+
+  IF p_cos_user_id IS NULL THEN
+    RETURN jsonb_build_object('ok', TRUE, 'escalated', 0, 'returned', 0,
+      'message', 'No Chief of Staff configured — escalation disabled (spec §15 Q1)');
+  END IF;
+
+  WITH eligible AS (
+    SELECT un.id, un.notification_id FROM user_notifications un
+    JOIN notifications n ON n.id = un.notification_id
+    JOIN profiles p ON p.id = un.user_id
+    WHERE p.is_super_admin = TRUE AND un.acknowledged_at IS NULL AND un.escalated_at IS NULL
+      AND n.category LIKE 'dashboard:%' AND n.requires_acknowledgment = TRUE
+      AND n.created_at < NOW() - v_threshold
+  ),
+  escalated AS (
+    UPDATE user_notifications un SET escalated_at = NOW(),
+      escalation_level = COALESCE(escalation_level, 0) + 1
+      WHERE un.id IN (SELECT id FROM eligible)
+      RETURNING un.notification_id
+  ),
+  cos_fanout AS (
+    INSERT INTO user_notifications (notification_id, user_id, created_at)
+    SELECT notification_id, p_cos_user_id, NOW() FROM escalated
+    ON CONFLICT DO NOTHING RETURNING id
+  )
+  SELECT COUNT(*) INTO v_escalated_count FROM cos_fanout;
+
+  WITH cos_overdue AS (
+    SELECT un.id, un.notification_id FROM user_notifications un
+    JOIN notifications n ON n.id = un.notification_id
+    WHERE un.user_id = p_cos_user_id AND un.acknowledged_at IS NULL
+      AND un.created_at < NOW() - INTERVAL '1 hour' AND n.category LIKE 'dashboard:%'
+  ),
+  cos_ack AS (
+    UPDATE user_notifications un SET acknowledged_at = NOW()
+    WHERE un.id IN (SELECT id FROM cos_overdue) RETURNING un.notification_id
+  ),
+  strike_log AS (
+    INSERT INTO counselor_sla_strikes (counselor_id, strike_type, context, auto_expires_at, institution_id)
+    SELECT p_cos_user_id, 'cos_unreachable',
+      jsonb_build_object('notification_id', notification_id, 'reason', 'cos_2h_timeout'),
+      NOW() + (v_cfg.strike_expiry_days || ' days')::interval,
+      COALESCE((SELECT institution_id FROM profiles WHERE id = p_cos_user_id), (SELECT id FROM institutions LIMIT 1))
+    FROM cos_ack RETURNING id
+  )
+  SELECT COUNT(*) INTO v_returned_count FROM strike_log;
+
+  RETURN jsonb_build_object('ok', TRUE, 'escalated', v_escalated_count, 'returned', v_returned_count,
+    'threshold_hours', v_cfg.queue_escalation_hours, 'ran_at', NOW());
+END;
+$$;
+GRANT EXECUTE ON FUNCTION fn_dashboard_queue_escalate(UUID) TO service_role;
+
+-- END Dashboard v2 Day 3 functions
