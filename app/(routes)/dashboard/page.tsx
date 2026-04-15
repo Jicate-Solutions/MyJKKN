@@ -146,6 +146,36 @@ function BuildBanner() {
 }
 
 // ============================================================================
+// Institution chip row — quick drill-down to per-institution views
+// ============================================================================
+async function InstitutionChips() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('institutions')
+    .select('id, name')
+    .order('name', { ascending: true })
+    .limit(12);
+  const institutions = (data ?? []) as Array<{ id: string; name: string }>;
+  if (institutions.length === 0) return null;
+  return (
+    <div className='flex items-center gap-2 overflow-x-auto pb-2 -mx-2 px-2 scroll-smooth'>
+      <span className='text-[11px] uppercase tracking-wider text-neutral-500 whitespace-nowrap mr-1'>
+        Drill into:
+      </span>
+      {institutions.map((inst) => (
+        <Link
+          key={inst.id}
+          href={`/dashboard/i/${inst.id}`}
+          className='px-3 py-1.5 text-xs rounded-full bg-white/80 dark:bg-neutral-900/80 border border-neutral-200 dark:border-neutral-800 whitespace-nowrap hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors'
+        >
+          {inst.name}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
 // Main page (server component — fetches RPC, renders)
 // ============================================================================
 export default function DashboardV2Page() {
@@ -158,11 +188,20 @@ export default function DashboardV2Page() {
       </div>
 
       <div className='space-y-4 sm:space-y-5 lg:space-y-6 px-2 sm:px-3 lg:px-4 pb-10'>
+        <DashboardBreadcrumb
+          crumbs={[{ label: 'JKKN — All Institutions', active: true }]}
+        />
+
         <BuildBanner />
 
         {/* Hero Strip — 4 tiles with live data (spec §7.1) */}
         <Suspense fallback={<HeroSkeleton />}>
           <LiveHeroStrip />
+        </Suspense>
+
+        {/* Institution quick-drill chips */}
+        <Suspense fallback={null}>
+          <InstitutionChips />
         </Suspense>
 
         {/* Decision Queue (spec §7.2) — wires Day 3 */}
