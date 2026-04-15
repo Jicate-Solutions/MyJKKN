@@ -6354,7 +6354,10 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION fn_dashboard_queue_action(UUID, TEXT, TEXT, UUID, INT, TEXT) TO authenticated;
 
--- Auto-escalation (phase 1: no-op without CoS id per spec §15 Q1)
+-- Updated: 2026-04-15 — Chief of Staff auto-escalation ACTIVATED
+-- Function now self-reads CoS UUID from dashboard_config.chief_of_staff_user_id when
+-- p_cos_user_id is NULL. Cron/scheduler can call with zero args. Caller override still
+-- supported for testing. Still a no-op when no CoS is configured anywhere (spec §15 Q1).
 CREATE OR REPLACE FUNCTION fn_dashboard_queue_escalate(p_cos_user_id UUID DEFAULT NULL)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -6366,11 +6369,15 @@ DECLARE
   v_returned_count INT := 0;
   v_cfg dashboard_config;
   v_threshold INTERVAL;
+  v_cos_user_id UUID;
 BEGIN
   SELECT * INTO v_cfg FROM dashboard_config WHERE scope = 'global' LIMIT 1;
   v_threshold := (v_cfg.queue_escalation_hours || ' hours')::interval;
 
-  IF p_cos_user_id IS NULL THEN
+  -- Resolve CoS: caller override > dashboard_config > NULL (no-op)
+  v_cos_user_id := COALESCE(p_cos_user_id, v_cfg.chief_of_staff_user_id);
+
+  IF v_cos_user_id IS NULL THEN
     RETURN jsonb_build_object('ok', TRUE, 'escalated', 0, 'returned', 0,
       'message', 'No Chief of Staff configured — escalation disabled (spec §15 Q1)');
   END IF;
@@ -6391,7 +6398,7 @@ BEGIN
   ),
   cos_fanout AS (
     INSERT INTO user_notifications (notification_id, user_id, created_at)
-    SELECT notification_id, p_cos_user_id, NOW() FROM escalated
+    SELECT notification_id, v_cos_user_id, NOW() FROM escalated
     ON CONFLICT DO NOTHING RETURNING id
   )
   SELECT COUNT(*) INTO v_escalated_count FROM cos_fanout;
@@ -6399,7 +6406,7 @@ BEGIN
   WITH cos_overdue AS (
     SELECT un.id, un.notification_id FROM user_notifications un
     JOIN notifications n ON n.id = un.notification_id
-    WHERE un.user_id = p_cos_user_id AND un.acknowledged_at IS NULL
+    WHERE un.user_id = v_cos_user_id AND un.acknowledged_at IS NULL
       AND un.created_at < NOW() - INTERVAL '1 hour' AND n.category LIKE 'dashboard:%'
   ),
   cos_ack AS (
@@ -6408,19 +6415,53 @@ BEGIN
   ),
   strike_log AS (
     INSERT INTO counselor_sla_strikes (counselor_id, strike_type, context, auto_expires_at, institution_id)
-    SELECT p_cos_user_id, 'cos_unreachable',
+    SELECT v_cos_user_id, 'cos_unreachable',
       jsonb_build_object('notification_id', notification_id, 'reason', 'cos_2h_timeout'),
       NOW() + (v_cfg.strike_expiry_days || ' days')::interval,
-      COALESCE((SELECT institution_id FROM profiles WHERE id = p_cos_user_id), (SELECT id FROM institutions LIMIT 1))
+      COALESCE((SELECT institution_id FROM profiles WHERE id = v_cos_user_id), (SELECT id FROM institutions LIMIT 1))
     FROM cos_ack RETURNING id
   )
   SELECT COUNT(*) INTO v_returned_count FROM strike_log;
 
   RETURN jsonb_build_object('ok', TRUE, 'escalated', v_escalated_count, 'returned', v_returned_count,
-    'threshold_hours', v_cfg.queue_escalation_hours, 'ran_at', NOW());
+    'threshold_hours', v_cfg.queue_escalation_hours,
+    'cos_user_id', v_cos_user_id,
+    'source', CASE WHEN p_cos_user_id IS NOT NULL THEN 'override' ELSE 'dashboard_config' END,
+    'ran_at', NOW());
 END;
 $$;
 GRANT EXECUTE ON FUNCTION fn_dashboard_queue_escalate(UUID) TO service_role;
+
+-- Updated: 2026-04-15 — Seed Chief of Staff role + assign to Gowrisankar MN (eao@jkkn.ac.in)
+-- This role receives escalated dashboard queue items per spec §15 Q1.
+-- Idempotent: ON CONFLICT guards both role and user_roles assignment.
+INSERT INTO custom_roles (role_key, role_name, description, is_system_role, is_active, institution_scope, permissions)
+VALUES (
+  'chief_of_staff',
+  'Chief of Staff',
+  'Director''s deputy — receives escalated dashboard approvals and anomalies when the Director does not act within the SLA window.',
+  TRUE, TRUE, 'all',
+  jsonb_build_object(
+    'dashboard.queue.approve.waiver',    TRUE,
+    'dashboard.queue.approve.leave',     TRUE,
+    'dashboard.queue.approve.purchase',  TRUE,
+    'dashboard.queue.approve.travel',    TRUE,
+    'dashboard.queue.resolve.grievance', TRUE,
+    'dashboard.anomaly.acknowledge',     TRUE
+  )
+)
+ON CONFLICT (role_key) DO UPDATE
+  SET role_name = EXCLUDED.role_name,
+      description = EXCLUDED.description,
+      is_active = TRUE,
+      institution_scope = EXCLUDED.institution_scope,
+      permissions = custom_roles.permissions || EXCLUDED.permissions,
+      updated_at = NOW();
+
+INSERT INTO user_roles (user_id, role_id, is_primary, assigned_at)
+SELECT 'd28a9913-5606-42cc-8fd0-6b27317c4d30'::uuid, cr.id, FALSE, NOW()
+  FROM custom_roles cr WHERE cr.role_key = 'chief_of_staff'
+ON CONFLICT (user_id, role_id) DO NOTHING;
 
 -- END Dashboard v2 Day 3 functions
 
