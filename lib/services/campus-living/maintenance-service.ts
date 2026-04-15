@@ -1,3 +1,10 @@
+/**
+ * @deprecated — prefer ResourceManagement maintenance flows for hostel
+ * infrastructure (resource_maintenance_schedules + resource_maintenance_logs).
+ * This service handles only learner-filed incident tickets. See
+ * specs/campus-living-rm-integration.md for the migration plan.
+ */
+
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type {

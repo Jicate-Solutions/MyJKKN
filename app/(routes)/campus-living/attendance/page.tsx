@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
 import { useHostelAttendance } from '@/hooks/campus-living/use-hostel-attendance';
+import { BlockSelector } from '@/components/campus-living/block-selector';
 import {
   ClipboardCheck,
   Users,
@@ -25,7 +26,18 @@ import {
 
 export default function AttendanceDashboardPage() {
   const { profile } = useAuth();
-  const { data: rawStats, isLoading } = useHostelAttendance(profile?.institution_id ?? '');
+  const institutionId = profile?.institution_id ?? '';
+  const [blockFilter, setBlockFilter] = useState<string>('all');
+
+  const filters = useMemo(
+    () => ({
+      block_id: blockFilter !== 'all' ? blockFilter : undefined,
+    }),
+    [blockFilter]
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: rawStats, isLoading } = useHostelAttendance(institutionId, filters as any);
   // Defensive: when staging DB has 0 rows, service returns {data: [], count: 0}
   // which lacks the aggregate shape this page expects. Fall back to safe defaults.
   const s = (rawStats ?? {}) as any;
@@ -92,6 +104,19 @@ export default function AttendanceDashboardPage() {
             </Button>
           </div>
         </div>
+
+        {/* Filters */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <BlockSelector
+                institutionId={institutionId}
+                value={blockFilter}
+                onValueChange={setBlockFilter}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Primary Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
