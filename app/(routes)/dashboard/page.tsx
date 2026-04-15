@@ -186,6 +186,7 @@ async function RoleBasedDashboard() {
     }
 
     case 'admission':
+    case 'admission_staff':
     case 'admin':
     case 'super_admin': {
       return (

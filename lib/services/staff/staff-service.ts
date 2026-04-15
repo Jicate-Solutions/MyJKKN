@@ -244,6 +244,11 @@ export class StaffService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
+      // Normalize empty optional unique fields to null so the
+      // staff_staff_id_not_empty CHECK constraint doesn't reject blanks
+      // (mirrors the same coercion in createStaff).
+      if ((data as any).staff_id === '') (data as any).staff_id = null;
+
       // Get the current staff data before update
       let currentStaff: any = null;
       const { data: fetchedStaff, error: fetchError } = await this.supabase

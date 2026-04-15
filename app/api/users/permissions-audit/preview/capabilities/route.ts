@@ -44,7 +44,7 @@ export async function GET() {
       profile?.is_super_admin === true || profile?.role === 'super_admin';
     const canUseWriteMode =
       isSuperAdmin &&
-      (profile?.email || '').toLowerCase() === DIRECTOR_EMAIL.toLowerCase();
+      DIRECTOR_EMAIL.includes((profile?.email || '').toLowerCase());
 
     return NextResponse.json({
       isSuperAdmin,

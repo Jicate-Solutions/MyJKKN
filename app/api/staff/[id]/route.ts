@@ -123,6 +123,10 @@ export async function PATCH(
 
     const json = await request.json();
 
+    // Normalize empty staff_id to null so the staff_staff_id_not_empty
+    // CHECK constraint doesn't reject blanks coming from the form.
+    if (json.staff_id === '') json.staff_id = null;
+
     // Update the staff record using admin client (bypasses RLS)
     const { data: updatedStaff, error: updateError } = await supabaseAdmin
       .from('staff')

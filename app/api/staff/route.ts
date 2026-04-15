@@ -313,6 +313,10 @@ export async function POST(request: Request) {
 
     console.log('Creating staff via API route for user:', currentUser.role);
 
+    // Normalize empty staff_id to null (matches the staff_staff_id_not_empty
+    // DB CHECK and lets the UNIQUE index treat blanks as distinct NULLs).
+    if (json.staff_id === '') json.staff_id = null;
+
     // Check if staff_id already exists if provided
     if (json.staff_id) {
       const { data: existing } = await supabaseAdmin
