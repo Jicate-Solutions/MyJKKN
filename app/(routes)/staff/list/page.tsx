@@ -128,7 +128,7 @@ export default function StaffPage() {
   // Show loading while permissions are loading
   if (permissionsLoading) {
     return (
-      <ContentLayout title='Staff'>
+      <ContentLayout title='Employees'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <div className='text-center'>
             <BeatLoader className='text-primary' size={8} />
@@ -140,7 +140,7 @@ export default function StaffPage() {
 
   if (!canViewStaff) {
     return (
-      <ContentLayout title='Staff'>
+      <ContentLayout title='Employees'>
         <div className='p-4'>
           <Alert variant='destructive'>
             <AlertCircle className='h-4 w-4' />

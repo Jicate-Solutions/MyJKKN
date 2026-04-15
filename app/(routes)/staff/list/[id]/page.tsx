@@ -85,7 +85,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
   // Show loading when permissions or data are loading
   if (permissionsLoading || (loading && permissionsLoaded)) {
     return (
-      <ContentLayout title='Staff Details'>
+      <ContentLayout title='Employee Details'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' className='mr-2' />
         </div>
@@ -95,13 +95,13 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
 
   if (error || !staff) {
     return (
-      <ContentLayout title='Staff Details'>
+      <ContentLayout title='Employee Details'>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
             {error || 'Staff member not found'}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/staff/list'>Back to Staff</Link>
+            <Link href='/staff/list'>Back to Employees</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -111,7 +111,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
 
   return (
-    <ContentLayout title='Staff Details'>
+    <ContentLayout title='Employee Details'>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -122,12 +122,12 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/staff/list'>Staff List</Link>
+              <Link href='/staff/list'>Employees</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Staff Details</BreadcrumbPage>
+            <BreadcrumbPage>Employee Details</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
@@ -147,7 +147,7 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
                 {staff.first_name} {staff.last_name}
               </h1>
               <p className='text-sm sm:text-base text-muted-foreground'>
-                Staff Details
+                Employee Details
               </p>
             </div>
           </div>
@@ -155,13 +155,13 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
             <Button asChild>
               <Link href={`/staff/list/${id}/edit`}>
                 <PenSquare className='mr-2 h-4 w-4' />
-                Edit Staff
+                Edit Employee
               </Link>
             </Button>
           ) : (
             <Button variant='outline' disabled className='opacity-50'>
               <PenSquare className='mr-2 h-4 w-4' />
-              Edit Staff
+              Edit Employee
             </Button>
           )}
         </div>

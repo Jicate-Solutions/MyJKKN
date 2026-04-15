@@ -84,7 +84,7 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
   // Show loading state while permissions or data are loading
   if (permissionsLoading || (loading && permissionsLoaded)) {
     return (
-      <ContentLayout title='Edit Staff'>
+      <ContentLayout title='Edit Employee'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <BeatLoader color='#00e902' className='mr-2' />
         </div>
@@ -94,13 +94,13 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
 
   if (error || !staff) {
     return (
-      <ContentLayout title='Edit Staff'>
+      <ContentLayout title='Edit Employee'>
         <div className='text-center py-8'>
           <p className='text-destructive mb-4'>
             {error || 'Staff member not found'}
           </p>
           <Button variant='outline' asChild>
-            <Link href='/staff/list'>Back to Staff</Link>
+            <Link href='/staff/list'>Back to Employees</Link>
           </Button>
         </div>
       </ContentLayout>
@@ -108,7 +108,7 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
   }
 
   return (
-    <ContentLayout title='Edit Staff'>
+    <ContentLayout title='Edit Employee'>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -119,21 +119,21 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/staff/list'>Staff List</Link>
+              <Link href='/staff/list'>Employees</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>Edit Staff</BreadcrumbPage>
+            <BreadcrumbPage>Edit Employee</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
         <div>
-          <h1 className='text-2xl font-bold py-1'>Edit Staff</h1>
+            <h1 className='text-2xl font-bold py-1'>Edit Employee</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Update staff member information
+            Update employee information
           </p>
         </div>
 

@@ -57,13 +57,13 @@ export class GroupDashboardService {
       };
     }
 
-    const institutionIds = institutions.map((i) => i.id);
+    const resolvedInstitutionIds = institutions.map((i) => i.id);
 
     // Get lead counts per institution per stage
     const { data: leadsData, error: leadsError } = await (this.supabase as any)
       .from('admission_leads')
       .select('institution_id, funnel_stage')
-      .in('institution_id', institutionIds);
+      .in('institution_id', resolvedInstitutionIds);
 
     if (leadsError) {
       console.error('[admission/group] Failed to fetch leads:', leadsError);
@@ -77,7 +77,7 @@ export class GroupDashboardService {
     const { data: seatData } = await (this.supabase as any)
       .from('institution_seat_config')
       .select('institution_id, total_seats')
-      .in('institution_id', institutionIds)
+      .in('institution_id', resolvedInstitutionIds)
       .eq('academic_year', academicYear);
 
     // Aggregate by institution
