@@ -489,6 +489,22 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'HR Management',
+    key: 'hr',
+    permissions: [
+      // Recruitment (Phase 1A+1B shipped 2026-04-15) —
+      // RLS keys referenced in supabase/setup/03_policies.sql for hr_recruitment_*
+      { key: 'hr.recruitment.view', label: 'View Recruitment Candidates' },
+      { key: 'hr.recruitment.create', label: 'Submit Recruitment Candidates' },
+      { key: 'hr.recruitment.edit', label: 'Edit Recruitment Candidates' },
+      { key: 'hr.recruitment.delete', label: 'Delete Recruitment Candidates' },
+      { key: 'hr.recruitment.approve', label: 'Approve Recruitment Candidates' },
+      { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
+      { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
+      { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' }
+    ]
+  },
+  {
     name: 'Resource Management',
     key: 'resources',
     permissions: [
