@@ -835,34 +835,6 @@ CREATE TRIGGER marathon_registrations_insert_trg
   FOR EACH ROW
   EXECUTE FUNCTION public.marathon_registrations_insert();
 
-
--- =====================================================
--- Dashboard v2 — Triggers
--- Added: 2026-04-15 - Day 1 migration
--- Decision: Round 1.4 (frozen lineage — first activity timestamps lead permanently)
--- =====================================================
-
-CREATE OR REPLACE FUNCTION trg_lead_first_touch_fn()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  UPDATE admission_leads
-  SET first_touch_at = NEW.created_at
-  WHERE id = NEW.lead_id AND first_touch_at IS NULL;
-  RETURN NEW;
-END;
-$$;
-
-DROP TRIGGER IF EXISTS trg_lead_first_touch ON admission_lead_activities;
-CREATE TRIGGER trg_lead_first_touch
-  AFTER INSERT ON admission_lead_activities
-  FOR EACH ROW
-  EXECUTE FUNCTION trg_lead_first_touch_fn();
-
--- END Dashboard v2 triggers
 -- =====================================================================
 -- 2026-04-15 — HR Recruitment Phase 1A: updated_at triggers
 -- Spec: specs/hr-recruitment-module-spec.md

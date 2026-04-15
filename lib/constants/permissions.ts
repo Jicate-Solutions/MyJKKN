@@ -728,26 +728,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'work_pulse.impact.view', label: 'View Impact Dashboard' }
     ]
   },
-  // Dashboard v2 (2026-04-15) — Operational Nervous System
-  // Spec: specs/myjkkn-dashboard-v2-spec.md §6.6
-  {
-    name: 'Dashboard v2',
-    key: 'dashboard',
-    permissions: [
-      { key: 'dashboard.director.view', label: 'View Director dashboard' },
-      { key: 'dashboard.queue.approve.waiver', label: 'Approve fee waivers from queue' },
-      { key: 'dashboard.queue.approve.leave', label: 'Approve leave requests (>3 days) from queue' },
-      { key: 'dashboard.queue.approve.purchase', label: 'Approve purchases (>₹50k) from queue' },
-      { key: 'dashboard.queue.approve.travel', label: 'Approve staff travel from queue' },
-      { key: 'dashboard.queue.resolve.grievance', label: 'Resolve tier-3 grievances from queue' },
-      { key: 'dashboard.leaderboard.view', label: 'View counselor leaderboards (SLA + Conversion)' },
-      { key: 'dashboard.broadcast.initiate', label: 'Initiate Broadcast Rescue for cold leads' },
-      { key: 'dashboard.broadcast.claim', label: 'Claim Broadcast Rescue leads' },
-      { key: 'dashboard.anomaly.acknowledge', label: 'Acknowledge anomaly alerts' }
-    ]
-  },
   // ======================================================================
-  // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15) — merged from jicate/main via PR #188
+  // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15)
   // ======================================================================
   {
     name: 'Faculty Innovation',
