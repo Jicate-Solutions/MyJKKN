@@ -19,6 +19,8 @@ import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
 import { PushSubscribeButton } from '@/components/dashboard/push-subscribe-button';
+import { MorningBriefCard } from '@/components/dashboard/morning-brief';
+import { getMorningBrief } from '@/lib/services/dashboard/morning-brief-service';
 import type { QueueFilter } from '@/lib/services/dashboard/decision-queue-service';
 import {
   getSlaDailyLeaderboard,
