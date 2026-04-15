@@ -23,12 +23,31 @@ import type {
   HRRecruitmentCandidate,
   HRRecruitmentCandidateInsert,
   HRRecruitmentCandidateUpdate,
-  CandidateFilters,
+  CandidateFilters as BaseCandidateFilters,
   CandidateListResponse,
   CandidateStatus,
   RoleCategory,
   CTCBand,
 } from '@/types/hr-recruitment';
+
+// =====================================================================================
+// Extended list filters (Phase 1A follow-up)
+// Server-side filters that remove the need for client-side filtering in the inbox UI.
+// =====================================================================================
+
+export interface CandidateFilters extends BaseCandidateFilters {
+  /** Filter by the user who submitted the candidate (profiles.id UUID). */
+  submitted_by?: string;
+  /**
+   * Approver-inbox mode. When true, only returns rows where:
+   *   status IN ('submitted','pending_approval')
+   *   AND approval_chain -> current_step ->> 'approver_user_id' = approver_id
+   * Requires `approver_id` to be set — `listCandidates` throws otherwise.
+   */
+  pending_for_me?: boolean;
+  /** UUID of the approver whose inbox we're computing. Required when `pending_for_me=true`. */
+  approver_id?: string;
+}
 
 // =====================================================================================
 // Recruitment Service
@@ -67,7 +86,32 @@ export class RecruitmentService {
     if (filters.source) {
       q = q.eq('source', filters.source);
     }
-    if (filters.status) {
+    if (filters.submitted_by) {
+      q = q.eq('submitted_by', filters.submitted_by);
+    }
+
+    // pending_for_me: approver inbox view.
+    // Must be combined with `approver_id` — the service enforces this contract
+    // so the route layer can return a clean 400 on missing approver_id.
+    if (filters.pending_for_me) {
+      if (!filters.approver_id) {
+        throw new Error('approver_id is required when pending_for_me=true');
+      }
+      // When pending_for_me is set, status defaults to the open-approval statuses.
+      // An explicit `status` filter passed alongside is ignored in favour of this one
+      // to preserve the inbox semantics.
+      q = q.in('status', ['submitted', 'pending_approval']);
+      // jsonb path: approval_chain is an array; current_step is the index of the
+      // row's own current step (server-side). We cannot dereference array[current_step]
+      // in PostgREST without a SQL function, so we compare the `approver_user_id`
+      // of the "first pending step" using jsonb_path_query / filter — PostgREST
+      // supports this via the `cs` (contains) operator on the array shape.
+      // The approval_chain entries that are still pending + match the approver:
+      //   approval_chain @> '[{"status":"pending","approver_user_id":"<id>"}]'
+      q = q.contains('approval_chain', [
+        { status: 'pending', approver_user_id: filters.approver_id },
+      ]);
+    } else if (filters.status) {
       const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
       q = q.in('status', statuses);
     }

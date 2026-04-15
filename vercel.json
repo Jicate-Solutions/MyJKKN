@@ -9,6 +9,22 @@
     {
       "path": "/api/cron/notification-processor?secret=${CRON_SECRET}",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/dashboard/cron/refresh-sla-leaderboard",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/dashboard/cron/refresh-conversion-leaderboard",
+      "schedule": "30 18 * * *"
+    },
+    {
+      "path": "/api/dashboard/cron/ghost-sweep",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/dashboard/cron/queue-escalate",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

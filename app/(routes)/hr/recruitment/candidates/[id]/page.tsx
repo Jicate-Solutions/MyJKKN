@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
-import { ExternalLink, AlertTriangle, ArrowRight } from 'lucide-react';
+import { ExternalLink, AlertTriangle, ArrowRight, GraduationCap, Users, Lightbulb, Bug } from 'lucide-react';
 import {
   useCandidate,
   usePackages,
@@ -26,6 +26,7 @@ import {
   useWithdrawCandidate,
   useUpdateCandidateStatus,
 } from '@/hooks/hr/use-recruitment';
+import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
 import {
   CANDIDATE_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
@@ -65,6 +66,7 @@ export default function CandidateDetailPage() {
   const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
 
   const { data: candidate, isLoading } = useCandidate(id);
+  const { data: alumniSignal } = useAlumniSignal(id);
   const { data: packages = [] } = usePackages(id);
   const propose = useProposePackage();
   const approvePackage = useApprovePackage();
@@ -330,7 +332,74 @@ export default function CandidateDetailPage() {
           </CardContent>
         </Card>
 
-        {/* 2. Approval chain timeline */}
+        {/* 2. JKKN History panel — R4.3 Alumni Signals */}
+        {alumniSignal && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-1.5">
+                <GraduationCap className="h-4 w-4 text-muted-foreground" />
+                JKKN History
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-2 text-sm">
+                {/* Academic record — always shown when alumniSignal is non-null */}
+                <li className="flex items-start gap-2">
+                  <GraduationCap className="h-4 w-4 mt-0.5 shrink-0 text-indigo-500" />
+                  <span>
+                    {[
+                      alumniSignal.course_name,
+                      alumniSignal.graduation_year
+                        ? String(alumniSignal.graduation_year)
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </li>
+
+                {/* Learners Council role */}
+                {alumniSignal.council_role && (
+                  <li className="flex items-start gap-2">
+                    <Users className="h-4 w-4 mt-0.5 shrink-0 text-violet-500" />
+                    <span>
+                      Learners Council &mdash;{' '}
+                      {alumniSignal.council_role.position_title},{' '}
+                      {alumniSignal.council_role.term_name}
+                    </span>
+                  </li>
+                )}
+
+                {/* Solutions Hub contributions */}
+                {alumniSignal.sh_contributions !== undefined && (
+                  <li className="flex items-start gap-2">
+                    <Lightbulb className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" />
+                    <span>
+                      Solutions Hub &mdash;{' '}
+                      {alumniSignal.sh_contributions}{' '}
+                      {alumniSignal.sh_contributions === 1
+                        ? 'contribution'
+                        : 'contributions'}
+                    </span>
+                  </li>
+                )}
+
+                {/* Bug reports filed */}
+                {alumniSignal.bug_reports_filed !== undefined && (
+                  <li className="flex items-start gap-2">
+                    <Bug className="h-4 w-4 mt-0.5 shrink-0 text-rose-500" />
+                    <span>
+                      Bug Reports &mdash;{' '}
+                      {alumniSignal.bug_reports_filed} filed
+                    </span>
+                  </li>
+                )}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 3. Approval chain timeline (renumbered from 2) */}
         {approvalChain.length > 0 && (
           <Card>
             <CardHeader><CardTitle className="text-sm">Approval Chain</CardTitle></CardHeader>
@@ -382,7 +451,7 @@ export default function CandidateDetailPage() {
           </Card>
         )}
 
-        {/* 3. Package negotiation history */}
+        {/* 4. Package negotiation history */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between gap-2">
@@ -468,7 +537,7 @@ export default function CandidateDetailPage() {
           </CardContent>
         </Card>
 
-        {/* 4. Bottom actions */}
+        {/* 5. Bottom actions */}
         {(canWithdraw || canMarkJoined) && (
           <div className="flex gap-2 flex-wrap">
             {canWithdraw && (

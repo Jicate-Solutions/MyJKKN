@@ -6354,7 +6354,10 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION fn_dashboard_queue_action(UUID, TEXT, TEXT, UUID, INT, TEXT) TO authenticated;
 
--- Auto-escalation (phase 1: no-op without CoS id per spec §15 Q1)
+-- Updated: 2026-04-15 — Chief of Staff auto-escalation ACTIVATED
+-- Function now self-reads CoS UUID from dashboard_config.chief_of_staff_user_id when
+-- p_cos_user_id is NULL. Cron/scheduler can call with zero args. Caller override still
+-- supported for testing. Still a no-op when no CoS is configured anywhere (spec §15 Q1).
 CREATE OR REPLACE FUNCTION fn_dashboard_queue_escalate(p_cos_user_id UUID DEFAULT NULL)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -6366,11 +6369,15 @@ DECLARE
   v_returned_count INT := 0;
   v_cfg dashboard_config;
   v_threshold INTERVAL;
+  v_cos_user_id UUID;
 BEGIN
   SELECT * INTO v_cfg FROM dashboard_config WHERE scope = 'global' LIMIT 1;
   v_threshold := (v_cfg.queue_escalation_hours || ' hours')::interval;
 
-  IF p_cos_user_id IS NULL THEN
+  -- Resolve CoS: caller override > dashboard_config > NULL (no-op)
+  v_cos_user_id := COALESCE(p_cos_user_id, v_cfg.chief_of_staff_user_id);
+
+  IF v_cos_user_id IS NULL THEN
     RETURN jsonb_build_object('ok', TRUE, 'escalated', 0, 'returned', 0,
       'message', 'No Chief of Staff configured — escalation disabled (spec §15 Q1)');
   END IF;
@@ -6391,7 +6398,7 @@ BEGIN
   ),
   cos_fanout AS (
     INSERT INTO user_notifications (notification_id, user_id, created_at)
-    SELECT notification_id, p_cos_user_id, NOW() FROM escalated
+    SELECT notification_id, v_cos_user_id, NOW() FROM escalated
     ON CONFLICT DO NOTHING RETURNING id
   )
   SELECT COUNT(*) INTO v_escalated_count FROM cos_fanout;
@@ -6399,7 +6406,7 @@ BEGIN
   WITH cos_overdue AS (
     SELECT un.id, un.notification_id FROM user_notifications un
     JOIN notifications n ON n.id = un.notification_id
-    WHERE un.user_id = p_cos_user_id AND un.acknowledged_at IS NULL
+    WHERE un.user_id = v_cos_user_id AND un.acknowledged_at IS NULL
       AND un.created_at < NOW() - INTERVAL '1 hour' AND n.category LIKE 'dashboard:%'
   ),
   cos_ack AS (
@@ -6408,19 +6415,53 @@ BEGIN
   ),
   strike_log AS (
     INSERT INTO counselor_sla_strikes (counselor_id, strike_type, context, auto_expires_at, institution_id)
-    SELECT p_cos_user_id, 'cos_unreachable',
+    SELECT v_cos_user_id, 'cos_unreachable',
       jsonb_build_object('notification_id', notification_id, 'reason', 'cos_2h_timeout'),
       NOW() + (v_cfg.strike_expiry_days || ' days')::interval,
-      COALESCE((SELECT institution_id FROM profiles WHERE id = p_cos_user_id), (SELECT id FROM institutions LIMIT 1))
+      COALESCE((SELECT institution_id FROM profiles WHERE id = v_cos_user_id), (SELECT id FROM institutions LIMIT 1))
     FROM cos_ack RETURNING id
   )
   SELECT COUNT(*) INTO v_returned_count FROM strike_log;
 
   RETURN jsonb_build_object('ok', TRUE, 'escalated', v_escalated_count, 'returned', v_returned_count,
-    'threshold_hours', v_cfg.queue_escalation_hours, 'ran_at', NOW());
+    'threshold_hours', v_cfg.queue_escalation_hours,
+    'cos_user_id', v_cos_user_id,
+    'source', CASE WHEN p_cos_user_id IS NOT NULL THEN 'override' ELSE 'dashboard_config' END,
+    'ran_at', NOW());
 END;
 $$;
 GRANT EXECUTE ON FUNCTION fn_dashboard_queue_escalate(UUID) TO service_role;
+
+-- Updated: 2026-04-15 — Seed Chief of Staff role + assign to Gowrisankar MN (eao@jkkn.ac.in)
+-- This role receives escalated dashboard queue items per spec §15 Q1.
+-- Idempotent: ON CONFLICT guards both role and user_roles assignment.
+INSERT INTO custom_roles (role_key, role_name, description, is_system_role, is_active, institution_scope, permissions)
+VALUES (
+  'chief_of_staff',
+  'Chief of Staff',
+  'Director''s deputy — receives escalated dashboard approvals and anomalies when the Director does not act within the SLA window.',
+  TRUE, TRUE, 'all',
+  jsonb_build_object(
+    'dashboard.queue.approve.waiver',    TRUE,
+    'dashboard.queue.approve.leave',     TRUE,
+    'dashboard.queue.approve.purchase',  TRUE,
+    'dashboard.queue.approve.travel',    TRUE,
+    'dashboard.queue.resolve.grievance', TRUE,
+    'dashboard.anomaly.acknowledge',     TRUE
+  )
+)
+ON CONFLICT (role_key) DO UPDATE
+  SET role_name = EXCLUDED.role_name,
+      description = EXCLUDED.description,
+      is_active = TRUE,
+      institution_scope = EXCLUDED.institution_scope,
+      permissions = custom_roles.permissions || EXCLUDED.permissions,
+      updated_at = NOW();
+
+INSERT INTO user_roles (user_id, role_id, is_primary, assigned_at)
+SELECT 'd28a9913-5606-42cc-8fd0-6b27317c4d30'::uuid, cr.id, FALSE, NOW()
+  FROM custom_roles cr WHERE cr.role_key = 'chief_of_staff'
+ON CONFLICT (user_id, role_id) DO NOTHING;
 
 -- END Dashboard v2 Day 3 functions
 
@@ -6791,3 +6832,311 @@ BEGIN
     ORDER BY ur.is_primary DESC, ur.assigned_at ASC;
 END;
 $function$;
+
+
+-- =====================================================
+-- Dashboard v2 Week-2 — fn_counselor_metrics (Role-aware view)
+-- Added: 2026-04-15 — Counselor-scoped hero tile RPC, SECURITY DEFINER
+-- Reads auth.uid() directly — no parameters. Returns JSONB with 4 tiles:
+--   sla: median_minutes_today, compliance_pct, band
+--   rank: daily_rank, daily_total, weekly_delta (negative = improved)
+--   hot_leads: to_call_count (score>=70, no first_touch, active), cold_count (>=4h old)
+--   calls: made_today (activity_type LIKE 'call%'), daily_target, pct
+--   scope: user_id, computed_at
+-- Spec: specs/myjkkn-dashboard-v2-spec.md §5 + §8
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION fn_counselor_metrics()
+-- =====================================================================
+-- 2026-04-15 — Dashboard v2: Web Push delivery trigger functions
+-- Spec: specs/myjkkn-dashboard-v2-spec.md §4.4, §6.2
+-- Agent B (PR feat/dashboard-v2-push-send)
+-- Fires /api/dashboard/push-send via pg_net when an urgent/high
+-- acknowledgment-required dashboard notification is queued.
+-- Requires runtime config:
+--   ALTER DATABASE postgres SET app.push_send_endpoint = 'https://www.jkkn.ai/api/dashboard/push-send';
+--   ALTER DATABASE postgres SET app.service_role_key = '<SERVICE_ROLE_KEY>';
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_trigger_push_send(p_user_notification_id UUID)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+DECLARE
+  v_endpoint TEXT;
+  v_service_key TEXT;
+  v_request_id BIGINT;
+BEGIN
+  BEGIN
+    v_endpoint := current_setting('app.push_send_endpoint', true);
+    v_service_key := current_setting('app.service_role_key', true);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[fn_trigger_push_send] settings lookup failed: %', SQLERRM;
+    RETURN;
+  END;
+
+  IF v_endpoint IS NULL OR v_endpoint = '' OR v_service_key IS NULL OR v_service_key = '' THEN
+    RAISE WARNING '[fn_trigger_push_send] app.push_send_endpoint / app.service_role_key not configured — skipping user_notification %', p_user_notification_id;
+    RETURN;
+  END IF;
+
+  BEGIN
+    SELECT extensions.http_post(
+      url := v_endpoint,
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || v_service_key
+      ),
+      body := jsonb_build_object('userNotificationId', p_user_notification_id::text)
+    ) INTO v_request_id;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING '[fn_trigger_push_send] pg_net call failed for %: %', p_user_notification_id, SQLERRM;
+  END;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.fn_trigger_push_send(UUID) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.trg_notify_push_on_queue_insert_fn()
+RETURNS TRIGGER
+-- ================================================================================
+-- DASHBOARD V2 — MATERIALIZED VIEW REFRESH
+-- Added: 2026-04-15 — Vercel Cron scheduled refresh for dashboard leaderboards.
+-- ================================================================================
+
+-- fn_refresh_dashboard_views: refresh Dashboard v2 materialized views.
+-- Called by Vercel Cron (service_role) on a schedule.
+--   p_which = 'sla'         → refreshes v_dashboard_sla_daily (every 5 min)
+--   p_which = 'conversion'  → refreshes v_dashboard_conversion_monthly (midnight IST)
+CREATE OR REPLACE FUNCTION public.fn_refresh_dashboard_views(p_which TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id UUID := auth.uid();
+  v_today_ist DATE := (NOW() AT TIME ZONE 'Asia/Kolkata')::date;
+  v_today_start TIMESTAMPTZ := (v_today_ist::timestamp AT TIME ZONE 'Asia/Kolkata');
+  v_cfg dashboard_config;
+  v_sla_median_min NUMERIC := NULL;
+  v_sla_total INT := 0;
+  v_sla_compliant INT := 0;
+  v_sla_compliance_pct INT := 100;
+  v_sla_band TEXT := 'green';
+  v_daily_rank INT := NULL;
+  v_daily_total INT := 0;
+  v_weekly_delta INT := 0;
+  v_rank_today INT := NULL;
+  v_rank_last_week INT := NULL;
+  v_hot_to_call INT := 0;
+  v_cold_count INT := 0;
+  v_calls_made INT := 0;
+  v_call_target INT := 25;
+  v_call_pct INT := 0;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'sla', jsonb_build_object('median_minutes_today', NULL, 'compliance_pct', 0, 'band', 'red'),
+      'rank', jsonb_build_object('daily_rank', NULL, 'daily_total', 0, 'weekly_delta', 0),
+      'hot_leads', jsonb_build_object('to_call_count', 0, 'cold_count', 0),
+      'calls', jsonb_build_object('made_today', 0, 'daily_target', 25, 'pct', 0),
+      'scope', jsonb_build_object('user_id', NULL, 'computed_at', NOW())
+    );
+  END IF;
+
+  SELECT * INTO v_cfg FROM dashboard_config WHERE scope = 'global' LIMIT 1;
+  v_call_target := COALESCE(v_cfg.counselor_daily_call_target, 25);
+
+  -- SLA today: median response time + compliance %
+  SELECT
+    COUNT(*) FILTER (WHERE first_touch_at IS NOT NULL),
+    COUNT(*) FILTER (
+      WHERE first_touch_at IS NOT NULL
+        AND EXTRACT(EPOCH FROM (first_touch_at - created_at))/3600.0 <= COALESCE(v_cfg.cold_lead_threshold_hours, 4)
+    ),
+    PERCENTILE_CONT(0.5) WITHIN GROUP (
+      ORDER BY EXTRACT(EPOCH FROM (first_touch_at - created_at))/60.0
+    ) FILTER (WHERE first_touch_at IS NOT NULL)
+  INTO v_sla_total, v_sla_compliant, v_sla_median_min
+  FROM admission_leads
+  WHERE assigned_counselor_id = v_user_id
+    AND first_touch_at >= v_today_start
+    AND first_touch_at < v_today_start + INTERVAL '1 day';
+
+  IF v_sla_total > 0 THEN
+    v_sla_compliance_pct := ROUND(v_sla_compliant::numeric * 100.0 / v_sla_total)::int;
+  END IF;
+
+  v_sla_band := CASE
+    WHEN v_sla_compliance_pct >= 90 THEN 'green'
+    WHEN v_sla_compliance_pct >= 70 THEN 'amber'
+    ELSE 'red'
+  END;
+
+  -- Daily rank: inline leaderboard (lower median = better rank)
+  WITH today_sla AS (
+    SELECT
+      assigned_counselor_id,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY EXTRACT(EPOCH FROM (first_touch_at - created_at))/60.0
+      ) AS median_min,
+      COUNT(*) AS lead_cnt
+    FROM admission_leads
+    WHERE first_touch_at >= v_today_start
+      AND first_touch_at < v_today_start + INTERVAL '1 day'
+      AND assigned_counselor_id IS NOT NULL
+    GROUP BY assigned_counselor_id
+    HAVING COUNT(*) > 0
+  ),
+  ranked AS (
+    SELECT
+      assigned_counselor_id,
+      RANK() OVER (ORDER BY median_min ASC NULLS LAST) AS rnk,
+      COUNT(*) OVER () AS total
+    FROM today_sla
+  )
+  SELECT rnk::int, total::int INTO v_rank_today, v_daily_total
+  FROM ranked
+  WHERE assigned_counselor_id = v_user_id;
+
+  v_daily_rank := v_rank_today;
+  IF v_daily_total IS NULL THEN
+    v_daily_total := 0;
+  END IF;
+
+  -- Last-week rank (same day-of-week, 7 days ago) for delta
+  WITH last_week_sla AS (
+    SELECT
+      assigned_counselor_id,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY EXTRACT(EPOCH FROM (first_touch_at - created_at))/60.0
+      ) AS median_min
+    FROM admission_leads
+    WHERE first_touch_at >= v_today_start - INTERVAL '7 days'
+      AND first_touch_at < v_today_start - INTERVAL '6 days'
+      AND assigned_counselor_id IS NOT NULL
+    GROUP BY assigned_counselor_id
+    HAVING COUNT(*) > 0
+  ),
+  ranked_lw AS (
+    SELECT
+      assigned_counselor_id,
+      RANK() OVER (ORDER BY median_min ASC NULLS LAST) AS rnk
+    FROM last_week_sla
+  )
+  SELECT rnk::int INTO v_rank_last_week
+  FROM ranked_lw
+  WHERE assigned_counselor_id = v_user_id;
+
+  IF v_rank_today IS NOT NULL AND v_rank_last_week IS NOT NULL THEN
+    -- Negative delta = improved (rank moved from 5 to 2 = -3 = better)
+    v_weekly_delta := v_rank_today - v_rank_last_week;
+  ELSE
+    v_weekly_delta := 0;
+  END IF;
+
+  -- Hot leads to call (score >= 70, no first_touch, active funnel)
+  SELECT
+    COUNT(*),
+    COUNT(*) FILTER (
+      WHERE EXTRACT(EPOCH FROM (NOW() - created_at))/3600.0 >= COALESCE(v_cfg.cold_lead_threshold_hours, 4)
+    )
+  INTO v_hot_to_call, v_cold_count
+  FROM admission_leads
+  WHERE assigned_counselor_id = v_user_id
+    AND score >= 70
+    AND first_touch_at IS NULL
+    AND funnel_stage::text NOT IN ('enrolled', 'lost', 'withdrew', 'declined', 'expired');
+
+  -- Calls made today (activity_type starts with 'call', created_by = auth.uid())
+  SELECT COUNT(*) INTO v_calls_made
+  FROM admission_lead_activities
+  WHERE created_by = v_user_id
+    AND activity_type LIKE 'call%'
+    AND created_at >= v_today_start
+    AND created_at < v_today_start + INTERVAL '1 day';
+
+  IF v_call_target > 0 THEN
+    v_call_pct := LEAST(100, ROUND(v_calls_made::numeric * 100.0 / v_call_target)::int);
+  END IF;
+
+  RETURN jsonb_build_object(
+    'sla', jsonb_build_object(
+      'median_minutes_today',
+        CASE WHEN v_sla_median_min IS NULL THEN NULL
+             ELSE ROUND(v_sla_median_min)::int END,
+      'compliance_pct', v_sla_compliance_pct,
+      'band', v_sla_band
+    ),
+    'rank', jsonb_build_object(
+      'daily_rank', v_daily_rank,
+      'daily_total', v_daily_total,
+      'weekly_delta', v_weekly_delta
+    ),
+    'hot_leads', jsonb_build_object(
+      'to_call_count', v_hot_to_call,
+      'cold_count', v_cold_count
+    ),
+    'calls', jsonb_build_object(
+      'made_today', v_calls_made,
+      'daily_target', v_call_target,
+      'pct', v_call_pct
+    ),
+    'scope', jsonb_build_object(
+      'user_id', v_user_id,
+      'computed_at', NOW()
+    )
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION fn_counselor_metrics() TO authenticated;
+
+-- END Dashboard v2 Week-2 Counselor functions
+  v_priority TEXT;
+  v_category TEXT;
+  v_requires_ack BOOLEAN;
+BEGIN
+  SELECT n.priority, n.category, COALESCE(n.requires_acknowledgment, false)
+    INTO v_priority, v_category, v_requires_ack
+  FROM notifications n
+  WHERE n.id = NEW.notification_id;
+
+  IF v_priority IN ('urgent', 'high')
+     AND v_requires_ack = TRUE
+     AND v_category LIKE 'dashboard:%' THEN
+    PERFORM public.fn_trigger_push_send(NEW.id);
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+    v_refreshed TEXT;
+    v_ran_at TIMESTAMPTZ := NOW();
+BEGIN
+    IF p_which = 'sla' THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY public.v_dashboard_sla_daily;
+        v_refreshed := 'v_dashboard_sla_daily';
+    ELSIF p_which = 'conversion' THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY public.v_dashboard_conversion_monthly;
+        v_refreshed := 'v_dashboard_conversion_monthly';
+    ELSE
+        RAISE EXCEPTION 'Invalid p_which value: %. Expected ''sla'' or ''conversion''.', p_which;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'ok', TRUE,
+        'refreshed', v_refreshed,
+        'ran_at', v_ran_at
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fn_refresh_dashboard_views(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_refresh_dashboard_views(TEXT) TO service_role;
+
+COMMENT ON FUNCTION public.fn_refresh_dashboard_views(TEXT) IS
+'Dashboard v2: refreshes materialized views (sla|conversion). Called by Vercel Cron via service_role.';
