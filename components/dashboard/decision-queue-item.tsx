@@ -160,7 +160,7 @@ function RescueActions({ item }: { item: QueueItem }) {
           />
           <button
             type='submit'
-            className='px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors bg-rose-600 text-white hover:bg-rose-700 border-rose-600'
+            className='min-h-[36px] px-3.5 py-2 rounded-lg border text-xs font-medium transition-all bg-rose-600 text-white hover:bg-rose-700 hover:shadow-sm active:scale-[0.98] border-rose-600'
           >
             🔥 Claim rescue
           </button>
