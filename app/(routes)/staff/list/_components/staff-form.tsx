@@ -127,7 +127,14 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const { profile } = useAuth();
   // Drives "scoped to your own institution" UX (replaces hardcoded
   // profile.role === 'hod'). Any role with institution_scope='own' qualifies.
-  const { isInstitutionScoped } = usePermissions();
+  const { isInstitutionScoped, isSuperAdmin, getModuleScope } = usePermissions();
+  // Users whose effective scope on the staff module is 'own_records' may only
+  // edit personal/contact details on their own row — not Employment Information
+  // (designation, category, role, institution, department). RLS enforces this
+  // at the DB layer too; this is the UX gate.
+  const staffScope = getModuleScope('staff');
+  const canEditEmployment =
+    !isEditing || isSuperAdmin || staffScope !== 'own_records';
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Create stable date strings to prevent hydration mismatches
@@ -732,7 +739,16 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           </div>
         </div>
 
-        {/* Employment Information */}
+        {/* Employment Information — hidden in edit mode for users whose
+            staff scope is 'own_records' (they may only update their own
+            personal/contact info, not their designation/role/etc.). */}
+        {!canEditEmployment ? (
+          <div className='rounded-lg border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground'>
+            Your role only allows editing personal details on your own
+            employee record. Employment information (designation, role,
+            institution, department) is managed by HR.
+          </div>
+        ) : (
         <div className='space-y-4'>
           <h2 className='text-lg font-semibold'>Employment Information</h2>
           <div className='grid gap-4 md:grid-cols-2'>
@@ -936,6 +952,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
             ) : null}
           </div>
         </div>
+        )}
 
         {/* Status */}
         <div className='space-y-4'>

@@ -416,6 +416,32 @@ export function usePermissions(
     userRoles.length > 0 &&
     userRoles.every((r) => (r as any).institution_scope !== 'all');
 
+  // Mirror of the DB function get_user_module_scope(). Returns the most
+  // permissive scope across the user's roles for a given module. Lets UI
+  // gate fields without a DB roundtrip (RLS still enforces at write time).
+  const getModuleScope = useCallback(
+    (moduleKey: string): 'own_records' | 'own_institution' | 'all_institutions' => {
+      if (isSuperAdmin) return 'all_institutions';
+      let foundOwnInstitution = false;
+      let foundOwnRecords = false;
+      for (const r of userRoles) {
+        const ms = (r as any).module_scopes as Record<string, string> | undefined;
+        const v = ms?.[moduleKey];
+        if (v === 'all_institutions') return 'all_institutions';
+        if (v === 'own_institution') foundOwnInstitution = true;
+        else if (v === 'own_records') foundOwnRecords = true;
+      }
+      if (foundOwnInstitution) return 'own_institution';
+      if (foundOwnRecords) return 'own_records';
+      // Legacy fallback: derive from any role with institution_scope='all'
+      const anyAllScope = userRoles.some(
+        (r) => (r as any).institution_scope === 'all'
+      );
+      return anyAllScope ? 'all_institutions' : 'own_institution';
+    },
+    [isSuperAdmin, userRoles]
+  );
+
   return {
     permissions: enhancedPermissions, // Return enhanced permissions instead of raw permissions
     isLoading,
@@ -426,6 +452,7 @@ export function usePermissions(
     isAdmissionGlobalUser,
     isCounselorUser,
     isInstitutionScoped,
+    getModuleScope,
     userProfile,
 
     // Multi-role properties
