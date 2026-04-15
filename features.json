@@ -1,7 +1,49 @@
 {
-  "project": "MyJKKN - Exotel Integration",
-  "lastUpdated": "2026-04-05",
+  "project": "MyJKKN - HR Module + Exotel",
+  "lastUpdated": "2026-04-16",
   "features": [
+    {
+      "id": "hr-sprint-1-foundation",
+      "name": "HR Sprint 1 — Shadow Tenant + Employee Master",
+      "status": "self-verified",
+      "notes": "PR #163 merged+deployed, PR #165 hotfix (FK disambig) merged. 7 tables live: hr_organizations(11), user_hr_access, hr_cadres(44), hr_designations(187), hr_staff_details(393), hr_employees, hr_additional_roles. Routes /hr, /hr/employees live."
+    },
+    {
+      "id": "hr-sprint-2-policies",
+      "name": "HR Sprint 2 — Policy Management (19 versioned tables)",
+      "status": "self-verified",
+      "notes": "PR #167 merged+deployed. 19 CRUDable policy tables with edit-as-supersede versioning. 3 SECURITY DEFINER RPCs (history, diff, restore). Generic PolicyEditor drives all 19 routes via registry."
+    },
+    {
+      "id": "hr-sprint-3-leave-workflow",
+      "name": "HR Sprint 3 — Staff Leave Workflow",
+      "status": "self-verified",
+      "notes": "PR #176 merged+deployed+browser-verified. 6 tables + 3 triggers + 1 RPC + 2358 seed rows. 8 pages + 9 API routes + 10 hooks. 28 interview decisions locked in spec."
+    },
+    {
+      "id": "hr-leave-unification",
+      "name": "HR — Unify leave_types ← hr_leave_types (single catalog)",
+      "status": "self-verified",
+      "notes": "PR #182 merged+deployed. leave_types now 74 rows (8 learner + 8 cols extended with scope+policy cols + 66 staff migrated with UUID preservation). hr_leave_types dropped, replaced with read-only compat VIEW."
+    },
+    {
+      "id": "hr-sprint-6-command-center",
+      "name": "HR Sprint 6 — Command Center Dashboard",
+      "status": "blocked",
+      "notes": "DB LIVE: hr_dashboard_access_log + realtime publication on 4 tables (applied 2026-04-15). Spec LIVE: 28 decisions locked in specs/myjkkn-hr-sprint-06-plan.md. TypeScript code LOST to working-tree revert around midnight Apr 15/16. Rebuild from spec — ~1100 LOC, 10 files. Continuation prompt in .claude/continuation-prompt.md."
+    },
+    {
+      "id": "hr-employees-100-cap-fix",
+      "name": "Fix /hr/employees 100-row cap",
+      "status": "self-verified",
+      "notes": "PR #175 merged+deployed. Removed .limit(pageSize*4) from HRPersonService. All 393 staff now visible with proper pagination."
+    },
+    {
+      "id": "assumption-thrash-skill",
+      "name": "New skill: /assumption-thrash with Layer 2 broad sweep",
+      "status": "self-verified",
+      "notes": "Created after real miss (hr_leave_types vs leave_types duplication). Skill has preflight Layer 1 (narrow) + Layer 2 (broad sweep) + 14 silent-assumption categories. Wired into /myjkkn-chain between /myjkkn-module and /myjkkn-api. Saved at ~/.claude/skills/assumption-thrash/SKILL.md."
+    },
     {
       "id": "exotel-core",
       "name": "Exotel API Client + Click-to-Call",
