@@ -50,62 +50,11 @@ const nextConfig: NextConfig = {
     // re-exporting many things). Native ESM packages like @supabase/* belong
     // in transpilePackages above, not here.
     optimizePackageImports: [
-      // Icon libraries (barrels of 1000+ exports)
       'lucide-react',
       'react-icons',
       '@radix-ui/react-icons',
-      // Date utilities
       'date-fns',
-      'date-fns-tz',
-      // Toasts / notifications
-      'react-hot-toast',
-      'sonner',
-      // Animation libraries (522 + 110 imports in codebase — huge barrels)
-      'framer-motion',
-      'motion',
-      // Charts (67 imports)
-      'recharts',
-      // Radix UI — 29 packages imported across the app, each a barrel
-      '@radix-ui/react-accordion',
-      '@radix-ui/react-alert-dialog',
-      '@radix-ui/react-aspect-ratio',
-      '@radix-ui/react-avatar',
-      '@radix-ui/react-checkbox',
-      '@radix-ui/react-collapsible',
-      '@radix-ui/react-context-menu',
-      '@radix-ui/react-dialog',
-      '@radix-ui/react-dropdown-menu',
-      '@radix-ui/react-hover-card',
-      '@radix-ui/react-label',
-      '@radix-ui/react-menubar',
-      '@radix-ui/react-navigation-menu',
-      '@radix-ui/react-popover',
-      '@radix-ui/react-progress',
-      '@radix-ui/react-radio-group',
-      '@radix-ui/react-scroll-area',
-      '@radix-ui/react-select',
-      '@radix-ui/react-separator',
-      '@radix-ui/react-slider',
-      '@radix-ui/react-slot',
-      '@radix-ui/react-switch',
-      '@radix-ui/react-tabs',
-      '@radix-ui/react-toast',
-      '@radix-ui/react-toggle',
-      '@radix-ui/react-toggle-group',
-      '@radix-ui/react-tooltip',
-      '@radix-ui/react-visually-hidden',
-      // Rich text editor (tiptap) — barrel file
-      '@tiptap/react',
-      '@tiptap/starter-kit',
-      // Tanstack (react-query, react-table)
-      '@tanstack/react-query',
-      '@tanstack/react-table',
-      // DnD kit
-      '@dnd-kit/core',
-      '@dnd-kit/sortable',
-      '@dnd-kit/utilities',
-      // Chart.js wrapper
-      'react-chartjs-2',
+      'react-hot-toast'
     ]
   },
 
