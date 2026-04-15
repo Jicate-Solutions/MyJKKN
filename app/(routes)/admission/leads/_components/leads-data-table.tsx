@@ -51,6 +51,9 @@ export function LeadsDataTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const canBulkDelete = isSuperAdmin || isAdmissionGlobalUser
+    || canAccess('admission', 'leads.delete')
+    || canAccess('admission', 'leads.edit');
   const { profile } = useAuth();
   const { deleteLead } = useLeadMutations();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -225,6 +228,7 @@ export function LeadsDataTable() {
     resetSelection: () => void
   ) => {
     if (selectedRows.length === 0) return;
+    if (!canBulkDelete) return;
     setSelectedForDelete(selectedRows);
     setDeleteResetFn(() => resetSelection);
     setShowDeleteDialog(true);
@@ -420,7 +424,7 @@ export function LeadsDataTable() {
       </div>
 
       {/* Bulk action bar */}
-      {props.selectedRows.length > 0 && (
+      {props.selectedRows.length > 0 && canBulkDelete && (
         <div className="flex items-center gap-2 p-2 bg-destructive/10 rounded-md border border-destructive/20">
           <Button
             onClick={() =>

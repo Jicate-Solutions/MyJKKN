@@ -46,6 +46,8 @@ export function DataTableRowActions<TData>({
   const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.edit');
   const canDelete = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.delete');
 
+  // Mark-as-lost is a stage transition (soft-delete). Kept on canEdit so counselors
+  // can follow the CRM workflow; permanent delete below requires canDelete.
   const handleMarkAsLost = () => {
     if (canEdit) {
       deleteLead.mutate(lead.id, {
