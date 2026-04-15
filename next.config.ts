@@ -50,11 +50,18 @@ const nextConfig: NextConfig = {
     // re-exporting many things). Native ESM packages like @supabase/* belong
     // in transpilePackages above, not here.
     optimizePackageImports: [
+      // Existing
       'lucide-react',
       'react-icons',
       '@radix-ui/react-icons',
       'date-fns',
-      'react-hot-toast'
+      'react-hot-toast',
+      // Surgical additions — only the 3 highest-volume barrels in the
+      // codebase. Each additional entry adds parse-time memory overhead,
+      // so we stick to the biggest wins: 522 + 110 + 67 = 699 import sites.
+      'framer-motion',  // 522 import sites
+      'motion',         // 110 import sites
+      'recharts',       // 67 import sites
     ]
   },
 
