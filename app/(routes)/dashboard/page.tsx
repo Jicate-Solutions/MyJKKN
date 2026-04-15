@@ -129,35 +129,12 @@ function QueueSkeleton() {
 }
 
 // ============================================================================
-// Build banner (visible Day 1–5, removed at ship time)
+// Live Morning Brief wrapper — fetches brief data, renders dismissible card
 // ============================================================================
-function BuildBanner() {
-  return (
-    <div className='rounded-xl border border-blue-500/30 bg-blue-50/60 dark:bg-blue-950/20 p-4'>
-      <div className='flex items-start gap-3'>
-        <span className='text-lg leading-none'>🏗️</span>
-        <div className='flex-1 text-sm'>
-          <div className='font-semibold text-blue-900 dark:text-blue-100'>
-            Dashboard v2 — Day 4 · Rescue · Leaderboards · Push
-          </div>
-          <div className='text-blue-800/80 dark:text-blue-200/80 mt-1 leading-relaxed'>
-            Broadcast Rescue with SELECT FOR UPDATE claim mutex (first-to-commit
-            wins), SLA + Conversion leaderboards live from materialized views,
-            Web Push subscription flow (service worker + /api/dashboard/push-subscribe).
-            Ghost-claim auto-return + strike logging functional.
-            Morning brief + polish + PR Day 5. Old dashboard still at{' '}
-            <Link
-              href='/dashboard/classic'
-              className='font-semibold underline decoration-blue-400 hover:text-blue-700'
-            >
-              /dashboard/classic
-            </Link>
-            .
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+async function LiveMorningBrief() {
+  const brief = await getMorningBrief();
+  if (!brief.ok) return null; // RPC failed or user not authed — skip gracefully
+  return <MorningBriefCard brief={brief} />;
 }
 
 // ============================================================================
