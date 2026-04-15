@@ -191,7 +191,7 @@ function RescueActions({ item }: { item: QueueItem }) {
           <input type='hidden' name='scope' value='{}' />
           <button
             type='submit'
-            className='px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-600'
+            className='min-h-[36px] px-3.5 py-2 rounded-lg border text-xs font-medium transition-all bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-sm active:scale-[0.98] border-emerald-600'
           >
             🔥 Broadcast rescue
           </button>
