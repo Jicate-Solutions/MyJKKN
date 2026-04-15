@@ -4826,4 +4826,82 @@ CREATE POLICY "user_roles_delete_permission" ON user_roles FOR DELETE USING (
   is_super_admin() OR is_admin() OR user_has_permission('roles.delete')
 );
 -- "Users can view own roles" + user_roles_select_own pre-existing self-view policies
+
+-- =====================================================================
+-- 2026-04-15 — HR Recruitment Phase 1A: RLS Policies
+-- Spec: specs/hr-recruitment-module-spec.md
+-- Standard pattern: is_super_admin() OR is_admin() OR (permission + institution scope)
+-- =====================================================================
+
+-- ---- hr_recruitment_candidates ----------------------------------------
+-- Standard HR recruitment viewer visibility (submitter chain + approvers + Director)
+
+ALTER TABLE public.hr_recruitment_candidates ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "hr_recruitment_candidates_select_permission"
+  ON public.hr_recruitment_candidates FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.recruitment.view')
+        AND role_has_institution_access(institution_id))
+    OR submitted_by = auth.uid()
+  );
+
+CREATE POLICY "hr_recruitment_candidates_insert_permission"
+  ON public.hr_recruitment_candidates FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.create')
+  );
+
+CREATE POLICY "hr_recruitment_candidates_update_permission"
+  ON public.hr_recruitment_candidates FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.recruitment.edit')
+        AND role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY "hr_recruitment_candidates_delete_permission"
+  ON public.hr_recruitment_candidates FOR DELETE USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.delete')
+  );
+
+-- ---- hr_recruitment_candidate_packages --------------------------------
+-- STRICTER RLS per Learning #8:
+-- Only submitter of the parent candidate + their direct approver chain + Accounts + Director
+-- We enforce this via permission 'hr.recruitment.packages.view'
+-- which is granted ONLY to: hr_admin, accounts, super_admin.
+-- The submitter can see their own candidate's packages via submitted_by join.
+
+ALTER TABLE public.hr_recruitment_candidate_packages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "hr_recruitment_packages_select_permission"
+  ON public.hr_recruitment_candidate_packages FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.packages.view')
+    OR proposed_by = auth.uid()
+    OR approved_by = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.hr_recruitment_candidates c
+      WHERE c.id = candidate_id
+        AND c.submitted_by = auth.uid()
+    )
+  );
+
+CREATE POLICY "hr_recruitment_packages_insert_permission"
+  ON public.hr_recruitment_candidate_packages FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.packages.propose')
+  );
+
+CREATE POLICY "hr_recruitment_packages_update_permission"
+  ON public.hr_recruitment_candidate_packages FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.packages.approve')
+    OR proposed_by = auth.uid()
+  );
+
+CREATE POLICY "hr_recruitment_packages_delete_permission"
+  ON public.hr_recruitment_candidate_packages FOR DELETE USING (
+    is_super_admin() OR is_admin()
+  );
 -- are intentionally preserved so users can always read their own assignments.
