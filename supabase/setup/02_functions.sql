@@ -6423,3 +6423,187 @@ $$;
 GRANT EXECUTE ON FUNCTION fn_dashboard_queue_escalate(UUID) TO service_role;
 
 -- END Dashboard v2 Day 3 functions
+
+
+-- =====================================================
+-- Dashboard v2 Day 4 — Broadcast Rescue RPCs
+-- Added: 2026-04-15 — rescue broadcast/claim/ghost-check
+-- Decisions: Round 2.6 (SELECT FOR UPDATE), 2.7 (ghost rules), 3.10 (emergency)
+-- =====================================================
+
+-- Initiate rescue — Director fans out to scoped counselors
+CREATE OR REPLACE FUNCTION fn_rescue_broadcast_initiate(
+  p_lead_id UUID,
+  p_scope JSONB DEFAULT '{}'::jsonb,
+  p_message TEXT DEFAULT NULL,
+  p_is_emergency BOOLEAN DEFAULT FALSE
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user UUID := auth.uid();
+  v_lead admission_leads;
+  v_broadcast_id UUID;
+  v_fanout_count INT := 0;
+BEGIN
+  IF v_user IS NULL THEN RETURN jsonb_build_object('ok', FALSE, 'error', 'not_authenticated'); END IF;
+  SELECT * INTO v_lead FROM admission_leads WHERE id = p_lead_id;
+  IF v_lead.id IS NULL THEN RETURN jsonb_build_object('ok', FALSE, 'error', 'lead_not_found'); END IF;
+  IF EXISTS (SELECT 1 FROM rescue_broadcasts WHERE lead_id = p_lead_id AND claimed_at IS NULL AND auto_returned_at IS NULL) THEN
+    RETURN jsonb_build_object('ok', FALSE, 'error', 'active_broadcast_exists');
+  END IF;
+
+  INSERT INTO rescue_broadcasts (lead_id, initiated_by, scope, message, is_emergency, institution_id)
+  VALUES (p_lead_id, v_user, COALESCE(p_scope, '{}'::jsonb), p_message, p_is_emergency, v_lead.institution_id)
+  RETURNING id INTO v_broadcast_id;
+
+  UPDATE admission_leads SET rescue_broadcast_id = v_broadcast_id WHERE id = p_lead_id;
+
+  WITH target_counselors AS (
+    SELECT unnest(ARRAY(SELECT jsonb_array_elements_text(p_scope -> 'staff_ids')))::uuid AS user_id
+    WHERE p_scope ? 'staff_ids'
+    UNION
+    SELECT p.id FROM profiles p
+    WHERE p.is_active = TRUE
+      AND (
+        (p_scope ? 'institution_ids' AND p.institution_id::text IN (SELECT jsonb_array_elements_text(p_scope -> 'institution_ids')))
+        OR (NOT (p_scope ? 'staff_ids') AND NOT (p_scope ? 'institution_ids') AND p.institution_id = v_lead.institution_id)
+      )
+      AND (p.role = 'admission' OR p.role = 'admission_staff' OR p.role = 'counselor')
+  ),
+  broadcast_notif AS (
+    INSERT INTO notifications (title, body, category, priority, requires_acknowledgment,
+      acknowledgment_deadline_hours, action_type, action_config, targeting, created_by, metadata)
+    VALUES (
+      '🔥 Rescue broadcast — ' || COALESCE(v_lead.first_name || ' ' || COALESCE(v_lead.last_name, ''), 'hot lead'),
+      COALESCE(p_message, 'Cold lead rescue broadcast. First counselor to claim wins. Score ' ||
+        COALESCE(v_lead.score::text, '—') || ' · conversion ' ||
+        ROUND(COALESCE(v_lead.conversion_probability, 0.5) * 100)::text || '%'),
+      'dashboard:rescue',
+      CASE WHEN p_is_emergency THEN 'urgent' ELSE 'high' END,
+      TRUE, 2, 'rescue.claim',
+      jsonb_build_object('broadcast_id', v_broadcast_id, 'lead_id', p_lead_id,
+        'score', v_lead.score, 'is_emergency', p_is_emergency),
+      jsonb_build_object('broadcast_id', v_broadcast_id),
+      v_user,
+      jsonb_build_object('broadcast_initiated_by', v_user, 'broadcast_initiated_at', NOW())
+    ) RETURNING id
+  ),
+  fanout AS (
+    INSERT INTO user_notifications (notification_id, user_id, created_at)
+    SELECT bn.id, tc.user_id, NOW() FROM broadcast_notif bn, target_counselors tc
+    WHERE tc.user_id IS NOT NULL ON CONFLICT DO NOTHING RETURNING id
+  )
+  SELECT COUNT(*) INTO v_fanout_count FROM fanout;
+
+  RETURN jsonb_build_object('ok', TRUE, 'broadcast_id', v_broadcast_id,
+    'lead_id', p_lead_id, 'fanout_count', v_fanout_count, 'is_emergency', p_is_emergency);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION fn_rescue_broadcast_initiate(UUID, JSONB, TEXT, BOOLEAN) TO authenticated;
+
+-- Counselor claims (SELECT FOR UPDATE race)
+CREATE OR REPLACE FUNCTION fn_rescue_broadcast_claim(p_broadcast_id UUID)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user UUID := auth.uid();
+  v_broadcast rescue_broadcasts;
+  v_duration_seconds INT;
+BEGIN
+  IF v_user IS NULL THEN RETURN jsonb_build_object('ok', FALSE, 'error', 'not_authenticated'); END IF;
+
+  SELECT * INTO v_broadcast FROM rescue_broadcasts WHERE id = p_broadcast_id FOR UPDATE;
+  IF v_broadcast.id IS NULL THEN RETURN jsonb_build_object('ok', FALSE, 'error', 'broadcast_not_found'); END IF;
+  IF v_broadcast.claimed_at IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', FALSE, 'error', 'already_claimed',
+      'claimed_by', v_broadcast.claimed_by, 'claimed_at', v_broadcast.claimed_at,
+      'claim_duration_seconds', v_broadcast.claim_duration_seconds);
+  END IF;
+  IF v_broadcast.auto_returned_at IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', FALSE, 'error', 'broadcast_auto_returned');
+  END IF;
+
+  v_duration_seconds := EXTRACT(EPOCH FROM (NOW() - v_broadcast.initiated_at))::int;
+
+  UPDATE rescue_broadcasts SET claimed_by = v_user, claimed_at = NOW(),
+    claim_duration_seconds = v_duration_seconds, updated_at = NOW()
+    WHERE id = p_broadcast_id;
+
+  UPDATE admission_leads SET assigned_counselor_id = v_user, rescued_at = NOW(), rescued_by = v_user
+    WHERE id = v_broadcast.lead_id;
+
+  UPDATE user_notifications un SET acknowledged_at = NOW() FROM notifications n
+    WHERE un.notification_id = n.id AND n.targeting ->> 'broadcast_id' = p_broadcast_id::text
+      AND un.user_id = v_user AND un.acknowledged_at IS NULL;
+
+  UPDATE notifications SET expires_at = NOW()
+    WHERE targeting ->> 'broadcast_id' = p_broadcast_id::text
+      AND (expires_at IS NULL OR expires_at > NOW());
+
+  RETURN jsonb_build_object('ok', TRUE, 'broadcast_id', p_broadcast_id,
+    'lead_id', v_broadcast.lead_id, 'claimed_at', NOW(),
+    'claim_duration_seconds', v_duration_seconds);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION fn_rescue_broadcast_claim(UUID) TO authenticated;
+
+-- Ghost check — cron sweep
+CREATE OR REPLACE FUNCTION fn_rescue_broadcast_check_ghosts()
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_cfg dashboard_config;
+  v_ghost_timeout INTERVAL;
+  v_ghost_count INT := 0;
+BEGIN
+  SELECT * INTO v_cfg FROM dashboard_config WHERE scope = 'global' LIMIT 1;
+  v_ghost_timeout := (v_cfg.ghost_claim_timeout_minutes || ' minutes')::interval;
+
+  WITH ghosts AS (
+    SELECT rb.id, rb.lead_id, rb.claimed_by, rb.institution_id
+    FROM rescue_broadcasts rb
+    WHERE rb.claimed_at IS NOT NULL AND rb.auto_returned_at IS NULL
+      AND rb.ghost_claim_penalty_applied = FALSE
+      AND rb.claimed_at < NOW() - v_ghost_timeout
+      AND NOT EXISTS (
+        SELECT 1 FROM admission_lead_activities a
+        WHERE a.lead_id = rb.lead_id AND a.created_at > rb.claimed_at AND a.created_by = rb.claimed_by
+      )
+  ),
+  returned AS (
+    UPDATE rescue_broadcasts rb SET auto_returned_at = NOW(),
+      ghost_claim_penalty_applied = TRUE, updated_at = NOW()
+    FROM ghosts g WHERE rb.id = g.id
+    RETURNING rb.id, rb.lead_id, rb.claimed_by, rb.institution_id
+  ),
+  lead_reset AS (
+    UPDATE admission_leads al SET assigned_counselor_id = NULL, rescued_at = NULL, rescued_by = NULL
+    FROM returned r WHERE al.id = r.lead_id AND al.rescued_by = r.claimed_by RETURNING al.id
+  ),
+  strike_log AS (
+    INSERT INTO counselor_sla_strikes (counselor_id, strike_type, context, auto_expires_at, institution_id)
+    SELECT r.claimed_by, 'ghost_claim',
+      jsonb_build_object('broadcast_id', r.id, 'lead_id', r.lead_id,
+        'timeout_minutes', v_cfg.ghost_claim_timeout_minutes),
+      NOW() + (v_cfg.strike_expiry_days || ' days')::interval, r.institution_id
+    FROM returned r RETURNING id
+  )
+  SELECT COUNT(*) INTO v_ghost_count FROM strike_log;
+
+  RETURN jsonb_build_object('ok', TRUE, 'ghost_count', v_ghost_count,
+    'timeout_minutes', v_cfg.ghost_claim_timeout_minutes, 'ran_at', NOW());
+END;
+$$;
+GRANT EXECUTE ON FUNCTION fn_rescue_broadcast_check_ghosts() TO service_role;
+
+-- END Dashboard v2 Day 4 functions
