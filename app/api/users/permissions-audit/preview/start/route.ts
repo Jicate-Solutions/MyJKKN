@@ -37,18 +37,25 @@ import {
 //   9. Audit the start event
 // ============================================================================
 
-// Separate cookie that stores the admin's original auth token chunks so we
-// can restore them on /preview/end. Kept httpOnly + short TTL — the preview
-// itself expires in 15 minutes, so we never need this longer.
-export const PREVIEW_ADMIN_BACKUP_COOKIE = 'sb-preview-admin-backup';
-
 // 15 minutes — mirrors the preview JWT exp.
 const PREVIEW_TTL_SECONDS = 15 * 60;
 
-interface BackedUpCookie {
-  name: string;
-  value: string;
-}
+// NOTE: We no longer back up the admin's auth cookies into `sb-preview-admin-backup`.
+// Previous implementations (PR #181) stored admin's sb-*-auth-token.* cookies as
+// a JSON blob in a single cookie. Supabase auth tokens are ~2KB each; with chunking
+// the serialized backup frequently exceeded the ~4KB cookie size limit and was
+// silently truncated/dropped by the browser — so /preview/end had nothing to
+// restore, leaving the admin logged out.
+//
+// The fix: /preview/end doesn't RESTORE the admin's session. It RE-ISSUES a fresh
+// one using admin.generateLink + verifyOtp with the admin's email (read from the
+// preview JWT's originator_email claim, which is signed and trustworthy). Same
+// primitive we use here to impersonate the target, but pointed at the admin.
+// Zero cookie-size constraints, no stale-token worries.
+//
+// For backwards compat, we still EXPORT the old cookie name constant so any code
+// that imported it won't break at build time. It's no longer set or read.
+export const PREVIEW_ADMIN_BACKUP_COOKIE = 'sb-preview-admin-backup';
 
 export async function POST(request: NextRequest) {
   await connection();
@@ -200,22 +207,8 @@ export async function POST(request: NextRequest) {
 
     const targetSession = otpData.session;
 
-    // Step 8 — back up the caller's current Supabase auth cookies before we
-    // overwrite them. Supabase splits the session across cookies named
-    // `sb-<ref>-auth-token`, `sb-<ref>-auth-token.0`, `sb-<ref>-auth-token.1`,
-    // etc. We copy every cookie whose name matches that pattern.
-    const allCookies = cookieStore.getAll();
-    const adminAuthCookies: BackedUpCookie[] = allCookies
-      .filter(
-        (c) => c.name.startsWith('sb-') && c.name.includes('-auth-token'),
-      )
-      .map((c) => ({ name: c.name, value: c.value }));
-
-    // Serialize the backup. The end route reads this to restore. It's signed-
-    // effectively only by being httpOnly + short-lived + on our domain.
-    const backupPayload = JSON.stringify(adminAuthCookies);
-
-    // Step 9 — build the response and install all three cookie sets on it.
+    // Step 8 — build the response and install both cookie sets on it.
+    // (No admin-backup cookie; /end regenerates the admin session fresh.)
     const sessionId = randomUUID();
     const previewToken = await mintPreviewToken({
       targetUserId: target.id,
@@ -240,16 +233,7 @@ export async function POST(request: NextRequest) {
 
     const secureFlag = process.env.NODE_ENV === 'production';
 
-    // 9a — back up admin session
-    res.cookies.set(PREVIEW_ADMIN_BACKUP_COOKIE, backupPayload, {
-      httpOnly: true,
-      secure: secureFlag,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: PREVIEW_TTL_SECONDS,
-    });
-
-    // 9b — set preview marker cookie (banner + middleware read this)
+    // 8a — set preview marker cookie (banner + middleware read this)
     res.cookies.set(PREVIEW_COOKIE_NAME, previewToken, {
       httpOnly: true,
       secure: secureFlag,
@@ -258,7 +242,7 @@ export async function POST(request: NextRequest) {
       maxAge: PREVIEW_TTL_SECONDS,
     });
 
-    // 9c — overwrite Supabase auth cookies with target's session. We use
+    // 8b — overwrite Supabase auth cookies with target's session. We use
     // supabase-ssr's own adapter on the RESPONSE so the cookie format + name
     // chunking matches exactly what @supabase/ssr expects to read back on
     // subsequent requests.
