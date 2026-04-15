@@ -875,3 +875,17 @@ CREATE TRIGGER hr_recruitment_candidates_updated_at
   BEFORE UPDATE ON public.hr_recruitment_candidates
   FOR EACH ROW
   EXECUTE FUNCTION public.set_updated_at();
+
+-- =====================================================================
+-- 2026-04-15 — Dashboard v2: Web Push auto-trigger
+-- Spec: specs/myjkkn-dashboard-v2-spec.md §4.4, §6.2
+-- Agent B (PR feat/dashboard-v2-push-send)
+-- Functions live in supabase/setup/02_functions.sql (fn_trigger_push_send,
+-- trg_notify_push_on_queue_insert_fn).
+-- =====================================================================
+
+DROP TRIGGER IF EXISTS trg_notify_push_on_queue_insert ON public.user_notifications;
+CREATE TRIGGER trg_notify_push_on_queue_insert
+  AFTER INSERT ON public.user_notifications
+  FOR EACH ROW
+  EXECUTE FUNCTION public.trg_notify_push_on_queue_insert_fn();
