@@ -36,6 +36,16 @@ export async function GET(request: NextRequest) {
 
     const url = new URL(request.url);
     const statuses = url.searchParams.getAll('status') as CandidateStatus[];
+    const pendingForMe = url.searchParams.get('pending_for_me') === 'true';
+    const approverId = url.searchParams.get('approver_id') ?? undefined;
+
+    // Validate: pending_for_me requires approver_id (clean 400 before hitting service layer).
+    if (pendingForMe && !approverId) {
+      return NextResponse.json(
+        { error: 'approver_id is required when pending_for_me=true' },
+        { status: 400 }
+      );
+    }
 
     const result = await RecruitmentService.listCandidates(supabase, {
       hr_organization_id: url.searchParams.get('hr_organization_id') ?? undefined,
@@ -47,6 +57,9 @@ export async function GET(request: NextRequest) {
         : undefined,
       source: (url.searchParams.get('source') as CandidateSource) ?? undefined,
       search: url.searchParams.get('search') ?? undefined,
+      submitted_by: url.searchParams.get('submitted_by') ?? undefined,
+      pending_for_me: pendingForMe || undefined,
+      approver_id: approverId,
       page: url.searchParams.get('page') ? parseInt(url.searchParams.get('page')!, 10) : 1,
       pageSize: url.searchParams.get('pageSize') ? parseInt(url.searchParams.get('pageSize')!, 10) : 50,
     });
