@@ -66,9 +66,17 @@ const TRAVEL_MODE_OPTIONS: { value: TravelMode; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
+// BUG-003145: surface all 5 valid event statuses in the create/edit form.
+// The rest of the codebase already handles these values (columns.tsx status
+// colors, expo/[id]/page.tsx transition rules, expos-data-table.tsx filter),
+// but this form only exposed planned + confirmed, so users couldn't move
+// events forward to in_progress / completed / cancelled.
 const STATUS_OPTIONS: { value: ExpoEventStatus; label: string }[] = [
   { value: 'planned', label: 'Planned' },
   { value: 'confirmed', label: 'Confirmed' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
