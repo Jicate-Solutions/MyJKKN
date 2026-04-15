@@ -131,11 +131,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: notif, error: notifErr } = await supabase
+    const { data: notifRaw, error: notifErr } = await supabase
       .from('notifications')
       .select('id, title, body, url, priority, category')
       .eq('id', un.notification_id)
-      .maybeSingle<NotifRow>();
+      .maybeSingle();
+
+    const notif = notifRaw as NotifRow | null;
 
     if (notifErr || !notif) {
       console.error('[push-send] notifications lookup error:', notifErr);
