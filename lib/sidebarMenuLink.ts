@@ -2223,6 +2223,29 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      groupLabel: 'Faculty Innovation',
+      menus: [
+        {
+          href: '/faculty/innovation',
+          label: 'Faculty Innovation',
+          active: pathname.startsWith('/faculty/innovation'),
+          icon: Lightbulb,
+          submenus: [
+            {
+              href: '/faculty/innovation/submit',
+              label: 'Submit Initiative',
+              active: pathname === '/faculty/innovation/submit'
+            },
+            {
+              href: '/faculty/innovation/portfolio',
+              label: 'My Portfolio',
+              active: pathname === '/faculty/innovation/portfolio'
+            }
+          ]
+        }
+      ]
+    },
+    {
       groupLabel: 'System',
       menus: [
         {
