@@ -3801,6 +3801,288 @@ CREATE INDEX IF NOT EXISTS idx_admission_form_events_session ON admission_form_e
 CREATE INDEX IF NOT EXISTS idx_admission_form_events_type ON admission_form_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_admission_form_events_created ON admission_form_events(created_at);
 
+-- =====================================================================
+-- 2026-04-15 — HR Recruitment Phase 1A: hr_recruitment_candidates
+-- Spec: specs/hr-recruitment-module-spec.md
+-- Decisions: R1.1-R1.4, R2.1-R2.4, R3.1-R3.4, R4.1 (shadow-tenant pattern)
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_candidates (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id      uuid NOT NULL,                                  -- shadow-tenant FK (mirrors hr_leave_applications)
+  institution_id          uuid REFERENCES public.institutions(id),        -- for role_has_institution_access() scoping
+  name                    text NOT NULL,
+  email                   text NOT NULL,
+  phone                   text,
+  cvviz_url               text NOT NULL,                                  -- R3.4: CV link mandatory
+  role_category           text NOT NULL CHECK (role_category IN (
+                            'teaching_faculty',
+                            'medical',
+                            'non_teaching',
+                            'senior_leadership',
+                            'contract'
+                          )),
+  role_title              text NOT NULL,
+  proposed_ctc_band       text CHECK (proposed_ctc_band IN (
+                            'under_6L',
+                            '6L_to_12L',
+                            'over_12L'
+                          )),
+  role_specific_details   jsonb NOT NULL DEFAULT '{}',                   -- R1.3: flexible per-role data
+  status                  text NOT NULL DEFAULT 'submitted' CHECK (status IN (
+                            'submitted',
+                            'pending_approval',
+                            'approved',
+                            'package_fixed',
+                            'offer_issued',
+                            'joined',
+                            'rejected',
+                            'withdrawn',
+                            'offer_rescinded',
+                            'no_show'
+                          )),
+  cancellation_reason     text,                                           -- R2.1
+  is_emergency            boolean NOT NULL DEFAULT false,                 -- R3.2
+  is_internal_transfer    boolean NOT NULL DEFAULT false,                 -- R4.1
+  source_staff_id         uuid REFERENCES public.staff(id),              -- R4.1: FK when internal transfer
+  source                  text NOT NULL DEFAULT 'hr_submission' CHECK (source IN (
+                            'hr_submission',
+                            'principal_submission',
+                            'hod_submission',
+                            'internal_transfer',
+                            'learner_graduate',
+                            'public_careers_page',
+                            'email_ingest'
+                          )),
+  approval_chain          jsonb,                                          -- R1.4: frozen snapshot at approval moment
+  current_step            int NOT NULL DEFAULT 0,
+  final_approver_id       uuid REFERENCES public.profiles(id),
+  final_decided_at        timestamptz,
+  rejection_reason        text,
+  expected_joining_date   date,
+  actual_joining_date     date,
+  submitted_by            uuid NOT NULL REFERENCES public.profiles(id),
+  submitted_at            timestamptz NOT NULL DEFAULT now(),
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now()
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_candidates_hr_org
+  ON public.hr_recruitment_candidates(hr_organization_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_candidates_institution
+  ON public.hr_recruitment_candidates(institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_candidates_status
+  ON public.hr_recruitment_candidates(status);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_candidates_role_category
+  ON public.hr_recruitment_candidates(role_category);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_candidates_submitted_at
+  ON public.hr_recruitment_candidates(submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_candidates_submitted_by
+  ON public.hr_recruitment_candidates(submitted_by);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_candidates_is_emergency
+  ON public.hr_recruitment_candidates(is_emergency);
+
+-- =====================================================================
+-- 2026-04-15 — HR Recruitment Phase 1A: hr_recruitment_candidate_packages
+-- Spec: specs/hr-recruitment-module-spec.md
+-- Decision R2.3 + Learning #8 (CTC on separate table, stricter RLS)
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_candidate_packages (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id            uuid NOT NULL REFERENCES public.hr_recruitment_candidates(id) ON DELETE CASCADE,
+  hr_organization_id      uuid,                                           -- mirrors parent for org-level queries
+  proposed_by             uuid NOT NULL REFERENCES public.profiles(id),
+  proposed_ctc_amount     numeric NOT NULL,                               -- the CTC being proposed
+  proposed_ctc_breakdown  jsonb,                                          -- optional: basic/HRA/DA/PF structure
+  currency                text NOT NULL DEFAULT 'INR',
+  is_counter_offer        boolean NOT NULL DEFAULT false,                 -- true if Director counter to HR's proposal
+  parent_package_id       uuid REFERENCES public.hr_recruitment_candidate_packages(id), -- for negotiation chain
+  status                  text NOT NULL DEFAULT 'proposed' CHECK (status IN (
+                            'proposed',
+                            'approved',
+                            'countered',
+                            'rejected'
+                          )),
+  approved_by             uuid REFERENCES public.profiles(id),
+  approved_at             timestamptz,
+  notes                   text,
+  created_at              timestamptz NOT NULL DEFAULT now()
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_packages_candidate
+  ON public.hr_recruitment_candidate_packages(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_packages_proposed_by
+  ON public.hr_recruitment_candidate_packages(proposed_by);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_packages_status
+  ON public.hr_recruitment_candidate_packages(status);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_packages_parent
+  ON public.hr_recruitment_candidate_packages(parent_package_id);
+
+-- =====================================================================
+-- 2026-04-15 — HR Recruitment Phase 1A: Seeds
+-- hr_approval_flows rows for recruitment_approval (O2, R3.1, R3.3)
+-- hr_onboarding_checklists rows per cadre (O3)
+-- NOTE: These are INSERT ... ON CONFLICT DO NOTHING so safe to re-run.
+-- The hr_organization_id placeholder '00000000-0000-0000-0000-000000000001'
+-- must be replaced with the live JKKN hr_organization id before applying.
+-- =====================================================================
+
+-- Seed: hr_approval_flows for recruitment_approval
+-- 5 rows covering role_category × ctc_band routing per spec section 4
+-- chain_order=1 is the first approver, chain_order=2 is the second, etc.
+-- escalate_after_hours=72 per R3.3 (3 days)
+
+INSERT INTO public.hr_approval_flows (
+  hr_organization_id,
+  flow_for,
+  flow_name,
+  conditions,
+  steps,
+  is_active
+) VALUES
+  -- Teaching faculty < ₹6L → Principal + HOD
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'recruitment_approval',
+    'Teaching Faculty — Under 6L',
+    '{"role_category": "teaching_faculty", "ctc_band": "under_6L"}',
+    '[{"chain_order":1,"approver_role":"principal","escalate_after_hours":72},{"chain_order":2,"approver_role":"hod","escalate_after_hours":72}]',
+    true
+  ),
+  -- Teaching faculty ₹6L–₹12L → Principal + COO
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'recruitment_approval',
+    'Teaching Faculty — 6L to 12L',
+    '{"role_category": "teaching_faculty", "ctc_band": "6L_to_12L"}',
+    '[{"chain_order":1,"approver_role":"principal","escalate_after_hours":72},{"chain_order":2,"approver_role":"coo","escalate_after_hours":72}]',
+    true
+  ),
+  -- Teaching faculty > ₹12L → Director (mandatory per spec §4)
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'recruitment_approval',
+    'Teaching Faculty — Over 12L (Director)',
+    '{"role_category": "teaching_faculty", "ctc_band": "over_12L"}',
+    '[{"chain_order":1,"approver_role":"director","escalate_after_hours":72}]',
+    true
+  ),
+  -- Medical/clinical → Medical Superintendent + Director
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'recruitment_approval',
+    'Medical & Clinical Staff',
+    '{"role_category": "medical"}',
+    '[{"chain_order":1,"approver_role":"medical_superintendent","escalate_after_hours":72},{"chain_order":2,"approver_role":"director","escalate_after_hours":72}]',
+    true
+  ),
+  -- Non-teaching (admin, IT, support) → COO + HR Head
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'recruitment_approval',
+    'Non-Teaching Staff',
+    '{"role_category": "non_teaching"}',
+    '[{"chain_order":1,"approver_role":"coo","escalate_after_hours":72},{"chain_order":2,"approver_role":"hr_head","escalate_after_hours":72}]',
+    true
+  ),
+  -- Senior leadership (Principal-level) → Director + Board
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'recruitment_approval',
+    'Senior Leadership',
+    '{"role_category": "senior_leadership"}',
+    '[{"chain_order":1,"approver_role":"director","escalate_after_hours":72},{"chain_order":2,"approver_role":"board","escalate_after_hours":72}]',
+    true
+  ),
+  -- Contract/temp → HR Head only (Director notified, not approving per spec §4)
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'recruitment_approval',
+    'Contract & Temporary Staff',
+    '{"role_category": "contract"}',
+    '[{"chain_order":1,"approver_role":"hr_head","escalate_after_hours":72}]',
+    true
+  )
+ON CONFLICT DO NOTHING;
+
+-- Seed: hr_onboarding_checklists — one per cadre (O3)
+INSERT INTO public.hr_onboarding_checklists (
+  hr_organization_id,
+  checklist_name,
+  steps,
+  is_active
+) VALUES
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'Teaching Faculty Onboarding',
+    '[
+      {"step": "Collect and verify original certificates (degree, PG, PhD if applicable)"},
+      {"step": "Issue institutional ID card and biometric registration"},
+      {"step": "Set up official email account (name@jkkn.ac.in)"},
+      {"step": "Complete HR policies acknowledgement form"},
+      {"step": "Department introduction and HOD meeting"},
+      {"step": "Timetable and Learning Studio assignment briefing"},
+      {"step": "Issue offer letter and appointment order"},
+      {"step": "Open salary account (JKKN partner bank)"},
+      {"step": "Add to MyJKKN attendance and leave management"},
+      {"step": "NAAC faculty data entry in academic portal"}
+    ]',
+    true
+  ),
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'Supporting Technical Staff Onboarding',
+    '[
+      {"step": "Collect identity and address proof documents"},
+      {"step": "Issue institutional ID card and biometric registration"},
+      {"step": "Set up official email account"},
+      {"step": "Complete HR policies acknowledgement form"},
+      {"step": "Department introduction and supervisor meeting"},
+      {"step": "Lab or facility orientation and safety briefing"},
+      {"step": "Issue appointment order"},
+      {"step": "Open salary account (JKKN partner bank)"},
+      {"step": "Add to MyJKKN attendance and leave management"}
+    ]',
+    true
+  ),
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'Non-Technical Administrative Staff Onboarding',
+    '[
+      {"step": "Collect identity and address proof documents"},
+      {"step": "Issue institutional ID card and biometric registration"},
+      {"step": "Set up official email account"},
+      {"step": "Complete HR policies acknowledgement form"},
+      {"step": "Office orientation and reporting manager introduction"},
+      {"step": "System access setup (MyJKKN module permissions)"},
+      {"step": "Issue appointment order"},
+      {"step": "Open salary account (JKKN partner bank)"},
+      {"step": "Add to MyJKKN attendance and leave management"}
+    ]',
+    true
+  ),
+  (
+    '00000000-0000-0000-0000-000000000001',
+    'Administrative Leadership Onboarding',
+    '[
+      {"step": "Collect and verify all credential documents"},
+      {"step": "Issue institutional ID card and biometric registration"},
+      {"step": "Set up official email account with elevated access"},
+      {"step": "Complete HR policies and governance acknowledgement"},
+      {"step": "Board and senior leadership introduction"},
+      {"step": "MyJKKN admin module access provisioning"},
+      {"step": "Issue appointment letter and joining report"},
+      {"step": "Open salary account (JKKN partner bank)"},
+      {"step": "Add to payroll and leave management"},
+      {"step": "Hand over role-specific SOP documentation"}
+    ]',
+    true
+  )
+ON CONFLICT DO NOTHING;
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

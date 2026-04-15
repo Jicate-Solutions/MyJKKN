@@ -834,3 +834,16 @@ CREATE TRIGGER marathon_registrations_insert_trg
   INSTEAD OF INSERT ON public.marathon_registrations
   FOR EACH ROW
   EXECUTE FUNCTION public.marathon_registrations_insert();
+
+-- =====================================================================
+-- 2026-04-15 — HR Recruitment Phase 1A: updated_at triggers
+-- Spec: specs/hr-recruitment-module-spec.md
+-- Reuses the existing set_updated_at() function (assumed present from other HR tables).
+-- =====================================================================
+
+DROP TRIGGER IF EXISTS hr_recruitment_candidates_updated_at
+  ON public.hr_recruitment_candidates;
+CREATE TRIGGER hr_recruitment_candidates_updated_at
+  BEFORE UPDATE ON public.hr_recruitment_candidates
+  FOR EACH ROW
+  EXECUTE FUNCTION public.set_updated_at();
