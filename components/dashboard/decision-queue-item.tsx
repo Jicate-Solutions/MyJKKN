@@ -14,6 +14,10 @@ import {
   queueTypeLabel
 } from '@/lib/services/dashboard/decision-queue-service';
 import { performQueueAction } from '@/app/(routes)/dashboard/_actions/queue-actions';
+import {
+  initiateRescueBroadcast,
+  claimRescueBroadcast
+} from '@/app/(routes)/dashboard/_actions/rescue-actions';
 
 // ============================================================================
 // Severity-aware badge pill
