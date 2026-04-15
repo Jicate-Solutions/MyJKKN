@@ -1,210 +1,242 @@
+/**
+ * Dashboard v2 — Operational Nervous System
+ * Day 2 (2026-04-15): live data wiring via fn_dashboard_metrics RPC.
+ *
+ * Spec: specs/myjkkn-dashboard-v2-spec.md
+ * §7.1 Hero Strip — 4 tiles ✓
+ * §7.2 Decision Queue — stubbed, wires Day 3
+ * §7.4 Multi-institution drill-down — /dashboard/i/[instId]
+ *
+ * Old dashboard preserved at /dashboard/classic for 60-day grace.
+ */
+
+import Link from 'next/link';
 import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { DashboardBentoGrid } from './_components/dashboard-bento-grid';
-import { LoadingSkeleton } from '@/components/loading-skeleton';
-import StudentDashboard from './_components/dashboards/student-dashboard';
-import AdminDashboard from './_components/dashboards/admin-dashboard';
-import { redirect } from 'next/navigation';
+import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
+import { HeroStrip } from '@/components/dashboard/hero-strip';
+import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
+import { DecisionQueue } from '@/components/dashboard/decision-queue';
+import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
+import { PushSubscribeButton } from '@/components/dashboard/push-subscribe-button';
+import { MorningBriefCard } from '@/components/dashboard/morning-brief';
+import { getMorningBrief } from '@/lib/services/dashboard/morning-brief-service';
+import type { QueueFilter } from '@/lib/services/dashboard/decision-queue-service';
+import {
+  getSlaDailyLeaderboard,
+  getConversionMonthlyLeaderboard
+} from '@/lib/services/dashboard/leaderboard-service';
+import { createClient } from '@/lib/supabase/server';
 
-export default async function DashboardPage() {
-  console.log('[Dashboard Page] 🏠 Dashboard page loaded');
+const VALID_FILTERS: QueueFilter[] = [
+  'all',
+  'approval',
+  'escalation',
+  'rescue',
+  'anomaly'
+];
+
+function normalizeFilter(raw: string | string[] | undefined): QueueFilter {
+  if (!raw || Array.isArray(raw)) return 'all';
+  return (VALID_FILTERS as string[]).includes(raw) ? (raw as QueueFilter) : 'all';
+}
+
+export const revalidate = 30; // Re-fetch metrics every 30s (matches SLA leaderboard cadence)
+
+// ============================================================================
+// Server component: fetches live metrics, renders HeroStrip
+// ============================================================================
+async function LiveHeroStrip({
+  institutionId,
+  departmentId
+}: {
+  institutionId?: string;
+  departmentId?: string;
+}) {
+  const metrics = await getDashboardMetrics({ institutionId, departmentId });
+  const drillBase = institutionId
+    ? `/dashboard/i/${institutionId}${departmentId ? `/d/${departmentId}` : ''}`
+    : '/dashboard';
+  return <HeroStrip metrics={metrics} drillBase={drillBase} />;
+}
+
+// ============================================================================
+// Hero fallback (skeleton while metrics fetch)
+// ============================================================================
+function HeroSkeleton() {
+  return (
+    <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
+      {[0, 1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className='rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 backdrop-blur-sm p-5 animate-pulse'
+        >
+          <div className='h-3 w-1/3 bg-neutral-200 dark:bg-neutral-800 rounded' />
+          <div className='mt-4 h-8 w-1/2 bg-neutral-200 dark:bg-neutral-800 rounded' />
+          <div className='mt-3 h-2 w-3/4 bg-neutral-100 dark:bg-neutral-900 rounded' />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// Leaderboard wrappers — fetch then render
+// ============================================================================
+async function LiveSlaLeaderboard() {
+  const result = await getSlaDailyLeaderboard(10);
+  return <LeaderboardCard kind='sla_daily' result={result} />;
+}
+
+async function LiveConversionLeaderboard() {
+  const result = await getConversionMonthlyLeaderboard(10);
+  return <LeaderboardCard kind='conversion_monthly' result={result} />;
+}
+
+function LeaderboardSkeleton() {
+  return (
+    <div className='rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 p-5 animate-pulse'>
+      <div className='h-4 w-1/3 bg-neutral-200 dark:bg-neutral-800 rounded' />
+      <div className='mt-3 space-y-2'>
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className='h-10 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg'
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Decision Queue skeleton (fallback during server fetch)
+// ============================================================================
+function QueueSkeleton() {
+  return (
+    <div className='rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 p-5 animate-pulse'>
+      <div className='h-4 w-1/4 bg-neutral-200 dark:bg-neutral-800 rounded' />
+      <div className='mt-3 space-y-2'>
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className='h-20 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg'
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Live Morning Brief wrapper — fetches brief data, renders dismissible card
+// ============================================================================
+async function LiveMorningBrief() {
+  const brief = await getMorningBrief();
+  if (!brief.ok) return null; // RPC failed or user not authed — skip gracefully
+  return <MorningBriefCard brief={brief} />;
+}
+
+// ============================================================================
+// Institution chip row — quick drill-down to per-institution views
+// ============================================================================
+async function InstitutionChips() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('institutions')
+    .select('id, name')
+    .order('name', { ascending: true })
+    .limit(12);
+  const institutions = (data ?? []) as Array<{ id: string; name: string }>;
+  if (institutions.length === 0) return null;
+  return (
+    <div className='flex items-center gap-2 overflow-x-auto pb-2 -mx-2 px-2 scroll-smooth'>
+      <span className='text-[11px] uppercase tracking-wider text-neutral-500 whitespace-nowrap mr-1'>
+        Drill into:
+      </span>
+      {institutions.map((inst) => (
+        <Link
+          key={inst.id}
+          href={`/dashboard/i/${inst.id}`}
+          className='px-3 py-1.5 text-xs rounded-full bg-white/80 dark:bg-neutral-900/80 border border-neutral-200 dark:border-neutral-800 whitespace-nowrap hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors'
+        >
+          {inst.name}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// Main page (server component — fetches RPC, renders)
+// ============================================================================
+export default async function DashboardV2Page({
+  searchParams
+}: {
+  searchParams: Promise<{ queue?: string }>;
+}) {
+  const sp = await searchParams;
+  const filter = normalizeFilter(sp.queue);
 
   return (
     <ContentLayout title='Dashboard'>
       {/* Animated glass background */}
       <div className='fixed inset-0 -z-10 overflow-hidden pointer-events-none'>
-        <div className='absolute inset-0 bg-gradient-to-br from-green-50/50 via-emerald-50/30 to-green-50/50 dark:from-green-950/30 dark:via-emerald-950/20 dark:to-green-950/30' />
-        <div className='absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-br from-green-400/10 via-transparent to-emerald-400/10 blur-3xl animate-blob' />
-        <div className='absolute -bottom-1/2 -left-1/2 w-full h-full bg-gradient-to-tr from-emerald-400/10 via-transparent to-green-400/10 blur-3xl animate-blob animation-delay-2000' />
+        <div className='absolute inset-0 bg-gradient-to-br from-emerald-50/40 via-white/20 to-sky-50/40 dark:from-emerald-950/30 dark:via-neutral-950/20 dark:to-sky-950/30' />
+        <div className='absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-br from-emerald-400/10 via-transparent to-sky-400/10 blur-3xl animate-blob' />
       </div>
 
-      <div className='space-y-3 sm:space-y-4 lg:space-y-6 px-1 sm:px-2 lg:px-4'>
-        {/* BentoGrid Section - Server rendered with Suspense */}
-        <Suspense fallback={<LoadingSkeleton />}>
-          <BentoGridSection />
+      <div className='space-y-4 sm:space-y-5 lg:space-y-6 px-2 sm:px-3 lg:px-4 pb-10'>
+        <DashboardBreadcrumb
+          crumbs={[{ label: 'JKKN — All Institutions', active: true }]}
+        />
+
+        {/* 8am Morning Brief (spec §7.7) — dismissible per-day */}
+        <Suspense fallback={null}>
+          <LiveMorningBrief />
         </Suspense>
 
-        {/* Role-Based Dashboard Section - Server rendered with Suspense */}
-        <Suspense fallback={<LoadingSkeleton />}>
-          <RoleBasedDashboard />
+        {/* Hero Strip — 4 tiles with live data (spec §7.1) */}
+        <Suspense fallback={<HeroSkeleton />}>
+          <LiveHeroStrip />
         </Suspense>
+
+        {/* Institution quick-drill chips */}
+        <Suspense fallback={null}>
+          <InstitutionChips />
+        </Suspense>
+
+        {/* Decision Queue with live data + inline actions (spec §7.2) */}
+        <Suspense fallback={<QueueSkeleton />}>
+          <DecisionQueue filter={filter} />
+        </Suspense>
+
+        {/* Leaderboards (spec §7.6) — side-by-side on desktop, stacked on mobile */}
+        <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
+          <Suspense fallback={<LeaderboardSkeleton />}>
+            <LiveSlaLeaderboard />
+          </Suspense>
+          <Suspense fallback={<LeaderboardSkeleton />}>
+            <LiveConversionLeaderboard />
+          </Suspense>
+        </div>
+
+        {/* Footer: push opt-in + classic fallback link */}
+        <footer className='flex flex-col sm:flex-row items-center justify-between gap-3 pt-4'>
+          <PushSubscribeButton
+            vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY}
+          />
+          <div className='text-xs text-neutral-400 dark:text-neutral-600'>
+            Prefer the old dashboard?{' '}
+            <Link
+              href='/dashboard/classic'
+              className='underline hover:text-neutral-700 dark:hover:text-neutral-300'
+            >
+              Open classic view
+            </Link>
+          </div>
+        </footer>
       </div>
     </ContentLayout>
   );
-}
-
-/**
- * BentoGrid Section - Async Server Component
- */
-async function BentoGridSection() {
-  const supabase = await createServerSupabaseClient();
-
-  // Get current user
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return (
-      <DashboardBentoGrid currentUser='Guest' />
-    );
-  }
-
-  // Get user profile
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name')
-    .eq('id', user.id)
-    .single();
-
-  const currentUser = profile?.full_name || user.email?.split('@')[0] || 'User';
-
-  return (
-    <div className='w-full'>
-      <DashboardBentoGrid currentUser={currentUser} />
-    </div>
-  );
-}
-
-/**
- * Role-Based Dashboard Section - Async Server Component
- */
-async function RoleBasedDashboard() {
-  const supabase = await createServerSupabaseClient();
-
-  // Get current user
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect('/login');
-  }
-
-  // Get user profile with role
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, role, learner_id')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile) {
-    redirect('/login');
-  }
-
-  // Fetch dashboard preferences
-  const { data: preferences } = await supabase
-    .from('user_dashboard_preferences')
-    .select('widget_id, is_visible')
-    .eq('user_id', user.id);
-
-  // Build visibility map from preferences
-  const visibilityMap: Record<string, boolean> = {};
-  if (preferences && preferences.length > 0) {
-    preferences.forEach((pref) => {
-      visibilityMap[pref.widget_id] = pref.is_visible;
-    });
-  }
-
-  // Route to role-specific dashboard
-  switch (profile.role) {
-    case 'student': {
-      if (!profile.learner_id) {
-        console.error('[Dashboard] Student role but no learner_id assigned to profile');
-        return (
-          <div className='text-center py-8 text-muted-foreground'>
-            Student profile not linked. Please contact administration.
-          </div>
-        );
-      }
-
-      // Fetch learner profile to get student_id and section_id
-      const { data: learner } = await supabase
-        .from('learners_profiles')
-        .select('id, section_id')
-        .eq('id', profile.learner_id)
-        .single();
-
-      if (!learner) {
-        console.error('[Dashboard] Student role but no learner profile found for id:', profile.learner_id);
-        return (
-          <div className='text-center py-8 text-muted-foreground'>
-            Student profile not found. Please contact administration.
-          </div>
-        );
-      }
-
-      if (!learner.section_id) {
-        console.warn('[Dashboard] Student has no section assigned');
-        return (
-          <div className='text-center py-8 text-muted-foreground'>
-            No section assigned. Please contact administration.
-          </div>
-        );
-      }
-
-      return (
-        <StudentDashboard
-          userId={user.id}
-          studentId={learner.id}
-          sectionId={learner.section_id}
-          role={profile.role}
-          visibilityMap={visibilityMap}
-        />
-      );
-    }
-
-    case 'faculty': {
-      // TODO: Implement FacultyDashboard in next task
-      return (
-        <div className='text-center py-8 text-muted-foreground'>
-          Faculty dashboard coming soon...
-        </div>
-      );
-    }
-
-    case 'hod': {
-      // FIX: 2026-01-31 - Added HOD role support
-      // HODs get admin dashboard access for department management
-      return (
-        <AdminDashboard
-          userId={user.id}
-          role={profile.role}
-          visibilityMap={visibilityMap}
-        />
-      );
-    }
-
-    case 'leadership': {
-      // TODO: Implement LeadershipDashboard in next task
-      return (
-        <div className='text-center py-8 text-muted-foreground'>
-          Leadership dashboard coming soon...
-        </div>
-      );
-    }
-
-    case 'admission':
-    case 'admission_staff':
-    case 'admin':
-    case 'super_admin': {
-      return (
-        <AdminDashboard
-          userId={user.id}
-          role={profile.role}
-          visibilityMap={visibilityMap}
-        />
-      );
-    }
-
-    default: {
-      console.error('[Dashboard] Unknown role:', profile.role);
-      return (
-        <div className='text-center py-8 text-muted-foreground'>
-          Dashboard not available for your role.
-        </div>
-      );
-    }
-  }
 }
