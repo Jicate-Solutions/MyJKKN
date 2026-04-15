@@ -78,6 +78,35 @@ function HeroSkeleton() {
 }
 
 // ============================================================================
+// Leaderboard wrappers — fetch then render
+// ============================================================================
+async function LiveSlaLeaderboard() {
+  const result = await getSlaDailyLeaderboard(10);
+  return <LeaderboardCard kind='sla_daily' result={result} />;
+}
+
+async function LiveConversionLeaderboard() {
+  const result = await getConversionMonthlyLeaderboard(10);
+  return <LeaderboardCard kind='conversion_monthly' result={result} />;
+}
+
+function LeaderboardSkeleton() {
+  return (
+    <div className='rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 p-5 animate-pulse'>
+      <div className='h-4 w-1/3 bg-neutral-200 dark:bg-neutral-800 rounded' />
+      <div className='mt-3 space-y-2'>
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className='h-10 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg'
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // Decision Queue skeleton (fallback during server fetch)
 // ============================================================================
 function QueueSkeleton() {
