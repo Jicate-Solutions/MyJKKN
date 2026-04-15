@@ -38,7 +38,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
   }
 
-  let canViewLeads = !!profile.is_super_admin || profile.role === 'super_admin';
+  const isSuperAdmin = !!profile.is_super_admin || profile.role === 'super_admin';
+
+  let canViewLeads = isSuperAdmin;
   if (!canViewLeads) {
     const { data: permResult } = await supabase.rpc('user_has_permission', {
       user_id: user.id,
@@ -52,6 +54,25 @@ export async function GET(request: NextRequest) {
       { error: 'Forbidden: admission.leads.view permission required' },
       { status: 403 }
     );
+  }
+
+  // Cross-institution access flag drives the "show all institutions vs scope
+  // to own" branch below. True when super_admin OR any of the user's roles is
+  // institution_scope='all' OR the user's effective admission module scope is
+  // 'all_institutions' (per-module override).
+  let isAdmissionGlobalUser = isSuperAdmin;
+  if (!isAdmissionGlobalUser) {
+    const { data: scopedRoles } = await supabase
+      .from('user_roles')
+      .select('custom_roles!inner(institution_scope, module_scopes)')
+      .eq('user_id', user.id);
+    isAdmissionGlobalUser = (scopedRoles || []).some((ur: any) => {
+      const cr = ur.custom_roles;
+      if (!cr) return false;
+      if (cr.institution_scope === 'all') return true;
+      const moduleScope = (cr.module_scopes ?? {})['admission'];
+      return moduleScope === 'all_institutions';
+    });
   }
 
   // 3. Parse query parameters
