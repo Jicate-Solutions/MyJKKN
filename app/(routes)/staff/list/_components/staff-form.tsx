@@ -242,9 +242,11 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       try {
         // For HOD users, filter institutions based on their access
         // For other roles, load based on their permissions
+        // Pass 'all' so admin offices and companies are included — staff can be
+        // assigned to any entity type, not just academic institutions.
         const institutionsPromise = profile?.role === 'hod'
-          ? OrganizationService.getInstitutionNames(true, profile.id)
-          : OrganizationService.getInstitutionNames(true);
+          ? OrganizationService.getInstitutionNames(true, profile.id, 'all')
+          : OrganizationService.getInstitutionNames(true, undefined, 'all');
 
         const [institutionsData, categoriesData, rolesData] = await Promise.all([
           institutionsPromise,
@@ -461,6 +463,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         className='space-y-8'
         suppressHydrationWarning
       >
+        <p className='text-xs text-muted-foreground'>
+          Fields marked with <span className='text-destructive'>*</span> are required.
+        </p>
+
         {/* Personal Information */}
         <div className='space-y-4'>
           <h2 className='text-lg font-semibold'>Personal Information</h2>
@@ -470,7 +476,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='first_name'
               render={({ field }) => (
                 <FormItem data-field='first_name'>
-                  <FormLabel>First Name</FormLabel>
+                  <FormLabel>First Name <span className='text-destructive'>*</span></FormLabel>
                   <FormControl>
                     <Input placeholder='Enter first name' {...field} />
                   </FormControl>
@@ -484,7 +490,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='last_name'
               render={({ field }) => (
                 <FormItem data-field='last_name'>
-                  <FormLabel>Last Name</FormLabel>
+                  <FormLabel>Last Name <span className='text-destructive'>*</span></FormLabel>
                   <FormControl>
                     <Input placeholder='Enter last name' {...field} />
                   </FormControl>
@@ -498,7 +504,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='gender'
               render={({ field }) => (
                 <FormItem data-field='gender'>
-                  <FormLabel>Gender</FormLabel>
+                  <FormLabel>Gender <span className='text-destructive'>*</span></FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
@@ -521,7 +527,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='date_of_birth'
               render={({ field }) => (
                 <FormItem className='flex flex-col' data-field='date_of_birth'>
-                  <FormLabel>Date of Birth</FormLabel>
+                  <FormLabel>Date of Birth <span className='text-destructive'>*</span></FormLabel>
                   <FormControl>
                     <DateInput
                       value={field.value}
@@ -546,7 +552,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='email'
               render={({ field }) => (
                 <FormItem data-field='email'>
-                  <FormLabel>Personal Email</FormLabel>
+                  <FormLabel>Personal Email <span className='text-destructive'>*</span></FormLabel>
                   <FormControl>
                     <Input
                       type='email'
@@ -564,7 +570,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='phone'
               render={({ field }) => (
                 <FormItem data-field='phone'>
-                  <FormLabel>Phone</FormLabel>
+                  <FormLabel>Phone <span className='text-destructive'>*</span></FormLabel>
                   <FormControl>
                     <Input
                       placeholder='Enter phone number'
@@ -648,7 +654,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='marital_status'
               render={({ field }) => (
                 <FormItem data-field='marital_status'>
-                  <FormLabel>Marital Status</FormLabel>
+                  <FormLabel>Marital Status <span className='text-destructive'>*</span></FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
@@ -763,7 +769,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='date_of_joining'
               render={({ field }) => (
                 <FormItem className='flex flex-col' data-field='date_of_joining'>
-                  <FormLabel>Date of Joining</FormLabel>
+                  <FormLabel>Date of Joining <span className='text-destructive'>*</span></FormLabel>
                   <FormControl>
                     <DateInput
                       value={field.value}
@@ -782,7 +788,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='designation'
               render={({ field }) => (
                 <FormItem data-field='designation'>
-                  <FormLabel>Designation</FormLabel>
+                  <FormLabel>Designation <span className='text-destructive'>*</span></FormLabel>
                   <FormControl>
                     <Input placeholder='Enter designation' {...field} />
                   </FormControl>
@@ -796,7 +802,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='category_id'
               render={({ field }) => (
                 <FormItem data-field='category_id'>
-                  <FormLabel>Employment Category</FormLabel>
+                  <FormLabel>Employment Category <span className='text-destructive'>*</span></FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
@@ -822,7 +828,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='role_key'
               render={({ field }) => (
                 <FormItem data-field='role_key'>
-                  <FormLabel>Role</FormLabel>
+                  <FormLabel>Role <span className='text-destructive'>*</span></FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
@@ -854,7 +860,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
               name='institution_id'
               render={({ field }) => (
                 <FormItem data-field='institution_id'>
-                  <FormLabel>Institution</FormLabel>
+                  <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
@@ -889,7 +895,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                 name='department_id'
                 render={({ field }) => (
                   <FormItem data-field='department_id'>
-                    <FormLabel>Department</FormLabel>
+                    <FormLabel>Department <span className='text-destructive'>*</span></FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value ?? ''}

@@ -43,7 +43,7 @@ export default function NewStaffPage() {
 
   if (loading) {
     return (
-      <ContentLayout title='New Staff'>
+      <ContentLayout title='New Employee'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin' />
         </div>
@@ -52,7 +52,7 @@ export default function NewStaffPage() {
   }
 
   return (
-    <ContentLayout title='New Staff'>
+    <ContentLayout title='New Employee'>
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -63,21 +63,21 @@ export default function NewStaffPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href='/staff/list'>Staff List</Link>
+              <Link href='/staff/list'>Employee List</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>New Staff</BreadcrumbPage>
+            <BreadcrumbPage>New Employee</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
         <div>
-          <h1 className='text-2xl font-bold py-1'>New Staff</h1>
+          <h1 className='text-2xl font-bold py-1'>New Employee</h1>
           <p className='text-sm sm:text-base text-muted-foreground'>
-            Add a new staff member
+            Add a new employee
           </p>
         </div>
 

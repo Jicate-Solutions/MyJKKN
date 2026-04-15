@@ -83,6 +83,11 @@ export class StaffService {
         );
       }
 
+      // Normalize empty optional unique fields to null so Postgres UNIQUE
+      // doesn't treat '' as a colliding value across rows.
+      // (NULLs are distinct in a unique index; '' is not.)
+      if (data.staff_id === '') data.staff_id = null as any;
+
       // Conditional department: non-teaching categories must not carry department_id.
       // The DB trigger auto-clears this, but we also clear client-side to match form semantics.
       const { data: category } = await this.supabase
