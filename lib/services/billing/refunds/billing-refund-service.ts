@@ -40,7 +40,7 @@ export class BillingRefundService {
             id,
             receipt_number,
             payment_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -87,7 +87,7 @@ export class BillingRefundService {
             id,
             receipt_number,
             payment_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -144,7 +144,7 @@ export class BillingRefundService {
             id,
             receipt_number,
             payment_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -234,7 +234,7 @@ export class BillingRefundService {
             id,
             receipt_number,
             payment_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -286,7 +286,7 @@ export class BillingRefundService {
             id,
             receipt_number,
             payment_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -336,7 +336,7 @@ export class BillingRefundService {
             id,
             receipt_number,
             payment_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -385,7 +385,7 @@ export class BillingRefundService {
             id,
             receipt_number,
             payment_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
