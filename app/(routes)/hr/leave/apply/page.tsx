@@ -127,7 +127,7 @@ export default function ApplyLeavePage() {
           <CardContent className="space-y-4">
             <div>
               <Label htmlFor="leaveTypeId">Leave Type ID</Label>
-              <Input id="leaveTypeId" value={leaveTypeId} onChange={(e) => setLeaveTypeId(e.target.value)} required placeholder="uuid from hr_leave_types" />
+              <Input id="leaveTypeId" value={leaveTypeId} onChange={(e) => setLeaveTypeId(e.target.value)} required placeholder="uuid from leave_types (scope=staff)" />
               {selectedBalance && (
                 <p className="text-xs text-muted-foreground mt-1">
                   <strong>{selectedBalance.leave_type_name}</strong> — {available} days available (entitled {selectedBalance.entitled}, used {selectedBalance.used}, carried {selectedBalance.carried_forward})
