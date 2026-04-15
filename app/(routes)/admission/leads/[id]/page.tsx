@@ -121,6 +121,10 @@ import type { FunnelStage } from '@/types/admission';
 import { ALLOWED_STAGE_TRANSITIONS } from '@/lib/services/admission/lead-service';
 import { SendPersonalMessageDialog } from '@/components/whatsapp/send-personal-message-dialog';
 import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
+// BUG-003016: centralised DD/MM/YYYY formatter — replaces bare
+// toLocaleDateString() calls that were rendering ambiguously depending
+// on the runtime locale.
+import { formatDateDMY } from '@/lib/utils/date-format';
 
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -1766,9 +1770,7 @@ function LeadDetailPageContent() {
                         <div>
                           <dt className="text-sm text-muted-foreground">Date of Birth</dt>
                           <dd className="font-medium">
-                            {lead.date_of_birth
-                              ? new Date(lead.date_of_birth).toLocaleDateString()
-                              : '-'}
+                            {formatDateDMY(lead.date_of_birth)}
                           </dd>
                         </div>
                         <div>
@@ -1793,11 +1795,7 @@ function LeadDetailPageContent() {
                         <div>
                           <dt className="text-sm text-muted-foreground">Entry Date</dt>
                           <dd className="font-medium">
-                            {lead.entry_date
-                              ? new Date(lead.entry_date).toLocaleDateString()
-                              : lead.created_at
-                                ? new Date(lead.created_at).toLocaleDateString()
-                                : '-'}
+                            {formatDateDMY(lead.entry_date ?? lead.created_at)}
                           </dd>
                         </div>
                         <div>
@@ -2125,7 +2123,7 @@ function LeadDetailPageContent() {
                       <p className="font-medium">{lead.counselor?.name || 'Unknown'}</p>
                       {lead.assigned_at && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          Assigned {new Date(lead.assigned_at).toLocaleDateString()}
+                          Assigned {formatDateDMY(lead.assigned_at)}
                         </p>
                       )}
                     </CardContent>
@@ -2563,9 +2561,7 @@ function LeadDetailPageContent() {
                     <div>
                       <p className="text-xs text-muted-foreground">Created</p>
                       <p className="text-sm font-medium">
-                        {lead.created_at
-                          ? new Date(lead.created_at).toLocaleDateString()
-                          : '-'}
+                        {formatDateDMY(lead.created_at)}
                       </p>
                     </div>
                   </div>
@@ -2584,7 +2580,7 @@ function LeadDetailPageContent() {
                       <p className="text-xs text-muted-foreground">Last Activity</p>
                       <p className="text-sm font-medium">
                         {lead.last_contact_at
-                          ? new Date(lead.last_contact_at).toLocaleDateString()
+                          ? formatDateDMY(lead.last_contact_at)
                           : 'No activity'}
                       </p>
                     </div>
