@@ -6051,3 +6051,68 @@ EXCEPTION WHEN OTHERS THEN
   RETURN json_build_object('success', false, 'error', SQLERRM, 'code', SQLSTATE);
 END;
 $$;
+
+-- Updated: 2026-04-15 - Mirror role_has_institution_access() function back into
+-- canonical setup. This function already existed in the live database but was
+-- never written to source control (drift). Used by the Tier-C staff/employment
+-- categories/custom_roles/staff_plans RLS policies to honor the contract:
+--   is_super_admin() OR is_admin()
+--   OR (user_has_permission('module.action') AND role_has_institution_access(institution_id))
+CREATE OR REPLACE FUNCTION public.role_has_institution_access(check_institution_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+    -- NULL institution_id: always accessible (system-wide records)
+    IF check_institution_id IS NULL THEN
+        RETURN true;
+    END IF;
+
+    -- Super admin: always access all
+    IF is_super_admin() THEN
+        RETURN true;
+    END IF;
+
+    -- Check if ANY of user's roles has institution_scope = 'all'
+    IF EXISTS (
+        SELECT 1
+        FROM user_roles ur
+        JOIN custom_roles cr ON ur.role_id = cr.id
+        WHERE ur.user_id = auth.uid()
+          AND cr.institution_scope = 'all'
+    ) THEN
+        RETURN true;
+    END IF;
+
+    -- Legacy fallback: check profiles.role for scope
+    IF EXISTS (
+        SELECT 1
+        FROM profiles p
+        JOIN custom_roles cr ON p.role = cr.role_key
+        WHERE p.id = auth.uid()
+          AND cr.institution_scope = 'all'
+    ) THEN
+        RETURN true;
+    END IF;
+
+    -- Check own institution
+    IF check_institution_id = get_current_user_institution_id() THEN
+        RETURN true;
+    END IF;
+
+    -- Check user_institution_access table (cross-institution grants)
+    IF EXISTS (
+        SELECT 1
+        FROM user_institution_access uia
+        WHERE uia.user_id = auth.uid()
+          AND uia.institution_id = check_institution_id
+          AND uia.is_active = true
+    ) THEN
+        RETURN true;
+    END IF;
+
+    RETURN false;
+END;
+$function$;

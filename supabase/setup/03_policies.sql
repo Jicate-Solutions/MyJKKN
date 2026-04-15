@@ -4699,3 +4699,101 @@ CREATE POLICY "admission_form_events_select" ON admission_form_events
 
 CREATE POLICY "admission_form_events_insert" ON admission_form_events
   FOR INSERT WITH CHECK (true);
+
+-- =============================================================================
+-- Updated: 2026-04-15 - Tier C staff-module RLS alignment
+-- Replaces hardcoded role-name checks with the standard contract:
+--   is_super_admin() OR is_admin()
+--     OR (user_has_permission('module.action') AND role_has_institution_access(institution_id))
+-- Pre-flight verified zero real-user impact (only at-risk users were super_admin
+-- or @test.local fixtures). See migration:
+--   staff_module_rls_align_to_permission_contract
+-- =============================================================================
+
+-- ---- staff -------------------------------------------------------------------
+DROP POLICY IF EXISTS "staff_select_by_institution_access" ON staff;
+DROP POLICY IF EXISTS "staff_select_event_coordinator"     ON staff;
+DROP POLICY IF EXISTS "staff_insert_by_access_type"        ON staff;
+DROP POLICY IF EXISTS "staff_update_by_access_type"        ON staff;
+DROP POLICY IF EXISTS "staff_delete_by_admin_access"       ON staff;
+
+CREATE POLICY "staff_select_permission" ON staff FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.view') AND role_has_institution_access(institution_id))
+  OR institution_email = (SELECT auth.email())  -- self-view by institution_email
+);
+CREATE POLICY "staff_insert_permission" ON staff FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.create') AND role_has_institution_access(institution_id))
+);
+CREATE POLICY "staff_update_permission" ON staff FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.edit') AND role_has_institution_access(institution_id))
+  OR institution_email = (SELECT auth.email())  -- self-update by institution_email
+);
+CREATE POLICY "staff_delete_permission" ON staff FOR DELETE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.delete') AND role_has_institution_access(institution_id))
+);
+
+-- ---- employment_categories ---------------------------------------------------
+DROP POLICY IF EXISTS "Enhanced employment categories view access"   ON employment_categories;
+DROP POLICY IF EXISTS "Enhanced employment categories create access" ON employment_categories;
+DROP POLICY IF EXISTS "Enhanced employment categories update access" ON employment_categories;
+DROP POLICY IF EXISTS "Enhanced employment categories delete access" ON employment_categories;
+
+CREATE POLICY "employment_categories_select" ON employment_categories FOR SELECT USING (
+  auth.uid() IS NOT NULL
+);
+CREATE POLICY "employment_categories_insert" ON employment_categories FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin() OR user_has_permission('staff.categories.create')
+);
+CREATE POLICY "employment_categories_update" ON employment_categories FOR UPDATE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('staff.categories.edit')
+);
+CREATE POLICY "employment_categories_delete" ON employment_categories FOR DELETE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('staff.categories.delete')
+);
+
+-- ---- custom_roles ------------------------------------------------------------
+DROP POLICY IF EXISTS "Enable admin operations for super_admin"        ON custom_roles;
+DROP POLICY IF EXISTS "Allow authenticated users to read custom roles" ON custom_roles;
+DROP POLICY IF EXISTS "Enable read access for authenticated users"     ON custom_roles;
+
+CREATE POLICY "custom_roles_select" ON custom_roles FOR SELECT USING (
+  auth.uid() IS NOT NULL
+);
+CREATE POLICY "custom_roles_insert" ON custom_roles FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.create')
+);
+CREATE POLICY "custom_roles_update" ON custom_roles FOR UPDATE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.edit')
+);
+CREATE POLICY "custom_roles_delete" ON custom_roles FOR DELETE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.delete')
+);
+
+-- ---- staff_plans -------------------------------------------------------------
+-- staff_plans_select_permission already follows the contract; only INSERT/UPDATE/
+-- DELETE legacy hardcoded-role policies are dropped and replaced.
+DROP POLICY IF EXISTS "Admins can manage staff_plans in their institutions" ON staff_plans;
+DROP POLICY IF EXISTS "Admin users can insert staff plans"                  ON staff_plans;
+DROP POLICY IF EXISTS "Faculty users can insert institution staff plans"    ON staff_plans;
+DROP POLICY IF EXISTS "HOD users can insert institution staff plans"        ON staff_plans;
+DROP POLICY IF EXISTS "Admin users can update staff plans"                  ON staff_plans;
+DROP POLICY IF EXISTS "Faculty and HOD can update staff_plans"              ON staff_plans;
+DROP POLICY IF EXISTS "Admin users can delete staff plans"                  ON staff_plans;
+DROP POLICY IF EXISTS "Faculty and HOD can delete staff_plans"              ON staff_plans;
+
+CREATE POLICY "staff_plans_insert_permission" ON staff_plans FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('academic.staff.planning.edit') AND role_has_institution_access(institution_id))
+);
+CREATE POLICY "staff_plans_update_permission" ON staff_plans FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('academic.staff.planning.edit') AND role_has_institution_access(institution_id))
+);
+CREATE POLICY "staff_plans_delete_permission" ON staff_plans FOR DELETE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('academic.staff.planning.delete') AND role_has_institution_access(institution_id))
+);

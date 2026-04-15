@@ -6,6 +6,11 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-15** — Staff module RLS aligned to permission contract (Tier C audit fix)
+  - `02_functions.sql`: mirrored `role_has_institution_access(check_institution_id uuid)` back into source (was DB-only drift). SECURITY DEFINER, STABLE.
+  - `03_policies.sql`: rewrote 4 `staff` policies + `employment_categories`, `custom_roles`, and `staff_plans` insert/update/delete policies to the standard contract `is_super_admin() OR is_admin() OR (user_has_permission(...) AND role_has_institution_access(institution_id))`. Dropped legacy hardcoded-role policies (incl. `staff_select_event_coordinator`, "Admins can manage staff_plans...", duplicate `custom_roles` SELECT policies). Preserved staff service-role bypass and email-based self-view/self-edit.
+  - Migration: `staff_module_rls_align_to_permission_contract`. Pre-flight verified zero real-user impact.
+
 - **2026-04-14** — Staff onboarding: dynamic role_key + conditional department scope
   - `01_tables.sql`: `staff.role_key` (FK → custom_roles), `staff.department_id` nullable, `employment_categories.is_teaching`, unique constraint on `category_name`
   - `02_functions.sql`: `sync_staff_to_profiles()` uses `NEW.role_key` instead of hardcoded `'faculty'`; UPDATE branch now resyncs role. New `validate_staff_department_scope()` enforces teaching→dept required, non-teaching→dept null.
