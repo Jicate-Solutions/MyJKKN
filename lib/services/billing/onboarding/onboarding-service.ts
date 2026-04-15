@@ -1,9 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { LearnerProfile } from '@/types/learner-profile';
-import {
-  FEE_STRUCTURE_CONFIG,
-  type FeeStructureType,
-} from '@/lib/constants/fee-structure';
+// FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
 // ONBOARDING SERVICE
@@ -252,45 +249,36 @@ export class OnboardingService {
   static validateFinanceFields(
     learner: LearnerProfile
   ): ValidationResult | ValidationFailure {
+    // Updated: 2026-04-15 - Dynamic fee_items replace preset validation.
+    // A learner is valid for onboarding when they have at least one fee_item
+    // with a positive amount, OR (legacy) fee_structure_type + tuition_fee set.
     const missing: string[] = [];
 
-    // fee_structure_type must be set
+    const feeItems = Array.isArray((learner as any).fee_items)
+      ? ((learner as any).fee_items as Array<{
+          category_id?: string;
+          amount?: number;
+        }>)
+      : [];
+    const hasValidFeeItems = feeItems.some(
+      (it) => it?.category_id && Number(it?.amount) > 0
+    );
+
+    if (hasValidFeeItems) {
+      return { valid: true };
+    }
+
+    // Legacy validation fallback
     if (!learner.fee_structure_type) {
-      missing.push('fee_structure_type');
+      missing.push('fee_items (or legacy fee_structure_type)');
     }
-
-    // tuition_fee must be > 0 (applies to every structure type)
     if (!learner.tuition_fee || learner.tuition_fee <= 0) {
-      missing.push('tuition_fee');
+      missing.push('fee_items (or legacy tuition_fee)');
     }
 
-    // Validate all primaryFields for the chosen structure type.
-    // Note: LearnerProfile uses 'tuition_instruments_hospital' while
-    // FEE_STRUCTURE_CONFIG uses 'tuition_instruments_hostel' — the cast is
-    // intentional; if the key is absent the config lookup returns undefined
-    // and the loop is safely skipped (only tuition_fee is validated above).
-    if (learner.fee_structure_type) {
-      const config =
-        FEE_STRUCTURE_CONFIG[learner.fee_structure_type as FeeStructureType];
-
-      if (config) {
-        for (const field of config.primaryFields) {
-          const value = (learner as any)[field.name];
-          if (value === undefined || value === null || Number(value) <= 0) {
-            // avoid double-reporting tuition_fee already added above
-            if (!missing.includes(field.name)) {
-              missing.push(field.name);
-            }
-          }
-        }
-      }
-    }
-
-    if (missing.length > 0) {
-      return { valid: false, missing };
-    }
-
-    return { valid: true };
+    return missing.length > 0
+      ? { valid: false, missing }
+      : { valid: true };
   }
 
   // ── 3. createBillsFromProfile ────────────────────────────────────────────
@@ -313,14 +301,13 @@ export class OnboardingService {
       const { data: userData } = await supabase.auth.getUser();
       const currentUserId = userData?.user?.id ?? null;
 
-      // Fetch billing categories for this institution
+      // Fetch billing categories for this institution (used as fallback for legacy columns)
       const { data: itemCategories } = await supabase
         .from('billing_categories')
         .select('id, category_name, institution_id')
         .eq('institution_id', learner.institution_id)
         .eq('is_active', true);
 
-      // Build a lookup: category_name → id
       const categoryLookup: Record<string, string> = {};
       if (itemCategories) {
         for (const cat of itemCategories) {
@@ -333,20 +320,25 @@ export class OnboardingService {
       dueDate.setDate(dueDate.getDate() + 30);
       const dueDateStr = dueDate.toISOString().split('T')[0];
 
-      // Build bill list from finance fields (only if > 0)
+      // Updated: 2026-04-15 - Prefer dynamic fee_items; fall back to legacy fee columns.
       const billsToInsert: any[] = [];
+      const feeItems = Array.isArray(learner.fee_items)
+        ? (learner.fee_items as Array<{
+            category_id: string;
+            category_name: string;
+            amount: number;
+          }>)
+        : [];
 
-      for (const fieldName of BILL_FIELD_ORDER) {
-        const amount = Number((learner as any)[fieldName] ?? 0);
-        if (amount > 0) {
-          const description = BILL_DESCRIPTIONS[fieldName] ?? fieldName;
-          const categoryId = categoryLookup[description] || null;
-
+      if (feeItems.length > 0) {
+        for (const item of feeItems) {
+          const amount = Number(item?.amount ?? 0);
+          if (amount <= 0) continue;
           billsToInsert.push({
             student_id: learnerId,
             institution_id: learner.institution_id,
-            category_id: categoryId,
-            bill_description: description,
+            category_id: item.category_id || null,
+            bill_description: item.category_name || 'Fee',
             due_date: dueDateStr,
             quantity: 1,
             unit_amount: amount,
@@ -355,15 +347,40 @@ export class OnboardingService {
             final_amount: amount,
             balance_amount: amount,
             status: 'unpaid',
-            remarks: `Onboarding bill — auto-generated from learner finance profile`,
+            remarks: `Onboarding bill — auto-generated from learner fee_items`,
             created_by: currentUserId,
           });
+        }
+      } else {
+        // Legacy fallback: iterate hardcoded finance columns.
+        for (const fieldName of BILL_FIELD_ORDER) {
+          const amount = Number((learner as any)[fieldName] ?? 0);
+          if (amount > 0) {
+            const description = BILL_DESCRIPTIONS[fieldName] ?? fieldName;
+            const categoryId = categoryLookup[description] || null;
+            billsToInsert.push({
+              student_id: learnerId,
+              institution_id: learner.institution_id,
+              category_id: categoryId,
+              bill_description: description,
+              due_date: dueDateStr,
+              quantity: 1,
+              unit_amount: amount,
+              total_amount: amount,
+              tax_amount: 0,
+              final_amount: amount,
+              balance_amount: amount,
+              status: 'unpaid',
+              remarks: `Onboarding bill — auto-generated from learner legacy finance profile`,
+              created_by: currentUserId,
+            });
+          }
         }
       }
 
       if (billsToInsert.length === 0) {
         throw new Error(
-          `No finance fields with positive values found for learner ${learnerId}`
+          `No fee items or finance values found for learner ${learnerId}`
         );
       }
 

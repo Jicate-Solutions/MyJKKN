@@ -417,6 +417,10 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     placement_fee NUMERIC(15,2) DEFAULT NULL,
     transport_fee NUMERIC(15,2) DEFAULT NULL,
 
+    -- Updated: 2026-04-15 - Dynamic fee line items (replaces preset fee_structure_type flow).
+    -- Shape: [{ category_id, category_name, amount }] referencing billing_categories.
+    fee_items JSONB NOT NULL DEFAULT '[]'::jsonb,
+
     -- Academic Assignment (unlocked after approval/enrollment)
     institution_id UUID,
     degree_id UUID,
