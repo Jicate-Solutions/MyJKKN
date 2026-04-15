@@ -32,8 +32,8 @@ export default function ApplicationDetailPage() {
 
   const [body, setBody] = useState('');
 
-  if (isLoading) return <ContentLayout title="Loading…" />;
-  if (!app) return <ContentLayout title="Not found" />;
+  if (isLoading) return <ContentLayout title="Loading…"><p className="text-sm text-muted-foreground">Loading application…</p></ContentLayout>;
+  if (!app) return <ContentLayout title="Not found"><p className="text-sm text-muted-foreground">Application not found.</p></ContentLayout>;
 
   const onPost = async (e: React.FormEvent) => {
     e.preventDefault();

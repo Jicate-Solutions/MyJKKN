@@ -148,11 +148,12 @@ export class LeaveService {
       department_id?: string | null;
     }
   ) {
-    // 1. Fetch leave_type to get policy constraints
+    // 1. Fetch leave_type (unified catalog; scope='staff' for HR leave)
     const { data: leaveType, error: ltErr } = await supabase
-      .from('hr_leave_types')
+      .from('leave_types')
       .select('*')
       .eq('id', payload.leave_type_id)
+      .eq('scope', 'staff')
       .maybeSingle();
     if (ltErr) throw ltErr;
     if (!leaveType) throw new Error('Leave type not found');
@@ -460,9 +461,9 @@ export class LeaveService {
       .from('hr_leave_balances')
       .select(`
         *,
-        hr_leave_types:leave_type_id (
-          name,
-          code,
+        leave_types:leave_type_id (
+          leave_type_name,
+          leave_type_code,
           duration_type,
           allow_half_day,
           allow_hourly
@@ -473,9 +474,9 @@ export class LeaveService {
     if (error) throw error;
 
     return (data ?? []).map((row: Record<string, unknown>) => {
-      const lt = row.hr_leave_types as {
-        name: string;
-        code: string;
+      const lt = row.leave_types as {
+        leave_type_name: string;
+        leave_type_code: string;
         duration_type: string;
         allow_half_day: boolean;
         allow_hourly: boolean;
@@ -490,8 +491,8 @@ export class LeaveService {
         carried_forward: Number(row.carried_forward),
         created_at: row.created_at as string,
         updated_at: row.updated_at as string,
-        leave_type_name: lt?.name ?? '',
-        leave_type_code: lt?.code ?? '',
+        leave_type_name: lt?.leave_type_name ?? '',
+        leave_type_code: lt?.leave_type_code ?? '',
         duration_type: (lt?.duration_type ?? 'full') as HRLeaveBalanceWithType['duration_type'],
         allow_half_day: lt?.allow_half_day ?? false,
         allow_hourly: lt?.allow_hourly ?? false,

@@ -109,6 +109,7 @@ export default function RoleManagementPage() {
       description?: string;
       permissions?: Record<string, boolean>;
       institution_scope?: 'all' | 'own';
+      module_scopes?: Record<string, 'own_records' | 'own_institution' | 'all_institutions'>;
     }
   ) => {
     try {

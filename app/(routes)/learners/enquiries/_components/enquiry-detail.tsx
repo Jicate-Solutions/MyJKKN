@@ -27,11 +27,7 @@ import { cn } from '@/lib/utils';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { UserIcon } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
-import {
-  FEE_STRUCTURE_CONFIG,
-  OPTIONAL_FEE_LABELS,
-  type FeeStructureType
-} from '@/lib/constants/fee-structure';
+// Fee structure constants removed 2026-04-15 — replaced by dynamic fee_items flow.
 
 interface EnquiryDetailProps {
   enquiry: LearnerProfile;
@@ -774,81 +770,92 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
             <>
               <CardHeader>
                 <CardTitle>Finance Details</CardTitle>
-                <CardDescription>Fee structure and payment details</CardDescription>
+                <CardDescription>
+                  Dynamic fee line items linked to billing categories.
+                </CardDescription>
               </CardHeader>
               <CardContent className='space-y-6'>
-                <div className='space-y-4'>
-                  <h3 className='text-sm font-semibold'>Common Fees</h3>
-                  <div className='grid grid-cols-2 gap-4'>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Application Fee
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.application_fee != null ? `₹${Number(enquiry.application_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
-                      </p>
-                    </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        University Registration Fee
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.university_reg_fee != null ? `₹${Number(enquiry.university_reg_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
                 {(() => {
-                  const feeConfig = enquiry.fee_structure_type
-                    ? FEE_STRUCTURE_CONFIG[enquiry.fee_structure_type as FeeStructureType]
-                    : null;
+                  const feeItems = Array.isArray((enquiry as any).fee_items)
+                    ? ((enquiry as any).fee_items as Array<{
+                        category_id: string;
+                        category_name: string;
+                        amount: number;
+                      }>)
+                    : [];
+                  const total = feeItems.reduce(
+                    (s, it) => s + Number(it?.amount || 0),
+                    0
+                  );
+
+                  const legacyFields: Array<{ name: string; label: string }> = [
+                    { name: 'application_fee', label: 'Application Fee' },
+                    { name: 'university_reg_fee', label: 'University Registration Fee' },
+                    { name: 'tuition_fee', label: 'Tuition Fee' },
+                    { name: 'hostel_fee', label: 'Hostel Fee' },
+                    { name: 'uniform_fee', label: 'Uniform Fee' },
+                    { name: 'hospital_training_fee', label: 'Hospital Training Fee' },
+                    { name: 'placement_fee', label: 'Placement Fee' },
+                    { name: 'transport_fee', label: 'Transport Fee' },
+                  ];
+                  const presentLegacy = legacyFields.filter(
+                    ({ name }) =>
+                      (enquiry as any)[name] != null && Number((enquiry as any)[name]) > 0
+                  );
+
                   return (
                     <>
                       <div className='space-y-4'>
-                        <h3 className='text-sm font-semibold'>Fee Structure</h3>
-                        <div className='grid grid-cols-2 gap-4'>
-                          <div className='space-y-1'>
-                            <h4 className='text-sm font-medium text-muted-foreground'>
-                              Fee Structure Type
-                            </h4>
-                            <p className='text-sm'>
-                              {feeConfig?.label ?? 'Not specified'}
-                            </p>
-                          </div>
-                          {feeConfig?.primaryFields.map((field) => (
-                            <div key={field.name} className='space-y-1'>
-                              <h4 className='text-sm font-medium text-muted-foreground'>
-                                {field.label}
-                              </h4>
-                              <p className='text-sm'>
-                                {(enquiry as any)[field.name] != null
-                                  ? `₹${Number((enquiry as any)[field.name]).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-                                  : 'Not specified'}
-                              </p>
+                        <h3 className='text-sm font-semibold'>Fee Items</h3>
+                        {feeItems.length === 0 ? (
+                          <p className='text-sm text-muted-foreground italic'>
+                            No fee items added.
+                          </p>
+                        ) : (
+                          <div className='border rounded-md divide-y'>
+                            {feeItems.map((it, i) => (
+                              <div
+                                key={`${it.category_id}-${i}`}
+                                className='flex items-center justify-between px-4 py-2 text-sm'
+                              >
+                                <span>{it.category_name}</span>
+                                <span className='font-medium'>
+                                  ₹ {Number(it.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                            ))}
+                            <div className='flex items-center justify-between px-4 py-2 bg-muted/40 text-sm'>
+                              <span className='font-semibold'>Total</span>
+                              <span className='font-semibold'>
+                                ₹ {total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </span>
                             </div>
-                          ))}
-                        </div>
+                          </div>
+                        )}
                       </div>
 
-                      {feeConfig && feeConfig.optionalFees.length > 0 && (
+                      {presentLegacy.length > 0 && (
                         <>
                           <Separator />
-                          <div className='space-y-4'>
-                            <h3 className='text-sm font-semibold'>Optional Fees</h3>
-                            <div className='grid grid-cols-2 gap-4'>
-                              {feeConfig.optionalFees.map((feeName) => (
-                                <div key={feeName} className='space-y-1'>
-                                  <h4 className='text-sm font-medium text-muted-foreground'>
-                                    {OPTIONAL_FEE_LABELS[feeName]}
-                                  </h4>
-                                  <p className='text-sm'>
-                                    {(enquiry as any)[feeName] != null
-                                      ? `₹${Number((enquiry as any)[feeName]).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-                                      : 'Not applicable'}
-                                  </p>
+                          <div className='space-y-3'>
+                            <div>
+                              <h3 className='text-sm font-semibold text-muted-foreground'>
+                                Legacy Fee Structure (read-only)
+                              </h3>
+                              <p className='text-xs text-muted-foreground'>
+                                Saved before the fee-items flow was introduced.
+                              </p>
+                            </div>
+                            <div className='grid grid-cols-2 gap-3'>
+                              {presentLegacy.map(({ name, label }) => (
+                                <div
+                                  key={name}
+                                  className='flex items-center justify-between text-sm bg-muted/30 px-3 py-2 rounded'
+                                >
+                                  <span className='text-muted-foreground'>{label}</span>
+                                  <span className='font-medium'>
+                                    ₹ {Number((enquiry as any)[name]).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </span>
                                 </div>
                               ))}
                             </div>

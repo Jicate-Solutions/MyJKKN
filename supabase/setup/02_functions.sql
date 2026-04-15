@@ -6607,3 +6607,187 @@ $$;
 GRANT EXECUTE ON FUNCTION fn_rescue_broadcast_check_ghosts() TO service_role;
 
 -- END Dashboard v2 Day 4 functions
+-- Updated: 2026-04-15 - Mirror role_has_institution_access() function back into
+-- canonical setup. This function already existed in the live database but was
+-- never written to source control (drift). Used by the Tier-C staff/employment
+-- categories/custom_roles/staff_plans RLS policies to honor the contract:
+--   is_super_admin() OR is_admin()
+--   OR (user_has_permission('module.action') AND role_has_institution_access(institution_id))
+CREATE OR REPLACE FUNCTION public.role_has_institution_access(check_institution_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+    -- NULL institution_id: always accessible (system-wide records)
+    IF check_institution_id IS NULL THEN
+        RETURN true;
+    END IF;
+
+    -- Super admin: always access all
+    IF is_super_admin() THEN
+        RETURN true;
+    END IF;
+
+    -- Check if ANY of user's roles has institution_scope = 'all'
+    IF EXISTS (
+        SELECT 1
+        FROM user_roles ur
+        JOIN custom_roles cr ON ur.role_id = cr.id
+        WHERE ur.user_id = auth.uid()
+          AND cr.institution_scope = 'all'
+    ) THEN
+        RETURN true;
+    END IF;
+
+    -- Legacy fallback: check profiles.role for scope
+    IF EXISTS (
+        SELECT 1
+        FROM profiles p
+        JOIN custom_roles cr ON p.role = cr.role_key
+        WHERE p.id = auth.uid()
+          AND cr.institution_scope = 'all'
+    ) THEN
+        RETURN true;
+    END IF;
+
+    -- Check own institution
+    IF check_institution_id = get_current_user_institution_id() THEN
+        RETURN true;
+    END IF;
+
+    -- Check user_institution_access table (cross-institution grants)
+    IF EXISTS (
+        SELECT 1
+        FROM user_institution_access uia
+        WHERE uia.user_id = auth.uid()
+          AND uia.institution_id = check_institution_id
+          AND uia.is_active = true
+    ) THEN
+        RETURN true;
+    END IF;
+
+    RETURN false;
+END;
+$function$;
+
+-- Updated: 2026-04-15 - Per-module access scope helpers (Option A).
+-- get_user_module_scope returns the most permissive scope across the user's
+-- roles for the given module_key. role_has_module_access combines that with
+-- per-row institution_id and an optional owner_email so RLS policies can do
+-- a single function call per row.
+CREATE OR REPLACE FUNCTION public.get_user_module_scope(module_key text)
+RETURNS text
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  scope text;
+BEGIN
+  IF is_super_admin() THEN
+    RETURN 'all_institutions';
+  END IF;
+
+  SELECT CASE
+    WHEN bool_or((cr.module_scopes ->> module_key) = 'all_institutions') THEN 'all_institutions'
+    WHEN bool_or((cr.module_scopes ->> module_key) = 'own_institution')  THEN 'own_institution'
+    WHEN bool_or((cr.module_scopes ->> module_key) = 'own_records')      THEN 'own_records'
+    ELSE NULL
+  END INTO scope
+  FROM user_roles ur
+  JOIN custom_roles cr ON cr.id = ur.role_id
+  WHERE ur.user_id = auth.uid();
+
+  IF scope IS NOT NULL THEN
+    RETURN scope;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = auth.uid() AND cr.institution_scope = 'all'
+  ) THEN
+    RETURN 'all_institutions';
+  END IF;
+
+  RETURN 'own_institution';
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.role_has_module_access(
+  module_key text,
+  target_institution_id uuid,
+  target_owner_email text DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  scope text;
+BEGIN
+  IF is_super_admin() THEN RETURN true; END IF;
+
+  scope := get_user_module_scope(module_key);
+
+  IF scope = 'all_institutions' THEN
+    RETURN true;
+  ELSIF scope = 'own_institution' THEN
+    RETURN role_has_institution_access(target_institution_id);
+  ELSIF scope = 'own_records' THEN
+    RETURN target_owner_email IS NOT NULL
+       AND target_owner_email = auth.email();
+  END IF;
+
+  RETURN false;
+END;
+$function$;
+
+-- Updated: 2026-04-15 - get_user_roles_with_details now returns
+-- institution_scope and module_scopes so client-side usePermissions hook
+-- can read effective scope without an extra DB roundtrip.
+DROP FUNCTION IF EXISTS public.get_user_roles_with_details(uuid);
+
+CREATE OR REPLACE FUNCTION public.get_user_roles_with_details(p_user_id uuid)
+RETURNS TABLE(
+    id uuid,
+    user_id uuid,
+    role_id uuid,
+    is_primary boolean,
+    assigned_at timestamp with time zone,
+    assigned_by uuid,
+    role_key text,
+    role_name text,
+    role_description text,
+    permissions jsonb,
+    institution_scope text,
+    module_scopes jsonb
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+    RETURN QUERY
+    SELECT
+        ur.id,
+        ur.user_id,
+        ur.role_id,
+        ur.is_primary,
+        ur.assigned_at,
+        ur.assigned_by,
+        cr.role_key::text,
+        cr.role_name::text,
+        cr.description::text AS role_description,
+        cr.permissions,
+        cr.institution_scope::text,
+        cr.module_scopes
+    FROM user_roles ur
+    INNER JOIN custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = p_user_id
+    ORDER BY ur.is_primary DESC, ur.assigned_at ASC;
+END;
+$function$;

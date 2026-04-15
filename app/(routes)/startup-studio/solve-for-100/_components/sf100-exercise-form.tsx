@@ -40,7 +40,7 @@ interface SF100ExerciseFormProps {
   enrollmentId: string;
   initialData?: Record<string, any>;
   readOnly?: boolean;
-  onSuccess?: () => void;
+  onSuccess: () => void;
 }
 
 export function SF100ExerciseForm({
@@ -104,7 +104,7 @@ export function SF100ExerciseForm({
         onSuccess: () => {
           setSubmitted(true);
           setSubmitError(null);
-          onSuccess?.();
+          onSuccess();
         },
         onError: () => {
           setSubmitError('Failed to save your response. Please try again.');

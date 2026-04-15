@@ -184,6 +184,10 @@ export interface AdmissionLead {
   lost_reason: string | null;
   lost_at: string | null;
   entry_date: string | null;
+  // BUG-003222: captured at expo rapid-capture (e.g. "Biology",
+  // "Computer Science", "Commerce"). Free-text so counselors can segment
+  // leads by 12th stream without being boxed into a pre-defined list.
+  twelfth_group: string | null;
   stage: string | null;
   stage_changed_at: string | null;
   previous_stage: string | null;
@@ -223,6 +227,8 @@ export interface CreateLeadInput {
   parent_phone?: string | null;
   parent_email?: string | null;
   entry_date?: string | null;
+  // BUG-003222: 12th group / stream captured at expo
+  twelfth_group?: string | null;
   notes?: string | null;
   // JKKN Tier-1 fields
   student_interest_level?: string | null;

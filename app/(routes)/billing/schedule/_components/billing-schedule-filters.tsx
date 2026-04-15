@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RotateCcw } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
@@ -40,7 +40,7 @@ export function BillingScheduleFilters({
     Array<{ id: string; name: string }>
   >([]);
   const [categories, setCategories] = useState<
-    Array<{ id: string; item_category_name: string }>
+    Array<{ id: string; category_name: string }>
   >([]);
   const [academicYears, setAcademicYears] = useState<
     Array<{ id: string; academic_year_name: string }>
@@ -81,8 +81,8 @@ export function BillingScheduleFilters({
   useEffect(() => {
     async function loadCategories() {
       try {
-        const data = await BillingItemCategoryService.getBillingItemCategories();
-        setCategories(data.data); // Note: service returns { data, metadata }
+        const data = await BillingCategoryService.getBillingCategories();
+        setCategories(data.data as any); // Note: service returns { data, metadata }
       } catch (error) {
         console.error('Error loading categories:', error);
       }
@@ -251,7 +251,7 @@ export function BillingScheduleFilters({
   const hasActiveFilters = !!(
     searchParams.institution_id ||
     searchParams.status ||
-    searchParams.item_category_id ||
+    searchParams.category_id ||
     searchParams.is_recurring ||
     searchParams.amount_from ||
     searchParams.amount_to ||
@@ -282,7 +282,7 @@ export function BillingScheduleFilters({
                   onFilterChange('semester_id', undefined);
                   onFilterChange('section_id', undefined);
                   onFilterChange('academic_year_id', undefined);
-                  onFilterChange('item_category_id', undefined);
+                  onFilterChange('category_id', undefined);
                 }
               }}
             >
@@ -459,10 +459,10 @@ export function BillingScheduleFilters({
         </Select>
 
         <Select
-          value={searchParams.item_category_id || 'all'}
+          value={searchParams.category_id || 'all'}
           onValueChange={(value) =>
             onFilterChange(
-              'item_category_id',
+              'category_id',
               value === 'all' ? undefined : value
             )
           }
@@ -475,7 +475,7 @@ export function BillingScheduleFilters({
             <SelectItem value='all'>All Categories</SelectItem>
             {categories.map((category) => (
               <SelectItem key={category.id} value={category.id}>
-                {category.item_category_name}
+                {category.category_name}
               </SelectItem>
             ))}
           </SelectContent>

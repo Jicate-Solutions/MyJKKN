@@ -106,14 +106,9 @@ CREATE TRIGGER trigger_billing_discounts_updated_at BEFORE UPDATE ON billing_dis
 CREATE TRIGGER trigger_billing_refunds_updated_at BEFORE UPDATE ON billing_refunds
     FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
 
-CREATE TRIGGER trigger_billing_parent_categories_updated_at BEFORE UPDATE ON billing_parent_categories
-    FOR EACH ROW EXECUTE FUNCTION update_billing_parent_categories_updated_at();
-
-CREATE TRIGGER trigger_billing_sub_categories_updated_at BEFORE UPDATE ON billing_sub_categories
-    FOR EACH ROW EXECUTE FUNCTION update_billing_sub_categories_updated_at();
-
-CREATE TRIGGER trigger_billing_item_categories_updated_at BEFORE UPDATE ON billing_item_categories
-    FOR EACH ROW EXECUTE FUNCTION update_billing_item_categories_updated_at();
+-- Updated: 2026-04-15 - Consolidated 3-tier category triggers into single flat billing_categories trigger.
+CREATE TRIGGER trigger_billing_categories_updated_at BEFORE UPDATE ON billing_categories
+    FOR EACH ROW EXECUTE FUNCTION update_billing_updated_at();
 
 -- Billing status update triggers
 CREATE TRIGGER trigger_update_bill_status_on_payment AFTER INSERT ON billing_receipt_items
@@ -868,3 +863,15 @@ CREATE TRIGGER trg_lead_first_touch
   EXECUTE FUNCTION trg_lead_first_touch_fn();
 
 -- END Dashboard v2 triggers
+-- =====================================================================
+-- 2026-04-15 — HR Recruitment Phase 1A: updated_at triggers
+-- Spec: specs/hr-recruitment-module-spec.md
+-- Reuses the existing set_updated_at() function (assumed present from other HR tables).
+-- =====================================================================
+
+DROP TRIGGER IF EXISTS hr_recruitment_candidates_updated_at
+  ON public.hr_recruitment_candidates;
+CREATE TRIGGER hr_recruitment_candidates_updated_at
+  BEFORE UPDATE ON public.hr_recruitment_candidates
+  FOR EACH ROW
+  EXECUTE FUNCTION public.set_updated_at();

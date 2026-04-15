@@ -58,7 +58,7 @@ import {
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import {
   useSearchStudentsByQuery,
   useStudentForBilling
@@ -68,7 +68,7 @@ import {
   useUpdateStudentBill
 } from '@/hooks/billing/use-student-bills';
 import type { Institution } from '@/types/organizations';
-import type { BillingItemCategory } from '@/types/billing';
+import type { BillingCategory } from '@/types/billing';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -77,7 +77,7 @@ import type {
 
 // Schema for individual billing item
 const billingItemSchema = z.object({
-  item_category_id: z.string().min(1, 'Item category is required'),
+  category_id: z.string().min(1, 'Category is required'),
   unit_amount: z.number().min(0, 'Unit amount must be positive'),
   tax_amount: z.number().min(0, 'Tax amount must be positive').default(0)
 });
@@ -112,9 +112,7 @@ export function StudentBillForm({
 }: StudentBillFormProps) {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [itemCategories, setItemCategories] = useState<BillingItemCategory[]>(
-    []
-  );
+  const [itemCategories, setItemCategories] = useState<BillingCategory[]>([]);
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(true);
@@ -137,7 +135,7 @@ export function StudentBillForm({
         due_date: bill.due_date ? new Date(bill.due_date) : new Date(),
         billing_items: [
           {
-            item_category_id: bill.item_category_id || '',
+            category_id: (bill as any).category_id || '',
             unit_amount: bill.unit_amount || 0,
             tax_amount: bill.tax_amount || 0
           }
@@ -154,7 +152,7 @@ export function StudentBillForm({
         due_date: new Date(),
         billing_items: [
           {
-            item_category_id: '',
+            category_id: '',
             unit_amount: 0,
             tax_amount: 0
           }
@@ -171,7 +169,7 @@ export function StudentBillForm({
         due_date: new Date(),
         billing_items: [
           {
-            item_category_id: '',
+            category_id: '',
             unit_amount: 0,
             tax_amount: 0
           }
@@ -246,7 +244,7 @@ export function StudentBillForm({
         due_date: bill.due_date ? new Date(bill.due_date) : new Date(),
         billing_items: [
           {
-            item_category_id: bill.item_category_id || '',
+            category_id: (bill as any).category_id || '',
             unit_amount: bill.unit_amount || 0,
             tax_amount: bill.tax_amount || 0
           }
@@ -285,7 +283,7 @@ export function StudentBillForm({
         due_date: undefined,
         billing_items: [
           {
-            item_category_id: '',
+            category_id: '',
             unit_amount: 0,
             tax_amount: 0
           }
@@ -326,7 +324,7 @@ export function StudentBillForm({
     try {
       setIsLoadingItemCategories(true);
       const categories =
-        await BillingItemCategoryService.getBillingItemCategoriesByInstitution(
+        await BillingCategoryService.getBillingCategoriesByInstitution(
           institutionId,
           true
         );
@@ -356,13 +354,13 @@ export function StudentBillForm({
       const firstItem = data.billing_items[0];
 
       // Get the selected category name for default description
-      const selectedCategory = itemCategories.find(cat => cat.id === firstItem.item_category_id);
-      const defaultDescription = selectedCategory?.item_category_name || 'Billing Item';
+      const selectedCategory = itemCategories.find(cat => cat.id === firstItem.category_id);
+      const defaultDescription = selectedCategory?.category_name || 'Billing Item';
 
       const submitData: CreateStudentBillDto = {
         student_id: data.student_id,
         institution_id: data.institution_id,
-        item_category_id: firstItem.item_category_id,
+        category_id: firstItem.category_id,
         bill_description: defaultDescription, // Use category name as default description
         due_date: format(data.due_date, 'yyyy-MM-dd'),
         quantity: 1, // Default quantity to 1 since it's removed from form
@@ -416,7 +414,7 @@ export function StudentBillForm({
 
   const addBillingItem = () => {
     append({
-      item_category_id: '',
+      category_id: '',
       unit_amount: 0,
       tax_amount: 0
     });
@@ -786,10 +784,10 @@ export function StudentBillForm({
                     <CardContent className='space-y-4'>
                       <FormField
                         control={form.control}
-                        name={`billing_items.${index}.item_category_id`}
+                        name={`billing_items.${index}.category_id`}
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Item Category *</FormLabel>
+                            <FormLabel>Category *</FormLabel>
                             <Select
                               onValueChange={field.onChange}
                               value={field.value}
@@ -809,7 +807,7 @@ export function StudentBillForm({
                                     key={category.id}
                                     value={category.id}
                                   >
-                                    {category.item_category_name}
+                                    {category.category_name}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

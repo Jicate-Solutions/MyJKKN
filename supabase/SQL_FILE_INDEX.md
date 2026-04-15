@@ -6,6 +6,26 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-15** — `get_user_roles_with_details` now returns scope columns (fixes "Employment Information section not hiding for own_records users")
+  - `02_functions.sql`: added `institution_scope text` and `module_scopes jsonb` to the function's RETURNS TABLE. Required DROP+CREATE because Postgres can't ALTER return shape. Without these, client-side `usePermissions().getModuleScope()` always read undefined and fell back to defaults.
+  - Migration: `user_roles_details_include_scopes`. No client code change required — existing `(r as any).module_scopes` reads now resolve.
+
+- **2026-04-15** — `user_roles` RLS aligned to permission contract; staff edit no longer fails on no-op role resync
+  - `03_policies.sql`: dropped 4 hardcoded `profiles.role IN ('super_admin','admin')` policies on `user_roles`. Added 4 contract policies keyed on `roles.{create,edit,delete}`. Self-view policies preserved.
+  - `lib/services/staff/staff-service.ts`: `updateStaff` now skips `assignRoles` when `data.role_key === currentStaff.role_key` (avoided unnecessary DELETE+INSERT cycle that surfaced as a 42501 RLS error for callers without `roles.create`). Pre-fetch select extended to include `role_key`.
+  - Migration: `user_roles_align_to_permission_contract`.
+
+- **2026-04-15** — Per-module access scope (Option A) for custom roles
+  - `01_tables.sql`: `custom_roles.module_scopes JSONB DEFAULT '{}'` (per-module scope override of `institution_scope`).
+  - `02_functions.sql`: `get_user_module_scope(module_key)` returns most-permissive scope across user's roles; `role_has_module_access(module_key, institution_id, owner_email)` combines that with row-level checks.
+  - `03_policies.sql`: staff SELECT/UPDATE/DELETE policies switched to `role_has_module_access('staff', institution_id, institution_email)`. INSERT stays institution-only ('own_records' doesn't apply to creation). Self-view via `institution_email = auth.email()` preserved.
+  - Migration: `add_module_scopes_to_custom_roles` + `staff_rls_use_module_scope`. UI: new "Module Access Scope" section in Role Management edit dialog.
+
+- **2026-04-15** — Staff module RLS aligned to permission contract (Tier C audit fix)
+  - `02_functions.sql`: mirrored `role_has_institution_access(check_institution_id uuid)` back into source (was DB-only drift). SECURITY DEFINER, STABLE.
+  - `03_policies.sql`: rewrote 4 `staff` policies + `employment_categories`, `custom_roles`, and `staff_plans` insert/update/delete policies to the standard contract `is_super_admin() OR is_admin() OR (user_has_permission(...) AND role_has_institution_access(institution_id))`. Dropped legacy hardcoded-role policies (incl. `staff_select_event_coordinator`, "Admins can manage staff_plans...", duplicate `custom_roles` SELECT policies). Preserved staff service-role bypass and email-based self-view/self-edit.
+  - Migration: `staff_module_rls_align_to_permission_contract`. Pre-flight verified zero real-user impact.
+
 - **2026-04-14** — Staff onboarding: dynamic role_key + conditional department scope
   - `01_tables.sql`: `staff.role_key` (FK → custom_roles), `staff.department_id` nullable, `employment_categories.is_teaching`, unique constraint on `category_name`
   - `02_functions.sql`: `sync_staff_to_profiles()` uses `NEW.role_key` instead of hardcoded `'faculty'`; UPDATE branch now resyncs role. New `validate_staff_department_scope()` enforces teaching→dept required, non-teaching→dept null.
@@ -64,7 +84,7 @@ When updating any SQL file:
 | Module          | Tables                                                                                                                                                                                                                  | Count | Status                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | --------------------------- |
 | Academic        | academic_years, degrees, departments, programs, semesters, sections, courses, course_mappings, regulations, batches                                                                                                     | 10    | ✅                          |
-| Billing         | billing_student_bills, billing_receipts, billing_invoices, billing_invoice_items, billing_receipt_items, billing_discounts, billing_refunds, billing_parent_categories, billing_sub_categories, billing_item_categories | 10    | ✅                          |
+| Billing         | billing_student_bills, billing_receipts, billing_invoices, billing_invoice_items, billing_receipt_items, billing_discounts, billing_refunds, billing_categories (flat; 2026-04-15 consolidation — replaced parent/sub/item hierarchy) | 8     | ✅                          |
 | Learners (Unified) | learners_profiles, intake_history | 2 | ✅ Complete - Single source of truth for enquiry→alumni lifecycle + capacity analytics |
 | Students (Active Tables) | students | 1 | ✅ Live table with sync triggers → learners_profiles |
 | Staff           | staff, staff_plans, staff_plan_courses                                                                                                                                                                                  | 3     | ✅                          |

@@ -46,6 +46,9 @@ interface FormData {
   email: string;
   district: string;
   twelfthMarks: string;
+  // BUG-003222: capture the 12th group (e.g. Biology, Computer Science,
+  // Commerce) as a free-text field so counselors can segment later.
+  twelfthGroup: string;
   currentSchool: string;
   zone: 'regular' | 'ai_zone';
   notes: string;
@@ -62,6 +65,7 @@ const INITIAL_FORM: FormData = {
   email: '',
   district: '',
   twelfthMarks: '',
+  twelfthGroup: '',
   currentSchool: '',
   zone: 'regular',
   notes: '',
@@ -143,20 +147,21 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
   const validate = (): boolean => {
     const errors: typeof fieldErrors = {};
 
+    // BUG-003222: Only name + phone + institution are required now.
+    // Email / district / program / parent name / parent phone are optional
+    // per product decision (Apr 2026) — counselors often capture just the
+    // essentials at a busy stall and fill in the rest later.
     if (!form.name.trim()) errors.name = 'Learner name is required';
     if (!form.phone.trim()) {
       errors.phone = 'Phone number is required';
     } else if (!isValidIndianPhone(form.phone)) {
       errors.phone = 'Enter a valid 10-digit Indian mobile number (starts with 6-9)';
     }
-    if (!form.parentName.trim()) errors.parentName = 'Parent/Guardian name is required';
-    if (!form.parentPhone.trim()) {
-      errors.parentPhone = 'Parent phone is required';
-    } else if (!isValidIndianPhone(form.parentPhone)) {
+    // Parent phone: only validate format if provided
+    if (form.parentPhone.trim() && !isValidIndianPhone(form.parentPhone)) {
       errors.parentPhone = 'Enter a valid 10-digit parent phone number';
     }
     if (!selectedInstitutionId) errors.institution = 'Select an institution';
-    if (form.selectedPrograms.length === 0) errors.selectedPrograms = 'Select at least one program';
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       errors.email = 'Enter a valid email address';
     }
@@ -193,14 +198,17 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
         captured_by: capturedBy,
         referral_type: 'learner_ambassador',
         referred_by_id: capturedBy,
-        parent_name: form.parentName.trim(),
-        parent_phone: form.parentPhone.trim(),
-        interested_programs: form.selectedPrograms,
+        // BUG-003222: parent fields and programs are now optional per
+        // product decision. Conditionally include them only when filled.
+        ...(form.parentName.trim() && { parent_name: form.parentName.trim() }),
+        ...(form.parentPhone.trim() && { parent_phone: form.parentPhone.trim() }),
+        ...(form.selectedPrograms.length > 0 && { interested_programs: form.selectedPrograms }),
         tags: form.zone === 'ai_zone' ? ['ai-zone'] : [],
         wa_opt_in: form.waOptIn,
         wa_opt_in_source: form.waOptIn ? 'expo_capture_form' : null,
         ...(form.email && { email: form.email.trim() }),
         ...(form.district && { district: form.district.trim() }),
+        ...(form.twelfthGroup && { twelfth_group: form.twelfthGroup.trim() }),
         ...(form.notes && { notes: form.notes.trim() }),
       };
 
@@ -320,7 +328,7 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="parentName">
-              Parent Name / பெற்றோர் பெயர் <span className="text-destructive">*</span>
+              Parent Name / பெற்றோர் பெயர்
             </Label>
             <Input
               id="parentName"
@@ -335,7 +343,7 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
           </div>
           <div>
             <Label htmlFor="parentPhone">
-              Parent Phone / பெற்றோர் தொலைபேசி <span className="text-destructive">*</span>
+              Parent Phone / பெற்றோர் தொலைபேசி
             </Label>
             <Input
               id="parentPhone"
@@ -390,7 +398,7 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
           {/* Program Chips */}
           <div>
             <Label>
-              Programs Interested / ஆர்வமுள்ள படிப்புகள் <span className="text-destructive">*</span>
+              Programs Interested / ஆர்வமுள்ள படிப்புகள்
             </Label>
           <ProgramChipPicker
             institutionId={selectedInstitutionId}
@@ -450,6 +458,21 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
                 value={form.twelfthMarks}
                 onChange={(e) => updateField('twelfthMarks', e.target.value)}
                 placeholder="e.g. 85%"
+                className="mt-1"
+                disabled={isSubmitting}
+              />
+            </div>
+            <div>
+              {/* BUG-003222: 12th group (stream) — Biology, Computer Science,
+                  Commerce, Arts, etc. Free-text so counselors can capture
+                  exactly what the learner said without being boxed into a
+                  pre-defined list. */}
+              <Label htmlFor="twelfthGroup">12th Group / Stream</Label>
+              <Input
+                id="twelfthGroup"
+                value={form.twelfthGroup}
+                onChange={(e) => updateField('twelfthGroup', e.target.value)}
+                placeholder="e.g. Biology, Computer Science, Commerce"
                 className="mt-1"
                 disabled={isSubmitting}
               />

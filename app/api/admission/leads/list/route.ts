@@ -22,12 +22,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // 2. Check the user has admission access
+  // 2. Check the user has admission lead view access via the dynamic
+  //    permission system. Replaces the previous hardcoded allowlist
+  //    (super_admin / institution_scope='all' / role_key in admission/counselor)
+  //    so any custom role granted admission.leads.view works.
   const supabase = createServiceRoleClient();
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, role, institution_id')
+    .select('id, role, institution_id, is_super_admin')
     .eq('id', user.id)
     .single();
 
@@ -35,33 +38,41 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
   }
 
-  const isSuperAdmin = profile.role === 'super_admin';
+  const isSuperAdmin = !!profile.is_super_admin || profile.role === 'super_admin';
 
-  // Check custom_roles for admission or counselor role (and institution_scope)
-  const { data: userRoles } = await supabase
-    .from('user_roles')
-    .select('role_id, custom_roles!inner(role_key, institution_scope)')
-    .eq('user_id', user.id);
+  let canViewLeads = isSuperAdmin;
+  if (!canViewLeads) {
+    const { data: permResult } = await supabase.rpc('user_has_permission', {
+      user_id: user.id,
+      permission_key: 'admission.leads.view'
+    });
+    canViewLeads = !!permResult;
+  }
 
-  // Check if user has any role with institution_scope='all' (dynamic, not hardcoded)
+  if (!canViewLeads) {
+    return NextResponse.json(
+      { error: 'Forbidden: admission.leads.view permission required' },
+      { status: 403 }
+    );
+  }
+
+  // Cross-institution access flag drives the "show all institutions vs scope
+  // to own" branch below. True when super_admin OR any of the user's roles is
+  // institution_scope='all' OR the user's effective admission module scope is
+  // 'all_institutions' (per-module override).
   let isAdmissionGlobalUser = isSuperAdmin;
   if (!isAdmissionGlobalUser) {
-    isAdmissionGlobalUser = (userRoles || []).some(
-      (ur: any) => ur.custom_roles?.institution_scope === 'all'
-    );
-  }
-
-  // Check if user has admission or counselor custom role
-  let isAdmissionUser = isAdmissionGlobalUser;
-  if (!isAdmissionUser) {
-    const admissionRoleKeys = ['admission', 'counselor'];
-    isAdmissionUser = (userRoles || []).some(
-      (r: any) => admissionRoleKeys.includes(r.custom_roles?.role_key)
-    );
-  }
-
-  if (!isAdmissionUser) {
-    return NextResponse.json({ error: 'Forbidden: admission access required' }, { status: 403 });
+    const { data: scopedRoles } = await supabase
+      .from('user_roles')
+      .select('custom_roles!inner(institution_scope, module_scopes)')
+      .eq('user_id', user.id);
+    isAdmissionGlobalUser = (scopedRoles || []).some((ur: any) => {
+      const cr = ur.custom_roles;
+      if (!cr) return false;
+      if (cr.institution_scope === 'all') return true;
+      const moduleScope = (cr.module_scopes ?? {})['admission'];
+      return moduleScope === 'all_institutions';
+    });
   }
 
   // 3. Parse query parameters

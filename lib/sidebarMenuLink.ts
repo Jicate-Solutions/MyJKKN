@@ -307,18 +307,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/lti/launches': 'lti.launches.view',
 
   // Billing Management - Admin/Staff Views
-  '/billing/categories/parent-categories': 'billing.parent_categories.view',
-  '/billing/categories/parent-categories/new':
-    'billing.parent_categories.create',
-  '/billing/categories/parent-categories/[id]/edit':
-    'billing.parent_categories.edit',
-  '/billing/categories/sub-categories': 'billing.sub_categories.view',
-  '/billing/categories/sub-categories/new': 'billing.sub_categories.create',
-  '/billing/categories/sub-categories/[id]/edit': 'billing.sub_categories.edit',
-  '/billing/categories/item-categories': 'billing.item_categories.view',
-  '/billing/categories/item-categories/new': 'billing.item_categories.create',
-  '/billing/categories/item-categories/[id]/edit':
-    'billing.item_categories.edit',
+  // Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) categories into flat /billing/categories.
+  '/billing/categories': 'billing.categories.view',
+  '/billing/categories/new': 'billing.categories.create',
+  '/billing/categories/[id]/edit': 'billing.categories.edit',
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
@@ -346,6 +338,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]': 'billing.invoices.view',
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
+  '/billing/onboarding': 'billing.onboarding.view',
 
 
   // Resource Management
@@ -558,6 +551,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners-council/selection/elections': 'learners_council.selection.view',
   '/learners-council/issues': 'learners_council.issues.view',
   '/learners-council/settings': 'learners_council.settings.view',
+
+  // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15)
+  '/faculty/innovation': 'faculty_innovation.initiative.submit',
+  '/faculty/innovation/submit': 'faculty_innovation.initiative.submit',
+  '/faculty/innovation/portfolio': 'faculty_innovation.initiative.view_own',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1399,23 +1397,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Categories',
           active: pathname.startsWith('/billing/categories'),
           icon: FolderTree,
-          submenus: [
-            {
-              href: '/billing/categories/parent-categories',
-              label: 'All Parent Categories',
-              active: pathname === '/billing/categories/parent-categories'
-            },
-            {
-              href: '/billing/categories/sub-categories',
-              label: 'All Sub Categories',
-              active: pathname === '/billing/categories/sub-categories'
-            },
-            {
-              href: '/billing/categories/item-categories',
-              label: 'All Item Categories',
-              active: pathname === '/billing/categories/item-categories'
-            }
-          ]
+          submenus: []
         },
         {
           href: '/billing/schedule',
@@ -1434,6 +1416,13 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/billing/schedule'
             }
           ]
+        },
+        {
+          href: '/billing/onboarding',
+          label: 'Learner Onboarding',
+          active: pathname.startsWith('/billing/onboarding'),
+          icon: UserCheck,
+          submenus: []
         },
         {
           href: '/billing/receipts',
@@ -2230,6 +2219,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/learners-council/settings'),
           icon: Settings,
           submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Faculty Innovation',
+      menus: [
+        {
+          href: '/faculty/innovation',
+          label: 'Faculty Innovation',
+          active: pathname.startsWith('/faculty/innovation'),
+          icon: Lightbulb,
+          submenus: [
+            {
+              href: '/faculty/innovation/submit',
+              label: 'Submit Initiative',
+              active: pathname === '/faculty/innovation/submit'
+            },
+            {
+              href: '/faculty/innovation/portfolio',
+              label: 'My Portfolio',
+              active: pathname === '/faculty/innovation/portfolio'
+            }
+          ]
         }
       ]
     },

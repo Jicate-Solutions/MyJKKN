@@ -97,24 +97,24 @@ export async function PATCH(
       );
     }
 
-    // Authorization: Faculty can only update their own record
-    if (!isSuperAdmin && userProfile.role === 'faculty') {
-      if (staffRecord.institution_email !== session.user.email) {
-        return NextResponse.json(
-          { error: 'Faculty users can only update their own profile' },
-          { status: 403 }
-        );
-      }
+    // Self-edit branch: any user editing their own staff record (matched by
+    // institution_email) is allowed without staff.edit. Preserves the prior
+    // "faculty can update own profile" behaviour for any role, not just faculty.
+    const isSelfEdit =
+      !!staffRecord.institution_email &&
+      staffRecord.institution_email === session.user.email;
+
+    // Permission check via DB instead of hardcoded role list. Honours dynamic
+    // Role Management grants for staff.edit.
+    let hasEditPermission = isSuperAdmin;
+    if (!hasEditPermission) {
+      const { data: permResult } = await supabase.rpc('user_has_permission', {
+        permission_name: 'staff.edit'
+      });
+      hasEditPermission = !!permResult;
     }
 
-    // Authorization: Non-admin roles (except faculty updating self) need edit permission
-    const canEditStaff =
-      isSuperAdmin ||
-      ['super_admin', 'administrator', 'hod'].includes(userProfile.role) ||
-      (userProfile.role === 'faculty' &&
-        staffRecord.institution_email === session.user.email);
-
-    if (!canEditStaff) {
+    if (!hasEditPermission && !isSelfEdit) {
       return NextResponse.json(
         { error: 'Insufficient permissions to update staff' },
         { status: 403 }
@@ -122,6 +122,10 @@ export async function PATCH(
     }
 
     const json = await request.json();
+
+    // Normalize empty staff_id to null so the staff_staff_id_not_empty
+    // CHECK constraint doesn't reject blanks coming from the form.
+    if (json.staff_id === '') json.staff_id = null;
 
     // Update the staff record using admin client (bypasses RLS)
     const { data: updatedStaff, error: updateError } = await supabaseAdmin

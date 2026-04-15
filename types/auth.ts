@@ -92,6 +92,8 @@ export interface ProfileUpdate {
 }
 
 // Custom role interface
+export type ModuleScope = 'own_records' | 'own_institution' | 'all_institutions';
+
 export interface CustomRole {
   id: string;
   institution_id: string | null;
@@ -100,6 +102,9 @@ export interface CustomRole {
   description: string | null;
   is_system_role: boolean;
   institution_scope: 'all' | 'own';
+  // Per-module scope override. Missing keys fall back to institution_scope.
+  // Example: { staff: 'own_records', billing: 'all_institutions' }
+  module_scopes: Partial<Record<string, ModuleScope>>;
   permissions: Record<string, boolean>;
   created_at: string;
   updated_at: string;
@@ -130,6 +135,7 @@ export interface CustomRoleCreate {
   is_system_role?: boolean;
   institution_id?: string | null;
   institution_scope?: 'all' | 'own';
+  module_scopes?: Partial<Record<string, ModuleScope>>;
 }
 
 // Custom role update interface
@@ -138,6 +144,7 @@ export interface CustomRoleUpdate {
   description?: string | null;
   permissions?: Record<string, boolean>;
   institution_scope?: 'all' | 'own';
+  module_scopes?: Partial<Record<string, ModuleScope>>;
 }
 
 // User role assignment for database operations

@@ -38,7 +38,7 @@ import { CourseSelectionSection } from './form-sections/course-selection';
 import { ContactDetailsSection } from './form-sections/contact-details';
 import { AccommodationPreferencesSection } from './form-sections/accommodation-preferences';
 import { FinanceDetailsSection } from './form-sections/finance-details';
-import { FEE_STRUCTURE_CONFIG, type FeeStructureType } from '@/lib/constants/fee-structure';
+// FEE_STRUCTURE_CONFIG removed 2026-04-15 — replaced by dynamic fee_items flow.
 import { uploadProfileImage } from './profile-image-upload';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -154,7 +154,7 @@ export const enquiryFormSchema = z.object({
   reference_name: z.string().nullable().optional(),
   reference_contact: z.string().nullable().optional(),
 
-  // Finance Details
+  // Finance Details — LEGACY columns kept for backward compat
   application_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   university_reg_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   fee_structure_type: z.enum([
@@ -171,6 +171,18 @@ export const enquiryFormSchema = z.object({
   hospital_training_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   placement_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   transport_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+
+  // Updated: 2026-04-15 - Dynamic fee line items (new flow)
+  fee_items: z
+    .array(
+      z.object({
+        category_id: z.string().min(1, 'Category is required'),
+        category_name: z.string().min(1, 'Category name is required'),
+        amount: z.coerce.number().min(0, 'Amount must be non-negative'),
+      })
+    )
+    .default([])
+    .optional(),
 });
 
 // Required fields schema for final submission
@@ -634,6 +646,13 @@ export function EnquiryForm({
           uniform_fee: learner?.uniform_fee ?? null,
           hospital_training_fee: learner?.hospital_training_fee ?? null,
           placement_fee: learner?.placement_fee ?? null,
+          fee_items: Array.isArray((learner as any)?.fee_items)
+            ? ((learner as any).fee_items as Array<any>).map((it) => ({
+                category_id: it?.category_id ?? '',
+                category_name: it?.category_name ?? '',
+                amount: Number(it?.amount ?? 0),
+              }))
+            : [],
         };
         })()
       : {
@@ -741,6 +760,7 @@ export function EnquiryForm({
           uniform_fee: null,
           hospital_training_fee: null,
           placement_fee: null,
+          fee_items: [],
         },
   });
 
@@ -910,34 +930,28 @@ export function EnquiryForm({
       reference_name: toUpperCaseField(values.reference_name),
       reference_contact: values.reference_contact || undefined,
 
-      // Finance Details - only include fields active for the selected fee structure
+      // Finance Details - LEGACY columns preserved on edit; new flow writes fee_items.
       application_fee: values.application_fee ?? null,
       university_reg_fee: values.university_reg_fee ?? null,
       fee_structure_type: values.fee_structure_type ?? null,
-      ...(() => {
-        const feeType = values.fee_structure_type as FeeStructureType | null;
-        if (!feeType || !FEE_STRUCTURE_CONFIG[feeType]) {
-          return {
-            tuition_fee: null, hostel_fee: null, dayscholar_fee: null,
-            uniform_fee: null, hospital_training_fee: null, placement_fee: null,
-            transport_fee: null,
-          };
-        }
-        const config = FEE_STRUCTURE_CONFIG[feeType];
-        const activeFields = new Set([
-          ...config.primaryFields.map((f) => f.name),
-          ...config.optionalFees,
-        ]);
-        return {
-          tuition_fee: activeFields.has('tuition_fee') ? (values.tuition_fee ?? null) : null,
-          hostel_fee: activeFields.has('hostel_fee') ? (values.hostel_fee ?? null) : null,
-          dayscholar_fee: null, // DEPRECATED
-          uniform_fee: activeFields.has('uniform_fee') ? (values.uniform_fee ?? null) : null,
-          hospital_training_fee: activeFields.has('hospital_training_fee') ? (values.hospital_training_fee ?? null) : null,
-          placement_fee: activeFields.has('placement_fee') ? (values.placement_fee ?? null) : null,
-          transport_fee: activeFields.has('transport_fee') ? (values.transport_fee ?? null) : null,
-        };
-      })(),
+      tuition_fee: values.tuition_fee ?? null,
+      hostel_fee: values.hostel_fee ?? null,
+      dayscholar_fee: null, // DEPRECATED
+      uniform_fee: values.uniform_fee ?? null,
+      hospital_training_fee: values.hospital_training_fee ?? null,
+      placement_fee: values.placement_fee ?? null,
+      transport_fee: values.transport_fee ?? null,
+
+      // Updated: 2026-04-15 - Dynamic fee line items persisted as JSONB array.
+      fee_items: Array.isArray(values.fee_items)
+        ? values.fee_items
+            .filter((it: any) => it?.category_id)
+            .map((it: any) => ({
+              category_id: String(it.category_id),
+              category_name: String(it.category_name ?? ''),
+              amount: Number(it.amount ?? 0),
+            }))
+        : [],
 
       // System fields - Preserve existing values when editing, default to 'enquiry' when creating
       lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),

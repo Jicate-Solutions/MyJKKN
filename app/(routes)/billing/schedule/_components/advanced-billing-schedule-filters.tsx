@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RotateCcw, Filter, X } from 'lucide-react';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { DegreeService } from '@/lib/services/organization/degree-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
@@ -42,7 +42,7 @@ interface FilterOption {
   program_name?: string;
   semester_name?: string;
   section_name?: string;
-  item_category_name?: string;
+  category_name?: string;
   academic_year_name?: string;
 }
 
@@ -215,7 +215,7 @@ export function AdvancedBillingScheduleFilters({
               item.program_name ||
               item.semester_name ||
               item.section_name ||
-              item.item_category_name ||
+              item.category_name ||
               item.academic_year_name ||
               'Unknown',
         ...item
@@ -233,7 +233,7 @@ export function AdvancedBillingScheduleFilters({
   useEffect(() => {
     loadFilterData('institutions', () => OrganizationService.getInstitutionNames(true));
     loadFilterData('categories', async () => {
-      const result = await BillingItemCategoryService.getBillingItemCategories();
+      const result = await BillingCategoryService.getBillingCategories();
       return result.data;
     });
   }, [loadFilterData]);
@@ -652,9 +652,9 @@ export function AdvancedBillingScheduleFilters({
             <div className='space-y-2'>
               <Label>Category</Label>
               <Select
-                value={searchParams.item_category_id || 'all'}
+                value={searchParams.category_id || 'all'}
                 onValueChange={(value) =>
-                  handleSmartFilterChange('item_category_id', value === 'all' ? undefined : value)
+                  handleSmartFilterChange('category_id', value === 'all' ? undefined : value)
                 }
                 disabled={loading.categories}
               >

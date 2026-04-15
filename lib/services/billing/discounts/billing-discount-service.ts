@@ -60,7 +60,7 @@ export class BillingDiscountService {
             id,
             bill_description,
             total_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -102,7 +102,7 @@ export class BillingDiscountService {
             id,
             bill_description,
             total_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -155,7 +155,7 @@ export class BillingDiscountService {
             id,
             bill_description,
             total_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -241,7 +241,7 @@ export class BillingDiscountService {
             id,
             bill_description,
             total_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -333,7 +333,7 @@ export class BillingDiscountService {
             id,
             bill_description,
             total_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -414,7 +414,7 @@ export class BillingDiscountService {
             id,
             bill_description,
             total_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,
@@ -495,7 +495,7 @@ export class BillingDiscountService {
             id,
             bill_description,
             total_amount,
-            student:students (
+            student:learners_profiles (
               id,
               first_name,
               last_name,

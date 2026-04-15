@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { RefreshCw, BarChart3 } from 'lucide-react';
+import { RefreshCw, BarChart3, Loader2 } from 'lucide-react';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,6 +37,20 @@ import { TenureAnalytics } from './_components/tenure-analytics';
 import { ProfileAnalytics } from './_components/profile-analytics';
 
 export default function StaffDashboardPage() {
+  const router = useRouter();
+  const { canAccess, isSuperAdmin, isLoading: permsLoading } = usePermissions(
+    [],
+    { waitForLoad: true }
+  );
+  const canViewDashboard =
+    isSuperAdmin || canAccess('staff.dashboard', 'view') || canAccess('staff', 'view');
+
+  useEffect(() => {
+    if (!permsLoading && !canViewDashboard) {
+      router.replace('/unauthorized');
+    }
+  }, [permsLoading, canViewDashboard, router]);
+
   const [filters, setFilters] = useState<StaffDashboardFilters>({});
 
   // State for filter options
@@ -115,6 +131,16 @@ export default function StaffDashboardPage() {
   const handleRefresh = () => {
     refetch();
   };
+
+  if (permsLoading || !canViewDashboard) {
+    return (
+      <ContentLayout title='Employees Dashboard'>
+        <div className='flex items-center justify-center min-h-[400px]'>
+          <Loader2 className='h-8 w-8 animate-spin' />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (error) {
     console.error('[StaffDashboardPage] Render Error:', error);

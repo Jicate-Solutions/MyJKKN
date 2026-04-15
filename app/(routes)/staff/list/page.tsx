@@ -60,7 +60,7 @@ export default function StaffPage() {
 
   // Permission checks
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
-  // const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
+  const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
   // const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
 
@@ -217,12 +217,15 @@ export default function StaffPage() {
               </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* Action Buttons — gated by permissions:
+                  - Download Template / Bulk Upload Images: read-only or edit-level
+                  - Bulk Upload Staff: requires create permission
+                  - Create Missing Profiles: super_admin maintenance action */}
             <div className='flex flex-wrap items-center gap-2 mb-6'>
-              <DownloadStaffTemplateButton />
-              <BulkUploadStaff />
+              {canViewStaff && <DownloadStaffTemplateButton />}
+              {canCreateStaff && <BulkUploadStaff />}
               {isSuperAdmin && <CreateMissingProfilesButton />}
-              <BulkUploadStaffImages />
+              {canEditStaff && <BulkUploadStaffImages />}
             </div>
 
             {/* Advanced Search */}

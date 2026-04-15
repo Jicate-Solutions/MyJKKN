@@ -244,11 +244,16 @@ export class StaffService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
+      // Normalize empty optional unique fields to null so the
+      // staff_staff_id_not_empty CHECK constraint doesn't reject blanks
+      // (mirrors the same coercion in createStaff).
+      if ((data as any).staff_id === '') (data as any).staff_id = null;
+
       // Get the current staff data before update
       let currentStaff: any = null;
       const { data: fetchedStaff, error: fetchError } = await this.supabase
         .from('staff')
-        .select('institution_email, institution_id')
+        .select('institution_email, institution_id, role_key')
         .eq('id', id)
         .single();
 
@@ -303,10 +308,18 @@ export class StaffService {
 
       if (error) throw error;
 
-      // If role_key changed, resync user_roles (single primary role).
-      // profile.role is already synced by the DB trigger.
-      // Added: 2026-04-14
-      if (data.role_key && staff?.profile_id) {
+      // Only resync user_roles if role_key actually changed. The previous
+      // version called assignRoles whenever data.role_key was truthy, which
+      // triggered a DELETE+INSERT cycle even on no-op edits and surfaced
+      // RLS errors for callers without user_roles INSERT permission.
+      const previousRoleKey = (currentStaff as any)?.role_key
+        ?? (staff as any)?.role_key;
+      const roleKeyChanged =
+        !!data.role_key
+        && previousRoleKey !== undefined
+        && data.role_key !== previousRoleKey;
+
+      if (roleKeyChanged && staff?.profile_id) {
         try {
           const { data: roleRow } = await this.supabase
             .from('custom_roles')

@@ -67,9 +67,21 @@ interface EditRoleDialogProps {
       description?: string;
       permissions?: Record<string, boolean>;
       institution_scope?: 'all' | 'own';
+      module_scopes?: Record<string, 'own_records' | 'own_institution' | 'all_institutions'>;
     }
   ) => Promise<void>;
 }
+
+// Per-module scope picker rolls out one module at a time. Add entries here as
+// each module's RLS is migrated to use role_has_module_access().
+const MODULE_SCOPE_OPTIONS: Array<{ key: string; label: string; description: string }> = [
+  {
+    key: 'staff',
+    label: 'Employee Management',
+    description:
+      "Controls which employee records this role can read/edit/delete. 'Own records' = only the user's own staff row."
+  }
+];
 
 // Type for the nested permissions structure used by the form
 type NestedPermissions = Record<string, Record<string, boolean>>;
@@ -191,6 +203,9 @@ export function EditRoleDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [institutionScope, setInstitutionScope] = useState<'all' | 'own'>(role?.institution_scope || 'own');
+  const [moduleScopes, setModuleScopes] = useState<
+    Record<string, 'own_records' | 'own_institution' | 'all_institutions'>
+  >((role?.module_scopes as any) ?? {});
   const [previewOpen, setPreviewOpen] = useState(false);
   // Snapshot proposed permissions at the moment the preview is opened —
   // reading form.getValues() lazily lets us watch live edits without a
@@ -285,6 +300,7 @@ export function EditRoleDialog({
   useEffect(() => {
     form.reset(defaultFormValues);
     setInstitutionScope(role?.institution_scope || 'own');
+    setModuleScopes((role?.module_scopes as any) ?? {});
 
     // Debug form values after reset
     console.log('Form values after reset:', form.getValues());
@@ -310,7 +326,8 @@ export function EditRoleDialog({
         role_name: values.role_name,
         description: values.description || '',
         permissions: flatPermissions, // Use the flattened version
-        institution_scope: institutionScope
+        institution_scope: institutionScope,
+        module_scopes: moduleScopes
       };
 
       await onSubmit(role.role_key, updatePayload); // onSubmit expects flat permissions
@@ -575,9 +592,54 @@ export function EditRoleDialog({
                   <p className="text-xs text-muted-foreground">
                     {role?.role_key === 'super_admin'
                       ? 'Super admin always has access to all institutions.'
-                      : 'Controls whether users with this role can access data from all institutions or only their own.'
+                      : 'Default scope used by any module without a specific override below.'
                     }
                   </p>
+                </div>
+
+                {/* Per-module scope overrides (Option A: per-module). Module
+                    keys without an entry fall back to Institution Access Scope. */}
+                <div className="space-y-3 rounded-md border p-3">
+                  <div>
+                    <Label className="text-sm font-semibold">Module Access Scope</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Override the default scope per module. Each module's RLS
+                      enforces this at the database layer.
+                    </p>
+                  </div>
+                  {MODULE_SCOPE_OPTIONS.map((mod) => {
+                    const current = moduleScopes[mod.key] ?? '';
+                    return (
+                      <div key={mod.key} className="grid gap-1.5">
+                        <Label className="text-xs font-medium">{mod.label}</Label>
+                        <Select
+                          value={current || '__inherit__'}
+                          onValueChange={(v) =>
+                            setModuleScopes((prev) => {
+                              const next = { ...prev };
+                              if (v === '__inherit__') delete next[mod.key];
+                              else next[mod.key] = v as any;
+                              return next;
+                            })
+                          }
+                          disabled={role?.role_key === 'super_admin'}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__inherit__">
+                              Inherit from Institution Scope ({institutionScope === 'all' ? 'all' : 'own institution'})
+                            </SelectItem>
+                            <SelectItem value="own_records">Own records only</SelectItem>
+                            <SelectItem value="own_institution">Own institution (all records)</SelectItem>
+                            <SelectItem value="all_institutions">All institutions (all records)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">{mod.description}</p>
+                      </div>
+                    );
+                  })}
                 </div>
               </TabsContent>
 

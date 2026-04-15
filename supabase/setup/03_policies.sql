@@ -1415,86 +1415,36 @@ CREATE POLICY "refunds_all_billing" ON billing_refunds
         )
     );
 
--- BILLING CATEGORY TABLES (4 policies each)
-ALTER TABLE billing_parent_categories ENABLE ROW LEVEL SECURITY;
+-- BILLING CATEGORIES (4 policies)
+-- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into flat billing_categories.
+ALTER TABLE billing_categories ENABLE ROW LEVEL SECURITY;
 
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "parent_categories_select" ON billing_parent_categories
+CREATE POLICY "billing_categories_select" ON billing_categories
     FOR SELECT USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.view'))
+        OR (user_has_permission('billing.categories.view')
+            AND role_has_institution_access(institution_id))
     );
 
-CREATE POLICY "parent_categories_insert" ON billing_parent_categories
+CREATE POLICY "billing_categories_insert" ON billing_categories
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.create'))
+        OR (user_has_permission('billing.categories.create')
+            AND role_has_institution_access(institution_id))
     );
 
-CREATE POLICY "parent_categories_update" ON billing_parent_categories
+CREATE POLICY "billing_categories_update" ON billing_categories
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.edit'))
+        OR (user_has_permission('billing.categories.edit')
+            AND role_has_institution_access(institution_id))
     );
 
-CREATE POLICY "parent_categories_delete" ON billing_parent_categories
+CREATE POLICY "billing_categories_delete" ON billing_categories
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.delete'))
-    );
-
-ALTER TABLE billing_sub_categories ENABLE ROW LEVEL SECURITY;
-
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "sub_categories_select" ON billing_sub_categories
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.view'))
-    );
-
-CREATE POLICY "sub_categories_insert" ON billing_sub_categories
-    FOR INSERT WITH CHECK (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.create'))
-    );
-
-CREATE POLICY "sub_categories_update" ON billing_sub_categories
-    FOR UPDATE USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.edit'))
-    );
-
-CREATE POLICY "sub_categories_delete" ON billing_sub_categories
-    FOR DELETE USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.delete'))
-    );
-
-ALTER TABLE billing_item_categories ENABLE ROW LEVEL SECURITY;
-
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "item_categories_select" ON billing_item_categories
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.view'))
-    );
-
-CREATE POLICY "item_categories_insert" ON billing_item_categories
-    FOR INSERT WITH CHECK (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.create'))
-    );
-
-CREATE POLICY "item_categories_update" ON billing_item_categories
-    FOR UPDATE USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.edit'))
-    );
-
-CREATE POLICY "item_categories_delete" ON billing_item_categories
-    FOR DELETE USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.delete'))
+        OR (user_has_permission('billing.categories.delete')
+            AND role_has_institution_access(institution_id))
     );
 
 -- ================================================================================
@@ -4743,3 +4693,208 @@ CREATE POLICY dashboard_config_modify ON dashboard_config FOR ALL USING (
 );
 
 -- END Dashboard v2 policies
+-- =============================================================================
+-- Updated: 2026-04-15 - Tier C staff-module RLS alignment
+-- Replaces hardcoded role-name checks with the standard contract:
+--   is_super_admin() OR is_admin()
+--     OR (user_has_permission('module.action') AND role_has_institution_access(institution_id))
+-- Pre-flight verified zero real-user impact (only at-risk users were super_admin
+-- or @test.local fixtures). See migration:
+--   staff_module_rls_align_to_permission_contract
+-- =============================================================================
+
+-- ---- staff -------------------------------------------------------------------
+DROP POLICY IF EXISTS "staff_select_by_institution_access" ON staff;
+DROP POLICY IF EXISTS "staff_select_event_coordinator"     ON staff;
+DROP POLICY IF EXISTS "staff_insert_by_access_type"        ON staff;
+DROP POLICY IF EXISTS "staff_update_by_access_type"        ON staff;
+DROP POLICY IF EXISTS "staff_delete_by_admin_access"       ON staff;
+
+CREATE POLICY "staff_select_permission" ON staff FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.view')
+      AND role_has_module_access('staff', institution_id, institution_email))
+  OR institution_email = (SELECT auth.email())  -- self-view by institution_email
+);
+-- INSERT keeps institution-only check: 'own_records' doesn't apply to creation
+-- (the row doesn't exist yet, so there's no owner_email to compare against).
+CREATE POLICY "staff_insert_permission" ON staff FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.create') AND role_has_institution_access(institution_id))
+);
+CREATE POLICY "staff_update_permission" ON staff FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.edit')
+      AND role_has_module_access('staff', institution_id, institution_email))
+  OR institution_email = (SELECT auth.email())  -- self-update by institution_email
+);
+CREATE POLICY "staff_delete_permission" ON staff FOR DELETE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('staff.delete')
+      AND role_has_module_access('staff', institution_id, institution_email))
+);
+
+-- ---- employment_categories ---------------------------------------------------
+DROP POLICY IF EXISTS "Enhanced employment categories view access"   ON employment_categories;
+DROP POLICY IF EXISTS "Enhanced employment categories create access" ON employment_categories;
+DROP POLICY IF EXISTS "Enhanced employment categories update access" ON employment_categories;
+DROP POLICY IF EXISTS "Enhanced employment categories delete access" ON employment_categories;
+
+CREATE POLICY "employment_categories_select" ON employment_categories FOR SELECT USING (
+  auth.uid() IS NOT NULL
+);
+CREATE POLICY "employment_categories_insert" ON employment_categories FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin() OR user_has_permission('staff.categories.create')
+);
+CREATE POLICY "employment_categories_update" ON employment_categories FOR UPDATE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('staff.categories.edit')
+);
+CREATE POLICY "employment_categories_delete" ON employment_categories FOR DELETE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('staff.categories.delete')
+);
+
+-- ---- custom_roles ------------------------------------------------------------
+DROP POLICY IF EXISTS "Enable admin operations for super_admin"        ON custom_roles;
+DROP POLICY IF EXISTS "Allow authenticated users to read custom roles" ON custom_roles;
+DROP POLICY IF EXISTS "Enable read access for authenticated users"     ON custom_roles;
+
+CREATE POLICY "custom_roles_select" ON custom_roles FOR SELECT USING (
+  auth.uid() IS NOT NULL
+);
+CREATE POLICY "custom_roles_insert" ON custom_roles FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.create')
+);
+CREATE POLICY "custom_roles_update" ON custom_roles FOR UPDATE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.edit')
+);
+CREATE POLICY "custom_roles_delete" ON custom_roles FOR DELETE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.delete')
+);
+
+-- ---- staff_plans -------------------------------------------------------------
+-- staff_plans_select_permission already follows the contract; only INSERT/UPDATE/
+-- DELETE legacy hardcoded-role policies are dropped and replaced.
+DROP POLICY IF EXISTS "Admins can manage staff_plans in their institutions" ON staff_plans;
+DROP POLICY IF EXISTS "Admin users can insert staff plans"                  ON staff_plans;
+DROP POLICY IF EXISTS "Faculty users can insert institution staff plans"    ON staff_plans;
+DROP POLICY IF EXISTS "HOD users can insert institution staff plans"        ON staff_plans;
+DROP POLICY IF EXISTS "Admin users can update staff plans"                  ON staff_plans;
+DROP POLICY IF EXISTS "Faculty and HOD can update staff_plans"              ON staff_plans;
+DROP POLICY IF EXISTS "Admin users can delete staff plans"                  ON staff_plans;
+DROP POLICY IF EXISTS "Faculty and HOD can delete staff_plans"              ON staff_plans;
+
+CREATE POLICY "staff_plans_insert_permission" ON staff_plans FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('academic.staff.planning.edit') AND role_has_institution_access(institution_id))
+);
+CREATE POLICY "staff_plans_update_permission" ON staff_plans FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('academic.staff.planning.edit') AND role_has_institution_access(institution_id))
+);
+CREATE POLICY "staff_plans_delete_permission" ON staff_plans FOR DELETE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('academic.staff.planning.delete') AND role_has_institution_access(institution_id))
+);
+
+-- ---- user_roles --------------------------------------------------------------
+-- Updated: 2026-04-15 - Replace hardcoded profiles.role IN ('super_admin','admin')
+-- checks with the standard contract using roles.{create,edit,delete} permission keys.
+-- Self-view stays open (a user can always read their own user_roles rows).
+DROP POLICY IF EXISTS "Admins can insert user roles"   ON user_roles;
+DROP POLICY IF EXISTS "Admins can update user roles"   ON user_roles;
+DROP POLICY IF EXISTS "Admins can delete user roles"   ON user_roles;
+DROP POLICY IF EXISTS "Admins can view all user roles" ON user_roles;
+DROP POLICY IF EXISTS "user_roles_select_admin"        ON user_roles;
+
+CREATE POLICY "user_roles_select_admin" ON user_roles FOR SELECT USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.edit')
+);
+CREATE POLICY "user_roles_insert_permission" ON user_roles FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.create')
+);
+CREATE POLICY "user_roles_update_permission" ON user_roles FOR UPDATE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.edit')
+);
+CREATE POLICY "user_roles_delete_permission" ON user_roles FOR DELETE USING (
+  is_super_admin() OR is_admin() OR user_has_permission('roles.delete')
+);
+-- "Users can view own roles" + user_roles_select_own pre-existing self-view policies
+
+-- =====================================================================
+-- 2026-04-15 — HR Recruitment Phase 1A: RLS Policies
+-- Spec: specs/hr-recruitment-module-spec.md
+-- Standard pattern: is_super_admin() OR is_admin() OR (permission + institution scope)
+-- =====================================================================
+
+-- ---- hr_recruitment_candidates ----------------------------------------
+-- Standard HR recruitment viewer visibility (submitter chain + approvers + Director)
+
+ALTER TABLE public.hr_recruitment_candidates ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "hr_recruitment_candidates_select_permission"
+  ON public.hr_recruitment_candidates FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.recruitment.view')
+        AND role_has_institution_access(institution_id))
+    OR submitted_by = auth.uid()
+  );
+
+CREATE POLICY "hr_recruitment_candidates_insert_permission"
+  ON public.hr_recruitment_candidates FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.create')
+  );
+
+CREATE POLICY "hr_recruitment_candidates_update_permission"
+  ON public.hr_recruitment_candidates FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.recruitment.edit')
+        AND role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY "hr_recruitment_candidates_delete_permission"
+  ON public.hr_recruitment_candidates FOR DELETE USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.delete')
+  );
+
+-- ---- hr_recruitment_candidate_packages --------------------------------
+-- STRICTER RLS per Learning #8:
+-- Only submitter of the parent candidate + their direct approver chain + Accounts + Director
+-- We enforce this via permission 'hr.recruitment.packages.view'
+-- which is granted ONLY to: hr_admin, accounts, super_admin.
+-- The submitter can see their own candidate's packages via submitted_by join.
+
+ALTER TABLE public.hr_recruitment_candidate_packages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "hr_recruitment_packages_select_permission"
+  ON public.hr_recruitment_candidate_packages FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.packages.view')
+    OR proposed_by = auth.uid()
+    OR approved_by = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.hr_recruitment_candidates c
+      WHERE c.id = candidate_id
+        AND c.submitted_by = auth.uid()
+    )
+  );
+
+CREATE POLICY "hr_recruitment_packages_insert_permission"
+  ON public.hr_recruitment_candidate_packages FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.packages.propose')
+  );
+
+CREATE POLICY "hr_recruitment_packages_update_permission"
+  ON public.hr_recruitment_candidate_packages FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.packages.approve')
+    OR proposed_by = auth.uid()
+  );
+
+CREATE POLICY "hr_recruitment_packages_delete_permission"
+  ON public.hr_recruitment_candidate_packages FOR DELETE USING (
+    is_super_admin() OR is_admin()
+  );
+-- are intentionally preserved so users can always read their own assignments.

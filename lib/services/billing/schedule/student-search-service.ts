@@ -265,17 +265,12 @@ export class StudentSearchService {
         .select(
           `
           *,
-          item_category:billing_item_categories(
+          category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency,
+            description
           ),
           receipt_items:billing_receipt_items(
             *,

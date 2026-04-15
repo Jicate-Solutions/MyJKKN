@@ -403,10 +403,11 @@ ALTER TABLE billing_student_bills
     REFERENCES institutions(id)
     ON DELETE CASCADE;
 
+-- Updated: 2026-04-15 - Renamed item_category_id -> category_id; now references flat billing_categories.
 ALTER TABLE billing_student_bills
-    ADD CONSTRAINT fk_bills_item_category
-    FOREIGN KEY (item_category_id)
-    REFERENCES billing_item_categories(id)
+    ADD CONSTRAINT fk_bills_category
+    FOREIGN KEY (category_id)
+    REFERENCES billing_categories(id)
     ON DELETE SET NULL;
 
 ALTER TABLE billing_student_bills
@@ -505,42 +506,25 @@ ALTER TABLE billing_refunds
     REFERENCES profiles(id)
     ON DELETE SET NULL;
 
--- BILLING CATEGORY TABLES
-ALTER TABLE billing_parent_categories
-    ADD CONSTRAINT fk_parent_categories_institution
+-- BILLING CATEGORIES (flat)
+-- Updated: 2026-04-15 - Collapsed parent/sub/item FKs into a single flat billing_categories FK.
+ALTER TABLE billing_categories
+    ADD CONSTRAINT fk_billing_categories_institution
     FOREIGN KEY (institution_id)
     REFERENCES institutions(id)
     ON DELETE CASCADE;
 
-ALTER TABLE billing_sub_categories
-    ADD CONSTRAINT fk_sub_categories_institution
-    FOREIGN KEY (institution_id)
-    REFERENCES institutions(id)
-    ON DELETE CASCADE;
+ALTER TABLE billing_categories
+    ADD CONSTRAINT fk_billing_categories_created_by
+    FOREIGN KEY (created_by)
+    REFERENCES profiles(id)
+    ON DELETE SET NULL;
 
-ALTER TABLE billing_sub_categories
-    ADD CONSTRAINT fk_sub_categories_parent
-    FOREIGN KEY (parent_category_id)
-    REFERENCES billing_parent_categories(id)
-    ON DELETE CASCADE;
-
-ALTER TABLE billing_item_categories
-    ADD CONSTRAINT fk_item_categories_institution
-    FOREIGN KEY (institution_id)
-    REFERENCES institutions(id)
-    ON DELETE CASCADE;
-
-ALTER TABLE billing_item_categories
-    ADD CONSTRAINT fk_item_categories_parent
-    FOREIGN KEY (parent_category_id)
-    REFERENCES billing_parent_categories(id)
-    ON DELETE CASCADE;
-
-ALTER TABLE billing_item_categories
-    ADD CONSTRAINT fk_item_categories_sub
-    FOREIGN KEY (sub_category_id)
-    REFERENCES billing_sub_categories(id)
-    ON DELETE CASCADE;
+ALTER TABLE billing_categories
+    ADD CONSTRAINT fk_billing_categories_updated_by
+    FOREIGN KEY (updated_by)
+    REFERENCES profiles(id)
+    ON DELETE SET NULL;
 
 -- ================================================================================
 -- SECTION 9: BUG REPORT MODULE TABLES

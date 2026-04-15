@@ -9,6 +9,24 @@ import { z } from 'zod';
 // ============================================
 
 /**
+ * Dynamic fee line item (added 2026-04-15).
+ * Stored as JSONB array on learners_profiles.fee_items.
+ * category_id soft-references billing_categories(id).
+ * category_name is a snapshot taken at add-time to survive category renames/deletes.
+ */
+export interface LearnerFeeItem {
+  category_id: string;
+  category_name: string;
+  amount: number;
+}
+
+export const learnerFeeItemSchema = z.object({
+  category_id: z.string().uuid('Invalid category id'),
+  category_name: z.string().min(1, 'Category name is required'),
+  amount: z.coerce.number().min(0, 'Amount must be non-negative')
+});
+
+/**
  * Lifecycle Status - Complete learner journey
  * Replaces separate admission.status and student.status
  */
@@ -127,6 +145,7 @@ export interface LearnerProfile {
   reference_contact?: string;
 
   // Finance/Fee Details (Added: 2026-03-04)
+  // LEGACY columns — retained for backward compat; new flow writes to fee_items below.
   application_fee?: number | null;
   university_reg_fee?: number | null;
   fee_structure_type?: 'tuition_hostel' | 'tuition_uniform_hospital' | 'tuition_instruments_hospital' | 'tuition_instruments' | 'tuition_only' | null;
@@ -137,6 +156,9 @@ export interface LearnerProfile {
   hospital_training_fee?: number | null;
   placement_fee?: number | null;
   transport_fee?: number | null;
+
+  // Updated: 2026-04-15 - Dynamic fee line items keyed to billing_categories.
+  fee_items?: LearnerFeeItem[] | null;
 
   // Academic Assignment (unlocked after approval/enrollment)
   institution_id?: string;
@@ -416,7 +438,7 @@ export interface UpdateLearnerProfileDto {
   reference_name?: string | null;
   reference_contact?: string | null;
 
-  // Finance/Fee Details
+  // Finance/Fee Details — LEGACY columns (kept for backward compat)
   application_fee?: number | null;
   university_reg_fee?: number | null;
   fee_structure_type?: 'tuition_hostel' | 'tuition_uniform_hospital' | 'tuition_instruments_hospital' | 'tuition_instruments' | 'tuition_only' | null;
@@ -427,6 +449,9 @@ export interface UpdateLearnerProfileDto {
   hospital_training_fee?: number | null;
   placement_fee?: number | null;
   transport_fee?: number | null;
+
+  // Updated: 2026-04-15 - Dynamic fee line items keyed to billing_categories.
+  fee_items?: LearnerFeeItem[] | null;
 
   // Academic Assignment
   institution_id?: string | null;

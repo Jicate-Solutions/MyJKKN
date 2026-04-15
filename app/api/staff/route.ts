@@ -293,10 +293,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Allow super_admin, administrator, faculty, and HOD to create staff
-    const canCreateStaff =
-      currentUser.is_super_admin ||
-      ['super_admin', 'administrator', 'faculty', 'hod'].includes(currentUser.role);
+    // Permission check: ask the database via user_has_permission() instead
+    // of hardcoding role names. This honours dynamic Role Management grants
+    // for any custom role that was given staff.create.
+    let canCreateStaff = !!currentUser.is_super_admin;
+    if (!canCreateStaff) {
+      const { data: permResult } = await supabase.rpc('user_has_permission', {
+        permission_name: 'staff.create'
+      });
+      canCreateStaff = !!permResult;
+    }
 
     if (!canCreateStaff) {
       return NextResponse.json(
@@ -306,6 +312,10 @@ export async function POST(request: Request) {
     }
 
     console.log('Creating staff via API route for user:', currentUser.role);
+
+    // Normalize empty staff_id to null (matches the staff_staff_id_not_empty
+    // DB CHECK and lets the UNIQUE index treat blanks as distinct NULLs).
+    if (json.staff_id === '') json.staff_id = null;
 
     // Check if staff_id already exists if provided
     if (json.staff_id) {

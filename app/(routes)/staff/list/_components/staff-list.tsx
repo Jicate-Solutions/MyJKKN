@@ -2,13 +2,14 @@
 // app/(routes)/staff/_components/staff-list.tsx
 
 
-import { useMemo, useCallback, useState, memo } from 'react';
+import { useMemo, useCallback, useState, useEffect, memo } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { MoreVertical, Edit, Trash2, FileText, Plus, Copy, ToggleLeft, ToggleRight } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Staff } from '@/types/staff';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { RoleService } from '@/lib/services/roles/role-service';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -59,8 +60,29 @@ const StaffListComponent = ({
 }: StaffListProps) => {
   const { canAccess, isSuperAdmin } = usePermissions();
 
+  // Build role_key -> role_name map so the Role column shows the human label
+  // instead of the raw key (e.g. "Head of Department" instead of "hod").
+  const [roleLabelByKey, setRoleLabelByKey] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let cancelled = false;
+    RoleService.getAllRoles()
+      .then((roles) => {
+        if (cancelled) return;
+        const map: Record<string, string> = {};
+        roles.forEach((r: any) => {
+          if (r?.role_key) map[r.role_key] = r.role_name || r.role_key;
+        });
+        setRoleLabelByKey(map);
+      })
+      .catch((err) => console.warn('[staff-list] failed to load role labels', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit') || canEdit;
+  const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
   const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
   const canUpdateStatus = isSuperAdmin || canAccess('staff', 'status_update');
 
@@ -288,22 +310,7 @@ const StaffListComponent = ({
         header: 'Category',
         cell: ({ row }) => {
           const staff = row.original;
-          const name = staff.category?.category_name;
-          if (!name) return '-';
-          const isTeaching = (staff.category as any)?.is_teaching;
-          return (
-            <span className='inline-flex items-center gap-1.5'>
-              {name}
-              {typeof isTeaching === 'boolean' && (
-                <Badge
-                  variant={isTeaching ? 'default' : 'outline'}
-                  className='text-[10px]'
-                >
-                  {isTeaching ? 'Teaching' : 'Non-Teaching'}
-                </Badge>
-              )}
-            </span>
-          );
+          return staff.category?.category_name || '-';
         }
       },
       {
@@ -311,12 +318,14 @@ const StaffListComponent = ({
         header: 'Role',
         cell: ({ row }) => {
           const staff = row.original as any;
-          return staff.role_key ? (
-            <Badge variant='secondary' className='font-mono text-xs'>
-              {staff.role_key}
+          if (!staff.role_key) return '-';
+          // Prefer the human label from custom_roles.role_name; fall back to
+          // the key itself if the role hasn't loaded yet (first paint).
+          const label = roleLabelByKey[staff.role_key] || staff.role_key;
+          return (
+            <Badge variant='secondary' className='text-xs'>
+              {label}
             </Badge>
-          ) : (
-            '-'
           );
         }
       },
@@ -326,15 +335,6 @@ const StaffListComponent = ({
         cell: ({ row }) => {
           const staff = row.original;
           return staff.institution?.name || '-';
-        }
-      },
-
-      {
-        id: 'department',
-        header: 'Department',
-        cell: ({ row }) => {
-          const staff = row.original;
-          return staff.department?.department_name || '-';
         }
       },
       {
@@ -462,14 +462,15 @@ const StaffListComponent = ({
       canUpdateStatus,
       handleSingleDelete,
       handleStatusToggle,
-      EmailWithCopy
+      EmailWithCopy,
+      roleLabelByKey
     ]
   );
 
   // Create table tools (action buttons)
   const tableTools = (
     <div className='flex flex-col sm:flex-row gap-2'>
-      {canEditStaff ? (
+      {canCreateStaff ? (
         <Button className='w-full sm:w-auto' asChild>
           <Link href='/staff/list/new'>
             <Plus className='mr-2 h-4 w-4' />

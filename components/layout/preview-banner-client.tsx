@@ -31,17 +31,20 @@ export function PreviewBannerClient({
   mode: 'read' | 'write';
   expiresAtMs: number;
 }) {
-  const [now, setNow] = useState(() => Date.now());
+  const [mounted, setMounted] = useState(false);
+  const [now, setNow] = useState(expiresAtMs);
   const [exiting, setExiting] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
   const remainingMs = Math.max(0, expiresAtMs - now);
-  const countdown = formatCountdown(remainingMs);
-  const isExpired = remainingMs <= 0;
+  const countdown = mounted ? formatCountdown(remainingMs) : '—:—';
+  const isExpired = mounted && remainingMs <= 0;
 
   async function handleExit() {
     if (exiting) return;
