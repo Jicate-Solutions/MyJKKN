@@ -139,14 +139,68 @@ function EscalationActions({ item }: { item: QueueItem }) {
 }
 
 function RescueActions({ item }: { item: QueueItem }) {
+  const cfg = (item.action_config ?? {}) as Record<string, unknown>;
+  const broadcastId =
+    typeof cfg.broadcast_id === 'string' && cfg.broadcast_id.length > 0
+      ? (cfg.broadcast_id as string)
+      : null;
+  const leadId = typeof cfg.lead_id === 'string' ? (cfg.lead_id as string) : null;
+
+  // CASE 1 — Counselor view: this notification IS a broadcast (has broadcast_id).
+  //          Show Claim button which races via SELECT FOR UPDATE.
+  if (broadcastId) {
+    return (
+      <div className='flex flex-wrap gap-2'>
+        <form action={claimRescueBroadcast} className='inline-block'>
+          <input type='hidden' name='broadcastId' value={broadcastId} />
+          <input
+            type='hidden'
+            name='userNotificationId'
+            value={item.user_notification_id}
+          />
+          <button
+            type='submit'
+            className='px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors bg-rose-600 text-white hover:bg-rose-700 border-rose-600'
+          >
+            🔥 Claim rescue
+          </button>
+        </form>
+        <ActionButton
+          action='snooze'
+          label='Skip'
+          variant='ghost'
+          userNotificationId={item.user_notification_id}
+          extraFields={{ snoozeMinutes: '120' }}
+        />
+      </div>
+    );
+  }
+
+  // CASE 2 — Director/Manager view: this is an invitation to broadcast (has lead_id).
+  //          Submit fires initiateRescueBroadcast.
   return (
     <div className='flex flex-wrap gap-2'>
-      <ActionButton
-        action='approve'
-        label='🔥 Broadcast rescue'
-        variant='primary'
-        userNotificationId={item.user_notification_id}
-      />
+      {leadId ? (
+        <form action={initiateRescueBroadcast} className='inline-block'>
+          <input type='hidden' name='leadId' value={leadId} />
+          <input
+            type='hidden'
+            name='userNotificationId'
+            value={item.user_notification_id}
+          />
+          <input type='hidden' name='scope' value='{}' />
+          <button
+            type='submit'
+            className='px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-600'
+          >
+            🔥 Broadcast rescue
+          </button>
+        </form>
+      ) : (
+        <span className='text-[11px] text-neutral-500 px-2 py-1'>
+          (lead_id missing — cannot broadcast)
+        </span>
+      )}
       <ActionButton
         action='reject'
         label='Close lead'
