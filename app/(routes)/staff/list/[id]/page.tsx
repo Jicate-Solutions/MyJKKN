@@ -10,7 +10,7 @@ import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, PenSquare, ArrowLeft } from 'lucide-react';
+import { Loader2, PenSquare, ArrowLeft, UserPlus } from 'lucide-react';
 import type { Staff } from '@/types/staff';
 import {
   Breadcrumb,
@@ -109,6 +109,15 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
   }
 
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+  // R4.1 — internal mobility: show "Consider for New Role" to users who can create recruitment candidates
+  const canCreateRecruitment = isSuperAdmin || canAccess('hr.recruitment', 'create');
+
+  // Build the cross-profile URL for internal transfer pre-fill (R4.1)
+  const considerForNewRoleUrl =
+    `/hr/recruitment/submit?source_staff_id=${encodeURIComponent(staff.id)}` +
+    `&source=internal_transfer` +
+    `&name=${encodeURIComponent(`${staff.first_name} ${staff.last_name}`)}` +
+    `&email=${encodeURIComponent(staff.institution_email || staff.email || '')}`;
 
   return (
     <ContentLayout title='Employee Details'>
@@ -151,19 +160,30 @@ export default function StaffDetailsPage({ params }: StaffDetailsPageProps) {
               </p>
             </div>
           </div>
-          {canEditStaff ? (
-            <Button asChild>
-              <Link href={`/staff/list/${id}/edit`}>
+          <div className='flex items-center gap-2'>
+            {/* R4.1 — Internal mobility entry point */}
+            {canCreateRecruitment && (
+              <Button variant='outline' asChild>
+                <Link href={considerForNewRoleUrl}>
+                  <UserPlus className='mr-2 h-4 w-4' />
+                  Consider for New Role
+                </Link>
+              </Button>
+            )}
+            {canEditStaff ? (
+              <Button asChild>
+                <Link href={`/staff/list/${id}/edit`}>
+                  <PenSquare className='mr-2 h-4 w-4' />
+                  Edit Employee
+                </Link>
+              </Button>
+            ) : (
+              <Button variant='outline' disabled className='opacity-50'>
                 <PenSquare className='mr-2 h-4 w-4' />
                 Edit Employee
-              </Link>
-            </Button>
-          ) : (
-            <Button variant='outline' disabled className='opacity-50'>
-              <PenSquare className='mr-2 h-4 w-4' />
-              Edit Employee
-            </Button>
-          )}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Profile Overview */}

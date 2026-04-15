@@ -30,11 +30,16 @@ export class HRPersonService {
     const page = filters.page ?? 1;
     const pageSize = filters.pageSize ?? 25;
 
-    const { search, employment_type, hr_organization_id, cadre_id, designation_id, department_id, is_active } = filters;
+    const { search, employment_type, hr_organization_id, cadre_id, designation_id, department_id, is_active, include_staff } = filters;
 
     // ── Branch A: Full-time via staff + hr_staff_details ────────
-    // Only include if employment_type filter allows 'full_time' (or is undefined = all)
-    const includeFullTime = !employment_type || employment_type === 'full_time';
+    // Skipped entirely when include_staff is explicitly false (the /hr/employees
+    // page passes this so it shows ONLY guests / vendors / TAs / volunteers —
+    // full-time staff are managed at /staff/list and showing them in both URLs
+    // was the duplication users were calling out).
+    const includeFullTime =
+      include_staff !== false &&
+      (!employment_type || employment_type === 'full_time');
     // ── Branch B: Non-staff via hr_employees ────────────────────
     const includeNonStaff = !employment_type || employment_type !== 'full_time';
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
@@ -39,14 +39,21 @@ interface ApprovalFlow {
 
 export default function SubmitCandidatePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const mutation = useSubmitCandidate();
+
+  // Read cross-profile entry-point params (R4.1 internal transfer, R4.2 learner graduate)
+  const paramSourceStaffId = searchParams.get('source_staff_id') ?? '';
+  const paramSource = searchParams.get('source') ?? '';          // 'internal_transfer' | 'learner_graduate'
+  const paramName = searchParams.get('name') ?? '';
+  const paramEmail = searchParams.get('email') ?? '';
 
   // Context (v1 — accepted as form input; Sprint N will auto-resolve from profile)
   const [hrOrgId, setHrOrgId] = useState('');
 
-  // Candidate basics
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  // Candidate basics — initialised from URL params when present (pre-fill only, no auto-submit)
+  const [name, setName] = useState(paramName);
+  const [email, setEmail] = useState(paramEmail);
   const [phone, setPhone] = useState('');
   const [roleCategory, setRoleCategory] = useState<RoleCategory | ''>('');
   const [roleTitle, setRoleTitle] = useState('');
@@ -54,9 +61,20 @@ export default function SubmitCandidatePage() {
   const [cvvizUrl, setCvvizUrl] = useState('');
   const [proposedCtcBand, setProposedCtcBand] = useState<CTCBand | ''>('');
   const [isEmergency, setIsEmergency] = useState(false);
-  const [isInternalTransfer, setIsInternalTransfer] = useState(false);
-  const [sourceStaffId, setSourceStaffId] = useState('');
+  // R4.1: pre-tick "internal transfer" if arriving from a staff profile
+  const [isInternalTransfer, setIsInternalTransfer] = useState(paramSource === 'internal_transfer');
+  // R4.1: pre-select source staff when arriving from a staff profile
+  const [sourceStaffId, setSourceStaffId] = useState(paramSourceStaffId);
   const [expectedJoiningDate, setExpectedJoiningDate] = useState('');
+
+  // Sync URL params → form fields on initial mount (pre-fill, not auto-submit)
+  useEffect(() => {
+    if (paramName) setName(paramName);
+    if (paramEmail) setEmail(paramEmail);
+    if (paramSource === 'internal_transfer') setIsInternalTransfer(true);
+    if (paramSourceStaffId) setSourceStaffId(paramSourceStaffId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
 
   // Approval flow preview
   const [approvalFlows, setApprovalFlows] = useState<ApprovalFlow[]>([]);
@@ -147,6 +165,18 @@ export default function SubmitCandidatePage() {
           <BreadcrumbItem><BreadcrumbPage>Submit Candidate</BreadcrumbPage></BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
+
+      {/* Pre-fill banner — shown when arriving from a staff or learner profile (R4.1 / R4.2) */}
+      {(paramSource === 'internal_transfer' || paramSource === 'learner_graduate') && (
+        <Alert className="mt-4 max-w-3xl">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            {paramSource === 'internal_transfer'
+              ? 'Pre-filled from staff profile for internal mobility. Review all fields before submitting.'
+              : 'Pre-filled from learner profile for graduate hiring. Review all fields before submitting.'}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4 max-w-3xl">
         {/* Context card — MVP until Sprint N auto-resolves from profile */}

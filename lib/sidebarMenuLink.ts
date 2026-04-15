@@ -1558,7 +1558,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         },
         {
           href: '/hr/employees',
-          label: 'Employees',
+          label: 'Non-Staff Workforce',
           active: pathname.startsWith('/hr/employees'),
           icon: Users,
           submenus: []
