@@ -19,7 +19,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { Users, Banknote, CalendarDays, Building2 } from 'lucide-react';
+import { Users, UsersRound, Banknote, CalendarDays, Building2 } from 'lucide-react';
 
 export default function HRDashboardPage() {
   return (
@@ -43,15 +43,30 @@ export default function HRDashboardPage() {
           <div>
             <h1 className="text-2xl font-semibold">HR Command Center</h1>
             <p className="text-sm text-muted-foreground">
-              JKKN Group HR — Sprint 1 foundation (employee master only)
+              JKKN Group HR — leave, policies, and the non-staff workforce
+              (guests, vendors, TAs, volunteers). Full-time staff live in the
+              <Link href="/staff/list" className="underline ml-1">Staff module</Link>.
             </p>
           </div>
-          <Button asChild>
-            <Link href="/hr/employees">
-              <Users className="mr-2 h-4 w-4" />
-              Manage Employees
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* Two CTAs make the persona split explicit:
+                full-time staff live in the staff module; non-staff (guests,
+                vendors, TAs, volunteers) live in HR. Single "Manage Employees"
+                button caused users to expect /hr/employees to show all 393
+                staff (it didn't, and shouldn't). */}
+            <Button asChild variant="outline">
+              <Link href="/staff/list">
+                <Users className="mr-2 h-4 w-4" />
+                Full-Time Staff
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href="/hr/employees">
+                <UsersRound className="mr-2 h-4 w-4" />
+                Non-Staff Workforce
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {/* 4-quadrant command center (stubs for Sprint 1) */}

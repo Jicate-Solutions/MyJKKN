@@ -1,14 +1,17 @@
 'use client';
 
 /**
- * HR Person Detail — handles both sources:
- * - source=staff: shows hr_staff_details with staff_id FK (HR extension of a JKKN staff row)
- * - source=hr_employees: shows hr_employees (guest/student_ta/vendor) with soft-delete flow
+ * HR Non-Staff Employee Detail — guests, vendors, student TAs, unpaid volunteers.
+ *
+ * If a caller arrives with ?source=staff, redirect to /staff/[id] — full-time
+ * JKKN staff are managed in the staff module, not here. This route is exclusive
+ * to the hr_employees table (non-staff types). Keeps the mental model clean:
+ * one URL per persona, no overlap.
  */
 
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -32,7 +35,15 @@ export default function HREmployeeDetailPage() {
   const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : undefined;
   const source = (searchParams.get('source') as 'staff' | 'hr_employees') ?? 'hr_employees';
 
-  const { data, isLoading, error } = useHREmployee(id, source);
+  // Redirect to staff module if this is a full-time staff row.
+  // /hr/employees is now scoped to non-staff only.
+  useEffect(() => {
+    if (source === 'staff' && id) {
+      router.replace(`/staff/list/${id}`);
+    }
+  }, [source, id, router]);
+
+  const { data, isLoading, error } = useHREmployee(id, source, source !== 'staff');
   const deactivate = useDeactivateHREmployee();
   const [showDeactivate, setShowDeactivate] = useState(false);
   const [reason, setReason] = useState('');
@@ -49,8 +60,20 @@ export default function HREmployeeDetailPage() {
     }
   };
 
+  // While redirecting to /staff/list/[id], render a tiny placeholder so we don't
+  // flash the (now-deprecated) staff-source detail card.
+  if (source === 'staff') {
+    return (
+      <ContentLayout title="Redirecting to Staff…">
+        <div className="flex justify-center py-12">
+          <BeatLoader color="#3b82f6" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
   return (
-    <ContentLayout title="HR — Employee Detail">
+    <ContentLayout title="HR — Non-Staff Employee">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -61,7 +84,7 @@ export default function HREmployeeDetailPage() {
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/hr/employees">Employees</Link>
+              <Link href="/hr/employees">Non-Staff Workforce</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -87,59 +110,40 @@ export default function HREmployeeDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                <span>{source === 'staff' ? 'JKKN Staff (HR extension)' : 'HR Employee'}</span>
-                <Badge variant="outline">source: {source}</Badge>
+                <span>Non-Staff Employee</span>
+                <Badge variant="outline">{data.employment_type}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              {source === 'staff' ? (
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
-                  <dt className="text-muted-foreground">Staff ID</dt>
-                  <dd className="font-mono">{data.staff_id ?? '—'}</dd>
-                  <dt className="text-muted-foreground">HR Employee Code</dt>
-                  <dd className="font-mono">{data.hr_employee_code ?? '—'}</dd>
-                  <dt className="text-muted-foreground">HR Organization</dt>
-                  <dd className="font-mono">{data.hr_organization_id ?? '—'}</dd>
-                  <dt className="text-muted-foreground">Designation</dt>
-                  <dd>{data.designation_id ? `(id: ${data.designation_id})` : 'Not yet assigned'}</dd>
-                  <dt className="text-muted-foreground">Cadre</dt>
-                  <dd>{data.cadre_id ? `(id: ${data.cadre_id})` : 'Not yet assigned'}</dd>
-                  <dt className="text-muted-foreground">Reports To</dt>
-                  <dd>{data.reports_to_staff_id ? `(staff_id: ${data.reports_to_staff_id})` : '—'}</dd>
-                  <dt className="text-muted-foreground">HR Deactivated At</dt>
-                  <dd>{data.hr_deactivated_at ? new Date(data.hr_deactivated_at).toLocaleString() : '—'}</dd>
-                </dl>
-              ) : (
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
-                  <dt className="text-muted-foreground">Employee Code</dt>
-                  <dd className="font-mono">{data.employee_code ?? '—'}</dd>
-                  <dt className="text-muted-foreground">Name</dt>
-                  <dd>
-                    {data.first_name} {data.last_name ?? ''}
-                  </dd>
-                  <dt className="text-muted-foreground">Type</dt>
-                  <dd>{data.employment_type}</dd>
-                  <dt className="text-muted-foreground">Email</dt>
-                  <dd>{data.email ?? '—'}</dd>
-                  <dt className="text-muted-foreground">Phone</dt>
-                  <dd>{data.phone ?? '—'}</dd>
-                  <dt className="text-muted-foreground">Status</dt>
-                  <dd>{data.is_active ? 'Active' : 'Inactive'}</dd>
-                  {data.deactivated_at && (
-                    <>
-                      <dt className="text-muted-foreground">Deactivated At</dt>
-                      <dd>{new Date(data.deactivated_at).toLocaleString()}</dd>
-                      <dt className="text-muted-foreground">Deactivation Reason</dt>
-                      <dd>{data.deactivation_reason ?? '—'}</dd>
-                    </>
-                  )}
-                </dl>
-              )}
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <dt className="text-muted-foreground">Employee Code</dt>
+                <dd className="font-mono">{data.employee_code ?? '—'}</dd>
+                <dt className="text-muted-foreground">Name</dt>
+                <dd>
+                  {data.first_name} {data.last_name ?? ''}
+                </dd>
+                <dt className="text-muted-foreground">Type</dt>
+                <dd>{data.employment_type}</dd>
+                <dt className="text-muted-foreground">Email</dt>
+                <dd>{data.email ?? '—'}</dd>
+                <dt className="text-muted-foreground">Phone</dt>
+                <dd>{data.phone ?? '—'}</dd>
+                <dt className="text-muted-foreground">Status</dt>
+                <dd>{data.is_active ? 'Active' : 'Inactive'}</dd>
+                {data.deactivated_at && (
+                  <>
+                    <dt className="text-muted-foreground">Deactivated At</dt>
+                    <dd>{new Date(data.deactivated_at).toLocaleString()}</dd>
+                    <dt className="text-muted-foreground">Deactivation Reason</dt>
+                    <dd>{data.deactivation_reason ?? '—'}</dd>
+                  </>
+                )}
+              </dl>
             </CardContent>
           </Card>
         )}
 
-        {data && source === 'hr_employees' && data.is_active && (
+        {data && data.is_active && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Actions</CardTitle>
@@ -188,15 +192,6 @@ export default function HREmployeeDetailPage() {
           </Card>
         )}
 
-        {data && source === 'staff' && (
-          <Card>
-            <CardContent className="text-sm text-muted-foreground pt-6">
-              This row is a JKKN staff member managed by the Staff module.
-              Edit staff fields (name, email, department) via <Link href="/staff/list" className="underline underline-offset-2">Staff → List</Link>.
-              HR-specific fields (designation, cadre, reports-to) are editable here — wiring arrives in Sprint 2.
-            </CardContent>
-          </Card>
-        )}
       </div>
     </ContentLayout>
   );

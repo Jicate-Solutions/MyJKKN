@@ -210,8 +210,9 @@ export default function StaffPage() {
                     Employee Management
                   </h1>
                   <p className='text-muted-foreground'>
-                    Manage all employees — teaching, facilitators, and
-                    non-teaching staff.
+                    Full-time JKKN staff — teaching, facilitators, and
+                    non-teaching. Guests, vendors, TAs, and volunteers live
+                    in the <Link href='/hr/employees' className='underline'>HR Non-Staff Workforce</Link> page.
                   </p>
                 </div>
               </div>
