@@ -1194,12 +1194,16 @@ function NewLeadPageContent() {
                         {createLeadWithProfile.isPending ? (
                           <>
                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Creating...
+                            {/* BUG-003226 part 2: users asked for "Save Details"
+                                or "Submit" — "Save Details" reads more naturally
+                                for counselors at a busy counter and matches the
+                                Save icon already in use. Loading state mirrors. */}
+                            Saving...
                           </>
                         ) : (
                           <>
                             <Save className="h-4 w-4 mr-2" />
-                            Create Lead
+                            Save Details
                           </>
                         )}
                       </Button>
