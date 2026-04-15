@@ -6,7 +6,8 @@
 // Security model (v1 — super-admin-only):
 //
 // 1. Only users with `is_super_admin = true` can START a preview session.
-// 2. Token is a signed JWT (HS256, SUPABASE_JWT_SECRET) with:
+// 2. Token is a signed JWT (HS256, signed with PREVIEW_SIGNING_SECRET — see
+//    getSigningSecret() below) with:
 //      - sub: the TARGET user's id     (who we're previewing as)
 //      - originator: the INITIATING super admin's id
 //      - mode: 'read' | 'write'        (write is director@jkkn.ac.in ONLY)
@@ -70,6 +71,24 @@ export interface PreviewClaims {
   role: 'preview'
 }
 
+// ── Signing secret resolution ────────────────────────────────────────────────
+
+/**
+ * Resolve the HS256 signing secret for preview tokens.
+ *
+ * Preview tokens are opaque to Supabase — they're minted AND verified by this
+ * module only. We don't actually need Supabase's JWT secret; any
+ * cryptographically strong secret works. We prefer SUPABASE_JWT_SECRET when
+ * available (local dev convention) but fall back to JWT_SECRET (which exists
+ * in production Vercel env for other JWT features). This avoids requiring a
+ * new env var to be provisioned for this feature.
+ *
+ * Returns undefined if neither is set, so callers can surface a clear error.
+ */
+function getSigningSecret(): string | undefined {
+  return process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET
+}
+
 // ── Mint ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -88,9 +107,11 @@ export async function mintPreviewToken(params: {
   mode: PreviewMode
   sessionId: string
 }): Promise<string> {
-  const secret = process.env.SUPABASE_JWT_SECRET
+  const secret = getSigningSecret()
   if (!secret) {
-    throw new Error('SUPABASE_JWT_SECRET is required for preview session tokens')
+    throw new Error(
+      'Preview token signing secret missing — set SUPABASE_JWT_SECRET or JWT_SECRET in env',
+    )
   }
 
   return new SignJWT({
@@ -115,7 +136,7 @@ export async function mintPreviewToken(params: {
  * Never throws — callers should treat null as "no valid preview session".
  */
 export async function verifyPreviewToken(token: string): Promise<PreviewClaims | null> {
-  const secret = process.env.SUPABASE_JWT_SECRET
+  const secret = getSigningSecret()
   if (!secret) return null
 
   try {
