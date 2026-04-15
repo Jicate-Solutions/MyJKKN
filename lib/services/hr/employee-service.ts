@@ -66,7 +66,7 @@ export class HRPersonService {
         q = q.or(`first_name.ilike.${s},last_name.ilike.${s},email.ilike.${s},staff_id.ilike.${s}`);
       }
 
-      const { data, error } = await q.order('created_at', { ascending: false }).limit(pageSize * 4);
+      const { data, error } = await q.order('created_at', { ascending: false });
       if (error) throw error;
 
       for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {
@@ -117,7 +117,7 @@ export class HRPersonService {
         q = q.or(`first_name.ilike.${s},last_name.ilike.${s},email.ilike.${s},employee_code.ilike.${s}`);
       }
 
-      const { data, error } = await q.limit(pageSize * 4);
+      const { data, error } = await q;
       if (error) throw error;
 
       for (const emp of (data ?? []) as unknown as Array<Record<string, unknown>>) {
