@@ -6791,3 +6791,46 @@ BEGIN
     ORDER BY ur.is_primary DESC, ur.assigned_at ASC;
 END;
 $function$;
+
+-- ================================================================================
+-- DASHBOARD V2 — MATERIALIZED VIEW REFRESH
+-- Added: 2026-04-15 — Vercel Cron scheduled refresh for dashboard leaderboards.
+-- ================================================================================
+
+-- fn_refresh_dashboard_views: refresh Dashboard v2 materialized views.
+-- Called by Vercel Cron (service_role) on a schedule.
+--   p_which = 'sla'         → refreshes v_dashboard_sla_daily (every 5 min)
+--   p_which = 'conversion'  → refreshes v_dashboard_conversion_monthly (midnight IST)
+CREATE OR REPLACE FUNCTION public.fn_refresh_dashboard_views(p_which TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_refreshed TEXT;
+    v_ran_at TIMESTAMPTZ := NOW();
+BEGIN
+    IF p_which = 'sla' THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY public.v_dashboard_sla_daily;
+        v_refreshed := 'v_dashboard_sla_daily';
+    ELSIF p_which = 'conversion' THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY public.v_dashboard_conversion_monthly;
+        v_refreshed := 'v_dashboard_conversion_monthly';
+    ELSE
+        RAISE EXCEPTION 'Invalid p_which value: %. Expected ''sla'' or ''conversion''.', p_which;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'ok', TRUE,
+        'refreshed', v_refreshed,
+        'ran_at', v_ran_at
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.fn_refresh_dashboard_views(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_refresh_dashboard_views(TEXT) TO service_role;
+
+COMMENT ON FUNCTION public.fn_refresh_dashboard_views(TEXT) IS
+'Dashboard v2: refreshes materialized views (sla|conversion). Called by Vercel Cron via service_role.';
