@@ -57,7 +57,7 @@ export class GroupDashboardService {
       };
     }
 
-    const institutionIds = institutions.map((i) => i.id);
+    const resolvedInstitutionIds = institutions.map((i) => i.id);
 
     // Get lead counts per institution per stage
     const { data: leadsData, error: leadsError } = await (this.supabase as any)
