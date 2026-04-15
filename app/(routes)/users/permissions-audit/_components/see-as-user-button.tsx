@@ -92,10 +92,13 @@ export function SeeAsUserButton({
         setError(data?.error || 'Failed to start preview');
         return;
       }
-      // Open the target's view in a new tab. The preview cookie is already set
-      // on the domain, so the new tab will render as the target user.
-      window.open('/', '_blank', 'noopener');
+      // The start API swapped the browser's Supabase session cookies to the
+      // target's session. We hard-navigate to '/' so Next.js re-evaluates the
+      // entire page as the target user — any in-memory React state from the
+      // admin view would otherwise be stale. A new tab would share the same
+      // cookies anyway (they're domain-scoped), so redirecting is simpler.
       setOpen(false);
+      window.location.href = '/';
     } catch (err) {
       const msg =
         (err as any)?.name === 'AbortError'
@@ -140,9 +143,9 @@ export function SeeAsUserButton({
           <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1.5">
             <p className="font-medium text-foreground">What happens next</p>
             <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-              <li>A new browser tab will open showing their home page.</li>
-              <li>The page will load exactly what they would see.</li>
-              <li>A red banner stays visible the whole time.</li>
+              <li>This tab will reload showing <b>exactly</b> what {targetName} sees — the real dashboard, real RLS-filtered data.</li>
+              <li>Your admin session is safely backed up and restored automatically when you exit.</li>
+              <li>A coloured banner stays visible the whole time.</li>
               <li>Session auto-expires in 15 minutes.</li>
               <li>Every action is logged in the audit trail.</li>
             </ul>

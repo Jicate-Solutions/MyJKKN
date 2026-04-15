@@ -210,13 +210,13 @@ export function withAuth(handler: AuthenticatedHandler, options?: AuthOptions) {
             }
           }
 
-          // Swap the user id so all downstream RLS queries run as the target.
-          // We deliberately keep originator metadata so audit/logging still
-          // records WHO is previewing, not just who they're previewing AS.
-          auth.user = {
-            ...auth.user,
-            id: previewClaims.sub,
-          }
+          // The target's real Supabase session is now installed on the
+          // browser (done by /preview/start via admin.generateLink +
+          // verifyOtp), so `auth.user` already reflects the target user —
+          // we don't need to swap anything here. The preview marker cookie
+          // only exists to (1) tell the banner who's being previewed,
+          // (2) gate mutations above, and (3) enable the /preview/end
+          // restore flow.
         }
       }
 
