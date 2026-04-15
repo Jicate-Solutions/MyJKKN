@@ -186,6 +186,9 @@ export default async function DashboardV2Page({
 }) {
   const sp = await searchParams;
   const filter = normalizeFilter(sp.queue);
+  // Week-2: role-aware persona resolution. Director = existing view; counselor = new hero strip.
+  const persona = await getDashboardPersona();
+  const isCounselor = persona === 'counselor';
 
   return (
     <ContentLayout title='Dashboard'>
