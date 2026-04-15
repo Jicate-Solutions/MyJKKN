@@ -18,6 +18,7 @@ import { HeroStrip } from '@/components/dashboard/hero-strip';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
+import { PushSubscribeButton } from '@/components/dashboard/push-subscribe-button';
 import type { QueueFilter } from '@/lib/services/dashboard/decision-queue-service';
 import {
   getSlaDailyLeaderboard,
