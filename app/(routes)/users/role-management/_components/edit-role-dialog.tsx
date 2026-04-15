@@ -53,7 +53,8 @@ import {
   TooltipProvider,
   TooltipTrigger
 } from '@/components/ui/tooltip';
-import { Info } from 'lucide-react';
+import { Info, Eye } from 'lucide-react';
+import { ImpactPreviewSheet } from '@/components/permissions-audit/impact-preview-sheet';
 
 interface EditRoleDialogProps {
   open: boolean;
@@ -190,6 +191,11 @@ export function EditRoleDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [institutionScope, setInstitutionScope] = useState<'all' | 'own'>(role?.institution_scope || 'own');
+  const [previewOpen, setPreviewOpen] = useState(false);
+  // Snapshot proposed permissions at the moment the preview is opened —
+  // reading form.getValues() lazily lets us watch live edits without a
+  // re-render on every keystroke.
+  const [previewPermissions, setPreviewPermissions] = useState<Record<string, boolean>>({});
 
   // Check if this is the super_admin role
   const isSuperAdmin = role.role_key === SYSTEM_ROLES.SUPER_ADMIN;
@@ -894,11 +900,44 @@ export function EditRoleDialog({
               </Button>
 
               {!isSuperAdmin && (
+                <Button
+                  type='button'
+                  variant='ghost'
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    // Snapshot the current form permissions and open the preview.
+                    // We flatten them the same way handleSubmit does so the
+                    // preview receives the exact payload that would be saved.
+                    const values = form.getValues();
+                    const flat = flattenPermissions(values.permissions);
+                    allFlatPermissionKeys.forEach((key) => {
+                      if (flat[key] === undefined) flat[key] = false;
+                    });
+                    setPreviewPermissions(flat);
+                    setPreviewOpen(true);
+                  }}
+                  className='gap-1.5'
+                  aria-label='Preview who is affected by these changes'
+                >
+                  <Eye className='h-4 w-4' />
+                  Preview Impact
+                </Button>
+              )}
+
+              {!isSuperAdmin && (
                 <Button type='submit' disabled={isSubmitting}>
                   {isSubmitting ? 'Saving...' : 'Save Changes'}
                 </Button>
               )}
             </DialogFooter>
+
+            <ImpactPreviewSheet
+              open={previewOpen}
+              onOpenChange={setPreviewOpen}
+              roleId={role.id}
+              roleName={role.role_name}
+              proposedPermissions={previewPermissions}
+            />
           </form>
         </Form>
       </DialogContent>
