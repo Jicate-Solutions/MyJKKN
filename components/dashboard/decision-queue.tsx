@@ -91,6 +91,8 @@ export async function DecisionQueue({
       id='decision-queue'
       className='rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm scroll-mt-24'
     >
+      {/* Side-effect: update browser tab title with unread count (WhatsApp-style pull) */}
+      <TabTitleBadge count={counts.total} />
       <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-5 border-b border-neutral-200 dark:border-neutral-800'>
         <div>
           <h2 className='text-base sm:text-lg font-semibold'>Decision Queue</h2>
