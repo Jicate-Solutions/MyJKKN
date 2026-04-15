@@ -707,6 +707,23 @@ export class StaffService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
+      // Added: 2026-04-15 - role_key & is_teaching filters in role-based path
+      if ((filters as any).role_key) {
+        query = query.eq('role_key', (filters as any).role_key);
+      }
+      if (typeof (filters as any).is_teaching === 'boolean') {
+        const { data: catRows } = await this.supabase
+          .from('employment_categories')
+          .select('id')
+          .eq('is_teaching', (filters as any).is_teaching);
+        const ids = (catRows || []).map((c: any) => c.id);
+        if (ids.length === 0) {
+          query = query.in('category_id', ['00000000-0000-0000-0000-000000000000']);
+        } else {
+          query = query.in('category_id', ids);
+        }
+      }
+
       if (filters.isActive !== undefined) {
         query = query.eq('is_active', filters.isActive);
       }
