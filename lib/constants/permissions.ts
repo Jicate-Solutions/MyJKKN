@@ -454,36 +454,10 @@ export const PERMISSION_CATEGORIES = [
     name: 'Billing Management',
     key: 'billing',
     permissions: [
-      {
-        key: 'billing.parent_categories.view',
-        label: 'View Parent Categories'
-      },
-      {
-        key: 'billing.parent_categories.create',
-        label: 'Create Parent Categories'
-      },
-      {
-        key: 'billing.parent_categories.edit',
-        label: 'Edit Parent Categories'
-      },
-      {
-        key: 'billing.parent_categories.delete',
-        label: 'Delete Parent Categories'
-      },
-      { key: 'billing.sub_categories.view', label: 'View Sub Categories' },
-      { key: 'billing.sub_categories.create', label: 'Create Sub Categories' },
-      { key: 'billing.sub_categories.edit', label: 'Edit Sub Categories' },
-      { key: 'billing.sub_categories.delete', label: 'Delete Sub Categories' },
-      { key: 'billing.item_categories.view', label: 'View Item Categories' },
-      {
-        key: 'billing.item_categories.create',
-        label: 'Create Item Categories'
-      },
-      { key: 'billing.item_categories.edit', label: 'Edit Item Categories' },
-      {
-        key: 'billing.item_categories.delete',
-        label: 'Delete Item Categories'
-      },
+      { key: 'billing.categories.view', label: 'View Billing Categories' },
+      { key: 'billing.categories.create', label: 'Create Billing Categories' },
+      { key: 'billing.categories.edit', label: 'Edit Billing Categories' },
+      { key: 'billing.categories.delete', label: 'Delete Billing Categories' },
       { key: 'billing.schedule.view', label: 'View Schedule' },
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
@@ -752,36 +726,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'work_pulse.all.view', label: 'View All Submissions (Admin)' },
       { key: 'work_pulse.agents.view', label: 'View Agent Opportunity Board' },
       { key: 'work_pulse.impact.view', label: 'View Impact Dashboard' }
-    ]
-  },
-  // ======================================================================
-  // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15)
-  // ======================================================================
-  {
-    name: 'Faculty Innovation',
-    key: 'faculty_innovation',
-    permissions: [
-      // Initiative actions
-      { key: 'faculty_innovation.initiative.submit', label: 'Submit Initiative' },
-      { key: 'faculty_innovation.initiative.view_own', label: 'View Own Initiatives' },
-      { key: 'faculty_innovation.initiative.view_all_institution', label: 'View All Institution Initiatives' },
-      { key: 'faculty_innovation.initiative.approve', label: 'Approve Initiatives' },
-      { key: 'faculty_innovation.initiative.reject', label: 'Reject Initiatives' },
-      { key: 'faculty_innovation.initiative.withdraw', label: 'Withdraw Own Initiative' },
-      { key: 'faculty_innovation.initiative.export', label: 'Export Initiatives (NAAC/NBA/AICTE)' },
-
-      // IP (confidentiality-sensitive — Week 2 features; keys reserved now)
-      { key: 'faculty_innovation.ip.view', label: 'View IP / Patent Filings' },
-      { key: 'faculty_innovation.ip.edit', label: 'Edit IP / Patent Filings' },
-      { key: 'faculty_innovation.ip.register', label: 'Register New IP Filing' },
-
-      // Collaboration requests
-      { key: 'faculty_innovation.collab_request.create', label: 'Create Cross-College Collab Request' },
-      { key: 'faculty_innovation.collab_request.respond', label: 'Respond to Collab Request' },
-
-      // Admin actions
-      { key: 'faculty_innovation.admin.retro_load', label: 'Retro-load Initiatives' },
-      { key: 'faculty_innovation.admin.bulk_import', label: 'Bulk Import Initiatives' }
     ]
   }
 ];
