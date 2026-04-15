@@ -24,7 +24,7 @@ export const ROLE_DEFAULT_FAVORITES: Record<string, Array<{ path: string; title:
   ],
   hod: [
     { path: '/academic/attendance/dashboard', title: 'Attendance Dashboard', module: 'Academic Management', iconName: 'ClipboardCheck' },
-    { path: '/staff/list', title: 'Staff List', module: 'Facilitators Management', iconName: 'Users' },
+    { path: '/staff/list', title: 'Employee List', module: 'Employee Management', iconName: 'Users' },
     { path: '/academic/timetables', title: 'Timetables', module: 'Academic Management', iconName: 'CalendarClock' },
     { path: '/learners/profiles', title: 'Student Profiles', module: 'Learners', iconName: 'Users' },
   ],

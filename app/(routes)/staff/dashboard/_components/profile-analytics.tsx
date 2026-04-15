@@ -207,7 +207,7 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
               Profile Analytics
             </CardTitle>
             <CardDescription>
-              Facilitators profile completion analysis and insights
+              Employees profile completion analysis and insights
             </CardDescription>
           </div>
           <Badge variant='outline'>Profile Insights</Badge>
@@ -520,10 +520,10 @@ function IncompleteStaffTable({ filters }: { filters?: StaffDashboardFilters }) 
           <div>
             <CardTitle className='flex items-center gap-2'>
               <AlertCircle className='h-5 w-5 text-orange-600' />
-              Facilitators with Incomplete Profiles
+              Employees with Incomplete Profiles
             </CardTitle>
             <CardDescription className='mt-1'>
-              Individual facilitators and their missing fields
+              Individual employees and their missing fields
               {data?.total ? ` (showing ${data.profiles.length} of ${data.total})` : ''}
             </CardDescription>
           </div>
@@ -640,8 +640,8 @@ function IncompleteStaffTable({ filters }: { filters?: StaffDashboardFilters }) 
             <CheckCircle className='mr-2 h-5 w-5 text-green-500' />
             <span className='text-sm'>
               {requiredOnly
-                ? 'All facilitators have complete required fields!'
-                : 'All facilitator profiles are complete!'}
+                ? 'All employees have complete required fields!'
+                : 'All employee profiles are complete!'}
             </span>
           </div>
         )}

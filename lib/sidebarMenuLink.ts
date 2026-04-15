@@ -1218,7 +1218,7 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
-      groupLabel: 'Facilitators Management',
+      groupLabel: 'Employee Management',
       menus: [
         {
           href: '/staff/dashboard',
@@ -1229,14 +1229,14 @@ export function GetPages(pathname: string): MenuGroup[] {
         },
         {
           href: '/staff/category',
-          label: 'Facilitators Category',
+          label: 'Employee Category',
           active: pathname === '/staff/category',
           icon: Tags,
           submenus: []
         },
         {
           href: '/staff/list',
-          label: 'Facilitators List',
+          label: 'Employee List',
           active: pathname === '/staff/list',
           icon: Users,
           submenus: []

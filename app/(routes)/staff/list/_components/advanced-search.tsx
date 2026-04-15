@@ -48,7 +48,7 @@ const defaultSearchOptions: SearchOptions = {
 export function AdvancedSearch({
   onSearch,
   onClear,
-  placeholder = 'Search learning facilitators...'
+  placeholder = 'Search learning employees...'
 }: AdvancedSearchProps) {
   const [nameQuery, setNameQuery] = useState('');
   const [emailQuery, setEmailQuery] = useState('');

@@ -119,7 +119,7 @@ export default function StaffDashboardPage() {
   if (error) {
     console.error('[StaffDashboardPage] Render Error:', error);
     return (
-      <ContentLayout title='Facilitators Dashboard'>
+      <ContentLayout title='Employees Dashboard'>
         <div className='space-y-6'>
           {/* Breadcrumb */}
           <Breadcrumb>
@@ -132,7 +132,7 @@ export default function StaffDashboardPage() {
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                  <Link href='/Facilitators/list'>Facilitators</Link>
+                  <Link href='/staff/list'>Employees</Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator />
@@ -157,7 +157,7 @@ export default function StaffDashboardPage() {
   }
 
   return (
-    <ContentLayout title='Facilitators Dashboard'>
+    <ContentLayout title='Employees Dashboard'>
       <div className='space-y-6'>
         {/* Breadcrumb */}
         <Breadcrumb>
@@ -170,7 +170,7 @@ export default function StaffDashboardPage() {
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href='/Facilitators/list'>Facilitators</Link>
+                <Link href='/staff/list'>Employees</Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
@@ -185,10 +185,10 @@ export default function StaffDashboardPage() {
           <div>
             <h1 className='text-3xl font-bold flex items-center gap-3'>
               <BarChart3 className='h-8 w-8 text-primary' />
-              Facilitators Analytics Dashboard
+              Employees Analytics Dashboard
             </h1>
             <p className='text-muted-foreground mt-1'>
-              Comprehensive Facilitators analytics and insights for data-driven
+              Comprehensive Employees analytics and insights for data-driven
               HR decisions
             </p>
           </div>
@@ -241,7 +241,7 @@ export default function StaffDashboardPage() {
                 <h2 className='text-2xl font-bold'>Overview Analytics</h2>
                 <p className='text-muted-foreground'>
                   Key performance indicators and summary metrics for
-                  Facilitators management
+                  Employees management
                 </p>
               </div>
 
@@ -278,7 +278,7 @@ export default function StaffDashboardPage() {
               <div className='border-l-4 border-blue-500 pl-4'>
                 <h2 className='text-2xl font-bold'>Organizational Analytics</h2>
                 <p className='text-muted-foreground'>
-                  Facilitators distribution across institutions, departments,
+                  Employees distribution across institutions, departments,
                   and employment categories
                 </p>
               </div>
@@ -307,7 +307,7 @@ export default function StaffDashboardPage() {
               <div className='border-l-4 border-green-500 pl-4'>
                 <h2 className='text-2xl font-bold'>Demographic Analytics</h2>
                 <p className='text-muted-foreground'>
-                  Facilitators demographics breakdown including gender, age
+                  Employees demographics breakdown including gender, age
                   groups, and diversity metrics
                 </p>
               </div>
@@ -326,7 +326,7 @@ export default function StaffDashboardPage() {
               <div className='border-l-4 border-orange-500 pl-4'>
                 <h2 className='text-2xl font-bold'>Geographic Analytics</h2>
                 <p className='text-muted-foreground'>
-                  Facilitators distribution across states, districts, and
+                  Employees distribution across states, districts, and
                   geographic regions
                 </p>
               </div>
@@ -345,7 +345,7 @@ export default function StaffDashboardPage() {
               <div className='border-l-4 border-purple-500 pl-4'>
                 <h2 className='text-2xl font-bold'>Tenure Analytics</h2>
                 <p className='text-muted-foreground'>
-                  Facilitators tenure distribution, hiring trends, and retention
+                  Employees tenure distribution, hiring trends, and retention
                   analysis
                 </p>
               </div>
@@ -364,7 +364,7 @@ export default function StaffDashboardPage() {
               <div className='border-l-4 border-pink-500 pl-4'>
                 <h2 className='text-2xl font-bold'>Profile Analytics</h2>
                 <p className='text-muted-foreground'>
-                  Facilitators profile completion analysis and missing field
+                  Employees profile completion analysis and missing field
                   insights
                 </p>
               </div>

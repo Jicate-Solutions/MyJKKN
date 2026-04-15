@@ -55,7 +55,7 @@ const CustomTooltip = ({ active, payload }: any) => {
         <div className='space-y-1 mt-2'>
           <div className='flex items-center justify-between gap-4'>
             <span className='text-sm text-muted-foreground'>
-              Facilitators Count:
+              Employees Count:
             </span>
             <span className='font-medium'>
               {data.staffCount.toLocaleString()}
@@ -170,12 +170,12 @@ export function CategoryDistribution({
               Employment Category Distribution
             </CardTitle>
             <CardDescription>
-              Facilitators distribution across {data.length} employment
+              Employees distribution across {data.length} employment
               categories
             </CardDescription>
           </div>
           <Badge variant='outline'>
-            {totalStaff.toLocaleString()} Total Facilitators
+            {totalStaff.toLocaleString()} Total Employees
           </Badge>
         </div>
       </CardHeader>
@@ -256,7 +256,7 @@ export function CategoryDistribution({
                       <div className='flex items-center gap-4 text-sm text-muted-foreground'>
                         <span className='flex items-center gap-1'>
                           <Users className='h-3 w-3' />
-                          {category.staffCount.toLocaleString()} Facilitators
+                          {category.staffCount.toLocaleString()} Employees
                         </span>
                         <span className='flex items-center gap-1'>
                           <TrendingUp className='h-3 w-3 text-green-600' />
@@ -273,7 +273,7 @@ export function CategoryDistribution({
                       {category.percentage.toFixed(1)}%
                     </div>
                     <div className='text-sm text-muted-foreground'>
-                      of total Facilitators
+                      of total Employees
                     </div>
                   </div>
                 </div>

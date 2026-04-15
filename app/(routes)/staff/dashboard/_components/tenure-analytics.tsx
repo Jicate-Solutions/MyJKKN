@@ -58,7 +58,7 @@ const CustomTooltip = ({ active, payload }: any) => {
           {data.count !== undefined && (
             <div className='flex items-center justify-between gap-4'>
               <span className='text-sm text-muted-foreground'>
-                Facilitators Count:
+                Employees Count:
               </span>
               <span className='font-medium'>{data.count.toLocaleString()}</span>
             </div>
@@ -170,7 +170,7 @@ export function TenureAnalytics({ data, isLoading }: TenureAnalyticsProps) {
               Tenure Analytics
             </CardTitle>
             <CardDescription>
-              Facilitators tenure distribution and retention analysis
+              Employees tenure distribution and retention analysis
             </CardDescription>
           </div>
           <div className='flex items-center gap-2'>

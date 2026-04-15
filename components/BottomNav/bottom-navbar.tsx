@@ -45,7 +45,7 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   'Application Management': TabletSmartphone,
   'Organization Management': Building,
   'Learners': GraduationCap,
-  'Facilitators Management': Users,
+  'Employee Management': Users,
   'Academic Management': CalendarClock,
   'Resource Management': Package,
   'Admissions Management': ClipboardCheck,

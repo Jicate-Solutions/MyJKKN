@@ -26,7 +26,7 @@ export default function ClassInchargesPage() {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbLink href="/staff/list">Facilitators</BreadcrumbLink>
+            <BreadcrumbLink href="/staff/list">Employees</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>

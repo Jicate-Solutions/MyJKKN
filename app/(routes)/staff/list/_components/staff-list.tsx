@@ -508,7 +508,7 @@ const StaffListComponent = ({
       <DataTable
         columns={columns}
         data={staff}
-        searchPlaceholder='Search learning facilitators...'
+        searchPlaceholder='Search learning employees...'
         filterColumn='__no_search__'
         permissions={{
           module: 'staff',

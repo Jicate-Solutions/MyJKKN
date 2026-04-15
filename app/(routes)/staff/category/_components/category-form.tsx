@@ -128,7 +128,7 @@ export function CategoryForm({ category, isEditing }: CategoryFormProps) {
                       <FormLabel>Teaching Category</FormLabel>
                       <div className='text-sm text-muted-foreground'>
                         Enable for categories whose staff teach students
-                        (Faculty, Facilitator, Principal). Teaching staff
+                        (Teaching, Facilitator, Principal). Teaching staff
                         must be assigned to a department; non-teaching staff
                         are institution-scoped only.
                       </div>
