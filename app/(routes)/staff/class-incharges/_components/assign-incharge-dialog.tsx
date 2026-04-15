@@ -62,8 +62,12 @@ export function AssignInchargeDialog({ open, onOpenChange, ...rest }: Props) {
   const [comboboxOpen, setComboboxOpen] = useState(false);
 
   const { canAccess } = usePermissions();
-  const canCreate = canAccess('staff', 'class_incharges.create') || canAccess('staff', 'edit');
-  const canDelete = canAccess('staff', 'class_incharges.delete') || canAccess('staff', 'edit');
+  // canAccess builds the key as `${module}.${action}`; the correct module
+  // segment is `staff.class_incharges`, not `staff`. The previous
+  // OR-fallback to `staff.edit` was a bandaid for the malformed key and
+  // effectively gated this UI on general edit — removed.
+  const canCreate = canAccess('staff.class_incharges', 'create');
+  const canDelete = canAccess('staff.class_incharges', 'delete');
 
   // Single mode only: fetch live incharges for the section
   const { data: incharges = [], isLoading: inchargesLoading } =

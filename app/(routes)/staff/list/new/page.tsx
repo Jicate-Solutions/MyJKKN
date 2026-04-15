@@ -23,25 +23,20 @@ import { Loader2 } from 'lucide-react';
 export default function NewStaffPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const { canAccess, isSuperAdmin, can } = usePermissions([], {
+  const { canAccess, isSuperAdmin } = usePermissions([], {
     waitForLoad: true
   });
 
-  useEffect(() => {
-    // Debug permissions
-    console.log('Permission debug:', {
-      isSuperAdmin,
-      canCreateStaff: canAccess('staff', 'create'),
-      organizations: canAccess('organizations.institutions', 'create'),
-      rawPermissions: can('staff.create')
-    });
-
-    setLoading(false);
-  }, [canAccess, isSuperAdmin, can]);
-
   const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
 
-  if (loading) {
+  useEffect(() => {
+    setLoading(false);
+    if (!canCreateStaff) {
+      router.replace('/unauthorized');
+    }
+  }, [canCreateStaff, router]);
+
+  if (loading || !canCreateStaff) {
     return (
       <ContentLayout title='New Employee'>
         <div className='flex items-center justify-center min-h-[400px]'>

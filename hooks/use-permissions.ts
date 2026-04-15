@@ -408,6 +408,14 @@ export function usePermissions(
     [enhancedPermissions, isSuperAdmin]
   );
 
+  // True when the user has roles AND every role is institution-scoped to 'own'
+  // (i.e. they cannot see other institutions). Used to drive UX that previously
+  // hardcoded `profile.role === 'hod'`. Super-admins are always cross-scoped.
+  const isInstitutionScoped =
+    !isSuperAdmin &&
+    userRoles.length > 0 &&
+    userRoles.every((r) => (r as any).institution_scope !== 'all');
+
   return {
     permissions: enhancedPermissions, // Return enhanced permissions instead of raw permissions
     isLoading,
@@ -417,6 +425,7 @@ export function usePermissions(
     isSuperAdmin,
     isAdmissionGlobalUser,
     isCounselorUser,
+    isInstitutionScoped,
     userProfile,
 
     // Multi-role properties

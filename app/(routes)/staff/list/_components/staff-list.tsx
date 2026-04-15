@@ -82,6 +82,7 @@ const StaffListComponent = ({
 
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit') || canEdit;
+  const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
   const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
   const canUpdateStatus = isSuperAdmin || canAccess('staff', 'status_update');
 
@@ -469,7 +470,7 @@ const StaffListComponent = ({
   // Create table tools (action buttons)
   const tableTools = (
     <div className='flex flex-col sm:flex-row gap-2'>
-      {canEditStaff ? (
+      {canCreateStaff ? (
         <Button className='w-full sm:w-auto' asChild>
           <Link href='/staff/list/new'>
             <Plus className='mr-2 h-4 w-4' />

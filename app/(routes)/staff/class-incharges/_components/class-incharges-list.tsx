@@ -39,7 +39,7 @@ export function ClassInchargesList({ filters, onPageChange, onPageSizeChange }: 
 
   const queryClient = useQueryClient();
   const { isSuperAdmin, canAccess } = usePermissions();
-  const canDelete = isSuperAdmin || canAccess('staff', 'class_incharges.delete');
+  const canDelete = isSuperAdmin || canAccess('staff.class_incharges', 'delete');
 
   const { data, isLoading, error, refetch } = useClassIncharges(filters);
   const sections = data?.data || [];

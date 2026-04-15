@@ -46,6 +46,7 @@ import { DateInput } from '@/components/ui/date-input';
 import { StorageService } from '@/lib/storage/storage-service';
 import { getFirstErrorField } from '@/lib/utils/form-errors';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { CustomRole } from '@/types/auth';
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -124,6 +125,9 @@ const staffFieldOrder: Array<keyof FormValues> = [
 export function StaffForm({ staff, isEditing }: StaffFormProps) {
   const router = useRouter();
   const { profile } = useAuth();
+  // Drives "scoped to your own institution" UX (replaces hardcoded
+  // profile.role === 'hod'). Any role with institution_scope='own' qualifies.
+  const { isInstitutionScoped } = usePermissions();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Create stable date strings to prevent hydration mismatches
@@ -240,11 +244,12 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        // For HOD users, filter institutions based on their access
-        // For other roles, load based on their permissions
+        // For institution-scoped users (any role with institution_scope='own'),
+        // filter institutions to those they have access to.
+        // For unscoped users (super_admin or 'all' scope), load everything.
         // Pass 'all' so admin offices and companies are included — staff can be
         // assigned to any entity type, not just academic institutions.
-        const institutionsPromise = profile?.role === 'hod'
+        const institutionsPromise = isInstitutionScoped && profile?.id
           ? OrganizationService.getInstitutionNames(true, profile.id, 'all')
           : OrganizationService.getInstitutionNames(true, undefined, 'all');
 
@@ -258,8 +263,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         setCategories(categoriesData.data as any);
         setRoles(rolesData);
 
-        // For HOD users, automatically set their institution if they have only one
-        if (profile?.role === 'hod' && institutionsData.length === 1 && !isEditing) {
+        // For scoped users with exactly one accessible institution, auto-select it.
+        if (isInstitutionScoped && institutionsData.length === 1 && !isEditing) {
           form.setValue('institution_id', institutionsData[0].id);
         }
 
@@ -864,7 +869,8 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
-                    disabled={profile?.role === 'hod'} // HOD users can only create in their institution
+                    // Lock institution for users scoped to a single accessible institution
+                    disabled={isInstitutionScoped && institutions.length === 1}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -880,9 +886,9 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                     </SelectContent>
                   </Select>
                   <FormMessage />
-                  {profile?.role === 'hod' && (
+                  {isInstitutionScoped && institutions.length === 1 && (
                     <p className="text-xs text-muted-foreground">
-                      As HOD, you can only create staff in your institution
+                      Your role is scoped to a single institution.
                     </p>
                   )}
                 </FormItem>
@@ -915,9 +921,9 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                       </SelectContent>
                     </Select>
                     <FormMessage />
-                    {profile?.role === 'hod' && departments.length > 0 && (
+                    {isInstitutionScoped && departments.length > 0 && (
                       <p className='text-xs text-muted-foreground'>
-                        You can create staff for any department in your institution
+                        You can create staff for any department in your institution.
                       </p>
                     )}
                   </FormItem>
