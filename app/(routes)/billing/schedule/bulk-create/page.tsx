@@ -47,19 +47,19 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { useStudentsForBulkOperations } from '@/hooks/billing/use-student-search';
 import { useBulkCreateStudentBills } from '@/hooks/billing/use-student-bills';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { Institution } from '@/types/organizations';
-import type { BillingItemCategory } from '@/types/billing';
+import type { BillingCategory } from '@/types/billing';
 import type { StudentForBilling } from '@/types/billing-schedule';
 
 const bulkBillSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
   department_id: z.string().optional(),
   semester_id: z.string().optional(),
-  item_category_id: z.string().min(1, 'Item category is required'),
+  category_id: z.string().min(1, 'Category is required'),
   bill_description: z.string().optional(),
   due_date: z.date({ required_error: 'Due date is required' }),
   quantity: z.number().min(1, 'Quantity must be at least 1').default(1),
@@ -76,9 +76,7 @@ type BulkBillFormData = z.infer<typeof bulkBillSchema>;
 export default function BulkCreateBillsPage() {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [itemCategories, setItemCategories] = useState<BillingItemCategory[]>(
-    []
-  );
+  const [itemCategories, setItemCategories] = useState<BillingCategory[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(true);
   const [isLoadingItemCategories, setIsLoadingItemCategories] = useState(false);
@@ -143,7 +141,7 @@ export default function BulkCreateBillsPage() {
     try {
       setIsLoadingItemCategories(true);
       const categories =
-        await BillingItemCategoryService.getBillingItemCategoriesByInstitution(
+        await BillingCategoryService.getBillingCategoriesByInstitution(
           institutionId,
           true
         );
@@ -241,7 +239,7 @@ export default function BulkCreateBillsPage() {
                           <Select
                             onValueChange={(value) => {
                               field.onChange(value);
-                              form.setValue('item_category_id', '');
+                              form.setValue('category_id', '');
                               setSelectedStudents([]);
                             }}
                             value={field.value}
@@ -271,10 +269,10 @@ export default function BulkCreateBillsPage() {
 
                     <FormField
                       control={form.control}
-                      name='item_category_id'
+                      name='category_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Item Category</FormLabel>
+                          <FormLabel>Category</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
@@ -285,7 +283,7 @@ export default function BulkCreateBillsPage() {
                           >
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder='Select item category' />
+                                <SelectValue placeholder='Select category' />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
@@ -294,7 +292,7 @@ export default function BulkCreateBillsPage() {
                                   key={category.id}
                                   value={category.id}
                                 >
-                                  {category.item_category_name}
+                                  {category.category_name}
                                 </SelectItem>
                               ))}
                             </SelectContent>

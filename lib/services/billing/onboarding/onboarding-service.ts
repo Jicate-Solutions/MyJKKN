@@ -313,18 +313,18 @@ export class OnboardingService {
       const { data: userData } = await supabase.auth.getUser();
       const currentUserId = userData?.user?.id ?? null;
 
-      // Fetch item categories for this institution under "Admission & Registration Fees"
+      // Fetch billing categories for this institution
       const { data: itemCategories } = await supabase
-        .from('billing_item_categories')
-        .select('id, item_category_name, institution_id')
+        .from('billing_categories')
+        .select('id, category_name, institution_id')
         .eq('institution_id', learner.institution_id)
         .eq('is_active', true);
 
-      // Build a lookup: item_category_name → id
+      // Build a lookup: category_name → id
       const categoryLookup: Record<string, string> = {};
       if (itemCategories) {
         for (const cat of itemCategories) {
-          categoryLookup[cat.item_category_name] = cat.id;
+          categoryLookup[cat.category_name] = cat.id;
         }
       }
 
@@ -345,7 +345,7 @@ export class OnboardingService {
           billsToInsert.push({
             student_id: learnerId,
             institution_id: learner.institution_id,
-            item_category_id: categoryId,
+            category_id: categoryId,
             bill_description: description,
             due_date: dueDateStr,
             quantity: 1,

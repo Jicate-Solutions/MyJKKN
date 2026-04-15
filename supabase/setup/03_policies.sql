@@ -1415,86 +1415,36 @@ CREATE POLICY "refunds_all_billing" ON billing_refunds
         )
     );
 
--- BILLING CATEGORY TABLES (4 policies each)
-ALTER TABLE billing_parent_categories ENABLE ROW LEVEL SECURITY;
+-- BILLING CATEGORIES (4 policies)
+-- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into flat billing_categories.
+ALTER TABLE billing_categories ENABLE ROW LEVEL SECURITY;
 
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "parent_categories_select" ON billing_parent_categories
+CREATE POLICY "billing_categories_select" ON billing_categories
     FOR SELECT USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.view'))
+        OR (user_has_permission('billing.categories.view')
+            AND role_has_institution_access(institution_id))
     );
 
-CREATE POLICY "parent_categories_insert" ON billing_parent_categories
+CREATE POLICY "billing_categories_insert" ON billing_categories
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.create'))
+        OR (user_has_permission('billing.categories.create')
+            AND role_has_institution_access(institution_id))
     );
 
-CREATE POLICY "parent_categories_update" ON billing_parent_categories
+CREATE POLICY "billing_categories_update" ON billing_categories
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.edit'))
+        OR (user_has_permission('billing.categories.edit')
+            AND role_has_institution_access(institution_id))
     );
 
-CREATE POLICY "parent_categories_delete" ON billing_parent_categories
+CREATE POLICY "billing_categories_delete" ON billing_categories
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.delete'))
-    );
-
-ALTER TABLE billing_sub_categories ENABLE ROW LEVEL SECURITY;
-
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "sub_categories_select" ON billing_sub_categories
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.view'))
-    );
-
-CREATE POLICY "sub_categories_insert" ON billing_sub_categories
-    FOR INSERT WITH CHECK (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.create'))
-    );
-
-CREATE POLICY "sub_categories_update" ON billing_sub_categories
-    FOR UPDATE USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.edit'))
-    );
-
-CREATE POLICY "sub_categories_delete" ON billing_sub_categories
-    FOR DELETE USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.delete'))
-    );
-
-ALTER TABLE billing_item_categories ENABLE ROW LEVEL SECURITY;
-
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "item_categories_select" ON billing_item_categories
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.view'))
-    );
-
-CREATE POLICY "item_categories_insert" ON billing_item_categories
-    FOR INSERT WITH CHECK (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.create'))
-    );
-
-CREATE POLICY "item_categories_update" ON billing_item_categories
-    FOR UPDATE USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.edit'))
-    );
-
-CREATE POLICY "item_categories_delete" ON billing_item_categories
-    FOR DELETE USING (
-        is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.categories.delete'))
+        OR (user_has_permission('billing.categories.delete')
+            AND role_has_institution_access(institution_id))
     );
 
 -- ================================================================================

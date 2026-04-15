@@ -784,45 +784,21 @@ CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
 -- SECTION 8: BILLING AND FINANCE
 -- =====================================================
 
--- Billing Parent Categories
-CREATE TABLE IF NOT EXISTS public.billing_parent_categories (
+-- Billing Categories (flat, dynamic)
+-- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into a single flat table.
+CREATE TABLE IF NOT EXISTS public.billing_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     institution_id UUID NOT NULL,
-    parent_category_name VARCHAR(100) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    created_by UUID,
-    updated_by UUID
-);
-
--- Billing Sub Categories
-CREATE TABLE IF NOT EXISTS public.billing_sub_categories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL,
-    parent_category_id UUID NOT NULL,
-    sub_category_name VARCHAR(100) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now(),
-    created_by UUID,
-    updated_by UUID
-);
-
--- Billing Item Categories
-CREATE TABLE IF NOT EXISTS public.billing_item_categories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL,
-    parent_category_id UUID NOT NULL,
-    sub_category_id UUID NOT NULL,
-    item_category_name VARCHAR(150) NOT NULL,
+    category_name VARCHAR(150) NOT NULL,
     amount NUMERIC(15,2),
     frequency VARCHAR(20) NOT NULL,
+    description TEXT,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID,
-    updated_by UUID
+    updated_by UUID,
+    CONSTRAINT uq_billing_categories_name_per_institution UNIQUE (institution_id, category_name)
 );
 
 -- Billing Student Bills
@@ -830,7 +806,7 @@ CREATE TABLE IF NOT EXISTS public.billing_student_bills (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    item_category_id UUID,
+    category_id UUID,  -- Renamed 2026-04-15 from item_category_id (flat billing_categories)
     bill_description TEXT NOT NULL,
     due_date DATE NOT NULL,
     quantity INTEGER DEFAULT 1,

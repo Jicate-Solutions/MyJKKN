@@ -454,36 +454,10 @@ export const PERMISSION_CATEGORIES = [
     name: 'Billing Management',
     key: 'billing',
     permissions: [
-      {
-        key: 'billing.parent_categories.view',
-        label: 'View Parent Categories'
-      },
-      {
-        key: 'billing.parent_categories.create',
-        label: 'Create Parent Categories'
-      },
-      {
-        key: 'billing.parent_categories.edit',
-        label: 'Edit Parent Categories'
-      },
-      {
-        key: 'billing.parent_categories.delete',
-        label: 'Delete Parent Categories'
-      },
-      { key: 'billing.sub_categories.view', label: 'View Sub Categories' },
-      { key: 'billing.sub_categories.create', label: 'Create Sub Categories' },
-      { key: 'billing.sub_categories.edit', label: 'Edit Sub Categories' },
-      { key: 'billing.sub_categories.delete', label: 'Delete Sub Categories' },
-      { key: 'billing.item_categories.view', label: 'View Item Categories' },
-      {
-        key: 'billing.item_categories.create',
-        label: 'Create Item Categories'
-      },
-      { key: 'billing.item_categories.edit', label: 'Edit Item Categories' },
-      {
-        key: 'billing.item_categories.delete',
-        label: 'Delete Item Categories'
-      },
+      { key: 'billing.categories.view', label: 'View Billing Categories' },
+      { key: 'billing.categories.create', label: 'Create Billing Categories' },
+      { key: 'billing.categories.edit', label: 'Edit Billing Categories' },
+      { key: 'billing.categories.delete', label: 'Delete Billing Categories' },
       { key: 'billing.schedule.view', label: 'View Schedule' },
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },

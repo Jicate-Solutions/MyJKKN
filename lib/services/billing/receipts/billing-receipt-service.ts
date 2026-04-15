@@ -348,17 +348,12 @@ export class BillingReceiptService {
             *,
             bill:billing_student_bills (
               *,
-              item_category:billing_item_categories(
+              category:billing_categories(
                 id,
-                item_category_name,
-                parent_category:billing_parent_categories(
-                  id,
-                  parent_category_name
-                ),
-                sub_category:billing_sub_categories(
-                  id,
-                  sub_category_name
-                )
+                category_name,
+                amount,
+                frequency,
+                description
               )
             )
           ),
@@ -621,7 +616,7 @@ export class BillingReceiptService {
                 <tr>
                     <td>${
                       item.bill?.bill_description ||
-                      item.bill?.item_category?.item_category_name ||
+                      item.bill?.category?.category_name ||
                       'N/A'
                     }</td>
                     <td>${
@@ -809,17 +804,12 @@ export class BillingReceiptService {
         .select(
           `
           *,
-          item_category:billing_item_categories (
+          category:billing_categories (
             id,
-            item_category_name,
-            parent_category:billing_parent_categories (
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories (
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency,
+            description
           ),
           student:learners_profiles (
             id,

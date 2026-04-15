@@ -233,13 +233,13 @@ export function ReceiptDetailsServer({ receipt }: ReceiptDetailsServerProps) {
                                 {item.bill?.bill_description &&
                                 item.bill.bill_description.trim() !== ''
                                   ? item.bill.bill_description
-                                  : item.bill?.item_category?.item_category_name ||
+                                  : (item.bill as any)?.category?.category_name ||
                                     'No description'}
                               </p>
                               {item.bill?.bill_description &&
                                 item.bill.bill_description.trim() !== '' && (
                                   <p className='text-sm text-gray-500'>
-                                    {item.bill?.item_category?.item_category_name}
+                                    {(item.bill as any)?.category?.category_name}
                                   </p>
                                 )}
                             </div>

@@ -42,17 +42,12 @@ export async function getReceipt(id: string): Promise<BillingReceipt> {
         *,
         bill:billing_student_bills(
           *,
-          item_category:billing_item_categories(
+          category:billing_categories(
             id,
-            item_category_name,
-            parent_category:billing_parent_categories(
-              id,
-              parent_category_name
-            ),
-            sub_category:billing_sub_categories(
-              id,
-              sub_category_name
-            )
+            category_name,
+            amount,
+            frequency,
+            description
           )
         )
       ),
