@@ -239,16 +239,21 @@ export default async function DashboardV2Page({
           </Suspense>
         </div>
 
-        {/* Footer link to classic */}
-        <div className='text-center text-xs text-neutral-400 dark:text-neutral-600 pt-4'>
-          Prefer the old dashboard?{' '}
-          <Link
-            href='/dashboard/classic'
-            className='underline hover:text-neutral-700 dark:hover:text-neutral-300'
-          >
-            Open classic view
-          </Link>
-        </div>
+        {/* Footer: push opt-in + classic fallback link */}
+        <footer className='flex flex-col sm:flex-row items-center justify-between gap-3 pt-4'>
+          <PushSubscribeButton
+            vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY}
+          />
+          <div className='text-xs text-neutral-400 dark:text-neutral-600'>
+            Prefer the old dashboard?{' '}
+            <Link
+              href='/dashboard/classic'
+              className='underline hover:text-neutral-700 dark:hover:text-neutral-300'
+            >
+              Open classic view
+            </Link>
+          </div>
+        </footer>
       </div>
     </ContentLayout>
   );
