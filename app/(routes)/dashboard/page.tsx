@@ -63,6 +63,12 @@ async function LiveHeroStrip({
   return <HeroStrip metrics={metrics} drillBase={drillBase} />;
 }
 
+// Week-2 addition: counselor-scoped hero strip
+async function LiveCounselorHero() {
+  const metrics = await getCounselorMetrics();
+  return <CounselorHeroStrip metrics={metrics} />;
+}
+
 // ============================================================================
 // Hero fallback (skeleton while metrics fetch)
 // ============================================================================
