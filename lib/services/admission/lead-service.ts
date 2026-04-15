@@ -266,6 +266,8 @@ export class LeadService {
     if (cleanParent) insertData.parent_phone = cleanParent;
     if (leadData.parent_email) insertData.parent_email = leadData.parent_email;
     if (leadData.entry_date) insertData.entry_date = leadData.entry_date;
+    // BUG-003222: 12th group / stream captured at expo stall
+    if (leadData.twelfth_group) insertData.twelfth_group = leadData.twelfth_group;
     if (leadData.notes) insertData.notes = leadData.notes;
     // Address fields
     if (cleanAlt) insertData.alternate_phone = cleanAlt;
