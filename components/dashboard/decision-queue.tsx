@@ -13,6 +13,7 @@ import {
   QueueCounts
 } from '@/lib/services/dashboard/decision-queue-service';
 import { QueueItemCard } from '@/components/dashboard/decision-queue-item';
+import { TabTitleBadge } from '@/components/dashboard/tab-title-badge';
 
 type DecisionQueueProps = {
   filter?: QueueFilter;
