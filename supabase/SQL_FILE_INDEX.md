@@ -6,6 +6,10 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-15** — `get_user_roles_with_details` now returns scope columns (fixes "Employment Information section not hiding for own_records users")
+  - `02_functions.sql`: added `institution_scope text` and `module_scopes jsonb` to the function's RETURNS TABLE. Required DROP+CREATE because Postgres can't ALTER return shape. Without these, client-side `usePermissions().getModuleScope()` always read undefined and fell back to defaults.
+  - Migration: `user_roles_details_include_scopes`. No client code change required — existing `(r as any).module_scopes` reads now resolve.
+
 - **2026-04-15** — `user_roles` RLS aligned to permission contract; staff edit no longer fails on no-op role resync
   - `03_policies.sql`: dropped 4 hardcoded `profiles.role IN ('super_admin','admin')` policies on `user_roles`. Added 4 contract policies keyed on `roles.{create,edit,delete}`. Self-view policies preserved.
   - `lib/services/staff/staff-service.ts`: `updateStaff` now skips `assignRoles` when `data.role_key === currentStaff.role_key` (avoided unnecessary DELETE+INSERT cycle that surfaced as a 42501 RLS error for callers without `roles.create`). Pre-fetch select extended to include `role_key`.

@@ -6190,3 +6190,49 @@ BEGIN
   RETURN false;
 END;
 $function$;
+
+-- Updated: 2026-04-15 - get_user_roles_with_details now returns
+-- institution_scope and module_scopes so client-side usePermissions hook
+-- can read effective scope without an extra DB roundtrip.
+DROP FUNCTION IF EXISTS public.get_user_roles_with_details(uuid);
+
+CREATE OR REPLACE FUNCTION public.get_user_roles_with_details(p_user_id uuid)
+RETURNS TABLE(
+    id uuid,
+    user_id uuid,
+    role_id uuid,
+    is_primary boolean,
+    assigned_at timestamp with time zone,
+    assigned_by uuid,
+    role_key text,
+    role_name text,
+    role_description text,
+    permissions jsonb,
+    institution_scope text,
+    module_scopes jsonb
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+    RETURN QUERY
+    SELECT
+        ur.id,
+        ur.user_id,
+        ur.role_id,
+        ur.is_primary,
+        ur.assigned_at,
+        ur.assigned_by,
+        cr.role_key::text,
+        cr.role_name::text,
+        cr.description::text AS role_description,
+        cr.permissions,
+        cr.institution_scope::text,
+        cr.module_scopes
+    FROM user_roles ur
+    INNER JOIN custom_roles cr ON cr.id = ur.role_id
+    WHERE ur.user_id = p_user_id
+    ORDER BY ur.is_primary DESC, ur.assigned_at ASC;
+END;
+$function$;
