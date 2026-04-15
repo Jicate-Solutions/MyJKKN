@@ -73,54 +73,19 @@ function HeroSkeleton() {
 }
 
 // ============================================================================
-// Decision Queue placeholder — wires Day 3
+// Decision Queue skeleton (fallback during server fetch)
 // ============================================================================
-function DecisionQueuePlaceholder() {
+function QueueSkeleton() {
   return (
-    <div
-      id='decision-queue'
-      className='rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm scroll-mt-24'
-    >
-      <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-5 border-b border-neutral-200 dark:border-neutral-800'>
-        <div>
-          <h2 className='text-lg font-semibold'>Decision Queue</h2>
-          <p className='text-xs text-neutral-500 mt-1'>
-            Items awaiting your action · auto-escalates to Chief of Staff after 2h
-          </p>
-        </div>
-        <div className='flex flex-wrap gap-1.5'>
-          {['All', 'Approvals', 'Escalations', 'Rescues', 'Anomalies'].map(
-            (chip, i) => (
-              <span
-                key={chip}
-                className={`px-2.5 py-1 text-xs rounded-full ${
-                  i === 0
-                    ? 'bg-neutral-900 text-white dark:bg-white dark:text-neutral-900'
-                    : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
-                }`}
-              >
-                {chip}
-              </span>
-            )
-          )}
-        </div>
-      </div>
-      <div className='p-8 text-center'>
-        <div className='text-4xl mb-3'>✓</div>
-        <div className='text-sm font-medium'>Queue wiring arrives Day 3</div>
-        <div className='text-xs text-neutral-500 mt-2 max-w-md mx-auto leading-relaxed'>
-          Approvals · Escalated complaints · Cold lead rescues · Anomalies
-          requiring judgment. Each item ships with inline
-          Approve/Reject/Delegate/Snooze actions. Powered by existing{' '}
-          <code className='px-1 rounded bg-neutral-100 dark:bg-neutral-800 text-[11px]'>
-            notifications
-          </code>{' '}
-          +{' '}
-          <code className='px-1 rounded bg-neutral-100 dark:bg-neutral-800 text-[11px]'>
-            user_notifications
-          </code>{' '}
-          (19,494 live rows).
-        </div>
+    <div className='rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/50 dark:bg-neutral-900/50 p-5 animate-pulse'>
+      <div className='h-4 w-1/4 bg-neutral-200 dark:bg-neutral-800 rounded' />
+      <div className='mt-3 space-y-2'>
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className='h-20 bg-neutral-100 dark:bg-neutral-800/50 rounded-lg'
+          />
+        ))}
       </div>
     </div>
   );
