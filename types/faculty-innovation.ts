@@ -174,6 +174,9 @@ export interface FacultyInitiative {
 
   attachment_urls: AttachmentRef[];
 
+  // Week 2: collaboration request (JSONB)
+  collaboration_request: CollaborationRequest | null;
+
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -420,3 +423,219 @@ export const STATUS_COLOR: Record<FacultyInitiativeStatus, string> = {
   scaled:           'bg-teal-100 text-teal-800',
   terminated:       'bg-gray-100 text-gray-700',
 };
+
+// =============================================================================
+// WEEK 2: IP Filings
+// =============================================================================
+
+export type IpFilingType =
+  | 'patent'
+  | 'design'
+  | 'trademark'
+  | 'copyright'
+  | 'trade_secret'
+  | 'utility_model';
+
+export type IpFilingStatus =
+  | 'draft'
+  | 'filed'
+  | 'published'
+  | 'granted'
+  | 'rejected'
+  | 'abandoned'
+  | 'expired';
+
+export interface IpFiling {
+  id: string;
+  initiative_id: string;
+  institution_id: string;
+  inventor_id: string;
+
+  filing_type: IpFilingType;
+  filing_status: IpFilingStatus;
+  filing_number: string | null;
+  filing_date: string | null;
+  grant_date: string | null;
+  jurisdiction: string | null;
+  assignee: string | null;
+
+  title: string;
+  abstract: string | null;
+
+  cost_currency: string;
+  cost_amount: number | null;
+
+  naac_criteria: string | null;
+  naac_metric_code: string | null;
+  naac_score_claim: number | null;
+
+  coinventors: ExternalCoinventor[];
+  attachment_urls: AttachmentRef[];
+
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  is_active: boolean;
+}
+
+export interface CreateIpFilingInput {
+  initiative_id: string;
+  institution_id: string;
+  inventor_id?: string;
+
+  filing_type: IpFilingType;
+  filing_status?: IpFilingStatus;
+  filing_number?: string;
+  filing_date?: string;
+  grant_date?: string;
+  jurisdiction?: string;
+  assignee?: string;
+
+  title: string;
+  abstract?: string;
+
+  cost_currency?: string;
+  cost_amount?: number;
+
+  naac_criteria?: string;
+  naac_metric_code?: string;
+  naac_score_claim?: number;
+
+  coinventors?: ExternalCoinventor[];
+  attachment_urls?: AttachmentRef[];
+}
+
+export type UpdateIpFilingInput = Partial<CreateIpFilingInput>;
+
+export const IP_FILING_TYPE_LABEL: Record<IpFilingType, string> = {
+  patent:        'Patent',
+  design:        'Design',
+  trademark:     'Trademark',
+  copyright:     'Copyright',
+  trade_secret:  'Trade Secret',
+  utility_model: 'Utility Model',
+};
+
+export const IP_FILING_STATUS_LABEL: Record<IpFilingStatus, string> = {
+  draft:     'Draft',
+  filed:     'Filed',
+  published: 'Published',
+  granted:   'Granted',
+  rejected:  'Rejected',
+  abandoned: 'Abandoned',
+  expired:   'Expired',
+};
+
+export const IP_FILING_STATUS_COLOR: Record<IpFilingStatus, string> = {
+  draft:     'bg-slate-100 text-slate-700',
+  filed:     'bg-blue-100 text-blue-800',
+  published: 'bg-indigo-100 text-indigo-800',
+  granted:   'bg-emerald-100 text-emerald-800',
+  rejected:  'bg-red-100 text-red-800',
+  abandoned: 'bg-orange-100 text-orange-800',
+  expired:   'bg-gray-100 text-gray-600',
+};
+
+export const createIpFilingSchema = z.object({
+  initiative_id: z.string().uuid(),
+  institution_id: z.string().uuid(),
+  inventor_id: z.string().uuid().optional(),
+  filing_type: z.enum(['patent', 'design', 'trademark', 'copyright', 'trade_secret', 'utility_model']),
+  filing_status: z.enum(['draft', 'filed', 'published', 'granted', 'rejected', 'abandoned', 'expired']).optional(),
+  filing_number: z.string().max(100).optional(),
+  filing_date: z.string().optional(),
+  grant_date: z.string().optional(),
+  jurisdiction: z.string().max(100).optional(),
+  assignee: z.string().max(200).optional(),
+  title: z.string().min(5, 'Title must be at least 5 characters').max(500),
+  abstract: z.string().optional(),
+  cost_currency: z.string().max(3).optional(),
+  cost_amount: z.number().nonnegative().optional(),
+  naac_criteria: z.string().max(50).optional(),
+  naac_metric_code: z.string().max(50).optional(),
+  naac_score_claim: z.number().min(0).max(100).optional(),
+  coinventors: z.array(externalCoinventorSchema).max(20).optional(),
+  attachment_urls: z.array(attachmentRefSchema).max(20).optional(),
+});
+
+export const updateIpFilingSchema = createIpFilingSchema.partial();
+
+// =============================================================================
+// WEEK 2: Inventor Transfers
+// =============================================================================
+
+export interface InventorTransfer {
+  id: string;
+  initiative_id: string;
+  from_inventor_id: string;
+  to_inventor_id: string;
+  transferred_at: string;
+  transferred_by: string | null;
+  reason: string | null;
+}
+
+// =============================================================================
+// WEEK 2: Notifications
+// =============================================================================
+
+export type FacultyInnovationEventType =
+  | 'status_changed'
+  | 'approval_needed'
+  | 'collab_request'
+  | 'escalated'
+  | 'transfer'
+  | 'ip_filed'
+  | 'changes_requested';
+
+export interface FacultyInnovationNotification {
+  id: string;
+  user_id: string;
+  initiative_id: string | null;
+  event_type: FacultyInnovationEventType;
+  title: string | null;
+  body: string | null;
+  channels: string[];
+  read_at: string | null;
+  created_at: string;
+}
+
+// =============================================================================
+// WEEK 2: Collaboration Request (JSONB on faculty_initiatives)
+// =============================================================================
+
+export interface CollaborationRequest {
+  target_institution_id: string;
+  target_department_id?: string;
+  description: string;
+  status: 'pending' | 'accepted' | 'declined';
+  requested_at: string;
+  responded_at?: string;
+  responded_by?: string;
+}
+
+// =============================================================================
+// WEEK 2: Approval Queue
+// =============================================================================
+
+export interface ApprovalAction {
+  initiative_id: string;
+  action: 'approve' | 'request_changes' | 'reject' | 'defer';
+  reason?: string;
+  defer_days?: number;
+  reroute_to?: FacultyApprovalAuthority;
+}
+
+export const approvalActionSchema = z.object({
+  initiative_id: z.string().uuid(),
+  action: z.enum(['approve', 'request_changes', 'reject', 'defer']),
+  reason: z.string().max(2000).optional(),
+  defer_days: z.number().int().min(1).max(90).optional(),
+  reroute_to: z.enum(['director', 'dean', 'ip_cell', 'hod']).optional(),
+});
+
+export interface ApprovalQueueItem extends FacultyInitiative {
+  is_overdue: boolean;
+  days_pending: number;
+  escalation_config?: ApprovalAuthorityConfig;
+}

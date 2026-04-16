@@ -14,6 +14,11 @@ import {
   createFacultyInitiativeSchema,
   transitionStatusSchema,
   transferOwnershipSchema,
+  approvalActionSchema,
+  type ApprovalAction,
+  type ApprovalAuthorityConfig,
+  type ApprovalQueueItem,
+  type CollaborationRequest,
   type CreateFacultyInitiativeInput,
   type FacultyApprovalAuthority,
   type FacultyInitiative,
@@ -26,6 +31,7 @@ import {
   type UpdateFacultyInitiativeInput,
 } from '@/types/faculty-innovation';
 import { FacultyInitiativeAuditService } from './faculty-initiative-audit-service';
+import { FacultyInnovationNotificationService } from './notification-service';
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -501,5 +507,398 @@ export class FacultyInitiativeService {
       .eq('initiative_id', initiative_id);
     if (error) throw error;
     return data ?? [];
+  }
+
+  // ==========================================================================
+  // WEEK 2: APPROVAL QUEUE (role-routed)
+  // ==========================================================================
+
+  /**
+   * Get the approval queue for the current user based on their role.
+   * Director sees approval_authority = 'director' items.
+   * Dean sees approval_authority = 'dean' AND their institution.
+   * IP Cell sees approval_authority = 'ip_cell'.
+   * HOD sees approval_authority = 'hod' AND their institution.
+   *
+   * Also enriches with escalation config + overdue flag.
+   */
+  static async getApprovalQueue(params: {
+    role: string;
+    institution_id?: string;
+    isSuperAdmin?: boolean;
+  }): Promise<ApprovalQueueItem[]> {
+    const reviewStatuses = ['submitted', 'under_review'];
+
+    let query = (this.supabase as any)
+      .from('faculty_initiatives')
+      .select('*')
+      .in('status', reviewStatuses)
+      .eq('is_active', true)
+      .order('submitted_at', { ascending: true });
+
+    if (params.isSuperAdmin) {
+      // Super admin sees everything in queue
+    } else if (params.role === 'director') {
+      query = query.eq('approval_authority', 'director');
+    } else if (params.role === 'dean') {
+      query = query.eq('approval_authority', 'dean');
+      if (params.institution_id) {
+        query = query.eq('institution_id', params.institution_id);
+      }
+    } else if (params.role === 'ip_cell' || params.role === 'ip cell') {
+      query = query.eq('approval_authority', 'ip_cell');
+    } else if (params.role === 'hod') {
+      query = query.eq('approval_authority', 'hod');
+      if (params.institution_id) {
+        query = query.eq('institution_id', params.institution_id);
+      }
+    } else {
+      // Non-approver roles see nothing
+      return [];
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Fetch escalation configs
+    const { data: configs } = await (this.supabase as any)
+      .from('approval_authority_config')
+      .select('*')
+      .eq('is_active', true);
+
+    const configMap = new Map<string, ApprovalAuthorityConfig>();
+    for (const c of (configs ?? [])) {
+      const key = `${c.approval_authority}:${c.institution_id ?? 'global'}`;
+      configMap.set(key, c as ApprovalAuthorityConfig);
+    }
+
+    const now = new Date();
+    return ((data as any[]) ?? []).map((row) => {
+      const initiative = this.normalize(row);
+      const submittedAt = initiative.submitted_at
+        ? new Date(initiative.submitted_at)
+        : new Date(initiative.created_at);
+      const daysPending = Math.floor(
+        (now.getTime() - submittedAt.getTime()) / (1000 * 60 * 60 * 24)
+      );
+
+      const authority = initiative.approval_authority ?? 'director';
+      const specificConfig = configMap.get(
+        `${authority}:${initiative.institution_id}`
+      );
+      const globalConfig = configMap.get(`${authority}:global`);
+      const config = specificConfig ?? globalConfig;
+
+      const isOverdue = config
+        ? daysPending > config.escalate_after_days
+        : daysPending > 7;
+
+      return {
+        ...initiative,
+        is_overdue: isOverdue,
+        days_pending: daysPending,
+        escalation_config: config,
+      } as ApprovalQueueItem;
+    });
+  }
+
+  // ==========================================================================
+  // WEEK 2: APPROVAL ACTIONS
+  // ==========================================================================
+
+  static async approveInitiative(
+    initiative_id: string,
+    reason?: string
+  ): Promise<FacultyInitiative> {
+    const current = await this.getById(initiative_id);
+    if (!current) throw new Error('Initiative not found');
+
+    if (current.status === 'submitted') {
+      await this.transitionStatus({
+        initiative_id,
+        to_status: 'under_review',
+        reason: 'Auto-transition to under_review before approval',
+      });
+    }
+
+    const result = await this.transitionStatus({
+      initiative_id,
+      to_status: 'approved',
+      reason: reason ?? 'Approved',
+    });
+
+    try {
+      await FacultyInnovationNotificationService.create({
+        user_id: current.inventor_id,
+        initiative_id,
+        event_type: 'status_changed',
+        title: `Initiative "${current.title}" has been approved`,
+        body: reason ?? 'Your initiative has been approved and can now proceed to resourcing.',
+      });
+    } catch {
+      console.warn('[faculty-innovation] Failed to send approval notification');
+    }
+
+    return result;
+  }
+
+  static async requestChanges(
+    initiative_id: string,
+    reason: string
+  ): Promise<FacultyInitiative> {
+    if (!reason) throw new Error('Reason is required when requesting changes');
+
+    const current = await this.getById(initiative_id);
+    if (!current) throw new Error('Initiative not found');
+
+    if (current.status === 'submitted') {
+      await this.transitionStatus({
+        initiative_id,
+        to_status: 'under_review',
+      });
+    }
+
+    await FacultyInitiativeAuditService.logAction({
+      initiative_id,
+      action: 'status_changed',
+      reason: `Changes requested: ${reason}`,
+      before_state: { status: 'under_review' },
+      after_state: { status: 'under_review', changes_requested: true },
+    });
+
+    try {
+      await FacultyInnovationNotificationService.create({
+        user_id: current.inventor_id,
+        initiative_id,
+        event_type: 'changes_requested',
+        title: `Changes requested for "${current.title}"`,
+        body: reason,
+      });
+    } catch {
+      console.warn('[faculty-innovation] Failed to send changes-requested notification');
+    }
+
+    const updated = await this.getById(initiative_id);
+    return updated!;
+  }
+
+  static async rejectInitiative(
+    initiative_id: string,
+    reason: string,
+    reroute_to?: FacultyApprovalAuthority
+  ): Promise<FacultyInitiative> {
+    if (!reason) throw new Error('Reason is required when rejecting');
+
+    const current = await this.getById(initiative_id);
+    if (!current) throw new Error('Initiative not found');
+
+    if (reroute_to) {
+      const { data: authData } = await (this.supabase as any).auth.getUser();
+      const currentUserId = authData?.user?.id ?? null;
+
+      const patch = {
+        approval_authority: reroute_to,
+        updated_by: currentUserId,
+      };
+
+      const { data, error } = await (this.supabase as any)
+        .from('faculty_initiatives')
+        .update(patch)
+        .eq('id', initiative_id)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      await FacultyInitiativeAuditService.logAction({
+        initiative_id,
+        action: 'approver_changed',
+        reason: `Rerouted from ${current.approval_authority} to ${reroute_to}: ${reason}`,
+        before_state: { approval_authority: current.approval_authority },
+        after_state: { approval_authority: reroute_to },
+      });
+
+      try {
+        await FacultyInnovationNotificationService.create({
+          user_id: current.inventor_id,
+          initiative_id,
+          event_type: 'status_changed',
+          title: `Initiative "${current.title}" rerouted to ${reroute_to}`,
+          body: reason,
+        });
+      } catch {
+        console.warn('[faculty-innovation] Failed to send reroute notification');
+      }
+
+      return this.normalize(data);
+    }
+
+    if (current.status === 'submitted') {
+      await this.transitionStatus({
+        initiative_id,
+        to_status: 'under_review',
+      });
+    }
+
+    const result = await this.transitionStatus({
+      initiative_id,
+      to_status: 'rejected',
+      reason,
+    });
+
+    try {
+      await FacultyInnovationNotificationService.create({
+        user_id: current.inventor_id,
+        initiative_id,
+        event_type: 'status_changed',
+        title: `Initiative "${current.title}" has been rejected`,
+        body: reason,
+      });
+    } catch {
+      console.warn('[faculty-innovation] Failed to send rejection notification');
+    }
+
+    return result;
+  }
+
+  static async deferInitiative(
+    initiative_id: string,
+    defer_days: number,
+    reason?: string
+  ): Promise<FacultyInitiative> {
+    if (!defer_days || defer_days < 1) {
+      throw new Error('defer_days must be at least 1');
+    }
+
+    const current = await this.getById(initiative_id);
+    if (!current) throw new Error('Initiative not found');
+
+    const revisitAfter = new Date();
+    revisitAfter.setDate(revisitAfter.getDate() + defer_days);
+
+    await FacultyInitiativeAuditService.logAction({
+      initiative_id,
+      action: 'status_changed',
+      reason: `Deferred for ${defer_days} day(s). Revisit after ${revisitAfter.toISOString().split('T')[0]}. ${reason ?? ''}`.trim(),
+      before_state: { status: current.status },
+      after_state: {
+        status: current.status,
+        deferred_until: revisitAfter.toISOString(),
+      },
+    });
+
+    try {
+      await FacultyInnovationNotificationService.create({
+        user_id: current.inventor_id,
+        initiative_id,
+        event_type: 'status_changed',
+        title: `Review of "${current.title}" deferred`,
+        body: `Review deferred for ${defer_days} day(s). ${reason ?? ''}`.trim(),
+      });
+    } catch {
+      console.warn('[faculty-innovation] Failed to send defer notification');
+    }
+
+    return current;
+  }
+
+  static async executeApprovalAction(
+    input: ApprovalAction
+  ): Promise<FacultyInitiative> {
+    const parsed = approvalActionSchema.parse(input);
+
+    switch (parsed.action) {
+      case 'approve':
+        return this.approveInitiative(parsed.initiative_id, parsed.reason);
+      case 'request_changes':
+        return this.requestChanges(parsed.initiative_id, parsed.reason ?? '');
+      case 'reject':
+        return this.rejectInitiative(
+          parsed.initiative_id,
+          parsed.reason ?? '',
+          parsed.reroute_to
+        );
+      case 'defer':
+        return this.deferInitiative(
+          parsed.initiative_id,
+          parsed.defer_days ?? 7,
+          parsed.reason
+        );
+      default:
+        throw new Error(`Unknown approval action: ${parsed.action}`);
+    }
+  }
+
+  // ==========================================================================
+  // WEEK 2: COLLABORATION REQUEST
+  // ==========================================================================
+
+  static async submitCollabRequest(
+    initiative_id: string,
+    request: Omit<CollaborationRequest, 'status' | 'requested_at'>
+  ): Promise<FacultyInitiative> {
+    const current = await this.getById(initiative_id);
+    if (!current) throw new Error('Initiative not found');
+
+    const { data: authData } = await (this.supabase as any).auth.getUser();
+    const currentUserId = authData?.user?.id ?? null;
+
+    const collabRequest: CollaborationRequest = {
+      target_institution_id: request.target_institution_id,
+      target_department_id: request.target_department_id,
+      description: request.description,
+      status: 'pending',
+      requested_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await (this.supabase as any)
+      .from('faculty_initiatives')
+      .update({
+        collaboration_request: collabRequest,
+        updated_by: currentUserId,
+      })
+      .eq('id', initiative_id)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+
+    await FacultyInitiativeAuditService.logAction({
+      initiative_id,
+      action: 'updated',
+      reason: 'Cross-college collaboration request submitted',
+      before_state: { collaboration_request: null },
+      after_state: { collaboration_request: collabRequest },
+    });
+
+    return this.normalize(data);
+  }
+
+  // ==========================================================================
+  // WEEK 2: INVENTOR TRANSFER (enhanced — writes to transfers table)
+  // ==========================================================================
+
+  static async recordTransfer(params: {
+    initiative_id: string;
+    from_inventor_id: string;
+    to_inventor_id: string;
+    reason?: string;
+  }): Promise<void> {
+    const { data: authData } = await (this.supabase as any).auth.getUser();
+    const transferredBy = authData?.user?.id ?? null;
+
+    const { error } = await (this.supabase as any)
+      .from('faculty_initiative_inventor_transfers')
+      .insert({
+        initiative_id: params.initiative_id,
+        from_inventor_id: params.from_inventor_id,
+        to_inventor_id: params.to_inventor_id,
+        transferred_by: transferredBy,
+        reason: params.reason ?? null,
+      });
+
+    if (error) {
+      console.error('[faculty-innovation] Failed to record transfer:', error);
+    }
   }
 }
