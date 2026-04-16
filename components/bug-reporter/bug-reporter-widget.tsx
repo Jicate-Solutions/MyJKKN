@@ -200,202 +200,79 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
   const originalScrollY = window.scrollY;
 
   try {
-    // Calculate full page dimensions for complete capture
-    const fullPageWidth = Math.max(
-      document.body.scrollWidth,
-      document.documentElement.scrollWidth,
-      document.body.offsetWidth,
-      document.documentElement.offsetWidth,
-      document.documentElement.clientWidth
-    );
-    const fullPageHeight = Math.max(
-      document.body.scrollHeight,
-      document.documentElement.scrollHeight,
-      document.body.offsetHeight,
-      document.documentElement.offsetHeight,
-      document.documentElement.clientHeight
-    );
+    // Capture viewport dimensions (not full page — much faster)
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
 
-    // Force reflow to ensure all dynamic content is rendered
-    void document.body.offsetHeight;
-
-    // html2canvas options optimized for FULL PAGE screenshot capture
-    // FIX 2025-12-05: Reduced scale to prevent oversized screenshots that exceed API limits
+    // html2canvas options optimized for VIEWPORT capture (fast)
     const options = {
-      // Quality and scaling options - cap at 1.5x to prevent huge images
-      scale: Math.min(window.devicePixelRatio || 1, 1.5), // Cap scale to prevent huge screenshots
-      backgroundColor: '#ffffff', // White background to avoid transparency issues
+      scale: isMobile ? 1 : Math.min(window.devicePixelRatio || 1, 1.5),
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      allowTaint: false,
+      removeContainer: true,
+      logging: false,
+      imageTimeout: isMobile ? 5000 : 10000,
 
-      // Performance options
-      useCORS: true, // Enable CORS for cross-origin images
-      allowTaint: false, // Prevent canvas tainting for security
-      removeContainer: true, // Clean up temporary DOM elements
-      logging: true, // Enable logging to debug issues
+      // Viewport capture — captures what the user sees
+      windowWidth: viewportWidth,
+      windowHeight: viewportHeight,
+      width: viewportWidth,
+      height: viewportHeight,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
 
-      // Image handling
-      imageTimeout: isMobile ? 15000 : 30000, // Timeout for loading images
+      foreignObjectRendering: false,
 
-      // FULL PAGE CAPTURE - Updated 2025-11-17
-      // Capture the entire document, not just viewport
-      windowWidth: fullPageWidth,
-      windowHeight: fullPageHeight,
-
-      // Set canvas size to full page dimensions
-      width: fullPageWidth,
-      height: fullPageHeight,
-
-      // Start from top of page (0,0) to capture everything
-      scrollX: 0,
-      scrollY: 0,
-
-      // Additional quality options
-      foreignObjectRendering: true, // Better text and complex element rendering
-
-      // Element filtering - ignore overlay elements
+      // Lightweight element filtering — no getComputedStyle calls
       ignoreElements: (element: Element) => {
-        // Skip the bug reporter widget itself
         if (element.classList.contains('bug-reporter-widget')) return true;
 
-        // Skip overlay elements by class
         const className = element.className || '';
         if (typeof className === 'string') {
-          const overlayClasses = [
-            'radix-portal',
-            'toast',
-            'modal',
-            'overlay',
-            'popup',
-            'dropdown',
-            'tooltip',
-            'popover',
-            'dialog',
-            'notification'
-          ];
-          if (overlayClasses.some((cls) => className.includes(cls))) {
+          if (className.includes('radix-portal') ||
+              className.includes('toast') ||
+              className.includes('overlay') ||
+              className.includes('tooltip') ||
+              className.includes('popover') ||
+              className.includes('dialog')) {
             return true;
           }
         }
 
-        // Skip elements by role
-        const role = element.getAttribute('role');
-        if (
-          role &&
-          ['dialog', 'alertdialog', 'tooltip', 'menu'].includes(role)
-        ) {
-          return true;
-        }
-
-        // Skip elements by data attributes
-        if (
-          element.hasAttribute('data-radix-portal') ||
-          element.hasAttribute('data-sonner-toaster') ||
-          element.hasAttribute('data-html2canvas-ignore')
-        ) {
-          return true;
-        }
-
-        // Skip hidden elements
-        const computedStyle = window.getComputedStyle(element);
-        if (
-          computedStyle.display === 'none' ||
-          computedStyle.visibility === 'hidden' ||
-          computedStyle.opacity === '0'
-        ) {
+        if (element.hasAttribute('data-radix-portal') ||
+            element.hasAttribute('data-sonner-toaster') ||
+            element.hasAttribute('data-html2canvas-ignore')) {
           return true;
         }
 
         return false;
       },
 
-      // Modify cloned document before rendering
+      // Clean up cloned document — remove overlays
       onclone: (clonedDoc: Document) => {
-        // Remove any remaining overlay elements in the cloned document
         const overlaySelectors = [
           '[data-radix-portal]',
           '[data-sonner-toaster]',
-          '.toast',
           '[role="dialog"]',
-          '[role="alertdialog"]',
-          '.modal',
-          '.overlay',
-          '.popup',
           '.bug-reporter-widget'
         ];
-
         overlaySelectors.forEach((selector) => {
           try {
-            const elements = clonedDoc.querySelectorAll(selector);
-            elements.forEach((el) => el.remove());
-          } catch (e) {
-            logger.warn('bug-reports', 'Failed to remove overlay elements', e);
-          }
+            clonedDoc.querySelectorAll(selector).forEach((el) => el.remove());
+          } catch { /* ignore */ }
         });
 
-        // Ensure high quality rendering with enhanced styles
-        try {
-          const style = clonedDoc.createElement('style');
-          style.textContent = `
-            * {
-              image-rendering: -webkit-optimize-contrast !important;
-              image-rendering: crisp-edges !important;
-              text-rendering: optimizeLegibility !important;
-              -webkit-font-smoothing: antialiased !important;
-              -moz-osx-font-smoothing: grayscale !important;
-              transform: translateZ(0) !important;
-              backface-visibility: hidden !important;
-            }
-            body {
-              overflow: visible !important;
-              position: static !important;
-            }
-            * {
-              box-shadow: none !important;
-              filter: none !important;
-              backdrop-filter: none !important;
-            }
-            img {
-              image-rendering: high-quality !important;
-              image-rendering: -webkit-optimize-contrast !important;
-            }
-          `;
-
-          // Safely append style to head with fallback
-          if (clonedDoc.head) {
-            clonedDoc.head.appendChild(style);
-          } else if (clonedDoc.documentElement) {
-            // Fallback: create head if it doesn't exist
-            const head = clonedDoc.createElement('head');
-            head.appendChild(style);
-            clonedDoc.documentElement.insertBefore(
-              head,
-              clonedDoc.documentElement.firstChild
-            );
-          }
-        } catch (e) {
-          logger.warn('bug-reports', 'Failed to add quality styles', e);
-        }
-
-        // Add timestamp to help with debugging (with safe body access)
+        // Ensure body is visible (may be set to overflow:hidden by dialog)
         try {
           if (clonedDoc.body) {
-            const timestamp = clonedDoc.createElement('div');
-            timestamp.style.display = 'none';
-            timestamp.setAttribute(
-              'data-screenshot-timestamp',
-              new Date().toISOString()
-            );
-            clonedDoc.body.appendChild(timestamp);
+            clonedDoc.body.style.overflow = 'visible';
+            clonedDoc.body.style.position = 'static';
           }
-        } catch (e) {
-          logger.warn('bug-reports', 'Failed to add timestamp', e);
-        }
+        } catch { /* ignore */ }
       }
     };
 
-    // Wait longer to ensure all content is loaded
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
-    // Get a fresh reference to document.body to ensure we're capturing current state
     const targetElement = document.querySelector('body') as HTMLElement;
 
     if (!targetElement) {
@@ -420,38 +297,20 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
   } catch (error) {
     logger.error('bug-reports', 'html2canvas capture failed', error);
 
-    // Fallback with simplified but reliable options
+    // Simplified fallback — viewport only, minimal options
     try {
-
-      // Calculate full page dimensions for fallback too
-      const fallbackFullWidth = Math.max(
-        document.body.scrollWidth,
-        document.documentElement.scrollWidth,
-        document.documentElement.clientWidth
-      );
-      const fallbackFullHeight = Math.max(
-        document.body.scrollHeight,
-        document.documentElement.scrollHeight,
-        document.documentElement.clientHeight
-      );
-
-      // Simple but effective fallback options - FULL PAGE
-      // FIX 2025-12-05: Reduced scale in fallback too
-      const fallbackOptions = {
-        scale: Math.min(window.devicePixelRatio || 1, 1.5), // Cap scale
+      const fallbackCanvas = await html2canvas(document.body, {
+        scale: 1,
         backgroundColor: '#ffffff',
         useCORS: true,
         allowTaint: false,
-        logging: true, // Enable logging for debugging fallback
+        logging: false,
         removeContainer: true,
-        imageTimeout: 10000,
-        // Fallback also captures full page but with size limits
-        windowWidth: Math.min(fallbackFullWidth, MAX_SCREENSHOT_WIDTH),
-        windowHeight: Math.min(fallbackFullHeight, MAX_SCREENSHOT_HEIGHT),
-        width: Math.min(fallbackFullWidth, MAX_SCREENSHOT_WIDTH),
-        height: Math.min(fallbackFullHeight, MAX_SCREENSHOT_HEIGHT),
-        scrollX: 0,
-        scrollY: 0,
+        imageTimeout: 5000,
+        width: document.documentElement.clientWidth,
+        height: document.documentElement.clientHeight,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
         ignoreElements: (element: Element) => {
           return (
             element.classList.contains('bug-reporter-widget') ||
@@ -459,16 +318,10 @@ async function captureScreenshotWithHtml2Canvas(): Promise<string> {
             element.hasAttribute('data-sonner-toaster')
           );
         }
-      };
+      });
 
-      // Capture full page with fallback options
-      const fallbackCanvas = await html2canvas(document.body, fallbackOptions);
-
-      // Use JPEG and compress
       const rawFallbackDataUrl = fallbackCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
-      const compressedFallbackDataUrl = await compressScreenshot(rawFallbackDataUrl);
-
-      return compressedFallbackDataUrl;
+      return await compressScreenshot(rawFallbackDataUrl);
     } catch (fallbackError) {
       logger.error('bug-reports', 'Fallback html2canvas also failed', fallbackError);
       throw new Error('Screenshot capture failed');
@@ -552,30 +405,26 @@ export function BugReporterWidget() {
   };
 
   const handleOpenBugReport = async () => {
-    // Clear any previously captured screenshot to ensure fresh capture
+    // Open dialog immediately for instant feedback, capture screenshot in background
     setCapturedScreenshot('');
+    setIsOpen(true);
     setIsCapturingScreenshot(true);
 
     try {
-      // Force a small delay to ensure page is fully rendered
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Small delay so the dialog renders before we start heavy work
+      await new Promise((resolve) => setTimeout(resolve, 50));
 
       const screenshot = await capturePageScreenshot();
 
-      // Verify we got a new screenshot
       if (!screenshot || screenshot.length === 0) {
         throw new Error('Screenshot capture returned empty result');
       }
 
       setCapturedScreenshot(screenshot);
-
-      setIsOpen(true);
-
-      toast.success('Screenshot captured! Bug report ready.');
+      toast.success('Screenshot captured!');
     } catch (error: any) {
       logger.error('bug-reports', 'Failed to capture screenshot', error);
-      setCapturedScreenshot(''); // Ensure no stale screenshot
-      setIsOpen(true);
+      setCapturedScreenshot('');
       toast.error('Could not auto-capture screenshot. You can add one manually.');
     } finally {
       setIsCapturingScreenshot(false);
