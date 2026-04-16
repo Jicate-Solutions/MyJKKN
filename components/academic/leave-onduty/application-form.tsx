@@ -82,6 +82,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
 import { CalendarIcon, Loader2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 import { FileUpload } from './file-upload';
 import { PeriodSelector } from './period-selector';
@@ -338,30 +339,38 @@ export function ApplicationForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validation
+    // Validation — BUG-003236: previously every branch here bare-returned with
+    // no user feedback, so students saw the submit button do nothing and
+    // assumed the form was broken. Surface each failure as a toast.
     if (!startDate || !endDate) {
+      toast.error('Please pick both start and end dates.');
       return;
     }
 
     if (!subCategory) {
+      toast.error('Please select a sub-category.');
       return;
     }
 
     if (reason.length < 1) {
+      toast.error('Please enter a reason for your application.');
       return;
     }
 
     if (periodType === 'periodwise' && selectedPeriods.length === 0) {
+      toast.error('Please select at least one period.');
       return;
     }
 
     const fileReq = getFileRequirements();
     if (fileReq.required && !attachmentFile) {
+      toast.error('This category requires a supporting document. Please attach a file.');
       return;
     }
 
     // Phase 2: sponsor requirement check
     if (requiresSponsorApproval && !sponsorId) {
+      toast.error('Please tag the staff member who is supervising this activity.');
       return;
     }
 
