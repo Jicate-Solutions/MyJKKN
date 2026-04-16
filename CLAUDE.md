@@ -4,6 +4,25 @@
 
 This guide explains how to effectively use the Memory and Sequential Thinking MCP servers in your MyJKKN development workflow.
 
+## 🛑 NON-NEGOTIABLE: Production-Code Sweep Before Any Build Plan
+
+Before proposing ANY build plan, decomposition, 3-PR breakdown, module spec, sprint spec, or routing to `/myjkkn-api`/`/myjkkn-module`: run the production code sweep and include its output in the same response.
+
+```bash
+# 1. Code sweep — 5+ domain keywords, include synonyms (e.g. naac|nirf|nba|compliance|accreditation|grievance|quality|evidence)
+git ls-tree jicate/main -r --name-only | grep -iE "(kw1|kw2|kw3|syn1|syn2)"
+
+# 2. Recent PR activity
+gh pr list --repo Jicate-Solutions/MyJKKN --state all --limit 30 --search "<keywords> in:title"
+
+# 3. Sibling worktrees
+git worktree list
+```
+
+**Plan without sweep = plan is invalid.** Caught 5 times in one session (2026-04-17) when this rule was memory-only. Now a CLAUDE.md directive and `/myjkkn-chain` skill gate.
+
+**Sticky test:** If the user has to ask "have you checked production?" — the rule was skipped. Apologize, run the sweep, restart the plan. See `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/feedback_preflight_must_scan_production_code.md`.
+
 ## 📚 On-Demand Context Libraries (read when task matches)
 
 These are NOT always loaded. Read the relevant file ONLY when the task requires it.
