@@ -1219,16 +1219,24 @@ CREATE POLICY "student_attendance_update_marked_by" ON student_attendance
 
 -- Student self-service: view own attendance records
 -- Added: 2025-12-29 - Student portal attendance view
+-- Updated: 2026-04-16 - Replaced `JOIN learners_profiles` with a correlated
+--   subquery. The JOIN caused a cascade RLS failure after the learners_profiles
+--   policies were rewritten the same day (commit 57d981e5c); students with
+--   valid section assignments and attendance data saw empty results. The
+--   subquery form references learners_profiles only via id/section, so the
+--   student's own-row policy (students_view_own_learner_profile) satisfies
+--   the RLS check. [BUG-003042]
 CREATE POLICY "student_attendance_select_own_student" ON student_attendance
     FOR SELECT USING (
         EXISTS (
-            SELECT 1
-            FROM profiles p
-            JOIN learners_profiles lp ON p.learner_id = lp.id
+            SELECT 1 FROM profiles p
             WHERE p.id = auth.uid()
             AND p.role = 'student'
-            AND lp.section_id = student_attendance.section_id
-            AND lp.lifecycle_status IN ('active', 'graduated')
+            AND p.learner_id IN (
+                SELECT id FROM learners_profiles
+                WHERE section_id = student_attendance.section_id
+                AND lifecycle_status IN ('active', 'graduated')
+            )
         )
     );
 
