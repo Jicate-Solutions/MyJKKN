@@ -718,8 +718,20 @@ export class LearnerProfileService {
     const result = await this.checkAndAutoActivate(id, updatedData);
 
     // Sync profile is_active status based on lifecycle_status
-    // This ensures user can only log in when learner status is 'active'
-    await this.syncProfileStatus(id, result.profile);
+    // This ensures user can only log in when learner status is 'active'.
+    // BUG-003262: if the caller lacks permission to UPDATE profiles (e.g.,
+    // admission_staff without staff.edit), this used to throw and make the
+    // entire updateLearnerProfile appear to have failed — even though the
+    // learners_profiles update already succeeded. Downgrade the sync failure
+    // to a warning; the primary write is what the user cares about.
+    try {
+      await this.syncProfileStatus(id, result.profile);
+    } catch (syncErr) {
+      console.warn(
+        '[learner-profile-service] syncProfileStatus failed (non-critical, learner data already saved):',
+        syncErr
+      );
+    }
 
     // Log activity
     const learnerName = `${result.profile.first_name || ''} ${result.profile.last_name || ''}`.trim() || 'Unknown';

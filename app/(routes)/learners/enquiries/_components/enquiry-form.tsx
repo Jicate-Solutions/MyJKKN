@@ -473,10 +473,21 @@ export function EnquiryForm({
     ? ALL_TABS.filter(tab => visibleTabs.includes(tab.id))
     : ALL_TABS;
 
-  // Finance tab permission check
+  // Finance tab permission check.
+  // BUG-003147/003148/003155/003262: admission_staff had learners.admissions.edit
+  // but not learners.finance.edit, so the finance section rendered read-only and
+  // admission_staff perceived "saves don't persist". The save itself already passes
+  // the RLS UPDATE policy via user_has_permission('learners.admissions.edit'),
+  // so the UI gate should accept the same key.
   const { canAccess, isSuperAdmin: isSuperAdminUser, isAdmissionGlobalUser } = usePermissions();
-  const canViewFinance = isSuperAdminUser || isAdmissionGlobalUser || canAccess('learners', 'finance.view');
-  const canEditFinance = isSuperAdminUser || isAdmissionGlobalUser || canAccess('learners', 'finance.edit');
+  const canViewFinance =
+    isSuperAdminUser || isAdmissionGlobalUser
+    || canAccess('learners', 'finance.view')
+    || canAccess('learners', 'admissions.view');
+  const canEditFinance =
+    isSuperAdminUser || isAdmissionGlobalUser
+    || canAccess('learners', 'finance.edit')
+    || canAccess('learners', 'admissions.edit');
 
   // Filter out finance tab if user lacks permission
   const filteredFormTabs = canViewFinance

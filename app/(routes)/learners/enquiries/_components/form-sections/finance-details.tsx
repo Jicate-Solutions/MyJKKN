@@ -10,6 +10,7 @@
 import { UseFormReturn, useFieldArray, useWatch } from 'react-hook-form';
 import { useEffect, useState } from 'react';
 import { IndianRupee, Plus, Trash2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -71,8 +72,23 @@ export function FinanceDetailsSection({
             true
           );
         setCategories(list);
-      } catch (err) {
+      } catch (err: any) {
+        // BUG-003147/003148/003155: if billing_categories SELECT was denied by
+        // RLS (e.g., admission_staff without billing.categories.view), we used
+        // to silently fall through with an empty array — making "Add Fee" look
+        // broken. Surface the cause so the user can escalate to an admin.
         console.error('[finance-details] load categories:', err);
+        const isPermissionError =
+          err?.code === 'PGRST403' ||
+          err?.code === '42501' ||
+          /row-level security|permission denied|not authorized/i.test(err?.message || '');
+        if (isPermissionError) {
+          toast.error(
+            'You do not have permission to view billing categories. Please ask an admin to grant billing.categories.view.'
+          );
+        } else {
+          toast.error('Failed to load fee categories. Please try again.');
+        }
         setCategories([]);
       } finally {
         setLoadingCategories(false);
