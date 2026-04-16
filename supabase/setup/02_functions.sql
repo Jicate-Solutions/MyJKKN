@@ -7240,3 +7240,174 @@ COMMENT ON FUNCTION fn_dashboard_metrics(UUID, UUID) IS 'Hardened 2026-04-16 —
 
 -- NOTE: For full executable SQL see supabase migration `dashboard_v2_harden_fn_metrics_scope`.
 -- This file append records the canonical signature + scope-enforcement rule.
+
+
+-- =====================================================
+-- Dashboard v2 security hotfix (2026-04-16)
+-- fn_dashboard_metrics: Gate non-privileged callers without institution_id.
+-- Bug found by persona-matrix test — NULL institution_id fell through to
+-- JKKN-wide aggregates. Also adds fn_dashboard_metrics_as test helper.
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION fn_dashboard_metrics(
+  p_institution_id UUID DEFAULT NULL,
+  p_department_id UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_today DATE := (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date;
+  v_att_total INT := 0; v_att_present INT := 0; v_att_pct NUMERIC := NULL;
+  v_att_baseline_pct NUMERIC := NULL; v_att_score INT := 100;
+  v_sla_compliance INT := 100; v_fee_today NUMERIC := 0;
+  v_fee_plan NUMERIC := 100000; v_fee_score INT := 100;
+  v_escalations_open INT := 0; v_escalations_score INT := 100;
+  v_ohs_score INT; v_pipeline_inr NUMERIC := 0;
+  v_pipeline_count INT := 0; v_pending_decisions INT := 0;
+  v_cfg dashboard_config; v_caller UUID := auth.uid();
+  v_caller_profile profiles; v_effective_institution UUID;
+  v_is_privileged BOOLEAN := FALSE;
+BEGIN
+  SELECT * INTO v_cfg FROM dashboard_config WHERE scope = 'global' LIMIT 1;
+  IF v_caller IS NOT NULL THEN
+    SELECT * INTO v_caller_profile FROM profiles WHERE id = v_caller;
+  END IF;
+
+  IF v_caller_profile.id IS NULL THEN
+    RETURN jsonb_build_object(
+      'ohs', jsonb_build_object('score', 0, 'band', 'red',
+        'components', jsonb_build_object('attendance', 0, 'sla', 0, 'fees', 0, 'escalations', 0)),
+      'pipeline', jsonb_build_object('value_inr', 0, 'lead_count', 0),
+      'attendance', jsonb_build_object('pct_today', NULL, 'pct_baseline', NULL, 'present', 0, 'total', 0),
+      'pending_decisions', jsonb_build_object('count', 0),
+      'scope', jsonb_build_object('institution_id', NULL, 'department_id', NULL,
+        'computed_at', NOW(), 'forbidden', TRUE, 'reason', 'no_caller_profile'));
+  END IF;
+
+  v_is_privileged := (
+    v_caller_profile.is_super_admin = TRUE
+    OR v_caller_profile.role IN ('admin', 'administrator', 'super_admin', 'admission_manager')
+  );
+
+  IF v_is_privileged THEN
+    v_effective_institution := p_institution_id;
+  ELSE
+    IF v_caller_profile.institution_id IS NULL THEN
+      RETURN jsonb_build_object(
+        'ohs', jsonb_build_object('score', 0, 'band', 'red',
+          'components', jsonb_build_object('attendance', 0, 'sla', 0, 'fees', 0, 'escalations', 0)),
+        'pipeline', jsonb_build_object('value_inr', 0, 'lead_count', 0),
+        'attendance', jsonb_build_object('pct_today', NULL, 'pct_baseline', NULL, 'present', 0, 'total', 0),
+        'pending_decisions', jsonb_build_object('count', 0),
+        'scope', jsonb_build_object('institution_id', NULL, 'department_id', NULL,
+          'computed_at', NOW(), 'forbidden', TRUE, 'reason', 'caller_has_no_institution'));
+    END IF;
+    v_effective_institution := v_caller_profile.institution_id;
+  END IF;
+
+  SELECT COALESCE(SUM(cnt_total), 0), COALESCE(SUM(cnt_present), 0)
+  INTO v_att_total, v_att_present
+  FROM (
+    SELECT
+      (SELECT COUNT(*) FROM jsonb_path_query_array(sa.attendance_data, '$.*.students[*]') AS ja(v))::int AS cnt_total,
+      (SELECT COUNT(*) FROM jsonb_path_query_array(sa.attendance_data, '$.*.students[*] ? (@.status == "Present")') AS jp(v))::int AS cnt_present
+    FROM student_attendance sa
+    WHERE sa.attendance_date = v_today
+      AND (v_effective_institution IS NULL OR sa.institution_id = v_effective_institution)
+      AND (p_department_id IS NULL OR sa.department_id = p_department_id)
+  ) agg;
+  IF v_att_total > 0 THEN v_att_pct := ROUND((v_att_present::numeric * 100.0) / v_att_total, 1); END IF;
+
+  SELECT AVG(daily_pct) INTO v_att_baseline_pct FROM (
+    SELECT CASE WHEN SUM(tot) > 0 THEN (SUM(pres)::numeric * 100.0 / SUM(tot)) ELSE NULL END AS daily_pct
+    FROM (
+      SELECT sa.attendance_date,
+        (SELECT COUNT(*) FROM jsonb_path_query_array(sa.attendance_data, '$.*.students[*]') AS ja(v)) AS tot,
+        (SELECT COUNT(*) FROM jsonb_path_query_array(sa.attendance_data, '$.*.students[*] ? (@.status == "Present")') AS jp(v)) AS pres
+      FROM student_attendance sa
+      WHERE sa.attendance_date BETWEEN v_today - INTERVAL '7 days' AND v_today - INTERVAL '1 day'
+        AND (v_effective_institution IS NULL OR sa.institution_id = v_effective_institution)
+        AND (p_department_id IS NULL OR sa.department_id = p_department_id)
+    ) by_day GROUP BY attendance_date
+  ) daily;
+
+  IF v_att_pct IS NOT NULL AND v_att_baseline_pct IS NOT NULL AND v_att_baseline_pct > 0 THEN
+    v_att_score := LEAST(100, GREATEST(0, ROUND((v_att_pct / v_att_baseline_pct) * 100)::int));
+  ELSIF v_att_pct IS NOT NULL THEN
+    v_att_score := LEAST(100, GREATEST(0, ROUND(v_att_pct)::int));
+  END IF;
+
+  SELECT CASE WHEN COUNT(*) = 0 THEN 100
+    ELSE ROUND(COUNT(*) FILTER (WHERE first_touch_at IS NOT NULL
+      AND EXTRACT(EPOCH FROM (first_touch_at - created_at))/3600.0 <= v_cfg.cold_lead_threshold_hours
+    )::numeric * 100.0 / COUNT(*))::int END INTO v_sla_compliance
+  FROM admission_leads
+  WHERE created_at >= NOW() - INTERVAL '24 hours' AND score >= 70
+    AND (v_effective_institution IS NULL OR institution_id = v_effective_institution);
+
+  SELECT COALESCE(SUM(payment_amount), 0) INTO v_fee_today FROM billing_receipts
+  WHERE (receipt_date::date = v_today OR payment_paid_date::date = v_today)
+    AND (v_effective_institution IS NULL OR institution_id = v_effective_institution);
+  v_fee_score := LEAST(100, GREATEST(0, ROUND((v_fee_today / NULLIF(v_fee_plan, 0)) * 100)::int));
+
+  SELECT COUNT(*) INTO v_escalations_open FROM grievance_tickets
+  WHERE status NOT IN ('resolved', 'closed', 'cancelled')
+    AND sla_deadline IS NOT NULL AND sla_deadline < NOW()
+    AND (v_effective_institution IS NULL OR institution_id = v_effective_institution);
+  v_escalations_score := GREATEST(0, 100 - (v_escalations_open * 5));
+
+  v_ohs_score := ROUND(
+    (v_att_score * v_cfg.ohs_attendance_weight) +
+    (v_sla_compliance * v_cfg.ohs_sla_weight) +
+    (v_fee_score * v_cfg.ohs_fees_weight) +
+    (v_escalations_score * v_cfg.ohs_escalations_weight))::int;
+
+  SELECT
+    COALESCE(SUM(COALESCE(conversion_probability, 0.5) * 100000), 0),
+    COUNT(*) FILTER (WHERE score >= 70 AND funnel_stage::text NOT IN ('enrolled','lost','withdrew','declined','expired'))
+  INTO v_pipeline_inr, v_pipeline_count FROM admission_leads
+  WHERE funnel_stage::text NOT IN ('enrolled','lost','withdrew','declined','expired')
+    AND (v_effective_institution IS NULL OR institution_id = v_effective_institution);
+
+  SELECT COUNT(*) INTO v_pending_decisions FROM user_notifications un
+  JOIN notifications n ON n.id = un.notification_id
+  WHERE un.user_id = v_caller AND un.acknowledged_at IS NULL
+    AND n.requires_acknowledgment = TRUE
+    AND (n.expires_at IS NULL OR n.expires_at > NOW());
+
+  RETURN jsonb_build_object(
+    'ohs', jsonb_build_object('score', v_ohs_score,
+      'band', CASE WHEN v_ohs_score < v_cfg.ohs_red_ceiling THEN 'red'
+                   WHEN v_ohs_score < v_cfg.ohs_amber_ceiling THEN 'amber' ELSE 'green' END,
+      'components', jsonb_build_object('attendance', v_att_score, 'sla', v_sla_compliance,
+        'fees', v_fee_score, 'escalations', v_escalations_score)),
+    'pipeline', jsonb_build_object('value_inr', v_pipeline_inr, 'lead_count', v_pipeline_count),
+    'attendance', jsonb_build_object('pct_today', v_att_pct, 'pct_baseline', v_att_baseline_pct,
+      'present', v_att_present, 'total', v_att_total),
+    'pending_decisions', jsonb_build_object('count', v_pending_decisions),
+    'scope', jsonb_build_object('institution_id', v_effective_institution,
+      'department_id', p_department_id, 'computed_at', NOW(),
+      'scope_enforced', NOT v_is_privileged));
+END;
+$$;
+GRANT EXECUTE ON FUNCTION fn_dashboard_metrics(UUID, UUID) TO authenticated;
+
+-- persona-matrix test harness: impersonates target via JWT claim, calls fn_dashboard_metrics
+CREATE OR REPLACE FUNCTION fn_dashboard_metrics_as(p_target_user_id UUID)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+DECLARE v_result JSONB;
+BEGIN
+  PERFORM set_config('request.jwt.claims',
+    jsonb_build_object('sub', p_target_user_id::text, 'role', 'authenticated')::text, TRUE);
+  v_result := fn_dashboard_metrics(NULL, NULL);
+  RETURN v_result;
+END;
+$$;
+REVOKE ALL ON FUNCTION fn_dashboard_metrics_as(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_dashboard_metrics_as(UUID) TO service_role;
+
+-- END Dashboard v2 null-gate hotfix
