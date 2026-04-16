@@ -34,20 +34,23 @@ import {
 import { useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useHealthCases } from '@/hooks/campus-living/use-hostel-health';
+import { BlockSelector } from '@/components/campus-living/block-selector';
 
 export default function HealthPage() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id || '';
   const [searchQuery, setSearchQuery] = useState('');
+  const [blockFilter, setBlockFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
 
   const filters = useMemo(
     () => ({
+      block_id: blockFilter !== 'all' ? blockFilter : undefined,
       status: statusFilter !== 'all' ? statusFilter : undefined,
       severity: severityFilter !== 'all' ? severityFilter : undefined,
     }),
-    [statusFilter, severityFilter]
+    [blockFilter, statusFilter, severityFilter]
   );
 
   const { data, isLoading } = useHealthCases(institutionId, filters);
@@ -173,6 +176,11 @@ export default function HealthPage() {
                   className="pl-9"
                 />
               </div>
+              <BlockSelector
+                institutionId={institutionId}
+                value={blockFilter}
+                onValueChange={setBlockFilter}
+              />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-full sm:w-[180px]">
                   <SelectValue placeholder="Status" />

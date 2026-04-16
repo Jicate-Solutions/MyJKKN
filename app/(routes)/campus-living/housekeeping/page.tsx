@@ -33,18 +33,23 @@ import {
 import { useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useCleaningSchedules } from '@/hooks/campus-living/use-hostel-housekeeping';
+import { BlockSelector } from '@/components/campus-living/block-selector';
 
 export default function HousekeepingPage() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id || '';
   const [searchQuery, setSearchQuery] = useState('');
+  const [blockFilter, setBlockFilter] = useState<string>('all');
   const [activeFilter, setActiveFilter] = useState<string>('all');
 
   const filters = useMemo(() => {
-    if (activeFilter === 'active') return { is_active: true };
-    if (activeFilter === 'inactive') return { is_active: false };
-    return undefined;
-  }, [activeFilter]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const f: any = {};
+    if (blockFilter !== 'all') f.block_id = blockFilter;
+    if (activeFilter === 'active') f.is_active = true;
+    if (activeFilter === 'inactive') f.is_active = false;
+    return Object.keys(f).length ? f : undefined;
+  }, [blockFilter, activeFilter]);
 
   const { data, isLoading } = useCleaningSchedules(institutionId, filters);
   const schedules = data?.data ?? [];
@@ -130,6 +135,11 @@ export default function HousekeepingPage() {
                   className="pl-9"
                 />
               </div>
+              <BlockSelector
+                institutionId={institutionId}
+                value={blockFilter}
+                onValueChange={setBlockFilter}
+              />
               <Select value={activeFilter} onValueChange={setActiveFilter}>
                 <SelectTrigger className="w-full sm:w-[180px]">
                   <SelectValue placeholder="Status" />
