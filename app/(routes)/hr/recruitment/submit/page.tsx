@@ -18,10 +18,10 @@ import { useSubmitCandidate } from '@/hooks/hr/use-recruitment';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useStaff } from '@/hooks/staff/use-staff';
 import { toast } from 'sonner';
-import type { RoleCategory, CTCBand } from '@/types/hr-recruitment';
+import type { RoleCategory, MonthlySalaryBand } from '@/types/hr-recruitment';
 import {
   ROLE_CATEGORY_LABELS,
-  CTC_BAND_LABELS,
+  MONTHLY_SALARY_BAND_LABELS,
 } from '@/types/hr-recruitment';
 
 interface ApprovalFlowStep {
@@ -59,7 +59,7 @@ export default function SubmitCandidatePage() {
   const [roleTitle, setRoleTitle] = useState('');
   const [institutionId, setInstitutionId] = useState('');
   const [cvvizUrl, setCvvizUrl] = useState('');
-  const [proposedCtcBand, setProposedCtcBand] = useState<CTCBand | ''>('');
+  const [proposedMonthlySalaryBand, setProposedCtcBand] = useState<MonthlySalaryBand | ''>('');
   const [isEmergency, setIsEmergency] = useState(false);
   // R4.1: pre-tick "internal transfer" if arriving from a staff profile
   const [isInternalTransfer, setIsInternalTransfer] = useState(paramSource === 'internal_transfer');
@@ -89,9 +89,9 @@ export default function SubmitCandidatePage() {
   });
   const staffList = (staffData as any)?.data ?? [];
 
-  // Fetch approval flow preview when role_category + proposed_ctc_band are set
+  // Fetch approval flow preview when role_category + proposed_monthly_salary_band are set
   useEffect(() => {
-    if (!roleCategory || !proposedCtcBand) {
+    if (!roleCategory || !proposedMonthlySalaryBand) {
       setApprovalFlows([]);
       return;
     }
@@ -115,13 +115,13 @@ export default function SubmitCandidatePage() {
       });
 
     return () => { cancelled = true; };
-  }, [roleCategory, proposedCtcBand, hrOrgId]);
+  }, [roleCategory, proposedMonthlySalaryBand, hrOrgId]);
 
   // Find a matching flow for the current category + band selection (best-effort client filter)
   const matchingFlow = approvalFlows.find((f) => {
     const c = f.conditions ?? {};
     const matchesCategory = !c.role_category || c.role_category === roleCategory;
-    const matchesBand = !c.ctc_band || c.ctc_band === proposedCtcBand;
+    const matchesBand = !c.monthly_salary_band || c.monthly_salary_band === proposedMonthlySalaryBand;
     return matchesCategory && matchesBand;
   }) ?? (approvalFlows.length === 1 ? approvalFlows[0] : null);
 
@@ -139,7 +139,7 @@ export default function SubmitCandidatePage() {
         role_category: roleCategory,
         role_title: roleTitle.trim(),
         cvviz_url: cvvizUrl.trim(),
-        proposed_ctc_band: proposedCtcBand || null,
+        proposed_monthly_salary_band: proposedMonthlySalaryBand || null,
         is_emergency: isEmergency,
         is_internal_transfer: isInternalTransfer,
         source_staff_id: isInternalTransfer && sourceStaffId ? sourceStaffId : null,
@@ -280,15 +280,15 @@ export default function SubmitCandidatePage() {
                 </select>
               </div>
               <div>
-                <Label htmlFor="proposedCtcBand">Proposed CTC Band</Label>
+                <Label htmlFor="proposedMonthlySalaryBand">Proposed Monthly Salary Band</Label>
                 <select
-                  id="proposedCtcBand"
-                  value={proposedCtcBand}
-                  onChange={(e) => setProposedCtcBand(e.target.value as CTCBand | '')}
+                  id="proposedMonthlySalaryBand"
+                  value={proposedMonthlySalaryBand}
+                  onChange={(e) => setProposedCtcBand(e.target.value as MonthlySalaryBand | '')}
                   className="w-full border rounded-md h-10 px-3 bg-background"
                 >
                   <option value="">Not specified</option>
-                  {(Object.entries(CTC_BAND_LABELS) as [CTCBand, string][]).map(([k, v]) => (
+                  {(Object.entries(MONTHLY_SALARY_BAND_LABELS) as [MonthlySalaryBand, string][]).map(([k, v]) => (
                     <option key={k} value={k}>{v}</option>
                   ))}
                 </select>
@@ -335,7 +335,7 @@ export default function SubmitCandidatePage() {
         </Card>
 
         {/* Approval chain preview */}
-        {roleCategory && proposedCtcBand && (
+        {roleCategory && proposedMonthlySalaryBand && (
           <Card>
             <CardHeader>
               <CardTitle className="text-sm flex items-center gap-2">

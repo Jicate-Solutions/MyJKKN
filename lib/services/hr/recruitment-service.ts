@@ -27,7 +27,7 @@ import type {
   CandidateListResponse,
   CandidateStatus,
   RoleCategory,
-  CTCBand,
+  MonthlySalaryBand,
 } from '@/types/hr-recruitment';
 
 // =====================================================================================
@@ -155,14 +155,14 @@ export class RecruitmentService {
    * Frozen-snapshot pattern (R1.4) — if HR later edits the flow,
    * in-flight candidates keep their original approval rules.
    *
-   * Matching logic: conditions jsonb is matched against roleCategory + ctcBand.
-   * Most-specific match wins (role_category + ctc_band > role_category only).
+   * Matching logic: conditions jsonb is matched against roleCategory + monthlySalaryBand.
+   * Most-specific match wins (role_category + monthly_salary_band > role_category only).
    */
   static async buildApprovalChain(
     supabase: SupabaseClient,
     hrOrgId: string,
     roleCategory: RoleCategory,
-    ctcBand: CTCBand | null
+    monthlySalaryBand: MonthlySalaryBand | null
   ): Promise<LeaveApprovalStep[]> {
     const { data: flows, error } = await supabase
       .from('hr_approval_flows')
@@ -180,7 +180,7 @@ export class RecruitmentService {
     }
 
     // Parse conditions jsonb and find best match
-    // Priority: role_category + ctc_band match > role_category-only match
+    // Priority: role_category + monthly_salary_band match > role_category-only match
     type ApprovalFlowRow = {
       conditions: Record<string, string> | null;
       steps: LeaveApprovalStep[] | null;
@@ -190,7 +190,7 @@ export class RecruitmentService {
       const cond = f.conditions ?? {};
       return (
         cond.role_category === roleCategory &&
-        cond.ctc_band === (ctcBand ?? '')
+        cond.monthly_salary_band === (monthlySalaryBand ?? '')
       );
     });
 
@@ -198,7 +198,7 @@ export class RecruitmentService {
       const cond = f.conditions ?? {};
       return (
         cond.role_category === roleCategory &&
-        !cond.ctc_band
+        !cond.monthly_salary_band
       );
     });
 
@@ -210,7 +210,7 @@ export class RecruitmentService {
 
     if (!chosen) {
       throw new Error(
-        `No approval flow found for role_category='${roleCategory}' ctc_band='${ctcBand ?? 'none'}'. ` +
+        `No approval flow found for role_category='${roleCategory}' monthly_salary_band='${monthlySalaryBand ?? 'none'}'. ` +
         'HR Admin must configure a matching flow at /hr/policies.'
       );
     }
@@ -251,7 +251,7 @@ export class RecruitmentService {
       supabase,
       payload.hr_organization_id,
       payload.role_category,
-      payload.proposed_ctc_band ?? null
+      payload.proposed_monthly_salary_band ?? null
     );
 
     const insertPayload: Record<string, unknown> = {
@@ -263,7 +263,7 @@ export class RecruitmentService {
       cvviz_url: payload.cvviz_url,
       role_category: payload.role_category,
       role_title: payload.role_title,
-      proposed_ctc_band: payload.proposed_ctc_band ?? null,
+      proposed_monthly_salary_band: payload.proposed_monthly_salary_band ?? null,
       role_specific_details: payload.role_specific_details ?? {},
       status: payload.status ?? 'pending_approval',
       is_emergency: payload.is_emergency ?? false,

@@ -21,7 +21,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import {
   CANDIDATE_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
-  CTC_BAND_LABELS,
+  MONTHLY_SALARY_BAND_LABELS,
   type CandidateStatus,
   type HRRecruitmentCandidate,
 } from '@/types/hr-recruitment';
@@ -209,8 +209,8 @@ export default function RecruitmentApprovalsPage() {
 
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {ROLE_CATEGORY_LABELS[c.role_category]}
-                        {c.proposed_ctc_band && (
-                          <> &middot; {CTC_BAND_LABELS[c.proposed_ctc_band]}</>
+                        {c.proposed_monthly_salary_band && (
+                          <> &middot; {MONTHLY_SALARY_BAND_LABELS[c.proposed_monthly_salary_band]}</>
                         )}
                         {c.institution_id && (
                           <> &middot; {c.institution_id}</>

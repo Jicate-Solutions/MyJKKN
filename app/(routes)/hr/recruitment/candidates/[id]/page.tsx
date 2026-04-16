@@ -30,7 +30,7 @@ import { useAlumniSignal } from '@/hooks/hr/use-alumni-signal';
 import {
   CANDIDATE_STATUS_LABELS,
   ROLE_CATEGORY_LABELS,
-  CTC_BAND_LABELS,
+  MONTHLY_SALARY_BAND_LABELS,
   type CandidateStatus,
   type HRRecruitmentCandidatePackage,
 } from '@/types/hr-recruitment';
@@ -57,7 +57,7 @@ const PACKAGE_STATUS_COLORS: Record<HRRecruitmentCandidatePackage['status'], str
   rejected:  'bg-red-100 text-red-900 dark:bg-red-900/20 dark:text-red-200',
 };
 
-function formatCTC(amount: number): string {
+function formatSalary(amount: number): string {
   return `₹${amount.toLocaleString('en-IN')}`;
 }
 
@@ -76,7 +76,7 @@ export default function CandidateDetailPage() {
 
   // Propose package dialog
   const [proposeOpen, setProposeOpen] = useState(false);
-  const [proposeCtc, setProposeCtc] = useState('');
+  const [proposeSalary, setProposeCtc] = useState('');
   const [proposeBreakdown, setProposeBreakdown] = useState('');
   const [proposeIsCounter, setProposeIsCounter] = useState(false);
   const [proposeParentId, setProposeParentId] = useState('');
@@ -84,9 +84,9 @@ export default function CandidateDetailPage() {
 
   const onPropose = async (e: React.FormEvent) => {
     e.preventDefault();
-    const ctcAmount = parseFloat(proposeCtc);
-    if (isNaN(ctcAmount) || ctcAmount <= 0) {
-      toast.error('Enter a valid CTC amount');
+    const monthlySalary = parseFloat(proposeSalary);
+    if (isNaN(monthlySalary) || monthlySalary <= 0) {
+      toast.error('Enter a valid Monthly Salary');
       return;
     }
 
@@ -104,8 +104,8 @@ export default function CandidateDetailPage() {
       await propose.mutateAsync({
         candidate_id: id,
         hr_organization_id: candidate?.hr_organization_id ?? null,
-        proposed_ctc_amount: ctcAmount,
-        proposed_ctc_breakdown: breakdown,
+        proposed_monthly_salary: monthlySalary,
+        proposed_monthly_salary_breakdown: breakdown,
         is_counter_offer: proposeIsCounter,
         parent_package_id: proposeIsCounter && proposeParentId ? proposeParentId : null,
         notes: proposeNotes.trim() || null,
@@ -132,9 +132,9 @@ export default function CandidateDetailPage() {
   const onCounter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!counterPackageId) return;
-    const ctcAmount = parseFloat(counterCtc);
-    if (isNaN(ctcAmount) || ctcAmount <= 0) {
-      toast.error('Enter a valid CTC amount');
+    const monthlySalary = parseFloat(counterCtc);
+    if (isNaN(monthlySalary) || monthlySalary <= 0) {
+      toast.error('Enter a valid Monthly Salary');
       return;
     }
 
@@ -152,8 +152,8 @@ export default function CandidateDetailPage() {
       await counterPackage.mutateAsync({
         candidateId: id,
         packageId: counterPackageId,
-        proposed_ctc_amount: ctcAmount,
-        proposed_ctc_breakdown: breakdown,
+        proposed_monthly_salary: monthlySalary,
+        proposed_monthly_salary_breakdown: breakdown,
         notes: counterNotes.trim() || null,
         hr_organization_id: candidate?.hr_organization_id ?? null,
       });
@@ -280,10 +280,10 @@ export default function CandidateDetailPage() {
                   <span className="font-mono text-xs">{candidate.institution_id}</span>
                 </div>
               )}
-              {candidate.proposed_ctc_band && (
+              {candidate.proposed_monthly_salary_band && (
                 <div>
-                  <span className="text-muted-foreground">CTC Band:</span>{' '}
-                  <span className="font-medium">{CTC_BAND_LABELS[candidate.proposed_ctc_band]}</span>
+                  <span className="text-muted-foreground">Monthly Salary Band:</span>{' '}
+                  <span className="font-medium">{MONTHLY_SALARY_BAND_LABELS[candidate.proposed_monthly_salary_band]}</span>
                 </div>
               )}
               {candidate.expected_joining_date && (
@@ -455,7 +455,7 @@ export default function CandidateDetailPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between gap-2">
-              <CardTitle className="text-sm">CTC / Package Negotiation</CardTitle>
+              <CardTitle className="text-sm">Salary Negotiation</CardTitle>
               <Button size="sm" onClick={() => setProposeOpen(true)}>
                 Propose Package
               </Button>
@@ -474,7 +474,7 @@ export default function CandidateDetailPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-xs text-muted-foreground">
-                      <th className="text-left py-1 pr-3 font-medium">Proposed CTC</th>
+                      <th className="text-left py-1 pr-3 font-medium">Proposed Monthly Salary</th>
                       <th className="text-left py-1 pr-3 font-medium">Proposed By</th>
                       <th className="text-left py-1 pr-3 font-medium">Type</th>
                       <th className="text-left py-1 pr-3 font-medium">Status</th>
@@ -485,7 +485,7 @@ export default function CandidateDetailPage() {
                   <tbody>
                     {packages.map((pkg) => (
                       <tr key={pkg.id} className="border-b last:border-b-0">
-                        <td className="py-2 pr-3 font-medium">{formatCTC(pkg.proposed_ctc_amount)}</td>
+                        <td className="py-2 pr-3 font-medium">{formatSalary(pkg.proposed_monthly_salary)}</td>
                         <td className="py-2 pr-3 font-mono text-xs max-w-[120px] truncate">{pkg.proposed_by}</td>
                         <td className="py-2 pr-3">
                           {pkg.is_counter_offer ? (
@@ -559,15 +559,15 @@ export default function CandidateDetailPage() {
       <Dialog open={proposeOpen} onOpenChange={setProposeOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Propose CTC Package</DialogTitle>
+            <DialogTitle>Propose Monthly Salary Package</DialogTitle>
           </DialogHeader>
           <form onSubmit={onPropose} className="space-y-3">
             <div>
-              <Label htmlFor="proposeCtc">CTC Amount (₹) <span className="text-destructive">*</span></Label>
+              <Label htmlFor="proposeSalary">Monthly Salary (₹) <span className="text-destructive">*</span></Label>
               <Input
-                id="proposeCtc"
+                id="proposeSalary"
                 type="number"
-                value={proposeCtc}
+                value={proposeSalary}
                 onChange={(e) => setProposeCtc(e.target.value)}
                 required
                 placeholder="e.g. 600000"
@@ -618,7 +618,7 @@ export default function CandidateDetailPage() {
                   <option value="">Select parent package…</option>
                   {packages.map((pkg) => (
                     <option key={pkg.id} value={pkg.id}>
-                      {formatCTC(pkg.proposed_ctc_amount)} — {pkg.status}
+                      {formatSalary(pkg.proposed_monthly_salary)} — {pkg.status}
                     </option>
                   ))}
                 </select>
@@ -642,7 +642,7 @@ export default function CandidateDetailPage() {
           </DialogHeader>
           <form onSubmit={onCounter} className="space-y-3">
             <div>
-              <Label htmlFor="counterCtc">Counter CTC Amount (₹) <span className="text-destructive">*</span></Label>
+              <Label htmlFor="counterCtc">Counter Monthly Salary Amount (₹) <span className="text-destructive">*</span></Label>
               <Input
                 id="counterCtc"
                 type="number"
