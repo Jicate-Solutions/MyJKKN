@@ -290,6 +290,19 @@ export class SF100Service extends BaseService {
       console.error('[sf100_phase_history] Error creating initial history:', historyError);
     }
 
+    // INTEGRATION SITE 1 — team_selected
+    // Notify every team member (via profile_id) that they have been selected.
+    // Fire-and-forget: enrollment is already committed; notification failure must not roll it back.
+    this.dispatchInAppNotification({
+      title: 'You have been selected for Solve for 100!',
+      message: `Your team has been enrolled in the Solve for 100 program. Head to Startup Studio to begin your journey.`,
+      registrationId,
+      enrollmentId: enrollment.id,
+      eventType: 'team_selected',
+    }).catch((err) => {
+      console.error('[sf100/team_selected] dispatch error:', err);
+    });
+
     return {
       ...(enrollment as SF100Enrollment),
       auto_advanced: autoAdvanced,
