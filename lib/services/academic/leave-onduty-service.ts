@@ -1348,8 +1348,12 @@ export class LeaveOndutyService {
         }
       });
     } else {
-      // Fallback: use all data if structure is different
-      dayPeriods = timetableData;
+      // BUG-003207: the old fallback assigned the entire timetableData object
+      // (which often has day-name keys like "FRIDAY", "MONDAY") into dayPeriods.
+      // Those non-UUID keys then flowed into .in('id', allPeriodIds) and caused
+      // "invalid input syntax for type uuid: FRIDAY" errors, surfacing as
+      // "fake periods" in the UI. Prefer an empty result over mangled data.
+      dayPeriods = {};
     }
 
     const allPeriodIds = Object.keys(dayPeriods);
@@ -1379,10 +1383,12 @@ export class LeaveOndutyService {
         .filter(Boolean)
     )];
 
-    // Batch fetch period details (period_name, start_time, end_time)
+    // Batch fetch period details (period_name, start_time, end_time, + clinic metadata).
+    // BUG-003208: period_mode and practical_config are required so the UI can
+    // render clinic posting blocks correctly; they were previously omitted.
     const { data: periodsData, error: periodsError } = await supabase
       .from('periods')
-      .select('id, period_name, start_time, end_time, is_break')
+      .select('id, period_name, start_time, end_time, is_break, period_mode, practical_config')
       .in('id', allPeriodIds);
 
     if (periodsError) {

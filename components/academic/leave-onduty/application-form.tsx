@@ -13,7 +13,7 @@
  * @module components/academic/leave-onduty/application-form
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -36,7 +36,10 @@ interface StoredFormData {
   startDate: string | null;
   endDate: string | null;
   periodType: PeriodType;
+  // Flat list kept for backward compat with older saved drafts; derived from
+  // selectedPeriodsByDate going forward.
   selectedPeriods: string[];
+  selectedPeriodsByDate?: Record<string, string[]>;
   reason: string;
   savedAt: number;
   // Persisted file as base64 for recovery after mobile page reload
@@ -124,12 +127,41 @@ export function ApplicationForm({
   const [startDate, setStartDate] = useState<Date>();
   const [endDate, setEndDate] = useState<Date>();
   const [periodType, setPeriodType] = useState<PeriodType>('fullday');
-  const [selectedPeriods, setSelectedPeriods] = useState<string[]>([]);
+  // BUG-003209: store selected periods per-date so a multi-day leave picks hours
+  // for every day, not just startDate. The legacy flat `selectedPeriods` string[]
+  // is kept as a derived value (see useMemo below) for backend submission compat.
+  const [selectedPeriodsByDate, setSelectedPeriodsByDate] = useState<
+    Record<string, string[]>
+  >({});
   const [reason, setReason] = useState('');
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [sponsorId, setSponsorId] = useState<string | null>(null);
   const [dayCount, setDayCount] = useState(0);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // BUG-003209: build an inclusive date range from startDate→endDate so the
+  // form can render a PeriodSelector per day of a multi-day leave.
+  const daysInRange = useMemo<string[]>(() => {
+    if (!startDate) return [];
+    const end = endDate && endDate >= startDate ? endDate : startDate;
+    const out: string[] = [];
+    const cur = new Date(startDate);
+    cur.setHours(0, 0, 0, 0);
+    const last = new Date(end);
+    last.setHours(0, 0, 0, 0);
+    while (cur <= last) {
+      out.push(format(cur, 'yyyy-MM-dd'));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return out;
+  }, [startDate, endDate]);
+
+  // Flat array submitted to the backend (legacy contract). Flattens each day's
+  // selections in chronological order.
+  const selectedPeriods = useMemo<string[]>(
+    () => daysInRange.flatMap((d) => selectedPeriodsByDate[d] || []),
+    [daysInRange, selectedPeriodsByDate]
+  );
 
   const createApplication = useCreateLeaveOndutyApplication();
 
@@ -149,7 +181,13 @@ export function ApplicationForm({
           if (data.startDate) setStartDate(new Date(data.startDate));
           if (data.endDate) setEndDate(new Date(data.endDate));
           setPeriodType(data.periodType);
-          setSelectedPeriods(data.selectedPeriods);
+          // Prefer the new per-day map; fall back to legacy flat array under startDate.
+          if (data.selectedPeriodsByDate) {
+            setSelectedPeriodsByDate(data.selectedPeriodsByDate);
+          } else if (data.selectedPeriods && data.startDate) {
+            const legacyKey = format(new Date(data.startDate), 'yyyy-MM-dd');
+            setSelectedPeriodsByDate({ [legacyKey]: data.selectedPeriods });
+          }
           setReason(data.reason);
           // Restore file from base64 if available (survives mobile page reload)
           if (data.attachmentData) {
@@ -183,6 +221,7 @@ export function ApplicationForm({
         endDate: endDate?.toISOString() || null,
         periodType,
         selectedPeriods,
+        selectedPeriodsByDate,
         reason,
         savedAt: Date.now(),
       };
@@ -543,18 +582,29 @@ export function ApplicationForm({
         </div>
       )}
 
-      {/* Period Selection */}
-      {startDate && (
-        <PeriodSelector
-          sectionId={sectionId}
-          semesterId={semesterId}
-          selectedDate={format(startDate, 'yyyy-MM-dd')}
-          periodType={periodType}
-          selectedPeriods={selectedPeriods}
-          onPeriodTypeChange={setPeriodType}
-          onPeriodsChange={setSelectedPeriods}
-        />
-      )}
+      {/* Period Selection — one PeriodSelector per day in the range.
+          BUG-003209: previously rendered only for startDate, leaving day 2+
+          with no period picker. */}
+      {startDate && daysInRange.map((dateStr, idx) => (
+        <div key={dateStr} className="space-y-2">
+          {daysInRange.length > 1 && (
+            <div className="text-xs sm:text-sm font-medium text-muted-foreground">
+              Day {idx + 1} of {daysInRange.length}: {format(new Date(dateStr), 'EEEE, dd MMM yyyy')}
+            </div>
+          )}
+          <PeriodSelector
+            sectionId={sectionId}
+            semesterId={semesterId}
+            selectedDate={dateStr}
+            periodType={periodType}
+            selectedPeriods={selectedPeriodsByDate[dateStr] || []}
+            onPeriodTypeChange={setPeriodType}
+            onPeriodsChange={(periods) =>
+              setSelectedPeriodsByDate((prev) => ({ ...prev, [dateStr]: periods }))
+            }
+          />
+        </div>
+      ))}
 
       {/* Reason */}
       <div className="space-y-2 sm:space-y-3">
