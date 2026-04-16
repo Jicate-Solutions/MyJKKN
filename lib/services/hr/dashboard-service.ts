@@ -372,7 +372,7 @@ export class HRDashboardService {
         name: 'active_leave_types',
         label: 'Active Leave Types',
         value: leaveTypeCount ?? 0,
-        drill_url: '/hr/policies/leave-types',
+        drill_url: '/hr/policies/leave_types',
         icon: 'BookOpen',
       },
       {
