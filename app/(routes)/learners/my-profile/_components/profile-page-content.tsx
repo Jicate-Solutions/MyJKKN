@@ -190,6 +190,12 @@ export default function ProfilePageContent({ learner, userId }: ProfilePageConte
           status={pendingRequest.request_status}
           submittedAt={pendingRequest.created_at}
           reviewComments={pendingRequest.review_comments}
+          pendingPhotoUrl={
+            (pendingRequest.changed_fields as Record<string, any> | null)?.student_photo_url
+              ?.new
+              ?? (pendingRequest.changed_fields as Record<string, any> | null)?.student_photo_url
+              ?? null
+          }
         />
 
         {showCompletionCard && (

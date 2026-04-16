@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import Image from 'next/image';
 import { ChangeRequestStatus } from '@/types/learner-profile-change';
 import { useCancelChangeRequest } from '@/hooks/learner-profile/use-change-request-mutations';
 
@@ -14,6 +15,15 @@ interface PendingChangesBannerProps {
   status: ChangeRequestStatus;
   submittedAt: string;
   reviewComments?: string;
+  /**
+   * Optional: new student_photo_url from the pending request's changed_fields.
+   * When set (and status is 'pending'), the banner renders a small preview of
+   * the uploaded photo so students can confirm their upload went through.
+   * Addresses the "photo not uploading" cluster (BUG-003067 et al) where the
+   * upload did in fact succeed into a pending change request but students had
+   * no visual feedback and assumed the feature was broken.
+   */
+  pendingPhotoUrl?: string | null;
 }
 
 export function PendingChangesBanner({
@@ -21,6 +31,7 @@ export function PendingChangesBanner({
   status,
   submittedAt,
   reviewComments,
+  pendingPhotoUrl,
 }: PendingChangesBannerProps) {
   const { mutate: cancelRequest, isPending: isCancelling } = useCancelChangeRequest();
 
@@ -75,6 +86,30 @@ export function PendingChangesBanner({
       </AlertTitle>
       <AlertDescription className="mt-2">
         <p>{config.description}</p>
+
+        {/* Pending photo preview — visual confirmation that the upload landed
+            in the change request (addresses the "photo not uploading" cluster). */}
+        {status === 'pending' && pendingPhotoUrl && (
+          <div className="mt-3 flex items-center gap-3 p-3 bg-white rounded-md border border-yellow-200">
+            <div className="relative w-14 h-14 flex-shrink-0 rounded-full overflow-hidden border-2 border-yellow-400">
+              <Image
+                src={pendingPhotoUrl}
+                alt="Pending profile photo"
+                fill
+                className="object-cover"
+                sizes="56px"
+              />
+            </div>
+            <div className="text-sm">
+              <p className="font-medium text-yellow-900">
+                Your new profile photo was uploaded successfully.
+              </p>
+              <p className="text-yellow-800 mt-0.5">
+                It will appear across the app once your department approves this request.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Show rejection feedback */}
         {status === 'rejected' && reviewComments && (
