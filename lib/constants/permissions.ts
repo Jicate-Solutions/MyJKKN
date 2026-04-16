@@ -501,7 +501,34 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.recruitment.approve', label: 'Approve Recruitment Candidates' },
       { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
-      { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' }
+      { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' },
+      // Leave (Sprint 2) — RLS keys referenced in hr_leave_* policies
+      { key: 'hr.leave.view', label: 'View Leave Applications' },
+      { key: 'hr.leave.apply', label: 'Apply for Leave' },
+      { key: 'hr.leave.approve', label: 'Approve Leave Applications' },
+      { key: 'hr.leave.cancel', label: 'Cancel Own Leave Pre-Approval' },
+      { key: 'hr.leave.withdraw', label: 'Withdraw Own Leave Post-Approval' },
+      { key: 'hr.leave.balance.view', label: 'View Leave Balances' },
+      { key: 'hr.leave.encashment.view', label: 'View Leave Encashment Requests' },
+      { key: 'hr.leave.encashment.approve', label: 'Approve Leave Encashment' },
+      // Employees (Sprint 1) — HR employee directory
+      { key: 'hr.employees.view', label: 'View Employee Directory' },
+      { key: 'hr.employees.create', label: 'Add New Employees' },
+      { key: 'hr.employees.edit', label: 'Edit Employee Details' },
+      { key: 'hr.employees.delete', label: 'Deactivate Employees' },
+      { key: 'hr.employees.export', label: 'Export Employee Data' },
+      // Policies (Sprint 3) — HR policy tables
+      { key: 'hr.policies.view', label: 'View HR Policies' },
+      { key: 'hr.policies.create', label: 'Create Policy Entries' },
+      { key: 'hr.policies.edit', label: 'Edit Policy Entries' },
+      { key: 'hr.policies.history.view', label: 'View Policy Change History' },
+      // Onboarding (Sprint 4) — hr_onboarding_checklists cadre templates
+      { key: 'hr.onboarding.view', label: 'View Onboarding Checklists' },
+      { key: 'hr.onboarding.manage', label: 'Manage Onboarding Templates' },
+      { key: 'hr.onboarding.execute', label: 'Execute Onboarding Steps' },
+      // Dashboard (Sprint 6) — HR Command Center
+      { key: 'hr.dashboard.view', label: 'View HR Command Center' },
+      { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' }
     ]
   },
   {
