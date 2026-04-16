@@ -285,7 +285,8 @@ function CallLogDashboardContent() {
   const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
   const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
   const institutionId = isGlobalUser ? undefined : profile?.institution_id;
-  const canEditNotes = canAccess('admission', 'counselors.calls.edit')
+  const canEditNotes = canAccess('admission', 'leads.edit')
+    || canAccess('admission', 'counselors.calls.edit')
     || canAccess('admission', 'counselors.edit');
 
   // Filter state
