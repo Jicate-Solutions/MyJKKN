@@ -1,7 +1,31 @@
 {
-  "project": "MyJKKN - HR Module + Exotel",
+  "project": "MyJKKN - HR Module + Exotel + NAAC/IQAC Program",
   "lastUpdated": "2026-04-16",
   "features": [
+    {
+      "id": "iqac-foundation-phase-1",
+      "name": "IQAC Foundation Phase 1 — Umbrella + Grievance + NPS + Metric 8.4 + DCF Export",
+      "status": "planned",
+      "notes": "Phase 1a of v0.4 NAAC Master Plan. Build IQAC umbrella shell at /iqac with college switcher (6 colleges + cluster rollup), cherry-pick Grievance from clean-ss-deploy with RLS remediation + 5 UGC category seeds, cherry-pick NPS + seed 4 templates, build Metric 8.4 Learning Experience Survey (LOW effort 60pt unlock), scaffold DCF 2025 export. Blocked by Director gates: IQAC chair named, grievance categories + NPS templates approved, Phase 6 Parent Portal owner named. Execution brief at .claude/continuation-prompt.md."
+    },
+    {
+      "id": "naac-master-plan-v04",
+      "name": "NAAC Master Plan v0.4 — 8-Phase IQAC Umbrella Architecture",
+      "status": "self-verified",
+      "notes": "Written 2026-04-16. Connects 11 abandoned modules on clean-ss-deploy + 18 live OKR tables + JKKN Gap Analysis (vault, 2026-03-07) + NAAC Framework digest (1533 lines) into a single execution plan. Phases: 1=IQAC+Grievance+NPS+8.4, 2=Sustainability, 3=OKR resurrection, 4=Academic Evidence, 5=Faculty Development, 6=Parent Portal, 7=Sustainability reporting, 8=Solutions-to-Research Bridge. College switcher + cluster rollup + DCF 2025 export as first-class primitives. Artifacts: specs/workshop-transformation-resurrection/MASTER-PLAN.md + METRIC-COVERAGE-MAP.md."
+    },
+    {
+      "id": "okr-resurrection",
+      "name": "OKR Resurrection — 17 tables + cascading objectives + ABCD grading",
+      "status": "blocked",
+      "notes": "Paused 2026-04-16 after pivot to NAAC master plan. 18 tables already live on production; 93 code files abandoned on clean-ss-deploy. 2 commits preserved in .claude/worktrees/okr-resurrect — do not remove worktree. Resumes as Phase 3 of v0.4 NAAC plan after IQAC foundation (Phase 1) and Sustainability (Phase 2) ship. All council directives + fortnightly updates + NAAC criteria will flow through OKRs — see reference_council_via_okrs memory."
+    },
+    {
+      "id": "workshop-transformation-resurrection",
+      "name": "Workshop Transformation Resurrection — multi-phase NAAC/IQAC program",
+      "status": "in-progress",
+      "notes": "Parent program for 8-phase NAAC delivery. v0.4 plan locked 2026-04-16. Phase 1 ready to execute next session pending Director gates. Specs directory: specs/workshop-transformation-resurrection/ (MASTER-PLAN.md + METRIC-COVERAGE-MAP.md + upcoming DCF-2025-EXPORT-CONTRACT.md). Director gates pending: IQAC chair naming, grievance/NPS approvals, Phase 6 owner."
+    },
     {
       "id": "hr-sprint-1-foundation",
       "name": "HR Sprint 1 — Shadow Tenant + Employee Master",
