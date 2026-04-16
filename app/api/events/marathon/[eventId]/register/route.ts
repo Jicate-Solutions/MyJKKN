@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { publicRegistrationSchema } from '@/lib/validations/events';
 import { ExternalParticipantService } from '@/lib/services/events/core/external-participant-service';
+import { EventsNotificationService } from '@/lib/services/events/notification-service';
 
 export async function POST(
   request: NextRequest,
@@ -215,6 +216,23 @@ export async function POST(
       return NextResponse.json(
         { error: 'Failed to create registration', details: insertError.message },
         { status: 500 }
+      );
+    }
+
+    // ── Notification: registration_confirmed ─────────────────────────────────
+    // Only internal participants have a profile_id we can notify.
+    // Fire-and-forget — never block the registration response.
+    if (data.participant_type === 'internal' && registration.profile_id) {
+      EventsNotificationService.notifyRegistrationConfirmed({
+        user_ids: [registration.profile_id],
+        event_name: event.name ?? 'Event',
+        event_id: eventId,
+        registration_id: registration.id,
+        bib_number: registration.bib_number,
+        event_date: event.event_date,
+        venue: event.venue,
+      }).catch((err: unknown) =>
+        console.warn('[marathon-api/register] Notification dispatch failed:', err)
       );
     }
 
