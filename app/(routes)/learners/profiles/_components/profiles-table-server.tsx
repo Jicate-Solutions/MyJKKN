@@ -249,7 +249,15 @@ export function ProfilesTableServer({
         {props.selectedRows.length > 0 && (
           <>
             <Button asChild size="sm" className="h-8">
-              <Link href={`/learners/profiles/promotion?ids=${selectedIds}`}>
+              <Link
+                href={`/learners/profiles/promotion?ids=${selectedIds}`}
+                // BUG-003098: after promoting students (e.g., 38 → graduated),
+                // the filter area still showed "38 selected" because the
+                // TanStack rowSelection state kept the now-filtered-out IDs.
+                // Clearing the selection on click ensures the list reflects
+                // the actual state when the user returns from /promotion.
+                onClick={() => props.resetSelection()}
+              >
                 <ArrowRight className="mr-2 h-4 w-4" />
                 Promote Selected ({props.selectedRows.length})
               </Link>
