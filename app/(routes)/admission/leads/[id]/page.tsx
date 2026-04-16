@@ -123,8 +123,9 @@ import { SendPersonalMessageDialog } from '@/components/whatsapp/send-personal-m
 import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
 // BUG-003016: centralised DD/MM/YYYY formatter — replaces bare
 // toLocaleDateString() calls that were rendering ambiguously depending
-// on the runtime locale.
-import { formatDateDMY } from '@/lib/utils/date-format';
+// on the runtime locale. Extended 2026-04-16 to also route the timeline,
+// message, and follow-up dates on the detail page through the helpers.
+import { formatDateDMY, formatDateShort, formatDateTimeDMY } from '@/lib/utils/date-format';
 
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -281,7 +282,7 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
           <p className="text-sm text-muted-foreground mt-1">{entry.description}</p>
         )}
         <p className="text-xs text-muted-foreground mt-1">
-          {new Date(entry.timestamp).toLocaleString()}
+          {formatDateTimeDMY(entry.timestamp)}
         </p>
       </div>
     </div>
@@ -324,9 +325,9 @@ function CommunicationItem({
   };
 
   const timeStr = (message.sentAt || message.sent_at)
-    ? new Date((message.sentAt || message.sent_at)!).toLocaleString()
+    ? formatDateTimeDMY(message.sentAt || message.sent_at)
     : message.createdAt
-      ? new Date(message.createdAt).toLocaleString()
+      ? formatDateTimeDMY(message.createdAt)
       : '-';
 
   // Chat bubble layout for Personal WhatsApp messages
@@ -1915,13 +1916,13 @@ function LeadDetailPageContent() {
                         <div>
                           <dt className="text-sm text-muted-foreground">Created</dt>
                           <dd className="font-medium">
-                            {lead.created_at ? new Date(lead.created_at).toLocaleString() : '-'}
+                            {formatDateTimeDMY(lead.created_at)}
                           </dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Last Activity</dt>
                           <dd className="font-medium">
-                            {lead.last_contact_at ? new Date(lead.last_contact_at).toLocaleString() : '-'}
+                            {formatDateTimeDMY(lead.last_contact_at)}
                           </dd>
                         </div>
                       </dl>
@@ -2018,7 +2019,7 @@ function LeadDetailPageContent() {
                               {lead.assigned_at && (
                                 <div>
                                   <dt className="text-muted-foreground">Assigned On</dt>
-                                  <dd>{new Date(lead.assigned_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</dd>
+                                  <dd>{formatDateShort(lead.assigned_at)}</dd>
                                 </div>
                               )}
                             </dl>
@@ -2499,11 +2500,11 @@ function LeadDetailPageContent() {
                   </CardHeader>
                   <CardContent>
                     <p className="text-lg font-semibold">
-                      {new Date((lead as any).next_followup_at).toLocaleDateString(undefined, {
+                      {new Date((lead as any).next_followup_at).toLocaleDateString('en-GB', {
                         weekday: 'short',
-                        year: 'numeric',
-                        month: 'short',
                         day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
                       })}
                     </p>
                     <p className="text-sm text-muted-foreground">
@@ -2598,7 +2599,7 @@ function LeadDetailPageContent() {
                       <div>
                         <p className="text-xs text-muted-foreground">Next Follow-up</p>
                         <p className="text-sm font-medium">
-                          {new Date(lead.next_followup_at).toLocaleString()}
+                          {formatDateTimeDMY(lead.next_followup_at)}
                         </p>
                       </div>
                     </div>
