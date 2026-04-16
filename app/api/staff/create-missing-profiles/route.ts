@@ -43,6 +43,90 @@ function generateTemporaryPassword(): string {
   return password + '!';
 }
 
+/**
+ * Sync the user's primary user_roles assignment to match targetRoleKey.
+ * - Demotes the existing primary (if different).
+ * - Promotes an existing non-primary row for the target role, or inserts a new one.
+ * - Returns whether anything was changed and whether a fallback to profiles.role
+ *   is needed (when the user has NO user_roles at all — rare legacy case).
+ *
+ * The sync_primary_role_trigger on user_roles will cascade profiles.role
+ * automatically after this runs.
+ */
+async function syncPrimaryUserRole(
+  userId: string,
+  targetRoleKey: string
+): Promise<{ changed: boolean; hadNoUserRoles: boolean; error?: string }> {
+  // Resolve custom_roles.id for the target role_key.
+  const { data: targetRole } = await supabaseAdmin
+    .from('custom_roles')
+    .select('id')
+    .eq('role_key', targetRoleKey)
+    .maybeSingle();
+
+  if (!targetRole) {
+    return {
+      changed: false,
+      hadNoUserRoles: false,
+      error: `custom_roles.role_key '${targetRoleKey}' does not exist`
+    };
+  }
+
+  // Does the user have ANY user_roles rows?
+  const { data: anyUserRoles } = await supabaseAdmin
+    .from('user_roles')
+    .select('id, role_id, is_primary')
+    .eq('user_id', userId);
+
+  if (!anyUserRoles || anyUserRoles.length === 0) {
+    // Legacy user with no user_roles. Insert a fresh primary.
+    const { error: insertError } = await supabaseAdmin
+      .from('user_roles')
+      .insert({
+        user_id: userId,
+        role_id: (targetRole as any).id,
+        is_primary: true
+      });
+    if (insertError) {
+      return { changed: false, hadNoUserRoles: true, error: insertError.message };
+    }
+    return { changed: true, hadNoUserRoles: true };
+  }
+
+  const currentPrimary = anyUserRoles.find((r: any) => r.is_primary === true);
+  if (currentPrimary && (currentPrimary as any).role_id === (targetRole as any).id) {
+    // Already correct.
+    return { changed: false, hadNoUserRoles: false };
+  }
+
+  // Demote existing primary (if any), respecting the partial unique index on (user_id) WHERE is_primary.
+  if (currentPrimary) {
+    await supabaseAdmin
+      .from('user_roles')
+      .update({ is_primary: false })
+      .eq('id', (currentPrimary as any).id);
+  }
+
+  // Promote an existing row for targetRole, or insert a new one.
+  const existingRow = anyUserRoles.find(
+    (r: any) => r.role_id === (targetRole as any).id
+  );
+  if (existingRow) {
+    await supabaseAdmin
+      .from('user_roles')
+      .update({ is_primary: true })
+      .eq('id', (existingRow as any).id);
+  } else {
+    await supabaseAdmin.from('user_roles').insert({
+      user_id: userId,
+      role_id: (targetRole as any).id,
+      is_primary: true
+    });
+  }
+
+  return { changed: true, hadNoUserRoles: false };
+}
+
 export async function POST(request: Request) {
   await connection();
   try {
@@ -99,7 +183,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const selectedStaffIds: string[] | undefined = body.staff_ids;
 
-    // Get all staff with institution emails
+    // Get all staff with institution emails + role_key (authoritative role source).
     const { data: allStaff, error: staffError } = await supabaseAdmin
       .from('staff')
       .select(
@@ -112,7 +196,8 @@ export async function POST(request: Request) {
         institution_id,
         department_id,
         gender,
-        designation
+        designation,
+        role_key
       `
       )
       .not('institution_email', 'is', null)
@@ -135,6 +220,25 @@ export async function POST(request: Request) {
       throw profilesError;
     }
 
+    // Role sync rule (updated 2026-04-16):
+    // Compare and sync against the user's PRIMARY user_roles.role_key —
+    // that's the authoritative source per the dynamic permission system.
+    // For legacy users with no user_roles, fall back to profiles.role.
+    const profileIds = existingProfiles.map((p) => p.id);
+    const { data: primaryUserRolesRaw } =
+      profileIds.length > 0
+        ? await supabaseAdmin
+            .from('user_roles')
+            .select('user_id, custom_roles!inner(role_key)')
+            .in('user_id', profileIds)
+            .eq('is_primary', true)
+        : { data: [] as any[] };
+    const primaryRoleByUserId = new Map<string, string>();
+    for (const ur of primaryUserRolesRaw || []) {
+      const roleKey = (ur as any).custom_roles?.role_key;
+      if (roleKey) primaryRoleByUserId.set((ur as any).user_id, roleKey);
+    }
+
     // Create a map of profiles by email
     const profilesByEmail = new Map(
       existingProfiles.map((p) => [p.email, p])
@@ -151,20 +255,15 @@ export async function POST(request: Request) {
         // No profile exists - needs creation
         staffNeedingNewProfiles.push(staff);
       } else {
-        // Profile exists - check if it needs updates
-        // Accept faculty and elevated roles as valid (case-insensitive)
-        const validRoles = [
-          'faculty',
-          'hod',
-          'principal',
-          'dean',
-          'administrator',
-          'super_admin',
-          'accounts',
-          'admission',
-          'digital_coordinator'
-        ];
-        const hasValidRole = validRoles.includes(profile.role?.toLowerCase());
+        // Profile exists - check if it needs updates.
+        // Compare against PRIMARY user_roles (authoritative), fall back to
+        // profiles.role for legacy users with no user_roles entries.
+        const staffRoleKey = (staff as any).role_key as string | null | undefined;
+        const primaryRoleKey = primaryRoleByUserId.get(profile.id);
+        const effectiveCurrentRole = primaryRoleKey || profile.role || '';
+        const roleMatches = !staffRoleKey
+          ? true
+          : effectiveCurrentRole.toLowerCase() === staffRoleKey.toLowerCase();
         const hasInstitutionId = profile.institution_id === staff.institution_id;
         const hasDepartmentId = profile.department_id === staff.department_id;
         const hasCorrectGender = profile.gender === staff.gender;
@@ -172,22 +271,24 @@ export async function POST(request: Request) {
         const hasCorrectDesignation = profile.designation === staff.designation;
 
         if (
-          !hasValidRole ||
+          !roleMatches ||
           !hasInstitutionId ||
           !hasDepartmentId ||
           !hasCorrectGender ||
           !hasCorrectPhone ||
           !hasCorrectDesignation
         ) {
-          // Profile needs updates
+          // Profile needs updates. current_role reflects authoritative source.
           staffNeedingProfileUpdates.push({
             ...staff,
             profile_id: profile.id,
-            current_role: profile.role,
-            has_valid_role: hasValidRole
+            current_role: effectiveCurrentRole,
+            role_matches: roleMatches,
+            target_role: staffRoleKey || effectiveCurrentRole
           } as StaffWithProfileId & {
             current_role: string;
-            has_valid_role: boolean;
+            role_matches: boolean;
+            target_role: string;
           });
         }
       }
@@ -245,26 +346,18 @@ export async function POST(request: Request) {
           throw new Error(`Profile ID not found for ${staff.institution_email}`);
         }
 
-        // Determine role to set: Keep valid roles, otherwise set to faculty
-        const validRoles = [
-          'faculty',
-          'hod',
-          'principal',
-          'dean',
-          'administrator',
-          'super_admin',
-          'accounts',
-          'admission',
-          'digital_coordinator'
-        ];
+        // Role sync rule: if staff.role_key is set and differs from profile.role,
+        // update profile.role to staff.role_key. Otherwise leave role alone.
+        // Never force to 'faculty' — that was the old bug that silently downgraded
+        // hr_admin / coe / system_admin / cao / ceo and other non-allowlist roles.
         const currentRole = (staff as any).current_role;
-        const hasValidRole = (staff as any).has_valid_role;
-        const roleToSet = hasValidRole ? currentRole : 'faculty';
+        const roleMatches = (staff as any).role_matches;
+        const targetRole = (staff as any).target_role;
 
         console.log(`Attempting update with values:`, {
-          role: roleToSet,
           current_role: currentRole,
-          preserve_role: hasValidRole,
+          target_role: targetRole,
+          role_changed: !roleMatches,
           institution_id: staff.institution_id,
           department_id: staff.department_id,
           gender: staff.gender,
@@ -272,7 +365,6 @@ export async function POST(request: Request) {
           profile_id: profileId
         });
 
-        // Build update object - only include role if it needs to be changed
         const updateData: any = {
           institution_id: staff.institution_id,
           department_id: staff.department_id,
@@ -283,12 +375,22 @@ export async function POST(request: Request) {
           updated_at: new Date().toISOString()
         };
 
-        // Only update role if it's not already valid (faculty or HOD)
-        if (!hasValidRole) {
-          updateData.role = 'faculty';
+        // Role sync now targets the authoritative layer (user_roles primary).
+        // The sync_primary_role_trigger cascades profiles.role automatically.
+        // We do NOT write profiles.role directly here — doing both can race the trigger.
+        if (!roleMatches && targetRole) {
+          const roleSync = await syncPrimaryUserRole(profileId, targetRole);
+          if (roleSync.error) {
+            console.warn(
+              `[create-missing-profiles] user_roles sync warning for ${staff.institution_email}: ${roleSync.error}`
+            );
+          }
+          console.log(
+            `[create-missing-profiles] Synced primary user_role → ${targetRole} (changed=${roleSync.changed}, hadNoUserRoles=${roleSync.hadNoUserRoles})`
+          );
         }
 
-        // Update existing profile with correct data
+        // Update existing profile with non-role fields.
         const { data: updatedProfile, error: updateError } = await supabaseAdmin
           .from('profiles')
           .update(updateData)
@@ -349,24 +451,16 @@ export async function POST(request: Request) {
           .maybeSingle();
 
         if (existingProfileCheck) {
-          // Profile exists, check if it needs updates
-          const validRoles = [
-            'faculty',
-            'hod',
-            'principal',
-            'dean',
-            'administrator',
-            'super_admin',
-            'accounts',
-            'admission',
-            'digital_coordinator'
-          ];
-          const hasValidRole = validRoles.includes(
-            existingProfileCheck.role?.toLowerCase()
-          );
+          // Profile exists — same role-sync logic as the primary path.
+          const staffRoleKey = (staff as any).role_key as string | null | undefined;
+          const profileRole = (existingProfileCheck.role || '').toLowerCase();
+          const roleMatches = !staffRoleKey
+            ? true
+            : profileRole === staffRoleKey.toLowerCase();
+          const targetRole = staffRoleKey || existingProfileCheck.role;
 
           const needsUpdate =
-            !hasValidRole ||
+            !roleMatches ||
             existingProfileCheck.institution_id !== staff.institution_id ||
             existingProfileCheck.department_id !== staff.department_id ||
             existingProfileCheck.gender !== staff.gender ||
@@ -374,7 +468,6 @@ export async function POST(request: Request) {
             existingProfileCheck.designation !== staff.designation;
 
           if (needsUpdate) {
-            // Build update object
             const updateData: any = {
               institution_id: staff.institution_id,
               department_id: staff.department_id,
@@ -385,12 +478,20 @@ export async function POST(request: Request) {
               updated_at: new Date().toISOString()
             };
 
-            // Only update role if it's not already valid (faculty or HOD)
-            if (!hasValidRole) {
-              updateData.role = 'faculty';
+            // Sync role at the user_roles layer (authoritative). Trigger cascades profiles.role.
+            if (!roleMatches && targetRole) {
+              const roleSync = await syncPrimaryUserRole(
+                existingProfileCheck.id,
+                targetRole
+              );
+              if (roleSync.error) {
+                console.warn(
+                  `[create-missing-profiles] user_roles sync warning for ${staff.institution_email}: ${roleSync.error}`
+                );
+              }
             }
 
-            // Update the profile
+            // Update the profile (non-role fields).
             const { error: updateError } = await supabaseAdmin
               .from('profiles')
               .update(updateData)
@@ -431,14 +532,17 @@ export async function POST(request: Request) {
         const profileId = crypto.randomUUID();
         console.log(`Creating new profile with ID: ${profileId}`);
 
-        // Create new profile
+        // Create new profile. Use staff.role_key as the authoritative role source.
+        // Fallback to 'faculty' only if role_key is genuinely missing (shouldn't happen
+        // post the 2026-04-16 bulk upload fix that plumbs role_key through).
+        const newProfileRole = (staff as any).role_key || 'faculty';
         const { data: profileData, error: profileError } = await supabaseAdmin
           .from('profiles')
           .insert({
             id: profileId,
             email: staff.institution_email,
             full_name: fullName,
-            role: 'faculty',
+            role: newProfileRole,
             phone_number: staff.phone,
             institution_id: staff.institution_id,
             department_id: staff.department_id,
@@ -457,6 +561,20 @@ export async function POST(request: Request) {
             profileError
           );
           throw profileError;
+        }
+
+        // Create the authoritative user_roles primary assignment for the new
+        // profile so permission lookups work correctly from day one.
+        if ((staff as any).role_key) {
+          const roleSync = await syncPrimaryUserRole(
+            profileId,
+            (staff as any).role_key
+          );
+          if (roleSync.error) {
+            console.warn(
+              `[create-missing-profiles] user_roles seed warning for ${staff.institution_email}: ${roleSync.error}`
+            );
+          }
         }
 
         console.log(`Successfully created profile for: ${fullName}`);

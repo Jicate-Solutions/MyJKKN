@@ -69,7 +69,8 @@ export async function GET() {
       );
     }
 
-    // Get all staff with emails
+    // Get all staff with emails. Include role_key — it's the authoritative role
+    // from bulk upload / manual create. profiles.role must match staff.role_key.
     const { data: allStaff, error: staffError } = await supabaseAdmin
       .from('staff')
       .select(
@@ -82,7 +83,8 @@ export async function GET() {
         institution_id,
         department_id,
         gender,
-        designation
+        designation,
+        role_key
       `
       )
       .not('institution_email', 'is', null)
@@ -103,6 +105,27 @@ export async function GET() {
 
     if (profilesError) {
       throw profilesError;
+    }
+
+    // Role sync rule (updated 2026-04-16):
+    // Compare staff.role_key against the user's PRIMARY user_roles.role_key —
+    // that's the authoritative source per the dynamic permission system.
+    // profiles.role is a legacy cache synced by sync_primary_role_trigger, and
+    // drifted vs primary user_role in ~46 users across the DB. For users with
+    // no user_roles rows at all (~90 legacy users), fall back to profiles.role.
+    const profileIds = existingProfiles.map((p) => p.id);
+    const { data: primaryUserRolesRaw } =
+      profileIds.length > 0
+        ? await supabaseAdmin
+            .from('user_roles')
+            .select('user_id, custom_roles!inner(role_key)')
+            .in('user_id', profileIds)
+            .eq('is_primary', true)
+        : { data: [] as any[] };
+    const primaryRoleByUserId = new Map<string, string>();
+    for (const ur of primaryUserRolesRaw || []) {
+      const roleKey = (ur as any).custom_roles?.role_key;
+      if (roleKey) primaryRoleByUserId.set((ur as any).user_id, roleKey);
     }
 
     // Get existing auth users
@@ -128,20 +151,17 @@ export async function GET() {
         // No profile exists at all
         staffWithoutProfiles.push(staff);
       } else {
-        // Profile exists, check if it's complete and correct
-        // Accept faculty and elevated roles as valid (case-insensitive)
-        const validRoles = [
-          'faculty',
-          'hod',
-          'principal',
-          'dean',
-          'administrator',
-          'super_admin',
-          'accounts',
-          'admission',
-          'digital_coordinator'
-        ];
-        const hasValidRole = validRoles.includes(profile.role?.toLowerCase());
+        // Profile exists — check each field for mismatches against the staff record.
+        // Role rule: compare staff.role_key against the user's PRIMARY
+        // user_roles.role_key (authoritative). Fall back to profiles.role only
+        // for legacy users with no user_roles entries.
+        const staffRoleKey = (staff as any).role_key as string | null | undefined;
+        const primaryRoleKey = primaryRoleByUserId.get(profile.id);
+        const effectiveCurrentRole = primaryRoleKey || profile.role || '';
+        const roleMatches = !staffRoleKey
+          ? true
+          : effectiveCurrentRole.toLowerCase() === staffRoleKey.toLowerCase();
+        const targetRole = staffRoleKey || effectiveCurrentRole;
         const hasInstitutionId = profile.institution_id === staff.institution_id;
         const hasDepartmentId = profile.department_id === staff.department_id;
         const hasCorrectGender = profile.gender === staff.gender;
@@ -149,7 +169,7 @@ export async function GET() {
         const hasCorrectDesignation = profile.designation === staff.designation;
 
         if (
-          hasValidRole &&
+          roleMatches &&
           hasInstitutionId &&
           hasDepartmentId &&
           hasCorrectGender &&
@@ -159,16 +179,19 @@ export async function GET() {
           // Profile is complete and correct
           staffWithCompleteProfiles.push(staff);
         } else {
-          // Profile exists but has incorrect/incomplete data
+          // Profile exists but has incorrect/incomplete data.
+          // current_role reflects the authoritative source (primary user_role
+          // when available), so the preview UI shows what truly drives access.
           staffWithIncompleteProfiles.push({
             ...staff,
-            current_role: profile.role,
+            current_role: effectiveCurrentRole,
             current_institution_id: profile.institution_id,
             current_department_id: profile.department_id,
             current_gender: profile.gender,
             current_phone_number: profile.phone_number,
             current_designation: profile.designation,
-            has_valid_role: hasValidRole // Track if role is already valid
+            role_matches: roleMatches,
+            target_role: targetRole
           });
         }
       }
@@ -209,8 +232,8 @@ export async function GET() {
           changes: {
             role: {
               current: s.current_role,
-              new: s.has_valid_role ? s.current_role : 'faculty', // Keep valid roles (faculty/HOD)
-              changed: !s.has_valid_role // Only flag as changed if role is invalid
+              new: s.target_role, // staff.role_key if set, else preserve current
+              changed: !s.role_matches
             },
             institution_id: {
               current: s.current_institution_id,
@@ -239,7 +262,7 @@ export async function GET() {
             }
           },
           issues: {
-            wrong_role: !s.has_valid_role, // Only flag if role is not faculty or HOD
+            wrong_role: !s.role_matches,
             missing_institution: !s.current_institution_id,
             missing_department: !s.current_department_id,
             wrong_gender: s.current_gender !== s.gender,

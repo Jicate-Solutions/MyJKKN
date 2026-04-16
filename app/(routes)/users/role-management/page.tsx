@@ -144,6 +144,36 @@ export default function RoleManagementPage() {
     }
   };
 
+  const handleCloneRole = async (newRole: {
+    role_key: string;
+    role_name: string;
+    description: string;
+    permissions: Record<string, boolean>;
+    institution_scope: 'all' | 'own';
+  }) => {
+    try {
+      setIsLoading(true);
+      await RoleService.createRole({
+        role_key: newRole.role_key,
+        role_name: newRole.role_name,
+        description: newRole.description,
+        permissions: newRole.permissions,
+        is_system_role: false,
+        institution_scope: newRole.institution_scope,
+      });
+      await fetchRoles();
+      toast.success(`Cloned role "${newRole.role_name}"`);
+    } catch (error) {
+      console.error('Error cloning role:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to clone role'
+      );
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleDeleteRole = async (roleKey: string) => {
     try {
       setIsLoading(true);
@@ -266,6 +296,7 @@ export default function RoleManagementPage() {
                 roles={roles}
                 onUpdateRole={handleUpdateRole}
                 onDeleteRole={handleDeleteRole}
+                onCloneRole={handleCloneRole}
               />
             )}
           </TabsContent>

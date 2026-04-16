@@ -288,12 +288,13 @@ const validateDate = (date: string | number) => {
   };
 };
 
+// Updated: 2026-04-16 — Narrowed blocklist to only 'student' and 'guest' per user request.
+// Students are onboarded via the learners module (not staff), and 'guest' is a placeholder.
+// SECURITY NOTE: privileged roles (super_admin, administrator, admission, counselor) are
+// now assignable via bulk upload. Treat the bulk upload dialog as a privileged action —
+// gate page-level access behind super_admin/admin and audit upload history.
 const RESERVED_BULK_ROLE_KEYS = new Set([
   'student',
-  'super_admin',
-  'administrator',
-  'admission',
-  'counselor',
   'guest'
 ]);
 
@@ -633,7 +634,11 @@ export default function BulkUploadStaff() {
       const [categoriesResult, institutions, departmentsData, rolesData] =
         await Promise.all([
           CategoryService.getCategories({ isActive: true, limit: 100 }),
-          OrganizationService.getInstitutionNames(true),
+          // Updated: 2026-04-16 — Pass entityType='all' so staff can be uploaded
+          // against companies and offices (e.g., 'Jicate Solutions'), not just
+          // educational institutions. The institutions table stores three entity
+          // types and staff legitimately work at all three.
+          OrganizationService.getInstitutionNames(true, undefined, 'all'),
           DepartmentService.getDepartments({ isActive: true, limit: 1000 }),
           RoleService.getStaffAssignableRoles()
         ]);
@@ -847,8 +852,11 @@ export default function BulkUploadStaff() {
 
       for (const batch of batches) {
         const promises = batch.map((row) => {
-          // Validate IDs one more time as a safeguard
-          if (!row.category_id || !row.institution_id || !row.department_id) {
+          // Updated: 2026-04-16 — department_id is legitimately null for non-teaching
+          // staff (validation drops it when category is not teaching). Only gate on
+          // category_id + institution_id here; earlier validation already enforced
+          // department-required-for-teaching.
+          if (!row.category_id || !row.institution_id) {
             errorCount++;
             errorDetails.push(`Row ${row.rowNumber}: Missing required IDs`);
             return Promise.resolve(); // Skip this row
@@ -876,6 +884,10 @@ export default function BulkUploadStaff() {
             category_id: row.category_id,
             institution_id: row.institution_id,
             department_id: row.department_id,
+            // Fixed: 2026-04-16 — role_key was validated but never forwarded to
+            // StaffService.createStaff, causing every bulk-upload row to fail with
+            // "role_key is required" even though the CSV column was valid.
+            role_key: row.role_key,
             is_active: row.is_active === 'false' ? false : true
           };
 

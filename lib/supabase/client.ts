@@ -40,13 +40,21 @@ export function createClientSupabaseClient(): TypedSupabaseClient {
 }
 
 export function createAdminClient() {
+  // In the browser, there is no such thing as an "admin" client — the service
+  // role key must never ship to the client. Previously, this function fell
+  // back to the anon key in browser contexts, which created a second
+  // GoTrueClient pointed at the same localStorage as createClientSupabaseClient
+  // and triggered the "Multiple GoTrueClient instances detected" warning.
+  // Returning the regular browser singleton is both safer (honest about the
+  // actual privileges available) and eliminates the auth-storage collision.
+  if (typeof window !== 'undefined') {
+    return createClientSupabaseClient();
+  }
+
   if (!adminInstance) {
-    // For client-side components, fall back to anon key
-    const isClient = typeof window !== 'undefined';
-    const authKey = isClient
-      ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      : process.env.SUPABASE_SERVICE_ROLE_KEY ||
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const authKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !authKey) {
       throw new Error('Missing Supabase credentials');

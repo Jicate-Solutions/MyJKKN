@@ -640,45 +640,73 @@ CREATE POLICY "students_all_admin" ON students
         )
     );
 
--- LEARNERS_PROFILES TABLE (6 policies)
+-- LEARNERS_PROFILES TABLE
+-- Updated: 2026-04-16 - Unified policies to accept learners.admissions.*, learners.profiles.*, and legacy learners.*
+--                       permission keys. Replaced get_current_user_institution_id() equality with
+--                       role_has_institution_access() so scope='all' roles (admission_staff, counselor)
+--                       can update cross-institution. Fixed bug where admission_staff had
+--                       learners.admissions.edit but RLS only checked learners.profiles.edit.
 -- Updated: 2026-03-10 - Added to setup file, fixed DELETE policy to include HOD role
--- Note: Previously only existed in migration files
 ALTER TABLE learners_profiles ENABLE ROW LEVEL SECURITY;
 
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
--- SELECT: Super admins, admins, or users with institution access or permission
+-- SELECT: super/admin, any learners.* view permission + institution scope, or self-access by email
 CREATE POLICY "learners_profiles_select_policy" ON learners_profiles
     FOR SELECT USING (
         is_super_admin() OR is_admin()
-        OR user_has_institution_access(auth.uid(), institution_id)
-        OR user_has_permission('learners.profiles.view')
+        OR (
+            role_has_institution_access(institution_id)
+            AND (
+                user_has_permission('learners.admissions.view')
+                OR user_has_permission('learners.profiles.view')
+                OR user_has_permission('learners.view')
+            )
+        )
+        OR student_email = (SELECT email FROM profiles WHERE id = auth.uid())
+        OR college_email = (SELECT email FROM profiles WHERE id = auth.uid())
     );
 
-CREATE POLICY "learners_profiles_select_admission_role" ON learners_profiles
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR user_has_permission('learners.profiles.view')
-    );
-
--- INSERT: Super admins, admins, or users with institution access and permission
+-- INSERT: super/admin or user with create permission + institution scope
 CREATE POLICY "learners_profiles_insert_policy" ON learners_profiles
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('learners.profiles.create'))
+        OR (
+            role_has_institution_access(institution_id)
+            AND (
+                user_has_permission('learners.admissions.create')
+                OR user_has_permission('learners.profiles.create')
+                OR user_has_permission('learners.create')
+            )
+        )
     );
 
--- UPDATE: Super admins, admins, or users with institution access and permission
+-- UPDATE: super/admin, any learners.* edit permission + institution scope, or self-update by email
 CREATE POLICY "learners_profiles_update_policy" ON learners_profiles
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('learners.profiles.edit'))
+        OR (
+            role_has_institution_access(institution_id)
+            AND (
+                user_has_permission('learners.admissions.edit')
+                OR user_has_permission('learners.profiles.edit')
+                OR user_has_permission('learners.edit')
+            )
+        )
+        OR student_email = (SELECT email FROM profiles WHERE id = auth.uid())
+        OR college_email = (SELECT email FROM profiles WHERE id = auth.uid())
     );
 
--- DELETE: Super admins, admins, or users with institution access and permission
+-- DELETE: super/admin or user with delete permission + institution scope
 CREATE POLICY "learners_profiles_delete_policy" ON learners_profiles
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('learners.profiles.delete'))
+        OR (
+            role_has_institution_access(institution_id)
+            AND (
+                user_has_permission('learners.admissions.delete')
+                OR user_has_permission('learners.profiles.delete')
+                OR user_has_permission('learners.delete')
+            )
+        )
     );
 
 -- Student self-access: View own profile via profiles.learner_id linkage

@@ -6471,14 +6471,20 @@ END;
 $$;
 GRANT EXECUTE ON FUNCTION fn_dashboard_queue_escalate(UUID) TO service_role;
 
--- Updated: 2026-04-15 — Seed Chief of Staff role + assign to Gowrisankar MN (eao@jkkn.ac.in)
--- This role receives escalated dashboard queue items per spec §15 Q1.
--- Idempotent: ON CONFLICT guards both role and user_roles assignment.
+-- Updated: 2026-04-16 — Renamed 'chief_of_staff' → 'cao' (Chief Administrative Officer).
+-- Original intent (2026-04-15): seed the escalation role and assign Gowrisankar MN
+-- (eao@jkkn.ac.in) as the person who receives escalated dashboard queue items per spec §15 Q1.
+-- Rename preserves: 6 approval permissions, is_system_role=true, scope='all', the assigned user.
+-- Dashboard escalation wiring is via dashboard_config.chief_of_staff_user_id (column name stores
+-- a user_id; unaffected by role rename). Column name kept for backward compatibility.
+-- Cleanup: also drop the old 'chief_of_staff' row on fresh DBs where only the rename never ran.
+DELETE FROM custom_roles WHERE role_key = 'chief_of_staff';
+
 INSERT INTO custom_roles (role_key, role_name, description, is_system_role, is_active, institution_scope, permissions)
 VALUES (
-  'chief_of_staff',
-  'Chief of Staff',
-  'Director''s deputy — receives escalated dashboard approvals and anomalies when the Director does not act within the SLA window.',
+  'cao',
+  'Chief Administrative Officer',
+  'Manages administration across all institutions. Receives escalated dashboard approvals (leave, travel, waiver, purchase, grievance) and anomaly acknowledgements when the Director does not act within the SLA window.',
   TRUE, TRUE, 'all',
   jsonb_build_object(
     'dashboard.queue.approve.waiver',    TRUE,
@@ -6499,7 +6505,7 @@ ON CONFLICT (role_key) DO UPDATE
 
 INSERT INTO user_roles (user_id, role_id, is_primary, assigned_at)
 SELECT 'd28a9913-5606-42cc-8fd0-6b27317c4d30'::uuid, cr.id, FALSE, NOW()
-  FROM custom_roles cr WHERE cr.role_key = 'chief_of_staff'
+  FROM custom_roles cr WHERE cr.role_key = 'cao'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 
 -- END Dashboard v2 Day 3 functions

@@ -2,7 +2,13 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { UserPlus, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { UserPlus, Loader2, AlertCircle, CheckCircle, Eye } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { toast } from 'react-hot-toast';
 import {
   Dialog,
@@ -296,7 +302,8 @@ export function CreateMissingProfilesButton() {
                             profiles for staff without them
                           </li>
                           <li>
-                            Set all new profiles with &apos;faculty&apos; role
+                            Assign each profile the role from the staff record
+                            (staff.role_key)
                           </li>
                         </>
                       )}
@@ -340,6 +347,14 @@ export function CreateMissingProfilesButton() {
                     </Button>
                   </div>
 
+                  {/* Direction-of-sync banner */}
+                  <div className='rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800'>
+                    <strong>Sync direction:</strong> <span className='font-mono'>Staff Table</span> → <span className='font-mono'>Profiles Table</span>.
+                    The staff table is the source of truth. Each row below lists only the
+                    fields that differ — we will overwrite the profiles row with the staff
+                    value for those fields.
+                  </div>
+
                   <div className='max-h-96 overflow-y-auto border rounded bg-white'>
                     {/* Incomplete Profiles Section */}
                     {checkData.details.staff_with_incomplete_profiles?.length >
@@ -377,32 +392,67 @@ export function CreateMissingProfilesButton() {
                                     {staff.email}
                                   </div>
                                 </div>
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <a
+                                        href={`/staff/list/${staff.staff_id}`}
+                                        target='_blank'
+                                        rel='noopener noreferrer'
+                                        onClick={(e) => e.stopPropagation()}
+                                        className='inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+                                        aria-label={`View ${staff.name} details`}
+                                      >
+                                        <Eye className='h-4 w-4' />
+                                      </a>
+                                    </TooltipTrigger>
+                                    <TooltipContent side='left'>
+                                      View staff details (new tab)
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
                               </div>
 
-                              {/* Field Changes */}
-                              <div className='ml-6 space-y-1 text-xs'>
-                                {Object.entries(staff.changes).map(
-                                  ([field, change]: [string, any]) =>
-                                    change.changed && (
-                                      <div
-                                        key={field}
-                                        className='flex items-center gap-2 py-1'
-                                      >
-                                        <Badge
-                                          variant='outline'
-                                          className='text-xs font-mono min-w-28'
+                              {/* Field Changes — explicit Profiles → Staff columns */}
+                              <div className='ml-6 border rounded overflow-hidden'>
+                                <div className='grid grid-cols-[140px_1fr_auto_1fr] gap-2 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground bg-slate-100 border-b'>
+                                  <span>Field</span>
+                                  <span>Profiles Table (current)</span>
+                                  <span>→</span>
+                                  <span>Staff Table (will apply)</span>
+                                </div>
+                                {Object.entries(staff.changes).some(
+                                  ([, change]: [string, any]) => change.changed
+                                ) ? (
+                                  Object.entries(staff.changes).map(
+                                    ([field, change]: [string, any]) =>
+                                      change.changed && (
+                                        <div
+                                          key={field}
+                                          className='grid grid-cols-[140px_1fr_auto_1fr] gap-2 items-center px-2 py-1 text-xs border-b last:border-b-0'
                                         >
-                                          {field}
-                                        </Badge>
-                                        <span className='text-red-600 line-through'>
-                                          {change.current || '(empty)'}
-                                        </span>
-                                        <span>→</span>
-                                        <span className='text-green-600 font-medium'>
-                                          {change.new}
-                                        </span>
-                                      </div>
-                                    )
+                                          <Badge
+                                            variant='outline'
+                                            className='text-[10px] font-mono w-fit'
+                                          >
+                                            {field}
+                                          </Badge>
+                                          <span className='text-red-600 line-through truncate'>
+                                            {change.current || '(empty)'}
+                                          </span>
+                                          <span className='text-muted-foreground'>
+                                            →
+                                          </span>
+                                          <span className='text-green-700 font-medium truncate'>
+                                            {change.new || '(empty)'}
+                                          </span>
+                                        </div>
+                                      )
+                                  )
+                                ) : (
+                                  <div className='px-2 py-2 text-xs text-muted-foreground italic'>
+                                    No field differences detected.
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -447,6 +497,25 @@ export function CreateMissingProfilesButton() {
                                     New Profile
                                   </Badge>
                                 </div>
+                                <TooltipProvider delayDuration={200}>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <a
+                                        href={`/staff/list/${staff.staff_id}`}
+                                        target='_blank'
+                                        rel='noopener noreferrer'
+                                        onClick={(e) => e.stopPropagation()}
+                                        className='inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+                                        aria-label={`View ${staff.name} details`}
+                                      >
+                                        <Eye className='h-4 w-4' />
+                                      </a>
+                                    </TooltipTrigger>
+                                    <TooltipContent side='left'>
+                                      View staff details (new tab)
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
                               </div>
                             </div>
                           )
@@ -499,7 +568,10 @@ export function CreateMissingProfilesButton() {
                     Create authentication accounts for staff without profiles
                   </li>
                   <li>Generate temporary passwords for new accounts</li>
-                  <li>Set all new accounts with &apos;faculty&apos; role</li>
+                  <li>
+                    Assign each account the role from the staff record
+                    (staff.role_key)
+                  </li>
                   <li>Link accounts to their respective institutions</li>
                 </ul>
               </AlertDescription>

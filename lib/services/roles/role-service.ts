@@ -422,10 +422,13 @@ export class RoleService {
    */
   static async getStaffAssignableRoles(): Promise<CustomRole[]> {
     try {
+      // Updated: 2026-04-16 — Narrowed exclusion to only 'student' and 'guest'.
+      // Privileged roles (super_admin, administrator, admission, counselor) are
+      // now assignable for staff. Students are onboarded via the learners module.
       const { data, error } = await this.supabase
         .from('custom_roles')
         .select('*')
-        .not('role_key', 'in', '(student,super_admin,administrator,admission,counselor,guest)')
+        .not('role_key', 'in', '(student,guest)')
         .order('role_name');
 
       if (error) {

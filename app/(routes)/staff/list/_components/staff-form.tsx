@@ -262,7 +262,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
 
         const [institutionsData, categoriesData, rolesData] = await Promise.all([
           institutionsPromise,
-          CategoryService.getCategories({ isActive: true }),
+          // Fixed: 2026-04-16 — CategoryService.getCategories defaults to limit=10,
+          // which silently truncated the dropdown when active categories grew past 10.
+          // Pass a generous limit so every active category appears in the select.
+          CategoryService.getCategories({ isActive: true, limit: 100 }),
           RoleService.getStaffAssignableRoles()
         ]);
 
