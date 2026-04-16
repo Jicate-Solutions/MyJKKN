@@ -764,12 +764,37 @@ export interface PublicationContributor extends BaseEntity {
   credit_type: 'coauthor' | 'acknowledgment';
 }
 
+/**
+ * All 10 JKKN accreditation / ranking / regulatory bodies per Compliance
+ * Unification Program (specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md).
+ * Values are UPPERCASE to match sh_accreditation_metrics.metric_type and
+ * quality_evidence_mappings.body_code CHECK constraints.
+ */
+export type AccreditationBodyCode =
+  | 'NAAC'
+  | 'NIRF'
+  | 'NBA'
+  | 'QS'
+  | 'DCI'
+  | 'PCI'
+  | 'INC'
+  | 'AICTE'
+  | 'NCTE'
+  | 'UGC';
+
 export interface AccreditationMetric extends BaseEntity {
-  metric_type: 'nirf' | 'naac';
+  metric_type: AccreditationBodyCode;
   metric_code: string;
   metric_name: string;
+  category?: string;
   max_score?: number;
+  weightage?: number;
   calculation_method?: string;
+  data_sources?: string[];
+  verification_requirements?: string;
+  notes?: string;
+  valid_from?: string;
+  valid_to?: string;
   is_active: boolean;
 }
 

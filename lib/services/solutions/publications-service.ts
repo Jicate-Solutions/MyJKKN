@@ -7,6 +7,7 @@ import type {
   Publication,
   PublicationContributor,
   AccreditationMetric,
+  AccreditationBodyCode,
   PaperType,
   JournalType,
   PublicationStatus,
@@ -477,16 +478,28 @@ export class PublicationsService extends BaseService {
   }
 
   /**
-   * Get all accreditation metrics
+   * Get accreditation metrics for any of the 10 compliance bodies.
+   *
+   * PR-A2 c2 (2026-04-17): widened from 'nirf' | 'naac' to AccreditationBodyCode
+   * (NAAC/NIRF/NBA/QS/DCI/PCI/INC/AICTE/NCTE/UGC). Fixes pre-existing bug where
+   * the old lowercase filter never matched the uppercase values in DB's
+   * metric_type column — previous callers passing 'nirf' / 'naac' silently
+   * returned zero rows. Case-insensitive match below handles legacy callers.
+   *
+   * @param type Optional body filter. If omitted, returns metrics for ALL bodies.
    */
-  static async getAccreditationMetrics(type?: 'nirf' | 'naac'): Promise<AccreditationMetric[]> {
+  static async getAccreditationMetrics(type?: AccreditationBodyCode | Lowercase<AccreditationBodyCode>): Promise<AccreditationMetric[]> {
     let query = this.supabase.from('sh_accreditation_metrics')
       .select('*')
       .eq('is_active', true)
+      .order('metric_type', { ascending: true })
       .order('metric_code', { ascending: true });
 
     if (type) {
-      query = query.eq('metric_type', type);
+      // Normalize to uppercase to match DB storage (and to be kind to legacy
+      // callers that were passing 'nirf' / 'naac' — those were silently broken
+      // before this PR; normalizing here means their intent now works).
+      query = query.eq('metric_type', type.toUpperCase());
     }
 
     const { data, error } = await query;
