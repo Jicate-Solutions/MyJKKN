@@ -34,7 +34,8 @@ These are NOT always loaded. Read the relevant file ONLY when the task requires 
 | **Tribal knowledge capture** — interviews, rule engine configs, form tooltips | `docs/one-jkkn-one-data.md` |
 | **Full 9-month master plan** — sprints, risk register, interview roster | `specs/one-jkkn-one-data/MASTER-PLAN.md` |
 | **NAAC-track sub-plan** — 8-phase resurrection of NAAC-adjacent abandoned modules, integrates with grand program | `specs/workshop-transformation-resurrection/MASTER-PLAN.md` |
-| **Active sprint: Compliance Kernel Foundation (Phase 1a, Sprints 1-5)** — IQAC committees + federated grievance + DCF export scaffold + multi-body evidence substrate | `specs/workshop-transformation-resurrection/PHASE-1A-SPEC.md` |
+| **Compliance Unification Program (ACTIVE)** — 15-PR sequence retrofitting all existing accreditation artifacts under `/accreditation/*`. Body-agnostic from day one (all 10 bodies, not NAAC-only). | `specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md` |
+| ~~Retired: Phase 1a Compliance Kernel Foundation spec~~ (superseded by Unification Program 2026-04-17) | ~~`specs/workshop-transformation-resurrection/PHASE-1A-SPEC.md`~~ — RETIRED |
 
 **Rule:** The context library (`docs/one-jkkn-one-data.md`) encodes architectural decisions that OVERRIDE default MyJKKN patterns. When in conflict, context library wins. It defines the "One JKKN, One Data" north-star program that started 2026-04-20 (9-month big-bang, **17 decisions** locked, Path B chosen).
 

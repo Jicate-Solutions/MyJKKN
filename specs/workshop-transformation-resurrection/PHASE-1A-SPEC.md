@@ -1,4 +1,38 @@
 ---
+title: [RETIRED 2026-04-17] — superseded by Unification Program
+status: RETIRED — do not build from this spec
+retired_reason: Production-code sweep (2026-04-17) revealed 10+ existing compliance artifacts scattered across Solutions Hub, Admission, Admin PDE, Campus Living, Startup Studio, Permissions Audit, B2A, Notifications, Work-Pulse. This spec was sized as a NEW build when the correct work is UNIFYING the existing fragmented implementations under /accreditation/*.
+superseded_by: /Users/omm/PROJECTS/MyJKKN/specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md
+retired_by: Director (Omm) — 2026-04-17 after 5th rebuke on production-sweep failure
+retained_artifacts: "22 thrash decisions (R1.1-R5.4) + 6 architectural decisions (AD1-AD6) — these REMAIN LOCKED and apply to PR-A6 (grievance completion) + PR-A7-A15 (body dashboards) in the Unification Program. Substrate design (quality_evidence_mappings polymorphic junction, accreditation_committees, accreditation_submissions) REMAINS VALID and lands in PR-A2."
+---
+
+# ⚠️ THIS SPEC IS RETIRED
+
+This spec (v2.1) was retired 2026-04-17 after a production-code sweep revealed the Phase 1a work was scoped as greenfield when production already has 10+ compliance artifacts needing UNIFICATION, not new construction.
+
+**Do not build from this file.** The replacement is:
+
+- **Master plan:** `specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md`
+- **15 PRs sequenced:** PR-A1 through PR-A15
+- **Body-agnostic mandate:** every retrofit must emit evidence for ALL 10 bodies (NAAC + NIRF + NBA + QS + DCI + PCI + INC + AICTE + NCTE + UGC), not NAAC-only
+
+**What's preserved from v2.1 (still locked, still applies to the relevant Unification PRs):**
+- 22 silent-assumption decisions (R1.1-R5.4) → apply to PR-A6 grievance module completion + per-body dashboards
+- 6 architectural decisions (AD1-AD6) → substrate design, URL pattern, evidence junction schema → lands in PR-A2
+- Multi-body metrics catalog seed (~215 rows) → PR-A2 seeds
+
+**What's changed:**
+- NOT a new "Compliance Kernel Foundation" module — it's a retrofit across 6+ existing modules
+- NOT Sprints 1-5 of one-jkkn-one-data — it's woven throughout the 9-month program based on the critical rebuild path each PR depends on
+- NOT a single PR — it's 15 PRs, each independently reviewable
+
+---
+
+<details>
+<summary>Retired v2.1 content preserved below for reference</summary>
+
+---
 title: Compliance Kernel Foundation (NAAC primary + 9-body substrate) — Phase 1a / Sprints 1-5
 version: 2.1
 status: DECISIONS LOCKED — Ready for /myjkkn-api build
@@ -495,4 +529,7 @@ Replace in MASTER-PLAN.md:
 |---------|------|--------|-------|
 | 1.0 | 2026-04-16 | Director + Claude | Initial from assumption-thrash — 22 decisions; NAAC-only naming |
 | 2.0 | 2026-04-16 | Director + Claude | Multi-body refactor; body-agnostic substrate; IQAC-as-methodology; `/accreditation/<body>` URL |
-| **2.1** | **2026-04-16** | **Director + Claude** | **Merged with docs/one-jkkn-one-data.md (authoritative context library) + specs/one-jkkn-one-data/MASTER-PLAN.md (grand program). Adopted "Compliance Kernel" vocabulary + MDM Layer + Entity Master terminology. Added `/accreditation/coverage` North-Star measurement dashboard. Positioned as Sprints 1-5 parallel track alongside Tribal Knowledge + MDM. Documented FK migration path to learner_master. Noted full NAAC AQAR heavy-mapping shifts to Sprint 13-15 post-MDM.** |
+| 2.1 | 2026-04-16 | Director + Claude | Merged with docs/one-jkkn-one-data.md + specs/one-jkkn-one-data/MASTER-PLAN.md. Adopted "Compliance Kernel" vocabulary. Added /accreditation/coverage dashboard. Positioned as Sprints 1-5 parallel track. FK migration path to learner_master documented. |
+| **RETIRED** | **2026-04-17** | **Director (Omm)** | **Retired after 5th production-sweep failure in same session. Replaced by Unification Program (15 PRs, retrofits existing artifacts). 22 thrash decisions + 6 architectural decisions preserved + apply to relevant unification PRs.** |
+
+</details>
