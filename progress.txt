@@ -1,3 +1,47 @@
+## Session: 2026-04-16 — NAAC Master Plan (v0.1 → v0.4) + IQAC Architecture + 11-Module Landscape Discovery
+
+### Accomplished
+- Started `/session start` with intent to revise OKR resurrection plan and harvest remaining pieces; two commits preserved in worktree `.claude/worktrees/okr-resurrect` before pivot.
+- Discovered 18 OKR tables already live on production (schema exists, code never shipped) — validated via `mcp__supabase__list_tables` on staging + `git ls-tree jicate/main`.
+- Expanded discovery to 11 abandoned modules on `clean-ss-deploy` branch (~412 files, 54 tables, all zombie state). Captured full inventory in new memory `reference_abandoned_modules_inventory.md`.
+- Director corrected schema-level thinking twice: (1) Grievance ≠ bug_reports despite 80% column overlap — different intent, different audience, different escalation SLA. (2) Modules should nest under existing institutional bodies, not sit as peers — IQAC emerged as the natural umbrella.
+- Pivoted master plan from "resurrect 11 modules" to "IQAC umbrella hosts everything NAAC-related" (v0.2 → v0.3).
+- Director challenged NAAC framing: confirmed new NAAC (Binary + MBGL, 10 Attributes) not old (7 Criteria, 1000 pts) — master plan v0.3 remapped to 10 Attributes with Sustainability as Phase 7.
+- Vault sweep surfaced authoritative pre-existing intelligence: NAAC Framework digest (1,533 lines) + JKKN-specific Gap Analysis (649 lines, dated 2026-03-07) covering all 6 colleges (2 Auto + 4 Aff) with criterion-by-criterion gap scoring.
+- Director locked v0.4 rewrite direction: 8-phase plan, Solutions→Research Bridge as Phase 8, College switcher UX in /iqac header, DCF 2025 export layer first-class. Parallel worktree agent is now writing v0.4 + updated METRIC-COVERAGE-MAP.md.
+- Captured one LinkedIn article via `smart-capture` (Divaakaran's NAAC Reforms Strategic Guide); parallel agent capturing 4 more (Williams, Sharma, Satnalika, Vijendra).
+- Wrote 4 new memory files + updated MEMORY.md twice with locked decisions and non-obvious lessons.
+
+### Current Status
+- **Master Plan:** v0.4 at `/Users/omm/PROJECTS/MyJKKN/specs/workshop-transformation-resurrection/MASTER-PLAN.md` (being written by parallel agent 1)
+- **Metric Coverage Map:** `/Users/omm/PROJECTS/MyJKKN/specs/workshop-transformation-resurrection/METRIC-COVERAGE-MAP.md` (being updated by parallel agent 1)
+- **OKR Worktree:** PAUSED at `.claude/worktrees/okr-resurrect` (2 commits preserved — do not `git worktree remove`)
+- **Vault intelligence:** Connected — `/Users/omm/Vaults/JKKNKB/NAAC/` Gap Analysis + Framework digest referenced in plan. New clip at `/Users/omm/Vaults/JKKNKB/NIRF/2026-04-16-CLIP-NAAC-Reforms-Strategic-Guide-Divaakaran.md`.
+- **Build:** Not run this session (pure planning — zero code touched)
+- **Branch:** Still on `feat/hr-sprint-6-command-center` (will branch from `jicate/main` next session for Phase 1)
+
+### Lessons Learned
+- **Intent vs Schema rule:** 80% column overlap ≠ redundancy. Grievance ≠ bug_reports because intent (student welfare vs product defect), audience (UGC-mandated vs internal), and escalation SLA (15 days vs best-effort) differ. Always audit intent before proposing table consolidation on any cherry-pick.
+- **Vault has authoritative intelligence that pre-dates the session.** Always run vault sweep before writing a fresh plan — the 2026-03-07 Gap Analysis existed for 40 days and would have shortcut v0.1 → v0.4 by hours.
+- **JKKN is 6 colleges, not one institution.** Each submits its own binary accreditation under NAAC new framework. UX must expose college switcher + cluster rollup as first-class primitives, not afterthoughts.
+- **Solutions→Research Pipeline is the #1 strategic feature gap.** Converting Solutions Hub deliverables into publishable research + patents is the highest-leverage NAAC unlock (Attribute 3: Research & Innovation) and isn't in any current module.
+- **Module architecture should mirror institutional body architecture.** IQAC is a real committee at every college — when the module lives under /iqac with clear committee ownership, it can't become a zombie. Orphan modules (no owner body) become the next abandoned branch.
+
+### Next Session — Tasks
+1. [P0] Director names IQAC chair + committee composition — blocks Phase 1 merge (small, non-code)
+2. [P0] Director approves 5 UGC grievance category seeds + 4 NPS survey templates; CO may draft NPS questions (small, non-code)
+3. [P0] Create `feat/iqac-foundation-phase-1` worktree branched from `jicate/main` (small)
+4. [P0] Phase 1a — IQAC umbrella shell scaffolding: `/iqac` route, committee table, college switcher UI, DCF 2025 export scaffold (large)
+5. [P0] Phase 1a — Grievance cherry-pick from `clean-ss-deploy` + RLS remediation + 5 UGC categories seeded (large)
+6. [P0] Phase 1b — Metric 8.4 Learning Experience Survey module — LOW effort, 60 pts NAAC unlock (medium)
+7. [P0] Phase 1c — NPS cherry-pick + seed 4 templates (student, faculty, staff, parent) (medium)
+8. [P0] Phase 1d — DCF 2025 export scaffold + Phase 1 PR to `Jicate-Solutions/MyJKKN` (medium)
+9. [P1] Review parallel-agent LinkedIn captures (Williams, Sharma, Satnalika, Vijendra) in JKKNKB/NIRF (small)
+10. [P1] Phase 2 planning — Sustainability module fresh build (SDG mapping + green metrics) (medium)
+11. [P2] Phase 3 — Resume OKR worktree at `.claude/worktrees/okr-resurrect` (medium)
+
+---
+
 ## Session: 2026-04-16 (Midnight rebuild → Noon deploy) — HR Sprint 6 Command Center SHIPPED + pr-preflight skill
 
 ### Accomplished
