@@ -1,5 +1,55 @@
 # MyJKKN Development Guide
 
+## 🛑 NON-NEGOTIABLE: Production-Code Sweep Before Any Build Plan
+
+Before proposing ANY build plan, decomposition, 3-PR breakdown, module spec, sprint spec, or routing to `/myjkkn-api`/`/myjkkn-module`: run the production code sweep and include its output in the same response.
+
+```bash
+# 1. Code sweep — 5+ domain keywords, include synonyms (e.g. naac|nirf|nba|compliance|accreditation|grievance|quality|evidence)
+git ls-tree jicate/main -r --name-only | grep -iE "(kw1|kw2|kw3|syn1|syn2)"
+
+# 2. Recent PR activity
+gh pr list --repo Jicate-Solutions/MyJKKN --state all --limit 30 --search "<keywords> in:title"
+
+# 3. Sibling worktrees
+git worktree list
+```
+
+**Plan without sweep = plan is invalid.** Caught 5 times in one session (2026-04-17) when this rule was memory-only. Now a CLAUDE.md directive and `/myjkkn-chain` skill gate.
+
+**Sticky test:** If the user has to ask "have you checked production?" — the rule was skipped. Apologize, run the sweep, restart the plan. See `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/feedback_preflight_must_scan_production_code.md`.
+
+## 📚 On-Demand Context Libraries (read when task matches)
+
+These are NOT always loaded. Read the relevant file ONLY when the task requires it.
+
+| When working on... | Read this file |
+|---|---|
+| **Entity masters** (Learner / Program / Staff / Course) — any design or query | `docs/one-jkkn-one-data.md` |
+| **Compliance / accreditation** — any of NAAC, NIRF, NBA, QS, DCI, PCI, INC, NCTE, AICTE, UGC | `docs/one-jkkn-one-data.md` |
+| **MDM layer** design, migration, or review | `docs/one-jkkn-one-data.md` |
+| **The 4 critical rebuild paths** (admission→academic, academic→billing, billing→hostel, HR→academic) | `docs/one-jkkn-one-data.md` |
+| **Evidence fan-out** — any trigger/service emitting `quality_evidence_mappings` rows | `docs/one-jkkn-one-data.md` |
+| **Compliance URL routes** under `/accreditation/<body>/...` | `docs/one-jkkn-one-data.md` |
+| **Tribal knowledge capture** — interviews, rule engine configs, form tooltips | `docs/one-jkkn-one-data.md` |
+| **Full 9-month master plan** — sprints, risk register, interview roster | `specs/one-jkkn-one-data/MASTER-PLAN.md` |
+| **NAAC-track sub-plan** — 8-phase resurrection of NAAC-adjacent abandoned modules, integrates with grand program | `specs/workshop-transformation-resurrection/MASTER-PLAN.md` |
+| **Compliance Unification Program (ACTIVE)** — 15-PR sequence retrofitting all existing accreditation artifacts under `/accreditation/*`. Body-agnostic from day one (all 10 bodies, not NAAC-only). | `specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md` |
+| ~~Retired: Phase 1a Compliance Kernel Foundation spec~~ (superseded by Unification Program 2026-04-17) | ~~`specs/workshop-transformation-resurrection/PHASE-1A-SPEC.md`~~ — RETIRED |
+
+**Rule:** The context library (`docs/one-jkkn-one-data.md`) encodes architectural decisions that OVERRIDE default MyJKKN patterns. When in conflict, context library wins. It defines the "One JKKN, One Data" north-star program that started 2026-04-20 (9-month big-bang, **17 decisions** locked, Path B chosen).
+
+**Spec hierarchy (don't confuse these):**
+- **Context library** (`docs/one-jkkn-one-data.md`) = directive rules, vocabulary, anti-patterns — always authoritative
+- **Grand program** (`specs/one-jkkn-one-data/MASTER-PLAN.md`) = 9-month, 18-sprint plan
+- **NAAC sub-track** (`specs/workshop-transformation-resurrection/MASTER-PLAN.md`) = 8-phase NAAC-specific plan, integrates with grand program
+- **Sprint spec** (e.g. `specs/workshop-transformation-resurrection/PHASE-1A-SPEC.md`) = concrete execution plan for a specific sprint window
+- **Memory** (`~/.claude/projects/.../memory/*.md`) = user-local context persisting across sessions
+
+Sprint specs CAN change; context library shouldn't drift. If a sprint spec contradicts the context library, the spec is wrong.
+
+---
+
 ## Output Style Preferences
 
 Use `/output-style [style]` to switch. Styles: `explanatory`, `normal`, `concise`, `terse`.
