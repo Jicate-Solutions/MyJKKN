@@ -6,7 +6,7 @@
  *
  * Tables:
  *   - hr_recruitment_candidates       (main candidacy record)
- *   - hr_recruitment_candidate_packages (CTC negotiation, stricter RLS)
+ *   - hr_recruitment_candidate_packages (Salary negotiation, stricter RLS)
  *
  * Decisions locked: R1.1-R1.4, R2.1-R2.4, R3.1-R3.4, R4.1
  * Shadow-tenant pattern: jkknkb/MyJKKN/Architecture/shadow-tenant-pattern.md
@@ -38,10 +38,10 @@ export type RoleCategory =
   | 'senior_leadership'
   | 'contract';
 
-export type CTCBand =
-  | 'under_6L'
-  | '6L_to_12L'
-  | 'over_12L';
+export type MonthlySalaryBand =
+  | 'under_50k'
+  | '50k_to_1L'
+  | 'over_1L';
 
 export type CandidateSource =
   | 'hr_submission'
@@ -74,7 +74,7 @@ export interface HRRecruitmentCandidate {
 
   role_category: RoleCategory;
   role_title: string;
-  proposed_ctc_band: CTCBand | null;
+  proposed_monthly_salary_band: MonthlySalaryBand | null;
   role_specific_details: Record<string, unknown>; // R1.3: flexible per-role data
 
   status: CandidateStatus;
@@ -112,7 +112,7 @@ export interface HRRecruitmentCandidateInsert {
 
   role_category: RoleCategory;
   role_title: string;
-  proposed_ctc_band?: CTCBand | null;
+  proposed_monthly_salary_band?: MonthlySalaryBand | null;
   role_specific_details?: Record<string, unknown>;
 
   status?: CandidateStatus;
@@ -140,16 +140,16 @@ export type HRRecruitmentCandidateUpdate = Partial<
     | 'final_approver_id'
     | 'final_decided_at'
     | 'role_specific_details'
-    | 'proposed_ctc_band'
+    | 'proposed_monthly_salary_band'
   >
 >;
 
 // =====================================================================================
 // hr_recruitment_candidate_packages
-// Learning #8 — CTC on separate table with stricter RLS
+// Learning #8 — Monthly Salary on separate table with stricter RLS
 // =====================================================================================
 
-export interface CTCBreakdown {
+export interface MonthlySalaryBreakdown {
   basic?: number;
   hra?: number;
   da?: number;
@@ -165,8 +165,8 @@ export interface HRRecruitmentCandidatePackage {
   hr_organization_id: string | null;
 
   proposed_by: string;
-  proposed_ctc_amount: number;
-  proposed_ctc_breakdown: CTCBreakdown | null;
+  proposed_monthly_salary: number;
+  proposed_monthly_salary_breakdown: MonthlySalaryBreakdown | null;
   currency: string;
 
   is_counter_offer: boolean;            // true = Director counter to HR's proposal
@@ -184,8 +184,8 @@ export interface HRRecruitmentCandidatePackageInsert {
   candidate_id: string;
   hr_organization_id?: string | null;
   proposed_by: string;
-  proposed_ctc_amount: number;
-  proposed_ctc_breakdown?: CTCBreakdown | null;
+  proposed_monthly_salary: number;
+  proposed_monthly_salary_breakdown?: MonthlySalaryBreakdown | null;
   currency?: string;
   is_counter_offer?: boolean;
   parent_package_id?: string | null;
@@ -247,10 +247,10 @@ export const ROLE_CATEGORY_LABELS: Record<RoleCategory, string> = {
   contract: 'Contract / Temporary',
 };
 
-export const CTC_BAND_LABELS: Record<CTCBand, string> = {
-  under_6L: 'Under ₹6L',
-  '6L_to_12L': '₹6L – ₹12L',
-  over_12L: 'Over ₹12L',
+export const MONTHLY_SALARY_BAND_LABELS: Record<MonthlySalaryBand, string> = {
+  under_50k: 'Under ₹50,000/mo',
+  '50k_to_1L': '₹50,000–₹1,00,000/mo',
+  over_1L: 'Over ₹1,00,000/mo',
 };
 
 export const CANDIDATE_SOURCE_LABELS: Record<CandidateSource, string> = {

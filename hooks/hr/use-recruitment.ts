@@ -251,15 +251,15 @@ export function useCounterPackage() {
     mutationFn: async ({
       candidateId,
       packageId,
-      proposed_ctc_amount,
-      proposed_ctc_breakdown,
+      proposed_monthly_salary,
+      proposed_monthly_salary_breakdown,
       notes,
       hr_organization_id,
     }: {
       candidateId: string;
       packageId: string;
-      proposed_ctc_amount: number;
-      proposed_ctc_breakdown?: Record<string, number> | null;
+      proposed_monthly_salary: number;
+      proposed_monthly_salary_breakdown?: Record<string, number> | null;
       notes?: string | null;
       hr_organization_id?: string | null;
     }) => {
@@ -269,8 +269,8 @@ export function useCounterPackage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            proposed_ctc_amount,
-            proposed_ctc_breakdown,
+            proposed_monthly_salary,
+            proposed_monthly_salary_breakdown,
             notes,
             hr_organization_id,
           }),

@@ -27,7 +27,7 @@ async function getClient() {
 }
 
 // POST /api/hr/recruitment/candidates/[id]/packages/[packageId]/counter
-// Body: { proposed_ctc_amount, proposed_ctc_breakdown?, currency?, notes? }
+// Body: { proposed_monthly_salary, proposed_monthly_salary_breakdown?, currency?, notes? }
 
 export async function POST(
   request: NextRequest,
@@ -41,15 +41,15 @@ export async function POST(
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await request.json();
-    if (!body.proposed_ctc_amount) {
-      return NextResponse.json({ error: 'proposed_ctc_amount is required' }, { status: 400 });
+    if (!body.proposed_monthly_salary) {
+      return NextResponse.json({ error: 'proposed_monthly_salary is required' }, { status: 400 });
     }
 
     const created = await RecruitmentPackageService.counterOffer(supabase, packageId, {
       candidate_id: id,
       proposed_by: user.id,
-      proposed_ctc_amount: body.proposed_ctc_amount,
-      proposed_ctc_breakdown: body.proposed_ctc_breakdown ?? null,
+      proposed_monthly_salary: body.proposed_monthly_salary,
+      proposed_monthly_salary_breakdown: body.proposed_monthly_salary_breakdown ?? null,
       currency: body.currency ?? 'INR',
       hr_organization_id: body.hr_organization_id ?? null,
       notes: body.notes ?? null,

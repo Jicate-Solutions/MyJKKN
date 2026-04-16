@@ -13,7 +13,7 @@ const TILES = [
     href: '/hr/recruitment/submit',
     label: 'Submit Candidate',
     icon: UserPlus,
-    description: 'Propose a new hire — fills approval chain automatically based on role and CTC band',
+    description: 'Propose a new hire — fills approval chain automatically based on role and Monthly Salary band',
   },
   {
     href: '/hr/recruitment/my',
@@ -44,7 +44,7 @@ export default function HRRecruitmentHubPage() {
         <div>
           <h1 className="text-2xl font-semibold">Recruitment</h1>
           <p className="text-sm text-muted-foreground">
-            Submit candidates, track approvals, and manage CTC negotiation — all driven by the HR approval flow rules.
+            Submit candidates, track approvals, and manage Salary negotiation — all driven by the HR approval flow rules.
           </p>
         </div>
 
@@ -73,10 +73,10 @@ export default function HRRecruitmentHubPage() {
         <Card>
           <CardHeader><CardTitle className="text-sm">How Recruitment Works Here</CardTitle></CardHeader>
           <CardContent className="text-sm text-muted-foreground space-y-1">
-            <p>• <strong>Submit a candidate</strong> with their CVViz profile link and proposed CTC band</p>
-            <p>• <strong>Approval chain auto-built</strong> from the HR policy flow rules (role category + CTC band)</p>
+            <p>• <strong>Submit a candidate</strong> with their CVViz profile link and proposed Monthly Salary band</p>
+            <p>• <strong>Approval chain auto-built</strong> from the HR policy flow rules (role category + Monthly Salary band)</p>
             <p>• <strong>Emergency flag</strong> routes the candidate faster, bypassing multi-step review</p>
-            <p>• <strong>CTC negotiation</strong> tracked per candidate — proposals, counters, and approvals all logged</p>
+            <p>• <strong>Salary negotiation</strong> tracked per candidate — proposals, counters, and approvals all logged</p>
             <p>• <strong>Internal transfers</strong> link back to the existing staff record for continuity</p>
             <p>• <strong>Frozen approval snapshot</strong> — edits to policy flows don&apos;t affect in-flight candidacies</p>
           </CardContent>
