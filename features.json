@@ -29,8 +29,26 @@
     {
       "id": "hr-sprint-6-command-center",
       "name": "HR Sprint 6 — Command Center Dashboard",
-      "status": "blocked",
-      "notes": "DB LIVE: hr_dashboard_access_log + realtime publication on 4 tables (applied 2026-04-15). Spec LIVE: 28 decisions locked in specs/myjkkn-hr-sprint-06-plan.md. TypeScript code LOST to working-tree revert around midnight Apr 15/16. Rebuild from spec — ~1100 LOC, 10 files. Continuation prompt in .claude/continuation-prompt.md."
+      "status": "self-verified",
+      "notes": "PR #204 merged+deployed 2026-04-16 12:11 IST. Rebuilt from spec after Apr-15 revert event. 10 files · 2,244 LOC · 0 TS errors. Verified live on www.jkkn.ai/hr: 11-institution super-admin grid renders; access-log has 39 rows / 3 users (decision #18 working); 4 realtime tables in supabase_realtime publication. Follow-up PR #210 fixes 3 drill-down 404s to non-existent Sprint 2/3 pages."
+    },
+    {
+      "id": "pr-preflight-skill",
+      "name": "New skill: pr-preflight (PR-landscape gate before gh pr create)",
+      "status": "self-verified",
+      "notes": "Built 2026-04-16 at ~/.claude/skills/pr-preflight/ after user flagged that PRs were being created with zero awareness of overlapping open PRs on shared files (sidebar, types, permissions). Scans all open PRs, computes file-level overlap vs current branch, surfaces deploy gap + shared-file canary + branch staleness. Verdicts: SAFE / WARN / BLOCKED. Wired into /ship-myjkkn step 6a and /myjkkn-chain diagram. Exit codes 0/1/2 drive automation."
+    },
+    {
+      "id": "hr-employees-non-staff-scope",
+      "name": "Kill /hr/employees ↔ /staff/list duplication — scope to non-staff only",
+      "status": "self-verified",
+      "notes": "PR #203 merged 2026-04-15. The two URLs were showing the same 393 staff rows because HRPersonService unioned both tables with no opt-out. Added include_staff filter (default true for back-compat; /hr/employees passes false). Renamed sidebar label to 'Non-Staff Workforce'. Split /hr hero CTA into two (Full-Time Staff vs Non-Staff). Bidirectional cross-links. Polymorphic schema untouched."
+    },
+    {
+      "id": "hr-sprint-6-drill-404-fix",
+      "name": "Sprint 6 follow-up — fix 3 drill-down 404s",
+      "status": "pending-merge",
+      "notes": "PR #210 open. Post-merge silent-failure sweep caught 3 dead drill_urls: /hr/leave/blackouts (no admin page exists), /hr/policies/leave-types and /hr/policies/approval-flows (dynamic [table] route needs actual table names — leave_types and hr_approval_flows). 1 file · 3 string changes · zero logic."
     },
     {
       "id": "hr-employees-100-cap-fix",
