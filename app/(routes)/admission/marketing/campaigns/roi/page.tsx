@@ -56,7 +56,7 @@ function CampaignROIPageContent() {
   const formatCurrency = (amount: number) => {
     if (amount >= 100000) return `${(amount / 100000).toFixed(1)}L`;
     if (amount >= 1000) return `${(amount / 1000).toFixed(1)}K`;
-    return `${amount.toFixed(0)}`;
+    return `${(amount ?? 0).toFixed(0)}`;
   };
 
   return (
@@ -172,8 +172,8 @@ function CampaignROIPageContent() {
                             </td>
                             <td className="text-right py-2">{ch.total_campaigns}</td>
                             <td className="text-right py-2">{ch.total_sent.toLocaleString()}</td>
-                            <td className="text-right py-2">{ch.avg_delivery_rate.toFixed(1)}%</td>
-                            <td className="text-right py-2">{ch.avg_open_rate.toFixed(1)}%</td>
+                            <td className="text-right py-2">{(ch.avg_delivery_rate ?? 0).toFixed(1)}%</td>
+                            <td className="text-right py-2">{(ch.avg_open_rate ?? 0).toFixed(1)}%</td>
                             <td className="text-right py-2">{ch.applications}</td>
                             <td className="text-right py-2">{ch.enrollments}</td>
                             <td className="text-right py-2">{formatCurrency(ch.cost_per_lead)}</td>
@@ -241,7 +241,7 @@ function CampaignROIPageContent() {
                           <p className="text-xs text-muted-foreground">Sent</p>
                         </div>
                         <div className="text-center">
-                          <p className="font-medium">{campaign.open_rate.toFixed(0)}%</p>
+                          <p className="font-medium">{(campaign.open_rate ?? 0).toFixed(0)}%</p>
                           <p className="text-xs text-muted-foreground">Opened</p>
                         </div>
                         <div className="text-center">

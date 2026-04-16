@@ -142,7 +142,7 @@ export function InsightCard({
                   )}
                 >
                   ({insight.metric_change > 0 ? '+' : ''}
-                  {insight.metric_change.toFixed(1)}%)
+                  {(insight.metric_change ?? 0).toFixed(1)}%)
                 </span>
               )}
             </p>
@@ -253,7 +253,7 @@ export function InsightCard({
                   <TrendingUp className="h-4 w-4 rotate-180" />
                 )}
                 {insight.metric_change > 0 ? '+' : ''}
-                {insight.metric_change.toFixed(1)}%
+                {(insight.metric_change ?? 0).toFixed(1)}%
               </div>
             )}
           </div>

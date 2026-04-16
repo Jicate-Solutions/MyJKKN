@@ -263,7 +263,7 @@ function MobileLeaderboardCard({
       {/* Conversion rate - hero stat */}
       <div className="mt-3 flex items-end gap-2">
         <span className={`text-3xl font-extrabold tracking-tight ${isTop3 ? accent.text : 'text-foreground'}`}>
-          {counselor.conversionRate.toFixed(1)}%
+          {(counselor.conversionRate ?? 0).toFixed(1)}%
         </span>
         <span className="text-xs text-muted-foreground mb-1">conversion</span>
       </div>
@@ -327,7 +327,7 @@ function CounselorLeaderboard({
         c.counselorName,
         c.leadsAssigned,
         c.conversions,
-        `${c.conversionRate.toFixed(1)}%`,
+        `${(c.conversionRate ?? 0).toFixed(1)}%`,
         formatResponseTime(c.avgResponseTime),
         c.messagesSent
       ]);
@@ -382,7 +382,7 @@ function CounselorLeaderboard({
               </div>
               <div className="text-center">
                 <p className="text-xs md:text-sm text-muted-foreground">Avg Conversion</p>
-                <p className="text-lg md:text-2xl font-bold">{avgConversion.toFixed(1)}%</p>
+                <p className="text-lg md:text-2xl font-bold">{(avgConversion ?? 0).toFixed(1)}%</p>
               </div>
               <div className="text-center">
                 <p className="text-xs md:text-sm text-muted-foreground">Avg Response</p>
@@ -456,7 +456,7 @@ function CounselorLeaderboard({
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex flex-col items-center gap-1">
-                          <span className="font-bold">{counselor.conversionRate.toFixed(1)}%</span>
+                          <span className="font-bold">{(counselor.conversionRate ?? 0).toFixed(1)}%</span>
                           <Progress
                             value={Math.min(counselor.conversionRate, 100)}
                             className="w-16 h-1.5"
@@ -683,7 +683,7 @@ function CounselorPerformancePageContent() {
                 />
                 <MetricCard
                   title="Avg Conversion Rate"
-                  value={`${avgConversion.toFixed(1)}%`}
+                  value={`${(avgConversion ?? 0).toFixed(1)}%`}
                   description="Team average"
                   icon={TrendingUp}
                   color="text-purple-600"
@@ -709,7 +709,7 @@ function CounselorPerformancePageContent() {
                         <p className="text-xs md:text-sm text-yellow-700 font-medium">Top Performer</p>
                         <p className="text-lg md:text-xl font-bold truncate">{topPerformer.counselorName}</p>
                         <p className="text-xs md:text-sm text-muted-foreground">
-                          {topPerformer.conversions} conversions · {topPerformer.conversionRate.toFixed(1)}% · {formatResponseTime(topPerformer.avgResponseTime)} response
+                          {topPerformer.conversions} conversions · {(topPerformer.conversionRate ?? 0).toFixed(1)}% · {formatResponseTime(topPerformer.avgResponseTime)} response
                         </p>
                       </div>
                       <div className="hidden sm:block">

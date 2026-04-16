@@ -108,7 +108,7 @@ function DonutChart({ metrics }: { metrics: DeliveryMetrics }) {
       </svg>
       {/* Center text */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-bold">{metrics.deliveryRate.toFixed(0)}%</span>
+        <span className="text-2xl font-bold">{(metrics.deliveryRate ?? 0).toFixed(0)}%</span>
         <span className="text-xs text-muted-foreground">Delivery Rate</span>
       </div>
     </div>
@@ -209,11 +209,11 @@ export function DeliveryChart({ metrics, isLoading }: DeliveryChartProps) {
         {/* Rate Summary */}
         <div className="mt-6 pt-4 border-t grid grid-cols-2 gap-4">
           <div className="text-center">
-            <p className="text-2xl font-bold text-green-600">{data.deliveryRate.toFixed(1)}%</p>
+            <p className="text-2xl font-bold text-green-600">{(data.deliveryRate ?? 0).toFixed(1)}%</p>
             <p className="text-xs text-muted-foreground">Delivery Rate</p>
           </div>
           <div className="text-center">
-            <p className="text-2xl font-bold text-emerald-600">{data.readRate.toFixed(1)}%</p>
+            <p className="text-2xl font-bold text-emerald-600">{(data.readRate ?? 0).toFixed(1)}%</p>
             <p className="text-xs text-muted-foreground">Read Rate</p>
           </div>
         </div>

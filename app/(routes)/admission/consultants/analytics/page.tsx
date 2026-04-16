@@ -118,7 +118,7 @@ function formatCurrency(amount: number): string {
 
 // Format percentage
 function formatPercentage(value: number): string {
-  return `${value.toFixed(1)}%`;
+  return `${(value ?? 0).toFixed(1)}%`;
 }
 
 // KPI Card Component

@@ -51,7 +51,7 @@ export const columns: ColumnDef<SourceSummary>[] = [
           : rate >= 10
           ? 'text-yellow-600'
           : 'text-red-600';
-      return <span className={colorClass}>{rate.toFixed(1)}%</span>;
+      return <span className={colorClass}>{(rate ?? 0).toFixed(1)}%</span>;
     },
   },
 ];

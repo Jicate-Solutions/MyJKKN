@@ -190,7 +190,7 @@ export function BriefingPopup({
                   <span className="text-sm font-medium">Conversion Rate</span>
                 </div>
                 <Badge variant="secondary" className="text-lg font-bold">
-                  {briefing.content.key_metrics.conversion_rate.toFixed(1)}%
+                  {(briefing.content.key_metrics.conversion_rate ?? 0).toFixed(1)}%
                 </Badge>
               </div>
 

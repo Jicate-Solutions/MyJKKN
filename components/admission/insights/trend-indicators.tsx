@@ -116,7 +116,7 @@ function TrendCard({ trend }: TrendCardProps) {
         {trend.changePercent !== 0 && (
           <span className={cn('text-sm font-medium', getChangeColor())}>
             {trend.changePercent > 0 ? '+' : ''}
-            {trend.changePercent.toFixed(1)}%
+            {(trend.changePercent ?? 0).toFixed(1)}%
           </span>
         )}
       </div>
@@ -157,7 +157,7 @@ export function MiniTrend({ value, change, label }: MiniTrendProps) {
             <TrendingDown className="h-3 w-3 mr-0.5" />
           )}
           {change > 0 ? '+' : ''}
-          {change.toFixed(1)}%
+          {(change ?? 0).toFixed(1)}%
         </span>
       )}
     </div>

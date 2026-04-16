@@ -48,14 +48,18 @@ export class AdmissionTQMMetricsService {
    * and COPQ incidents from billing_copq_incidents
    */
   static async getMetrics(institutionId: string): Promise<AdmissionTQMMetrics> {
-    if (!institutionId) throw new Error('Institution ID is required');
+    
 
     // Fetch metrics from the view (last 2 months)
     // Using 'as any' because Supabase views may not be in the typed .from() overload
     const { data: metricsData, error: metricsError } = await (this.supabase as any)
       .from('admission_process_metrics')
       .select('*')
-      .eq('institution_id', institutionId)
+
+
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
       .order('month', { ascending: false })
       .limit(2);
 

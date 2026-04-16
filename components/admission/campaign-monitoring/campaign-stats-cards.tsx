@@ -140,7 +140,7 @@ export function CampaignStatsCards({ stats, isLoading }: CampaignStatsCardsProps
         />
         <StatCard
           title="Conversion Rate"
-          value={`${stats.conversionRate.toFixed(1)}%`}
+          value={`${(stats.conversionRate ?? 0).toFixed(1)}%`}
           description={`${stats.totalLeadsConverted.toLocaleString()} converted`}
           icon={TrendingUp}
           color="text-orange-600"

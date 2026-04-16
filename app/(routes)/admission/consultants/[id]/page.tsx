@@ -420,7 +420,7 @@ function ConsultantDetailContent() {
                     <span className="text-muted-foreground">Performance Rating</span>
                     <span className="font-medium flex items-center gap-1">
                       <Star className="h-4 w-4 text-yellow-500" />
-                      {consultant.performance_rating.toFixed(1)}/5
+                      {(consultant.performance_rating ?? 0).toFixed(1)}/5
                     </span>
                   </div>
                 )}

@@ -69,7 +69,7 @@ function formatCurrency(value: number): string {
 }
 
 function formatPercent(value: number, decimals = 1): string {
-  return `${value.toFixed(decimals)}%`;
+  return `${(value ?? 0).toFixed(decimals)}%`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ function renderCustomPieLabel({
       className="text-[10px] fill-foreground"
       fontSize={10}
     >
-      {name} ({percentage.toFixed(1)}%)
+      {name} ({(percentage ?? 0).toFixed(1)}%)
     </text>
   );
 }
@@ -504,7 +504,7 @@ function ExpoAnalyticsContent() {
                             <span className="text-muted-foreground text-xs">
                               {idx > 0 && (
                                 <Badge variant="outline" className="text-xs mr-1">
-                                  {stepRate.toFixed(1)}% of prev
+                                  {(stepRate ?? 0).toFixed(1)}% of prev
                                 </Badge>
                               )}
                             </span>
@@ -520,7 +520,7 @@ function ExpoAnalyticsContent() {
                           />
                         </div>
                         <p className="text-xs text-muted-foreground text-right">
-                          {step.pct.toFixed(1)}% of total visitors
+                          {(step.pct ?? 0).toFixed(1)}% of total visitors
                         </p>
                       </div>
                     );

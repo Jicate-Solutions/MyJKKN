@@ -134,12 +134,9 @@ export class DailyBriefingService {
       .select('*')
       .eq('user_id', userId)
       .eq('briefing_date', briefingDate)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        return null; // Not found
-      }
       console.error('[DailyBriefingService] Error fetching briefing:', error);
       throw new Error(`Failed to fetch briefing: ${error.message}`);
     }
@@ -157,12 +154,9 @@ export class DailyBriefingService {
       .eq('user_id', userId)
       .order('briefing_date', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        return null;
-      }
       console.error('[DailyBriefingService] Error fetching latest briefing:', error);
       throw new Error(`Failed to fetch latest briefing: ${error.message}`);
     }

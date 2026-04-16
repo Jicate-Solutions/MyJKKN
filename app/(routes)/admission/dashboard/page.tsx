@@ -390,7 +390,7 @@ function AdmissionDashboardPageContent() {
             />
             <KPICard
               title="Conversion Rate"
-              value={summary?.conversionRate ? `${summary.conversionRate.toFixed(1)}%` : '0%'}
+              value={summary?.conversionRate ? `${(summary.conversionRate ?? 0).toFixed(1)}%` : '0%'}
               description="Lead to enrollment"
               icon={Target}
               color="text-green-600"

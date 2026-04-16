@@ -423,7 +423,7 @@ function BriefingPageContent() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-2xl sm:text-3xl font-bold text-primary">
-                    {briefing.content.key_metrics.conversion_rate.toFixed(1)}%
+                    {(briefing.content.key_metrics.conversion_rate ?? 0).toFixed(1)}%
                   </p>
                 </div>
               </div>

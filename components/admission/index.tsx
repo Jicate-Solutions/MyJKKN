@@ -190,7 +190,7 @@ export function CounselorPerformanceDashboard({
                 </div>
                 <div className="text-right">
                   <p className="font-semibold text-green-600">
-                    {counselor.conversionRate.toFixed(1)}%
+                    {(counselor.conversionRate ?? 0).toFixed(1)}%
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Avg: {counselor.avgResponseTime}
@@ -278,7 +278,7 @@ export function SourceROIDashboard({
                 </div>
                 <div className="text-right">
                   <p className={`font-semibold ${source.roi >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {source.roi >= 0 ? '+' : ''}{source.roi.toFixed(1)}% ROI
+                    {source.roi >= 0 ? '+' : ''}{(source.roi ?? 0).toFixed(1)}% ROI
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Cost: ₹{source.cost.toLocaleString()}

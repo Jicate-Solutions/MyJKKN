@@ -281,7 +281,7 @@ export function DailyReportForm({ expoEvent }: DailyReportFormProps) {
             <span className="font-medium text-sm">Total Expense</span>
             <span className="flex items-center gap-0.5 text-lg font-bold">
               <IndianRupee className="h-4 w-4" />
-              {totalExpense.toFixed(2)}
+              {(totalExpense ?? 0).toFixed(2)}
             </span>
           </div>
         </CardContent>

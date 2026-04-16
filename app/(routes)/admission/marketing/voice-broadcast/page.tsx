@@ -51,11 +51,11 @@ function VoiceBroadcastPageContent() {
   const canControlCampaign = canAccess('admission', 'edit')
     || canAccess('admission', 'manage');
 
-  const formatPercent = (val: number) => `${val.toFixed(1)}%`;
+  const formatPercent = (val: number) => `${(val ?? 0).toFixed(1)}%`;
   const formatCurrency = (amount: number) => {
     if (amount >= 100000) return `${(amount / 100000).toFixed(1)}L`;
     if (amount >= 1000) return `${(amount / 1000).toFixed(1)}K`;
-    return `${amount.toFixed(0)}`;
+    return `${(amount ?? 0).toFixed(0)}`;
   };
 
   return (
