@@ -16,6 +16,30 @@ import type {
   // Phase 3
   SendCoachMessageInput, CoachContextType,
 } from '@/types/pde';
+import type { LearnNotifyBody } from '@/types/learn';
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Notification integration — fire-and-forget dispatch to /api/learn/notify.
+// Integration site: called from useEnrollInQuest, useDemonstrateCapability,
+// useAwardBadge onSuccess handlers (see below).
+// LEARN_NOTIFY_API_KEY must be set in the environment for dispatches to succeed.
+// ──────────────────────────────────────────────────────────────────────────────
+async function dispatchLearnNotification(body: LearnNotifyBody): Promise<void> {
+  try {
+    const apiKey = process.env.NEXT_PUBLIC_LEARN_NOTIFY_API_KEY;
+    if (!apiKey) return; // silently skip in environments without the key
+    await fetch(`/api/learn/notify?type=${body.type}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // Notification failure must never break the primary action
+  }
+}
 
 // ============================================
 // Query Keys
@@ -376,9 +400,17 @@ export function useEnrollInQuest() {
   return useMutation({
     mutationFn: ({ questId, learnerId, teamId }: { questId: string; learnerId: string; teamId?: string }) =>
       PDEService.enrollInQuest(questId, learnerId, teamId),
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       qc.invalidateQueries({ queryKey: pdeQueryKeys.questEnrollments(data.quest_id) });
       qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerEnrollments(data.learner_id) });
+      // Integration site 1: quest_unlocked — notify learner that their quest is now active
+      void dispatchLearnNotification({
+        type: 'quest_unlocked',
+        quest_id: data.quest_id,
+        quest_title: 'your new quest', // TODO: pass quest title through enrollInQuest or fetch from cache
+        learner_id: variables.learnerId,
+        action_url: `/learn/quests/${data.quest_id}`,
+      });
     },
   });
 }
@@ -390,6 +422,19 @@ export function useSubmitQuestWork() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: pdeQueryKeys.questSubmissions(data.quest_id) });
       qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerQuestSubmissions(data.learner_id) });
+      // Integration site 4: cohort_milestone — when a final submission passes, notify
+      // the learner's cohort (member_ids resolved server-side via pde_cohort_members lookup).
+      // We pass an empty member_ids array here; the route falls back to the DB lookup.
+      if (data.submission_type === 'final' && data.passed === true) {
+        void dispatchLearnNotification({
+          type: 'cohort_milestone',
+          cohort_id: data.quest_id, // server-side route resolves the actual cohort from learner+quest
+          cohort_name: 'Your Cohort',
+          milestone_description: `A cohort member just completed a quest. Keep up the momentum!`,
+          member_ids: [], // server resolves via pde_cohort_members table
+          action_url: `/learn/quests/${data.quest_id}`,
+        });
+      }
     },
   });
 }
@@ -445,6 +490,15 @@ export function useDemonstrateCapability() {
     }) => PDEService.demonstrateCapability(learnerId, capabilityId, evidence),
     onSuccess: (_, variables) => {
       qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerCapabilities(variables.learnerId) });
+      // Integration site 2: capability_level_up — notify learner + optional mentor
+      void dispatchLearnNotification({
+        type: 'capability_level_up',
+        capability_id: variables.capabilityId,
+        capability_name: 'your capability', // TODO: pass capability name via variables or fetch from cache
+        learner_id: variables.learnerId,
+        new_status: 'demonstrated',
+        action_url: `/learn/capabilities/${variables.capabilityId}`,
+      });
     },
   });
 }
@@ -581,6 +635,14 @@ export function useAwardBadge() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerBadges(data.learner_id) });
       qc.invalidateQueries({ queryKey: pdeQueryKeys.badges() });
+      // Integration site 3: achievement_badge_earned — notify learner
+      void dispatchLearnNotification({
+        type: 'achievement_badge_earned',
+        badge_id: data.badge_id,
+        badge_name: data.badge?.name ?? 'a badge', // badge joined via PDELearnerBadge.badge
+        learner_id: data.learner_id,
+        action_url: '/learn/profile',
+      });
     },
   });
 }
