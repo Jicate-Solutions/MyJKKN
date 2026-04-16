@@ -910,7 +910,14 @@ export function EnquiryForm({
       roll_number: values.roll_number || undefined,
       register_number: values.register_number || undefined,
       college_email: values.college_email || undefined,
-      learner_type: values.learner_type || undefined,
+      // BUG-003157: the old `values.learner_type || undefined` dropped the field
+      // when HOD tried to clear the value (empty string → undefined → column
+      // untouched). Distinguish "not in form state" (undefined) from "explicit
+      // empty" (send null) so clearing sticks.
+      learner_type:
+        values.learner_type === undefined
+          ? undefined
+          : (values.learner_type as 'regular' | 'irregular' | 'intern' | null) || null,
 
       // Contact Details (NOT NULL fields)
       student_mobile: values.student_mobile || '',
