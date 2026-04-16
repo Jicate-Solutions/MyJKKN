@@ -422,6 +422,19 @@ export function useSubmitQuestWork() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: pdeQueryKeys.questSubmissions(data.quest_id) });
       qc.invalidateQueries({ queryKey: pdeQueryKeys.learnerQuestSubmissions(data.learner_id) });
+      // Integration site 4: cohort_milestone — when a final submission passes, notify
+      // the learner's cohort (member_ids resolved server-side via pde_cohort_members lookup).
+      // We pass an empty member_ids array here; the route falls back to the DB lookup.
+      if (data.submission_type === 'final' && data.passed === true) {
+        void dispatchLearnNotification({
+          type: 'cohort_milestone',
+          cohort_id: data.quest_id, // server-side route resolves the actual cohort from learner+quest
+          cohort_name: 'Your Cohort',
+          milestone_description: `A cohort member just completed a quest. Keep up the momentum!`,
+          member_ids: [], // server resolves via pde_cohort_members table
+          action_url: `/learn/quests/${data.quest_id}`,
+        });
+      }
     },
   });
 }
