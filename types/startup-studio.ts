@@ -945,3 +945,48 @@ export interface Solve100TeamOverview {
   has_icp: boolean
   weeks_submitted: number
 }
+
+// ── Startup Studio Notification Integration Types ─────────────────────────
+// Added: 2026-04-16 — in-app notification system integration
+
+/**
+ * The four core event triggers wired into the MyJKKN notification system.
+ * Dispatched via POST /api/startup-studio/notify?type=<event>
+ */
+export type StartupStudioEventType =
+  | 'team_selected'          // SF100 team selection — notify invited members
+  | 'evaluation_round_open'  // Judging round opens — notify assigned judges
+  | 'vote_cast_received'     // Audience vote cast — notify team being voted on
+  | 'demo_day_reminder'      // 24h before demo day — notify all presenters + judges
+
+/**
+ * Row shape returned from the shared notifications / user_notifications tables
+ * when queried in the context of the Startup Studio module.
+ */
+export interface StartupStudioNotification {
+  /** notifications.id */
+  id: string
+  /** notifications.type — always 'startup_studio' for this module */
+  type: 'startup_studio'
+  title: string
+  message: string
+  metadata: {
+    source: 'startup_studio_notify'
+    event_type?: StartupStudioEventType
+    event_id?: string
+    enrollment_id?: string
+    registration_id?: string
+    judge_user_id?: string
+    voter_profile_id?: string
+    demo_day_date?: string
+    [key: string]: unknown
+  }
+  created_at: string
+  /** user_notifications.id (pivot row) */
+  user_notification_id: string
+  /** user_notifications.user_id */
+  user_id: string
+  /** true when user_notifications.read_at is not null */
+  is_read: boolean
+  read_at: string | null
+}
