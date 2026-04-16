@@ -6,6 +6,8 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+import { StaffNotificationService } from '@/lib/services/staff/notification-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -101,6 +103,45 @@ export async function POST(
       .select()
       .single();
     if (updateErr) throw updateErr;
+
+    // Dispatch onboarding_step_pending notification for the first step — fire-and-forget
+    void (async () => {
+      try {
+        const serviceSupabase = createServiceRoleClient();
+
+        // Resolve the staff member's auth user ID from their email
+        let staffUserId: string | undefined;
+
+        if (candidate.user_profile_id) {
+          staffUserId = candidate.user_profile_id as string;
+        } else if (candidate.email) {
+          const { data: profile } = await serviceSupabase
+            .from('profiles')
+            .select('id')
+            .eq('email', candidate.email)
+            .maybeSingle();
+          staffUserId = profile?.id;
+        }
+
+        if (!staffUserId) return;
+
+        // Notify for the first step only
+        const firstStep = (
+          updatedDetails.onboarding_steps as Array<{ step: string }> | undefined
+        )?.[0];
+        if (!firstStep) return;
+
+        await StaffNotificationService.notifyOnboardingStepPending(
+          serviceSupabase,
+          id,
+          staffUserId,
+          firstStep.step,
+          checklist.checklist_name
+        );
+      } catch (notifyErr) {
+        console.warn('[hr/onboarding/start] onboarding_step_pending notification failed:', notifyErr);
+      }
+    })();
 
     return NextResponse.json({ data: updated });
   } catch (err) {

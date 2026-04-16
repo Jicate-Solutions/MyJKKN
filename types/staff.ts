@@ -423,3 +423,67 @@ export interface SectionWithInchargesResponse {
     totalPages: number;
   };
 }
+
+// =============================================
+// STAFF NOTIFICATION TYPES
+// Added: 2026-04-16 — Sprint: Staff Notifications
+// =============================================
+
+/**
+ * The four event types that trigger in-app notifications for staff.
+ * Dispatched via POST /api/staff/notify?type=<event>
+ */
+export type StaffEventType =
+  | 'leave_submitted'       // Staff submits leave → notify approver(s)
+  | 'leave_approved'        // Approver approves → notify requester
+  | 'leave_rejected'        // Approver rejects  → notify requester
+  | 'schedule_assigned'     // Staff assigned to a new shift/class → notify them
+  | 'onboarding_step_pending'; // Onboarding step assigned → notify staff member
+
+/**
+ * Represents an in-app notification record for a staff member.
+ * Mirrors the shape returned by the staff notifications hook.
+ */
+export interface StaffNotification {
+  /** notification_id from notifications table */
+  id: string;
+  /** user_notifications.id — the per-user delivery row */
+  delivery_id: string;
+  /** Which event generated this notification */
+  event_type: StaffEventType;
+  title: string;
+  message: string;
+  /** Original row from notifications.metadata */
+  metadata: {
+    source: 'staff_notify';
+    event_type: StaffEventType;
+    /** leave application id, candidate id, section id, etc. */
+    reference_id?: string;
+    [key: string]: unknown;
+  };
+  read_at: string | null;
+  created_at: string;
+}
+
+/**
+ * Payload shape for POST /api/staff/notify
+ */
+export interface StaffNotifyPayload {
+  type: StaffEventType;
+  /** For leave_submitted / leave_approved / leave_rejected: the application id */
+  application_id?: string;
+  /** For schedule_assigned: the section or timetable entry id */
+  schedule_id?: string;
+  /** For onboarding_step_pending: the candidate/staff id being onboarded */
+  candidate_id?: string;
+  /** Free-form context (employee name, leave dates, etc.) */
+  context?: Record<string, unknown>;
+}
+
+/**
+ * Response shape from POST /api/staff/notify
+ */
+export interface StaffNotifyResponse {
+  type: StaffEventType;
+  notified: number;
+}
