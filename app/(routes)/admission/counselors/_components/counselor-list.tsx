@@ -208,6 +208,80 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         }
       }
 
+      // 5. For counselors without user_id, try to resolve profile by email
+      // This handles cases where counselors were added with personal email
+      // but profiles.email uses college email
+      const noProfileCounselors = records.filter((c) => !c.user_id && !c.profile_role && c.email);
+      if (noProfileCounselors.length > 0) {
+        const emails = noProfileCounselors.map((c) => c.email!);
+
+        // First try direct match on profiles.email
+        const { data: directProfiles } = await supabase
+          .from('profiles')
+          .select('id, role, full_name, email')
+          .in('email', emails);
+
+        const directMap = new Map<string, { id: string; role: string | null; full_name: string | null }>();
+        for (const p of (directProfiles || []) as Array<{ id: string; role: string | null; full_name: string | null; email: string }>) {
+          directMap.set(p.email.toLowerCase(), { id: p.id, role: p.role, full_name: p.full_name });
+        }
+
+        // For remaining unmatched, check learners_profiles to find college_email
+        const unmatchedEmails = emails.filter((e) => !directMap.has(e.toLowerCase()));
+        const emailToCollegeEmail = new Map<string, string>();
+
+        if (unmatchedEmails.length > 0) {
+          const { data: learnerMatches } = await supabase
+            .from('learners_profiles')
+            .select('student_email, college_email')
+            .in('student_email', unmatchedEmails);
+
+          for (const lp of (learnerMatches || []) as Array<{ student_email: string | null; college_email: string | null }>) {
+            if (lp.student_email && lp.college_email) {
+              emailToCollegeEmail.set(lp.student_email.toLowerCase(), lp.college_email);
+            }
+          }
+
+          // Look up profiles by college emails
+          const collegeEmails = [...emailToCollegeEmail.values()];
+          if (collegeEmails.length > 0) {
+            const { data: collegeProfiles } = await supabase
+              .from('profiles')
+              .select('id, role, full_name, email')
+              .in('email', collegeEmails);
+
+            for (const p of (collegeProfiles || []) as Array<{ id: string; role: string | null; full_name: string | null; email: string }>) {
+              directMap.set(p.email.toLowerCase(), { id: p.id, role: p.role, full_name: p.full_name });
+            }
+          }
+        }
+
+        // Apply resolved profiles and patch user_id
+        for (const counselor of noProfileCounselors) {
+          const email = counselor.email!.toLowerCase();
+          let match = directMap.get(email);
+
+          // If no direct match, try via learner college email
+          if (!match) {
+            const collegeEmail = emailToCollegeEmail.get(email);
+            if (collegeEmail) {
+              match = directMap.get(collegeEmail.toLowerCase());
+            }
+          }
+
+          if (match) {
+            counselor.profile_role = match.role;
+            counselor.profile_full_name = match.full_name;
+            // Patch user_id in DB so future loads are faster
+            supabase
+              .from('admission_counselors')
+              .update({ user_id: match.id })
+              .eq('id', counselor.id)
+              .then();
+          }
+        }
+      }
+
       // Sort by name
       records.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 

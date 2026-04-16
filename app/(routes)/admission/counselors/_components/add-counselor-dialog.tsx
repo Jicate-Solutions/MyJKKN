@@ -349,9 +349,10 @@ export function AddCounselorDialog({
       const name = getUserName(u).toLowerCase();
       if (userType === 'learner') {
         const learner = u as LearnerResult;
-        const email = (learner.student_email || learner.college_email || '').toLowerCase();
+        const collegeEmail = (learner.college_email || '').toLowerCase();
+        const personalEmail = (learner.student_email || '').toLowerCase();
         const roll = (learner.roll_number || '').toLowerCase();
-        return name.includes(q) || email.includes(q) || roll.includes(q);
+        return name.includes(q) || collegeEmail.includes(q) || personalEmail.includes(q) || roll.includes(q);
       } else {
         const fac = u as FacilitatorResult;
         const email = (fac.email || '').toLowerCase();
@@ -364,17 +365,21 @@ export function AddCounselorDialog({
   const handleSelectUser = async (user: LearnerResult | FacilitatorResult) => {
     if (userType === 'learner') {
       const learner = user as LearnerResult;
-      const learnerEmail = learner.student_email || learner.college_email || '';
+      // Prefer college email (matches profiles.email which is the auth email)
+      const learnerEmail = learner.college_email || learner.student_email || '';
       const learnerName = [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
 
-      // Look up profiles.id via email -- admission_counselors.user_id FK references profiles.id
+      // Look up profiles.id via email -- check both college and personal email
       let profileId: string | null = null;
-      if (learnerEmail) {
+      const emailsToCheck = [learner.college_email, learner.student_email].filter(Boolean) as string[];
+      if (emailsToCheck.length > 0) {
+        const orFilter = emailsToCheck.map(e => `email.eq.${e}`).join(',');
         const { data: profile } = await supabase
           .from('profiles')
           .select('id')
-          .or(`email.eq.${learnerEmail}`)
-          .single();
+          .or(orFilter)
+          .limit(1)
+          .maybeSingle();
         profileId = profile?.id || null;
       }
 
@@ -469,7 +474,7 @@ export function AddCounselorDialog({
   const getUserSubtext = (user: LearnerResult | FacilitatorResult) => {
     if (userType === 'learner') {
       const learner = user as LearnerResult;
-      const email = learner.student_email || learner.college_email || '';
+      const email = learner.college_email || learner.student_email || '';
       const parts = [email, learner.roll_number].filter(Boolean);
       return parts.join(' | ');
     }

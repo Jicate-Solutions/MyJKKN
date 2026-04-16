@@ -3323,6 +3323,45 @@ BEGIN
 END;
 $$;
 
+-- Updated: 2026-04-16 - 2-arg overload for service-role API routes (auth.uid() is null)
+-- Mirrors the 1-arg version: checks user_roles (multi-role) + legacy profiles.role fallback
+CREATE OR REPLACE FUNCTION public.user_has_permission(user_id uuid, permission_key text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF permission_key IS NULL OR permission_key = '' THEN
+        RETURN false;
+    END IF;
+    -- Super admin bypass
+    IF EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = user_id
+        AND (p.is_super_admin = true OR p.role = 'super_admin')
+    ) THEN
+        RETURN true;
+    END IF;
+    -- Multi-role system: check all assigned roles (OR logic)
+    IF EXISTS (
+        SELECT 1 FROM user_roles ur
+        INNER JOIN custom_roles cr ON ur.role_id = cr.id
+        WHERE ur.user_id = user_has_permission.user_id
+        AND (cr.permissions->>permission_key)::boolean = true
+    ) THEN
+        RETURN true;
+    END IF;
+    -- Legacy fallback: profiles.role -> custom_roles
+    RETURN EXISTS (
+        SELECT 1 FROM profiles p
+        JOIN custom_roles cr ON p.role = cr.role_key
+        WHERE p.id = user_has_permission.user_id
+        AND (cr.permissions->>permission_key)::boolean = true
+    );
+END;
+$$;
+
 -- Has resource permission
 CREATE OR REPLACE FUNCTION public.has_resource_permission(
     user_uuid uuid,
