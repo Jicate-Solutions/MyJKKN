@@ -33,11 +33,19 @@ export async function GET(
     // Fetch call log from DB
     const { data: callLog, error } = await supabase
       .from('admission_call_logs')
-      .select('*, lead:admission_leads(id, full_name, phone), counselor:profiles(id, full_name)')
+      .select('*, lead:admission_leads(id, full_name, phone), counselor:profiles!counselor_id(id, full_name)')
       .eq('id', id)
       .single();
 
-    if (error || !callLog) {
+    if (error) {
+      logger.error('admission/calls', 'Call detail query error', { id, error });
+      return NextResponse.json(
+        { error: 'QUERY_ERROR', message: error.message },
+        { status: 500 }
+      );
+    }
+
+    if (!callLog) {
       return NextResponse.json(
         { error: 'NOT_FOUND', message: 'Call log not found' },
         { status: 404 }
