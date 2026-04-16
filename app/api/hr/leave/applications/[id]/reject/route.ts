@@ -6,6 +6,8 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
+import { StaffNotificationService } from '@/lib/services/staff/notification-service';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -42,6 +44,33 @@ export async function POST(
       return NextResponse.json({ error: 'rejection_reason is required' }, { status: 400 });
     }
     const updated = await LeaveService.rejectApplication(supabase, id, user.id, body.rejection_reason);
+
+    // Dispatch leave_rejected notification to the requester — fire-and-forget
+    void (async () => {
+      try {
+        const serviceSupabase = createServiceRoleClient();
+
+        const { data: leaveType } = await serviceSupabase
+          .from('leave_types')
+          .select('leave_type_name')
+          .eq('id', updated.leave_type_id)
+          .maybeSingle();
+        const leaveTypeName: string =
+          (leaveType as { leave_type_name?: string } | null)?.leave_type_name ?? 'Leave';
+
+        await StaffNotificationService.notifyLeaveRejected(
+          serviceSupabase,
+          id,
+          updated.applied_by,
+          leaveTypeName,
+          `${updated.start_date} → ${updated.end_date}`,
+          body.rejection_reason
+        );
+      } catch (notifyErr) {
+        console.warn('[hr/leave/reject] leave_rejected notification failed:', notifyErr);
+      }
+    })();
+
     return NextResponse.json({ data: updated });
   } catch (err) {
     console.error('[hr/leave/applications/:id/reject] error', err);
