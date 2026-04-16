@@ -379,7 +379,7 @@ export class HRDashboardService {
         name: 'active_approval_flows',
         label: 'Active Approval Flows',
         value: flowsCount,
-        drill_url: '/hr/policies/approval-flows',
+        drill_url: '/hr/policies/hr_approval_flows',
         icon: 'Workflow',
       },
     ];
