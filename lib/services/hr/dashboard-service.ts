@@ -237,7 +237,7 @@ export class HRDashboardService {
         name: 'active_blackouts',
         label: 'Active Blackouts',
         value: blackoutCount,
-        drill_url: '/hr/leave/blackouts',
+        drill_url: '/hr/leave',
         icon: 'CalendarX2',
       },
     ];
@@ -498,7 +498,7 @@ export class HRDashboardService {
         name: 'active_blackouts_compliance',
         label: 'Active Blackouts',
         value: blackoutCount,
-        drill_url: '/hr/leave/blackouts',
+        drill_url: '/hr/leave',
         icon: 'CalendarX2',
       },
       {
