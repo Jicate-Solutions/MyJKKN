@@ -220,7 +220,7 @@ function EnhancedFunnelChart({
               <div className="flex items-center gap-4 text-sm">
                 <span className="text-muted-foreground">{stage.leadCount} leads</span>
                 <Badge variant="outline" className="text-xs">
-                  {stage.percentageOfTotal.toFixed(0)}%
+                  {(stage.percentageOfTotal ?? 0).toFixed(0)}%
                 </Badge>
               </div>
             </div>
@@ -244,7 +244,7 @@ function EnhancedFunnelChart({
               <div className="flex items-center gap-4">
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  Avg: {stage.avgDaysInStage.toFixed(1)} days
+                  Avg: {(stage.avgDaysInStage ?? 0).toFixed(1)} days
                 </span>
                 {stage.stuckCount > 0 && (
                   <span className="flex items-center gap-1 text-orange-600">
@@ -258,10 +258,10 @@ function EnhancedFunnelChart({
                 {dropOffData && index > 0 && (
                   <span className={`flex items-center gap-1 ${dropOffData.dropOffRate > 30 ? 'text-red-600' : dropOffData.dropOffRate > 15 ? 'text-yellow-600' : 'text-green-600'}`}>
                     <ArrowRight className="h-3 w-3" />
-                    {dropOffData.conversionRate.toFixed(0)}% conv.
+                    {(dropOffData.conversionRate ?? 0).toFixed(0)}% conv.
                     {dropOffData.dropOffRate > 0 && (
                       <span className="text-red-500">
-                        (-{dropOffData.dropOffRate.toFixed(0)}%)
+                        (-{(dropOffData.dropOffRate ?? 0).toFixed(0)}%)
                       </span>
                     )}
                   </span>
@@ -274,7 +274,7 @@ function EnhancedFunnelChart({
                     ) : (
                       <TrendingDown className="h-3 w-3 mr-1" />
                     )}
-                    {stage.wowChangePercent > 0 ? '+' : ''}{stage.wowChangePercent.toFixed(0)}% WoW
+                    {stage.wowChangePercent > 0 ? '+' : ''}{(stage.wowChangePercent ?? 0).toFixed(0)}% WoW
                   </span>
                 )}
               </div>
@@ -551,7 +551,7 @@ function AdmissionAnalyticsPageContent() {
             />
             <MetricCard
               title="Conversion Rate"
-              value={summary?.conversionRate ? `${summary.conversionRate.toFixed(1)}%` : '0%'}
+              value={summary?.conversionRate ? `${(summary.conversionRate ?? 0).toFixed(1)}%` : '0%'}
               icon={Target}
               color="text-green-600"
             />

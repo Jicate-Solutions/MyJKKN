@@ -168,7 +168,7 @@ export const columns: ColumnDef<EducationConsultant>[] = [
     ),
     cell: ({ row }) => {
       const rate = (row.getValue('conversion_rate') as number) ?? 0;
-      return <span>{rate.toFixed(1)}%</span>;
+      return <span>{(rate ?? 0).toFixed(1)}%</span>;
     },
   },
 

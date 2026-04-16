@@ -161,7 +161,7 @@ function VoiceAgentsPageContent() {
               </CardHeader>
               <CardContent>
                 {analyticsLoading ? <Skeleton className="h-7 w-16" /> :
-                  <div className="text-2xl font-bold">{analytics.qualification_rate.toFixed(1)}%</div>}
+                  <div className="text-2xl font-bold">{(analytics.qualification_rate ?? 0).toFixed(1)}%</div>}
               </CardContent>
             </Card>
           </div>

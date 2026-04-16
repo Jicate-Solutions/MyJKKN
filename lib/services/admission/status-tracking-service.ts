@@ -72,8 +72,12 @@ export class StatusTrackingService {
       `,
         { count: 'exact' }
       )
-      .eq('institution_id', filters.institutionId)
+
       .order('updated_at', { ascending: false });
+
+    if (filters.institutionId) {
+      query = query.eq('institution_id', filters.institutionId);
+    }
 
     if (filters.status && filters.status !== 'all' && filters.status !== '_all') {
       query = query.eq('status', filters.status);

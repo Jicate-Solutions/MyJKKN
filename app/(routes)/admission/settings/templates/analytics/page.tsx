@@ -113,7 +113,7 @@ function QualityBadge({ rate, type }: { rate: number; type: 'delivery' | 'read' 
     if (rate <= 3) variant = 'default';
     else if (rate > 10) variant = 'destructive';
   }
-  return <Badge variant={variant}>{rate.toFixed(1)}%</Badge>;
+  return <Badge variant={variant}>{(rate ?? 0).toFixed(1)}%</Badge>;
 }
 
 // =============================================================================
@@ -400,7 +400,7 @@ function TemplateAnalyticsContent() {
               {topPerforming.map((t) => (
                 <div key={t.template_id} className="flex items-center justify-between text-sm">
                   <span className="truncate mr-2">{t.template_name}</span>
-                  <Badge variant="default">{t.read_rate.toFixed(1)}% read</Badge>
+                  <Badge variant="default">{(t.read_rate ?? 0).toFixed(1)}% read</Badge>
                 </div>
               ))}
             </CardContent>
@@ -419,7 +419,7 @@ function TemplateAnalyticsContent() {
               {worstPerforming.map((t) => (
                 <div key={t.template_id} className="flex items-center justify-between text-sm">
                   <span className="truncate mr-2">{t.template_name}</span>
-                  <Badge variant="destructive">{t.delivery_rate.toFixed(1)}% delivered</Badge>
+                  <Badge variant="destructive">{(t.delivery_rate ?? 0).toFixed(1)}% delivered</Badge>
                 </div>
               ))}
             </CardContent>

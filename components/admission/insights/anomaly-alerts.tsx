@@ -161,7 +161,7 @@ export function AnomalyAlerts({
                               )}
                             >
                               {anomaly.deviation > 0 ? '+' : ''}
-                              {anomaly.deviation.toFixed(1)}% deviation
+                              {(anomaly.deviation ?? 0).toFixed(1)}% deviation
                             </span>
                           )}
                         </div>

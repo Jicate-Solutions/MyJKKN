@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -140,6 +140,7 @@ function getDispositionBadge(disposition: CallDisposition | null) {
 
 function RecordingPlayer({ url }: { url: string | null }) {
   const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   if (!url) return <span className="text-xs text-muted-foreground">-</span>;
 
@@ -150,17 +151,20 @@ function RecordingPlayer({ url }: { url: string | null }) {
       className="h-7 px-2 text-xs"
       onClick={(e) => {
         e.stopPropagation();
-        // Simple audio playback using the browser's Audio API
-        const audio = new Audio(url);
-        if (playing) {
-          audio.pause();
+        if (playing && audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current = null;
           setPlaying(false);
         } else {
+          const audio = new Audio(url);
+          audioRef.current = audio;
           audio.play().catch(() => {
-            // Fallback: open in new tab if autoplay blocked
             window.open(url, '_blank');
           });
-          audio.onended = () => setPlaying(false);
+          audio.onended = () => {
+            audioRef.current = null;
+            setPlaying(false);
+          };
           setPlaying(true);
         }
       }}

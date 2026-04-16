@@ -28,7 +28,7 @@ import { AdmissionErrorBoundary } from '@/components/admission';
 function formatMinutes(minutes: number | null): string {
   if (minutes === null) return '-';
   if (minutes < 1) return '<1m';
-  if (minutes < 60) return `${minutes.toFixed(1)}m`;
+  if (minutes < 60) return `${(minutes ?? 0).toFixed(1)}m`;
   const hours = Math.floor(minutes / 60);
   const mins = Math.round(minutes % 60);
   return `${hours}h ${mins}m`;
@@ -283,7 +283,7 @@ function AnalyticsTabContent({ institutionId }: { institutionId: string }) {
                                 : 'bg-red-100 text-red-800'
                             }
                           >
-                            {counselor.conversionRate.toFixed(1)}%
+                            {(counselor.conversionRate ?? 0).toFixed(1)}%
                           </Badge>
                         </TableCell>
                       </TableRow>

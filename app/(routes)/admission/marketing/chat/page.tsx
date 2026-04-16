@@ -119,7 +119,7 @@ function ChatInboxContent() {
                   )}
                   <Badge variant="outline" className="text-xs gap-1">
                     <IndianRupee className="h-3 w-3" />
-                    Today: {costDashboard.daily_average.toFixed(2)} | Month: {costDashboard.monthly_spend.toFixed(2)}
+                    Today: {(costDashboard.daily_average ?? 0).toFixed(2)} | Month: {(costDashboard.monthly_spend ?? 0).toFixed(2)}
                   </Badge>
                 </div>
               )}
