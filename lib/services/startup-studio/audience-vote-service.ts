@@ -2,6 +2,11 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client'
 import type { AudienceVote, VoteSummary } from '@/types/startup-studio'
 
+// INTEGRATION SITE 3 — vote_cast_received
+// Import the SF100Service to reuse its shared dispatch helper.
+// Kept as a lazy import to avoid circular deps at module-load time.
+import { SF100Service } from './sf100-service'
+
 export class AudienceVoteService {
   // ─── Get all vote summaries for an event ─────────────────────────────────
   static async getVoteSummaries(eventId: string): Promise<VoteSummary[]> {
