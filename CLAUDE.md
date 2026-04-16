@@ -4,6 +4,23 @@
 
 This guide explains how to effectively use the Memory and Sequential Thinking MCP servers in your MyJKKN development workflow.
 
+## 📚 On-Demand Context Libraries (read when task matches)
+
+These are NOT always loaded. Read the relevant file ONLY when the task requires it.
+
+| When working on... | Read this file |
+|---|---|
+| **Entity masters** (Learner / Program / Staff / Course) — any design or query | `docs/one-jkkn-one-data.md` |
+| **Compliance / accreditation** — any of NAAC, NIRF, NBA, QS, DCI, PCI, INC, NCTE, AICTE, UGC | `docs/one-jkkn-one-data.md` |
+| **MDM layer** design, migration, or review | `docs/one-jkkn-one-data.md` |
+| **The 4 critical rebuild paths** (admission→academic, academic→billing, billing→hostel, HR→academic) | `docs/one-jkkn-one-data.md` |
+| **Evidence fan-out** — any trigger/service emitting `quality_evidence_mappings` rows | `docs/one-jkkn-one-data.md` |
+| **Compliance URL routes** under `/accreditation/<body>/...` | `docs/one-jkkn-one-data.md` |
+| **Tribal knowledge capture** — interviews, rule engine configs, form tooltips | `docs/one-jkkn-one-data.md` |
+| **Full 9-month master plan** — sprints, risk register, interview roster | `specs/one-jkkn-one-data/MASTER-PLAN.md` |
+
+**Rule:** The context library (`docs/one-jkkn-one-data.md`) encodes architectural decisions that OVERRIDE default MyJKKN patterns. When in conflict, context library wins. It defines the "One JKKN, One Data" north-star program that started 2026-04-20 (9-month big-bang, 14 decisions locked).
+
 ## 🎨 Output Style Preferences
 
 Claude Code offers 4 output styles that control response verbosity and educational content. Choose the right style for your current task to maximize productivity.
