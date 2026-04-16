@@ -1,110 +1,87 @@
 ---
-title: Phase 1a — IQAC Foundation + Federated Grievance + DCF 2025 + NAAC 8.4 Survey
-version: 1.0
+title: Phase 1a — Accreditation Substrate Foundation (NAAC primary + 9-body placeholders)
+version: 2.0
 status: DECISIONS LOCKED — Ready for /myjkkn-api build
-author: Director + Claude (assumption-thrash agent)
+author: Director + Claude (assumption-thrash + multi-body refactor)
 date: 2026-04-16
-parent_plan: MASTER-PLAN.md v0.4 (pending v0.5 update per Finding 1)
-thrash_rounds: 5
-decisions_locked: 22
+parent_plan: MASTER-PLAN.md v0.6 (supersedes v0.4; incorporates 8-college + multi-body + IQAC-as-methodology corrections)
+thrash_rounds: 5 (22 decisions) + 2 architectural reframes (multi-body, IQAC-as-methodology)
 blocks_until: Director signoff on 5 gates (listed §7)
+supersedes: v1.0 (NAAC-only naming)
 ---
 
-# Phase 1a — IQAC Foundation + Federated Grievance + DCF 2025 + NAAC 8.4 Survey
+# Phase 1a — Accreditation Substrate Foundation
+
+## North Star (locked 2026-04-16)
+
+> **One JKKN, One Data** — operational modules produce data ONCE. Ten compliance bodies consume it via a single substrate. Zero duplicate entry. One-click compliance outputs for any body.
+
+See `project_one_jkkn_one_data.md` + `project_jkkn_accreditation_surface.md` in MEMORY.
 
 ## 0. Executive Summary
 
-This phase lays the architectural foundation for NAAC accreditation across **8 JKKN colleges** (5 Autonomous + 3 Affiliated — corrected from Master Plan v0.4's 2+4 assumption). It delivers:
+This phase builds the **body-agnostic quality-evidence substrate** that ALL 10 JKKN compliance bodies (NAAC + NIRF + NBA + QS + DCI + PCI + INC + AICTE + NCTE + UGC) consume from a single underlying data model. NAAC is the first body with full implementation; the other 9 get placeholder dashboards + metric-catalog rows to lock the architecture from day one.
 
-1. **IQAC umbrella shell** — `/iqac` route, college switcher, committee management
-2. **Federated Grievance** — Option C architecture: formal UGC intake + bridges to existing hostel/LC/health domain tables
-3. **NAAC metrics catalog** — seed existing `sh_accreditation_metrics` with Binary + MBGL 10-Attribute framework
-4. **Polymorphic evidence bridge** — `naac_evidence_mappings` junction (future-proof for OKR, Sustainability, Solutions Hub)
-5. **DCF 2025 export scaffold** — super-admin export for NAAC submission
-6. **NAAC 8.4 Survey Export** — learner + alumni CSV with DPDPA 2023 consent
-7. **6 compliance artifacts** — acknowledgment PDF, resolution letter PDF, weekly digest email, SMS notifications, audit trail, escalation workflow
+**Delivered in Phase 1a:**
 
-## 1. Preflight Findings (MANDATORY context)
+1. **Accreditation landing** — `/accreditation` with 10 body scoreboard cards (NAAC live, 9 placeholders)
+2. **NAAC primary implementation** — `/accreditation/naac` (what earlier spec called `/iqac`), college switcher, IQAC committee CRUD, federated grievance, DCF 2025 export, 8.4 survey export, DPDPA consent
+3. **Body-agnostic substrate tables** — `quality_evidence_mappings`, `accreditation_committees`, `accreditation_committee_members`, `accreditation_survey_consents`, `accreditation_submissions`, `accreditation_digest_config`
+4. **Multi-body metrics catalog seed** — `sh_accreditation_metrics` seeded with NAAC (90 rows) + NIRF (20) + NBA (10) + placeholders for DCI/PCI/INC/NCTE/AICTE/UGC/QS
+5. **Fan-out evidence triggers** — one operational event → multiple body's metric_code tags automatically
+6. **IQAC-as-methodology scaffolding** — Principal home = IQAC Chairman dashboard; HoD home = Department IQAC Coordinator dashboard; naming preserved for NAAC vernacular familiarity
 
-Five functional parallels discovered on staging DB that change the design:
+**URL pattern locked:**
+- `/accreditation` → landing (10 body cards)
+- `/accreditation/naac` → IQAC dashboard (primary NAAC implementation)
+- `/accreditation/naac/grievance` → federated grievance (NAAC Metric 7.7)
+- `/accreditation/naac/committees` → IQAC committee CRUD
+- `/accreditation/naac/dcf-export` → DCF 2025 export
+- `/accreditation/naac/surveys` → 8.4 survey + DPDPA consent
+- `/accreditation/nirf|nba|qs|dci|pci|inc|ncte|aicte|ugc` → placeholder dashboards
+- `/iqac` → 301 redirect to `/accreditation/naac` (familiar entry)
 
-| # | Finding | Resolution |
-|---|---------|-----------|
-| F1 | Master Plan says 2 Auto + 4 Aff = 6 colleges. **Live DB: 5 Auto + 3 Aff = 8 colleges.** institution_type enum is `autonomous\|aided\|self` (not `autonomous\|affiliated`) | Update Master Plan to v0.5 (see §8). Treat `autonomous` = NAAC Autonomous; `aided + self` = NAAC Affiliated. |
-| F2 | `sh_accreditation_metrics` (15 cols) is dormant NAAC metrics catalog already built in Solutions Hub | **SEED** this table with the 10-Attribute Binary + MBGL framework. Do NOT build parallel `iqac_naac_metrics`. |
-| F3 | `hostel_maintenance_requests.linked_grievance_id` already exists | Populate via escalate-to-IQAC trigger. Zero schema change needed on this table. |
-| F4 | `ip_filings.naac_score_claim + naac_criteria + naac_metric_code` AND `sh_publications.naac_criterion` — NAAC tagging pattern already established on 2 tables | Extend same pattern to grievance/incidents via the polymorphic junction `naac_evidence_mappings` — no ALTER on existing tables. |
-| F5 | `health_consents` (6 cols) is too minimal for NAAC survey consent | Build new `naac_survey_consents` — different legal basis (legitimate interest for accreditation vs explicit consent for health under DPDPA §7). |
+## 1. Preflight Findings (carried from v1.0 + updated for multi-body)
 
-## 2. Scope (12 Deliverables)
+| # | Finding | Resolution (v2.0) |
+|---|---------|-------------------|
+| F1 | Master Plan said 2 Auto + 4 Aff = 6 colleges. **Live DB: 5 Auto + 3 Aff = 8 colleges.** institution_type enum = `autonomous\|aided\|self` | Master Plan v0.6 (§8 delta). NAAC Auto = `autonomous`; NAAC Aff = `aided + self` |
+| F2 | `sh_accreditation_metrics` already body-agnostic (metric_type col = body_code) | Seed with NAAC + 9 other bodies in Phase 1a |
+| F3 | `hostel_maintenance_requests.linked_grievance_id` pre-built | Populate via escalate trigger |
+| F4 | NAAC tagging pattern exists on `ip_filings` + `sh_publications` | Generalize — evidence junction tags ANY body, not just NAAC |
+| F5 | `health_consents` (6 cols) too minimal for accreditation survey consent | Build body-agnostic `accreditation_survey_consents` with `body_codes text[]` + purpose JSONB |
+| F6 *(NEW v2.0)* | 10-body compliance surface: NAAC, NIRF, NBA, QS, DCI, PCI, INC, AICTE, NCTE, UGC — ~80% evidence overlap between NAAC and NIRF alone | Substrate names must NOT hardcode "naac_" — use `quality_*` / `accreditation_*` |
+| F7 *(NEW v2.0)* | IQAC = continuous improvement METHODOLOGY, not a cell. Principal = IQAC Chairman; HoDs = Department IQAC Coordinators | Principal home dashboard aggregates ALL 10 bodies' scorecards; each HoD home = their department's IQAC view |
 
-### 2a. Architectural Decisions (from Round 0 overlap resolution)
+## 2. Scope
+
+### 2a. Architectural Decisions (expanded to 6, v2.0)
 
 | # | Decision | Rationale |
 |---|----------|-----------|
-| AD1 | Update Master Plan to v0.5 (8 colleges, correct 5+3 split) | Mis-scoring a college is irrecoverable post-SSR submission |
-| AD2 | Seed `sh_accreditation_metrics`, reuse for DCF catalog | Reuses infrastructure, zero migration risk |
-| AD3 | Build `naac_evidence_mappings` polymorphic junction (NOT per-table `naac_metric_code` columns) | Avoids ALTER on 4+ existing tables; future-proofs for OKR/Sustainability/Solutions Hub |
-| AD4 | New `naac_survey_consents` (NOT extending `health_consents`) | Distinct DPDPA legal basis; avoids consent-scope confusion in audit |
+| AD1 | Master Plan v0.6 — 8 colleges (5+3) locked | Mis-scoring irrecoverable post-SSR |
+| AD2 | Seed existing `sh_accreditation_metrics` for ALL 10 bodies | Reuse; `metric_type` col = body_code; catalog already multi-body by design |
+| AD3 | **Rename** `naac_evidence_mappings` → `quality_evidence_mappings` with `body_code` col | One substrate feeds all 10 bodies. Fan-out tagging on every event |
+| AD4 | **Rename** `naac_survey_consents` → `accreditation_survey_consents` with `body_codes text[]` | DPDPA purpose-specific consent supports multiple bodies per consent record |
+| AD5 *(NEW)* | URL root `/accreditation/<body>` — `/iqac` redirects to `/accreditation/naac` | IQAC = NAAC implementation of continuous improvement. Not URL root. |
+| AD6 *(NEW)* | New table `accreditation_submissions` tracks each submission event per body per college per period | "One-click compliance output" North Star — audit trail of every NAAC/NIRF/NBA/etc. submission |
 
-### 2b. Silent Assumption Decisions (from 5 thrash rounds, 22 total)
+### 2b. Silent Assumption Decisions (22 from thrash rounds — unchanged from v1.0)
 
-#### Round 1 — Structural
+All 22 decisions from Rounds 1-5 (business-day SLA, junction committee, hybrid lineage, schema-native anonymous, auto-escalate, supersede withdrawal, emergency fast-track, limited proxy, link-don't-copy federation, mandatory SH/ragging attachments, configurable notification_preferences, satisfaction auto-reopen, role-scoped privacy + is_icc_only, all 4 artifacts, hybrid college switcher, full DPDPA scope, both PDFs, hierarchical categories, JKKN-CODE-GR-YYYY-NNNNN ticket format, auto-tag with manual override) remain LOCKED and apply to the NAAC implementation under `/accreditation/naac`.
 
-| # | Category | Decision | Schema/Code Impact |
-|---|----------|----------|---------------------|
-| R1.1 | Temporal (SLA clock) | **Business days only** — skip weekends + `institution_leaves` | New Postgres function `calculate_business_day_deadline(start_ts, days, institution_id)` reads institution_leaves |
-| R1.2 | Committee structure | **Junction table** `iqac_committee_members` with role + term | New table: committee_id, user_id, role (chair/coordinator/member/observer), joined_at, term_end, is_active |
-| R1.3 | SLA lineage | **Hybrid**: snapshot at ticket creation + admin "recompute open tickets" endpoint | `grievance_tickets.sla_hours` stays as-is; new `POST /api/iqac/grievance/categories/:id/recompute-slas` endpoint |
-| R1.4 | Anonymous (UGC 2023 §5(b)) | **Schema migration**: nullable raised_by_name + is_anonymous + anonymous_token | ALTER grievance_tickets: raised_by_name → NULL; ADD is_anonymous bool, anonymous_token text UNIQUE |
+## 3. Schema — Consolidated
 
-#### Round 2 — Edge Cases
-
-| # | Category | Decision | Schema/Code Impact |
-|---|----------|----------|---------------------|
-| R2.1 | SLA breach | **Stay open + red flag + auto-escalate to IQAC chair** | ADD sla_breached_at, escalation_level cols; pg_cron hourly job scans open tickets |
-| R2.2 | Withdrawal | **Supersede** — status='withdrawn', row preserved | ADD withdrawn_at, withdrawn_reason cols; trigger locks withdrawn rows from edit |
-| R2.3 | Emergency fast-track | **Auto-flag SH/ragging + halved SLA + SMS to chair+Director within 1h** | ADD is_emergency bool; category.default_sla_hours × 0.5 for emergency cats; Exotel SMS integration |
-| R2.4 | Proxy filing | **Limited**: IQAC coord + warden + parent | ADD filed_by uuid (separate from raised_by_id); RLS validates filed_by's role |
-
-#### Round 3 — Operational
-
-| # | Category | Decision | Schema/Code Impact |
-|---|----------|----------|---------------------|
-| R3.1 | Cross-module escalation | **Link, don't copy** — hostel_incidents stays source-of-truth | metadata.source_table + metadata.source_id on grievance_tickets; trigger on hostel_incidents escalate action |
-| R3.2 | Attachments | **Mandatory for SH+ragging; 25MB/file × 5 files max** | Supabase Storage bucket `grievance-evidence` (private ACL); category has attachment_required bool |
-| R3.3 | Notifications | **Configurable per-user** `notification_preferences` table | New table: user_id, module, event_type, channels jsonb |
-| R3.4 | Satisfaction | **Prompted not mandatory; ≤2 auto-reopens** | Trigger on satisfaction_rating UPDATE creates new row with status='reopened_on_dissatisfaction' |
-
-#### Round 4 — Compliance & Visibility
-
-| # | Category | Decision | Schema/Code Impact |
-|---|----------|----------|---------------------|
-| R4.1 | Privacy matrix | **Role-scoped + per-ticket `is_icc_only` override for sensitive cases** | ADD is_icc_only bool; RLS policies scoped to role (complainant/coord/chair/director/accused) |
-| R4.2 | Artifacts | **DCF 2025 export + Weekly digest + Acknowledgment PDF + Resolution letter PDF** (all 4) | Supabase Storage bucket `grievance-artifacts`; PDF generation via server-side template; cron for digest |
-| R4.3 | College switcher | **Hybrid: URL param > localStorage > profile default** | ADD profiles.iqac_default_college_id uuid; CollegeSwitcher component with precedence logic |
-| R4.4 | DPDPA consent scope | **PII + Academic + Alumni + Parent** (all 4 — scope creep into Phase 6 pre-consent) | naac_survey_consents.scope jsonb with 4 category keys; Phase 1a UI must capture all 4 |
-
-#### Round 5 — Loose Ends
-
-| # | Category | Decision | Schema/Code Impact |
-|---|----------|----------|---------------------|
-| R5.1 | PDFs confirmed | **Acknowledgment + Resolution** both auto-generated, stored in Storage | ADD acknowledgment_pdf_url, resolution_letter_pdf_url cols on grievance_tickets |
-| R5.2 | Category seed | **Hierarchical**: 5 UGC parent + ~10 JKKN-standard sub + college-specific leaf | Seed 5+10 rows with parent_id chain; per-college customization via parent_id |
-| R5.3 | Ticket ID format | **`JKKN-{COLLEGE_CODE}-GR-{YYYY}-{00001}`** | ADD institutions.iqac_code char(4); Postgres function `generate_grievance_ticket_number()` |
-| R5.4 | NAAC tagging | **Auto by category + manual override** | grievance_categories.default_naac_metric_code; trigger auto-inserts into naac_evidence_mappings on ticket create |
-
-## 3. Schema Implications — Consolidated
-
-### 3.1 NEW Tables (6)
+### 3.1 NEW Tables (7 — body-agnostic)
 
 ```sql
--- 1. IQAC committees (per institution)
-CREATE TABLE iqac_committees (
+-- 1. Accreditation committees (generic, body-coded)
+CREATE TABLE accreditation_committees (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
+  body_code text NOT NULL,  -- 'NAAC' | 'NIRF' | 'NBA' | 'QS' | 'DCI' | 'PCI' | 'INC' | 'AICTE' | 'NCTE' | 'UGC'
   committee_name text NOT NULL,
-  committee_type text NOT NULL,  -- 'main' | 'icc' | 'anti_ragging' | 'grievance'
+  committee_type text NOT NULL,  -- 'main' | 'icc' | 'anti_ragging' | 'grievance' | 'coordinator' | 'inspection'
   chair_user_id uuid REFERENCES profiles(id),
   formed_at date NOT NULL,
   term_end date,
@@ -113,99 +90,128 @@ CREATE TABLE iqac_committees (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
+CREATE INDEX idx_accred_committees_body ON accreditation_committees(body_code, institution_id);
 
--- 2. IQAC committee members (junction)
-CREATE TABLE iqac_committee_members (
+-- 2. Accreditation committee members (junction)
+CREATE TABLE accreditation_committee_members (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  committee_id uuid NOT NULL REFERENCES iqac_committees(id) ON DELETE CASCADE,
-  user_id uuid NOT NULL REFERENCES profiles(id),
-  role text NOT NULL,  -- 'chair' | 'coordinator' | 'member' | 'observer'
+  committee_id uuid NOT NULL REFERENCES accreditation_committees(id) ON DELETE CASCADE,
+  user_id uuid REFERENCES profiles(id),
+  role text NOT NULL,
   joined_at date NOT NULL,
   term_end date,
   is_active boolean DEFAULT true,
-  is_external boolean DEFAULT false,  -- for industry/alumni external members
+  is_external boolean DEFAULT false,
   external_name text,
   external_org text,
   created_at timestamptz DEFAULT now(),
   UNIQUE (committee_id, user_id, joined_at)
 );
 
--- 3. NAAC evidence mappings (polymorphic junction — AD3)
-CREATE TABLE naac_evidence_mappings (
+-- 3. Quality evidence mappings (polymorphic junction — THE substrate)
+CREATE TABLE quality_evidence_mappings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_table text NOT NULL,  -- 'grievance_tickets' | 'hostel_incidents' | 'sh_publications' | ...
+  source_table text NOT NULL,
   source_id uuid NOT NULL,
-  metric_code text NOT NULL REFERENCES sh_accreditation_metrics(metric_code),
   institution_id uuid NOT NULL REFERENCES institutions(id),
+  body_code text NOT NULL,  -- One of the 10
+  metric_code text NOT NULL,  -- FK to sh_accreditation_metrics.metric_code (when body_code matches)
+  period_label text,  -- '2026-27' for annual submissions
   mapped_by uuid REFERENCES profiles(id),
   mapped_at timestamptz DEFAULT now(),
-  is_auto boolean DEFAULT false,  -- true if inserted by trigger
+  is_auto boolean DEFAULT false,
   metadata jsonb DEFAULT '{}',
-  UNIQUE (source_table, source_id, metric_code)
+  UNIQUE (source_table, source_id, body_code, metric_code)
 );
-CREATE INDEX idx_naac_evidence_source ON naac_evidence_mappings(source_table, source_id);
-CREATE INDEX idx_naac_evidence_metric ON naac_evidence_mappings(metric_code, institution_id);
+CREATE INDEX idx_qem_source ON quality_evidence_mappings(source_table, source_id);
+CREATE INDEX idx_qem_body_metric ON quality_evidence_mappings(body_code, metric_code, institution_id);
+CREATE INDEX idx_qem_body_institution_period ON quality_evidence_mappings(body_code, institution_id, period_label);
 
--- 4. NAAC survey consents (DPDPA 2023 — AD4)
-CREATE TABLE naac_survey_consents (
+-- 4. Accreditation survey consents (DPDPA-compliant, body-aware)
+CREATE TABLE accreditation_survey_consents (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES profiles(id),
   learner_id uuid REFERENCES learners_profiles(id),
-  alumni_email text,  -- alumni may not have profile
+  alumni_email text,
   consent_version text NOT NULL DEFAULT '1.0',
-  purpose text NOT NULL DEFAULT 'NAAC 2027 accreditation submission (Metric 8.4, 8.1-8.3, 8.2a)',
+  body_codes text[] NOT NULL,  -- which bodies this consent applies to: ['NAAC','NIRF','NBA']
+  purpose text NOT NULL DEFAULT 'Accreditation + ranking submissions (NAAC, NIRF, NBA, etc.)',
   legal_basis text NOT NULL DEFAULT 'DPDPA 2023 §4(1)(a) — specific purpose consent',
   scope jsonb NOT NULL,  -- {"pii": true, "academic": true, "alumni_outcomes": true, "parent_contact": true}
   consented_at timestamptz DEFAULT now(),
   withdrawn_at timestamptz,
   ip_address inet,
   user_agent text,
-  export_event_ids uuid[] DEFAULT '{}',  -- tracks which exports used this consent
-  CHECK (user_id IS NOT NULL OR learner_id IS NOT NULL OR alumni_email IS NOT NULL)
+  export_event_ids uuid[] DEFAULT '{}',
+  CHECK (user_id IS NOT NULL OR learner_id IS NOT NULL OR alumni_email IS NOT NULL),
+  CHECK (array_length(body_codes, 1) >= 1)
 );
 
--- 5. Notification preferences (per user, per event)
+-- 5. Accreditation submissions (audit log of every "one-click compliance output")
+CREATE TABLE accreditation_submissions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  body_code text NOT NULL,
+  submission_type text NOT NULL,  -- 'NAAC_SSR_2027' | 'NIRF_annual' | 'NBA_SAR' | 'DCI_inspection' | ...
+  period_label text NOT NULL,  -- '2026-27'
+  due_date date,
+  submitted_at timestamptz,
+  submitted_by uuid REFERENCES profiles(id),
+  export_url text,  -- Storage URL of the exported file
+  export_format text,  -- 'DCF_2025_XLSX' | 'NIRF_CSV' | 'NBA_PDF' | ...
+  status text NOT NULL DEFAULT 'draft',  -- 'draft' | 'submitted' | 'accepted' | 'revision_requested' | 'rejected'
+  metadata jsonb DEFAULT '{}',  -- evidence row count, metric coverage %, etc.
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+CREATE INDEX idx_submissions_due ON accreditation_submissions(due_date, body_code) WHERE status != 'accepted';
+CREATE INDEX idx_submissions_institution_body ON accreditation_submissions(institution_id, body_code, period_label);
+
+-- 6. Notification preferences (module-agnostic — unchanged from v1.0)
 CREATE TABLE notification_preferences (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES profiles(id),
-  module text NOT NULL,  -- 'iqac' | 'grievance' | 'committee' | ...
-  event_type text NOT NULL,  -- 'ticket_submit' | 'sla_breach' | 'escalate' | ...
+  module text NOT NULL,
+  event_type text NOT NULL,
   channels jsonb NOT NULL DEFAULT '{"in_app": true, "email": true, "sms": false, "whatsapp": false}',
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
   UNIQUE (user_id, module, event_type)
 );
 
--- 6. IQAC weekly digest config
-CREATE TABLE iqac_weekly_digest_config (
+-- 7. Accreditation digest config (per user, per body)
+CREATE TABLE accreditation_digest_config (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES profiles(id),
   institution_id uuid NOT NULL REFERENCES institutions(id),
+  body_code text NOT NULL,
   is_enabled boolean DEFAULT true,
   email text NOT NULL,
   last_sent_at timestamptz,
   created_at timestamptz DEFAULT now(),
-  UNIQUE (user_id, institution_id)
+  UNIQUE (user_id, institution_id, body_code)
 );
 ```
 
-### 3.2 ALTER Existing (4 tables)
+### 3.2 ALTER Existing (4 tables — unchanged intent, body-aware wording)
 
 ```sql
--- institutions: add IQAC short code for ticket IDs
+-- institutions: short code for ticket IDs + NAAC/NIRF routing
 ALTER TABLE institutions ADD COLUMN iqac_code char(4);
--- Manual seed after: DENT, PHAR, ALHD, NURS, ENGG, ASAI, ASSF, EDUC
+-- Seed: DENT, PHAR, ALHD, NURS, ENGG, ASAI, ASSF, EDUC
 
--- profiles: college switcher default
-ALTER TABLE profiles ADD COLUMN iqac_default_college_id uuid REFERENCES institutions(id);
+-- profiles: accreditation switcher default
+ALTER TABLE profiles ADD COLUMN accreditation_default_college_id uuid REFERENCES institutions(id);
+-- (was iqac_default_college_id — renamed for body-agnostic intent)
 
--- grievance_categories: NAAC tagging
+-- grievance_categories: NAAC tagging + emergency flag
 ALTER TABLE grievance_categories
   ADD COLUMN default_naac_metric_code text REFERENCES sh_accreditation_metrics(metric_code),
   ADD COLUMN attachment_required boolean DEFAULT false,
   ADD COLUMN is_emergency boolean DEFAULT false;
+-- Note: default_naac_metric_code stays named for NAAC since grievance IS NAAC-specific (7.7)
 
--- grievance_tickets: 12 new cols + 1 nullable
+-- grievance_tickets: full 12-col expansion (unchanged from v1.0)
 ALTER TABLE grievance_tickets
   ALTER COLUMN raised_by_name DROP NOT NULL,
   ADD COLUMN is_anonymous boolean DEFAULT false,
@@ -224,177 +230,220 @@ ALTER TABLE grievance_tickets
   );
 ```
 
-### 3.3 Seeds (3 batches)
+### 3.3 Seeds (expanded for multi-body)
 
-- **5 UGC parent grievance categories** + ~10 JKKN-standard sub-categories (hierarchical)
-- **~90 NAAC metrics** in `sh_accreditation_metrics` (10 Attributes × ~9 metrics avg, Binary + MBGL framework)
-- **8 IQAC committees** (1 per college) with placeholder chairs pending Director gate #1
+| Seed | Count | Body |
+|------|------:|------|
+| Grievance hierarchical categories (5 parent + ~10 JKKN-std sub) | 15 | NAAC (Metric 7.7) |
+| NAAC metrics (Binary + MBGL 10-Attribute) | ~90 | NAAC |
+| NIRF metrics (TLR/RPC/GO/OI/PR params + sub-indicators) | ~20 | NIRF |
+| NBA metrics (Tier 1/2, 10 criteria) | ~10 | NBA |
+| QS indicators (6 — academic rep, employer rep, faculty/student, citations, int'l faculty, int'l students) | 6 | QS |
+| DCI metrics (faculty roster, patient load, curriculum) | ~15 | DCI |
+| PCI metrics (same shape, different rubric) | ~15 | PCI |
+| INC metrics | ~15 | INC |
+| NCTE metrics | ~15 | NCTE |
+| AICTE EoA items | ~20 | AICTE |
+| UGC compliance checklist | ~10 | UGC |
+| Accreditation committees (8 colleges × NAAC as primary — IQAC) | 8 | NAAC |
 
-### 3.4 Functions / Triggers (7 new)
+### 3.4 Functions / Triggers (unchanged count, body-aware semantics)
 
 1. `calculate_business_day_deadline(start_ts, days int, institution_id uuid) → timestamptz`
-2. `generate_grievance_ticket_number(institution_id uuid, year int) → text`  (returns `JKKN-{CODE}-GR-{YYYY}-{NNNNN}`)
-3. `auto_populate_naac_evidence()` — trigger on grievance_tickets INSERT
+2. `generate_grievance_ticket_number(institution_id uuid, year int) → text` returns `JKKN-{CODE}-GR-{YYYY}-{NNNNN}`
+3. `auto_populate_quality_evidence()` — **fan-out trigger** on relevant INSERTs, tags MULTIPLE body metrics at once per event
 4. `enforce_grievance_proxy_rls()` — validates filed_by has proxy role
-5. `enforce_grievance_withdrawn_lock()` — trigger prevents UPDATE on withdrawn rows
+5. `enforce_grievance_withdrawn_lock()` — prevents UPDATE on withdrawn rows
 6. `grievance_auto_reopen_on_low_satisfaction()` — trigger on satisfaction_rating UPDATE
-7. `check_sla_breach()` — pg_cron hourly, scans open tickets → flip sla_status + increment escalation_level + fire notifications
+7. `check_sla_breach()` — pg_cron 15-min, scans open tickets → flip sla_status + escalate + notify
 
-### 3.5 Storage Buckets (2 new)
+### 3.5 Storage Buckets (2 — unchanged)
 
-- `grievance-evidence` — private ACL, 25MB/file, max 5 files/ticket, RLS-gated by ticket visibility
-- `grievance-artifacts` — private ACL, system-generated PDFs
+- `grievance-evidence` (private, 25MB/file, max 5/ticket, RLS-gated)
+- `grievance-artifacts` (private, system-generated PDFs)
 
 ### 3.6 RLS Policies
 
-Standard pattern on all new tables:
+Standard pattern on every new table. For body-coded tables, also scope by `body_code` against a new permission: `accreditation.{body_code}.{action}`.
+
+Example:
 ```sql
-is_super_admin() OR is_admin() OR (user_has_permission('iqac.{scope}.{action}') AND role_has_institution_access(institution_id))
+CREATE POLICY "accreditation_committees_select" ON accreditation_committees
+FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('accreditation.' || LOWER(body_code) || '.committees.view')
+      AND role_has_institution_access(institution_id))
+);
 ```
 
-**Per-role grievance visibility:**
-- complainant (matches `raised_by_id` OR anonymous_token) → full view
-- `filed_by` (proxy filer) → full view (provenance)
-- assigned coordinator → full view
-- IQAC chair → full view except when `is_icc_only=true` and not ICC member
-- Director/super_admin → full view
-- accused (matched via metadata.accused_user_ids[]) → subject + category + own statement only
-- general staff → blocked
+DCI coordinator gets `accreditation.dci.*` permissions scoped to Dental college. PCI coordinator gets `accreditation.pci.*` scoped to Pharmacy. Prevents cross-body visibility.
 
-## 4. Route Structure (7 pages + 11 API endpoints)
+## 4. Route Structure (body-agnostic)
 
 ### Pages
 
 ```
-/iqac                          → dashboard with college switcher + cluster rollup
-/iqac/committees               → list + CRUD
-/iqac/committees/[id]          → detail with member management
-/iqac/grievance                → list + stats + "File grievance" CTA
-/iqac/grievance/new            → file form (supports proxy + anonymous)
-/iqac/grievance/[id]           → detail with privacy-scoped view
-/iqac/surveys/consent          → DPDPA consent flow (4 scope checkboxes)
-/iqac/dcf-export               → super-admin-only export page
+/accreditation                         → landing: 10 body scoreboard cards
+  /accreditation/naac                  → IQAC dashboard (primary implementation)
+    /accreditation/naac/committees
+    /accreditation/naac/committees/[id]
+    /accreditation/naac/grievance      → federated grievance
+    /accreditation/naac/grievance/new
+    /accreditation/naac/grievance/[id]
+    /accreditation/naac/surveys/consent → DPDPA consent
+    /accreditation/naac/surveys/8.4-export
+    /accreditation/naac/dcf-export
+  /accreditation/nirf                  → placeholder (5 params with "Phase 2+ priority" banner)
+  /accreditation/nba                   → placeholder
+  /accreditation/qs                    → placeholder
+  /accreditation/dci                   → placeholder (Dental-only)
+  /accreditation/pci                   → placeholder (Pharmacy-only)
+  /accreditation/inc                   → placeholder (Nursing-only)
+  /accreditation/ncte                  → placeholder (Education-only)
+  /accreditation/aicte                 → placeholder (Engineering + Pharmacy)
+  /accreditation/ugc                   → placeholder
+
+/iqac → 301 redirect to /accreditation/naac
+/iqac/* → 301 redirect to /accreditation/naac/*
 ```
 
 ### API Endpoints (all `withAuth`)
 
 ```
-GET    /api/iqac/committees
-POST   /api/iqac/committees
-GET    /api/iqac/committees/:id
-PATCH  /api/iqac/committees/:id
-POST   /api/iqac/committees/:id/members
-DELETE /api/iqac/committees/:id/members/:memberId
+# Generic substrate
+GET    /api/accreditation/bodies                 → 10-body scoreboard data
+GET    /api/accreditation/submissions            → upcoming + past submissions across bodies
+POST   /api/accreditation/submissions/:id/export → generate file for body-specific format
 
-GET    /api/iqac/grievance/categories
-POST   /api/iqac/grievance/categories/:id/recompute-slas  (admin override for R1.3 hybrid)
+GET    /api/accreditation/:body/committees
+POST   /api/accreditation/:body/committees
+GET    /api/accreditation/:body/committees/:id
+PATCH  /api/accreditation/:body/committees/:id
+POST   /api/accreditation/:body/committees/:id/members
+DELETE /api/accreditation/:body/committees/:id/members/:memberId
 
-GET    /api/iqac/grievance/tickets
-POST   /api/iqac/grievance/tickets
-GET    /api/iqac/grievance/tickets/:id
-PATCH  /api/iqac/grievance/tickets/:id
-POST   /api/iqac/grievance/tickets/:id/withdraw
-POST   /api/iqac/grievance/tickets/:id/escalate
-POST   /api/iqac/grievance/tickets/:id/resolve
-POST   /api/iqac/grievance/tickets/:id/satisfaction
-POST   /api/iqac/grievance/tickets/:id/escalate-to-iqac  (for hostel_incidents federation)
+# NAAC-specific (Phase 1a full impl)
+GET    /api/accreditation/naac/grievance/categories
+POST   /api/accreditation/naac/grievance/categories/:id/recompute-slas
+GET    /api/accreditation/naac/grievance/tickets
+POST   /api/accreditation/naac/grievance/tickets
+GET    /api/accreditation/naac/grievance/tickets/:id
+PATCH  /api/accreditation/naac/grievance/tickets/:id
+POST   /api/accreditation/naac/grievance/tickets/:id/withdraw
+POST   /api/accreditation/naac/grievance/tickets/:id/escalate
+POST   /api/accreditation/naac/grievance/tickets/:id/resolve
+POST   /api/accreditation/naac/grievance/tickets/:id/satisfaction
+POST   /api/accreditation/naac/grievance/tickets/:id/escalate-to-iqac
 
-POST   /api/iqac/surveys/consent
-GET    /api/iqac/surveys/8.4/export  (CSV — learner + alumni)
+POST   /api/accreditation/surveys/consent        → body-coded DPDPA consent
+GET    /api/accreditation/naac/surveys/8.4/export → learner + alumni CSV
 
-POST   /api/iqac/dcf-export  (super-admin only — returns placeholder XLSX for one metric)
+POST   /api/accreditation/naac/dcf-export        → DCF 2025 XLSX (super-admin)
 
-POST   /api/iqac/notifications/preferences
+POST   /api/accreditation/notifications/preferences
 ```
 
-## 5. Components (6 shared)
+## 5. Components (expanded for multi-body)
 
-1. `<CollegeSwitcher />` — URL > localStorage > profile fallback, 8 colleges + Cluster option
-2. `<GrievanceForm />` — supports proxy filing, anonymous mode, category-dependent attachment rules, emergency auto-flag
-3. `<SLACountdown />` — business-day aware, reads `institution_leaves`, pauses on weekends/holidays
-4. `<PrivacyScopedTicketView />` — role-aware display; respects is_icc_only
-5. `<DPDPAConsentForm />` — 4 scope checkboxes, captures ip + user_agent, exports consent version
-6. `<NAACMetricBadge />` — shows mapped metric_code + category + point weight; reused from future modules
+1. `<CollegeSwitcher />` — URL > localStorage > profile fallback, 8 colleges + Cluster
+2. `<BodyScoreboardCard />` — one per body, shows: metric coverage %, next submission deadline, current score, "quick export" button
+3. `<GrievanceForm />` — NAAC-specific, supports proxy + anonymous + emergency auto-flag
+4. `<SLACountdown />` — business-day aware
+5. `<PrivacyScopedTicketView />` — role-aware; respects is_icc_only
+6. `<DPDPAConsentForm />` — 4 scope checkboxes + body-codes multi-select (which bodies this consent applies to)
+7. `<QualityMetricBadge />` — shows `body_code`/`metric_code`/point_weight; reused across every module's dashboard
+8. `<PrincipalIQACDashboard />` — Principal home aggregating all 10 body scorecards
+9. `<HoDCoordinatorDashboard />` — HoD home with department IQAC view (PO/CO, faculty PhD, dept grievance, dept NIRF params)
 
-## 6. Acceptance Criteria (per-college verification)
+## 6. Acceptance Criteria
 
-Phase 1a ships when ALL true for each of the 8 colleges:
+Phase 1a ships when all true for each of the 8 colleges:
 
-- [ ] `/iqac` route renders with college switcher pre-selected from profile default
-- [ ] College switcher URL param (`?college=<id>`) overrides profile default + persists to localStorage
-- [ ] IQAC committee CRUD works end-to-end (create, add/remove members with roles)
-- [ ] File grievance flow works for: logged-in complainant, proxy (warden), anonymous (with token)
-- [ ] SLA countdown is business-day aware (manual test: file Friday evening, verify deadline ≠ Monday)
-- [ ] Emergency category auto-sets `is_emergency=true` + halves SLA + triggers SMS
-- [ ] SLA breach cron flips ticket `sla_status='breached'` + increments escalation_level + notifies chair
-- [ ] Withdrawal preserves row, locks edits, creates history entry
-- [ ] Satisfaction rating ≤2 auto-reopens ticket with `status='reopened_on_dissatisfaction'`
-- [ ] Accused user (matched in metadata.accused_user_ids) sees minimal header; complainant identity hidden when is_icc_only
-- [ ] Acknowledgment PDF generated + stored + link on ticket detail
-- [ ] Resolution letter PDF generated on close
-- [ ] Weekly digest email fires Monday 8am IST to opted-in IQAC chairs (pg_cron)
-- [ ] NAAC 8.4 Survey CSV export works with DPDPA consent enforcement (only consented rows included)
-- [ ] DCF 2025 export button (super admin only) produces placeholder XLSX — proof of pipeline
-- [ ] `naac_evidence_mappings` auto-populated on grievance_tickets INSERT from category.default_naac_metric_code
-- [ ] Hostel_incident "Escalate to IQAC" action creates grievance_ticket with metadata link + populates existing `hostel_maintenance_requests.linked_grievance_id`
+- [ ] `/accreditation` landing renders with 10 scoreboard cards (NAAC primary, 9 placeholders)
+- [ ] `/iqac` 301 redirects to `/accreditation/naac`
+- [ ] College switcher honors URL > localStorage > profile precedence
+- [ ] IQAC committee (NAAC body) CRUD works end-to-end
+- [ ] Grievance flow (proxy, anonymous with token, emergency auto-flag) works
+- [ ] Business-day SLA calculator reads `institution_leaves` and skips correctly
+- [ ] SLA breach cron escalates + notifies
+- [ ] Withdrawal preserves row, locks edits
+- [ ] Satisfaction ≤2 auto-reopens
+- [ ] Privacy matrix respected (accused sees minimal, is_icc_only honored)
+- [ ] Acknowledgment + Resolution PDFs auto-generated + stored
+- [ ] Weekly digest fires Monday 8am IST to opted-in IQAC chairs
+- [ ] NAAC 8.4 CSV export respects body-coded DPDPA consent
+- [ ] DCF 2025 placeholder XLSX generates for super admin
+- [ ] `quality_evidence_mappings` fan-out works: one publication → 4 evidence rows (NAAC 9.1 + NIRF RPC + NBA PO + QS Citations)
+- [ ] Hostel_incident escalate-to-IQAC creates linked grievance_ticket + populates `hostel_maintenance_requests.linked_grievance_id`
+- [ ] `sh_accreditation_metrics` seeded with all 10 bodies (NAAC full, others placeholder)
+- [ ] `accreditation_submissions` has 8 upcoming NAAC SSR 2027 placeholder rows (one per college)
 
-## 7. Director Gates (BLOCK PR merge, not work start)
+## 7. Director Gates (block PR merge; not work start)
 
-| Gate | What's blocked without it | Owner |
-|------|---------------------------|-------|
-| G1 | IQAC chair named + committee composition approved per college (×8) | Director |
+| Gate | What's blocked | Owner |
+|------|---------------|-------|
+| G1 | IQAC chair + committee composition approved per college (×8) | Director |
 | G2 | 5 UGC grievance parent categories + ~10 JKKN sub-categories approved | Director + Chief IQAC Coordinator |
-| G3 | 4 NPS survey templates approved (student, faculty, staff, parent) — draft by CO | Director + Chief IQAC Coordinator |
-| G4 | DPDPA 2023 consent text legally reviewed (3 scopes: learner PII, alumni, parent) | Legal + Director |
-| G5 | Phase 6 Parent Portal owner named (for DPDPA parent scope pre-consent) | Director |
+| G3 | 4 NPS/survey templates approved (student, faculty, staff, parent) | Director + CO draft |
+| G4 | DPDPA 2023 consent text legally reviewed (body_codes + 4 data scopes) | Legal + Director |
+| G5 | Phase 6 Parent Portal owner named | Director |
+| G6 *(NEW)* | Confirm NIRF + NBA + DCI/PCI/INC/NCTE/AICTE coordinators per college (for body placeholder seeding) | Director |
 
-**Work can start** — hold PR in draft until these clear.
+## 8. Master Plan v0.6 Delta (required update)
 
-## 8. Master Plan v0.5 Delta (required update)
+Replace in MASTER-PLAN.md:
 
-Replace all references to "6 colleges (2 Auto + 4 Aff)" with:
+1. **North Star added** — "One JKKN, One Data" as the top-level organizing principle
+2. **8 JKKN colleges** (not 6): 5 Autonomous + 3 Affiliated
+3. **10-body compliance surface** — NAAC is one of ten consumers, not the framework
+4. **IQAC-as-methodology** — pervasive continuous-improvement discipline, not a URL container
+5. **URL root `/accreditation/<body>`** — `/iqac` preserved as redirect
+6. **Evidence substrate `quality_evidence_mappings`** — body-agnostic junction
+7. **Phase sequencing unchanged** — Phase 1a remains NAAC-primary + multi-body substrate + 9 placeholders; Phase 2+ extends implementation to NIRF, NBA, etc.
+8. **Total cluster pts remains NAAC-specific** — 7,200 pts (900 × 8 colleges); NIRF/NBA/QS add separate scoring dimensions in their phases
 
-- 8 JKKN colleges: **5 Autonomous** (Dental, Pharmacy, Allied Health Sciences, Nursing, Engineering) + **3 Affiliated** (A&S Aided, A&S Self, Education)
-- Per-college scoring × 8 = **7,200 pts total** (not 5,400)
-- Cluster Metric 8.4 = 60 × 8 = **480 pts** (not 360)
-- College switcher renders **8 + Cluster rollup** (9 tabs)
-- Institution_type mapping: `autonomous` → NAAC Auto; `aided + self` → NAAC Aff
-
-## 9. Risk Register Additions
+## 9. Risk Register Additions (v2.0 delta)
 
 | ID | Risk | Severity | Mitigation |
-|----|------|----------|------------|
-| R19 | `naac_evidence_mappings` polymorphic FK can orphan when source row deleted | Medium | Add DELETE trigger on source tables → CASCADE clean the junction |
-| R20 | `notification_preferences` missing row = no notification delivery (silent failure) | High | Default row inserted on user creation trigger; fallback to sensible defaults if missing |
-| R21 | DPDPA consent scope drift (we add a new scope later, old consents invalid) | High | `consent_version` bump triggers re-consent flow; `export_event_ids[]` tracks which exports used which consent version |
-| R22 | Anonymous_token collision or enumeration | Medium | Use nanoid (18-24 char URL-safe); UNIQUE constraint; no sequential generation |
-| R23 | pg_cron SLA breach job misses tickets near midnight (cron interval) | Low | Run every 15 minutes (4×/hr); mark checked tickets to prevent double-notify |
+|----|------|---------|-----------|
+| R24 | Fan-out evidence emission double-tags (same event → duplicate rows for same body/metric) | Medium | UNIQUE constraint on (source_table, source_id, body_code, metric_code); upsert pattern |
+| R25 | Multi-body rubric drift — NAAC 9.1 and NIRF RPC look similar but scoring differs | High | `calculation_method` col on metrics; computed at read-time per body, not write-time |
+| R26 | Phase 2+ bodies (NIRF, NBA) need their own SLA/workflow semantics (different from grievance) | Medium | Placeholders in Phase 1a explicitly state "no write operations yet"; schema stubs deferred |
+| R27 | DPDPA consent drift — adding new body to user's consent requires re-consent (not automatic) | High | `body_codes text[]` captures consent scope; adding a body triggers UI prompt + new consent row |
+| R28 | Committee overlap — same user on NAAC IQAC + NIRF committee + NBA coord; UI must show all their hats | Low | Principal/HoD dashboards aggregate committees query grouped by body_code |
 
-## 10. Handoff to /myjkkn-api
+## 10. Handoff
 
-**Spec status:** COMPLETE. Zero silent assumptions remaining.
+**Status:** DECISIONS LOCKED. Zero silent assumptions remaining. Substrate body-agnostic from day one.
 
-**What's locked:**
-- 4 architectural decisions (AD1-AD4)
-- 22 silent-assumption decisions (R1.1 through R5.4)
-- 6 new tables + 4 ALTER migrations + 7 functions + 2 Storage buckets + 7 pages + 18 API endpoints + 6 components
-- 8-college structure (corrected from Master Plan v0.4)
-- Complete RLS pattern per table
-- 23-entry risk register (18 from Master Plan + 5 new)
+**Commit:** pending (v2.0 refactor this turn)
+
+**What's in Phase 1a (v2.0):**
+- 7 new tables (all body-agnostic naming)
+- 4 ALTER migrations
+- 7 functions/triggers with fan-out evidence emission
+- 2 Storage buckets
+- 11 pages (1 landing + 10 body pages, NAAC full + 9 placeholders)
+- ~25 API endpoints
+- 9 shared components
+- 10-body metrics catalog seeded
+- IQAC-as-methodology Principal/HoD dashboards
 
 **What's NOT in Phase 1a (deferred):**
-- Sexual harassment ICC member-only committee with separate RLS (Phase 1b — more complex visibility)
-- Full NAAC 8.4 survey platform (question design, branching, analytics) — Phase 1 scope is CSV export only
+- NIRF, NBA, QS, DCI, PCI, INC, NCTE, AICTE, UGC write operations (Phases 2-9, scoped per body's cycle)
+- PDCA sidebar restructure (Phase 1b)
+- Full NAAC 8.4 survey platform (Phase 1a = CSV export only)
 - OKR resurrection (Phase 3)
-- Phase 6 Parent Portal (pre-consent captured in Phase 1a)
+- Phase 6 Parent Portal implementation (pre-consent captured in 1a)
 
 **Next command:**
 ```
-/myjkkn-api from spec PHASE-1A-SPEC.md — build IQAC foundation + federated grievance + NAAC 8.4 export
+/myjkkn-api from spec PHASE-1A-SPEC.md v2.0 — build accreditation substrate + NAAC primary implementation
 ```
 
 ## Version History
 
 | Version | Date | Author | Delta |
 |---------|------|--------|-------|
-| 1.0 | 2026-04-16 | Director + Claude | Initial spec from assumption-thrash — 22 locked decisions across 5 rounds; preflight findings surface 5 functional parallels + institution-structure correction (6→8 colleges). |
+| 1.0 | 2026-04-16 | Director + Claude | Initial spec from assumption-thrash — 22 locked decisions across 5 rounds; NAAC-only naming |
+| **2.0** | **2026-04-16** | **Director + Claude** | **Multi-body refactor: substrate renamed body-agnostic; 9 new body placeholders; IQAC-as-methodology framing; "One JKKN, One Data" North Star; fan-out evidence emission; accreditation_submissions table; URL pattern `/accreditation/<body>`; `/iqac` redirect preserved** |
