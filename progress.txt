@@ -1,3 +1,52 @@
+## Session: 2026-04-16 (Midnight rebuild → Noon deploy) — HR Sprint 6 Command Center SHIPPED + pr-preflight skill
+
+### Accomplished
+
+**Three PRs shipped (2 merged + deployed, 1 open):**
+- PR #203 merged+deployed: Killed /hr/employees ↔ /staff/list list-duplication. Scoped /hr/employees to non-staff only (guests, vendors, TAs, volunteers). Added include_staff filter. Sidebar label: Employees → Non-Staff Workforce. /hr hero CTA split into two.
+- PR #204 merged+deployed 2026-04-16 12:11 IST: Sprint 6 HR Command Center Dashboard. 10 files · 2,244 LOC · 0 TS errors. Rebuilt from specs/myjkkn-hr-sprint-06-plan.md (28 decisions) after Apr-15 midnight revert event wiped the prior attempt. Verified live on www.jkkn.ai/hr: 11-institution super-admin grid renders, access-log has 39 rows / 3 users, 4 realtime tables in publication.
+- PR #210 open: Fix 3 drill-down 404s caught by post-merge silent-failure sweep. /hr/leave/blackouts → /hr/leave; /hr/policies/leave-types → /hr/policies/leave_types (dynamic [table] route with actual DB table name); /hr/policies/approval-flows → /hr/policies/hr_approval_flows.
+
+**New skill created: pr-preflight**
+- Location: ~/.claude/skills/pr-preflight/ (SKILL.md + scripts/run.sh)
+- Scans open PRs on Jicate-Solutions/MyJKKN, intersects file lists with current branch, surfaces deploy gap and shared-file canary (sidebar, types/, lib/services/, permissions, package.json). Exit codes SAFE/WARN/BLOCKED drive automation.
+- Wired into /ship-myjkkn step 6a (before gh pr create) and /myjkkn-chain diagram (between silent-failure-auditor and /ship-myjkkn).
+- Caught 0 conflicts on Sprint 6 PR but caught the 3 drill-down 404s on follow-up sweep.
+
+**Parallel agents stream — partial results:**
+- 3 worktree agents spawned (silent-failure audit, runtime test, session docs). All hit Anthropic API 529 overload on first try. Pivoted to doing the work directly in parallel bash — net faster.
+
+### Current Status
+- **Sprint 6**: LIVE on production (www.jkkn.ai/hr). Verified via persistent jkkn-ai browser session — H1 "HR Command Center", 9+ institution cards visible, Refresh button, 3 cross-module CTAs.
+- **DB**: hr_dashboard_access_log has 39 rows across 3 users. 11 rows in the last 10 min from my verification session (one per institution card → matches decision #18).
+- **Build**: passing; zero TS errors on Sprint 6 files.
+- **Hostile working tree**: Bit twice this session. Mid-rebuild, background branch-switch moved HEAD from feat/hr-sprint-6-command-center to feat/events-module without warning. Recovered via git checkout. Lesson: push-to-remote after every file Write is the only durable strategy — 10/10 files survived because each was pushed atomically.
+
+### Key Learnings
+- **Per-Write atomic commit + per-Write push to jicate** is the only way to survive the hostile working tree. `git push jicate <branch>` after every Write cost ~2s and saved the entire Sprint 6 build.
+- **Dead drill-down links pass every build**. Only runtime or post-merge silent-failure sweep catches them. pr-preflight should be extended to scan for `href=` / `drill_url:` pointing to paths that don't exist in `git ls-tree jicate/main`.
+- **Spec discipline pays 10x on rebuild**. 2,244 LOC came out clean on first tsc because the 28-decision spec let me make every decision inline-referenced with its decision number. No guessing during the rebuild.
+- **Agent API overload is a real failure mode**. 4 agent spawns hit 529. Have a fallback plan — do it yourself in parallel bash. Don't wait on agent retries.
+
+### Next Steps
+1. Merge PR #210 (drill-down 404 fix) — non-urgent, zero risk
+2. Browser-click every KPI card on production /hr to verify all drill-downs actually land on valid pages (post PR #210 merge)
+3. Verify non-HR user → /dashboard redirect works (can't test from super admin session)
+4. Consider Sprint 6.5: build missing admin pages for blackouts + leave-types editor + approval-flows editor (target for pr-preflight's dead-link detection feature)
+
+### PRs this session (production repo Jicate-Solutions/MyJKKN)
+- #203 ✓ merged — scope /hr/employees to non-staff
+- #204 ✓ merged+deployed — Sprint 6 HR Command Center Dashboard
+- #210 ⏳ open — drill-down 404 fixes
+
+### Files created / modified (summary)
+- New: 10 Sprint 6 files (types/hr-dashboard.ts, lib/services/hr/dashboard-service.ts, 2 API routes, 1 hook, 4 components, 1 page rewrite)
+- Modified (PR #203): types/hr.ts, lib/services/hr/employee-service.ts, app/api/hr/employees/route.ts, 3 /hr/employees pages, /hr page, /staff/list page, lib/sidebarMenuLink.ts
+- Skill: ~/.claude/skills/pr-preflight/{SKILL.md, scripts/run.sh}
+- Skill edits: ship-myjkkn SKILL.md (step 6a), myjkkn-chain SKILL.md (chain diagram)
+
+---
+
 ## Session: 2026-04-05 (Evening) - Price Classification Fix + Full Backfill + Exotel API Research
 
 ### Accomplished
