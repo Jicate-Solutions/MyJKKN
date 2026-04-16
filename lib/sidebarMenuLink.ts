@@ -612,6 +612,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/faculty/innovation/portfolio': 'faculty_innovation.initiative.view_own',
   '/faculty/innovation/approval-queue': 'faculty_innovation.initiative.approve',
   '/faculty/innovation/collab-request': 'faculty_innovation.collab_request.create',
+
+  // Compliance Unification Program — Accreditation routes (PR-A11, 2026-04-17)
+  '/accreditation/qs': 'accreditation.qs.view',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -2563,6 +2566,19 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/faculty/innovation/collab-request'
             }
           ]
+        }
+      ]
+    },
+    {
+      // Compliance Unification Program — Accreditation group (PR-A11, 2026-04-17)
+      groupLabel: 'Accreditation',
+      menus: [
+        {
+          href: '/accreditation/qs',
+          label: 'QS World Ranking (Phase 2+)',
+          active: pathname.startsWith('/accreditation/qs'),
+          icon: Globe,
+          submenus: []
         }
       ]
     },
