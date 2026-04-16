@@ -1,26 +1,44 @@
 ---
-title: Phase 1a — Accreditation Substrate Foundation (NAAC primary + 9-body placeholders)
-version: 2.0
+title: Compliance Kernel Foundation (NAAC primary + 9-body substrate) — Phase 1a / Sprints 1-5
+version: 2.1
 status: DECISIONS LOCKED — Ready for /myjkkn-api build
-author: Director + Claude (assumption-thrash + multi-body refactor)
+author: Director + Claude (assumption-thrash + multi-body refactor + one-jkkn-one-data merge)
 date: 2026-04-16
-parent_plan: MASTER-PLAN.md v0.6 (supersedes v0.4; incorporates 8-college + multi-body + IQAC-as-methodology corrections)
-thrash_rounds: 5 (22 decisions) + 2 architectural reframes (multi-body, IQAC-as-methodology)
-blocks_until: Director signoff on 5 gates (listed §7)
-supersedes: v1.0 (NAAC-only naming)
+parent_plans:
+  grand_program: /Users/omm/PROJECTS/MyJKKN/specs/one-jkkn-one-data/MASTER-PLAN.md (9-month, 18-sprint, 4-phase program — AUTHORITATIVE)
+  naac_subtrack: /Users/omm/PROJECTS/MyJKKN/specs/workshop-transformation-resurrection/MASTER-PLAN.md (8-phase NAAC-focused plan, integrates with grand program)
+sprint_window: S1–S5 (Apr 20 – Jun 28, 2026) — parallel track alongside Tribal Knowledge (S1-S4) + MDM Learner Master (S3-S5)
+context_library: /Users/omm/PROJECTS/MyJKKN/docs/one-jkkn-one-data.md (directive context — every rule in this file applies)
+thrash_rounds: 5 (22 decisions) + 2 architectural reframes + 1 parent-plan merge (v2.1)
+blocks_until: Director signoff on 6 gates (§7)
+supersedes: v2.0 (standalone scope before one-jkkn-one-data merge)
 ---
 
-# Phase 1a — Accreditation Substrate Foundation
+# Compliance Kernel Foundation (Phase 1a)
 
-## North Star (locked 2026-04-16)
+## North Star (from docs/one-jkkn-one-data.md §1)
 
-> **One JKKN, One Data** — operational modules produce data ONCE. Ten compliance bodies consume it via a single substrate. Zero duplicate entry. One-click compliance outputs for any body.
+> **Every keystroke entered once. Every compliance format reproducible on click.**
 
-See `project_one_jkkn_one_data.md` + `project_jkkn_accreditation_surface.md` in MEMORY.
+MyJKKN's objective is NOT an ERP. It is a unified data substrate where operational modules are data collectors and compliance formats (10 regulatory bodies) are query templates. This Phase 1a builds the **Compliance Kernel foundation** — the body-agnostic substrate + NAAC-specific primary implementation that makes that vision real at submission time.
+
+See `docs/one-jkkn-one-data.md` (context library) + `project_one_jkkn_one_data.md` + `project_jkkn_accreditation_surface.md` in MEMORY.
 
 ## 0. Executive Summary
 
-This phase builds the **body-agnostic quality-evidence substrate** that ALL 10 JKKN compliance bodies (NAAC + NIRF + NBA + QS + DCI + PCI + INC + AICTE + NCTE + UGC) consume from a single underlying data model. NAAC is the first body with full implementation; the other 9 get placeholder dashboards + metric-catalog rows to lock the architecture from day one.
+**Position in the grand program:** Sprints 1-5 parallel track. Tribal Knowledge (S1-S4) captures rules; MDM Layer (S3-S5) builds Learner Master; **this spec** builds Compliance Kernel substrate + NAAC primary module. All three converge by Sprint 6-7 when MDM writes through to masters and compliance kernel reads through them.
+
+**Why this runs parallel (not sequential after MDM):** Substrate tables have ZERO MDM dependency — evidence junction, committees, submissions, metrics catalog, digest config all use `institution_id` + `profiles(id)` FKs that exist today. Grievance federation uses `learners_profiles` FK which later migrates to `learner_master` in Sprint 5-7 (Path A rebuild).
+
+**Deliverables:**
+
+1. **Compliance Kernel substrate** (body-agnostic — serves all 10 compliance bodies)
+2. **NAAC primary implementation** under `/accreditation/naac` (IQAC committees + federated grievance + DCF 2025 scaffold + 8.4 survey consent stub)
+3. **`/accreditation/coverage` dashboard** (per docs/one-jkkn-one-data §8, 10) — weighted auto-fillable % across NAAC + NIRF + NBA + AICTE
+4. **Multi-body metrics catalog seed** — `sh_accreditation_metrics` with NAAC (90) + NIRF (20) + NBA (10) + placeholders for DCI/PCI/INC/NCTE/AICTE/UGC/QS (~215 total rows)
+5. **9 body placeholder dashboards** under `/accreditation/<body>` — architectural commitment
+6. **Fan-out evidence triggers** — one operational event → multiple body tags per Rule 2 of context library
+7. **IQAC-as-methodology framing** — Principal home = IQAC Chairman dashboard (aggregating all 10 bodies); HoD home = Department IQAC Coordinator view
 
 **Delivered in Phase 1a:**
 
@@ -31,15 +49,21 @@ This phase builds the **body-agnostic quality-evidence substrate** that ALL 10 J
 5. **Fan-out evidence triggers** — one operational event → multiple body's metric_code tags automatically
 6. **IQAC-as-methodology scaffolding** — Principal home = IQAC Chairman dashboard; HoD home = Department IQAC Coordinator dashboard; naming preserved for NAAC vernacular familiarity
 
-**URL pattern locked:**
-- `/accreditation` → landing (10 body cards)
+**URL pattern locked (Next.js route groups `app/(routes)/accreditation/*`):**
+- `/accreditation` → landing (10 body scoreboard cards)
+- `/accreditation/coverage` → **weighted coverage dashboard** (per docs/one-jkkn-one-data §8, 10) — per-format auto-fillable % + trend line + drill-down to blocking indicators. This is the North-Star measurement UI.
 - `/accreditation/naac` → IQAC dashboard (primary NAAC implementation)
 - `/accreditation/naac/grievance` → federated grievance (NAAC Metric 7.7)
 - `/accreditation/naac/committees` → IQAC committee CRUD
-- `/accreditation/naac/dcf-export` → DCF 2025 export
-- `/accreditation/naac/surveys` → 8.4 survey + DPDPA consent
-- `/accreditation/nirf|nba|qs|dci|pci|inc|ncte|aicte|ugc` → placeholder dashboards
-- `/iqac` → 301 redirect to `/accreditation/naac` (familiar entry)
+- `/accreditation/naac/dcf-export` → DCF 2025 / AQAR export
+- `/accreditation/naac/surveys` → 8.4 survey + DPDPA consent stub (full impl Sprint 7 post-Learner-Master)
+- `/accreditation/nirf|nba|qs|dci|pci|inc|ncte|aicte|ugc` → placeholder dashboards with "Phase 4 Compliance Kernel implementation — Sprint 13-17" banners
+- `/iqac` → 301 redirect to `/accreditation/naac` (familiar entry preserved)
+
+**MDM migration path (documented per docs/one-jkkn-one-data Rule 5):**
+- Phase 1a FKs reference current tables (`learners_profiles`, `profiles`) because Learner Master / Staff Master land in Sprint 4-7
+- When MDM masters deploy: trigger-based migration swaps FKs from `learners_profiles.id` → `learner_master.id` via `learner_identity_events` log (Path A rebuild)
+- Zero data loss — dual-write for 2 weeks per one-jkkn-one-data §5 Sprint 5 safety net
 
 ## 1. Preflight Findings (carried from v1.0 + updated for multi-body)
 
@@ -412,38 +436,63 @@ Replace in MASTER-PLAN.md:
 | R27 | DPDPA consent drift — adding new body to user's consent requires re-consent (not automatic) | High | `body_codes text[]` captures consent scope; adding a body triggers UI prompt + new consent row |
 | R28 | Committee overlap — same user on NAAC IQAC + NIRF committee + NBA coord; UI must show all their hats | Low | Principal/HoD dashboards aggregate committees query grouped by body_code |
 
-## 10. Handoff
+## 10. Integration with One JKKN One Data Grand Program
 
-**Status:** DECISIONS LOCKED. Zero silent assumptions remaining. Substrate body-agnostic from day one.
+**This spec (Phase 1a / Compliance Kernel Foundation) maps to one-jkkn-one-data sprint plan:**
 
-**Commit:** pending (v2.0 refactor this turn)
+| One-JKKN Sprint | Dates | My Phase 1a Work | MDM/Tribal Dependency |
+|-----------------|-------|------------------|------------------------|
+| S1 (Apr 20–May 3) | parallel | `sh_accreditation_metrics` seed (10 bodies, ~215 rows) + `/accreditation/coverage` scaffold | None |
+| S2 (May 4–May 17) | parallel | `quality_evidence_mappings` table + `accreditation_committees` + `accreditation_committee_members` + RLS | None |
+| S3 (May 18–May 31) | parallel | IQAC committees per college (8 colleges × NAAC committee) + Principal/HoD dashboards | None |
+| S4 (Jun 1–Jun 14) | parallel | `accreditation_submissions` + grievance federation + SLA engine + 8 NAAC SSR 2027 placeholder rows | Learner Master lands end-S4 — grievance FKs migrate here |
+| S5 (Jun 15–Jun 28) | parallel | DCF 2025 export scaffold + `/accreditation/coverage` live with baseline + `accreditation_survey_consents` table | Learner Master in production |
 
-**What's in Phase 1a (v2.0):**
-- 7 new tables (all body-agnostic naming)
+**Heavy NAAC format mapping (AQAR 2024-25 50%→80% coverage) shifts to S13-S15 per one-jkkn-one-data §5 Phase 4**, AFTER MDM masters + 4 critical rebuild paths are complete. Phase 1a sets the table; Phase 4 Compliance Kernel feeds it.
+
+**Success metric contribution:** Phase 1a adds ~5% to Month-9 75% weighted-coverage target. Substrate makes the heavy mapping tractable in Sprint 13-15.
+
+## 11. Handoff
+
+**Status:** DECISIONS LOCKED. Zero silent assumptions remaining. Substrate body-agnostic. Merged with one-jkkn-one-data grand program.
+
+**What's in Phase 1a (v2.1):**
+- 7 new tables (body-agnostic naming)
 - 4 ALTER migrations
 - 7 functions/triggers with fan-out evidence emission
 - 2 Storage buckets
-- 11 pages (1 landing + 10 body pages, NAAC full + 9 placeholders)
+- 12 pages (1 landing + 1 coverage dashboard + 10 body pages, NAAC full + 9 placeholders)
 - ~25 API endpoints
-- 9 shared components
-- 10-body metrics catalog seeded
+- 10 shared components (incl. `<CoverageDashboard />`)
+- 10-body metrics catalog seeded (~215 rows)
 - IQAC-as-methodology Principal/HoD dashboards
+- Next.js route-group structure `app/(routes)/accreditation/*`
+- MDM migration path documented (FKs → learner_master at Sprint 5-7)
 
-**What's NOT in Phase 1a (deferred):**
-- NIRF, NBA, QS, DCI, PCI, INC, NCTE, AICTE, UGC write operations (Phases 2-9, scoped per body's cycle)
-- PDCA sidebar restructure (Phase 1b)
-- Full NAAC 8.4 survey platform (Phase 1a = CSV export only)
-- OKR resurrection (Phase 3)
-- Phase 6 Parent Portal implementation (pre-consent captured in 1a)
+**What's NOT in Phase 1a (deferred per integration plan):**
+- NIRF/NBA/QS/DCI/PCI/INC/NCTE/AICTE/UGC full implementation (Sprints 13-17 Compliance Kernel Phase)
+- Full NAAC AQAR 50%→80% coverage (Sprints 13-15 — depends on MDM masters)
+- 4 critical rebuild paths (Sprints 6-14, separate workstream)
+- Tribal knowledge interviews (Sprints 1-4, separate workstream — but grievance SLA + notification rules should consume their JSON outputs when ready)
+- Parent Portal Phase 6 implementation (pre-consent captured here)
+
+**Related Files (per docs/one-jkkn-one-data §9):**
+- `specs/one-jkkn-one-data/MASTER-PLAN.md` (grand program — 9 months, 18 sprints)
+- `specs/workshop-transformation-resurrection/MASTER-PLAN.md` (NAAC-track sub-plan, v0.4 → v0.6 delta owed)
+- `docs/one-jkkn-one-data.md` (context library — directive rules)
+- `lib/accreditation/formats/<body>-<cycle>.json` (format schemas — NAAC AQAR 2024-25 Phase 1a seed)
+- `lib/accreditation/mappings/<body>/*.sql` (body-specific query mappings — populated in Sprint 13-17)
+- `jkknkb/MyJKKN/Tribal Knowledge/*.md` (interview outputs — Sprint 1-4)
 
 **Next command:**
 ```
-/myjkkn-api from spec PHASE-1A-SPEC.md v2.0 — build accreditation substrate + NAAC primary implementation
+/myjkkn-api from spec PHASE-1A-SPEC.md v2.1 — build Compliance Kernel foundation (Sprints 1-5)
 ```
 
 ## Version History
 
 | Version | Date | Author | Delta |
 |---------|------|--------|-------|
-| 1.0 | 2026-04-16 | Director + Claude | Initial spec from assumption-thrash — 22 locked decisions across 5 rounds; NAAC-only naming |
-| **2.0** | **2026-04-16** | **Director + Claude** | **Multi-body refactor: substrate renamed body-agnostic; 9 new body placeholders; IQAC-as-methodology framing; "One JKKN, One Data" North Star; fan-out evidence emission; accreditation_submissions table; URL pattern `/accreditation/<body>`; `/iqac` redirect preserved** |
+| 1.0 | 2026-04-16 | Director + Claude | Initial from assumption-thrash — 22 decisions; NAAC-only naming |
+| 2.0 | 2026-04-16 | Director + Claude | Multi-body refactor; body-agnostic substrate; IQAC-as-methodology; `/accreditation/<body>` URL |
+| **2.1** | **2026-04-16** | **Director + Claude** | **Merged with docs/one-jkkn-one-data.md (authoritative context library) + specs/one-jkkn-one-data/MASTER-PLAN.md (grand program). Adopted "Compliance Kernel" vocabulary + MDM Layer + Entity Master terminology. Added `/accreditation/coverage` North-Star measurement dashboard. Positioned as Sprints 1-5 parallel track alongside Tribal Knowledge + MDM. Documented FK migration path to learner_master. Noted full NAAC AQAR heavy-mapping shifts to Sprint 13-15 post-MDM.** |
