@@ -262,3 +262,289 @@ export const CANDIDATE_SOURCE_LABELS: Record<CandidateSource, string> = {
   public_careers_page: 'Public Career Page',
   email_ingest: 'Email (Auto-Ingest)',
 };
+
+// =====================================================================================
+// Phase 3 — Cvviz-sunset scope (Jobs + Interviews + Scorecards)
+// Spec: specs/hr-recruitment-module-spec.md
+// Added: 2026-04-16
+// =====================================================================================
+
+// ---- Phase 3 enum-style literals ----------------------------------------------------
+
+export type JobStatus =
+  | 'draft'
+  | 'open'
+  | 'on_hold'
+  | 'closed'
+  | 'filled';
+
+export type InterviewStatus =
+  | 'scheduled'
+  | 'completed'
+  | 'cancelled'
+  | 'no_show'
+  | 'rescheduled';
+
+export type InterviewMode =
+  | 'in_person'
+  | 'phone'
+  | 'video'
+  | 'walk_in';
+
+export type ScorecardRecommendation =
+  | 'strong_hire'
+  | 'hire'
+  | 'neutral'
+  | 'no_hire'
+  | 'strong_no_hire';
+
+// =====================================================================================
+// hr_recruitment_jobs
+// =====================================================================================
+
+export interface JobRequirements {
+  qualifications?: string[];
+  experience?: string;
+  skills?: string[];
+  [key: string]: unknown;
+}
+
+export interface HRRecruitmentJob {
+  id: string;
+  hr_organization_id: string;
+  institution_id: string | null;
+
+  title: string;
+  role_category: RoleCategory;
+  description: string | null;
+  requirements: JobRequirements;
+
+  min_monthly_salary: number | null;
+  max_monthly_salary: number | null;
+
+  positions_open: number;
+  positions_filled: number;
+
+  department_id: string | null;
+
+  status: JobStatus;
+  is_public: boolean;
+
+  posted_at: string | null;
+  closes_at: string | null;
+
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HRRecruitmentJobInsert {
+  hr_organization_id: string;
+  institution_id?: string | null;
+  title: string;
+  role_category: RoleCategory;
+  description?: string | null;
+  requirements?: JobRequirements;
+  min_monthly_salary?: number | null;
+  max_monthly_salary?: number | null;
+  positions_open?: number;
+  positions_filled?: number;
+  department_id?: string | null;
+  status?: JobStatus;
+  is_public?: boolean;
+  posted_at?: string | null;
+  closes_at?: string | null;
+  created_by?: string | null;
+}
+
+export type HRRecruitmentJobUpdate = Partial<
+  Pick<
+    HRRecruitmentJob,
+    | 'title'
+    | 'role_category'
+    | 'description'
+    | 'requirements'
+    | 'min_monthly_salary'
+    | 'max_monthly_salary'
+    | 'positions_open'
+    | 'positions_filled'
+    | 'department_id'
+    | 'status'
+    | 'is_public'
+    | 'posted_at'
+    | 'closes_at'
+  >
+>;
+
+export interface JobFilters {
+  hr_organization_id?: string;
+  institution_id?: string;
+  status?: JobStatus | JobStatus[];
+  role_category?: RoleCategory;
+  department_id?: string;
+  is_public?: boolean;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface JobListResponse {
+  data: HRRecruitmentJob[];
+  metadata: {
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  };
+}
+
+// =====================================================================================
+// hr_recruitment_interviews
+// =====================================================================================
+
+export interface HRRecruitmentInterview {
+  id: string;
+  candidate_id: string;
+  job_id: string | null;
+
+  round_number: number;
+  round_name: string | null;
+
+  scheduled_at: string;
+  duration_minutes: number;
+  mode: InterviewMode;
+  location_or_link: string | null;
+
+  panel_member_ids: string[];
+
+  status: InterviewStatus;
+  rescheduled_from_id: string | null;
+  outcome_summary: string | null;
+
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HRRecruitmentInterviewInsert {
+  candidate_id: string;
+  job_id?: string | null;
+  round_number?: number;
+  round_name?: string | null;
+  scheduled_at: string;
+  duration_minutes?: number;
+  mode: InterviewMode;
+  location_or_link?: string | null;
+  panel_member_ids: string[];
+  status?: InterviewStatus;
+  rescheduled_from_id?: string | null;
+  outcome_summary?: string | null;
+  created_by?: string | null;
+}
+
+export type HRRecruitmentInterviewUpdate = Partial<
+  Pick<
+    HRRecruitmentInterview,
+    | 'round_number'
+    | 'round_name'
+    | 'scheduled_at'
+    | 'duration_minutes'
+    | 'mode'
+    | 'location_or_link'
+    | 'panel_member_ids'
+    | 'status'
+    | 'outcome_summary'
+  >
+>;
+
+export interface InterviewFilters {
+  candidate_id?: string;
+  job_id?: string;
+  status?: InterviewStatus | InterviewStatus[];
+  panel_member_id?: string;       // filter to interviews where user is on the panel
+  from_date?: string;
+  to_date?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface InterviewListResponse {
+  data: HRRecruitmentInterview[];
+  metadata: {
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  };
+}
+
+// =====================================================================================
+// hr_recruitment_scorecards (stricter RLS — Learning #8)
+// Submit-once per interviewer per interview.
+// =====================================================================================
+
+export interface HRRecruitmentScorecard {
+  id: string;
+  interview_id: string;
+  interviewer_id: string;
+
+  rating_overall: number;              // 1-5 (required)
+  rating_technical: number | null;     // 1-5 or null
+  rating_communication: number | null; // 1-5 or null
+  rating_culture_fit: number | null;   // 1-5 or null
+
+  strengths: string | null;
+  concerns: string | null;
+
+  recommendation: ScorecardRecommendation;
+
+  submitted_at: string;
+  created_at: string;
+}
+
+export interface HRRecruitmentScorecardInsert {
+  interview_id: string;
+  interviewer_id: string;
+  rating_overall: number;
+  rating_technical?: number | null;
+  rating_communication?: number | null;
+  rating_culture_fit?: number | null;
+  strengths?: string | null;
+  concerns?: string | null;
+  recommendation: ScorecardRecommendation;
+}
+
+// =====================================================================================
+// Phase 3 display labels
+// =====================================================================================
+
+export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
+  draft: 'Draft',
+  open: 'Open',
+  on_hold: 'On Hold',
+  closed: 'Closed',
+  filled: 'Filled',
+};
+
+export const INTERVIEW_STATUS_LABELS: Record<InterviewStatus, string> = {
+  scheduled: 'Scheduled',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  no_show: 'No Show',
+  rescheduled: 'Rescheduled',
+};
+
+export const INTERVIEW_MODE_LABELS: Record<InterviewMode, string> = {
+  in_person: 'In-Person',
+  phone: 'Phone',
+  video: 'Video Call',
+  walk_in: 'Walk-In',
+};
+
+export const SCORECARD_RECOMMENDATION_LABELS: Record<ScorecardRecommendation, string> = {
+  strong_hire: 'Strong Hire',
+  hire: 'Hire',
+  neutral: 'Neutral',
+  no_hire: 'No Hire',
+  strong_no_hire: 'Strong No-Hire',
+};
