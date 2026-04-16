@@ -610,6 +610,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/faculty/innovation': 'faculty_innovation.initiative.submit',
   '/faculty/innovation/submit': 'faculty_innovation.initiative.submit',
   '/faculty/innovation/portfolio': 'faculty_innovation.initiative.view_own',
+  '/faculty/innovation/approval-queue': 'faculty_innovation.initiative.approve',
+  '/faculty/innovation/collab-request': 'faculty_innovation.collab_request.create',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -2549,6 +2551,16 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/faculty/innovation/portfolio',
               label: 'My Portfolio',
               active: pathname === '/faculty/innovation/portfolio'
+            },
+            {
+              href: '/faculty/innovation/approval-queue',
+              label: 'Approval Queue',
+              active: pathname === '/faculty/innovation/approval-queue'
+            },
+            {
+              href: '/faculty/innovation/collab-request',
+              label: 'Request Collab',
+              active: pathname === '/faculty/innovation/collab-request'
             }
           ]
         }

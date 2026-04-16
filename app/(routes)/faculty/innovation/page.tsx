@@ -128,24 +128,27 @@ export default function FacultyInnovationLandingPage() {
               </Link>
             </Card>
 
-            <Card className="opacity-70">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="rounded-md bg-violet-100 p-2 text-violet-700">
-                    <Users2 className="h-5 w-5" />
+            <Card className="group cursor-pointer transition hover:border-primary hover:shadow-md">
+              <Link href="/faculty/innovation/collab-request" className="block">
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-md bg-violet-100 p-2 text-violet-700">
+                      <Users2 className="h-5 w-5" />
+                    </div>
+                    <CardTitle className="text-lg">Request Collab</CardTitle>
                   </div>
-                  <CardTitle className="text-lg">Request Collab</CardTitle>
-                  <Badge variant="secondary" className="ml-auto">
-                    Coming in Week 2
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Invite another JKKN college (e.g., Dental × Pharmacy) to
-                  partner on your initiative. HOD + Dean + Director routing.
-                </p>
-              </CardContent>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Invite another JKKN college (e.g., Dental x Pharmacy) to
+                    partner on your initiative. HOD + Dean + Director routing.
+                  </p>
+                  <div className="mt-4 flex items-center text-sm font-medium text-primary group-hover:underline">
+                    Request collaboration
+                    <ArrowRight className="ml-1 h-4 w-4" />
+                  </div>
+                </CardContent>
+              </Link>
             </Card>
           </div>
 
