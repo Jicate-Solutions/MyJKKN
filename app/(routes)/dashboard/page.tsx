@@ -18,6 +18,7 @@ import { HeroStrip } from '@/components/dashboard/hero-strip';
 import { CounselorHeroStrip } from '@/components/dashboard/counselor-hero-strip';
 import { getCounselorMetrics } from '@/lib/services/dashboard/counselor-metrics-service';
 import { getDashboardPersona } from '@/lib/services/dashboard/dashboard-role-service';
+import { LimitedHero } from '@/components/dashboard/limited-hero';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
@@ -186,9 +187,13 @@ export default async function DashboardV2Page({
 }) {
   const sp = await searchParams;
   const filter = normalizeFilter(sp.queue);
-  // Week-2: role-aware persona resolution. Director = existing view; counselor = new hero strip.
+  // Role-aware persona resolution (spec §5). Limited = safe default for roles without a
+  // specific dashboard yet — prevents director's cross-institution aggregates from leaking to
+  // faculty/hod/warden/accounts/student/parent.
   const persona = await getDashboardPersona();
+  const isDirector = persona === 'director';
   const isCounselor = persona === 'counselor';
+  const isLimited = persona === 'limited';
 
   return (
     <ContentLayout title='Dashboard'>
@@ -200,40 +205,51 @@ export default async function DashboardV2Page({
 
       <div className='space-y-4 sm:space-y-5 lg:space-y-6 px-2 sm:px-3 lg:px-4 pb-10'>
         <DashboardBreadcrumb
-          crumbs={[{ label: 'JKKN — All Institutions', active: true }]}
+          crumbs={[
+            {
+              label: isDirector ? 'JKKN — All Institutions' : 'My Dashboard',
+              active: true
+            }
+          ]}
         />
 
-        {/* 8am Morning Brief (spec §7.7) — dismissible per-day */}
+        {/* 8am Morning Brief (spec §7.7) — dismissible per-day, safe for all personas
+            (reads only user's own acked/unacked counts) */}
         <Suspense fallback={null}>
           <LiveMorningBrief />
         </Suspense>
 
-        {/* Hero Strip — role-aware (§7.1 Director / §5+§8 Counselor) */}
+        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / limited safe default) */}
         <Suspense fallback={<HeroSkeleton />}>
-          {isCounselor ? <LiveCounselorHero /> : <LiveHeroStrip />}
+          {isDirector && <LiveHeroStrip />}
+          {isCounselor && <LiveCounselorHero />}
+          {isLimited && <LimitedHero />}
         </Suspense>
 
-        {/* Institution quick-drill chips — director-only (counselor scope is self-only) */}
-        {!isCounselor && (
+        {/* Institution quick-drill chips — DIRECTOR ONLY (cross-institution scope) */}
+        {isDirector && (
           <Suspense fallback={null}>
             <InstitutionChips />
           </Suspense>
         )}
 
-        {/* Decision Queue with live data + inline actions (spec §7.2) */}
+        {/* Decision Queue — safe for ALL personas (already scoped by auth.uid() in RPC) */}
         <Suspense fallback={<QueueSkeleton />}>
           <DecisionQueue filter={filter} />
         </Suspense>
 
-        {/* Leaderboards (spec §7.6) — side-by-side on desktop, stacked on mobile */}
-        <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
-          <Suspense fallback={<LeaderboardSkeleton />}>
-            <LiveSlaLeaderboard />
-          </Suspense>
-          <Suspense fallback={<LeaderboardSkeleton />}>
-            <LiveConversionLeaderboard />
-          </Suspense>
-        </div>
+        {/* Leaderboards — Director + Counselor only (social pressure across counselors).
+            Hidden for limited roles (not competing on counselor metrics). */}
+        {(isDirector || isCounselor) && (
+          <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
+            <Suspense fallback={<LeaderboardSkeleton />}>
+              <LiveSlaLeaderboard />
+            </Suspense>
+            <Suspense fallback={<LeaderboardSkeleton />}>
+              <LiveConversionLeaderboard />
+            </Suspense>
+          </div>
+        )}
 
         {/* Footer: push opt-in + classic fallback link */}
         <footer className='flex flex-col sm:flex-row items-center justify-between gap-3 pt-4'>

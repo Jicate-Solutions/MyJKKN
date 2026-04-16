@@ -1,17 +1,25 @@
 /**
- * Dashboard v2 Week-2 — Role Detection (server-side)
+ * Dashboard v2 — Role Detection (server-side)
  *
  * Determines which persona of the dashboard to render for the current user:
- *   - 'director'  → existing HeroStrip + institution chips + decision queue + leaderboards
- *   - 'counselor' → CounselorHeroStrip + decision queue + leaderboards (no institution chips)
- *   - 'fallback'  → defaults to director view
+ *   - 'director'  → full cockpit: hero strip + institution chips + queue + leaderboards
+ *   - 'counselor' → counselor hero: SLA / rank / hot leads / calls
+ *   - 'limited'   → self-scoped only: morning brief + decision queue + push button.
+ *                   NO hero strip (cross-institution aggregates would leak), NO institution chips,
+ *                   NO leaderboards. Users in this bucket haven't been issued a role-specific
+ *                   dashboard yet (HOD, Principal, Warden, Accounts, Faculty, Student, Parent).
+ *
+ * IMPORTANT — security property: 'limited' is the safe default. Never fall back to 'director'
+ * because fn_dashboard_metrics() is SECURITY DEFINER and returns JKKN-wide aggregates when called
+ * without institution scope. Seeing ₹ Cr pipeline + all-institution attendance is a data leak for
+ * non-admin roles.
  *
  * Spec: specs/myjkkn-dashboard-v2-spec.md §5 (role-aware view)
  */
 
 import { createClient } from '@/lib/supabase/server';
 
-export type DashboardPersona = 'director' | 'counselor' | 'fallback';
+export type DashboardPersona = 'director' | 'counselor' | 'limited';
 
 const DIRECTOR_ROLES = new Set([
   'admin',
@@ -26,38 +34,66 @@ const COUNSELOR_ROLES = new Set([
   'counselor'
 ]);
 
+export type PersonaResolution = {
+  persona: DashboardPersona;
+  role: string | null;
+  fullName: string | null;
+  isSuperAdmin: boolean;
+  institutionId: string | null;
+};
+
 /**
  * Resolves the dashboard persona for the currently authenticated user.
  * Reads profiles.role + is_super_admin via cookie-based server client.
  */
 export async function getDashboardPersona(): Promise<DashboardPersona> {
+  const res = await resolvePersona();
+  return res.persona;
+}
+
+/**
+ * Rich variant: returns persona + metadata the page needs for headers/gating.
+ */
+export async function resolvePersona(): Promise<PersonaResolution> {
+  const FALLBACK: PersonaResolution = {
+    persona: 'limited',
+    role: null,
+    fullName: null,
+    isSuperAdmin: false,
+    institutionId: null
+  };
+
   try {
     const supabase = await createClient();
     const {
       data: { user }
     } = await supabase.auth.getUser();
-
-    if (!user) return 'fallback';
+    if (!user) return FALLBACK;
 
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('role, is_super_admin')
+      .select('role, is_super_admin, full_name, institution_id')
       .eq('id', user.id)
       .maybeSingle();
 
-    if (error || !profile) {
-      return 'fallback';
-    }
-
-    if (profile.is_super_admin === true) return 'director';
+    if (error || !profile) return FALLBACK;
 
     const role = (profile.role ?? '').toLowerCase();
-    if (DIRECTOR_ROLES.has(role)) return 'director';
-    if (COUNSELOR_ROLES.has(role)) return 'counselor';
+    const isSuperAdmin = profile.is_super_admin === true;
 
-    return 'fallback';
+    let persona: DashboardPersona = 'limited';
+    if (isSuperAdmin || DIRECTOR_ROLES.has(role)) persona = 'director';
+    else if (COUNSELOR_ROLES.has(role)) persona = 'counselor';
+
+    return {
+      persona,
+      role: profile.role ?? null,
+      fullName: profile.full_name ?? null,
+      isSuperAdmin,
+      institutionId: profile.institution_id ?? null
+    };
   } catch (err) {
     console.error('[dashboard/role] unexpected error:', err);
-    return 'fallback';
+    return FALLBACK;
   }
 }

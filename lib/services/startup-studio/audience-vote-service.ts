@@ -2,6 +2,11 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client'
 import type { AudienceVote, VoteSummary } from '@/types/startup-studio'
 
+// INTEGRATION SITE 3 — vote_cast_received
+// Import the SF100Service to reuse its shared dispatch helper.
+// Kept as a lazy import to avoid circular deps at module-load time.
+import { SF100Service } from './sf100-service'
+
 export class AudienceVoteService {
   // ─── Get all vote summaries for an event ─────────────────────────────────
   static async getVoteSummaries(eventId: string): Promise<VoteSummary[]> {
@@ -62,6 +67,37 @@ export class AudienceVoteService {
       .select()
       .single()
     if (error) throw error
+
+    // INTEGRATION SITE 3 — vote_cast_received
+    // Notify the team owner that their team received a vote.
+    // Resolve registration from submission_id, then delegate to SF100Service dispatch.
+    ;(async () => {
+      try {
+        const { data: submission } = await supabase
+          .from('event_submissions')
+          .select('registration_id, registration:event_registrations(owner_id, team_name)')
+          .eq('id', params.submissionId)
+          .single()
+
+        const owner = (submission?.registration as { owner_id?: string; team_name?: string } | null)
+        if (owner?.owner_id) {
+          await SF100Service['dispatchInAppNotificationToUsers']({
+            title: 'Your team received a vote!',
+            message: `Someone just voted for "${owner.team_name ?? 'your team'}". Keep up the great work!`,
+            userIds: [owner.owner_id],
+            eventType: 'vote_cast_received',
+            metadata: {
+              event_id: params.eventId,
+              registration_id: submission?.registration_id ?? null,
+              voter_profile_id: params.voterProfileId,
+            },
+          })
+        }
+      } catch (err) {
+        console.error('[audience-vote/vote_cast_received] dispatch error:', err)
+      }
+    })()
+
     return data as AudienceVote
   }
 

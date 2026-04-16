@@ -4926,3 +4926,144 @@ CREATE POLICY "hr_recruitment_packages_delete_permission"
     is_super_admin() OR is_admin()
   );
 -- are intentionally preserved so users can always read their own assignments.
+
+-- =====================================================================
+-- 2026-04-16 — HR Recruitment Phase 3: RLS Policies
+-- Spec: specs/hr-recruitment-module-spec.md (Cvviz-sunset scope)
+-- Standard pattern: is_super_admin() OR is_admin() OR (permission + institution scope)
+-- Scorecards use STRICTER RLS (Learning #8) — only submitter + approval chain + super_admin.
+-- =====================================================================
+
+-- ---- hr_recruitment_jobs ----------------------------------------------
+
+ALTER TABLE public.hr_recruitment_jobs ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: permission + institution scope OR the job is public (careers page visibility)
+CREATE POLICY "hr_recruitment_jobs_select_permission"
+  ON public.hr_recruitment_jobs FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.recruitment.jobs.view')
+        AND role_has_institution_access(institution_id))
+    OR (is_public = true AND status = 'open')
+  );
+
+CREATE POLICY "hr_recruitment_jobs_insert_permission"
+  ON public.hr_recruitment_jobs FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.jobs.create')
+  );
+
+CREATE POLICY "hr_recruitment_jobs_update_permission"
+  ON public.hr_recruitment_jobs FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.recruitment.jobs.edit')
+        AND role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY "hr_recruitment_jobs_delete_permission"
+  ON public.hr_recruitment_jobs FOR DELETE USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.jobs.delete')
+  );
+
+-- ---- hr_recruitment_interviews ---------------------------------------
+-- Panel members + scheduler + admin must be able to view interviews they
+-- are on. Institution scope is inherited through the parent candidate.
+
+ALTER TABLE public.hr_recruitment_interviews ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "hr_recruitment_interviews_select_permission"
+  ON public.hr_recruitment_interviews FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.interviews.view')
+    OR auth.uid() = ANY (panel_member_ids)
+    OR created_by = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.hr_recruitment_candidates c
+      WHERE c.id = candidate_id
+        AND (c.submitted_by = auth.uid()
+             OR role_has_institution_access(c.institution_id))
+    )
+  );
+
+CREATE POLICY "hr_recruitment_interviews_insert_permission"
+  ON public.hr_recruitment_interviews FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.interviews.schedule')
+  );
+
+-- UPDATE covers reschedule AND cancel AND outcome_summary updates.
+-- The service enforces finer-grained rules (reschedule vs. cancel) -- RLS just
+-- guards the surface.
+CREATE POLICY "hr_recruitment_interviews_update_permission"
+  ON public.hr_recruitment_interviews FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.recruitment.interviews.reschedule')
+    OR user_has_permission('hr.recruitment.interviews.cancel')
+    OR created_by = auth.uid()
+    OR auth.uid() = ANY (panel_member_ids)
+  );
+
+-- No DELETE: interviews are cancelled (status='cancelled'), not deleted,
+-- to preserve the audit trail. Super admin retains implicit DELETE.
+CREATE POLICY "hr_recruitment_interviews_delete_super_admin"
+  ON public.hr_recruitment_interviews FOR DELETE USING (
+    is_super_admin()
+  );
+
+-- ---- hr_recruitment_scorecards (STRICTER RLS per Learning #8) ----------
+-- Only the submitting interviewer, members of the candidate's approval chain,
+-- and super_admin can READ scorecard content.
+-- Permission 'hr.recruitment.scorecards.view' is granted ONLY to:
+--   hr_admin, director, super_admin (the decision-makers).
+-- Interviewers ALWAYS see their OWN scorecards (interviewer_id = auth.uid()).
+
+ALTER TABLE public.hr_recruitment_scorecards ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "hr_recruitment_scorecards_select_stricter"
+  ON public.hr_recruitment_scorecards FOR SELECT USING (
+    is_super_admin()
+    OR interviewer_id = auth.uid()
+    OR user_has_permission('hr.recruitment.scorecards.view')
+    OR EXISTS (
+      SELECT 1
+      FROM public.hr_recruitment_interviews i
+      JOIN public.hr_recruitment_candidates c ON c.id = i.candidate_id
+      WHERE i.id = interview_id
+        AND (
+          -- approval chain members for the parent candidate
+          c.final_approver_id = auth.uid()
+          OR c.submitted_by = auth.uid()
+          OR c.approval_chain @> jsonb_build_array(
+               jsonb_build_object('approver_user_id', auth.uid()::text)
+             )
+        )
+    )
+  );
+
+-- INSERT: only the interviewer themselves can submit their scorecard.
+-- Permission 'hr.recruitment.scorecards.submit' guards the surface;
+-- an additional WITH CHECK enforces interviewer_id = auth.uid() so
+-- you cannot submit on someone else's behalf.
+CREATE POLICY "hr_recruitment_scorecards_insert_permission"
+  ON public.hr_recruitment_scorecards FOR INSERT WITH CHECK (
+    (is_super_admin() OR is_admin()
+     OR user_has_permission('hr.recruitment.scorecards.submit'))
+    AND interviewer_id = auth.uid()
+  );
+
+-- UPDATE: scorecards are submit-once (R4.4 principle). Only super_admin can
+-- correct typos. Interviewers cannot edit after submission -- if they need to
+-- change, they must request super_admin intervention.
+CREATE POLICY "hr_recruitment_scorecards_update_super_admin"
+  ON public.hr_recruitment_scorecards FOR UPDATE USING (
+    is_super_admin()
+  );
+
+-- DELETE: super_admin only; scorecards are part of audit trail.
+CREATE POLICY "hr_recruitment_scorecards_delete_super_admin"
+  ON public.hr_recruitment_scorecards FOR DELETE USING (
+    is_super_admin()
+  );
+
+-- END HR Recruitment Phase 3 policies

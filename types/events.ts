@@ -241,3 +241,21 @@ export interface RegistrationFilters {
   institution_id?: string;
   search?: string;
 }
+
+// ============================================================================
+// Notifications (added 2026-04-16)
+// ============================================================================
+
+/**
+ * Events-module notification event types. Dispatched via
+ * POST /api/events/notify?type=<event_type> and routed into the core
+ * `notifications` + `user_notifications` tables with `type = 'events'`.
+ *
+ * Phase 1 (MVP) ships two event types. Phase 2 will add:
+ *   - event_reminder_24h   (cron-driven)
+ *   - event_reminder_1h    (cron-driven)
+ *   - registration_cancelled
+ */
+export type EventsNotificationEventType =
+  | 'registration_confirmed'
+  | 'event_schedule_changed';

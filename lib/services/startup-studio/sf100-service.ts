@@ -290,6 +290,19 @@ export class SF100Service extends BaseService {
       console.error('[sf100_phase_history] Error creating initial history:', historyError);
     }
 
+    // INTEGRATION SITE 1 — team_selected
+    // Notify every team member (via profile_id) that they have been selected.
+    // Fire-and-forget: enrollment is already committed; notification failure must not roll it back.
+    this.dispatchInAppNotification({
+      title: 'You have been selected for Solve for 100!',
+      message: `Your team has been enrolled in the Solve for 100 program. Head to Startup Studio to begin your journey.`,
+      registrationId,
+      enrollmentId: enrollment.id,
+      eventType: 'team_selected',
+    }).catch((err) => {
+      console.error('[sf100/team_selected] dispatch error:', err);
+    });
+
     return {
       ...(enrollment as SF100Enrollment),
       auto_advanced: autoAdvanced,
@@ -1922,6 +1935,211 @@ export class SF100Service extends BaseService {
 
     if (error) {
       console.error('[sf100_notifications] Error creating notification:', error);
+    }
+  }
+
+  // =========================================================================
+  // Integration sites — shared notification system dispatch
+  // =========================================================================
+
+  // INTEGRATION SITE 2 — evaluation_round_open
+  /**
+   * Notify all judges/evaluators assigned to a program's source event
+   * that the evaluation round is now open.
+   * Call this when a program transitions to 'active' status.
+   */
+  static async notifyEvaluationRoundOpen(
+    programId: string,
+    roundLabel?: string
+  ): Promise<void> {
+    // Resolve the source event for this program
+    const { data: program, error: progErr } = await this.supabase
+      .from('sf100_programs')
+      .select('source_event_id, name')
+      .eq('id', programId)
+      .single();
+
+    if (progErr || !program?.source_event_id) {
+      console.error('[sf100/evaluation_round_open] program or source_event_id not found');
+      return;
+    }
+
+    const eventId = program.source_event_id;
+    const label = roundLabel ?? `Evaluation Round — ${program.name}`;
+
+    // Fetch all judge/evaluator staff for this event
+    const { data: assignments } = await this.supabase
+      .from('event_staff_assignments')
+      .select('staff_id')
+      .eq('event_id', eventId)
+      .in('role', ['judge', 'evaluator', 'panel_chair']);
+
+    const judgeIds = [
+      ...new Set((assignments || []).map((a: { staff_id: string }) => a.staff_id)),
+    ];
+
+    if (judgeIds.length === 0) return;
+
+    await this.dispatchInAppNotificationToUsers({
+      title: `${label} is now open`,
+      message: `The evaluation round for "${program.name}" is now open. Please log in to Startup Studio to evaluate teams.`,
+      userIds: judgeIds,
+      eventType: 'evaluation_round_open',
+      metadata: { event_id: eventId, round_label: label },
+    });
+  }
+
+  // INTEGRATION SITE 4 — demo_day_reminder
+  /**
+   * Send 24h-before-demo-day reminders to all presenters + judges.
+   * Intended to be called by a cron job 24h before demo_date.
+   */
+  static async sendDemoDayReminder(eventId: string): Promise<{ notified: number }> {
+    // Fetch event info
+    const { data: event, error: eventErr } = await this.supabase
+      .from('startup_events')
+      .select('name, demo_date')
+      .eq('id', eventId)
+      .single();
+
+    if (eventErr || !event) {
+      throw new Error('Event not found: ' + eventId);
+    }
+
+    const demoDayLabel = event.demo_date
+      ? new Date(event.demo_date).toLocaleDateString('en-IN', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      : 'tomorrow';
+
+    // Collect presenters (team owners with demo-day venue allocations)
+    const { data: demoAllocations } = await this.supabase
+      .from('event_team_venue_allocations')
+      .select('registration:event_registrations(owner_id)')
+      .eq('event_id', eventId)
+      .eq('day_type', 'demo_day');
+
+    const presenterIds = [
+      ...new Set(
+        (demoAllocations || [])
+          .map((a: { registration: { owner_id: string } | null }) => a.registration?.owner_id)
+          .filter(Boolean) as string[]
+      ),
+    ];
+
+    // Collect judges
+    const { data: judgeAssignments } = await this.supabase
+      .from('event_staff_assignments')
+      .select('staff_id')
+      .eq('event_id', eventId)
+      .eq('day_type', 'demo_day')
+      .in('role', ['judge', 'evaluator', 'panel_chair']);
+
+    const judgeIds = [
+      ...new Set(
+        (judgeAssignments || []).map((a: { staff_id: string }) => a.staff_id)
+      ),
+    ];
+
+    const allUserIds = [...new Set([...presenterIds, ...judgeIds])];
+    if (allUserIds.length === 0) return { notified: 0 };
+
+    await this.dispatchInAppNotificationToUsers({
+      title: `Demo Day Tomorrow — ${event.name}`,
+      message: `Reminder: Demo Day for "${event.name}" is on ${demoDayLabel}. Make sure your app is live and demo is ready!`,
+      userIds: allUserIds,
+      eventType: 'demo_day_reminder',
+      metadata: { event_id: eventId, demo_day_date: event.demo_date ?? null },
+    });
+
+    return { notified: allUserIds.length };
+  }
+
+  // ─── Private dispatch helpers ──────────────────────────────────────────────
+
+  /**
+   * Dispatch a shared in-app notification to all profile_ids of a team's members.
+   * Used for team_selected events where we have a registration_id.
+   */
+  private static async dispatchInAppNotification(params: {
+    title: string;
+    message: string;
+    registrationId: string;
+    enrollmentId?: string;
+    eventType: 'team_selected' | 'evaluation_round_open' | 'vote_cast_received' | 'demo_day_reminder';
+  }): Promise<void> {
+    // Get all team members with a profile_id
+    const { data: members } = await this.supabase
+      .from('event_team_members')
+      .select('profile_id')
+      .eq('registration_id', params.registrationId)
+      .not('profile_id', 'is', null);
+
+    const profileIds = (members || [])
+      .map((m: { profile_id: string | null }) => m.profile_id)
+      .filter(Boolean) as string[];
+
+    if (profileIds.length === 0) return;
+
+    await this.dispatchInAppNotificationToUsers({
+      title: params.title,
+      message: params.message,
+      userIds: profileIds,
+      eventType: params.eventType,
+      metadata: {
+        registration_id: params.registrationId,
+        ...(params.enrollmentId ? { enrollment_id: params.enrollmentId } : {}),
+      },
+    });
+  }
+
+  /**
+   * Write one shared notification row and link it to all provided user_ids.
+   * Mirrors the createNotification helper in /api/startup-studio/notify/route.ts.
+   */
+  private static async dispatchInAppNotificationToUsers(params: {
+    title: string;
+    message: string;
+    userIds: string[];
+    eventType: 'team_selected' | 'evaluation_round_open' | 'vote_cast_received' | 'demo_day_reminder';
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    if (params.userIds.length === 0) return;
+
+    const { data: notification, error: insertErr } = await this.supabase
+      .from('notifications')
+      .insert({
+        type: 'startup_studio',
+        title: params.title,
+        message: params.message,
+        metadata: {
+          source: 'startup_studio_notify',
+          event_type: params.eventType,
+          ...(params.metadata ?? {}),
+        },
+      })
+      .select('id')
+      .single();
+
+    if (insertErr || !notification) {
+      console.error('[sf100/dispatchInAppNotification] notifications insert failed:', insertErr);
+      return;
+    }
+
+    const links = params.userIds.map((uid) => ({
+      notification_id: notification.id,
+      user_id: uid,
+    }));
+
+    const { error: linkErr } = await this.supabase
+      .from('user_notifications')
+      .insert(links);
+
+    if (linkErr) {
+      console.error('[sf100/dispatchInAppNotification] user_notifications insert failed:', linkErr);
     }
   }
 }

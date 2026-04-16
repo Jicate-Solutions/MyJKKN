@@ -4233,3 +4233,154 @@ ALTER TABLE dashboard_config
   ADD COLUMN IF NOT EXISTS counselor_daily_call_target INT NOT NULL DEFAULT 25;
 
 -- END Dashboard v2 tables
+
+-- =====================================================================
+-- 2026-04-16 — HR Recruitment Phase 3: Jobs + Interviews + Scorecards
+-- Spec: specs/hr-recruitment-module-spec.md (Cvviz-sunset scope)
+-- Adds job-posting records, interview scheduling, and scorecard feedback.
+-- Stricter RLS on scorecards per Learning #8 (one scorecard per interviewer per interview).
+-- =====================================================================
+
+-- ---- hr_recruitment_jobs ---------------------------------------------
+-- Job postings -- feed the public careers page via is_public flag and
+-- drive the internal pipeline. role_category matches candidates CHECK set
+-- so downstream analytics can join cleanly on the same taxonomy.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_jobs (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hr_organization_id      uuid NOT NULL,                                  -- shadow-tenant FK
+  institution_id          uuid REFERENCES public.institutions(id),        -- for role_has_institution_access()
+  title                   text NOT NULL,
+  role_category           text NOT NULL CHECK (role_category IN (
+                            'teaching_faculty',
+                            'medical',
+                            'non_teaching',
+                            'senior_leadership',
+                            'contract'
+                          )),
+  description             text,                                           -- long-form posting body
+  requirements            jsonb NOT NULL DEFAULT '{}',                    -- {qualifications, experience, skills}
+  min_monthly_salary      numeric,                                        -- range offered (monthly)
+  max_monthly_salary      numeric,
+  positions_open          int NOT NULL DEFAULT 1 CHECK (positions_open >= 0),
+  positions_filled        int NOT NULL DEFAULT 0 CHECK (positions_filled >= 0),
+  department_id           uuid REFERENCES public.departments(id),         -- FK if departments exist
+  status                  text NOT NULL DEFAULT 'draft' CHECK (status IN (
+                            'draft',
+                            'open',
+                            'on_hold',
+                            'closed',
+                            'filled'
+                          )),
+  is_public               boolean NOT NULL DEFAULT false,                 -- controls /careers visibility
+  posted_at               timestamptz,
+  closes_at               timestamptz,
+  created_by              uuid REFERENCES public.profiles(id),
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_hr_org
+  ON public.hr_recruitment_jobs(hr_organization_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_institution
+  ON public.hr_recruitment_jobs(institution_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_status
+  ON public.hr_recruitment_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_is_public
+  ON public.hr_recruitment_jobs(is_public) WHERE is_public = true;
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_role_category
+  ON public.hr_recruitment_jobs(role_category);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_department
+  ON public.hr_recruitment_jobs(department_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_jobs_posted_at
+  ON public.hr_recruitment_jobs(posted_at DESC);
+
+-- ---- hr_recruitment_interviews ---------------------------------------
+-- Interview scheduling. panel_member_ids is a uuid[] of profiles.id;
+-- one row per scheduled sitting (reschedules create a NEW row referencing
+-- the old via rescheduled_from_id so we keep the full audit trail).
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_interviews (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  candidate_id            uuid NOT NULL REFERENCES public.hr_recruitment_candidates(id) ON DELETE CASCADE,
+  job_id                  uuid REFERENCES public.hr_recruitment_jobs(id),  -- nullable: interview may predate job record
+  round_number            int NOT NULL DEFAULT 1 CHECK (round_number >= 1),
+  round_name              text,                                           -- display: "Screening", "Technical Panel", "Director Sign-off"
+  scheduled_at            timestamptz NOT NULL,
+  duration_minutes        int NOT NULL DEFAULT 30 CHECK (duration_minutes > 0),
+  mode                    text NOT NULL CHECK (mode IN (
+                            'in_person',
+                            'phone',
+                            'video',
+                            'walk_in'
+                          )),
+  location_or_link        text,                                           -- room name OR meet URL
+  panel_member_ids        uuid[] NOT NULL DEFAULT '{}',                   -- profiles.id[] of interviewers
+  status                  text NOT NULL DEFAULT 'scheduled' CHECK (status IN (
+                            'scheduled',
+                            'completed',
+                            'cancelled',
+                            'no_show',
+                            'rescheduled'
+                          )),
+  rescheduled_from_id     uuid REFERENCES public.hr_recruitment_interviews(id),
+  outcome_summary         text,                                           -- brief after-interview note
+  created_by              uuid REFERENCES public.profiles(id),
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_interviews_candidate
+  ON public.hr_recruitment_interviews(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_interviews_job
+  ON public.hr_recruitment_interviews(job_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_interviews_status
+  ON public.hr_recruitment_interviews(status);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_interviews_scheduled_at
+  ON public.hr_recruitment_interviews(scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_interviews_panel
+  ON public.hr_recruitment_interviews USING GIN (panel_member_ids);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_interviews_rescheduled_from
+  ON public.hr_recruitment_interviews(rescheduled_from_id);
+
+-- ---- hr_recruitment_scorecards ---------------------------------------
+-- Panel feedback per interview per interviewer. Stricter RLS per
+-- Learning #8: only the submitting interviewer, the approval chain
+-- members for the candidate, and super_admin can read scorecard CONTENT.
+-- Submit-once per interviewer per interview (no updated_at, submit is final).
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_recruitment_scorecards (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  interview_id            uuid NOT NULL REFERENCES public.hr_recruitment_interviews(id) ON DELETE CASCADE,
+  interviewer_id          uuid NOT NULL REFERENCES public.profiles(id),
+  rating_overall          int NOT NULL CHECK (rating_overall BETWEEN 1 AND 5),
+  rating_technical        int CHECK (rating_technical IS NULL OR rating_technical BETWEEN 1 AND 5),
+  rating_communication    int CHECK (rating_communication IS NULL OR rating_communication BETWEEN 1 AND 5),
+  rating_culture_fit      int CHECK (rating_culture_fit IS NULL OR rating_culture_fit BETWEEN 1 AND 5),
+  strengths               text,
+  concerns                text,
+  recommendation          text NOT NULL CHECK (recommendation IN (
+                            'strong_hire',
+                            'hire',
+                            'neutral',
+                            'no_hire',
+                            'strong_no_hire'
+                          )),
+  submitted_at            timestamptz NOT NULL DEFAULT now(),
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  -- One scorecard per interviewer per interview (submit-once principle, R4.4)
+  CONSTRAINT uniq_scorecard_per_interviewer
+    UNIQUE (interview_id, interviewer_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_scorecards_interview
+  ON public.hr_recruitment_scorecards(interview_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_scorecards_interviewer
+  ON public.hr_recruitment_scorecards(interviewer_id);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_scorecards_recommendation
+  ON public.hr_recruitment_scorecards(recommendation);
+
+-- END HR Recruitment Phase 3 tables

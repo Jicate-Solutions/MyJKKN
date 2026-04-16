@@ -7185,3 +7185,58 @@ GRANT EXECUTE ON FUNCTION public.fn_refresh_dashboard_views(TEXT) TO service_rol
 
 COMMENT ON FUNCTION public.fn_refresh_dashboard_views(TEXT) IS
 'Dashboard v2: refreshes materialized views (sla|conversion). Called by Vercel Cron via service_role.';
+
+
+-- =====================================================
+-- Dashboard v2 fix — Hardened fn_dashboard_metrics (2026-04-16)
+-- Force-scopes non-admin callers to their own institution.
+-- Supersedes the earlier version appended by Day 2 migration.
+-- =====================================================
+CREATE OR REPLACE FUNCTION fn_dashboard_metrics(
+  p_institution_id UUID DEFAULT NULL,
+  p_department_id UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_today DATE := (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date;
+  v_att_total INT := 0; v_att_present INT := 0; v_att_pct NUMERIC := NULL;
+  v_att_baseline_pct NUMERIC := NULL; v_att_score INT := 100;
+  v_sla_compliance INT := 100; v_fee_today NUMERIC := 0;
+  v_fee_plan NUMERIC := 100000; v_fee_score INT := 100;
+  v_escalations_open INT := 0; v_escalations_score INT := 100;
+  v_ohs_score INT; v_pipeline_inr NUMERIC := 0;
+  v_pipeline_count INT := 0; v_pending_decisions INT := 0;
+  v_cfg dashboard_config; v_caller UUID := auth.uid();
+  v_caller_profile profiles; v_effective_institution UUID;
+BEGIN
+  SELECT * INTO v_cfg FROM dashboard_config WHERE scope = 'global' LIMIT 1;
+  IF v_caller IS NOT NULL THEN SELECT * INTO v_caller_profile FROM profiles WHERE id = v_caller; END IF;
+  IF v_caller_profile.id IS NULL THEN
+    RETURN jsonb_build_object(
+      'ohs', jsonb_build_object('score', 0, 'band', 'red',
+        'components', jsonb_build_object('attendance', 0, 'sla', 0, 'fees', 0, 'escalations', 0)),
+      'pipeline', jsonb_build_object('value_inr', 0, 'lead_count', 0),
+      'attendance', jsonb_build_object('pct_today', NULL, 'pct_baseline', NULL, 'present', 0, 'total', 0),
+      'pending_decisions', jsonb_build_object('count', 0),
+      'scope', jsonb_build_object('institution_id', NULL, 'department_id', NULL, 'computed_at', NOW(), 'forbidden', TRUE));
+  END IF;
+  IF v_caller_profile.is_super_admin = TRUE
+     OR v_caller_profile.role IN ('admin', 'administrator', 'super_admin', 'admission_manager') THEN
+    v_effective_institution := p_institution_id;
+  ELSE
+    v_effective_institution := v_caller_profile.institution_id;
+  END IF;
+  -- ... (attendance, SLA, fees, escalations, pipeline, pending_decisions aggregations same as migration)
+  -- Full body in supabase/migrations/dashboard_v2_harden_fn_metrics_scope.sql applied to staging 2026-04-16.
+  RETURN fn_dashboard_metrics_internal_v2(v_effective_institution, p_department_id, v_caller,
+    v_caller_profile.is_super_admin, v_cfg);
+END;
+$$;
+COMMENT ON FUNCTION fn_dashboard_metrics(UUID, UUID) IS 'Hardened 2026-04-16 — non-admins force-scoped to own institution. Full body in migration dashboard_v2_harden_fn_metrics_scope.';
+
+-- NOTE: For full executable SQL see supabase migration `dashboard_v2_harden_fn_metrics_scope`.
+-- This file append records the canonical signature + scope-enforcement rule.
