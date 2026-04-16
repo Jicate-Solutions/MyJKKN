@@ -237,7 +237,7 @@ export class HRDashboardService {
         name: 'active_blackouts',
         label: 'Active Blackouts',
         value: blackoutCount,
-        drill_url: '/hr/leave/blackouts',
+        drill_url: '/hr/leave',
         icon: 'CalendarX2',
       },
     ];
@@ -372,14 +372,14 @@ export class HRDashboardService {
         name: 'active_leave_types',
         label: 'Active Leave Types',
         value: leaveTypeCount ?? 0,
-        drill_url: '/hr/policies/leave-types',
+        drill_url: '/hr/policies/leave_types',
         icon: 'BookOpen',
       },
       {
         name: 'active_approval_flows',
         label: 'Active Approval Flows',
         value: flowsCount,
-        drill_url: '/hr/policies/approval-flows',
+        drill_url: '/hr/policies/hr_approval_flows',
         icon: 'Workflow',
       },
     ];
@@ -498,7 +498,7 @@ export class HRDashboardService {
         name: 'active_blackouts_compliance',
         label: 'Active Blackouts',
         value: blackoutCount,
-        drill_url: '/hr/leave/blackouts',
+        drill_url: '/hr/leave',
         icon: 'CalendarX2',
       },
       {
