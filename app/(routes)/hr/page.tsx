@@ -1,13 +1,21 @@
 'use client';
 
 /**
- * HR Module — Central HR Command Center (Sprint 1 stub)
+ * HR Command Center — Sprint 6 live dashboard.
  *
- * Per spec v4 §8.1: 4-quadrant dashboard (Consolidated Payroll, Group Leave, Consolidated Attendance, Compliance).
- * Sprint 1 ships empty quadrant placeholders. Real data lands in Sprint 6.
+ * Replaces the Sprint 1 stub. Renders role-adapted quadrants (decision #16):
+ *   - HR Officer (daily):   4 operational quadrants
+ *   - Director (weekly):    4 strategic quadrants
+ *   - Super admin:          11-institution grid by default, with a header
+ *                           toggle to switch to a rolled-up Director view
+ *
+ * Non-HR users land here via /hr route — we render a redirect-with-toast per
+ * decision #13 (page-level UX; the API also returns 403 so nothing leaks).
  */
 
 import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -16,12 +24,75 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { Users, UsersRound, Banknote, CalendarDays, Building2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import {
+  AlertCircle,
+  LayoutDashboard,
+  Layers,
+  RefreshCw,
+  Building2,
+  Users,
+  UsersRound,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { useHRDashboard, logDashboardAccess } from '@/hooks/hr/use-hr-dashboard';
+import { QuadrantCard, QuadrantCardSkeleton } from '@/features/hr/dashboard/quadrant-card';
+import { InstitutionGrid, InstitutionGridSkeleton } from '@/features/hr/dashboard/institution-grid';
+import { DashboardBanners } from '@/features/hr/dashboard/banners';
+import type { DashboardMode } from '@/types/hr-dashboard';
 
-export default function HRDashboardPage() {
+function formatGeneratedAt(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString('en-IN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'Asia/Kolkata',
+    });
+  } catch {
+    return '—';
+  }
+}
+
+export default function HRCommandCenterPage() {
+  const router = useRouter();
+  const [mode, setMode] = useState<DashboardMode>('institution-grid');
+  const { data, isLoading, isFetching, isError, error, refetch } = useHRDashboard(mode);
+
+  // --- Audit log: one POST per successful payload render (decision #18) ---
+  useEffect(() => {
+    if (data && !isLoading) {
+      void logDashboardAccess(data);
+    }
+  }, [data, isLoading]);
+
+  // --- Route-level 403 handler → redirect-with-toast (decision #13) ---
+  useEffect(() => {
+    if (isError && error instanceof Error && /403|Forbidden/i.test(error.message)) {
+      toast.error('HR dashboard is restricted to HR staff.', {
+        description: 'Redirecting to your main dashboard.',
+        duration: 4000,
+      });
+      router.replace('/dashboard');
+    }
+  }, [isError, error, router]);
+
+  const isSuperAdmin = data?.viewer_role === 'super_admin';
+  const showGrid = isSuperAdmin && mode === 'institution-grid';
+  const roleLabel = useMemo(() => {
+    if (!data) return '';
+    switch (data.viewer_role) {
+      case 'super_admin':
+        return 'Super Admin';
+      case 'hr_officer':
+        return 'HR Officer';
+      case 'director':
+        return 'Director';
+    }
+  }, [data]);
+
   return (
     <ContentLayout title="HR — Central Command Center">
       <Breadcrumb>
@@ -39,107 +110,138 @@ export default function HRDashboardPage() {
       </Breadcrumb>
 
       <div className="mt-6 space-y-6">
-        <div className="flex items-center justify-between">
+        {/* --- Header --- */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold">HR Command Center</h1>
-            <p className="text-sm text-muted-foreground">
-              JKKN Group HR — leave, policies, and the non-staff workforce
-              (guests, vendors, TAs, volunteers). Full-time staff live in the
-              <Link href="/staff/list" className="underline ml-1">Staff module</Link>.
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-semibold">HR Command Center</h1>
+              {data && (
+                <Badge variant="outline" className="text-xs">
+                  {roleLabel}
+                </Badge>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              Live posture across leave, workforce, and compliance.{' '}
+              {data?.fiscal_year && (
+                <span>
+                  FY <strong>{data.fiscal_year.label}</strong> ·{' '}
+                </span>
+              )}
+              {data?.generated_at && (
+                <span className="font-mono text-xs">
+                  updated {formatGeneratedAt(data.generated_at)} IST
+                </span>
+              )}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {/* Two CTAs make the persona split explicit:
-                full-time staff live in the staff module; non-staff (guests,
-                vendors, TAs, volunteers) live in HR. Single "Manage Employees"
-                button caused users to expect /hr/employees to show all 393
-                staff (it didn't, and shouldn't). */}
-            <Button asChild variant="outline">
-              <Link href="/staff/list">
-                <Users className="mr-2 h-4 w-4" />
-                Full-Time Staff
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link href="/hr/employees">
-                <UsersRound className="mr-2 h-4 w-4" />
-                Non-Staff Workforce
-              </Link>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Super admin mode toggle (decision #17) */}
+            {isSuperAdmin && (
+              <div className="inline-flex rounded-md border">
+                <Button
+                  variant={mode === 'institution-grid' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setMode('institution-grid')}
+                  className="rounded-r-none h-8"
+                >
+                  <Layers className="mr-2 h-3.5 w-3.5" />
+                  11 Institutions
+                </Button>
+                <Button
+                  variant={mode === 'rolled-up' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setMode('rolled-up')}
+                  className="rounded-l-none h-8"
+                >
+                  <LayoutDashboard className="mr-2 h-3.5 w-3.5" />
+                  Rolled-up
+                </Button>
+              </div>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              <RefreshCw className={`mr-2 h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+              Refresh
             </Button>
           </div>
         </div>
 
-        {/* 4-quadrant command center (stubs for Sprint 1) */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Employees</CardTitle>
-              <Building2 className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">—</div>
-              <p className="text-xs text-muted-foreground">Across all institutions</p>
-            </CardContent>
-          </Card>
-          <Card className="opacity-60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Attendance</CardTitle>
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-muted-foreground">Sprint 5</div>
-              <p className="text-xs text-muted-foreground">Arriving in Sprint 5</p>
-            </CardContent>
-          </Card>
-          <Card className="opacity-60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Leave</CardTitle>
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-muted-foreground">Sprint 3</div>
-              <p className="text-xs text-muted-foreground">Arriving in Sprint 3</p>
-            </CardContent>
-          </Card>
-          <Card className="opacity-60">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Payroll</CardTitle>
-              <Banknote className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-muted-foreground">Sprint 7</div>
-              <p className="text-xs text-muted-foreground">Arriving in Sprint 7</p>
-            </CardContent>
-          </Card>
+        {/* --- Cross-module CTAs (kept from Sprint 1; still useful) --- */}
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/staff/list">
+              <Users className="mr-2 h-3.5 w-3.5" />
+              Full-Time Staff
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/hr/employees">
+              <UsersRound className="mr-2 h-3.5 w-3.5" />
+              Non-Staff Workforce
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/hr/leave">
+              <Building2 className="mr-2 h-3.5 w-3.5" />
+              Leave Workflow
+            </Link>
+          </Button>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Sprint 1 Foundation — Shipped</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="list-disc pl-6 text-sm text-muted-foreground space-y-1">
-              <li>Shadow-tenant pattern: 11 JKKN institutions synced to hr_organizations</li>
-              <li>Employee master: 393 staff backfilled into hr_employees</li>
-              <li>13 designations × 11 institutions = 143 designations seeded from HR manual §13</li>
-              <li>3 cadres seeded (Teaching, Supporting-Technical, Non-Technical)</li>
-              <li>RLS policies active with super_admin bypass (mirrors 46-policy pattern)</li>
-              <li>Zero impact on MyJKKN core queries — verified via EXPLAIN ANALYZE</li>
-            </ul>
-          </CardContent>
-        </Card>
+        {/* --- Error (non-403 errors render inline; 403 triggers redirect above) --- */}
+        {isError && error instanceof Error && !/403|Forbidden/i.test(error.message) && (
+          <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5" />
+            <div>
+              <p className="font-semibold">Dashboard failed to load.</p>
+              <p className="text-xs mt-1 font-mono break-all">{error.message}</p>
+              <Button variant="outline" size="sm" className="mt-2" onClick={() => refetch()}>
+                Try Again
+              </Button>
+            </div>
+          </div>
+        )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>What&apos;s Next</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground space-y-2">
-            <p>Sprint 2: Policy Management UI (18 CRUD tables for Policy-as-Data)</p>
-            <p>Sprint 3: Leave workflow (extending existing institution_leaves infrastructure)</p>
-            <p>Sprint 4–5: eSSL edge agent + attendance engine with class-proxy fallback</p>
-            <p>Sprint 6+: Command center quadrants light up with real data</p>
-          </CardContent>
-        </Card>
+        {/* --- Banners (today-holiday + FY-end prompt) --- */}
+        {data && <DashboardBanners banners={data.banners} />}
+
+        {/* --- Body --- */}
+        {isLoading && !data ? (
+          showGrid ? (
+            <InstitutionGridSkeleton />
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <QuadrantCardSkeleton />
+              <QuadrantCardSkeleton />
+              <QuadrantCardSkeleton />
+              <QuadrantCardSkeleton />
+            </div>
+          )
+        ) : data ? (
+          showGrid && data.institution_cards.length > 0 ? (
+            <InstitutionGrid cards={data.institution_cards} />
+          ) : data.quadrants.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              {data.quadrants.map((q) => (
+                <QuadrantCard key={q.id} quadrant={q} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+              <p className="font-medium">All caught up.</p>
+              <p className="text-xs mt-1">
+                No HR events require attention right now. Dashboard refreshes
+                automatically when new leave applications are submitted.
+              </p>
+            </div>
+          )
+        ) : null}
       </div>
     </ContentLayout>
   );
