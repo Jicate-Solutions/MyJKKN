@@ -65,6 +65,9 @@ const FIELD_METADATA: FieldMetadata[] = [
   { field: 'permanent_address_district', label: 'District', section: 'Contact Details' },
   { field: 'permanent_address_pin_code', label: 'PIN Code', section: 'Contact Details' },
   { field: 'permanent_address_state', label: 'State', section: 'Contact Details' },
+  // BUG-002664 et al: the form requires permanent_address_taluk (contact-details.tsx:288)
+  // but this calculator previously omitted it. Result: every student maxed out at 24/25 = 96%.
+  { field: 'permanent_address_taluk', label: 'Taluk', section: 'Contact Details' },
 
   // Accommodation Preferences Tab
   { field: 'accommodation_type', label: 'Accommodation Type', section: 'Accommodation Preferences' },
