@@ -315,9 +315,11 @@ export type {
 } from './paradigm-shift-service';
 
 // ============================================
-// COMPLIANCE / GRADUATION GATE
+// AI-SOLUTION COMPLIANCE / GRADUATION GATE
+// (Renamed from ComplianceService in PR-A1 to disambiguate from
+// accreditation compliance work under /accreditation/*)
 // ============================================
-export { ComplianceService } from './compliance-service';
+export { AiSolutionComplianceService } from './ai-solution-compliance-service';
 
 // ============================================
 // UTILITY FUNCTIONS

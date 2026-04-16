@@ -11,7 +11,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { ComplianceOverview as ComplianceOverviewData } from '@/types/compliance';
+import type { ComplianceOverview as ComplianceOverviewData } from '@/types/ai-solution-compliance';
 
 interface ComplianceOverviewProps {
   data?: ComplianceOverviewData;

@@ -13,8 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { SolutionTeam } from '@/types/compliance';
-import { CLEARANCE_STATUS_CONFIG } from '@/types/compliance';
+import type { SolutionTeam } from '@/types/ai-solution-compliance';
+import { CLEARANCE_STATUS_CONFIG } from '@/types/ai-solution-compliance';
 
 interface SolutionTeamsViewProps {
   data?: SolutionTeam[];

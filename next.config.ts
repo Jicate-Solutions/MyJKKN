@@ -85,6 +85,32 @@ const nextConfig: NextConfig = {
     ]
   },
 
+  async redirects() {
+    return [
+      // PR-A1 (Compliance Unification Program 2026-04-17):
+      // /solutions/compliance/* → /solutions/ai-solution-compliance/*
+      // Disambiguates AI-solution compliance from accreditation compliance
+      // (NAAC/NIRF/NBA/etc.) under /accreditation/*.
+      {
+        source: '/solutions/compliance',
+        destination: '/solutions/ai-solution-compliance',
+        permanent: true
+      },
+      {
+        source: '/solutions/compliance/:path*',
+        destination: '/solutions/ai-solution-compliance/:path*',
+        permanent: true
+      },
+      // Legacy API path — external consumers that hit /api/solutions/compliance/*
+      // get redirected. Next.js redirects() works for both pages and API routes.
+      {
+        source: '/api/solutions/compliance/:path*',
+        destination: '/api/solutions/ai-solution-compliance/:path*',
+        permanent: true
+      }
+    ];
+  },
+
   async headers() {
     return [
       {

@@ -22,10 +22,10 @@ import {
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { useComplianceDashboard } from '@/hooks/solutions/use-compliance-dashboard';
+import { useAiSolutionComplianceDashboard } from '@/hooks/solutions/use-ai-solution-compliance-dashboard';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
-import type { ComplianceFilters } from '@/types/compliance';
+import type { ComplianceFilters } from '@/types/ai-solution-compliance';
 
 // Dashboard Components
 import { ComplianceOverview } from './_components/compliance-overview';
@@ -49,7 +49,7 @@ export default function ComplianceDashboardPage() {
     isLoading,
     error,
     refetch
-  } = useComplianceDashboard(filters);
+  } = useAiSolutionComplianceDashboard(filters);
 
   // Load institutions on mount
   useEffect(() => {

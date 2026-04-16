@@ -535,7 +535,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/software/phases': 'solutions.software.phases.view',
   '/solutions/matlab': 'solutions.matlab.view',
   '/solutions/paradigm-shift': 'solutions.paradigm_shift.view',
-  '/solutions/compliance': 'solutions.compliance.view',
+  '/solutions/ai-solution-compliance': 'solutions.compliance.view',
   // '/solutions/departments' retired April 2026 — replaced by paradigm-shift
 
   // Learners Council
@@ -2365,9 +2365,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          href: '/solutions/compliance',
-          label: 'Compliance',
-          active: pathname.startsWith('/solutions/compliance'),
+          href: '/solutions/ai-solution-compliance',
+          label: 'AI-Solution Compliance',
+          active: pathname.startsWith('/solutions/ai-solution-compliance'),
           icon: ShieldCheck,
           submenus: []
         },
