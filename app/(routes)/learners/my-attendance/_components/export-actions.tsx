@@ -74,9 +74,11 @@ export function ExportActions({ learnerId, semesterId }: ExportActionsProps) {
       });
     } catch (error) {
       console.error('[learners/attendance] PDF export failed:', error);
+      // BUG-003178: student-friendlier error copy than the old terse message.
       toast({
-        title: 'Export Failed',
-        description: 'Failed to generate PDF report. Please try again.',
+        title: "Couldn't prepare your report",
+        description:
+          'Something went wrong while generating the PDF. Please try again in a moment. If it keeps happening, contact your department support.',
         variant: 'destructive',
       });
     } finally {
@@ -134,9 +136,11 @@ export function ExportActions({ learnerId, semesterId }: ExportActionsProps) {
       });
     } catch (error) {
       console.error('[learners/attendance] Excel export failed:', error);
+      // BUG-003178: student-friendlier error copy than the old terse message.
       toast({
-        title: 'Export Failed',
-        description: 'Failed to generate Excel report. Please try again.',
+        title: "Couldn't prepare your report",
+        description:
+          'Something went wrong while generating the Excel file. Please try again in a moment. If it keeps happening, contact your department support.',
         variant: 'destructive',
       });
     } finally {
