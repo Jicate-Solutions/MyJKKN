@@ -1,6 +1,8 @@
-// lib/services/solutions/compliance-service.ts
+// lib/services/solutions/ai-solution-compliance-service.ts
 // ============================================================================
-// AI-Solution Compliance Service
+// AI-Solution Compliance Service (renamed from ComplianceService 2026-04-17,
+// PR-A1 of Compliance Unification Program — disambiguates from accreditation
+// compliance work under /accreditation/*)
 // Queries Solutions Hub data to determine which learners have/haven't
 // completed their AI-collaboration solution requirement.
 // ============================================================================
@@ -14,9 +16,9 @@ import type {
   ComplianceDashboardData,
   ComplianceFilters,
   ClearanceStatus
-} from '@/types/compliance';
+} from '@/types/ai-solution-compliance';
 
-export class ComplianceService {
+export class AiSolutionComplianceService {
   // ---- Main Dashboard Loader ----
 
   static async getDashboardData(

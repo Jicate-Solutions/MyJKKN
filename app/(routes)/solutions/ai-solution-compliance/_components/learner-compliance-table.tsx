@@ -21,8 +21,8 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { LearnerCompliance, ComplianceFilters, ClearanceStatus } from '@/types/compliance';
-import { CLEARANCE_STATUS_CONFIG } from '@/types/compliance';
+import type { LearnerCompliance, ComplianceFilters, ClearanceStatus } from '@/types/ai-solution-compliance';
+import { CLEARANCE_STATUS_CONFIG } from '@/types/ai-solution-compliance';
 
 interface LearnerComplianceTableProps {
   data?: LearnerCompliance[];

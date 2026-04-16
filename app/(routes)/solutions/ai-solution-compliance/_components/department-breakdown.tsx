@@ -8,7 +8,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import type { DepartmentCompliance } from '@/types/compliance';
+import type { DepartmentCompliance } from '@/types/ai-solution-compliance';
 
 interface DepartmentBreakdownProps {
   data?: DepartmentCompliance[];
