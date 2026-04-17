@@ -12,6 +12,7 @@
 // - Matches admissions form structure completely
 // ============================================
 
+import { useEffect } from 'react';
 import { UseFormReturn } from 'react-hook-form';
 import {
   FormControl,
@@ -87,8 +88,17 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
 
   // Fetch academic data (institution-dependent)
   const { academicYears, loading: loadingAcademicYears } = useAcademicYearsByInstitution(watchedInstitutionId);
-  const { regulations, loading: loadingRegulations } = useRegulations({ institution_id: watchedInstitutionId });
-  const { batches, loading: loadingBatches } = useBatches({ institution_id: watchedInstitutionId });
+  const { regulations, loading: loadingRegulations, updateFilters: updateRegulationFilters } = useRegulations({ institution_id: watchedInstitutionId || undefined });
+  const { batches, loading: loadingBatches, updateFilters: updateBatchFilters } = useBatches({ institution_id: watchedInstitutionId || undefined });
+
+  // Sync regulation/batch filters when institution changes (useState in hooks ignores prop updates after mount)
+  useEffect(() => {
+    updateRegulationFilters({ institution_id: watchedInstitutionId || undefined });
+  }, [watchedInstitutionId, updateRegulationFilters]);
+
+  useEffect(() => {
+    updateBatchFilters({ institution_id: watchedInstitutionId || undefined });
+  }, [watchedInstitutionId, updateBatchFilters]);
 
   // Fetch sections (semester + institution dependent)
   const { data: sectionsData, isLoading: loadingSections } = useSections({
