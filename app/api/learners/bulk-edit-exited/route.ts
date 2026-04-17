@@ -16,6 +16,7 @@ import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-le
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
 import { NameToIdResolver } from '@/lib/services/name-to-id-resolver';
+import { normalizeDropdownValue, BLOOD_GROUP_VALUES } from '@/lib/constants/learner-dropdown-values';
 
 
 /**
@@ -66,8 +67,8 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'regulation_id': ['Regulation ID', 'regulation_id'],
   'batch_id': ['Batch ID', 'batch_id'],
 
-  // SECTION 4: Contact Details
-  'mobile': ['Student Mobile', 'Mobile', 'mobile', 'student_mobile'],
+  // SECTION 4: Contact Details — DB column is student_mobile (not mobile)
+  'student_mobile': ['Student Mobile', 'Mobile', 'mobile', 'student_mobile'],
   'college_email': ['College Email', 'college_email', 'email'],
   'student_email': ['Personal Email', 'Student Email', 'student_email', 'personal_email'],
 
@@ -280,7 +281,11 @@ export async function POST(request: NextRequest) {
         sanitizedData.aadhar_number = sanitizeValue(mappedData.aadhar_number, 'mobile');
       }
       if (mappedData.blood_group) {
-        sanitizedData.blood_group = sanitizeValue(mappedData.blood_group, 'text');
+        // Uses the shared dropdown-normalizer (same as bulk-upload-profiles).
+        // Invalid values return undefined so the service skips the field and
+        // preserves whatever the DB already has, instead of aborting the batch.
+        const normalized = normalizeDropdownValue(String(mappedData.blood_group), BLOOD_GROUP_VALUES);
+        if (normalized) sanitizedData.blood_group = normalized;
       }
       if (mappedData.admission_year) {
         sanitizedData.admission_year = mappedData.admission_year;
@@ -445,9 +450,9 @@ export async function POST(request: NextRequest) {
         sanitizedData.batch_id = mappedData.batch_id;
       }
 
-      // SECTION 4: Contact Details
-      if (mappedData.mobile) {
-        sanitizedData.mobile = sanitizeValue(mappedData.mobile, 'mobile');
+      // SECTION 4: Contact Details — DB column is student_mobile (not mobile)
+      if (mappedData.student_mobile) {
+        sanitizedData.student_mobile = sanitizeValue(mappedData.student_mobile, 'mobile');
       }
       if (mappedData.college_email) {
         sanitizedData.college_email = sanitizeValue(mappedData.college_email, 'email');

@@ -13,6 +13,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
 import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import { normalizeDropdownValue, BLOOD_GROUP_VALUES } from '@/lib/constants/learner-dropdown-values';
 
 
 /**
@@ -54,7 +55,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'batch_id': ['Batch ID', 'batch_id'],
 
   // SECTION 4: Contact Details
-  'mobile': ['Student Mobile', 'Mobile', 'mobile', 'student_mobile'],
+  'student_mobile': ['Student Mobile', 'Mobile', 'mobile', 'student_mobile'],
   'college_email': ['College Email', 'college_email', 'email'],
   'student_email': ['Personal Email', 'Student Email', 'student_email', 'personal_email'],
 
@@ -137,8 +138,23 @@ export async function POST(request: NextRequest) {
       supabase = await createServerSupabaseClient();
       console.log('[bulk-edit-preview] Supabase client created');
 
-      console.log('[bulk-edit-preview] Getting user...');
-      const authResponse = await supabase.auth.getUser();
+      // Retry auth.getUser() once on transient network errors (ECONNRESET,
+      // fetch failed). Supabase SDK exposes these as AuthRetryableFetchError.
+      let authResponse;
+      try {
+        authResponse = await supabase.auth.getUser();
+      } catch (firstAttemptError) {
+        const isRetryable =
+          firstAttemptError instanceof Error &&
+          (firstAttemptError.name === 'AuthRetryableFetchError' ||
+            firstAttemptError.message.includes('fetch failed') ||
+            firstAttemptError.message.includes('ECONNRESET'));
+        if (!isRetryable) throw firstAttemptError;
+        console.warn('[bulk-edit-preview] Auth fetch failed, retrying in 300ms');
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        authResponse = await supabase.auth.getUser();
+      }
+
       user = authResponse.data.user;
       const authError = authResponse.error;
 
@@ -166,13 +182,26 @@ export async function POST(request: NextRequest) {
 
       console.log('[bulk-edit-preview] User authenticated:', user.id);
     } catch (authException) {
+      // Retry failed too — this is a genuine transient network issue reaching
+      // Supabase, not a missing/invalid session. Return 503 so the client can
+      // surface "please try again" instead of the misleading "authentication
+      // failed" that 401 triggers.
+      const message =
+        authException instanceof Error ? authException.message : 'unknown';
+      const isNetworkError =
+        (authException instanceof Error &&
+          authException.name === 'AuthRetryableFetchError') ||
+        message.includes('fetch failed') ||
+        message.includes('ECONNRESET');
       console.error('[bulk-edit-preview] Auth exception:', authException);
       return NextResponse.json(
         {
           success: false,
-          error: `Authentication error: ${authException instanceof Error ? authException.message : 'Network timeout or connection error. Please try again.'}`
+          error: isNetworkError
+            ? 'Temporary network error reaching the auth service. Please try again in a moment.'
+            : `Authentication error: ${message}`
         },
-        { status: 401 }
+        { status: isNetworkError ? 503 : 401 }
       );
     }
 
@@ -315,7 +344,11 @@ export async function POST(request: NextRequest) {
       if (mappedData.community) sanitizedData.community = sanitizeValue(mappedData.community, 'text');
       if (mappedData.caste) sanitizedData.caste = sanitizeValue(mappedData.caste, 'text');
       if (mappedData.aadhar_number) sanitizedData.aadhar_number = sanitizeValue(mappedData.aadhar_number, 'mobile');
-      if (mappedData.blood_group) sanitizedData.blood_group = sanitizeValue(mappedData.blood_group, 'text');
+      if (mappedData.blood_group) {
+        // Same shared normalizer as bulk-edit-exited, so preview matches write.
+        const normalized = normalizeDropdownValue(String(mappedData.blood_group), BLOOD_GROUP_VALUES);
+        if (normalized) sanitizedData.blood_group = normalized;
+      }
       if (mappedData.admission_year) sanitizedData.admission_year = mappedData.admission_year;
 
       // SECTION 2: Parent/Guardian Information
@@ -337,8 +370,8 @@ export async function POST(request: NextRequest) {
       if (mappedData.regulation_id) sanitizedData.regulation_id = mappedData.regulation_id;
       if (mappedData.batch_id) sanitizedData.batch_id = mappedData.batch_id;
 
-      // SECTION 4: Contact Details
-      if (mappedData.mobile) sanitizedData.mobile = sanitizeValue(mappedData.mobile, 'mobile');
+      // SECTION 4: Contact Details — DB column is student_mobile (not mobile)
+      if (mappedData.student_mobile) sanitizedData.student_mobile = sanitizeValue(mappedData.student_mobile, 'mobile');
       if (mappedData.college_email) sanitizedData.college_email = sanitizeValue(mappedData.college_email, 'email');
       if (mappedData.student_email) sanitizedData.student_email = sanitizeValue(mappedData.student_email, 'email');
 

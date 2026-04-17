@@ -105,7 +105,7 @@ const FIELD_LABELS: Record<string, string> = {
   academic_year_id: 'Academic Year ID',
   regulation_id: 'Regulation ID',
   batch_id: 'Batch ID',
-  mobile: 'Student Mobile',
+  student_mobile: 'Student Mobile',
   college_email: 'College Email',
   student_email: 'Personal Email',
   permanent_address_street: 'Address Street',
