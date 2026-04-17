@@ -7,7 +7,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Settings } from 'lucide-react';
+import Link from 'next/link';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table';
@@ -64,8 +65,16 @@ export function SeatAnalyticsDashboard({ institutionId, academicYearId }: SeatAn
   if (isError || rows.length === 0) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          {isError ? 'Failed to load seat analytics.' : 'No seat data found. Configure intake in program settings.'}
+        <CardContent className="py-8 text-center space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {isError ? 'Failed to load seat analytics.' : 'No seat data found for the selected academic year.'}
+          </p>
+          <Link href="/admission/settings/seat-config">
+            <Button size="sm" variant="outline">
+              <Settings className="h-4 w-4 mr-1" />
+              Configure Seats
+            </Button>
+          </Link>
         </CardContent>
       </Card>
     );
@@ -80,6 +89,15 @@ export function SeatAnalyticsDashboard({ institutionId, academicYearId }: SeatAn
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <Link href="/admission/settings/seat-config">
+          <Button size="sm" variant="outline">
+            <Settings className="h-4 w-4 mr-1" />
+            Configure Seats
+          </Button>
+        </Link>
+      </div>
+
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[

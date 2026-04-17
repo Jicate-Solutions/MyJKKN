@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AlertCircle, Building2, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -42,7 +42,19 @@ export default function GroupDashboardPage() {
   }, [canAccessAllInstitutions, accessibleInstitutions]);
 
   const { data, isLoading, isFetching, isError, error } = useGroupDashboard(scopedInstitutionIds);
-  const { data: academicYears = [] } = useAcademicYears();
+  const { data: academicYearsResult } = useAcademicYears();
+  const academicYears = academicYearsResult?.data ?? [];
+
+  // Auto-select current academic year once data loads (year whose date range contains today)
+  useEffect(() => {
+    if (!academicYears.length || selectedAcademicYearId !== undefined) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const current = academicYears.find(
+      (ay: any) => ay.start_date <= today && ay.end_date >= today
+    );
+    // Fallback to the first result (sorted by name DESC = most recent)
+    setSelectedAcademicYearId((current ?? academicYears[0])?.id ?? undefined);
+  }, [academicYears]);
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
