@@ -347,65 +347,81 @@ export function StudentBillForm({
     form.setValue('student_id', student.id);
   };
 
+  const buildBillDto = (
+    item: BillingItem,
+    data: StudentBillFormData
+  ): CreateStudentBillDto => {
+    const selectedCategory = itemCategories.find(
+      (cat) => cat.id === item.category_id
+    );
+    const defaultDescription = selectedCategory?.category_name || 'Billing Item';
+    const taxAmount = item.tax_amount || 0;
+
+    return {
+      student_id: data.student_id,
+      institution_id: data.institution_id,
+      category_id: item.category_id,
+      bill_description: defaultDescription,
+      due_date: format(data.due_date, 'yyyy-MM-dd'),
+      quantity: 1,
+      unit_amount: item.unit_amount,
+      tax_amount: taxAmount,
+      total_amount: item.unit_amount,
+      final_amount: item.unit_amount + taxAmount,
+      remarks: data.overall_remarks,
+      is_recurring: data.is_recurring,
+      recurrence_pattern: data.recurrence_pattern,
+      number_of_recurrences: data.number_of_recurrences
+    };
+  };
+
   const onSubmit = async (data: StudentBillFormData) => {
+    let createdCount = 0;
     try {
-      // For now, we'll create separate bills for each item
-      // In the future, this could be enhanced to support true multi-item bills
-      const firstItem = data.billing_items[0];
-
-      // Get the selected category name for default description
-      const selectedCategory = itemCategories.find(cat => cat.id === firstItem.category_id);
-      const defaultDescription = selectedCategory?.category_name || 'Billing Item';
-
-      const submitData: CreateStudentBillDto = {
-        student_id: data.student_id,
-        institution_id: data.institution_id,
-        category_id: firstItem.category_id,
-        bill_description: defaultDescription, // Use category name as default description
-        due_date: format(data.due_date, 'yyyy-MM-dd'),
-        quantity: 1, // Default quantity to 1 since it's removed from form
-        unit_amount: firstItem.unit_amount,
-        tax_amount: firstItem.tax_amount,
-        total_amount: firstItem.unit_amount,
-        final_amount: firstItem.unit_amount + firstItem.tax_amount,
-        remarks: data.overall_remarks,
-        is_recurring: data.is_recurring,
-        recurrence_pattern: data.recurrence_pattern,
-        number_of_recurrences: data.number_of_recurrences
-      };
-
       if (bill) {
-        const result = await updateStudentBill.mutateAsync({
+        // Edit path: billing_student_bills is a flat (single-item) row, so
+        // editing only updates the existing bill from item 0. Extra items
+        // added in edit mode are intentionally ignored — true multi-line
+        // bills need a billing_student_bill_items child table (Path B).
+        await updateStudentBill.mutateAsync({
           id: bill.id,
-          billData: submitData
+          billData: buildBillDto(data.billing_items[0], data)
         });
 
         if (onSuccess) {
           onSuccess();
         } else {
-          // Redirect to the updated bill details page
           router.push(`/billing/schedule/students/${bill.student_id}`);
         }
-      } else {
-        const result = await createStudentBill.mutateAsync(submitData);
+        return;
+      }
 
-        if (onSuccess) {
-          onSuccess();
-        } else {
-          // If bill was created from student details page, redirect back to that student's page
-          if (preSelectedStudent) {
-            router.push(`/billing/schedule/students/${preSelectedStudent.id}`);
-          } else {
-            router.push('/billing/schedule');
-          }
-        }
+      // Create path: one bill row per item. Sequential so React Query can
+      // batch invalidations and partial failures are deterministic.
+      for (const item of data.billing_items) {
+        await createStudentBill.mutateAsync(buildBillDto(item, data));
+        createdCount += 1;
+      }
+
+      if (onSuccess) {
+        onSuccess();
+      } else if (preSelectedStudent) {
+        router.push(`/billing/schedule/students/${preSelectedStudent.id}`);
+      } else {
+        router.push('/billing/schedule');
       }
     } catch (error) {
       console.error('Error saving bill:', error);
 
-      // Show user-friendly error message
+      const action = bill ? 'update' : 'create';
+      const total = data.billing_items.length;
+      const progress =
+        !bill && total > 1
+          ? ` (${createdCount} of ${total} item${total > 1 ? 's' : ''} were created before the failure)`
+          : '';
+
       alert(
-        `Failed to ${bill ? 'update' : 'create'} bill: ${
+        `Failed to ${action} bill${progress}: ${
           error instanceof Error ? error.message : 'Unknown error'
         }`
       );
