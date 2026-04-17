@@ -617,6 +617,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Compliance Unification Program — Accreditation routes
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
+  '/accreditation/naac': 'accreditation.naac.view',             // PR-A8 NAAC IQAC dashboard
   '/accreditation/qs': 'accreditation.qs.view',                 // PR-A11 placeholder
 
   // OKR Module (resurrected from clean-ss-deploy, PR #230)
@@ -2701,6 +2702,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Coverage Matrix',
           active: pathname.startsWith('/accreditation/coverage'),
           icon: BarChart3,
+          submenus: []
+        },
+        {
+          href: '/accreditation/naac',
+          label: 'NAAC (IQAC)',
+          active: pathname.startsWith('/accreditation/naac'),
+          icon: ShieldCheck,
           submenus: []
         },
         {
