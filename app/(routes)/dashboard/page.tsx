@@ -78,6 +78,8 @@ async function LiveCounselorHero() {
 async function LiveFacultyHero() {
   const metrics = await getFacultyMetrics();
   return <FacultyHeroStrip metrics={metrics} />;
+}
+
 // Week-3 addition: student/learner-scoped hero strip (4,235 active users)
 async function LiveStudentHero() {
   const metrics = await getStudentMetrics();
@@ -235,15 +237,11 @@ export default async function DashboardV2Page({
           <LiveMorningBrief />
         </Suspense>
 
-        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / limited safe default) */}
+        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Student / limited safe default) */}
         <Suspense fallback={<HeroSkeleton />}>
           {isDirector && <LiveHeroStrip />}
           {isCounselor && <LiveCounselorHero />}
           {isFaculty && <LiveFacultyHero />}
-        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Student / limited safe default) */}
-        <Suspense fallback={<HeroSkeleton />}>
-          {isDirector && <LiveHeroStrip />}
-          {isCounselor && <LiveCounselorHero />}
           {isStudent && <LiveStudentHero />}
           {isLimited && <LimitedHero />}
         </Suspense>
