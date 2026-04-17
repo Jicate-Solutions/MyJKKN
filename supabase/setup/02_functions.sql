@@ -7842,7 +7842,7 @@ BEGIN
   END IF;
 
   SELECT * INTO v_current FROM learners_profiles
-  WHERE id = p_learner_id FOR UPDATE;
+  WHERE learners_profiles.id = p_learner_id FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Enquiry not found: %', p_learner_id;
