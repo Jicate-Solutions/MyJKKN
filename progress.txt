@@ -1,3 +1,62 @@
+## Session: 2026-04-17 (End) — Compliance Unification Program: 10 PRs shipped, substrate + landing + retrofits live
+
+### Accomplished
+- **10 PRs merged to jicate/main** over ~9-hour session:
+  - #223 PR-A1: rename `ComplianceService` → `AiSolutionComplianceService` (namespace disambiguation)
+  - #224 PR-A2: substrate schema (6 tables + 22 RLS + 25 starter metrics + 8 iqac_codes + 12 grievance_tickets ALTERs) applied to PRODUCTION Supabase via MCP
+  - #225: Unification Program spec (501 lines) + CLAUDE.md production-code-sweep directive (Tier 4 enforcement)
+  - #226 PR-A5: anti-ragging fan-out trigger (UGC/ANT + NAAC/7.7.1) — verified live on prod via round-trip test
+  - #227 PR-A11: /accreditation/qs placeholder page (built by frontend-developer agent)
+  - #228 PR-A2 c2: catalog expansion 25→68 rows + PublicationsService body_code casing bug fix (lowercase→uppercase filter)
+  - #229 PR-A7: /accreditation landing + /accreditation/coverage matrix + 4 shared components (BodyScoreboardCard, AccreditationService, types, hooks) — unblocks all per-body dashboards
+  - #231 PR-A3: Admission NAAC report retrofit to AdmissionAccreditationReportService + emitEnrollmentEvidence() fan-out (NAAC 2.1.1 + NIRF TLR_SS)
+  - #232 PR-A4: /admin/pde/naac-evidence → /admin/pde/accreditation-evidence/[body] dynamic route
+  - #236 PR-A8 c1 (OPEN): /accreditation/naac IQAC dashboard MVP — 10 attribute cards + college switcher
+- **Director-locked strategic decisions:**
+  - 8 JKKN colleges (5 Auto + 3 Aff), not 6 — Master Plan v0.4 was wrong about 2+4
+  - 10 compliance bodies substrate (NAAC + NIRF + NBA + QS + DCI + PCI + INC + AICTE + NCTE + UGC) — body-agnostic from day one
+  - IQAC = continuous-improvement methodology (Principal IS IQAC Chairman, HODs ARE Department IQAC Coordinators) — not a siloed URL container
+  - Retired Phase 1a v2.1 spec; replaced with 15-PR Compliance Unification Program (spec at specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md)
+- **Enforcement elevated from Tier 5 memory to Tier 2 skill + Tier 4 CLAUDE.md:**
+  - Production-code sweep mandatory before any plan (caught 5 scope failures in this session when rule was memory-only)
+  - Skill `/myjkkn-chain` now blocks on sweep gate
+  - CLAUDE.md has NON-NEGOTIABLE section at top
+
+### Current Status
+- **Unification Program**: 9 of 15 PRs merged, 1 open (#236 PR-A8 c1)
+- **Build**: passing on all merged work
+- **Production Supabase**: 6 substrate tables + RLS + 68 metrics + anti-ragging fan-out trigger all LIVE
+- **Vercel production**: code through PR-A4 deployed; PR-A8 c1 awaiting merge
+- **Open PR**: #236 (PR-A8 c1, build passed exit 0, ready for review)
+- **Branches**: unified under jicate/main after every merge
+- **Worktrees**: unify-pr-a1/a2/a2c2/a3/a4/a5/a7/a8/a11 still on disk (safe to remove since merged)
+
+### Lessons Learned
+- **Production-code sweep before proposing plans is non-negotiable.** Memory alone is insufficient — 5 scope failures this session happened when the rule was Tier-5 memory. Now elevated to Tier-2 skill gate + Tier-4 CLAUDE.md directive. Sticky test: if user asks "have you checked production?" — rule was skipped.
+- **MCP points to PRODUCTION, not staging.** `mcp__supabase__apply_migration` writes to `kvizhngldtiuufknvehv` (real JKKN production). Every migration idempotent (IF NOT EXISTS, ON CONFLICT DO NOTHING, WHERE col IS NULL) saved from production incident. Memory stale on staging ref.
+- **Body-agnostic substrate from day one prevents cascading rework.** Director mandate "not just NAAC but all others" enforced via CHECK constraint on body_code — impossible to accidentally ship NAAC-only feature now.
+- **PR-A7 shared components de-risked ~140h of downstream work.** BodyScoreboardCard + AccreditationService + types are now the stable foundation PR-A8 through PR-A15 consume. No more architectural decisions for 7 remaining PRs.
+- **Auto-save + branch-switch cycles are hostile** — PR-A8 worktree had 2 wip auto-save commits that would have been lost without `git reset --soft <last-good>` + proper amendment. Atomic commit-per-Write + push-per-commit habit saved 380 LOC.
+- **Sequential is safer than parallel for critical-path work.** User preference "one after another" avoids the types-first + fresh-eyes coordination overhead that parallel agents need. Each PR's merge informs the next.
+- **Agent-built PRs need parent Claude to apply migrations.** Frontend-developer + fullstack-developer agents can't call `mcp__supabase__apply_migration` because their tool set doesn't include Supabase MCP. Parent Claude must apply + verify.
+
+### Next Session — Tasks
+1. [P0] Merge PR #236 (PR-A8 c1) + Vercel deploy + verify /accreditation/naac live (small)
+2. [P0] Build PR-A8 commit 2: /accreditation/naac/committees CRUD + /accreditation/naac/dcf-export + /accreditation/naac/surveys/consent (large — ~18h)
+3. [P1] PR-A9: /accreditation/nirf dashboard (reuses PublicationsService.calculateNIRFMetrics) (medium — ~15h)
+4. [P1] PR-A10: /accreditation/nba per-Engineering-program dashboard (medium — ~18h)
+5. [P1] PR-A6: Complete grievance module behind B2A gateway (RETAINS all 22 thrash decisions from retired v2.1) (large — ~40h, own session)
+6. [P2] PR-A12-A14: /accreditation/dci|pci|inc per-college dashboards (3 PRs ~12h each)
+7. [P2] PR-A15: /accreditation/ncte + aicte + ugc combined (medium — ~20h)
+8. [P2] Clean up unify-pr-a1 through unify-pr-a11 worktrees (all branches merged, safe to remove) (small)
+9. [P3] Per-body metrics catalog expansion — each body's dashboard PR (A9/A10/A12-A15) seeds its own full rubric rows (embedded in above)
+10. [P3] Update workshop-transformation-resurrection MASTER-PLAN.md v0.4 → v0.6 (8 colleges + 10-body + IQAC-methodology deltas) (small)
+
+### Continuation Prompt
+See /Users/omm/PROJECTS/MyJKKN/.claude/continuation-prompt.md
+
+---
+
 ## Session: 2026-04-14 (Evening) — HR-App Sprint 1 FOUNDATION shipped
 
 ### What happened
