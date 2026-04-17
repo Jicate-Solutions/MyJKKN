@@ -818,6 +818,84 @@ export const PERMISSION_CATEGORIES = [
       { key: 'faculty_innovation.admin.retro_load', label: 'Retro-load Initiatives' },
       { key: 'faculty_innovation.admin.bulk_import', label: 'Bulk Import Initiatives' }
     ]
+  },
+  // Added 2026-04-16 - OKR module resurrection from clean-ss-deploy
+  // Strategic driver: Cluster Academic Council uses OKR as primary tracking layer
+  // Cascading levels: organization -> institution -> department -> individual
+  // Tiers: tier_1 (strategic), tier_2 (operational), tier_3 (execution)
+  {
+    name: 'OKR (Objectives & Key Results)',
+    key: 'okr',
+    permissions: [
+      // Top-level module visibility
+      { key: 'okr.view', label: 'View OKR Module' },
+
+      // Objectives CRUD
+      { key: 'okr.objectives.view', label: 'View Objectives' },
+      { key: 'okr.objectives.create', label: 'Create Objectives' },
+      { key: 'okr.objectives.edit', label: 'Edit Objectives' },
+      { key: 'okr.objectives.delete', label: 'Delete Objectives' },
+
+      // Tier-level objective creation (strategic gate)
+      { key: 'okr.objectives.create.tier1', label: 'Create Tier 1 (Strategic/Org) Objectives' },
+      { key: 'okr.objectives.create.tier2', label: 'Create Tier 2 (Institution) Objectives' },
+      { key: 'okr.objectives.create.tier3', label: 'Create Tier 3 (Department) Objectives' },
+      { key: 'okr.objectives.create.organization', label: 'Create Organization-level Objectives' },
+
+      // Key Results (KRs) CRUD
+      { key: 'okr.key_results.view', label: 'View Key Results' },
+      { key: 'okr.key_results.create', label: 'Create Key Results' },
+      { key: 'okr.key_results.edit', label: 'Edit Key Results' },
+      { key: 'okr.key_results.delete', label: 'Delete Key Results' },
+
+      // Weekly check-ins
+      { key: 'okr.checkin.view', label: 'View Check-ins' },
+      { key: 'okr.checkin.create', label: 'Submit Weekly Check-in' },
+      { key: 'okr.checkin.edit', label: 'Edit Own Check-in' },
+
+      // Views by scope
+      { key: 'okr.organization.view', label: 'View Organization OKRs' },
+      { key: 'okr.department.view', label: 'View Department OKRs' },
+      { key: 'okr.team.view', label: 'View Team OKRs' },
+      { key: 'okr.cascade.view', label: 'View OKR Cascade' },
+
+      // Elective (Learner self-defined OKRs)
+      { key: 'okr.elective.view', label: 'View Elective OKRs' },
+      { key: 'okr.elective.create', label: 'Create Elective OKR' },
+      { key: 'okr.elective.edit', label: 'Edit Elective OKR' },
+
+      // ABCD matrix (process quality vs progress outcome)
+      { key: 'okr.abcd.view', label: 'View ABCD Matrix' },
+      { key: 'okr.abcd.rate', label: 'Submit Process Rating' },
+
+      // Analytics & reporting
+      { key: 'okr.analytics.view', label: 'View OKR Analytics' },
+      { key: 'okr.stats.view', label: 'View OKR Statistics' },
+
+      // Compliance tracking (weekly check-in adherence)
+      { key: 'okr.compliance.view', label: 'View Own Compliance Status' },
+      { key: 'okr.compliance.view_all', label: 'View All Users Compliance' },
+      { key: 'okr.admin.view', label: 'View Admin Compliance Dashboard' },
+
+      // Management (objective/KR assignment, cascade editing)
+      { key: 'okr.manage.view', label: 'Access Manage OKR View' },
+      { key: 'okr.manage.assign', label: 'Assign Objectives to Users' },
+
+      // Dependencies, tasks, risks (tier_1 features)
+      { key: 'okr.dependencies.view', label: 'View OKR Dependencies' },
+      { key: 'okr.dependencies.manage', label: 'Manage OKR Dependencies' },
+      { key: 'okr.tasks.view', label: 'View RACI Tasks' },
+      { key: 'okr.tasks.manage', label: 'Manage RACI Tasks' },
+      { key: 'okr.risks.view', label: 'View Risk Register' },
+      { key: 'okr.risks.manage', label: 'Manage Risk Register' },
+
+      // Auto-track (metric engine for auto-updated KRs)
+      { key: 'okr.auto_track.view', label: 'View Auto-Track Sources' },
+      { key: 'okr.auto_track.manage', label: 'Configure Auto-Track Sources' },
+
+      // Export (NAAC / NBA / accreditation reporting downstream)
+      { key: 'okr.export', label: 'Export OKR Data' }
+    ]
   }
 ];
 
