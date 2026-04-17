@@ -2235,6 +2235,14 @@ AS $$
         JOIN custom_roles cr ON ur.role_id = cr.id
         WHERE cr.role_key = 'counselor'
       )
+      -- Include any user explicitly added to admission_counselors (any role)
+      OR p.id IN (
+        SELECT ac.user_id
+        FROM admission_counselors ac
+        WHERE ac.is_active = true
+          AND ac.user_id IS NOT NULL
+          AND (p_institution_id IS NULL OR ac.institution_id = p_institution_id)
+      )
     )
   ORDER BY p.full_name;
 $$;
