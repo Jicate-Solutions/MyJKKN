@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Profile } from '@/types/auth';
+import { Profile, SYSTEM_ROLES } from '@/types/auth';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
@@ -22,14 +22,15 @@ import toast from 'react-hot-toast';
 import { UserFilters } from '@/types/users';
 import { UserFiltersComponent } from '../_components/user-filters';
 import { UserAdvancedSearch, type UserSearchFilters } from '../_components/user-advanced-search';
+import { useAuth } from '@/hooks/use-auth-provider';
 
 export default function RolesPage() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
+  const { profile, isLoading: isAuthLoading } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
   const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [advancedSearchFilters, setAdvancedSearchFilters] = useState<UserSearchFilters | null>(null);
   const [filters, setFilters] = useState<UserFilters>({
     page: 1,
@@ -44,23 +45,20 @@ export default function RolesPage() {
     hasNextPage: false,
     hasPreviousPage: false
   });
-  // Check super admin access
+
+  const isSuperAdmin =
+    !!profile &&
+    (profile.role === SYSTEM_ROLES.SUPER_ADMIN ||
+      profile.is_super_admin === true);
+
+  // Redirect non-super-admins only after auth state is resolved
   useEffect(() => {
-    const checkAccess = async () => {
-      try {
-        const { data: profile } = await UserService.getCurrentUserProfile();
-        if (!profile || profile.role !== 'super_admin') {
-          router.push('/unauthorized');
-          return;
-        }
-        setIsSuperAdmin(true);
-      } catch (error) {
-        console.error('Error checking access:', error);
-        router.push('/unauthorized');
-      }
-    };
-    checkAccess();
-  }, [router]);
+    if (isAuthLoading) return;
+    if (!profile) return; // Middleware handles unauthenticated users
+    if (!isSuperAdmin) {
+      router.push('/unauthorized');
+    }
+  }, [isAuthLoading, profile, isSuperAdmin, router]);
 
   // Add filter change handler
   const handleFilterChange = (newFilters: Partial<UserFilters>) => {
@@ -269,7 +267,7 @@ export default function RolesPage() {
     }));
   }, []);
 
-  if (!isSuperAdmin) {
+  if (isAuthLoading || !profile || !isSuperAdmin) {
     return (
       <ContentLayout title='Roles & Permissions'>
         <div className='flex justify-center items-center min-h-[400px]'>

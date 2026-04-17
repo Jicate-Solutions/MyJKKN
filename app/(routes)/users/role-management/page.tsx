@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { BeatLoader } from 'react-spinners';
@@ -16,55 +15,46 @@ import {
 } from 'lucide-react';
 import { RoleManagementList } from './_components/role-management-list';
 import { RoleService } from '@/lib/services/roles/role-service';
-import { UserService } from '@/lib/services/users/user-service';
 import { CustomRole, SYSTEM_ROLES } from '@/types/auth';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { CreateRoleDialog } from './_components/create-role-dialog';
 import { PageBreadcrumb } from '@/components/navigation';
-import { AuthService } from '@/lib/auth/auth-service';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScholarshipPermissionManager } from '@/app/(routes)/billing/discounts/_components/scholarship-permission-manager';
 import { UserInstitutionAccessManager } from './_components/user-institution-access-manager';
+import { useAuth } from '@/hooks/use-auth-provider';
 
 export default function RoleManagementPage() {
   const router = useRouter();
+  const { profile, isLoading: isAuthLoading } = useAuth();
   const [roles, setRoles] = useState<CustomRole[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
   const [activeTab, setActiveTab] = useState('roles');
 
-  // Check permissions and fetch roles
+  const isSuperAdmin =
+    !!profile &&
+    (profile.role === SYSTEM_ROLES.SUPER_ADMIN ||
+      profile.is_super_admin === true);
+
+  // Redirect non-super-admins once auth state is known
   useEffect(() => {
-    const checkPermissionAndFetchRoles = async () => {
-      try {
-        setIsLoading(true);
+    if (isAuthLoading) return;
+    if (!profile) return; // Middleware handles unauthenticated users
+    if (!isSuperAdmin) {
+      router.push('/unauthorized');
+    }
+  }, [isAuthLoading, profile, isSuperAdmin, router]);
 
-        // Check if current user is super_admin
-        const { data: profile } = await UserService.getCurrentUserProfile();
-        if (!profile || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
-          router.push('/unauthorized');
-          return;
-        }
-
-        setIsSuperAdmin(true);
-
-        // Fetch roles
-        await fetchRoles();
-      } catch (error) {
-        console.error('Error checking permissions:', error);
-        setError('You do not have permission to access this page');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkPermissionAndFetchRoles();
-  }, [router]);
+  // Fetch roles once super-admin status is confirmed
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    fetchRoles();
+  }, [isSuperAdmin]);
 
   // Fetch roles
   const fetchRoles = async () => {
@@ -205,7 +195,7 @@ export default function RoleManagementPage() {
     }
   };
 
-  if (!isSuperAdmin) {
+  if (isAuthLoading || !profile || !isSuperAdmin) {
     return (
       <ContentLayout title='Role Management'>
         <div className='flex justify-center items-center min-h-[400px]'>
