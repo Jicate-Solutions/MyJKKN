@@ -41,7 +41,7 @@ CREATE TABLE profile_change_audit_log (
   learner_id UUID NOT NULL REFERENCES learners_profiles(id) ON DELETE CASCADE,
   change_request_id UUID REFERENCES profile_change_requests(id), -- Link to original request
 
-  action_type TEXT NOT NULL CHECK (action_type IN ('approved', 'rejected', 'cancelled')),
+  action_type TEXT NOT NULL CHECK (action_type IN ('approved', 'rejected', 'cancelled', 'TRANSFER')),
   changed_fields JSONB NOT NULL, -- Same structure as change_requests
 
   performed_by UUID REFERENCES profiles(id), -- Who made the change
