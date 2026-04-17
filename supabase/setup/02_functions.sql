@@ -7857,19 +7857,19 @@ BEGIN
   END IF;
 
   PERFORM 1 FROM degrees
-  WHERE id = p_new_degree_id AND institution_id = p_new_institution_id;
+  WHERE degrees.id = p_new_degree_id AND degrees.institution_id = p_new_institution_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Degree % does not belong to institution %', p_new_degree_id, p_new_institution_id;
   END IF;
 
   PERFORM 1 FROM departments
-  WHERE id = p_new_department_id AND degree_id = p_new_degree_id;
+  WHERE departments.id = p_new_department_id AND departments.degree_id = p_new_degree_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Department % does not belong to degree %', p_new_department_id, p_new_degree_id;
   END IF;
 
   PERFORM 1 FROM programs
-  WHERE id = p_new_program_id AND department_id = p_new_department_id;
+  WHERE programs.id = p_new_program_id AND programs.department_id = p_new_department_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Program % does not belong to department %', p_new_program_id, p_new_department_id;
   END IF;
