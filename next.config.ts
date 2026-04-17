@@ -121,6 +121,13 @@ const nextConfig: NextConfig = {
         source: '/iqac/:path*',
         destination: '/accreditation/naac/:path*',
         permanent: true
+      },
+      // PR-A4 (2026-04-17): /admin/pde/naac-evidence → accreditation-evidence/[body]
+      // Preserves bookmarks + external links pointing at the NAAC-specific URL.
+      {
+        source: '/admin/pde/naac-evidence',
+        destination: '/admin/pde/accreditation-evidence/naac',
+        permanent: true
       }
     ];
   },
