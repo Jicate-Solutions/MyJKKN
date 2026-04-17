@@ -4,10 +4,12 @@
  * Determines which persona of the dashboard to render for the current user:
  *   - 'director'  → full cockpit: hero strip + institution chips + queue + leaderboards
  *   - 'counselor' → counselor hero: SLA / rank / hot leads / calls
+ *   - 'student'   → student/learner hero: attendance / fees / timetable / deadlines.
+ *                   Self-scoped via auth.uid(). NO leaderboards, NO institution chips.
  *   - 'limited'   → self-scoped only: morning brief + decision queue + push button.
  *                   NO hero strip (cross-institution aggregates would leak), NO institution chips,
  *                   NO leaderboards. Users in this bucket haven't been issued a role-specific
- *                   dashboard yet (HOD, Principal, Warden, Accounts, Faculty, Student, Parent).
+ *                   dashboard yet (HOD, Principal, Warden, Accounts, Faculty, Parent).
  *
  * IMPORTANT — security property: 'limited' is the safe default. Never fall back to 'director'
  * because fn_dashboard_metrics() is SECURITY DEFINER and returns JKKN-wide aggregates when called
@@ -19,7 +21,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 
-export type DashboardPersona = 'director' | 'counselor' | 'limited';
+export type DashboardPersona = 'director' | 'counselor' | 'student' | 'limited';
 
 const DIRECTOR_ROLES = new Set([
   'admin',
@@ -32,6 +34,10 @@ const COUNSELOR_ROLES = new Set([
   'admission',
   'admission_staff',
   'counselor'
+]);
+
+const STUDENT_ROLES = new Set([
+  'student'
 ]);
 
 export type PersonaResolution = {
@@ -84,6 +90,7 @@ export async function resolvePersona(): Promise<PersonaResolution> {
     let persona: DashboardPersona = 'limited';
     if (isSuperAdmin || DIRECTOR_ROLES.has(role)) persona = 'director';
     else if (COUNSELOR_ROLES.has(role)) persona = 'counselor';
+    else if (STUDENT_ROLES.has(role)) persona = 'student';
 
     return {
       persona,
