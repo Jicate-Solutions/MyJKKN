@@ -12,11 +12,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useNAACEnrollmentReport } from '@/hooks/admission/use-naac-report';
+import { useAdmissionAccreditationEnrollmentReport } from '@/hooks/admission/use-admission-accreditation-report';
 
 export function NAACReportGenerator() {
   const [showReport, setShowReport] = useState(false);
-  const { data: report, isLoading, isError } = useNAACEnrollmentReport();
+  const { data: report, isLoading, isError } = useAdmissionAccreditationEnrollmentReport();
 
   const exportCSV = () => {
     if (!report?.rows?.length) return;
