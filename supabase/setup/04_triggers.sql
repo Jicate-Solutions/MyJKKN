@@ -541,6 +541,16 @@ CREATE TRIGGER trg_sync_learner_status_to_profile
 COMMENT ON TRIGGER trg_sync_learner_status_to_profile ON learners_profiles IS
 'Auto-syncs lifecycle_status changes to profile is_active. Only active learners can log in.';
 
+-- Stamp activated_at once when learner first becomes active (seat analytics baseline)
+DROP TRIGGER IF EXISTS trg_set_learner_activated_at ON public.learners_profiles;
+CREATE TRIGGER trg_set_learner_activated_at
+  BEFORE UPDATE OF lifecycle_status ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION set_learner_activated_at();
+
+COMMENT ON TRIGGER trg_set_learner_activated_at ON learners_profiles IS
+'Sets activated_at once on first active transition. Used as the canonical seat-fill date for analytics.';
+
 -- ================================================================================
 -- SERVICE REQUEST MODULE TRIGGERS
 -- Updated: 2026-02-09

@@ -83,6 +83,64 @@ export interface GroupDashboardData {
   };
 }
 
+// Seat analytics — from get_seat_analytics RPC
+export interface SeatAnalyticsRow {
+  institution_id: string;
+  institution_name: string;
+  degree_id: string;
+  degree_name: string;
+  department_id: string;
+  department_name: string;
+  program_id: string;
+  program_name: string;
+  academic_year_id: string;
+  academic_year_name: string;
+  total_seats: number;
+  filled_seats: number;
+  balance_seats: number;
+  fill_percentage: number;
+  last_filled_at: string | null;
+}
+
+// Source analytics — from get_source_analytics RPC
+export interface SourceAnalyticsRow {
+  institution_id: string;
+  institution_name: string;
+  source: string | null;
+  referral_type: string | null;
+  academic_year_id: string | null;
+  academic_year_name: string | null;
+  lead_count: number;
+  enrolled_count: number;
+  conversion_rate: number;
+  last_enrolled_at: string | null;
+}
+
+// Geography analytics — from get_geography_analytics RPC
+export interface GeographyAnalyticsRow {
+  institution_id: string;
+  institution_name: string;
+  state: string | null;
+  district: string | null;
+  taluk: string | null;
+  active_learners: number;
+}
+
+// Institution comparison — derived from seat + source data
+export interface InstitutionComparisonRow {
+  institution_id: string;
+  institution_name: string;
+  total_seats: number;
+  filled_seats: number;
+  fill_percentage: number;
+  total_leads: number;
+  enrolled_count: number;
+  conversion_rate: number;
+  top_source: string | null;
+  top_district: string | null;
+  active_learners: number;
+}
+
 export interface CrossCampusDuplicate {
   lead_1_id: string;
   institution_1: string;

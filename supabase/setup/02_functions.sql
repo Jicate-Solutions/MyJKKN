@@ -2190,6 +2190,25 @@ $$;
 COMMENT ON FUNCTION sync_learner_status_to_profile IS
 'Auto-syncs learner lifecycle_status changes to profiles.is_active. Only active learners can log in.';
 
+-- Seat analytics: stamp activated_at exactly once when status first transitions to 'active'
+CREATE OR REPLACE FUNCTION public.set_learner_activated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+BEGIN
+  IF NEW.lifecycle_status = 'active'
+     AND OLD.lifecycle_status IS DISTINCT FROM 'active'
+     AND NEW.activated_at IS NULL THEN
+    NEW.activated_at := now();
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION set_learner_activated_at IS
+'Sets activated_at once when lifecycle_status first changes to active. Never overwrites an existing value.';
+
 -- ================================================================================
 -- SECTION 8: ADMISSION MODULE FUNCTIONS
 -- ================================================================================
@@ -7942,3 +7961,186 @@ GRANT EXECUTE ON FUNCTION public.transfer_learner_enquiry(
   uuid, uuid, uuid, uuid, uuid, uuid, uuid, uuid, uuid, uuid, text
 ) TO authenticated;
 -- END transfer_learner_enquiry
+
+-- ============================================================================
+-- SEAT ANALYTICS RPCs (2026-04-17)
+-- ============================================================================
+
+-- RPC A: Seat fill stats per institution → degree → department → program
+CREATE OR REPLACE FUNCTION public.get_seat_analytics(
+  p_institution_id uuid DEFAULT NULL,
+  p_academic_year_id uuid DEFAULT NULL
+)
+RETURNS TABLE (
+  institution_id    uuid,
+  institution_name  text,
+  degree_id         uuid,
+  degree_name       text,
+  department_id     uuid,
+  department_name   text,
+  program_id        uuid,
+  program_name      text,
+  academic_year_id  uuid,
+  academic_year_name text,
+  total_seats       integer,
+  filled_seats      bigint,
+  balance_seats     integer,
+  fill_percentage   numeric,
+  last_filled_at    timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    i.id,
+    i.name,
+    d.id,
+    d.degree_name,
+    dept.id,
+    dept.department_name,
+    p.id,
+    p.program_name,
+    ay.id,
+    ay.academic_year_name,
+    COALESCE(ih.sanctioned_intake, p.sanctioned_intake, 0)::integer AS total_seats,
+    COUNT(lp.id) AS filled_seats,
+    GREATEST(0,
+      COALESCE(ih.sanctioned_intake, p.sanctioned_intake, 0)
+      - COUNT(lp.id)::integer
+    ) AS balance_seats,
+    CASE
+      WHEN COALESCE(ih.sanctioned_intake, p.sanctioned_intake, 0) > 0
+        THEN ROUND(
+          COUNT(lp.id)::numeric
+          / COALESCE(ih.sanctioned_intake, p.sanctioned_intake, 0) * 100, 1)
+      ELSE 0
+    END AS fill_percentage,
+    MAX(lp.activated_at) AS last_filled_at
+  FROM programs p
+  JOIN departments dept ON dept.id = p.department_id
+  JOIN degrees d        ON d.id = p.degree_id
+  JOIN institutions i   ON i.id = p.institution_id
+  JOIN academic_years ay
+    ON (p_academic_year_id IS NULL OR ay.id = p_academic_year_id)
+  LEFT JOIN intake_history ih
+    ON ih.program_id = p.id AND ih.academic_year_id = ay.id
+  LEFT JOIN learners_profiles lp
+    ON  lp.program_id        = p.id
+    AND lp.academic_year_id  = ay.id
+    AND lp.lifecycle_status  = 'active'
+  WHERE (p_institution_id IS NULL OR i.id = p_institution_id)
+    AND p.is_active = true
+    AND (ih.id IS NOT NULL OR lp.id IS NOT NULL)
+  GROUP BY
+    i.id, i.name,
+    d.id, d.degree_name,
+    dept.id, dept.department_name,
+    p.id, p.program_name,
+    ay.id, ay.academic_year_name,
+    ih.sanctioned_intake, p.sanctioned_intake
+  ORDER BY i.name, d.degree_name, dept.department_name, p.program_name, ay.academic_year_name;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_seat_analytics(uuid, uuid) TO authenticated;
+
+-- RPC B: Source/referral breakdown (consultant/direct/student/faculty) by institution
+CREATE OR REPLACE FUNCTION public.get_source_analytics(
+  p_institution_id    uuid DEFAULT NULL,
+  p_academic_year_id  uuid DEFAULT NULL
+)
+RETURNS TABLE (
+  institution_id    uuid,
+  institution_name  text,
+  source            text,
+  referral_type     text,
+  academic_year_id  uuid,
+  academic_year_name text,
+  lead_count        bigint,
+  enrolled_count    bigint,
+  conversion_rate   numeric,
+  last_enrolled_at  timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    i.id                                          AS institution_id,
+    i.name                                        AS institution_name,
+    al.source::text                               AS source,
+    al.referral_type,
+    ay.id                                         AS academic_year_id,
+    ay.academic_year_name,
+    COUNT(DISTINCT al.id)                         AS lead_count,
+    COUNT(DISTINCT lp.id)
+      FILTER (WHERE lp.lifecycle_status = 'active') AS enrolled_count,
+    CASE
+      WHEN COUNT(DISTINCT al.id) > 0
+        THEN ROUND(
+          COUNT(DISTINCT lp.id) FILTER (WHERE lp.lifecycle_status = 'active')::numeric
+          / COUNT(DISTINCT al.id) * 100, 1)
+      ELSE 0
+    END                                           AS conversion_rate,
+    MAX(lp.activated_at)                          AS last_enrolled_at
+  FROM admission_leads al
+  JOIN institutions i ON i.id = al.institution_id
+  LEFT JOIN learners_profiles lp ON lp.id = al.learner_profile_id
+  LEFT JOIN academic_years ay ON ay.id = lp.academic_year_id
+  WHERE (p_institution_id IS NULL OR al.institution_id = p_institution_id)
+    AND (p_academic_year_id IS NULL
+         OR lp.academic_year_id = p_academic_year_id
+         OR lp.id IS NULL)
+  GROUP BY
+    i.id, i.name,
+    al.source, al.referral_type,
+    ay.id, ay.academic_year_name
+  ORDER BY i.name, enrolled_count DESC;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_source_analytics(uuid, uuid) TO authenticated;
+
+-- RPC C: Geographic breakdown (state → district → taluk) for active learners
+CREATE OR REPLACE FUNCTION public.get_geography_analytics(
+  p_institution_id    uuid DEFAULT NULL,
+  p_academic_year_id  uuid DEFAULT NULL
+)
+RETURNS TABLE (
+  institution_id   uuid,
+  institution_name text,
+  state            text,
+  district         text,
+  taluk            text,
+  active_learners  bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    i.id                            AS institution_id,
+    i.name                          AS institution_name,
+    lp.permanent_address_state      AS state,
+    lp.permanent_address_district   AS district,
+    lp.permanent_address_taluk      AS taluk,
+    COUNT(*)                        AS active_learners
+  FROM learners_profiles lp
+  JOIN institutions i ON i.id = lp.institution_id
+  WHERE lp.lifecycle_status = 'active'
+    AND (p_institution_id   IS NULL OR lp.institution_id  = p_institution_id)
+    AND (p_academic_year_id IS NULL OR lp.academic_year_id = p_academic_year_id)
+    AND lp.permanent_address_district IS NOT NULL
+    AND lp.permanent_address_district != ''
+  GROUP BY
+    i.id, i.name,
+    lp.permanent_address_state,
+    lp.permanent_address_district,
+    lp.permanent_address_taluk
+  ORDER BY i.name, active_learners DESC;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_geography_analytics(uuid, uuid) TO authenticated;
+-- END SEAT ANALYTICS RPCs

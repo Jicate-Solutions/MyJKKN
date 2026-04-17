@@ -338,6 +338,8 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
 
     -- Unified lifecycle status (replaces admission.status + student.status)
     lifecycle_status lifecycle_status NOT NULL DEFAULT 'enquiry',
+    -- Seat analytics: set once when lifecycle_status first transitions to 'active', never updated
+    activated_at TIMESTAMPTZ,
 
     -- Personal Information (required from admission)
     first_name TEXT NOT NULL,
@@ -1525,6 +1527,18 @@ CREATE INDEX IF NOT EXISTS idx_learners_profiles_regulation_id ON public.learner
 CREATE INDEX IF NOT EXISTS idx_learners_profiles_batch_id ON public.learners_profiles(batch_id);
 -- Lifecycle status index (commonly used for filtering)
 CREATE INDEX IF NOT EXISTS idx_learners_profiles_lifecycle_status ON public.learners_profiles(lifecycle_status);
+-- Seat analytics composite index: program fill queries hit all 4 columns together
+CREATE INDEX IF NOT EXISTS idx_lp_seat_analytics
+  ON public.learners_profiles(institution_id, program_id, academic_year_id, lifecycle_status)
+  WHERE lifecycle_status = 'active';
+-- Source analytics index: source breakdown for enrolled leads
+CREATE INDEX IF NOT EXISTS idx_admission_leads_source_enrolled
+  ON public.admission_leads(institution_id, source, referral_type)
+  WHERE funnel_stage = 'enrolled';
+-- Geography analytics index: district/taluk grouping for active learners
+CREATE INDEX IF NOT EXISTS idx_lp_geography
+  ON public.learners_profiles(institution_id, permanent_address_district, permanent_address_taluk)
+  WHERE lifecycle_status = 'active';
 -- Profile completion index
 CREATE INDEX IF NOT EXISTS idx_learners_profiles_profile_complete ON public.learners_profiles(is_profile_complete);
 -- Migration lineage indexes (for audit queries and verification)
