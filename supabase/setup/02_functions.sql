@@ -7411,3 +7411,211 @@ REVOKE ALL ON FUNCTION fn_dashboard_metrics_as(UUID) FROM PUBLIC, anon, authenti
 GRANT EXECUTE ON FUNCTION fn_dashboard_metrics_as(UUID) TO service_role;
 
 -- END Dashboard v2 null-gate hotfix
+
+-- ============================================================================
+-- Dashboard v2 — Student/Learner Metrics (fn_student_metrics)
+-- Added: 2026-04-17 — Student hero strip for 4,235 active learner users
+-- Returns attendance %, fee balance, today's timetable, upcoming deadlines
+-- SECURITY DEFINER: reads auth.uid() to resolve learner_id from profiles.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_student_metrics()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id         uuid;
+  v_learner_id      uuid;
+  v_section_id      uuid;
+  v_semester_id     uuid;
+  v_institution_id  uuid;
+  v_attendance      jsonb;
+  v_fees            jsonb;
+  v_timetable       jsonb;
+  v_deadlines       jsonb;
+  v_present         int := 0;
+  v_total           int := 0;
+  v_pct             numeric := 0;
+  v_band            text := 'red';
+  v_balance         numeric := 0;
+  v_next_due        date;
+  v_today_day       text;
+  v_classes         jsonb := '[]'::jsonb;
+  v_class_count     int := 0;
+  rec               record;
+BEGIN
+  -- 1. Resolve the current user to their learner profile
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'error', 'not_authenticated',
+      'scope', jsonb_build_object('user_id', null, 'computed_at', now()::text)
+    );
+  END IF;
+
+  SELECT p.learner_id, p.institution_id
+  INTO v_learner_id, v_institution_id
+  FROM profiles p
+  WHERE p.id = v_user_id;
+
+  IF v_learner_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'attendance', jsonb_build_object('pct_semester', 0, 'present', 0, 'total', 0, 'band', 'red', 'data_source', 'no_learner_profile'),
+      'fees', jsonb_build_object('balance_due', 0, 'next_due_date', null, 'currency', 'INR', 'data_source', 'no_learner_profile'),
+      'timetable_today', jsonb_build_object('classes', '[]'::jsonb, 'total', 0, 'data_source', 'no_learner_profile'),
+      'deadlines', jsonb_build_object('upcoming', '[]'::jsonb, 'count', 0, 'data_source', 'no_learner_profile'),
+      'scope', jsonb_build_object('user_id', v_user_id, 'institution_id', v_institution_id, 'computed_at', now()::text)
+    );
+  END IF;
+
+  SELECT lp.section_id, lp.semester_id
+  INTO v_section_id, v_semester_id
+  FROM learners_profiles lp
+  WHERE lp.id = v_learner_id;
+
+  -- TILE 1: ATTENDANCE (semester aggregate)
+  BEGIN
+    IF v_section_id IS NOT NULL AND v_semester_id IS NOT NULL THEN
+      SELECT
+        COALESCE(SUM(
+          (SELECT COUNT(*) FROM jsonb_each(sa.attendance_data) AS period_kv,
+           LATERAL jsonb_array_elements(period_kv.value -> 'students') AS student_entry
+           WHERE (student_entry ->> 'student_id')::uuid = v_learner_id
+             AND student_entry ->> 'status' = 'Present')
+        ), 0),
+        COALESCE(SUM(
+          (SELECT COUNT(*) FROM jsonb_each(sa.attendance_data) AS period_kv,
+           LATERAL jsonb_array_elements(period_kv.value -> 'students') AS student_entry
+           WHERE (student_entry ->> 'student_id')::uuid = v_learner_id)
+        ), 0)
+      INTO v_present, v_total
+      FROM student_attendance sa
+      WHERE sa.section_id = v_section_id
+        AND sa.semester_id = v_semester_id;
+
+      IF v_total > 0 THEN
+        v_pct := ROUND((v_present::numeric / v_total::numeric) * 100, 1);
+      END IF;
+
+      IF v_pct >= 75 THEN v_band := 'green';
+      ELSIF v_pct >= 60 THEN v_band := 'amber';
+      ELSE v_band := 'red';
+      END IF;
+
+      v_attendance := jsonb_build_object(
+        'pct_semester', v_pct, 'present', v_present, 'total', v_total, 'band', v_band
+      );
+    ELSE
+      v_attendance := jsonb_build_object(
+        'pct_semester', 0, 'present', 0, 'total', 0, 'band', 'red', 'data_source', 'no_section_or_semester'
+      );
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    v_attendance := jsonb_build_object(
+      'pct_semester', 0, 'present', 0, 'total', 0, 'band', 'red', 'data_source', 'error'
+    );
+  END;
+
+  -- TILE 2: FEE BALANCE
+  BEGIN
+    SELECT COALESCE(SUM(bsb.balance_amount), 0), MIN(bsb.due_date)
+    INTO v_balance, v_next_due
+    FROM billing_student_bills bsb
+    WHERE bsb.student_id = v_learner_id
+      AND bsb.balance_amount > 0
+      AND bsb.status NOT IN ('cancelled', 'refunded');
+
+    v_fees := jsonb_build_object('balance_due', v_balance, 'next_due_date', v_next_due, 'currency', 'INR');
+  EXCEPTION WHEN OTHERS THEN
+    v_fees := jsonb_build_object('balance_due', 0, 'next_due_date', null, 'currency', 'INR', 'data_source', 'error');
+  END;
+
+  -- TILE 3: TODAY'S TIMETABLE
+  BEGIN
+    v_today_day := RTRIM(UPPER(to_char(CURRENT_DATE, 'Day')));
+
+    IF v_section_id IS NOT NULL THEN
+      SELECT jsonb_agg(slot_info ORDER BY (slot_info ->> 'start_time')), COUNT(*)
+      INTO v_classes, v_class_count
+      FROM (
+        SELECT jsonb_build_object(
+          'course', COALESCE(c.course_code, 'N/A'),
+          'course_name', COALESCE(c.course_name, ''),
+          'time', COALESCE(p.start_time::text, '') || '-' || COALESCE(p.end_time::text, ''),
+          'faculty', COALESCE((
+            SELECT pr.full_name FROM profiles pr WHERE pr.id = (slot_val ->> 'primary_staff_id')::uuid
+          ), 'TBA'),
+          'room', '',
+          'start_time', COALESCE(p.start_time::text, '99:99'),
+          'is_break', COALESCE(p.is_break, false)
+        ) AS slot_info
+        FROM timetables tt,
+             jsonb_each(tt.timetable_data -> v_today_day) AS period_entry(period_id, slot_val)
+        LEFT JOIN periods p ON p.id = period_entry.period_id::uuid
+        LEFT JOIN courses c ON c.id = (period_entry.slot_val ->> 'course_id')::uuid
+        WHERE tt.section_id = v_section_id
+          AND tt.is_active = true
+          AND tt.timetable_data ? v_today_day
+          AND COALESCE((period_entry.slot_val ->> 'is_break_slot')::boolean, false) = false
+        LIMIT 12
+      ) sub;
+
+      v_classes := COALESCE(v_classes, '[]'::jsonb);
+      v_class_count := COALESCE(v_class_count, 0);
+      v_timetable := jsonb_build_object('classes', v_classes, 'total', v_class_count);
+    ELSE
+      v_timetable := jsonb_build_object('classes', '[]'::jsonb, 'total', 0, 'data_source', 'no_section');
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    v_timetable := jsonb_build_object('classes', '[]'::jsonb, 'total', 0, 'data_source', 'error');
+  END;
+
+  -- TILE 4: UPCOMING DEADLINES (fee due dates within 30 days)
+  BEGIN
+    SELECT jsonb_agg(d ORDER BY (d ->> 'due')), COUNT(*)
+    INTO v_deadlines, v_class_count
+    FROM (
+      SELECT jsonb_build_object(
+        'title', COALESCE(bsb.bill_description, 'Fee Payment'),
+        'due', bsb.due_date::text,
+        'type', 'fee_payment'
+      ) AS d
+      FROM billing_student_bills bsb
+      WHERE bsb.student_id = v_learner_id
+        AND bsb.balance_amount > 0
+        AND bsb.due_date >= CURRENT_DATE
+        AND bsb.due_date <= CURRENT_DATE + interval '30 days'
+        AND bsb.status NOT IN ('cancelled', 'refunded')
+      ORDER BY bsb.due_date
+      LIMIT 5
+    ) sub;
+
+    v_deadlines := COALESCE(v_deadlines, '[]'::jsonb);
+    v_class_count := COALESCE(v_class_count, 0);
+  EXCEPTION WHEN OTHERS THEN
+    v_deadlines := '[]'::jsonb;
+    v_class_count := 0;
+  END;
+
+  -- ASSEMBLE RESPONSE
+  RETURN jsonb_build_object(
+    'attendance', v_attendance,
+    'fees', v_fees,
+    'timetable_today', v_timetable,
+    'deadlines', jsonb_build_object('upcoming', v_deadlines, 'count', v_class_count),
+    'scope', jsonb_build_object(
+      'user_id', v_user_id, 'learner_id', v_learner_id,
+      'institution_id', v_institution_id, 'computed_at', now()::text
+    )
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.fn_student_metrics() TO authenticated;
+
+COMMENT ON FUNCTION public.fn_student_metrics() IS
+  'Dashboard v2 — Student/Learner hero strip metrics. SECURITY DEFINER.
+   Returns attendance %, fee balance, today timetable, upcoming deadlines.
+   Reads auth.uid() -> profiles.learner_id -> learners_profiles -> student_attendance + billing_student_bills + timetables.';
+-- END Dashboard v2 Student Metrics
