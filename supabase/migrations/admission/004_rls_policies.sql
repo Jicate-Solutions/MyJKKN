@@ -1160,14 +1160,15 @@ CREATE POLICY "lead_attributions_update" ON consultant_lead_attributions FOR UPD
     AND cr.role_key = 'admission'
   )
 );
+-- Updated 2026-04-17: Use dynamic permission check so any role with
+-- admission.leads.delete (e.g. admission_staff) can cascade-delete during
+-- permanent lead deletion. Matches admission_call_logs pattern.
 CREATE POLICY "lead_attributions_delete" ON consultant_lead_attributions FOR DELETE USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (
-    SELECT 1 FROM user_roles ur
-    JOIN custom_roles cr ON ur.role_id = cr.id
-    WHERE ur.user_id = auth.uid()
-    AND cr.role_key = 'admission'
+  is_super_admin()
+  OR is_admin()
+  OR (
+    user_has_permission('admission.leads.delete')
+    AND role_has_institution_access(institution_id)
   )
 );
 
@@ -1204,14 +1205,15 @@ CREATE POLICY "commission_transactions_update" ON consultant_commission_transact
     AND cr.role_key = 'admission'
   )
 );
+-- Updated 2026-04-17: Use dynamic permission check so any role with
+-- admission.leads.delete (e.g. admission_staff) can cascade-delete during
+-- permanent lead deletion. Matches admission_call_logs pattern.
 CREATE POLICY "commission_transactions_delete" ON consultant_commission_transactions FOR DELETE USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (
-    SELECT 1 FROM user_roles ur
-    JOIN custom_roles cr ON ur.role_id = cr.id
-    WHERE ur.user_id = auth.uid()
-    AND cr.role_key = 'admission'
+  is_super_admin()
+  OR is_admin()
+  OR (
+    user_has_permission('admission.leads.delete')
+    AND role_has_institution_access(institution_id)
   )
 );
 
@@ -1292,14 +1294,15 @@ CREATE POLICY "consultant_comms_update" ON consultant_communications FOR UPDATE 
     AND cr.role_key = 'admission'
   )
 );
+-- Updated 2026-04-17: Use dynamic permission check so any role with
+-- admission.leads.delete (e.g. admission_staff) can cascade-delete during
+-- permanent lead deletion. Matches admission_call_logs pattern.
 CREATE POLICY "consultant_comms_delete" ON consultant_communications FOR DELETE USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-  OR EXISTS (
-    SELECT 1 FROM user_roles ur
-    JOIN custom_roles cr ON ur.role_id = cr.id
-    WHERE ur.user_id = auth.uid()
-    AND cr.role_key = 'admission'
+  is_super_admin()
+  OR is_admin()
+  OR (
+    user_has_permission('admission.leads.delete')
+    AND role_has_institution_access(institution_id)
   )
 );
 
