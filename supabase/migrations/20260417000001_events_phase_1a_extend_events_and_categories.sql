@@ -19,6 +19,7 @@ ALTER TABLE public.events
   ADD COLUMN IF NOT EXISTS emergency_reason         TEXT,
   ADD COLUMN IF NOT EXISTS is_sensitive             BOOLEAN     NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS approval_chain_snapshot  JSONB,
+  ADD COLUMN IF NOT EXISTS venue_resource_id        UUID,
   ADD COLUMN IF NOT EXISTS venue_text               TEXT,
   ADD COLUMN IF NOT EXISTS superseded_by            UUID,
   ADD COLUMN IF NOT EXISTS supersede_reason         TEXT,
@@ -71,6 +72,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_venue_at_least_one_check') THEN
     ALTER TABLE public.events ADD CONSTRAINT events_venue_at_least_one_check
       CHECK (venue_resource_id IS NOT NULL OR venue_text IS NOT NULL OR venue IS NOT NULL);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_venue_resource_fk') THEN
+    ALTER TABLE public.events ADD CONSTRAINT events_venue_resource_fk
+      FOREIGN KEY (venue_resource_id) REFERENCES public.resources(id) ON DELETE SET NULL;
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_supersede_self_fk') THEN
