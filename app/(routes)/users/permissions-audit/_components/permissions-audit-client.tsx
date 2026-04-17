@@ -13,6 +13,7 @@ import { SystemHealthTab } from './system-health-tab';
 import { UserResolverTab } from './user-resolver-tab';
 import { PermissionMatrixTab } from './permission-matrix-tab';
 import { ComparisonTab } from './comparison-tab';
+import { ModuleAccessTab } from './module-access-tab';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
@@ -74,13 +75,18 @@ export function PermissionsAuditClient() {
           </div>
         </div>
 
-        <Tabs defaultValue='health' className='w-full'>
-          <TabsList className='grid w-full grid-cols-4'>
+        <Tabs defaultValue='module-access' className='w-full'>
+          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'>
+            <TabsTrigger value='module-access'>Module → Roles</TabsTrigger>
             <TabsTrigger value='health'>System Health</TabsTrigger>
             <TabsTrigger value='resolver'>User Resolver</TabsTrigger>
             <TabsTrigger value='matrix'>Permission Matrix</TabsTrigger>
             <TabsTrigger value='comparison'>Comparison</TabsTrigger>
           </TabsList>
+
+          <TabsContent value='module-access'>
+            <ModuleAccessTab />
+          </TabsContent>
 
           <TabsContent value='health'>
             <SystemHealthTab />
