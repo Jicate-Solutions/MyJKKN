@@ -1,5 +1,18 @@
-// lib/services/admission/naac-report-service.ts
-// NAAC Criteria 2.1.1 report generation from admission data
+// lib/services/admission/admission-accreditation-report-service.ts
+// ============================================================================
+// Admission Accreditation Report Service (PR-A3, 2026-04-17)
+//
+// Renamed from NAACReportService. Generates accreditation reports from
+// admission data — currently NAAC Criterion 2.1.1 (Average Enrollment %)
+// + emits fan-out evidence rows for applicable bodies:
+//   NAAC 2.1.1 + NIRF TLR_SS (enrollment data serves both)
+//
+// Per Compliance Unification Program:
+// specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md PR-A3
+//
+// Legacy export NAACReportService is kept as an alias for callers that
+// haven't been updated yet — will be removed in a follow-up cleanup PR.
+// ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
@@ -19,7 +32,7 @@ export interface NAACReport {
   }[];
 }
 
-export class NAACReportService {
+export class AdmissionAccreditationReportService {
   private static supabase = createClientSupabaseClient();
 
   /**
@@ -142,4 +155,63 @@ export class NAACReportService {
 
     return { rows, averages };
   }
+
+  /**
+   * Emit fan-out evidence rows for enrollment data (PR-A3).
+   * Called on-demand when a NAAC/NIRF report is finalized to record that the
+   * enrollment snapshot was generated. Emits to quality_evidence_mappings:
+   *   - NAAC 2.1.1 (Average Enrollment Percentage)
+   *   - NIRF TLR_SS (Teaching: Student Strength)
+   * Same source_id semantics as PR-A5 (polymorphic — source_table is the
+   * academic_years row or snapshot identifier).
+   *
+   * Idempotent via UNIQUE constraint on
+   * (source_table, source_id, body_code, metric_code).
+   */
+  static async emitEnrollmentEvidence(
+    institutionId: string,
+    academicYearId: string,
+  ): Promise<{ evidenceRowsCreated: number }> {
+    const evidenceRows = [
+      {
+        source_table: 'academic_years',
+        source_id: academicYearId,
+        institution_id: institutionId,
+        body_code: 'NAAC',
+        metric_code: '2.1.1',
+        is_auto: false,
+        metadata: { source: 'admission-accreditation-report-service', metric_name: 'Average Enrollment Percentage' },
+      },
+      {
+        source_table: 'academic_years',
+        source_id: academicYearId,
+        institution_id: institutionId,
+        body_code: 'NIRF',
+        metric_code: 'TLR_SS',
+        is_auto: false,
+        metadata: { source: 'admission-accreditation-report-service', metric_name: 'Teaching: Student Strength' },
+      },
+    ];
+
+    const { data, error } = await (this.supabase as any)
+      .from('quality_evidence_mappings')
+      .upsert(evidenceRows, {
+        onConflict: 'source_table,source_id,body_code,metric_code',
+        ignoreDuplicates: true,
+      })
+      .select();
+
+    if (error) {
+      console.error('[admission/accreditation] emitEnrollmentEvidence failed:', error);
+      throw error;
+    }
+
+    return { evidenceRowsCreated: (data ?? []).length };
+  }
 }
+
+/**
+ * @deprecated since PR-A3 (2026-04-17). Use AdmissionAccreditationReportService.
+ * Will be removed in a follow-up cleanup PR.
+ */
+export const NAACReportService = AdmissionAccreditationReportService;

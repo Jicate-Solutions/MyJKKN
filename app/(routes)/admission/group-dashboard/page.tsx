@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useQueryClient } from '@tanstack/react-query';
 import { useGroupDashboard, groupDashboardKeys } from '@/hooks/admission/use-group-dashboard';
-import { naacKeys } from '@/hooks/admission/use-naac-report';
+import { admissionAccreditationKeys } from '@/hooks/admission/use-admission-accreditation-report';
 import { InstitutionComparisonTable } from './_components/institution-comparison-table';
 import { CrossCampusDedup } from './_components/cross-campus-dedup';
 import { SeatFillTracker } from './_components/seat-fill-tracker';
@@ -39,7 +39,7 @@ export default function GroupDashboardPage() {
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
-    queryClient.invalidateQueries({ queryKey: naacKeys.all });
+    queryClient.invalidateQueries({ queryKey: admissionAccreditationKeys.all });
   };
 
   if (isError) {
