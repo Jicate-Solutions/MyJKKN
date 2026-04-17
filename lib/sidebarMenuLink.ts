@@ -613,8 +613,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/faculty/innovation/approval-queue': 'faculty_innovation.initiative.approve',
   '/faculty/innovation/collab-request': 'faculty_innovation.collab_request.create',
 
-  // Compliance Unification Program — Accreditation routes (PR-A11, 2026-04-17)
-  '/accreditation/qs': 'accreditation.qs.view',
+  // Compliance Unification Program — Accreditation routes
+  '/accreditation': 'accreditation.view',                       // PR-A7 landing
+  '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
+  '/accreditation/qs': 'accreditation.qs.view',                 // PR-A11 placeholder
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -2570,9 +2572,23 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      // Compliance Unification Program — Accreditation group (PR-A11, 2026-04-17)
+      // Compliance Unification Program — Accreditation group
       groupLabel: 'Accreditation',
       menus: [
+        {
+          href: '/accreditation',
+          label: 'Hub (10 Bodies)',
+          active: pathname === '/accreditation',
+          icon: Award,
+          submenus: []
+        },
+        {
+          href: '/accreditation/coverage',
+          label: 'Coverage Matrix',
+          active: pathname.startsWith('/accreditation/coverage'),
+          icon: BarChart3,
+          submenus: []
+        },
         {
           href: '/accreditation/qs',
           label: 'QS World Ranking (Phase 2+)',
