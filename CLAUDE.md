@@ -37,16 +37,16 @@ These are NOT always loaded. Read the relevant file ONLY when the task requires 
 | **Compliance URL routes** under `/accreditation/<body>/...` | `docs/one-jkkn-one-data.md` |
 | **Tribal knowledge capture** — interviews, rule engine configs, form tooltips | `docs/one-jkkn-one-data.md` |
 | **Full 9-month master plan** — sprints, risk register, interview roster | `specs/one-jkkn-one-data/MASTER-PLAN.md` |
-| **NAAC-track sub-plan** — 8-phase resurrection of NAAC-adjacent abandoned modules, integrates with grand program | `specs/workshop-transformation-resurrection/MASTER-PLAN.md` |
-| **Active sprint: Compliance Kernel Foundation (Phase 1a, Sprints 1-5)** — IQAC committees + federated grievance + DCF export scaffold + multi-body evidence substrate | `specs/workshop-transformation-resurrection/PHASE-1A-SPEC.md` |
+| **🔥 ACTIVE EXECUTION PLAN — 15-PR Unification Program** (PR-A1 → PR-A15; unifies 10+ existing compliance artifacts across 7 modules under `/accreditation/*`; body-agnostic mandate covers all 10 bodies; Director-locked 2026-04-17) | `specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md` |
+| **Historical / reference only — retired Phase 1a spec** (frontmatter: "do not build from this file"; retired 2026-04-17 after production-code sweep revealed it was scoped as greenfield when correct diagnosis is unification; retained for its 22 locked silent-assumption decisions + 6 architectural decisions that still apply to PR-A2 substrate + PR-A6 grievance completion) | `specs/workshop-transformation-resurrection/PHASE-1A-SPEC.md` |
 
 **Rule:** The context library (`docs/one-jkkn-one-data.md`) encodes architectural decisions that OVERRIDE default MyJKKN patterns. When in conflict, context library wins. It defines the "One JKKN, One Data" north-star program that started 2026-04-20 (9-month big-bang, **17 decisions** locked, Path B chosen).
 
 **Spec hierarchy (don't confuse these):**
 - **Context library** (`docs/one-jkkn-one-data.md`) = directive rules, vocabulary, anti-patterns — always authoritative
 - **Grand program** (`specs/one-jkkn-one-data/MASTER-PLAN.md`) = 9-month, 18-sprint plan
-- **NAAC sub-track** (`specs/workshop-transformation-resurrection/MASTER-PLAN.md`) = 8-phase NAAC-specific plan, integrates with grand program
-- **Sprint spec** (e.g. `specs/workshop-transformation-resurrection/PHASE-1A-SPEC.md`) = concrete execution plan for a specific sprint window
+- **Unification Program** (`specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md`) = **ACTIVE** 15-PR sequence (PR-A1 → PR-A15) to unify 10+ existing compliance artifacts across 7 modules. Director-locked 2026-04-17. **This is what you're building.**
+- **Retired sprint spec** (`specs/workshop-transformation-resurrection/PHASE-1A-SPEC.md`) = superseded 2026-04-17 — frontmatter says "do not build from this file." Read ONLY for the 22 locked silent-assumption decisions + 6 architectural decisions that still apply to PR-A2 + PR-A6.
 - **Memory** (`~/.claude/projects/.../memory/*.md`) = user-local context persisting across sessions
 
 Sprint specs CAN change; context library shouldn't drift. If a sprint spec contradicts the context library, the spec is wrong.
