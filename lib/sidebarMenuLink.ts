@@ -54,6 +54,7 @@ import {
   Cpu,
   Award,
   CheckSquare,
+  CircleDot,
   TrendingUp,
   Wrench,
   FileBarChart2,
@@ -617,6 +618,26 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
   '/accreditation/qs': 'accreditation.qs.view',                 // PR-A11 placeholder
+
+  // OKR Module (resurrected from clean-ss-deploy, PR #230)
+  '/okr': 'okr.view',
+  '/okr/objectives': 'okr.objectives.view',
+  '/okr/objectives/new': 'okr.objectives.create',
+  '/okr/objectives/create': 'okr.objectives.create',
+  '/okr/objectives/[id]': 'okr.objectives.view',
+  '/okr/objectives/[id]/edit': 'okr.objectives.edit',
+  '/okr/check-in': 'okr.checkin.view',
+  '/okr/analytics': 'okr.analytics.view',
+  '/okr/team': 'okr.team.view',
+  '/okr/department': 'okr.department.view',
+  '/okr/organization': 'okr.organization.view',
+  '/okr/cascade': 'okr.cascade.view',
+  '/okr/manage': 'okr.manage.view',
+  '/okr/admin/compliance': 'okr.admin.view',
+  '/okr/elective': 'okr.elective.view',
+  '/okr/elective/[id]': 'okr.elective.view',
+  '/okr/elective/[id]/edit': 'okr.elective.edit',
+  '/okr/abcd': 'okr.abcd.view',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1997,6 +2018,99 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Page Metadata',
           active: pathname.startsWith('/admin/page-metadata'),
           icon: Tags,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'OKR & Performance',
+      menus: [
+        {
+          href: '/okr',
+          label: 'Dashboard',
+          active: pathname === '/okr',
+          icon: Target,
+          submenus: []
+        },
+        {
+          href: '/okr/objectives',
+          label: 'My Objectives',
+          active: pathname.startsWith('/okr/objectives'),
+          icon: Target,
+          submenus: [
+            {
+              href: '/okr/objectives',
+              label: 'All Objectives',
+              active: pathname === '/okr/objectives'
+            },
+            {
+              href: '/okr/objectives/new',
+              label: 'Create Objective',
+              active: pathname === '/okr/objectives/new' || pathname.startsWith('/okr/objectives/create')
+            }
+          ]
+        },
+        {
+          href: '/okr/check-in',
+          label: 'Check-ins',
+          active: pathname === '/okr/check-in',
+          icon: CheckSquare,
+          submenus: []
+        },
+        {
+          href: '/okr/team',
+          label: 'Team OKRs',
+          active: pathname === '/okr/team',
+          icon: Users,
+          submenus: []
+        },
+        {
+          href: '/okr/department',
+          label: 'Department OKRs',
+          active: pathname === '/okr/department',
+          icon: Building2,
+          submenus: []
+        },
+        {
+          href: '/okr/organization',
+          label: 'Organization OKRs',
+          active: pathname === '/okr/organization',
+          icon: Building,
+          submenus: []
+        },
+        {
+          href: '/okr/cascade',
+          label: 'Cascade View',
+          active: pathname === '/okr/cascade',
+          icon: FolderTree,
+          submenus: []
+        },
+        {
+          href: '/okr/analytics',
+          label: 'Analytics',
+          active: pathname === '/okr/analytics',
+          icon: BarChart,
+          submenus: []
+        },
+        {
+          href: '/okr/manage',
+          label: 'Manage OKRs',
+          active: pathname === '/okr/manage',
+          icon: Settings,
+          submenus: []
+        },
+        {
+          href: '/okr/admin/compliance',
+          label: 'Compliance',
+          active: pathname.startsWith('/okr/admin'),
+          icon: Shield,
+          submenus: []
+        },
+        {
+          href: '/okr/abcd',
+          label: 'ABCD Matrix',
+          active: pathname.startsWith('/okr/abcd'),
+          icon: CircleDot,
           submenus: []
         }
       ]
