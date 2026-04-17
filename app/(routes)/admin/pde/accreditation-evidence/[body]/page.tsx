@@ -1,6 +1,21 @@
+// app/(routes)/admin/pde/accreditation-evidence/[body]/page.tsx
+// ============================================================================
+// PR-A4 (Compliance Unification Program 2026-04-17): renamed from
+// /admin/pde/naac-evidence to /admin/pde/accreditation-evidence/[body].
+// Old URL 308-redirects to /admin/pde/accreditation-evidence/naac via
+// next.config.ts redirects().
+//
+// Currently only body=naac renders the full PDE evidence report — other
+// bodies (NIRF, NBA, QS, DCI, PCI, INC, AICTE, NCTE, UGC) show a
+// "not yet implemented" placeholder pointing at the per-body dashboard PRs
+// (A9-A15) where PDE-body mappings land.
+// ============================================================================
+
 'use client';
 
-import { useState, useCallback } from 'react';
+import { use, useCallback } from 'react';
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,8 +27,14 @@ import {
 } from '@/components/ui/table';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Download, BarChart3, GraduationCap, Target, Activity, Lightbulb, TrendingUp,
+  Download, BarChart3, GraduationCap, Target, Activity, Lightbulb, TrendingUp, AlertCircle,
 } from 'lucide-react';
+import type { AccreditationBodyCode } from '@/lib/services/solutions/types';
+
+const SUPPORTED_BODIES: AccreditationBodyCode[] = [
+  'NAAC','NIRF','NBA','QS','DCI','PCI','INC','AICTE','NCTE','UGC',
+];
+const IMPLEMENTED_BODIES: AccreditationBodyCode[] = ['NAAC'];
 
 // CSV Export
 function downloadCSV(data: Record<string, unknown>[], filename: string) {
@@ -162,7 +183,69 @@ function MetricCard({ label, value }: { label: string; value: string | number })
   );
 }
 
-export default function NAACEvidencePage() {
+export default function AccreditationEvidencePage({
+  params,
+}: {
+  params: Promise<{ body: string }>;
+}) {
+  const { body: bodyParam } = use(params);
+  const body = bodyParam.toUpperCase() as AccreditationBodyCode;
+
+  // Unknown body → 404 so we don't render empty pages for typos.
+  if (!SUPPORTED_BODIES.includes(body)) {
+    notFound();
+  }
+
+  // Known body but not yet implemented — render placeholder with a pointer
+  // to the relevant per-body dashboard PR.
+  if (!IMPLEMENTED_BODIES.includes(body)) {
+    return (
+      <ContentLayout title={`${body} Evidence Report (Placeholder)`}>
+        <PageBreadcrumb items={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'PDE', href: '/admin/pde/assessments' },
+          { label: `${body} Evidence` },
+        ]} />
+        <div className="p-4 max-w-3xl">
+          <Card className="border-dashed">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <AlertCircle className="w-5 h-5 text-amber-500" />
+                {body} PDE evidence — not yet implemented
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                The Principal Development Engine (PDE) data mapping to{' '}
+                <strong>{body}</strong> metrics lands with that body&apos;s
+                dashboard PR as part of the{' '}
+                <Link className="underline" href="/accreditation">
+                  Compliance Unification Program
+                </Link>
+                . Only NAAC evidence is currently rendered here.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-2">
+                <Link href="/admin/pde/accreditation-evidence/naac">
+                  <Button size="sm" variant="outline">View NAAC evidence</Button>
+                </Link>
+                <Link href={`/accreditation/${body.toLowerCase()}`}>
+                  <Button size="sm" variant="outline">
+                    Open {body} dashboard
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // body === 'NAAC' — render original content (below)
+  return <NAACEvidenceContent />;
+}
+
+function NAACEvidenceContent() {
   const engagement = useNAACEngagement();
   const obe = useNAACOBE();
   const finks = useNAACFinks();
@@ -172,6 +255,7 @@ export default function NAACEvidencePage() {
   return (
     <ContentLayout title="NAAC Evidence Report">
       <PageBreadcrumb items={[{ label: 'Admin', href: '/admin' }, { label: 'PDE', href: '/admin/pde/assessments' }, { label: 'NAAC Evidence' }]} />
+      {/* Original body — untouched from pre-PR-A4 */}
       <div className="space-y-6 p-4">
         <div>
           <h1 className="text-2xl font-bold">NAAC Evidence Report</h1>
