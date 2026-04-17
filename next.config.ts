@@ -13,8 +13,6 @@ const withSerwist = withSerwistInit({
 });
 
 const nextConfig: NextConfig = {
-  swcMinify: true,
-
   // Cache Components disabled — codebase has 422+ dynamic routes using
   // force-dynamic which is incompatible with cacheComponents. Requires
   // migration to use cache / connection() / Suspense before enabling.
