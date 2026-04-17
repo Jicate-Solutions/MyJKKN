@@ -107,6 +107,20 @@ const nextConfig: NextConfig = {
         source: '/api/solutions/compliance/:path*',
         destination: '/api/solutions/ai-solution-compliance/:path*',
         permanent: true
+      },
+      // PR-A7 (Compliance Unification Program 2026-04-17):
+      // /iqac → /accreditation (landing). Preserves familiar "IQAC" entrypoint
+      // while the canonical namespace is /accreditation/<body>. /accreditation/naac
+      // becomes the IQAC-specific dashboard when PR-A8 ships.
+      {
+        source: '/iqac',
+        destination: '/accreditation',
+        permanent: true
+      },
+      {
+        source: '/iqac/:path*',
+        destination: '/accreditation/naac/:path*',
+        permanent: true
       }
     ];
   },
