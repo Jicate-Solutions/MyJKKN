@@ -17,6 +17,8 @@ import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-
 import { HeroStrip } from '@/components/dashboard/hero-strip';
 import { CounselorHeroStrip } from '@/components/dashboard/counselor-hero-strip';
 import { getCounselorMetrics } from '@/lib/services/dashboard/counselor-metrics-service';
+import { FacultyHeroStrip } from '@/components/dashboard/faculty-hero-strip';
+import { getFacultyMetrics } from '@/lib/services/dashboard/faculty-metrics-service';
 import { getDashboardPersona } from '@/lib/services/dashboard/dashboard-role-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
@@ -68,6 +70,12 @@ async function LiveHeroStrip({
 async function LiveCounselorHero() {
   const metrics = await getCounselorMetrics();
   return <CounselorHeroStrip metrics={metrics} />;
+}
+
+// Faculty hero strip: unmarked classes / flags / timetable / week %
+async function LiveFacultyHero() {
+  const metrics = await getFacultyMetrics();
+  return <FacultyHeroStrip metrics={metrics} />;
 }
 
 // ============================================================================
@@ -193,6 +201,7 @@ export default async function DashboardV2Page({
   const persona = await getDashboardPersona();
   const isDirector = persona === 'director';
   const isCounselor = persona === 'counselor';
+  const isFaculty = persona === 'faculty';
   const isLimited = persona === 'limited';
 
   return (
@@ -219,10 +228,11 @@ export default async function DashboardV2Page({
           <LiveMorningBrief />
         </Suspense>
 
-        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / limited safe default) */}
+        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / limited safe default) */}
         <Suspense fallback={<HeroSkeleton />}>
           {isDirector && <LiveHeroStrip />}
           {isCounselor && <LiveCounselorHero />}
+          {isFaculty && <LiveFacultyHero />}
           {isLimited && <LimitedHero />}
         </Suspense>
 

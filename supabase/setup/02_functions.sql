@@ -7411,3 +7411,183 @@ REVOKE ALL ON FUNCTION fn_dashboard_metrics_as(UUID) FROM PUBLIC, anon, authenti
 GRANT EXECUTE ON FUNCTION fn_dashboard_metrics_as(UUID) TO service_role;
 
 -- END Dashboard v2 null-gate hotfix
+
+-- ================================================================================
+-- SECTION: DASHBOARD V2 — FACULTY METRICS
+-- Added: 2026-04-17 — Faculty hero strip (unmarked classes, learner flags,
+-- upcoming timetable, week attendance %)
+-- ================================================================================
+CREATE OR REPLACE FUNCTION fn_faculty_metrics()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_institution_id uuid;
+  v_staff_id uuid;
+  v_today date;
+  v_day_name text;
+  v_now_ist timestamptz;
+  v_now_time time;
+  v_week_start date;
+  v_week_end date;
+  v_total_today int := 0;
+  v_marked_today int := 0;
+  v_upcoming jsonb := '[]'::jsonb;
+  v_next_2h_count int := 0;
+  v_week_days_total int := 0;
+  v_week_days_marked int := 0;
+  v_week_pct numeric := 0;
+  v_tt record;
+  v_period jsonb;
+  v_slot jsonb;
+  v_period_id text;
+  v_start_time time;
+  v_end_time time;
+  v_course_code text;
+  v_course_name text;
+  v_section_name text;
+  v_period_name text;
+  v_has_marked boolean;
+  v_cutoff_time time;
+BEGIN
+  v_now_ist := now() AT TIME ZONE 'Asia/Kolkata';
+  v_today := v_now_ist::date;
+  v_now_time := v_now_ist::time;
+  v_cutoff_time := v_now_time + interval '2 hours';
+  v_day_name := upper(trim(to_char(v_today, 'DAY')));
+  v_week_start := v_today - (extract(isodow from v_today)::int - 1);
+  v_week_end := v_week_start + 4;
+
+  SELECT institution_id INTO v_institution_id
+  FROM profiles WHERE id = v_user_id;
+
+  SELECT s.id INTO v_staff_id
+  FROM staff s WHERE s.profile_id = v_user_id
+  LIMIT 1;
+
+  IF v_staff_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'unmarked_classes', jsonb_build_object('count', 0, 'total_today', 0, 'data_source', 'no_staff_record'),
+      'learner_flags', jsonb_build_object('count', 0, 'data_source', 'not_available'),
+      'upcoming_timetable', jsonb_build_object('classes', '[]'::jsonb, 'next_2h_count', 0, 'data_source', 'no_staff_record'),
+      'week_attendance', jsonb_build_object('pct', 0, 'days_marked', 0, 'days_total', 0, 'data_source', 'no_staff_record'),
+      'scope', jsonb_build_object('user_id', v_user_id, 'institution_id', v_institution_id, 'computed_at', now())
+    );
+  END IF;
+
+  FOR v_tt IN
+    SELECT t.timetable_data, t.periods, t.section_id, sec.section_name
+    FROM timetables t
+    LEFT JOIN sections sec ON sec.id = t.section_id
+    WHERE t.is_active = true
+      AND t.institution_id = v_institution_id
+      AND t.timetable_data IS NOT NULL
+      AND t.periods IS NOT NULL
+      AND t.timetable_data ? v_day_name
+  LOOP
+    FOR v_period IN SELECT * FROM jsonb_array_elements(v_tt.periods)
+    LOOP
+      IF (v_period->>'is_break')::boolean THEN
+        CONTINUE;
+      END IF;
+
+      v_period_id := v_period->>'period_id';
+      v_start_time := (v_period->>'start_time')::time;
+      v_end_time := (v_period->>'end_time')::time;
+      v_period_name := v_period->>'period_name';
+
+      v_slot := v_tt.timetable_data->v_day_name->v_period_id;
+
+      IF v_slot IS NULL THEN
+        CONTINUE;
+      END IF;
+
+      IF v_slot->>'primary_staff_id' = v_staff_id::text
+         OR v_slot->'staff_ids' @> to_jsonb(v_staff_id::text) THEN
+
+        v_total_today := v_total_today + 1;
+
+        v_course_code := '';
+        v_course_name := '';
+        BEGIN
+          SELECT c.course_code, c.course_name INTO v_course_code, v_course_name
+          FROM courses c WHERE c.id = (v_slot->>'course_id')::uuid;
+        EXCEPTION WHEN OTHERS THEN
+          NULL;
+        END;
+
+        v_section_name := COALESCE(v_tt.section_name, 'Unknown Section');
+
+        v_has_marked := EXISTS (
+          SELECT 1 FROM student_attendance sa
+          WHERE sa.attendance_date = v_today
+            AND sa.timetable_id IN (
+              SELECT t2.id FROM timetables t2
+              WHERE t2.is_active = true
+                AND t2.institution_id = v_institution_id
+                AND t2.section_id = v_tt.section_id
+            )
+            AND sa.attendance_data ? v_period_id
+        );
+
+        IF v_has_marked THEN
+          v_marked_today := v_marked_today + 1;
+        END IF;
+
+        IF v_start_time >= v_now_time AND v_start_time < v_cutoff_time THEN
+          v_next_2h_count := v_next_2h_count + 1;
+          v_upcoming := v_upcoming || jsonb_build_object(
+            'course', COALESCE(NULLIF(v_course_code, ''), v_course_name, v_period_name),
+            'time', to_char(v_start_time, 'HH24:MI') || '-' || to_char(v_end_time, 'HH24:MI'),
+            'section', v_section_name
+          );
+        END IF;
+
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  v_week_days_total := LEAST(extract(isodow from v_today)::int, 5);
+
+  SELECT COUNT(DISTINCT sa.attendance_date) INTO v_week_days_marked
+  FROM student_attendance sa,
+       jsonb_each(sa.attendance_data) AS periods(period_key, period_val)
+  WHERE sa.attendance_date >= v_week_start
+    AND sa.attendance_date <= LEAST(v_today, v_week_end)
+    AND sa.institution_id = v_institution_id
+    AND period_val->'marked_by_details'->>'marker_id' = v_user_id::text;
+
+  IF v_week_days_total > 0 THEN
+    v_week_pct := ROUND((v_week_days_marked::numeric / v_week_days_total) * 100, 1);
+  END IF;
+
+  RETURN jsonb_build_object(
+    'unmarked_classes', jsonb_build_object(
+      'count', v_total_today - v_marked_today,
+      'total_today', v_total_today
+    ),
+    'learner_flags', jsonb_build_object(
+      'count', 0,
+      'data_source', 'not_available'
+    ),
+    'upcoming_timetable', jsonb_build_object(
+      'classes', v_upcoming,
+      'next_2h_count', v_next_2h_count
+    ),
+    'week_attendance', jsonb_build_object(
+      'pct', v_week_pct,
+      'days_marked', v_week_days_marked,
+      'days_total', v_week_days_total
+    ),
+    'scope', jsonb_build_object(
+      'user_id', v_user_id,
+      'institution_id', v_institution_id,
+      'computed_at', now()
+    )
+  );
+END;
+$$;
+-- END Dashboard v2 Faculty metrics
