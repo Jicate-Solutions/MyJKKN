@@ -19,8 +19,10 @@ import { CounselorHeroStrip } from '@/components/dashboard/counselor-hero-strip'
 import { getCounselorMetrics } from '@/lib/services/dashboard/counselor-metrics-service';
 import { FacultyHeroStrip } from '@/components/dashboard/faculty-hero-strip';
 import { getFacultyMetrics } from '@/lib/services/dashboard/faculty-metrics-service';
+import { getStudentMetrics } from '@/lib/services/dashboard/student-metrics-service';
 import { getDashboardPersona } from '@/lib/services/dashboard/dashboard-role-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
+import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
@@ -76,6 +78,10 @@ async function LiveCounselorHero() {
 async function LiveFacultyHero() {
   const metrics = await getFacultyMetrics();
   return <FacultyHeroStrip metrics={metrics} />;
+// Week-3 addition: student/learner-scoped hero strip (4,235 active users)
+async function LiveStudentHero() {
+  const metrics = await getStudentMetrics();
+  return <StudentHeroStrip metrics={metrics} />;
 }
 
 // ============================================================================
@@ -202,6 +208,7 @@ export default async function DashboardV2Page({
   const isDirector = persona === 'director';
   const isCounselor = persona === 'counselor';
   const isFaculty = persona === 'faculty';
+  const isStudent = persona === 'student';
   const isLimited = persona === 'limited';
 
   return (
@@ -233,6 +240,11 @@ export default async function DashboardV2Page({
           {isDirector && <LiveHeroStrip />}
           {isCounselor && <LiveCounselorHero />}
           {isFaculty && <LiveFacultyHero />}
+        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Student / limited safe default) */}
+        <Suspense fallback={<HeroSkeleton />}>
+          {isDirector && <LiveHeroStrip />}
+          {isCounselor && <LiveCounselorHero />}
+          {isStudent && <LiveStudentHero />}
           {isLimited && <LimitedHero />}
         </Suspense>
 
@@ -243,13 +255,16 @@ export default async function DashboardV2Page({
           </Suspense>
         )}
 
-        {/* Decision Queue — safe for ALL personas (already scoped by auth.uid() in RPC) */}
-        <Suspense fallback={<QueueSkeleton />}>
-          <DecisionQueue filter={filter} />
-        </Suspense>
+        {/* Decision Queue — safe for ALL personas (already scoped by auth.uid() in RPC).
+            Hidden for students — they have no actionable queue items. */}
+        {!isStudent && (
+          <Suspense fallback={<QueueSkeleton />}>
+            <DecisionQueue filter={filter} />
+          </Suspense>
+        )}
 
-        {/* Leaderboards — Director + Counselor only (social pressure across counselors).
-            Hidden for limited roles (not competing on counselor metrics). */}
+        {/* Leaderboards ��� Director + Counselor only (social pressure across counselors).
+            Hidden for students and limited roles (not competing on counselor metrics). */}
         {(isDirector || isCounselor) && (
           <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
             <Suspense fallback={<LeaderboardSkeleton />}>
