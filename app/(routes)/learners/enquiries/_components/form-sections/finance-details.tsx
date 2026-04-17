@@ -309,32 +309,78 @@ export function FinanceDetailsSection({
         )}
       </div>
 
-      {/* Legacy fees — read-only display only if present */}
+      {/* Legacy fees — editable so users can zero out or clear all */}
       {hasLegacyData && (
         <div className='space-y-3 pt-6 border-t border-dashed'>
-          <div>
-            <h3 className='text-sm font-semibold text-muted-foreground'>
-              Legacy Fee Structure (read-only)
-            </h3>
-            <p className='text-xs text-muted-foreground'>
-              These values were saved before the fee-items flow was introduced.
-              New edits should use the Fee Items section above.
-            </p>
+          <div className='flex items-start justify-between gap-4'>
+            <div>
+              <h3 className='text-sm font-semibold text-amber-600 dark:text-amber-400'>
+                Legacy Fee Structure
+              </h3>
+              <p className='text-xs text-muted-foreground'>
+                These values were saved before the fee-items flow. Edit amounts
+                below or click &quot;Clear All&quot; to remove the legacy data
+                and use the Fee Items section above instead.
+              </p>
+            </div>
+            {!readOnly && (
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='shrink-0 text-destructive border-destructive/40 hover:bg-destructive/10'
+                onClick={() => {
+                  legacyFields.forEach(({ name }) => form.setValue(name as any, null));
+                }}
+              >
+                <Trash2 className='h-3 w-3 mr-1' />
+                Clear All
+              </Button>
+            )}
           </div>
           <div className='grid grid-cols-1 md:grid-cols-2 gap-3'>
             {legacyFields.map(({ name, label }, i) => {
               const val = legacyValues?.[i];
               if (val == null || Number(val) === 0) return null;
+              if (readOnly) {
+                return (
+                  <div
+                    key={name}
+                    className='flex items-center justify-between text-sm bg-muted/30 px-3 py-2 rounded'
+                  >
+                    <span className='text-muted-foreground'>{label}</span>
+                    <span className='font-medium'>
+                      ₹ {Number(val).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                );
+              }
               return (
-                <div
+                <FormField
                   key={name}
-                  className='flex items-center justify-between text-sm bg-muted/30 px-3 py-2 rounded'
-                >
-                  <span className='text-muted-foreground'>{label}</span>
-                  <span className='font-medium'>
-                    ₹ {Number(val).toLocaleString('en-IN')}
-                  </span>
-                </div>
+                  control={form.control}
+                  name={name as any}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className='text-xs'>{label}</FormLabel>
+                      <FormControl>
+                        <Input
+                          type='number'
+                          step='0.01'
+                          min='0'
+                          placeholder='0.00'
+                          value={field.value ?? ''}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === '' ? null : Number(e.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               );
             })}
           </div>
