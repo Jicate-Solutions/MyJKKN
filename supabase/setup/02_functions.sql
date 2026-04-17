@@ -7788,3 +7788,149 @@ COMMENT ON FUNCTION public.fn_student_metrics() IS
    Returns attendance %, fee balance, today timetable, upcoming deadlines.
    Reads auth.uid() -> profiles.learner_id -> learners_profiles -> student_attendance + billing_student_bills + timetables.';
 -- END Dashboard v2 Student Metrics
+
+-- ============================================================================
+-- 2026-04-17: transfer_learner_enquiry
+-- Atomic transfer of an enquiry between institutions. Regenerates
+-- application_id via target institution's counselling code, resets
+-- institution-specific fields, validates hierarchy, logs to
+-- profile_change_audit_log. Permission-based (user_has_permission) — works
+-- for any default OR custom role granted learners.admissions.transfer.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.transfer_learner_enquiry(
+  p_learner_id uuid,
+  p_new_institution_id uuid,
+  p_new_degree_id uuid,
+  p_new_department_id uuid,
+  p_new_program_id uuid,
+  p_new_semester_id uuid DEFAULT NULL,
+  p_new_section_id uuid DEFAULT NULL,
+  p_new_academic_year_id uuid DEFAULT NULL,
+  p_new_regulation_id uuid DEFAULT NULL,
+  p_new_batch_id uuid DEFAULT NULL,
+  p_reason text DEFAULT NULL
+)
+RETURNS TABLE (
+  id uuid,
+  application_id text,
+  institution_id uuid,
+  program_id uuid
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_current learners_profiles%ROWTYPE;
+  v_new_app_id text;
+  v_caller uuid := auth.uid();
+BEGIN
+  IF NOT (
+    is_super_admin()
+    OR is_admin()
+    OR user_has_permission('learners.admissions.transfer')
+  ) THEN
+    RAISE EXCEPTION 'Permission denied: learners.admissions.transfer required';
+  END IF;
+
+  SELECT * INTO v_current FROM learners_profiles
+  WHERE id = p_learner_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Enquiry not found: %', p_learner_id;
+  END IF;
+
+  IF v_current.lifecycle_status IN ('account','active','graduated','exited') THEN
+    RAISE EXCEPTION 'Cannot transfer enquiry with status "%". Transfers are only allowed before billing.', v_current.lifecycle_status;
+  END IF;
+
+  IF v_current.institution_id = p_new_institution_id THEN
+    RAISE EXCEPTION 'New institution must differ from current institution';
+  END IF;
+
+  PERFORM 1 FROM degrees
+  WHERE id = p_new_degree_id AND institution_id = p_new_institution_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Degree % does not belong to institution %', p_new_degree_id, p_new_institution_id;
+  END IF;
+
+  PERFORM 1 FROM departments
+  WHERE id = p_new_department_id AND degree_id = p_new_degree_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Department % does not belong to degree %', p_new_department_id, p_new_degree_id;
+  END IF;
+
+  PERFORM 1 FROM programs
+  WHERE id = p_new_program_id AND department_id = p_new_department_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Program % does not belong to department %', p_new_program_id, p_new_department_id;
+  END IF;
+
+  v_new_app_id := generate_learner_application_id(p_new_institution_id);
+
+  UPDATE learners_profiles SET
+    institution_id    = p_new_institution_id,
+    degree_id         = p_new_degree_id,
+    department_id     = p_new_department_id,
+    program_id        = p_new_program_id,
+    semester_id       = p_new_semester_id,
+    section_id        = p_new_section_id,
+    academic_year_id  = p_new_academic_year_id,
+    regulation_id     = p_new_regulation_id,
+    batch_id          = p_new_batch_id,
+    roll_number       = NULL,
+    application_id    = v_new_app_id,
+    updated_at        = now()
+  WHERE learners_profiles.id = p_learner_id;
+
+  INSERT INTO profile_change_audit_log (
+    learner_id, action_type, changed_fields, performed_by, comments, performed_at, created_at
+  ) VALUES (
+    p_learner_id,
+    'TRANSFER',
+    jsonb_build_object(
+      'old', jsonb_build_object(
+        'institution_id', v_current.institution_id,
+        'application_id', v_current.application_id,
+        'degree_id',      v_current.degree_id,
+        'department_id',  v_current.department_id,
+        'program_id',     v_current.program_id,
+        'semester_id',    v_current.semester_id,
+        'section_id',     v_current.section_id,
+        'academic_year_id', v_current.academic_year_id,
+        'regulation_id',  v_current.regulation_id,
+        'batch_id',       v_current.batch_id,
+        'roll_number',    v_current.roll_number
+      ),
+      'new', jsonb_build_object(
+        'institution_id', p_new_institution_id,
+        'application_id', v_new_app_id,
+        'degree_id',      p_new_degree_id,
+        'department_id',  p_new_department_id,
+        'program_id',     p_new_program_id,
+        'semester_id',    p_new_semester_id,
+        'section_id',     p_new_section_id,
+        'academic_year_id', p_new_academic_year_id,
+        'regulation_id',  p_new_regulation_id,
+        'batch_id',       p_new_batch_id,
+        'roll_number',    NULL
+      ),
+      'reason', p_reason
+    ),
+    v_caller,
+    p_reason,
+    now(),
+    now()
+  );
+
+  RETURN QUERY
+    SELECT lp.id, lp.application_id, lp.institution_id, lp.program_id
+    FROM learners_profiles lp
+    WHERE lp.id = p_learner_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.transfer_learner_enquiry(
+  uuid, uuid, uuid, uuid, uuid, uuid, uuid, uuid, uuid, uuid, text
+) TO authenticated;
+-- END transfer_learner_enquiry

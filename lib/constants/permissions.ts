@@ -288,6 +288,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.admissions.edit', label: 'Edit Admissions' },
       { key: 'learners.admissions.delete', label: 'Delete Admissions' },
       { key: 'learners.admissions.mark_account', label: 'Mark as Account' },
+      { key: 'learners.admissions.transfer', label: 'Transfer Enquiry to Another Institution' },
       { key: 'learners.admissions.crm.view', label: 'View Enquiry CRM' },
 
       // Learner Enquiries Bulk Operations

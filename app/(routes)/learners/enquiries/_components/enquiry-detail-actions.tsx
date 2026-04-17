@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileEdit, Trash2, MoreVertical, Landmark } from 'lucide-react';
+import { FileEdit, Trash2, MoreVertical, Landmark, ArrowRightLeft } from 'lucide-react';
+import { TransferEnquiryDialog } from './transfer-enquiry-dialog';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -37,6 +38,7 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
   const router = useRouter();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const {
     canAccess,
     isSuperAdmin,
@@ -54,6 +56,11 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
     !permissionsLoading && (isSuperAdmin || canAccess('learners.admissions', 'delete'));
   const hasMarkAccountPermission =
     !permissionsLoading && (isSuperAdmin || canAccess('learners.admissions', 'mark_account'));
+  const hasTransferPermission =
+    !permissionsLoading && (isSuperAdmin || canAccess('learners.admissions', 'transfer'));
+  const transferBlockedByStatus = ['account', 'active', 'graduated', 'exited'].includes(
+    enquiry.lifecycle_status
+  );
 
   const handleEdit = () => {
     router.push(`/learners/enquiries/${enquiry.id}/edit`);
@@ -108,6 +115,15 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
               </DropdownMenuItem>
             </>
           )}
+          {hasTransferPermission && !transferBlockedByStatus && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setTransferDialogOpen(true)}>
+                <ArrowRightLeft className='mr-2 h-4 w-4 text-indigo-600' />
+                Transfer to Another Institution
+              </DropdownMenuItem>
+            </>
+          )}
           {hasDeletePermission && (
             <DropdownMenuItem
               onClick={() => setDeleteDialogOpen(true)}
@@ -142,6 +158,15 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {hasTransferPermission && !transferBlockedByStatus && (
+        <TransferEnquiryDialog
+          enquiry={enquiry}
+          open={transferDialogOpen}
+          onOpenChange={setTransferDialogOpen}
+          onTransferred={() => router.refresh()}
+        />
+      )}
+
       <AlertDialog open={accountDialogOpen} onOpenChange={setAccountDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

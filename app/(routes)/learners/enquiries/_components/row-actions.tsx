@@ -22,8 +22,10 @@ import {
   XCircle,
   AlertCircle,
   HelpCircle,
-  Landmark
+  Landmark,
+  ArrowRightLeft
 } from 'lucide-react';
+import { TransferEnquiryDialog } from './transfer-enquiry-dialog';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -77,11 +79,17 @@ export function DataTableRowActions<TData>({
   const { canAccess, isSuperAdmin } = usePermissions();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showStatusDialog, setShowStatusDialog] = useState(false);
+  const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
 
   // Use learners.admissions module for enquiries
   const canEdit = isSuperAdmin || canAccess('learners.admissions', 'edit');
   const canDelete = isSuperAdmin || canAccess('learners.admissions', 'delete');
+  const canTransfer = isSuperAdmin || canAccess('learners.admissions', 'transfer');
+  // Transfers are blocked once billing has been created or the learner is active.
+  const transferBlockedByStatus = ['account', 'active', 'graduated', 'exited'].includes(
+    learner.lifecycle_status
+  );
 
   // Use React Query mutation hooks with automatic cache invalidation
   const deleteMutation = useDeleteLearnerProfile();
@@ -269,6 +277,16 @@ export function DataTableRowActions<TData>({
             </>
           )}
 
+          {canTransfer && !transferBlockedByStatus && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setShowTransferDialog(true)}>
+                <ArrowRightLeft className="mr-2 h-4 w-4 text-indigo-600" />
+                Transfer to Another Institution
+              </DropdownMenuItem>
+            </>
+          )}
+
           {canDelete && (
             <>
               <DropdownMenuSeparator />
@@ -307,6 +325,18 @@ export function DataTableRowActions<TData>({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Transfer Enquiry Dialog */}
+      {canTransfer && !transferBlockedByStatus && (
+        <TransferEnquiryDialog
+          enquiry={learner}
+          open={showTransferDialog}
+          onOpenChange={setShowTransferDialog}
+          onTransferred={() => {
+            setTimeout(() => router.refresh(), 300);
+          }}
+        />
+      )}
 
       {/* Status Update Confirmation Dialog */}
       <AlertDialog open={showStatusDialog} onOpenChange={setShowStatusDialog}>

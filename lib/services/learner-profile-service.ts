@@ -764,6 +764,70 @@ export class LearnerProfileService {
     return result.profile;
   }
 
+  // ============================================
+  // ENQUIRY TRANSFER (2026-04-17)
+  // ============================================
+
+  /**
+   * Transfer an enquiry to a different institution. Regenerates application_id
+   * via the target institution's counselling code, resets institution-specific
+   * fields (degree/dept/program/semester/section/roll_number), and writes a
+   * TRANSFER entry to profile_change_audit_log.
+   *
+   * All validation + atomicity handled by the transfer_learner_enquiry RPC.
+   */
+  static async transferEnquiry(params: {
+    learnerId: string;
+    newInstitutionId: string;
+    newDegreeId: string;
+    newDepartmentId: string;
+    newProgramId: string;
+    newSemesterId?: string | null;
+    newSectionId?: string | null;
+    newAcademicYearId?: string | null;
+    newRegulationId?: string | null;
+    newBatchId?: string | null;
+    reason: string;
+  }): Promise<{
+    id: string;
+    application_id: string;
+    institution_id: string;
+    program_id: string;
+  }> {
+    const supabase = createClientSupabaseClient();
+
+    const { data, error } = await (supabase as any).rpc('transfer_learner_enquiry', {
+      p_learner_id: params.learnerId,
+      p_new_institution_id: params.newInstitutionId,
+      p_new_degree_id: params.newDegreeId,
+      p_new_department_id: params.newDepartmentId,
+      p_new_program_id: params.newProgramId,
+      p_new_semester_id: params.newSemesterId ?? null,
+      p_new_section_id: params.newSectionId ?? null,
+      p_new_academic_year_id: params.newAcademicYearId ?? null,
+      p_new_regulation_id: params.newRegulationId ?? null,
+      p_new_batch_id: params.newBatchId ?? null,
+      p_reason: params.reason,
+    });
+
+    if (error) {
+      console.error('[learner-profile-service] transferEnquiry failed:', error);
+      throw new Error(error.message || 'Failed to transfer enquiry');
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) {
+      throw new Error('Transfer returned no row');
+    }
+
+    return row as {
+      id: string;
+      application_id: string;
+      institution_id: string;
+      program_id: string;
+    };
+  }
+
   /**
    * Delete learner profile and associated user profile
    * Also deletes the user's auth account if a profile exists

@@ -154,6 +154,39 @@ export function useUpdateLearnerProfile() {
 }
 
 /**
+ * Transfer enquiry to another institution (regenerates application_id).
+ * 2026-04-17
+ */
+export function useTransferEnquiry() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { id: string; application_id: string; institution_id: string; program_id: string },
+    Error,
+    {
+      learnerId: string;
+      newInstitutionId: string;
+      newDegreeId: string;
+      newDepartmentId: string;
+      newProgramId: string;
+      newSemesterId?: string | null;
+      newSectionId?: string | null;
+      newAcademicYearId?: string | null;
+      newRegulationId?: string | null;
+      newBatchId?: string | null;
+      reason: string;
+    }
+  >({
+    mutationFn: (vars) => LearnerProfileService.transferEnquiry(vars),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.detail(variables.learnerId) });
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: learnerProfileKeys.analytics() });
+    },
+  });
+}
+
+/**
  * Delete learner profile
  */
 export function useDeleteLearnerProfile() {
