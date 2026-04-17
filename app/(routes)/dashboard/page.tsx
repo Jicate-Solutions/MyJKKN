@@ -17,6 +17,8 @@ import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-
 import { HeroStrip } from '@/components/dashboard/hero-strip';
 import { CounselorHeroStrip } from '@/components/dashboard/counselor-hero-strip';
 import { getCounselorMetrics } from '@/lib/services/dashboard/counselor-metrics-service';
+import { FacultyHeroStrip } from '@/components/dashboard/faculty-hero-strip';
+import { getFacultyMetrics } from '@/lib/services/dashboard/faculty-metrics-service';
 import { getStudentMetrics } from '@/lib/services/dashboard/student-metrics-service';
 import { getDashboardPersona } from '@/lib/services/dashboard/dashboard-role-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
@@ -72,6 +74,10 @@ async function LiveCounselorHero() {
   return <CounselorHeroStrip metrics={metrics} />;
 }
 
+// Faculty hero strip: unmarked classes / flags / timetable / week %
+async function LiveFacultyHero() {
+  const metrics = await getFacultyMetrics();
+  return <FacultyHeroStrip metrics={metrics} />;
 // Week-3 addition: student/learner-scoped hero strip (4,235 active users)
 async function LiveStudentHero() {
   const metrics = await getStudentMetrics();
@@ -201,6 +207,7 @@ export default async function DashboardV2Page({
   const persona = await getDashboardPersona();
   const isDirector = persona === 'director';
   const isCounselor = persona === 'counselor';
+  const isFaculty = persona === 'faculty';
   const isStudent = persona === 'student';
   const isLimited = persona === 'limited';
 
@@ -228,6 +235,11 @@ export default async function DashboardV2Page({
           <LiveMorningBrief />
         </Suspense>
 
+        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / limited safe default) */}
+        <Suspense fallback={<HeroSkeleton />}>
+          {isDirector && <LiveHeroStrip />}
+          {isCounselor && <LiveCounselorHero />}
+          {isFaculty && <LiveFacultyHero />}
         {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Student / limited safe default) */}
         <Suspense fallback={<HeroSkeleton />}>
           {isDirector && <LiveHeroStrip />}
