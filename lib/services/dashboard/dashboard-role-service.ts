@@ -44,6 +44,8 @@ const COUNSELOR_ROLES = new Set([
 
 const FACULTY_ROLES = new Set([
   'faculty'
+]);
+
 const STUDENT_ROLES = new Set([
   'student'
 ]);
