@@ -356,7 +356,10 @@ export const createFacultyInitiativeSchema = z.object({
 
   clinical_details: z.record(z.string(), z.any()).optional(),
   research_details: z.record(z.string(), z.any()).optional(),
-  sh_publication_id: z.string().uuid().optional(),
+  sh_publication_id: z.preprocess(
+    (v) => (v === '' || v === null) ? undefined : v,
+    z.string().uuid().optional()
+  ),
 
   attachment_urls: z.array(attachmentRefSchema).max(20).optional(),
 

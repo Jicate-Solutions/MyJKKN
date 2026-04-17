@@ -9,9 +9,11 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
   ArrowRight,
+  Archive,
   FilePlus2,
   FilterX,
   Lightbulb,
+  Pencil,
   Search,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -50,14 +52,21 @@ import {
 } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useMyFacultyInitiatives } from '@/hooks/faculty-innovation/use-faculty-initiatives';
+import {
+  useMyFacultyInitiatives,
+  useFacultyInitiativeMutations,
+} from '@/hooks/faculty-innovation/use-faculty-initiatives';
 import {
   CATEGORY_LABEL,
   STATUS_COLOR,
   STATUS_LABEL,
+  type FacultyInitiative,
   type FacultyInitiativeCategory,
   type FacultyInitiativeStatus,
+  type UpdateFacultyInitiativeInput,
 } from '@/types/faculty-innovation';
+import { EditInitiativeDialog } from '../_components/edit-initiative-dialog';
+import { ArchiveInitiativeDialog } from '../_components/archive-initiative-dialog';
 
 export default function FacultyInnovationPortfolioPage() {
   const searchParams = useSearchParams();
@@ -83,6 +92,18 @@ export default function FacultyInnovationPortfolioPage() {
 
   const { initiatives, isLoading, total, isError, error } =
     useMyFacultyInitiatives(filters);
+  const { update, softDelete } = useFacultyInitiativeMutations();
+
+  const [editTarget, setEditTarget] = useState<FacultyInitiative | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<FacultyInitiative | null>(null);
+
+  const handleEdit = async (id: string, input: UpdateFacultyInitiativeInput) => {
+    await update.mutateAsync({ id, input });
+  };
+
+  const handleArchive = async (id: string, reason?: string) => {
+    await softDelete.mutateAsync({ id, reason });
+  };
 
   const hasActiveFilters =
     statusFilter !== 'all' || categoryFilter !== 'all' || search.trim() !== '';
@@ -265,12 +286,14 @@ export default function FacultyInnovationPortfolioPage() {
                       <TableHead>Status</TableHead>
                       <TableHead>Approval</TableHead>
                       <TableHead>Submitted</TableHead>
-                      <TableHead className="w-10" />
+                      <TableHead className="w-24 text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {initiatives.map((init) => {
                       const isHighlighted = highlightId === init.id;
+                      const canEdit = init.status === 'draft' || init.status === 'draft_from_email';
+                      const canArchive = canEdit || init.status === 'submitted';
                       return (
                         <TableRow
                           key={init.id}
@@ -305,7 +328,31 @@ export default function FacultyInnovationPortfolioPage() {
                               : '—'}
                           </TableCell>
                           <TableCell>
-                            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                            <div className="flex items-center justify-end gap-1">
+                              {canEdit && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0"
+                                  title="Edit"
+                                  onClick={() => setEditTarget(init)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              {canArchive && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                  title="Archive"
+                                  onClick={() => setArchiveTarget(init)}
+                                >
+                                  <Archive className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              <ArrowRight className="h-4 w-4 text-muted-foreground ml-1" />
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -317,6 +364,20 @@ export default function FacultyInnovationPortfolioPage() {
           </Card>
         </div>
       </PermissionGuard>
+
+      <EditInitiativeDialog
+        initiative={editTarget}
+        open={editTarget !== null}
+        onOpenChange={(open) => { if (!open) setEditTarget(null); }}
+        onSave={handleEdit}
+      />
+
+      <ArchiveInitiativeDialog
+        initiative={archiveTarget}
+        open={archiveTarget !== null}
+        onOpenChange={(open) => { if (!open) setArchiveTarget(null); }}
+        onConfirm={handleArchive}
+      />
     </ContentLayout>
   );
 }

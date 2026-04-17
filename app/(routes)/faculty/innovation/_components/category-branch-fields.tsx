@@ -302,8 +302,18 @@ export function CategoryBranchFields({
             id="sh_publication_id"
             value={shPublicationId}
             onChange={(e) => onShPublicationChange(e.target.value)}
-            placeholder="UUID"
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            className={
+              shPublicationId &&
+              !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(shPublicationId)
+                ? 'border-red-500 focus-visible:ring-red-500'
+                : ''
+            }
           />
+          {shPublicationId &&
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(shPublicationId) && (
+              <p className="text-xs text-red-500 mt-1">Must be a valid UUID or leave blank</p>
+            )}
         </div>
       </div>
     );

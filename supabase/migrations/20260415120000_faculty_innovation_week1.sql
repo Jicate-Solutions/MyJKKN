@@ -403,28 +403,47 @@ CREATE TRIGGER trg_fi_audit
 -- faculty_initiatives ---------------------------------------------------------
 ALTER TABLE public.faculty_initiatives ENABLE ROW LEVEL SECURITY;
 
+-- SECURITY DEFINER helpers to break the mutual RLS recursion cycle:
+--   faculty_initiatives_select → faculty_initiative_coinventors
+--   fi_coinventors_select/write → faculty_initiatives  (would loop)
+
+CREATE OR REPLACE FUNCTION public.fi_is_coinventor(p_initiative_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.faculty_initiative_coinventors
+    WHERE initiative_id = p_initiative_id AND coinventor_user_id = auth.uid()
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.fi_is_initiative_owner_or_authority(p_initiative_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.faculty_initiatives
+    WHERE id = p_initiative_id
+      AND (inventor_id = auth.uid() OR original_inventor_id = auth.uid()
+           OR current_approver_id = auth.uid()
+           OR public.get_current_user_role() = 'director')
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.fi_is_coinventor(UUID)                    TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fi_is_initiative_owner_or_authority(UUID) TO authenticated;
+
 -- SELECT: inventor | original_inventor | approval_authority role | HOD (non-IP only) | super/admin
 DROP POLICY IF EXISTS "faculty_initiatives_select" ON public.faculty_initiatives;
 CREATE POLICY "faculty_initiatives_select" ON public.faculty_initiatives
   FOR SELECT USING (
     is_super_admin() OR is_admin()
-    OR inventor_id            = auth.uid()
-    OR original_inventor_id   = auth.uid()
-    -- Approval authority routing (role-key based)
+    OR inventor_id          = auth.uid()
+    OR original_inventor_id = auth.uid()
     OR (approval_authority = 'director' AND get_current_user_role() = 'director')
     OR (approval_authority = 'dean'     AND get_current_user_role() = 'dean'
         AND role_has_institution_access(institution_id))
     OR (approval_authority = 'ip_cell'  AND user_has_permission('faculty_innovation.ip.view'))
-    -- HOD auto-visibility for non-IP initiatives (A10)
     OR (category <> 'ip_bearing'
         AND get_current_user_role() = 'hod'
         AND role_has_institution_access(institution_id))
-    -- Co-inventors who are JKKN users
-    OR EXISTS (
-      SELECT 1 FROM public.faculty_initiative_coinventors c
-      WHERE c.initiative_id = faculty_initiatives.id
-        AND c.coinventor_user_id = auth.uid()
-    )
+    OR fi_is_coinventor(faculty_initiatives.id)
   );
 
 -- INSERT: any user with submit permission, setting themselves as inventor
@@ -456,32 +475,17 @@ CREATE POLICY "fi_coinventors_select" ON public.faculty_initiative_coinventors
   FOR SELECT USING (
     is_super_admin() OR is_admin()
     OR coinventor_user_id = auth.uid()
-    OR EXISTS (
-      SELECT 1 FROM public.faculty_initiatives fi
-      WHERE fi.id = faculty_initiative_coinventors.initiative_id
-        AND (fi.inventor_id = auth.uid()
-             OR fi.original_inventor_id = auth.uid()
-             OR fi.current_approver_id = auth.uid()
-             OR get_current_user_role() = 'director')
-    )
+    OR fi_is_initiative_owner_or_authority(faculty_initiative_coinventors.initiative_id)
   );
 
 DROP POLICY IF EXISTS "fi_coinventors_write" ON public.faculty_initiative_coinventors;
 CREATE POLICY "fi_coinventors_write" ON public.faculty_initiative_coinventors
   FOR ALL USING (
     is_super_admin() OR is_admin()
-    OR EXISTS (
-      SELECT 1 FROM public.faculty_initiatives fi
-      WHERE fi.id = faculty_initiative_coinventors.initiative_id
-        AND fi.inventor_id = auth.uid()
-    )
+    OR fi_is_initiative_owner_or_authority(faculty_initiative_coinventors.initiative_id)
   ) WITH CHECK (
     is_super_admin() OR is_admin()
-    OR EXISTS (
-      SELECT 1 FROM public.faculty_initiatives fi
-      WHERE fi.id = faculty_initiative_coinventors.initiative_id
-        AND fi.inventor_id = auth.uid()
-    )
+    OR fi_is_initiative_owner_or_authority(faculty_initiative_coinventors.initiative_id)
   );
 
 -- faculty_initiative_audit_log ------------------------------------------------
@@ -502,7 +506,15 @@ CREATE POLICY "fi_audit_select" ON public.faculty_initiative_audit_log
     )
   );
 
--- INSERTs only via SECURITY DEFINER trigger (no app-level INSERT policy granted)
+-- INSERT: actor can log their own audit entries (reason-annotated actions from app code).
+-- actor_id = auth.uid() prevents logging actions on behalf of others.
+-- The SECURITY DEFINER trigger still auto-logs state changes independently.
+DROP POLICY IF EXISTS "fi_audit_insert" ON public.faculty_initiative_audit_log;
+CREATE POLICY "fi_audit_insert" ON public.faculty_initiative_audit_log
+  FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR actor_id = auth.uid()
+  );
 -- No UPDATE, no DELETE — immutable by design (A8)
 
 -- approval_authority_config ---------------------------------------------------

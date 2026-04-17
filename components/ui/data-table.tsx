@@ -488,6 +488,7 @@ export function DataTable<TData, TValue>({
   const table = useReactTable({
     data,
     columns: enhancedColumns as ColumnDef<TData, TValue>[],
+    getRowId,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: serverSidePagination
       ? undefined
@@ -505,6 +506,7 @@ export function DataTable<TData, TValue>({
     globalFilterFn: globalFilterFn as any,
     manualPagination: !!serverSidePagination,
     manualFiltering: !!serverSidePagination,
+    autoResetPageIndex: false,
     pageCount: serverSidePagination
       ? serverSidePagination.totalPages
       : undefined,

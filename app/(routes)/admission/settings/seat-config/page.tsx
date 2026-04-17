@@ -116,9 +116,12 @@ export default function SeatConfigPage() {
     setPickedAcademicYearId('');
   }, [pickedInstitutionId]);
 
-  // Auto-select current academic year
+  // Auto-select current academic year — re-runs whenever academicYears changes
+  // (covers institution switch where stale cache data may set a year from the old institution)
   useEffect(() => {
-    if (!academicYears.length || pickedAcademicYearId) return;
+    if (!academicYears.length) return;
+    const yearInList = academicYears.some((ay: any) => ay.id === pickedAcademicYearId);
+    if (yearInList) return; // valid selection already — don't override user's choice
     const today = new Date().toISOString().slice(0, 10);
     const current = academicYears.find(
       (ay: any) => ay.start_date <= today && ay.end_date >= today
@@ -211,6 +214,8 @@ export default function SeatConfigPage() {
     () => createSeatConfigColumns({ onUpdate: updateRow, onSave: saveRow, onEdit: setEditRow }),
     [updateRow, saveRow]
   );
+
+  const getRowId = useCallback((row: ProgramRow) => row.id, []);
 
   const dirtyCount = rows.filter((r) => r.dirty).length;
   const configuredCount = rows.filter((r) => r.intake_history_id).length;
@@ -339,7 +344,7 @@ export default function SeatConfigPage() {
               data={rows}
               searchPlaceholder="Search programs…"
               filterColumn="program_name"
-              getRowId={(row) => row.id}
+              getRowId={getRowId}
               tableTools={tableTools}
               onRefresh={loadData}
               showRefresh={true}

@@ -152,6 +152,12 @@ export default function SubmitInitiativePage() {
       return;
     }
 
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (draft.category === 'publication' && draft.sh_publication_id && !UUID_RE.test(draft.sh_publication_id)) {
+      toast.error('Solutions Hub publication ID must be a valid UUID (e.g. 550e8400-e29b-41d4-a716-446655440000). Leave blank to auto-create.');
+      return;
+    }
+
     const input: CreateFacultyInitiativeInput = {
       institution_id: profile.institution_id,
       title: draft.title.trim(),
