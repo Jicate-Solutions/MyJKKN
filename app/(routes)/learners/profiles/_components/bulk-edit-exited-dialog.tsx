@@ -248,11 +248,13 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
       console.error('[bulk-edit-active] Preview error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Preview failed';
 
-      // Show specific error with helpful message
-      if (errorMessage.includes('Unauthorized') || errorMessage.includes('Authentication')) {
+      // Show specific error with helpful message (server returns 503 with
+      // a "Temporary network error..." body for retryable fetch failures).
+      const lower = errorMessage.toLowerCase();
+      if (lower.includes('temporary network') || lower.includes('timeout') || lower.includes('network') || lower.includes('fetch failed')) {
+        toast.error('Connection hiccup reaching the server. Please try again in a moment.');
+      } else if (lower.includes('unauthorized') || lower.includes('authentication') || lower.includes('session')) {
         toast.error('Session expired. Please refresh the page and try again.');
-      } else if (errorMessage.includes('timeout') || errorMessage.includes('Network')) {
-        toast.error('Connection timeout. Please check your internet and try again.');
       } else {
         toast.error(errorMessage);
       }
