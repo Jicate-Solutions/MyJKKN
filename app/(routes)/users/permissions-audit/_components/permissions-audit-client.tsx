@@ -7,7 +7,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BeatLoader } from 'react-spinners';
 import { ShieldCheck } from 'lucide-react';
-import { UserService } from '@/lib/services/users/user-service';
+import { useAuth } from '@/hooks/use-auth-provider';
 import { SYSTEM_ROLES } from '@/types/auth';
 import { SystemHealthTab } from './system-health-tab';
 import { UserResolverTab } from './user-resolver-tab';
@@ -23,35 +23,23 @@ import { ComplianceReportButton } from './compliance-report-button';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const { profile, isLoading: isAuthLoading } = useAuth();
   // Controlled tabs so children (e.g. SystemHealthTab health cards) can switch tabs
   const [activeTab, setActiveTab] = useState('ask');
 
+  const isSuperAdmin =
+    !!profile &&
+    (profile.role === SYSTEM_ROLES.SUPER_ADMIN || profile.is_super_admin === true);
+
   useEffect(() => {
-    const checkAccess = async () => {
-      try {
-        const { data: profile } = await UserService.getCurrentUserProfile();
-        if (
-          !profile ||
-          (profile.role !== SYSTEM_ROLES.SUPER_ADMIN && !profile.is_super_admin)
-        ) {
-          router.push('/unauthorized');
-          return;
-        }
-        setIsSuperAdmin(true);
-      } catch (error) {
-        console.error('Error checking permissions:', error);
-        router.push('/unauthorized');
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    if (isAuthLoading) return;
+    if (!profile) return; // Middleware handles unauthenticated users
+    if (!isSuperAdmin) {
+      router.push('/unauthorized');
+    }
+  }, [isAuthLoading, profile, isSuperAdmin, router]);
 
-    checkAccess();
-  }, [router]);
-
-  if (isLoading || !isSuperAdmin) {
+  if (isAuthLoading || !profile || !isSuperAdmin) {
     return (
       <ContentLayout title='Permissions Audit'>
         <div className='flex justify-center items-center min-h-[400px]'>
