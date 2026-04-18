@@ -29,6 +29,12 @@ export const STUDENT_WIDGETS = [
     description: 'Countdown to your next birthday',
     category: 'Personal',
   },
+  {
+    id: 'action_items',
+    title: 'Action Required',
+    description: 'Pending actions that need your response',
+    category: 'Notifications',
+  },
 ];
 
 export const FACULTY_WIDGETS = [
@@ -55,6 +61,12 @@ export const FACULTY_WIDGETS = [
     title: "Today's Celebrations",
     description: 'Birthdays and work anniversaries today',
     category: 'Community',
+  },
+  {
+    id: 'action_items',
+    title: 'Action Required',
+    description: 'Pending actions that need your response',
+    category: 'Notifications',
   },
 ];
 
@@ -83,6 +95,12 @@ export const LEADERSHIP_WIDGETS = [
     description: 'Birthdays and work anniversaries today',
     category: 'Community',
   },
+  {
+    id: 'action_items',
+    title: 'Action Required',
+    description: 'Pending actions that need your response',
+    category: 'Notifications',
+  },
 ];
 
 export const ADMIN_WIDGETS = [
@@ -109,6 +127,12 @@ export const ADMIN_WIDGETS = [
     title: "Today's Celebrations",
     description: 'Birthdays and work anniversaries today',
     category: 'Community',
+  },
+  {
+    id: 'action_items',
+    title: 'Action Required',
+    description: 'Pending actions that need your response',
+    category: 'Notifications',
   },
 ];
 
