@@ -23,6 +23,8 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 const NOTIFICATION_LINK_ALLOWLIST = new Set<string>([
   'jkkn.ac.in',
   'www.jkkn.ac.in',
+  'jkkn.ai',
+  'www.jkkn.ai',
   'myjkkn.com',
   'www.myjkkn.com',
   'app.jkkn.ac.in'
@@ -43,8 +45,9 @@ function isAllowedNotificationLink(value: unknown): boolean {
     }
     const host = parsed.hostname.toLowerCase();
     if (NOTIFICATION_LINK_ALLOWLIST.has(host)) return true;
-    // Allow any subdomain of jkkn.ac.in (e.g. marathon.jkkn.ac.in)
+    // Allow any subdomain of jkkn.ac.in or jkkn.ai (e.g. marathon.jkkn.ac.in, cockpit.jkkn.ai)
     if (host === 'jkkn.ac.in' || host.endsWith('.jkkn.ac.in')) return true;
+    if (host === 'jkkn.ai' || host.endsWith('.jkkn.ai')) return true;
     return false;
   } catch {
     return false;
