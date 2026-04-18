@@ -92,6 +92,7 @@ async function LiveStudentHero() {
 // HOD hero strip: dept attendance / marking compliance / grievances / leave approvals (48 active HODs)
 function LiveHodHero() {
   return <HodHeroStrip />;
+}
 // Accounts hero strip: collection vs plan / overdue / recon gap / refunds (11 users)
 async function LiveAccountsHero() {
   const metrics = await getAccountsMetrics();
