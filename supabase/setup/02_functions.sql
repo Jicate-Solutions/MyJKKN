@@ -8154,6 +8154,12 @@ GRANT EXECUTE ON FUNCTION public.get_geography_analytics(uuid, uuid) TO authenti
 -- Returns JSONB with 4 tile values for the logged-in HOD
 CREATE OR REPLACE FUNCTION public.fn_hod_metrics()
 RETURNS jsonb
+-- ============================================================================
+-- Dashboard v2 — fn_accounts_metrics (Accounts hero strip)
+-- Added: 2026-04-18 — 4 tiles: collection vs plan, overdue bills, recon gap, pending refunds
+-- ============================================================================
+CREATE OR REPLACE FUNCTION fn_accounts_metrics()
+RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
@@ -8262,8 +8268,84 @@ BEGIN
     'marking_compliance_pct', v_marking_compliance,
     'open_grievances', v_open_grievances,
     'pending_leave_approvals', v_pending_leaves
+  v_caller UUID;
+  v_institution_id UUID;
+  v_today DATE := CURRENT_DATE;
+  v_month_start DATE;
+  v_month_end DATE;
+  v_collected_today NUMERIC := 0;
+  v_daily_target NUMERIC := 100000;
+  v_overdue_count BIGINT := 0;
+  v_invoiced_month NUMERIC := 0;
+  v_receipted_month NUMERIC := 0;
+  v_recon_gap NUMERIC := 0;
+  v_pending_refunds BIGINT := 0;
+BEGIN
+  v_caller := auth.uid();
+  IF v_caller IS NULL THEN
+    RETURN jsonb_build_object(
+      'collection', jsonb_build_object('collected_today', 0, 'daily_target', v_daily_target, 'pct', 0),
+      'overdue_bills', jsonb_build_object('count', 0),
+      'reconciliation', jsonb_build_object('gap', 0, 'invoiced', 0, 'receipted', 0),
+      'pending_refunds', jsonb_build_object('count', 0),
+      'scope', jsonb_build_object('user_id', null, 'institution_id', null, 'computed_at', now())
+    );
+  END IF;
+
+  SELECT institution_id INTO v_institution_id
+  FROM profiles WHERE id = v_caller;
+
+  v_month_start := date_trunc('month', v_today)::date;
+  v_month_end := (date_trunc('month', v_today) + interval '1 month' - interval '1 day')::date;
+
+  -- Tile 1: Today's collection
+  SELECT COALESCE(SUM(payment_amount), 0) INTO v_collected_today
+  FROM billing_receipts
+  WHERE receipt_date = v_today
+    AND (v_institution_id IS NULL OR institution_id = v_institution_id);
+
+  -- Tile 2: Overdue bills
+  SELECT COUNT(*) INTO v_overdue_count
+  FROM billing_student_bills
+  WHERE due_date < v_today
+    AND status NOT IN ('paid', 'cancelled')
+    AND (v_institution_id IS NULL OR institution_id = v_institution_id);
+
+  -- Tile 3: Reconciliation gap (current month)
+  SELECT COALESCE(SUM(grand_total), 0) INTO v_invoiced_month
+  FROM billing_invoices
+  WHERE invoice_date BETWEEN v_month_start AND v_month_end
+    AND (v_institution_id IS NULL OR institution_id = v_institution_id);
+
+  SELECT COALESCE(SUM(payment_amount), 0) INTO v_receipted_month
+  FROM billing_receipts
+  WHERE receipt_date BETWEEN v_month_start AND v_month_end
+    AND (v_institution_id IS NULL OR institution_id = v_institution_id);
+
+  v_recon_gap := v_invoiced_month - v_receipted_month;
+
+  -- Tile 4: Pending refunds
+  SELECT COUNT(*) INTO v_pending_refunds
+  FROM billing_refunds
+  WHERE approval_status = 'pending'
+    AND (v_institution_id IS NULL OR EXISTS (
+      SELECT 1 FROM billing_receipts br WHERE br.id = billing_refunds.receipt_id AND br.institution_id = v_institution_id
+    ));
+
+  RETURN jsonb_build_object(
+    'collection', jsonb_build_object(
+      'collected_today', v_collected_today,
+      'daily_target', v_daily_target,
+      'pct', CASE WHEN v_daily_target > 0 THEN ROUND((v_collected_today / v_daily_target * 100)::numeric, 1) ELSE 0 END
+    ),
+    'overdue_bills', jsonb_build_object('count', v_overdue_count),
+    'reconciliation', jsonb_build_object('gap', v_recon_gap, 'invoiced', v_invoiced_month, 'receipted', v_receipted_month),
+    'pending_refunds', jsonb_build_object('count', v_pending_refunds),
+    'scope', jsonb_build_object('user_id', v_caller, 'institution_id', v_institution_id, 'computed_at', now())
   );
 END;
 $$;
 
 GRANT EXECUTE ON FUNCTION fn_hod_metrics TO authenticated;
+GRANT EXECUTE ON FUNCTION fn_accounts_metrics() TO authenticated;
+COMMENT ON FUNCTION fn_accounts_metrics() IS 'Dashboard v2 — Accounts hero strip: collection vs plan, overdue bills, reconciliation gap, pending refunds. SECURITY DEFINER, institution-scoped via auth.uid().';
