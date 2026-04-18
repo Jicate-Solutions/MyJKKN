@@ -22,6 +22,8 @@ import { getFacultyMetrics } from '@/lib/services/dashboard/faculty-metrics-serv
 import { PrincipalHeroStrip } from '@/components/dashboard/principal-hero-strip';
 import { getPrincipalMetrics } from '@/lib/services/dashboard/principal-metrics-service';
 import { getStudentMetrics } from '@/lib/services/dashboard/student-metrics-service';
+import { AccountsHeroStrip } from '@/components/dashboard/accounts-hero-strip';
+import { getAccountsMetrics } from '@/lib/services/dashboard/accounts-metrics-service';
 import { getDashboardPersona } from '@/lib/services/dashboard/dashboard-role-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
@@ -92,6 +94,12 @@ async function LivePrincipalHero() {
 async function LiveStudentHero() {
   const metrics = await getStudentMetrics();
   return <StudentHeroStrip metrics={metrics} />;
+}
+
+// Accounts hero strip: collection vs plan / overdue / recon gap / refunds (11 users)
+async function LiveAccountsHero() {
+  const metrics = await getAccountsMetrics();
+  return <AccountsHeroStrip metrics={metrics} />;
 }
 
 // ============================================================================
@@ -219,6 +227,7 @@ export default async function DashboardV2Page({
   const isCounselor = persona === 'counselor';
   const isFaculty = persona === 'faculty';
   const isPrincipal = persona === 'principal';
+  const isAccounts = persona === 'accounts';
   const isStudent = persona === 'student';
   const isLimited = persona === 'limited';
 
@@ -247,11 +256,13 @@ export default async function DashboardV2Page({
         </Suspense>
 
         {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Principal / Student / limited safe default) */}
+        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Accounts / Student / limited safe default) */}
         <Suspense fallback={<HeroSkeleton />}>
           {isDirector && <LiveHeroStrip />}
           {isCounselor && <LiveCounselorHero />}
           {isFaculty && <LiveFacultyHero />}
           {isPrincipal && <LivePrincipalHero />}
+          {isAccounts && <LiveAccountsHero />}
           {isStudent && <LiveStudentHero />}
           {isLimited && <LimitedHero />}
         </Suspense>

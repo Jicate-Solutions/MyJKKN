@@ -7,12 +7,15 @@
  *   - 'faculty'   → faculty hero: unmarked classes / learner flags / upcoming timetable / week attendance
  *   - 'principal' → principal hero: institution health (OHS) / staff attendance / incidents / pending approvals.
  *                   Scoped to principal's own institution_id.
+ *   - 'accounts'  → accounts hero: collection vs plan / overdue bills / recon gap / pending refunds.
+ *                   Institution-scoped via auth.uid(). NO leaderboards, NO institution chips.
  *   - 'student'   → student/learner hero: attendance / fees / timetable / deadlines.
  *                   Self-scoped via auth.uid(). NO leaderboards, NO institution chips.
  *   - 'limited'   → self-scoped only: morning brief + decision queue + push button.
  *                   NO hero strip (cross-institution aggregates would leak), NO institution chips,
  *                   NO leaderboards. Users in this bucket haven't been issued a role-specific
  *                   dashboard yet (HOD, Warden, Accounts, Parent).
+ *                   dashboard yet (HOD, Principal, Warden, Parent).
  *
  * IMPORTANT — security property: 'limited' is the safe default. Never fall back to 'director'
  * because fn_dashboard_metrics() is SECURITY DEFINER and returns JKKN-wide aggregates when called
@@ -25,6 +28,7 @@
 import { createClient } from '@/lib/supabase/server';
 
 export type DashboardPersona = 'director' | 'counselor' | 'faculty' | 'principal' | 'student' | 'limited';
+export type DashboardPersona = 'director' | 'counselor' | 'faculty' | 'accounts' | 'student' | 'limited';
 
 const DIRECTOR_ROLES = new Set([
   'admin',
@@ -45,6 +49,9 @@ const FACULTY_ROLES = new Set([
 
 const PRINCIPAL_ROLES = new Set([
   'principal'
+const ACCOUNTS_ROLES = new Set([
+  'accounts',
+  'accountant_assistant'
 ]);
 
 const STUDENT_ROLES = new Set([
@@ -103,6 +110,7 @@ export async function resolvePersona(): Promise<PersonaResolution> {
     else if (COUNSELOR_ROLES.has(role)) persona = 'counselor';
     else if (FACULTY_ROLES.has(role)) persona = 'faculty';
     else if (PRINCIPAL_ROLES.has(role)) persona = 'principal';
+    else if (ACCOUNTS_ROLES.has(role)) persona = 'accounts';
     else if (STUDENT_ROLES.has(role)) persona = 'student';
 
     return {
