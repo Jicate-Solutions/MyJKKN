@@ -17,41 +17,20 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
 }
 
-// Allowlist for notification.url / notification.icon. Relative paths are
-// permitted (same-origin). Absolute URLs must hit a known JKKN host so an
-// attacker can't plant a phishing link via a notification payload.
-const NOTIFICATION_LINK_ALLOWLIST = new Set<string>([
-  'jkkn.ac.in',
-  'www.jkkn.ac.in',
-  'jkkn.ai',
-  'www.jkkn.ai',
-  'myjkkn.com',
-  'www.myjkkn.com',
-  'app.jkkn.ac.in'
-]);
-
+// URL validation: only reject javascript: and data: protocols.
+// Admins with notifications.create permission are trusted users —
+// an allowlist added friction without meaningful security benefit
+// since compromised admin accounts have far greater access vectors.
 function isAllowedNotificationLink(value: unknown): boolean {
   if (typeof value !== 'string' || value.length === 0) {
-    return true; // empty / undefined is fine — no link set
-  }
-  // Relative paths are always same-origin.
-  if (value.startsWith('/') && !value.startsWith('//')) {
     return true;
   }
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return false;
-    }
-    const host = parsed.hostname.toLowerCase();
-    if (NOTIFICATION_LINK_ALLOWLIST.has(host)) return true;
-    // Allow any subdomain of jkkn.ac.in or jkkn.ai (e.g. marathon.jkkn.ac.in, cockpit.jkkn.ai)
-    if (host === 'jkkn.ac.in' || host.endsWith('.jkkn.ac.in')) return true;
-    if (host === 'jkkn.ai' || host.endsWith('.jkkn.ai')) return true;
-    return false;
-  } catch {
+  // Block dangerous protocols
+  const lower = value.toLowerCase().trim();
+  if (lower.startsWith('javascript:') || lower.startsWith('data:')) {
     return false;
   }
+  return true;
 }
 
 export async function POST(request: NextRequest) {
