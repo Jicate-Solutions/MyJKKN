@@ -43,7 +43,7 @@ export class FacultyTimetableService {
           institution:institutions(id, name),
           department:departments(id, department_name),
           program:programs(id, program_name),
-          semester,
+          semester_id,
           timetable_data
         `
         )
@@ -151,7 +151,7 @@ export class FacultyTimetableService {
                   (timetable.department as any)?.department_name ||
                   'Unknown Department',
                 program_name: (timetable.program as any)?.program_name,
-                semester: timetable.semester
+                semester: (timetable as any).semester_id
               },
               is_break_slot: slot.is_break_slot || false,
               break_description: slot.break_description,
@@ -233,7 +233,7 @@ export class FacultyTimetableService {
           institution:institutions(id, name),
           department:departments(id, department_name),
           program:programs(id, program_name),
-          semester,
+          semester_id,
           timetable_data
         `
         )
@@ -378,7 +378,7 @@ export class FacultyTimetableService {
                   (timetable.department as any)?.department_name ||
                   'Unknown Department',
                 program_name: (timetable.program as any)?.program_name,
-                semester: timetable.semester
+                semester: (timetable as any).semester_id
               },
               is_break_slot: slot.is_break_slot || false,
               break_description: slot.break_description,
