@@ -538,14 +538,16 @@ export class NameToIdResolver {
    * @param institutionId - Optional institution filter
    * @param semesterId - Optional semester filter
    */
-  static async resolveSectionId(sectionName: string, institutionId?: string, semesterId?: string): Promise<NameToIdResult> {
-    if (!sectionName || sectionName.trim() === '') {
+  static async resolveSectionId(sectionName: string | number, institutionId?: string, semesterId?: string): Promise<NameToIdResult> {
+    const sectionStr = String(sectionName ?? '');
+    if (!sectionStr || sectionStr.trim() === '') {
       return { id: null, found: false };
     }
+    sectionName = sectionStr;
 
     try {
       console.log(`[name-to-id] 🔍 Resolving Section ID for: "${sectionName}"`);
-      console.log(`[name-to-id] 📋 Query params:`, { sectionName: sectionName.trim(), institutionId, semesterId });
+      console.log(`[name-to-id] 📋 Query params:`, { sectionName: sectionStr.trim(), institutionId, semesterId });
 
       let query = supabaseAdmin
         .from('sections')
@@ -631,10 +633,12 @@ export class NameToIdResolver {
    * @param yearName - The academic year name (e.g., "2025-2026", "2025-26", "AY 2025-26")
    * @param institutionId - Optional institution filter
    */
-  static async resolveAcademicYearId(yearName: string, institutionId?: string): Promise<NameToIdResult> {
-    if (!yearName || yearName.trim() === '') {
+  static async resolveAcademicYearId(yearName: string | number, institutionId?: string): Promise<NameToIdResult> {
+    const yearStr = String(yearName ?? '');
+    if (!yearStr || yearStr.trim() === '') {
       return { id: null, found: false };
     }
+    yearName = yearStr;
 
     try {
       console.log(`[name-to-id] 🔍 Resolving Academic Year ID for: "${yearName}"`);
@@ -720,13 +724,14 @@ export class NameToIdResolver {
    * @param regulationValue - The regulation code or year (e.g., "R2021", "R-2021", or "2021")
    * @param institutionId - Optional institution filter
    */
-  static async resolveRegulationId(regulationValue: string, institutionId?: string): Promise<NameToIdResult> {
-    if (!regulationValue || regulationValue.trim() === '') {
+  static async resolveRegulationId(regulationValue: string | number, institutionId?: string): Promise<NameToIdResult> {
+    const regulationStr = String(regulationValue ?? '');
+    if (!regulationStr || regulationStr.trim() === '') {
       return { id: null, found: false };
     }
 
     try {
-      const trimmedValue = regulationValue.trim().toUpperCase();
+      const trimmedValue = regulationStr.trim().toUpperCase();
 
       // Extract year from regulation value (e.g., "R2021" -> "2021", "R-2021" -> "2021")
       const yearMatch = trimmedValue.match(/(\d{4})/);
@@ -775,13 +780,15 @@ export class NameToIdResolver {
    * @param batchName - The batch name (e.g., "2021-2025") or batch code (e.g., "UGB24")
    * @param institutionId - Optional institution filter
    */
-  static async resolveBatchId(batchName: string, institutionId?: string): Promise<NameToIdResult> {
-    if (!batchName || batchName.trim() === '') {
+  static async resolveBatchId(batchName: string | number, institutionId?: string): Promise<NameToIdResult> {
+    const batchStr = String(batchName ?? '');
+    if (!batchStr || batchStr.trim() === '') {
       return { id: null, found: false };
     }
+    batchName = batchStr;
 
     try {
-      const trimmedValue = batchName.trim();
+      const trimmedValue = batchStr.trim();
 
       let query = supabaseAdmin
         .from('batches')
