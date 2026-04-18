@@ -65,7 +65,32 @@ const StaffFiltersComponent = ({ filters, onFilterChange }: StaffFiltersProps) =
 
   return (
     <div className='space-y-4 mb-6'>
-      <div className='grid gap-4 md:grid-cols-5'>
+      <div className='grid gap-4 md:grid-cols-3 lg:grid-cols-6'>
+
+        <Select
+          value={
+            filters.isActive === true
+              ? 'active'
+              : filters.isActive === false
+              ? 'inactive'
+              : 'all'
+          }
+          onValueChange={(value) =>
+            onFilterChange({
+              isActive:
+                value === 'active' ? true : value === 'inactive' ? false : undefined
+            })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue placeholder='Status' />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='all'>All Status</SelectItem>
+            <SelectItem value='active'>Active</SelectItem>
+            <SelectItem value='inactive'>Inactive</SelectItem>
+          </SelectContent>
+        </Select>
 
         <Select
           value={

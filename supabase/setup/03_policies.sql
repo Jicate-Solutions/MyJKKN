@@ -1283,29 +1283,30 @@ CREATE POLICY "timetables_select_active" ON timetables
 -- BILLING_STUDENT_BILLS TABLE (8 policies)
 ALTER TABLE billing_student_bills ENABLE ROW LEVEL SECURITY;
 
--- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
+-- Updated: 2026-04-18 - Use role_has_institution_access for cross-institution support
+-- (admission_staff with scope='all' was blocked by institution_id = get_current_user_institution_id())
 CREATE POLICY "bills_select_institution" ON billing_student_bills
     FOR SELECT USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.bills.view'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.view'))
     );
 
 CREATE POLICY "bills_insert_admin" ON billing_student_bills
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.bills.create'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.create'))
     );
 
 CREATE POLICY "bills_update_admin" ON billing_student_bills
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.bills.edit'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.edit'))
     );
 
 CREATE POLICY "bills_delete_admin" ON billing_student_bills
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('billing.bills.delete'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.delete'))
     );
 
 CREATE POLICY "bills_select_student" ON billing_student_bills

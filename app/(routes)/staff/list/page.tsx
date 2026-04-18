@@ -242,35 +242,38 @@ export default function StaffPage() {
 
             {/* Stats */}
             {!isLoading && staffData && (
-              <div className='flex items-center gap-4 mb-6 p-4 bg-muted/50 rounded-lg'>
+              <div className='flex flex-wrap items-center gap-3 mb-6 p-4 bg-muted/50 rounded-lg'>
                 <div className='flex items-center gap-2'>
                   <Users className='h-4 w-4 text-muted-foreground' />
                   <span className='text-sm font-medium'>
-                    {filters.search ? (
-                      <>
-                        Found: {staffData.metadata?.total || 0} employees
-                      </>
-                    ) : (
-                      <>Total: {staffData.metadata?.total || 0} employees</>
-                    )}
+                    {filters.search ? 'Found' : filters.isActive === true ? 'Active' : filters.isActive === false ? 'Inactive' : 'Total'}
+                    {': '}
+                    <span className='font-bold'>{staffData.metadata?.total || 0}</span>
+                    {' employees'}
                   </span>
                 </div>
+
+                {filters.isActive === true && (
+                  <Badge className='bg-green-100 text-green-800 border border-green-300 hover:bg-green-100'>
+                    Active Only
+                  </Badge>
+                )}
+                {filters.isActive === false && (
+                  <Badge className='bg-red-100 text-red-800 border border-red-300 hover:bg-red-100'>
+                    Inactive Only
+                  </Badge>
+                )}
                 {filters.search && staffList.length > 0 && (
-                  <Badge
-                    variant='default'
-                    className='bg-green-100 text-green-800 border-green-300'
-                  >
+                  <Badge className='bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-100'>
                     Search Active
                   </Badge>
                 )}
-                {staffData.metadata &&
-                  staffData.metadata.total > 0 &&
-                  !filters.search && (
-                    <Badge variant='secondary'>
-                      Page {staffData.metadata.page} of{' '}
-                      {staffData.metadata.totalPages}
-                    </Badge>
-                  )}
+                {staffData.metadata && staffData.metadata.total > 0 && (
+                  <Badge variant='secondary' className='ml-auto'>
+                    Page {staffData.metadata.page} of{' '}
+                    {staffData.metadata.totalPages}
+                  </Badge>
+                )}
               </div>
             )}
 
