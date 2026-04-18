@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { format } from 'date-fns';
+import Link from 'next/link';
 import {
   UserCheck,
   GraduationCap,
@@ -11,7 +12,12 @@ import {
   Home,
   BookText,
   FileEdit,
-  IndianRupee
+  IndianRupee,
+  LinkIcon,
+  ExternalLink,
+  CheckCircle2,
+  Clock,
+  Share2
 } from 'lucide-react';
 import {
   Card,
@@ -27,6 +33,7 @@ import { cn } from '@/lib/utils';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { UserIcon } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useEnquiryReferralContext } from '@/hooks/admission/use-enquiry-referral';
 // Fee structure constants removed 2026-04-15 — replaced by dynamic fee_items flow.
 
 interface EnquiryDetailProps {
@@ -70,11 +77,20 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
       icon: IndianRupee
     }] : []),
     {
+      id: 'referral',
+      label: 'Referral & Consultant',
+      icon: Share2
+    },
+    {
       id: 'enquiry',
       label: 'Enquiry Details',
       icon: BookText
     }
   ];
+
+  // Fetch consultant attributions from the originating lead (via bridge FK).
+  const { data: referralContext, isLoading: referralLoading } =
+    useEnquiryReferralContext(enquiry.id);
 
   // Helper function to format date
   const formatDate = (dateString: string | undefined) => {
@@ -865,6 +881,145 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                     </>
                   );
                 })()}
+              </CardContent>
+            </>
+          )}
+
+          {/* Referral & Consultant Section — data bridged from admission_leads */}
+          {activeSection === 'referral' && (
+            <>
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <Share2 className='h-5 w-5' />
+                  Referral & Consultant
+                </CardTitle>
+                <CardDescription>
+                  Who brought this lead in — copied from the admission lead record
+                </CardDescription>
+              </CardHeader>
+              <CardContent className='space-y-6'>
+                {/* Direct referral info (copied from the lead on conversion) */}
+                <div>
+                  <h3 className='text-sm font-semibold mb-3'>Referral Details</h3>
+                  {enquiry.referral_type || enquiry.referred_by_name ? (
+                    <div className='grid grid-cols-2 gap-4'>
+                      <div className='space-y-1'>
+                        <p className='text-xs text-muted-foreground'>Referral Type</p>
+                        <Badge variant='outline' className='capitalize'>
+                          {enquiry.referral_type || '—'}
+                        </Badge>
+                      </div>
+                      <div className='space-y-1'>
+                        <p className='text-xs text-muted-foreground'>Referred By</p>
+                        <p className='text-sm font-medium'>
+                          {enquiry.referred_by_name || '—'}
+                        </p>
+                      </div>
+                      {enquiry.referred_by_id && (
+                        <div className='space-y-1 col-span-2'>
+                          <p className='text-xs text-muted-foreground'>Referrer ID</p>
+                          <p className='text-xs font-mono text-muted-foreground'>
+                            {enquiry.referred_by_id}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className='text-sm text-muted-foreground'>
+                      No referral recorded for this enquiry
+                    </p>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Consultant attributions — linked via admission_leads.learner_profile_id */}
+                <div>
+                  <div className='flex items-center justify-between mb-3'>
+                    <h3 className='text-sm font-semibold flex items-center gap-2'>
+                      <LinkIcon className='h-4 w-4' />
+                      Consultant Attributions
+                    </h3>
+                    {referralContext?.leadId && (
+                      <Link
+                        href={`/admission/leads/${referralContext.leadId}`}
+                        className='text-xs text-primary hover:underline flex items-center gap-1'
+                      >
+                        View source lead
+                        <ExternalLink className='h-3 w-3' />
+                      </Link>
+                    )}
+                  </div>
+
+                  {referralLoading ? (
+                    <p className='text-sm text-muted-foreground'>
+                      Loading consultant info...
+                    </p>
+                  ) : !referralContext?.leadId ? (
+                    <p className='text-sm text-muted-foreground'>
+                      This enquiry was not converted from an admission lead — no consultant context available
+                    </p>
+                  ) : referralContext.attributions.length === 0 ? (
+                    <p className='text-sm text-muted-foreground'>
+                      No consultant linked to the source lead
+                    </p>
+                  ) : (
+                    <div className='space-y-3'>
+                      {referralContext.attributions.map((attribution: any) => (
+                        <div
+                          key={attribution.id}
+                          className='flex items-start justify-between gap-2 p-3 border rounded-lg'
+                        >
+                          <div className='min-w-0 flex-1'>
+                            <p className='text-sm font-medium truncate'>
+                              {attribution.consultant?.name || 'Unknown Consultant'}
+                            </p>
+                            {attribution.consultant?.email && (
+                              <p className='text-xs text-muted-foreground truncate'>
+                                {attribution.consultant.email}
+                              </p>
+                            )}
+                            <div className='flex items-center gap-1.5 mt-2 flex-wrap'>
+                              <Badge variant='outline' className='text-xs capitalize'>
+                                {attribution.attribution_type}
+                                {typeof attribution.attribution_percentage === 'number' && (
+                                  <span className='ml-1 text-muted-foreground'>
+                                    ({attribution.attribution_percentage}%)
+                                  </span>
+                                )}
+                              </Badge>
+                              {attribution.is_verified ? (
+                                <Badge className='text-xs bg-green-100 text-green-800 gap-1'>
+                                  <CheckCircle2 className='h-2.5 w-2.5' />
+                                  Verified
+                                </Badge>
+                              ) : (
+                                <Badge className='text-xs bg-yellow-100 text-yellow-800 gap-1'>
+                                  <Clock className='h-2.5 w-2.5' />
+                                  Pending
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          {attribution.consultant_id && (
+                            <Link
+                              href={`/admission/consultants/${attribution.consultant_id}`}
+                              className='shrink-0'
+                            >
+                              <Badge
+                                variant='outline'
+                                className='hover:bg-muted cursor-pointer gap-1'
+                              >
+                                <ExternalLink className='h-3 w-3' />
+                                View
+                              </Badge>
+                            </Link>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </>
           )}

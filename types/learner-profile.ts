@@ -139,10 +139,14 @@ export interface LearnerProfile {
   accommodation_type: string;
   hostel_type?: string;
   food_type?: string;
-  // Reference Information
+  // Reference Information (legacy — person who vouches for the student)
   reference_type?: string;
   reference_name?: string;
   reference_contact?: string;
+  // Referral Attribution (copied from admission_leads on conversion)
+  referral_type?: string | null;
+  referred_by_id?: string | null;
+  referred_by_name?: string | null;
 
   // Finance/Fee Details (Added: 2026-03-04)
   // LEGACY columns — retained for backward compat; new flow writes to fee_items below.

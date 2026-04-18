@@ -81,6 +81,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     father_mobile: lead.parent_phone || '',
     mother_name: '',
     mother_mobile: '',
+    // Referral attribution — preserve the source that brought this lead in.
+    // These columns were added to learners_profiles on 2026-04-18. Before that
+    // migration this data was dropped on conversion; now it flows through.
+    referral_type: lead.referral_type || null,
+    referred_by_id: lead.referred_by_id || null,
+    referred_by_name: lead.referred_by_name || null,
     // Required fields with safe defaults
     lifecycle_status: 'enquiry',
     accommodation_type: 'DAY SCHOLAR',
