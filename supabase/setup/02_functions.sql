@@ -8144,3 +8144,126 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.get_geography_analytics(uuid, uuid) TO authenticated;
 -- END SEAT ANALYTICS RPCs
+
+-- ================================================================================
+-- SECTION: HOD DASHBOARD METRICS
+-- Updated: 2026-04-18 - Added fn_hod_metrics for Dashboard v2 HOD hero strip
+-- ================================================================================
+
+-- fn_hod_metrics: HOD dashboard hero strip metrics
+-- Returns JSONB with 4 tile values for the logged-in HOD
+CREATE OR REPLACE FUNCTION public.fn_hod_metrics()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid uuid;
+  v_dept_id uuid;
+  v_inst_id uuid;
+  v_att_pct numeric := 0;
+  v_baseline numeric := 75;
+  v_marking_compliance numeric := 0;
+  v_open_grievances integer := 0;
+  v_pending_leaves integer := 0;
+  v_total_students integer := 0;
+  v_present_students integer := 0;
+  v_total_expected_sessions integer := 0;
+  v_marked_sessions integer := 0;
+BEGIN
+  -- Resolve caller
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object(
+      'dept_attendance_pct', 0,
+      'attendance_baseline', v_baseline,
+      'marking_compliance_pct', 0,
+      'open_grievances', 0,
+      'pending_leave_approvals', 0
+    );
+  END IF;
+
+  -- Get HOD's department and institution
+  SELECT department_id, institution_id
+    INTO v_dept_id, v_inst_id
+    FROM profiles
+   WHERE id = v_uid;
+
+  IF v_dept_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'dept_attendance_pct', 0,
+      'attendance_baseline', v_baseline,
+      'marking_compliance_pct', 0,
+      'open_grievances', 0,
+      'pending_leave_approvals', 0
+    );
+  END IF;
+
+  -- Tile 1: Dept attendance today
+  -- attendance_data is JSONB object keyed by period_id
+  -- each value has .students[] with .status = 'Present'|'Absent'
+  SELECT
+    COALESCE(SUM(present_ct), 0),
+    COALESCE(SUM(total_ct), 0)
+  INTO v_present_students, v_total_students
+  FROM (
+    SELECT
+      (SELECT COUNT(*) FROM jsonb_array_elements(period_val->'students') s WHERE s->>'status' = 'Present') AS present_ct,
+      (SELECT COUNT(*) FROM jsonb_array_elements(period_val->'students') s) AS total_ct
+    FROM student_attendance sa,
+         jsonb_each(sa.attendance_data) AS kv(period_key, period_val)
+    WHERE sa.department_id = v_dept_id
+      AND sa.institution_id = v_inst_id
+      AND sa.attendance_date = CURRENT_DATE
+  ) sub;
+
+  IF v_total_students > 0 THEN
+    v_att_pct := ROUND((v_present_students::numeric / v_total_students) * 100, 1);
+  END IF;
+
+  -- Tile 2: Faculty marking compliance (today)
+  -- Count sections in the dept that SHOULD have attendance vs sections that DO
+  SELECT COUNT(DISTINCT s.id)
+    INTO v_total_expected_sessions
+    FROM sections s
+   WHERE s.department_id = v_dept_id;
+
+  SELECT COUNT(DISTINCT sa.section_id)
+    INTO v_marked_sessions
+    FROM student_attendance sa
+   WHERE sa.department_id = v_dept_id
+     AND sa.institution_id = v_inst_id
+     AND sa.attendance_date = CURRENT_DATE;
+
+  IF v_total_expected_sessions > 0 THEN
+    v_marking_compliance := ROUND((v_marked_sessions::numeric / v_total_expected_sessions) * 100, 1);
+  END IF;
+
+  -- Tile 3: Open grievances
+  SELECT COUNT(*)
+    INTO v_open_grievances
+    FROM grievance_tickets
+   WHERE department_id = v_dept_id
+     AND institution_id = v_inst_id
+     AND status NOT IN ('resolved', 'closed', 'Resolved', 'Closed');
+
+  -- Tile 4: Pending faculty leave approvals
+  -- Check leave_approvals where HOD is approver and has not yet acted
+  SELECT COUNT(*)
+    INTO v_pending_leaves
+    FROM leave_approvals la
+   WHERE la.approver_id = v_uid
+     AND la.acted_at IS NULL;
+
+  RETURN jsonb_build_object(
+    'dept_attendance_pct', v_att_pct,
+    'attendance_baseline', v_baseline,
+    'marking_compliance_pct', v_marking_compliance,
+    'open_grievances', v_open_grievances,
+    'pending_leave_approvals', v_pending_leaves
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION fn_hod_metrics TO authenticated;

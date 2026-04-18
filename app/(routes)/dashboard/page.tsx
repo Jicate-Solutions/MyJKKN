@@ -23,6 +23,7 @@ import { getStudentMetrics } from '@/lib/services/dashboard/student-metrics-serv
 import { getDashboardPersona } from '@/lib/services/dashboard/dashboard-role-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
+import HodHeroStrip from '@/components/dashboard/hod-hero-strip';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
@@ -84,6 +85,11 @@ async function LiveFacultyHero() {
 async function LiveStudentHero() {
   const metrics = await getStudentMetrics();
   return <StudentHeroStrip metrics={metrics} />;
+}
+
+// HOD hero strip: dept attendance / marking compliance / grievances / leave approvals (48 active HODs)
+function LiveHodHero() {
+  return <HodHeroStrip />;
 }
 
 // ============================================================================
@@ -210,6 +216,7 @@ export default async function DashboardV2Page({
   const isDirector = persona === 'director';
   const isCounselor = persona === 'counselor';
   const isFaculty = persona === 'faculty';
+  const isHod = persona === 'hod';
   const isStudent = persona === 'student';
   const isLimited = persona === 'limited';
 
@@ -242,6 +249,7 @@ export default async function DashboardV2Page({
           {isDirector && <LiveHeroStrip />}
           {isCounselor && <LiveCounselorHero />}
           {isFaculty && <LiveFacultyHero />}
+          {isHod && <LiveHodHero />}
           {isStudent && <LiveStudentHero />}
           {isLimited && <LimitedHero />}
         </Suspense>
