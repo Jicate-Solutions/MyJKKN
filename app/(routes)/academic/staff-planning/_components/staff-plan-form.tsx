@@ -93,7 +93,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(isEditing);
   const [staffPlan, setStaffPlan] = useState<StaffPlan | null>(null);
-  const { userProfile } = usePermissions();
+  const { userProfile, isSuperAdmin } = usePermissions();
 
   // Track if initial data load has completed to prevent re-initialization
   // when userProfile reference changes (e.g., tab switch triggers re-fetch)
@@ -200,6 +200,12 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       if (staffPlan) {
         try {
           // Load all dependent data in parallel
+          // Scope institution list to the current user's accessible institutions.
+          // Super admins pass no userId (direct query returns all institutions).
+          // HODs and other scoped roles pass their userId so only their accessible
+          // institutions are returned via UserInstitutionAccessService. [BUG-002452]
+          const institutionUserId = isSuperAdmin ? undefined : (userProfile?.id ?? undefined);
+
           const [
             institutionsData,
             degreesData,
@@ -209,7 +215,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             academicYearsData,
             coursesData
           ] = await Promise.all([
-            OrganizationService.getInstitutionNames(true),
+            OrganizationService.getInstitutionNames(true, institutionUserId),
             DegreeService.getDegreesByInstitution(staffPlan.institution_id),
             DepartmentService.getDepartmentsByDegree(staffPlan.degree_id),
             ProgramService.getProgramsByDepartment(staffPlan.department_id),
@@ -305,8 +311,18 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         if (hasInitializedRef.current) return;
         const loadInitialData = async () => {
           try {
+            // Scope institution list to the current user's accessible institutions.
+            // Super admins pass no userId (direct query returns all institutions).
+            // HODs and other scoped roles pass their userId so only their accessible
+            // institutions are returned via UserInstitutionAccessService. [BUG-002452]
+            const institutionUserId = isSuperAdmin ? undefined : (userProfile?.id ?? undefined);
             const institutionsData =
-              await OrganizationService.getInstitutionNames(true);
+              await OrganizationService.getInstitutionNames(true, institutionUserId);
+            logger.dev(
+              'academic/staff-planning',
+              'Loaded institution dropdown',
+              { count: institutionsData.length, scoped: !isSuperAdmin, userId: institutionUserId }
+            );
             setInstitutions(institutionsData);
 
             // Pre-fill form if user has institution_id (HOD, regular users)
