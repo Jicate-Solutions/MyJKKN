@@ -471,17 +471,21 @@ export default function NewTimetablePage() {
             : 'Timetable created successfully!';
         toast.success(successMessage);
 
-        // FIX: 2026-02-03 - Validate created timetable ID before redirect
-        // Ensure we have a valid UUID, not a temporary placeholder
+        // FIX: 2026-02-03 / 2026-04-18 - Validate created timetable ID before redirect.
+        // Use strict UUID regex (same as TimetableService.getTimetable guard) so
+        // we never navigate to a DRP placeholder or any non-UUID value — that
+        // would trigger "Invalid timetable ID" on the destination detail page.
+        const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         const timetableId = (createdTimetable as any)?.id;
-        if (timetableId && !timetableId.includes('%%drp:id:')) {
-          // Redirect to the newly created timetable's details page
+        if (timetableId && UUID_RE.test(timetableId)) {
           router.push(`/academic/timetables/${timetableId}`);
         } else {
           logger.error('academic/timetables', 'Invalid timetable ID returned from creation', {
-            timetableId
+            timetableId,
           });
-          // Redirect to list page instead of detail page with invalid ID
+          toast.error(
+            'Timetable was saved but we could not open the detail page. Please find it in the list.'
+          );
           router.push('/academic/timetables');
         }
       } else {
