@@ -1215,9 +1215,8 @@ export class StaffService {
   ): Promise<StaffInstitutionStats[]> {
     let query = (supabase as any).from('staff').select(`
         institution_id,
-        is_active,
         institution:institutions(id, name)
-      `);
+      `).eq('is_active', true);
 
     // Apply filters
     if (filters.departmentId) {
@@ -1239,13 +1238,9 @@ export class StaffService {
       })
     ).map((stat: any) => ({
       ...stat,
-      staffCount: stat.count, // Map count to staffCount
-      activeCount:
-        staff?.filter((s: any) => s.institution_id === stat.id && s.is_active)
-          .length || 0,
-      inactiveCount:
-        staff?.filter((s: any) => s.institution_id === stat.id && !s.is_active)
-          .length || 0
+      staffCount: stat.count,
+      activeCount: stat.count,
+      inactiveCount: 0
     }));
   }
 
@@ -1695,6 +1690,7 @@ export class StaffService {
 
     const total = data.length;
     return Object.values(distribution).map((item: any) => ({
+      ...item,
       name: item.name || 'Not Specified',
       count: item.count,
       percentage: total > 0 ? (item.count / total) * 100 : 0

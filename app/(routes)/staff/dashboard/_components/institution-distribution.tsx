@@ -54,9 +54,7 @@ const CustomTooltip = ({ active, payload }: any) => {
         <p className='font-medium'>{data.name}</p>
         <div className='space-y-1 mt-2'>
           <div className='flex items-center justify-between gap-4'>
-            <span className='text-sm text-muted-foreground'>
-              Employees Count:
-            </span>
+            <span className='text-sm text-green-600'>Active Employees:</span>
             <span className='font-medium'>
               {data.staffCount.toLocaleString()}
             </span>
@@ -64,18 +62,6 @@ const CustomTooltip = ({ active, payload }: any) => {
           <div className='flex items-center justify-between gap-4'>
             <span className='text-sm text-muted-foreground'>Percentage:</span>
             <span className='font-medium'>{data.percentage.toFixed(1)}%</span>
-          </div>
-          <div className='flex items-center justify-between gap-4'>
-            <span className='text-sm text-green-600'>Active:</span>
-            <span className='font-medium'>
-              {data.activeCount.toLocaleString()}
-            </span>
-          </div>
-          <div className='flex items-center justify-between gap-4'>
-            <span className='text-sm text-red-600'>Inactive:</span>
-            <span className='font-medium'>
-              {data.inactiveCount.toLocaleString()}
-            </span>
           </div>
         </div>
       </div>
@@ -164,11 +150,11 @@ export function InstitutionDistribution({
               Institution Distribution
             </CardTitle>
             <CardDescription>
-              Employees distribution across {data.length} institutions
+              Active employees distribution across {data.length} institutions
             </CardDescription>
           </div>
-          <Badge variant='outline'>
-            {totalStaff.toLocaleString()} Total Employees
+          <Badge variant='outline' className='text-green-600 border-green-400'>
+            {totalStaff.toLocaleString()} Active Employees
           </Badge>
         </div>
       </CardHeader>
@@ -248,12 +234,8 @@ export function InstitutionDistribution({
                       <h3 className='font-medium'>{institution.name}</h3>
                       <div className='flex items-center gap-4 text-sm text-muted-foreground'>
                         <span className='flex items-center gap-1'>
-                          <Users className='h-3 w-3' />
-                          {institution.staffCount.toLocaleString()} Employees
-                        </span>
-                        <span className='flex items-center gap-1'>
-                          <TrendingUp className='h-3 w-3 text-green-600' />
-                          {institution.activeCount} active
+                          <Users className='h-3 w-3 text-green-600' />
+                          {institution.staffCount.toLocaleString()} Active Employees
                         </span>
                       </div>
                     </div>

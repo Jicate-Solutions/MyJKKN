@@ -44,12 +44,25 @@ interface GetEnquiriesResult {
 export async function getEnquiries(
   params: GetEnquiriesParams = {}
 ): Promise<GetEnquiriesResult> {
-  // Apply cache profile for warm data (5 minutes)
-
-  // Add cache tags for invalidation
-  if (params.institution_id) {
+  try {
+    return await getEnquiriesInner(params);
+  } catch (err) {
+    console.error('[getEnquiries] Unexpected failure, returning empty result:', err);
+    return {
+      data: [],
+      metadata: {
+        total_items: 0,
+        page: params.page || 1,
+        limit: params.limit || 10,
+        total_pages: 0
+      }
+    };
   }
+}
 
+async function getEnquiriesInner(
+  params: GetEnquiriesParams
+): Promise<GetEnquiriesResult> {
   const supabase = await createClient();
 
   const {
@@ -149,17 +162,19 @@ export async function getEnquiries(
   // Execute the main query
   const { data, error } = await query.range(from, to);
 
-  // Handle pagination range error gracefully
-  // PGRST103: "Requested range not satisfiable" - happens when offset > total rows
+  // Never throw from a Server Component data fetcher — the error bubbles up
+  // to the root error boundary and crashes the entire page (all tabs).
+  // Log and return empty result so the tab renders "No data" instead.
   if (error) {
     if (error.code === 'PGRST103') {
-      // Range not satisfiable - return empty data instead of throwing
       console.warn('[getEnquiries] Pagination range exceeds available rows, returning empty result');
     } else {
-      // Other errors should still throw
       console.error('[getEnquiries] Error fetching enquiries:', error);
-      throw new Error(`Failed to fetch enquiries: ${error.message}`);
     }
+    return {
+      data: [],
+      metadata: { total_items: 0, page, limit, total_pages: 0 }
+    };
   }
 
   // Get accurate count with a separate simplified query

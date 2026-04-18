@@ -109,21 +109,27 @@ export function OverviewStats({ data, isLoading }: OverviewStatsProps) {
 
   if (!data) return null;
 
+  const activeRate =
+    data.totalStaff > 0
+      ? Math.round((data.activeStaff / data.totalStaff) * 100)
+      : 0;
+
   const stats = [
-    {
-      title: 'Total Employees',
-      value: data.totalStaff.toLocaleString(),
-      subtitle: 'All registered Employees members',
-      icon: Users,
-      color: 'bg-blue-500',
-      delay: 0
-    },
     {
       title: 'Active Employees',
       value: data.activeStaff.toLocaleString(),
-      subtitle: 'Currently active Employees',
+      subtitle: 'Currently active employees',
       icon: UserCheck,
       color: 'bg-green-500',
+      delay: 0,
+      badge: `${activeRate}% of total`
+    },
+    {
+      title: 'Inactive Employees',
+      value: data.inactiveStaff.toLocaleString(),
+      subtitle: 'Deactivated / not active',
+      icon: UserX,
+      color: 'bg-red-500',
       delay: 0.1
     },
     {
@@ -135,12 +141,20 @@ export function OverviewStats({ data, isLoading }: OverviewStatsProps) {
       delay: 0.2
     },
     {
+      title: 'Total Employees',
+      value: data.totalStaff.toLocaleString(),
+      subtitle: 'All registered employees',
+      icon: Users,
+      color: 'bg-blue-500',
+      delay: 0.3
+    },
+    {
       title: 'Profile Completion',
       value: `${data.profileCompletionRate.toFixed(1)}%`,
       subtitle: 'Average profile completion',
       icon: Target,
       color: 'bg-orange-500',
-      delay: 0.3
+      delay: 0.4
     },
     {
       title: 'Average Tenure',
@@ -148,7 +162,7 @@ export function OverviewStats({ data, isLoading }: OverviewStatsProps) {
       subtitle: 'Average years of service',
       icon: Award,
       color: 'bg-indigo-500',
-      delay: 0.4
+      delay: 0.5
     },
     {
       title: 'With Profiles',
@@ -156,21 +170,13 @@ export function OverviewStats({ data, isLoading }: OverviewStatsProps) {
       subtitle: 'Have system profiles',
       icon: UserCheck,
       color: 'bg-teal-500',
-      delay: 0.5
+      delay: 0.6
     },
     {
       title: 'Without Profiles',
       value: data.staffWithoutProfiles.toLocaleString(),
       subtitle: 'Need profile creation',
       icon: UserX,
-      color: 'bg-red-500',
-      delay: 0.6
-    },
-    {
-      title: 'Inactive Employees',
-      value: data.inactiveStaff.toLocaleString(),
-      subtitle: 'Currently inactive',
-      icon: Clock,
       color: 'bg-gray-500',
       delay: 0.7
     }

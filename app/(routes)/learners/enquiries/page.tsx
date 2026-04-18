@@ -37,17 +37,22 @@ async function EnquiriesContent({
   };
   statusFilter: LifecycleStatus;
 }) {
-  // Parse search parameters
-  const page = Number(searchParams.page) || 1;
-  const limit = Number(searchParams.pageSize) || Number(searchParams.limit) || 10; // Support both pageSize (DataTable) and limit (legacy)
-  const search = (searchParams.search as string) || undefined;
-  const institution_id = (searchParams.institution_id as string) || undefined;
-  const degree_id = (searchParams.degree_id as string) || undefined;
-  const department_id = (searchParams.department_id as string) || undefined;
-  const sortBy = (searchParams.sort_by as string) || 'first_name';
-  const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'asc';
+  // safeParse never throws — on failure, fall back to empty object so page still renders.
+  const parseResult = enquiriesSearchParamsSchema.safeParse(searchParams);
+  const parsedParams = parseResult.success
+    ? parseResult.data
+    : enquiriesSearchParamsSchema.parse({});
 
-  // Fetch data on server with caching
+  const page = parsedParams.page ?? 1;
+  const limit = parsedParams.pageSize ?? Number(searchParams.limit) ?? 10;
+  const search = parsedParams.search;
+  const institution_id = parsedParams.institution_id;
+  const degree_id = parsedParams.degree_id;
+  const department_id = parsedParams.department_id;
+  const sortBy = parsedParams.sort_by || 'first_name';
+  const sortOrder = parsedParams.sort_order || 'asc';
+
+  // getEnquiries is guaranteed not to throw — returns empty result on failure.
   const { data: enquiries, metadata } = await getEnquiries({
     page,
     limit,
@@ -59,8 +64,6 @@ async function EnquiriesContent({
     sortBy,
     sortOrder
   });
-
-  const parsedParams = enquiriesSearchParamsSchema.parse(searchParams);
 
   return (
     <>
