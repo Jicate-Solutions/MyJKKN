@@ -214,6 +214,8 @@ export async function POST(request: NextRequest) {
     const hasPermission =
       permissions['all'] === true ||
       permissions['learners.profiles.bulk_upload'] === true ||
+      permissions['learners.bulk_create'] === true ||
+      permissions['learners.bulk_create.import'] === true ||
       profile.is_super_admin;
 
     if (!hasPermission) {

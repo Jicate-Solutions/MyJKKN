@@ -270,6 +270,8 @@ export async function POST(request: NextRequest) {
     const hasPermission =
       permissions['all'] === true ||
       permissions['learners.profiles.bulk_edit'] === true ||
+      permissions['learners.bulk_edit'] === true ||
+      permissions['learners.bulk_edit.preview'] === true ||
       permissions['learners.edit'] === true ||
       profile.is_super_admin;
 

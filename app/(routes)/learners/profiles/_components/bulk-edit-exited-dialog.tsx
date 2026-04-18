@@ -309,7 +309,7 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
       const data: EditResult = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.errors?.[0]?.error || 'Update failed');
+        throw new Error(data.errors?.[0]?.error || data.error || 'Update failed');
       }
 
       setResult(data);

@@ -193,6 +193,8 @@ export async function POST(request: NextRequest) {
     const hasPermission =
       permissions['all'] === true ||
       permissions['learners.profiles.bulk_edit'] === true ||
+      permissions['learners.bulk_edit'] === true ||
+      permissions['learners.bulk_edit.apply'] === true ||
       permissions['learners.edit'] === true ||
       profile.is_super_admin;
 
@@ -244,6 +246,19 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Map and validate rows
+    // Request-scoped resolver cache — avoids repeating identical DB lookups for
+    // every row when all rows share the same degree/department/program/semester.
+    const resolverCache = new Map<string, { id: string | null; found: boolean; error?: string }>();
+    const cachedResolve = async (
+      key: string,
+      fn: () => Promise<{ id: string | null; found: boolean; error?: string }>
+    ) => {
+      if (resolverCache.has(key)) return resolverCache.get(key)!;
+      const result = await fn();
+      resolverCache.set(key, result);
+      return result;
+    };
+
     const bulkEditRows: BulkEditRow[] = [];
 
     for (const parsedRow of parseResult.rows) {
@@ -329,9 +344,9 @@ export async function POST(request: NextRequest) {
 
       // Degree (resolve name to ID if name provided)
       if (mappedData.degree_name && !mappedData.degree_id) {
-        const degreeResult = await NameToIdResolver.resolveDegreeId(
-          mappedData.degree_name,
-          profile.institution_id || undefined
+        const degreeResult = await cachedResolve(
+          `degree:${mappedData.degree_name}:${profile.institution_id}`,
+          () => NameToIdResolver.resolveDegreeId(mappedData.degree_name, profile.institution_id || undefined)
         );
         if (degreeResult.found && degreeResult.id) {
           sanitizedData.degree_id = degreeResult.id;
@@ -344,9 +359,9 @@ export async function POST(request: NextRequest) {
 
       // Department (resolve name to ID if name provided)
       if (mappedData.department_name && !mappedData.department_id) {
-        const deptResult = await NameToIdResolver.resolveDepartmentId(
-          mappedData.department_name,
-          profile.institution_id || undefined
+        const deptResult = await cachedResolve(
+          `dept:${mappedData.department_name}:${profile.institution_id}`,
+          () => NameToIdResolver.resolveDepartmentId(mappedData.department_name, profile.institution_id || undefined)
         );
         if (deptResult.found && deptResult.id) {
           sanitizedData.department_id = deptResult.id;
@@ -359,10 +374,9 @@ export async function POST(request: NextRequest) {
 
       // Program (resolve name to ID if name provided)
       if (mappedData.program_name && !mappedData.program_id) {
-        const progResult = await NameToIdResolver.resolveProgramId(
-          mappedData.program_name,
-          profile.institution_id || undefined,
-          sanitizedData.department_id
+        const progResult = await cachedResolve(
+          `prog:${mappedData.program_name}:${profile.institution_id}:${sanitizedData.department_id}`,
+          () => NameToIdResolver.resolveProgramId(mappedData.program_name, profile.institution_id || undefined, sanitizedData.department_id)
         );
         if (progResult.found && progResult.id) {
           sanitizedData.program_id = progResult.id;
@@ -375,10 +389,9 @@ export async function POST(request: NextRequest) {
 
       // Semester (resolve name to ID if name provided)
       if (mappedData.semester_name && !mappedData.semester_id) {
-        const semResult = await NameToIdResolver.resolveSemesterId(
-          mappedData.semester_name,
-          profile.institution_id || undefined,
-          sanitizedData.program_id
+        const semResult = await cachedResolve(
+          `sem:${mappedData.semester_name}:${profile.institution_id}:${sanitizedData.program_id}`,
+          () => NameToIdResolver.resolveSemesterId(mappedData.semester_name, profile.institution_id || undefined, sanitizedData.program_id)
         );
         if (semResult.found && semResult.id) {
           sanitizedData.semester_id = semResult.id;
@@ -391,10 +404,9 @@ export async function POST(request: NextRequest) {
 
       // Section (resolve name to ID if name provided)
       if (mappedData.section_name && !mappedData.section_id) {
-        const secResult = await NameToIdResolver.resolveSectionId(
-          mappedData.section_name,
-          profile.institution_id || undefined,
-          sanitizedData.semester_id
+        const secResult = await cachedResolve(
+          `sec:${mappedData.section_name}:${profile.institution_id}:${sanitizedData.semester_id}`,
+          () => NameToIdResolver.resolveSectionId(mappedData.section_name, profile.institution_id || undefined, sanitizedData.semester_id)
         );
         if (secResult.found && secResult.id) {
           sanitizedData.section_id = secResult.id;
@@ -407,9 +419,9 @@ export async function POST(request: NextRequest) {
 
       // Academic Year (resolve name to ID if name provided)
       if (mappedData.academic_year_name && !mappedData.academic_year_id) {
-        const yearResult = await NameToIdResolver.resolveAcademicYearId(
-          mappedData.academic_year_name,
-          profile.institution_id || undefined
+        const yearResult = await cachedResolve(
+          `year:${mappedData.academic_year_name}:${profile.institution_id}`,
+          () => NameToIdResolver.resolveAcademicYearId(mappedData.academic_year_name, profile.institution_id || undefined)
         );
         if (yearResult.found && yearResult.id) {
           sanitizedData.academic_year_id = yearResult.id;
@@ -422,9 +434,9 @@ export async function POST(request: NextRequest) {
 
       // Regulation (resolve name to ID if name provided)
       if (mappedData.regulation_name && !mappedData.regulation_id) {
-        const regResult = await NameToIdResolver.resolveRegulationId(
-          mappedData.regulation_name,
-          profile.institution_id || undefined
+        const regResult = await cachedResolve(
+          `reg:${mappedData.regulation_name}:${profile.institution_id}`,
+          () => NameToIdResolver.resolveRegulationId(mappedData.regulation_name, profile.institution_id || undefined)
         );
         if (regResult.found && regResult.id) {
           sanitizedData.regulation_id = regResult.id;
