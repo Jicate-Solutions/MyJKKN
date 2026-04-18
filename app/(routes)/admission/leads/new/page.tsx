@@ -45,7 +45,12 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useLeadMutations, useCounselorProfiles } from '@/hooks/admission';
 import { useConsultantsForDropdown } from '@/hooks/admission/use-consultants';
-import { useStudentsForDropdown, useFacultyForDropdown } from '@/hooks/admission/use-referral-dropdowns';
+import {
+  useReferralInstitutions,
+  useReferralDepartments,
+  useReferralStudents,
+  useReferralStaff,
+} from '@/hooks/admission/use-referral-dropdowns-hierarchy';
 import type { ReferralType } from '@/types/admission';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import { LeadService } from '@/lib/services/admission/lead-service';
@@ -136,6 +141,12 @@ function NewLeadPageContent() {
   const [referralType, setReferralType] = useState<ReferralType | ''>('');
   const [selectedReferrerId, setSelectedReferrerId] = useState<string>('');
 
+  // Referrer hierarchy filters — INDEPENDENT of the lead's institution.
+  // A student at Institution A may refer a lead for Institution B, so we let
+  // the user browse any institution/department when picking a referrer.
+  const [referrerInstitutionId, setReferrerInstitutionId] = useState<string>('');
+  const [referrerDepartmentId, setReferrerDepartmentId] = useState<string>('');
+
   // Auto-set institution if user has only one
   useEffect(() => {
     if (!isSuperAdmin && !isAdmissionGlobalUser && profile?.institution_id) {
@@ -144,6 +155,18 @@ function NewLeadPageContent() {
       setSelectedInstitutionId(institutions[0].id);
     }
   }, [profile?.institution_id, isSuperAdmin, isAdmissionGlobalUser, institutions]);
+
+  // Seed referrer institution from the lead institution the first time user picks
+  // a student/faculty referral type — they can still change it afterwards.
+  useEffect(() => {
+    if (
+      (referralType === 'student' || referralType === 'faculty') &&
+      !referrerInstitutionId &&
+      selectedInstitutionId
+    ) {
+      setReferrerInstitutionId(selectedInstitutionId);
+    }
+  }, [referralType, referrerInstitutionId, selectedInstitutionId]);
 
   const institutionId = selectedInstitutionId;
   // Mirror the exact same institution-resolution logic as the auto-set useEffect so
@@ -158,14 +181,32 @@ function NewLeadPageContent() {
   // full list regardless of which institution is selected or which role the user has.
   const { data: counselorProfiles } = useCounselorProfiles(null);
   const { data: consultants = [] } = useConsultantsForDropdown();
-  const { data: studentsDropdown = [] } = useStudentsForDropdown(effectiveInstitutionId);
-  const { data: facultyDropdown = [] } = useFacultyForDropdown(effectiveInstitutionId);
+
+  // Referrer pickers use the cross-institution API so admission_staff (own-scope)
+  // can still pick students/staff from any institution.
+  const { data: referrerInstitutions = [], isLoading: referrerInstitutionsLoading } =
+    useReferralInstitutions();
+  const { data: referrerDepartments = [], isLoading: referrerDepartmentsLoading } =
+    useReferralDepartments(referrerInstitutionId || undefined);
+  const { data: studentsDropdown = [], isLoading: studentsLoading } = useReferralStudents(
+    referrerInstitutionId || undefined,
+    referrerDepartmentId || undefined
+  );
+  const { data: facultyDropdown = [], isLoading: facultyLoading } = useReferralStaff(
+    referrerInstitutionId || undefined,
+    referrerDepartmentId || undefined
+  );
 
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [programsLoading, setProgramsLoading] = useState(false);
   const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
   const [programsPopoverOpen, setProgramsPopoverOpen] = useState(false);
+
+  // Open-state for the searchable referrer pickers
+  const [studentPickerOpen, setStudentPickerOpen] = useState(false);
+  const [facultyPickerOpen, setFacultyPickerOpen] = useState(false);
+  const [consultantPickerOpen, setConsultantPickerOpen] = useState(false);
 
   // Academic years loaded based on selected institution
   const [academicYears, setAcademicYears] = useState<{ id: string; academic_year_name: string; is_active: boolean }[]>([]);
@@ -393,6 +434,10 @@ function NewLeadPageContent() {
     setSelectedProgramIds([]);
     setSelectedCounselorProfileId('');
     setSelectedConsultantId('');
+    setReferralType('');
+    setSelectedReferrerId('');
+    setReferrerInstitutionId('');
+    setReferrerDepartmentId('');
     setErrors({});
   };
 
@@ -1085,72 +1130,264 @@ function NewLeadPageContent() {
                         </Select>
                       </div>
 
-                      {/* Consultant Dropdown */}
+                      {/* Consultant Searchable Picker */}
                       {referralType === 'consultant' && (
                         <div className="space-y-2">
                           <Label>Select Consultant</Label>
-                          <Select
-                            value={selectedConsultantId}
-                            onValueChange={setSelectedConsultantId}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select consultant" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none">No consultant</SelectItem>
-                              {consultants.map((c) => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  {c.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <Popover open={consultantPickerOpen} onOpenChange={setConsultantPickerOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={consultantPickerOpen}
+                                className="w-full justify-between font-normal"
+                              >
+                                <span className="truncate">
+                                  {selectedConsultantId && selectedConsultantId !== '_none'
+                                    ? consultants.find((c) => c.id === selectedConsultantId)?.name ||
+                                      'Select consultant'
+                                    : `Search & select consultant${
+                                        consultants.length > 0 ? ` (${consultants.length})` : ''
+                                      }`}
+                                </span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="Type to search consultants..." />
+                                <CommandList>
+                                  <CommandEmpty>No consultants found.</CommandEmpty>
+                                  <CommandGroup>
+                                    <CommandItem
+                                      value="no-consultant"
+                                      onSelect={() => {
+                                        setSelectedConsultantId('_none');
+                                        setConsultantPickerOpen(false);
+                                      }}
+                                    >
+                                      <span className="text-muted-foreground">No consultant</span>
+                                    </CommandItem>
+                                    {consultants.map((c) => (
+                                      <CommandItem
+                                        key={c.id}
+                                        value={c.name}
+                                        onSelect={() => {
+                                          setSelectedConsultantId(c.id);
+                                          setConsultantPickerOpen(false);
+                                        }}
+                                      >
+                                        {c.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
                         </div>
                       )}
 
-                      {/* Student Dropdown */}
+                      {/* Hierarchy filters for student / faculty referrer — any institution allowed */}
+                      {(referralType === 'student' || referralType === 'faculty') && (
+                        <>
+                          <div className="space-y-2">
+                            <Label>Referrer Institution</Label>
+                            <Select
+                              value={referrerInstitutionId}
+                              onValueChange={(value) => {
+                                setReferrerInstitutionId(value);
+                                setReferrerDepartmentId('');
+                                setSelectedReferrerId('');
+                              }}
+                              disabled={referrerInstitutionsLoading}
+                            >
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    referrerInstitutionsLoading
+                                      ? 'Loading institutions...'
+                                      : 'Select institution'
+                                  }
+                                />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {referrerInstitutions.map((inst) => (
+                                  <SelectItem key={inst.id} value={inst.id}>
+                                    {inst.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label>
+                              Department <span className="text-muted-foreground text-xs">(optional)</span>
+                            </Label>
+                            <Select
+                              value={referrerDepartmentId || '_all'}
+                              onValueChange={(value) => {
+                                setReferrerDepartmentId(value === '_all' ? '' : value);
+                                setSelectedReferrerId('');
+                              }}
+                              disabled={!referrerInstitutionId || referrerDepartmentsLoading}
+                            >
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={
+                                    !referrerInstitutionId
+                                      ? 'Select institution first'
+                                      : referrerDepartmentsLoading
+                                      ? 'Loading departments...'
+                                      : 'All departments'
+                                  }
+                                />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="_all">All departments</SelectItem>
+                                {referrerDepartments.map((d) => (
+                                  <SelectItem key={d.id} value={d.id}>
+                                    {d.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </>
+                      )}
+
+                      {/* Student Searchable Picker */}
                       {referralType === 'student' && (
                         <div className="space-y-2">
                           <Label>Select Student</Label>
-                          <Select
-                            value={selectedReferrerId}
-                            onValueChange={setSelectedReferrerId}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select student" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none">No student</SelectItem>
-                              {studentsDropdown.map((s) => (
-                                <SelectItem key={s.id} value={s.id}>
-                                  {s.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <Popover open={studentPickerOpen} onOpenChange={setStudentPickerOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={studentPickerOpen}
+                                disabled={!referrerInstitutionId || studentsLoading}
+                                className="w-full justify-between font-normal"
+                              >
+                                <span className="truncate">
+                                  {!referrerInstitutionId
+                                    ? 'Select institution first'
+                                    : studentsLoading
+                                    ? 'Loading students...'
+                                    : selectedReferrerId && selectedReferrerId !== '_none'
+                                    ? studentsDropdown.find((s) => s.id === selectedReferrerId)?.name ||
+                                      'Select student'
+                                    : `Search & select student${
+                                        studentsDropdown.length > 0
+                                          ? ` (${studentsDropdown.length})`
+                                          : ''
+                                      }`}
+                                </span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="Type to search students..." />
+                                <CommandList>
+                                  <CommandEmpty>
+                                    {studentsLoading ? 'Loading...' : 'No students found.'}
+                                  </CommandEmpty>
+                                  <CommandGroup>
+                                    <CommandItem
+                                      value="no-student"
+                                      onSelect={() => {
+                                        setSelectedReferrerId('_none');
+                                        setStudentPickerOpen(false);
+                                      }}
+                                    >
+                                      <span className="text-muted-foreground">No student</span>
+                                    </CommandItem>
+                                    {studentsDropdown.map((s) => (
+                                      <CommandItem
+                                        key={s.id}
+                                        value={s.name}
+                                        onSelect={() => {
+                                          setSelectedReferrerId(s.id);
+                                          setStudentPickerOpen(false);
+                                        }}
+                                      >
+                                        {s.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
                         </div>
                       )}
 
-                      {/* Faculty Dropdown */}
+                      {/* Faculty Searchable Picker */}
                       {referralType === 'faculty' && (
                         <div className="space-y-2">
                           <Label>Select Faculty</Label>
-                          <Select
-                            value={selectedReferrerId}
-                            onValueChange={setSelectedReferrerId}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select faculty" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="_none">No faculty</SelectItem>
-                              {facultyDropdown.map((f) => (
-                                <SelectItem key={f.id} value={f.id}>
-                                  {f.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <Popover open={facultyPickerOpen} onOpenChange={setFacultyPickerOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={facultyPickerOpen}
+                                disabled={!referrerInstitutionId || facultyLoading}
+                                className="w-full justify-between font-normal"
+                              >
+                                <span className="truncate">
+                                  {!referrerInstitutionId
+                                    ? 'Select institution first'
+                                    : facultyLoading
+                                    ? 'Loading staff...'
+                                    : selectedReferrerId && selectedReferrerId !== '_none'
+                                    ? facultyDropdown.find((f) => f.id === selectedReferrerId)?.name ||
+                                      'Select faculty'
+                                    : `Search & select faculty${
+                                        facultyDropdown.length > 0
+                                          ? ` (${facultyDropdown.length})`
+                                          : ''
+                                      }`}
+                                </span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="Type to search faculty / staff..." />
+                                <CommandList>
+                                  <CommandEmpty>
+                                    {facultyLoading ? 'Loading...' : 'No staff found.'}
+                                  </CommandEmpty>
+                                  <CommandGroup>
+                                    <CommandItem
+                                      value="no-faculty"
+                                      onSelect={() => {
+                                        setSelectedReferrerId('_none');
+                                        setFacultyPickerOpen(false);
+                                      }}
+                                    >
+                                      <span className="text-muted-foreground">No faculty</span>
+                                    </CommandItem>
+                                    {facultyDropdown.map((f) => (
+                                      <CommandItem
+                                        key={f.id}
+                                        value={f.name}
+                                        onSelect={() => {
+                                          setSelectedReferrerId(f.id);
+                                          setFacultyPickerOpen(false);
+                                        }}
+                                      >
+                                        {f.name}
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
                         </div>
                       )}
                     </CardContent>
