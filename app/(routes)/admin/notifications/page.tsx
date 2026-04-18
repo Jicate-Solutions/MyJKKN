@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, Suspense, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -13,10 +13,11 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
-import { NotificationsDataTable } from './_components/notifications-data-table';
 import { NotificationStats } from './_components/notification-stats';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { NotificationFilters } from './_components/notification-filters';
+import { NotificationCategoryTabs } from './_components/notification-category-tabs';
+import { NotificationsCardGrid } from './_components/notifications-card-grid';
 import {
   Notification,
   NotificationStats as NotificationStatsType
@@ -29,6 +30,7 @@ export default function NotificationsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('all');
   const { canAccess } = usePermissions();
 
   const canCreateNotifications = canAccess('notifications', 'create');
@@ -140,11 +142,15 @@ export default function NotificationsPage() {
                       />
                     </div>
                   </CardHeader>
-                  <CardContent className='px-2 sm:px-6'>
-                    <NotificationsDataTable
+                  <CardContent className='px-3 sm:px-6 space-y-4'>
+                    <NotificationCategoryTabs
                       notifications={notifications}
-                      isLoading={false} // Loading is handled by the parent
-                      error={null} // Error is handled by the parent
+                      activeCategory={activeCategory}
+                      onCategoryChange={setActiveCategory}
+                    />
+                    <NotificationsCardGrid
+                      notifications={notifications}
+                      activeCategory={activeCategory}
                       onRefresh={handleRefresh}
                     />
                   </CardContent>

@@ -19,28 +19,35 @@ export function NotificationsPageSkeleton() {
         ))}
       </div>
 
-      {/* Table Skeleton */}
-      <Card>
-        <CardHeader>
-          <div className='flex justify-between items-center'>
-            <div className='space-y-2'>
-              <Skeleton className='h-5 w-48' />
-              <Skeleton className='h-4 w-80' />
+      {/* Category Tabs Skeleton */}
+      <div className='flex items-center gap-2 overflow-x-auto'>
+        {[...Array(6)].map((_, i) => (
+          <Skeleton key={i} className='h-8 w-24 rounded-md shrink-0' />
+        ))}
+      </div>
+
+      {/* Card Grid Skeleton: 3 columns × 2 rows */}
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3'>
+        {[...Array(6)].map((_, i) => (
+          <div
+            key={i}
+            className='relative rounded-lg border bg-card overflow-hidden'
+          >
+            {/* Color bar placeholder */}
+            <div className='absolute left-0 top-0 bottom-0 w-1 bg-muted' />
+            <div className='pl-4 pr-3 pt-3 pb-3 space-y-2'>
+              <div className='flex items-center justify-between'>
+                <Skeleton className='h-4 w-24 rounded' />
+                <Skeleton className='h-3 w-16 rounded' />
+              </div>
+              <Skeleton className='h-4 w-full rounded' />
+              <Skeleton className='h-3 w-5/6 rounded' />
+              <Skeleton className='h-3 w-3/4 rounded' />
+              <Skeleton className='h-5 w-16 rounded mt-1' />
             </div>
-            <Skeleton className='h-10 w-64' />
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className='space-y-2'>
-            {/* Table Header */}
-            <Skeleton className='h-12 w-full' />
-            {/* Table Rows */}
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} className='h-16 w-full' />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+        ))}
+      </div>
     </div>
   );
 }
