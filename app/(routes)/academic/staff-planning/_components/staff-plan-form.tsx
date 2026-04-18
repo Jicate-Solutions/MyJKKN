@@ -215,7 +215,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             ProgramService.getProgramsByDepartment(staffPlan.department_id),
             SemesterService.getSemestersByProgram(staffPlan.program_id),
             AcademicYearService.getAcademicYearsByInstitution(
-              staffPlan.institution_id
+              staffPlan.institution_id,
+              true // includeInactive — edit mode must show the year the plan was created with
             ),
             // Try to get courses for specific semester first, fallback to all program courses
             CourseService.getCoursesByMapping(
@@ -314,10 +315,24 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
               // Load academic years immediately for the user's institution
               try {
-                const academicYearsData = await AcademicYearService.getAcademicYearsByInstitution(
+                let academicYearsData = await AcademicYearService.getAcademicYearsByInstitution(
                   userProfile.institution_id
                 );
-                setAcademicYears(academicYearsData);
+
+                // If no active years, fall back to all years so HODs aren't blocked
+                if (!academicYearsData || academicYearsData.length === 0) {
+                  logger.warn(
+                    'academic/staff-planning',
+                    'No active academic years found for user institution, loading all years',
+                    { institutionId: userProfile.institution_id }
+                  );
+                  academicYearsData = await AcademicYearService.getAcademicYearsByInstitution(
+                    userProfile.institution_id,
+                    true // includeInactive
+                  );
+                }
+
+                setAcademicYears(academicYearsData || []);
               } catch (error) {
                 logger.error('academic/staff-planning', 'Error loading academic years for user institution', error);
                 setAcademicYears([]);
@@ -346,10 +361,24 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     if (!isEditing && watchedInstitutionId) {
       const loadAcademicYears = async () => {
         try {
-          const data = await AcademicYearService.getAcademicYearsByInstitution(
+          let data = await AcademicYearService.getAcademicYearsByInstitution(
             watchedInstitutionId
           );
-          setAcademicYears(data);
+
+          // If no active years, fall back to all years so HODs aren't blocked
+          if (!data || data.length === 0) {
+            logger.warn(
+              'academic/staff-planning',
+              'No active academic years found, loading all years',
+              { institutionId: watchedInstitutionId }
+            );
+            data = await AcademicYearService.getAcademicYearsByInstitution(
+              watchedInstitutionId,
+              true // includeInactive
+            );
+          }
+
+          setAcademicYears(data || []);
         } catch (error) {
           logger.error('academic/staff-planning', 'Error loading academic years', error);
           setAcademicYears([]);
