@@ -1249,6 +1249,9 @@ CREATE POLICY "student_attendance_select_own_student" ON student_attendance
 ALTER TABLE timetables ENABLE ROW LEVEL SECURITY;
 
 -- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
+-- Updated: 2026-04-18 - Corrected permission keys from `academics.*` to `academic.*`
+-- (the extra 's' did not match any role's granted permissions; HOD edits/deletes
+-- were silently rejected by RLS). Keys now match lib/constants/permissions.ts.
 CREATE POLICY "timetables_select_optimized" ON timetables
     FOR SELECT USING (
         is_super_admin() OR is_admin()
@@ -1258,19 +1261,19 @@ CREATE POLICY "timetables_select_optimized" ON timetables
 CREATE POLICY "timetables_insert_admin" ON timetables
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academics.timetables.create'))
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.timetables.create'))
     );
 
 CREATE POLICY "timetables_update_admin" ON timetables
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academics.timetables.edit'))
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.timetables.edit'))
     );
 
 CREATE POLICY "timetables_delete_admin" ON timetables
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academics.timetables.delete'))
+        OR (institution_id = get_current_user_institution_id() AND user_has_permission('academic.timetables.delete'))
     );
 
 CREATE POLICY "timetables_select_active" ON timetables
