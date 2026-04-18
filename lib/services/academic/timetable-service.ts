@@ -951,8 +951,14 @@ Please select a different date period that doesn't overlap.`
       );
 
       // Apply filters
+      // Broadened 2026-04-18 — previously search only matched timetable_name,
+      // so users searching for mode keywords like "theory" found nothing.
+      // Now also searches template_name and template_description.
       if (filters.search) {
-        query = query.ilike('timetable_name', `%${filters.search}%`);
+        const term = filters.search.replace(/'/g, "''").replace(/[%_]/g, '');
+        query = query.or(
+          `timetable_name.ilike.%${term}%,template_name.ilike.%${term}%,template_description.ilike.%${term}%`
+        );
       }
 
       if (filters.institution_id) {
