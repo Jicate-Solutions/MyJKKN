@@ -5,6 +5,7 @@ import { TimetableTodayWidget } from '../widgets/student/timetable-today-widget'
 import { BillingWidget } from '../widgets/student/billing-widget';
 import { MyCelebrationWidget } from '../widgets/student/my-celebration-widget';
 import { CelebrationsTodayWidget } from '../widgets/shared/celebrations-today-widget';
+import { ActionItemsWidget } from '@/components/notifications/action-items-widget';
 import { DashboardSettingsDialog } from '../dashboard-settings-dialog';
 
 interface StudentDashboardProps {
@@ -61,6 +62,8 @@ export default function StudentDashboard({
           role={role}
           isVisible={visibilityMap.celebrations_today ?? true}
         />
+
+        <ActionItemsWidget />
       </div>
     </div>
   );

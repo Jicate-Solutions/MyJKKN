@@ -4,6 +4,7 @@ import { SystemOverviewWidget } from '../widgets/admin/system-overview-widget';
 import { RecentActivityWidget } from '../widgets/admin/recent-activity-widget';
 import { AtRiskStudentsWidget } from '../widgets/admin/at-risk-students-widget';
 import { CelebrationsTodayWidget } from '../widgets/shared/celebrations-today-widget';
+import { ActionItemsWidget } from '@/components/notifications/action-items-widget';
 import { DashboardSettingsDialog } from '../dashboard-settings-dialog';
 import { ADMIN_WIDGETS } from '../widget-registry';
 
@@ -46,6 +47,8 @@ export default function AdminDashboard({
           role={role}
           isVisible={visibilityMap.celebrations_today ?? true}
         />
+
+        <ActionItemsWidget />
       </div>
     </div>
   );
