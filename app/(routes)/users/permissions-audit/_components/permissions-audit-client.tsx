@@ -14,6 +14,9 @@ import { UserResolverTab } from './user-resolver-tab';
 import { PermissionMatrixTab } from './permission-matrix-tab';
 import { ComparisonTab } from './comparison-tab';
 import { ModuleAccessTab } from './module-access-tab';
+import { RoleModulesTab } from './role-modules-tab';
+import { UnifiedAccessMapTab } from './unified-access-map-tab';
+import { ScenarioSimulatorTab } from './scenario-simulator-tab';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
@@ -76,8 +79,11 @@ export function PermissionsAuditClient() {
         </div>
 
         <Tabs defaultValue='module-access' className='w-full'>
-          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'>
+          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-8'>
             <TabsTrigger value='module-access'>Module → Roles</TabsTrigger>
+            <TabsTrigger value='role-modules'>Role → Modules</TabsTrigger>
+            <TabsTrigger value='unified'>Unified Map</TabsTrigger>
+            <TabsTrigger value='simulator'>Simulator</TabsTrigger>
             <TabsTrigger value='health'>System Health</TabsTrigger>
             <TabsTrigger value='resolver'>User Resolver</TabsTrigger>
             <TabsTrigger value='matrix'>Permission Matrix</TabsTrigger>
@@ -86,6 +92,18 @@ export function PermissionsAuditClient() {
 
           <TabsContent value='module-access'>
             <ModuleAccessTab />
+          </TabsContent>
+
+          <TabsContent value='role-modules'>
+            <RoleModulesTab />
+          </TabsContent>
+
+          <TabsContent value='unified'>
+            <UnifiedAccessMapTab />
+          </TabsContent>
+
+          <TabsContent value='simulator'>
+            <ScenarioSimulatorTab />
           </TabsContent>
 
           <TabsContent value='health'>
