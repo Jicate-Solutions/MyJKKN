@@ -40,6 +40,7 @@ import {
   getConversionMonthlyLeaderboard
 } from '@/lib/services/dashboard/leaderboard-service';
 import { createClient } from '@/lib/supabase/server';
+import { KeyboardShortcuts } from '@/components/dashboard/keyboard-shortcuts';
 
 const VALID_FILTERS: QueueFilter[] = [
   'all',
@@ -239,6 +240,7 @@ export default async function DashboardV2Page({
 
   return (
     <ContentLayout title='Dashboard'>
+      <KeyboardShortcuts />
       {/* Animated glass background */}
       <div className='fixed inset-0 -z-10 overflow-hidden pointer-events-none'>
         <div className='absolute inset-0 bg-gradient-to-br from-emerald-50/40 via-white/20 to-sky-50/40 dark:from-emerald-950/30 dark:via-neutral-950/20 dark:to-sky-950/30' />
@@ -257,9 +259,11 @@ export default async function DashboardV2Page({
 
         {/* 8am Morning Brief (spec §7.7) — dismissible per-day, safe for all personas
             (reads only user's own acked/unacked counts) */}
-        <Suspense fallback={null}>
-          <LiveMorningBrief />
-        </Suspense>
+        <div data-dashboard-section='morning-brief'>
+          <Suspense fallback={null}>
+            <LiveMorningBrief />
+          </Suspense>
+        </div>
 
         {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Principal / Student / limited safe default) */}
         {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Accounts / Student / limited safe default) */}
@@ -284,15 +288,17 @@ export default async function DashboardV2Page({
         {/* Decision Queue — safe for ALL personas (already scoped by auth.uid() in RPC).
             Hidden for students — they have no actionable queue items. */}
         {!isStudent && (
-          <Suspense fallback={<QueueSkeleton />}>
-            <DecisionQueue filter={filter} />
-          </Suspense>
+          <div data-dashboard-section='decision-queue'>
+            <Suspense fallback={<QueueSkeleton />}>
+              <DecisionQueue filter={filter} />
+            </Suspense>
+          </div>
         )}
 
         {/* Leaderboards ��� Director + Counselor only (social pressure across counselors).
             Hidden for students and limited roles (not competing on counselor metrics). */}
         {(isDirector || isCounselor) && (
-          <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
+          <div data-dashboard-section='leaderboards' className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
             <Suspense fallback={<LeaderboardSkeleton />}>
               <LiveSlaLeaderboard />
             </Suspense>
