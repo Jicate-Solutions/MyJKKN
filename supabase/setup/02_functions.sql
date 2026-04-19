@@ -8145,6 +8145,120 @@ $$;
 GRANT EXECUTE ON FUNCTION public.get_geography_analytics(uuid, uuid) TO authenticated;
 -- END SEAT ANALYTICS RPCs
 
+-- Updated: 2026-04-16 - Added fn_principal_metrics for Dashboard v2 Principal hero strip
+-- Principal-scoped hero: (1) OHS via fn_dashboard_metrics, (2) Staff attendance (not_available),
+-- (3) hostel_incidents today, (4) pending approvals from user_notifications.
+CREATE OR REPLACE FUNCTION public.fn_principal_metrics()
+  RETURNS jsonb
+  LANGUAGE plpgsql
+  SECURITY DEFINER
+  SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_institution_id uuid;
+  v_today date;
+  v_ohs_score int := 0;
+  v_ohs_band text := 'red';
+  v_ohs_components jsonb := '{}'::jsonb;
+  v_incidents_today int := 0;
+  v_incidents_open int := 0;
+  v_pending_approvals int := 0;
+  v_dashboard_data jsonb;
+BEGIN
+  v_today := (CURRENT_DATE AT TIME ZONE 'Asia/Kolkata')::date;
+
+  SELECT institution_id INTO v_institution_id
+  FROM profiles WHERE id = v_user_id;
+
+  IF v_institution_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'health_score', jsonb_build_object(
+        'score', 0, 'band', 'red',
+        'components', '{}'::jsonb,
+        'data_source', 'no_institution'
+      ),
+      'staff_attendance', jsonb_build_object(
+        'present', 0, 'total', 0, 'pct', 0,
+        'data_source', 'not_available'
+      ),
+      'incidents', jsonb_build_object(
+        'today_count', 0, 'open_count', 0,
+        'data_source', 'no_institution'
+      ),
+      'pending_approvals', jsonb_build_object(
+        'count', 0,
+        'data_source', 'no_institution'
+      ),
+      'scope', jsonb_build_object(
+        'user_id', v_user_id,
+        'institution_id', NULL,
+        'computed_at', now()
+      )
+    );
+  END IF;
+
+  -- 1) OHS via fn_dashboard_metrics (reuse existing RPC)
+  BEGIN
+    v_dashboard_data := fn_dashboard_metrics(v_institution_id);
+    v_ohs_score := COALESCE((v_dashboard_data->'ohs'->>'score')::int, 0);
+    v_ohs_band := COALESCE(v_dashboard_data->'ohs'->>'band', 'red');
+    v_ohs_components := COALESCE(v_dashboard_data->'ohs'->'components', '{}'::jsonb);
+  EXCEPTION WHEN OTHERS THEN
+    v_ohs_score := 0;
+    v_ohs_band := 'red';
+    v_ohs_components := '{}'::jsonb;
+  END;
+
+  -- 2) Staff attendance today — no table exists yet
+  -- Future: will query hr_daily_attendance when HR module ships
+
+  -- 3) Incidents today (hostel_incidents scoped to institution)
+  SELECT
+    COUNT(*) FILTER (WHERE incident_date::date = v_today),
+    COUNT(*) FILTER (WHERE status NOT IN ('resolved', 'closed'))
+  INTO v_incidents_today, v_incidents_open
+  FROM hostel_incidents
+  WHERE institution_id = v_institution_id;
+
+  -- 4) Pending approvals (user_notifications requiring acknowledgment)
+  SELECT COUNT(*) INTO v_pending_approvals
+  FROM user_notifications un
+  JOIN notifications n ON n.id = un.notification_id
+  WHERE un.user_id = v_user_id
+    AND un.acknowledged_at IS NULL
+    AND n.requires_acknowledgment = TRUE
+    AND (n.expires_at IS NULL OR n.expires_at > now());
+
+  RETURN jsonb_build_object(
+    'health_score', jsonb_build_object(
+      'score', v_ohs_score,
+      'band', v_ohs_band,
+      'components', v_ohs_components
+    ),
+    'staff_attendance', jsonb_build_object(
+      'present', 0,
+      'total', 0,
+      'pct', 0,
+      'data_source', 'not_available'
+    ),
+    'incidents', jsonb_build_object(
+      'today_count', v_incidents_today,
+      'open_count', v_incidents_open
+    ),
+    'pending_approvals', jsonb_build_object(
+      'count', v_pending_approvals
+    ),
+    'scope', jsonb_build_object(
+      'user_id', v_user_id,
+      'institution_id', v_institution_id,
+      'computed_at', now()
+    )
+  );
+END;
+$function$;
+
+GRANT EXECUTE ON FUNCTION fn_principal_metrics TO authenticated;
 -- ============================================================================
 -- Dashboard v2 — fn_accounts_metrics (Accounts hero strip)
 -- Added: 2026-04-18 — 4 tiles: collection vs plan, overdue bills, recon gap, pending refunds
