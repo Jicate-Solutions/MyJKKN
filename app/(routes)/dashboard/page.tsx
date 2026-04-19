@@ -39,6 +39,8 @@ import {
   getSlaDailyLeaderboard,
   getConversionMonthlyLeaderboard
 } from '@/lib/services/dashboard/leaderboard-service';
+import { StreakBadge } from '@/components/dashboard/streak-badge';
+import { ActivityFeed } from '@/components/dashboard/activity-feed';
 import { createClient } from '@/lib/supabase/server';
 
 const VALID_FILTERS: QueueFilter[] = [
