@@ -276,6 +276,13 @@ export default async function DashboardV2Page({
           {isLimited && <LimitedHero />}
         </Suspense>
 
+        {/* Streak badge — Director + Counselor only (spec §4.3) */}
+        {(isDirector || isCounselor) && (
+          <Suspense fallback={null}>
+            <StreakBadge />
+          </Suspense>
+        )}
+
         {/* Institution quick-drill chips — DIRECTOR ONLY (cross-institution scope) */}
         {isDirector && (
           <Suspense fallback={null}>
