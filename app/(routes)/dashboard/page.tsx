@@ -39,6 +39,8 @@ import {
   getSlaDailyLeaderboard,
   getConversionMonthlyLeaderboard
 } from '@/lib/services/dashboard/leaderboard-service';
+import { StreakBadge } from '@/components/dashboard/streak-badge';
+import { ActivityFeed } from '@/components/dashboard/activity-feed';
 import { createClient } from '@/lib/supabase/server';
 import { KeyboardShortcuts } from '@/components/dashboard/keyboard-shortcuts';
 
@@ -278,6 +280,13 @@ export default async function DashboardV2Page({
           {isLimited && <LimitedHero />}
         </Suspense>
 
+        {/* Streak badge — Director + Counselor only (spec §4.3) */}
+        {(isDirector || isCounselor) && (
+          <Suspense fallback={null}>
+            <StreakBadge />
+          </Suspense>
+        )}
+
         {/* Institution quick-drill chips — DIRECTOR ONLY (cross-institution scope) */}
         {isDirector && (
           <Suspense fallback={null}>
@@ -297,6 +306,13 @@ export default async function DashboardV2Page({
 
         {/* Leaderboards ��� Director + Counselor only (social pressure across counselors).
             Hidden for students and limited roles (not competing on counselor metrics). */}
+        {/* Team Activity Feed — all personas except student + limited (spec §4.4) */}
+        {!isStudent && !isLimited && (
+          <Suspense fallback={null}>
+            <ActivityFeed />
+          </Suspense>
+        )}
+
         {(isDirector || isCounselor) && (
           <div data-dashboard-section='leaderboards' className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
             <Suspense fallback={<LeaderboardSkeleton />}>
