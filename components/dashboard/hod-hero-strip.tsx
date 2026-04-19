@@ -64,7 +64,7 @@ export default function HodHeroStrip() {
     <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
       {/* Tile 1 — Dept Attendance vs Baseline */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm ${
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${
           aboveBaseline
             ? TILE_COLORS.attendance.good
             : TILE_COLORS.attendance.bad
@@ -84,7 +84,7 @@ export default function HodHeroStrip() {
 
       {/* Tile 2 — Faculty Marking Compliance */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm ${TILE_COLORS.compliance}`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${TILE_COLORS.compliance}`}
       >
         <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
           <ClipboardCheck className='h-3.5 w-3.5' />
@@ -98,7 +98,7 @@ export default function HodHeroStrip() {
 
       {/* Tile 3 — Open Grievances */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm ${TILE_COLORS.grievance}`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${TILE_COLORS.grievance}`}
       >
         <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
           <AlertTriangle className='h-3.5 w-3.5' />
@@ -114,7 +114,7 @@ export default function HodHeroStrip() {
 
       {/* Tile 4 — Pending Leave Approvals */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm ${TILE_COLORS.leave}`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${TILE_COLORS.leave}`}
       >
         <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
           <CalendarClock className='h-3.5 w-3.5' />

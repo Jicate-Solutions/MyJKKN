@@ -254,7 +254,7 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
 
   return (
     <article
-      className={`border border-neutral-200 dark:border-neutral-800 border-l-4 ${borderClass} rounded-xl p-4 bg-white dark:bg-neutral-900 hover:shadow-md transition-shadow`}
+      className={`border border-neutral-200 dark:border-neutral-800 border-l-4 ${borderClass} rounded-xl p-4 bg-white dark:bg-neutral-900 hover:shadow-md transition-shadow animate-in slide-in-from-bottom-2 duration-300`}
     >
       <div className='flex items-start justify-between gap-3'>
         <div className='flex-1 min-w-0'>
@@ -264,7 +264,7 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
               {typeLabel}
             </span>
             <SeverityPill band={item.severity_band} priority={item.priority} />
-            <span className='text-[11px] text-neutral-500'>· {ageText}</span>
+            <span className='tabular-nums font-mono text-[11px] text-neutral-500'>· {ageText}</span>
           </div>
           <h3 className='mt-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100 leading-snug'>
             {item.title}

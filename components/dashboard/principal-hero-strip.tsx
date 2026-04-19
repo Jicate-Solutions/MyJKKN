@@ -56,7 +56,7 @@ function HeroTile({
 }: HeroTileProps) {
   return (
     <div
-      className={`group relative rounded-2xl border ${TILE_COLOR_CLASS[color]} p-5 backdrop-blur-sm transition-all`}
+      className={`group relative rounded-2xl border ${TILE_COLOR_CLASS[color]} p-5 backdrop-blur-sm transition-all duration-200`}
     >
       <div className='flex items-center justify-between'>
         <span className='text-xs font-medium uppercase tracking-wider opacity-75'>

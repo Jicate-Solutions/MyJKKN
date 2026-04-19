@@ -59,7 +59,7 @@ function HeroTile({
   return (
     <Wrapper
       {...wrapperProps}
-      className={`group relative rounded-2xl border ${TILE_COLOR_CLASS[color]} p-5 backdrop-blur-sm transition-all ${href ? 'hover:shadow-xl hover:-translate-y-0.5 cursor-pointer' : ''}`}
+      className={`group relative rounded-2xl border ${TILE_COLOR_CLASS[color]} p-5 backdrop-blur-sm transition-all duration-200 ${href ? 'hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-500' : ''}`}
     >
       <div className='flex items-center justify-between'>
         <span className='text-xs font-medium uppercase tracking-wider opacity-75'>

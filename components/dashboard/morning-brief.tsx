@@ -64,7 +64,7 @@ export function MorningBriefCard({ brief }: MorningBriefCardProps) {
 
   return (
     <MorningBriefDismissible dateKey={brief.date_ist}>
-      <article className='relative rounded-2xl border border-indigo-200/60 dark:border-indigo-900/40 bg-gradient-to-br from-indigo-50/80 via-white to-sky-50/80 dark:from-indigo-950/30 dark:via-neutral-950/40 dark:to-sky-950/30 p-5 sm:p-6 overflow-hidden'>
+      <article className='relative rounded-2xl border border-indigo-200/60 dark:border-indigo-900/40 bg-gradient-to-br from-indigo-50/80 via-white to-sky-50/80 dark:from-indigo-950/30 dark:via-neutral-950/40 dark:to-sky-950/30 p-5 sm:p-6 overflow-hidden animate-in fade-in duration-500'>
         {/* Soft background accent */}
         <div className='absolute top-0 right-0 w-32 h-32 bg-indigo-300/20 dark:bg-indigo-500/10 rounded-full blur-3xl pointer-events-none' aria-hidden />
 
@@ -145,7 +145,7 @@ export function MorningBriefCard({ brief }: MorningBriefCardProps) {
               <div className='mt-3 flex items-center justify-end'>
                 <a
                   href='#decision-queue'
-                  className='inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors'
+                  className='inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-md transition-all duration-200'
                 >
                   Start my day →
                 </a>

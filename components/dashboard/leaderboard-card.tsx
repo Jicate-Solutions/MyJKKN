@@ -87,7 +87,7 @@ function LeaderboardRowLine({
   kind: LeaderboardKind;
 }) {
   return (
-    <li className='flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors'>
+    <li className='flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30 transition-colors'>
       <RankBadge rank={row.rank_global} />
       <Avatar row={row} rank={row.rank_global} />
       <div className='flex-1 min-w-0'>
