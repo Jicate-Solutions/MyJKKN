@@ -300,6 +300,13 @@ export default async function DashboardV2Page({
 
         {/* Leaderboards ��� Director + Counselor only (social pressure across counselors).
             Hidden for students and limited roles (not competing on counselor metrics). */}
+        {/* Team Activity Feed — all personas except student + limited (spec §4.4) */}
+        {!isStudent && !isLimited && (
+          <Suspense fallback={null}>
+            <ActivityFeed />
+          </Suspense>
+        )}
+
         {(isDirector || isCounselor) && (
           <div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
             <Suspense fallback={<LeaderboardSkeleton />}>
