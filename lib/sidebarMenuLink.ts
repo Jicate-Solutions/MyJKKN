@@ -618,8 +618,21 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Compliance Unification Program — Accreditation routes
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
-  '/accreditation/naac': 'accreditation.naac.view',             // PR-A8 NAAC IQAC dashboard
+  '/accreditation/naac': 'accreditation.naac.view',             // PR-A8 c1 NAAC IQAC dashboard
+  '/accreditation/naac/committees': 'accreditation.naac.committees.view',         // PR-A8 c2
+  '/accreditation/naac/committees/[id]': 'accreditation.naac.committees.view',    // PR-A8 c2
+  '/accreditation/naac/dcf-export': 'accreditation.naac.dcf_export',              // PR-A8 c2 (super-admin)
+  '/accreditation/naac/surveys/consent': 'accreditation.naac.surveys.consent.submit',  // PR-A8 c2
+  '/accreditation/naac/surveys/8.4-export': 'accreditation.naac.surveys.export', // PR-A8 c2
+  '/accreditation/nirf': 'accreditation.nirf.view',             // PR-A9
+  '/accreditation/nba': 'accreditation.nba.view',               // PR-A10
   '/accreditation/qs': 'accreditation.qs.view',                 // PR-A11 placeholder
+  '/accreditation/dci': 'accreditation.dci.view',               // PR-A12
+  '/accreditation/pci': 'accreditation.pci.view',               // PR-A13
+  '/accreditation/inc': 'accreditation.inc.view',               // PR-A14
+  '/accreditation/ncte': 'accreditation.ncte.view',             // PR-A15
+  '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
+  '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
 
   // OKR Module (resurrected from clean-ss-deploy, PR #230)
   '/okr': 'okr.view',
@@ -2715,6 +2728,45 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'NAAC (IQAC)',
           active: pathname.startsWith('/accreditation/naac'),
           icon: ShieldCheck,
+          submenus: [
+            {
+              href: '/accreditation/naac/committees',
+              label: 'IQAC Committees',
+              active: pathname.startsWith('/accreditation/naac/committees'),
+              icon: Users
+            },
+            {
+              href: '/accreditation/naac/dcf-export',
+              label: 'DCF / AQAR Export',
+              active: pathname.startsWith('/accreditation/naac/dcf-export'),
+              icon: FileText
+            },
+            {
+              href: '/accreditation/naac/surveys/consent',
+              label: 'Survey Consent (DPDPA)',
+              active: pathname.startsWith('/accreditation/naac/surveys/consent'),
+              icon: Scale
+            },
+            {
+              href: '/accreditation/naac/surveys/8.4-export',
+              label: '8.4 Survey Export',
+              active: pathname.startsWith('/accreditation/naac/surveys/8.4-export'),
+              icon: FileBarChart
+            }
+          ]
+        },
+        {
+          href: '/accreditation/nirf',
+          label: 'NIRF Ranking',
+          active: pathname.startsWith('/accreditation/nirf'),
+          icon: TrendingUp,
+          submenus: []
+        },
+        {
+          href: '/accreditation/nba',
+          label: 'NBA (Engineering)',
+          active: pathname.startsWith('/accreditation/nba'),
+          icon: Briefcase,
           submenus: []
         },
         {
@@ -2722,6 +2774,48 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'QS World Ranking (Phase 2+)',
           active: pathname.startsWith('/accreditation/qs'),
           icon: Globe,
+          submenus: []
+        },
+        {
+          href: '/accreditation/dci',
+          label: 'DCI (Dental)',
+          active: pathname.startsWith('/accreditation/dci'),
+          icon: Stethoscope,
+          submenus: []
+        },
+        {
+          href: '/accreditation/pci',
+          label: 'PCI (Pharmacy)',
+          active: pathname.startsWith('/accreditation/pci'),
+          icon: ClipboardPlus,
+          submenus: []
+        },
+        {
+          href: '/accreditation/inc',
+          label: 'INC (Nursing)',
+          active: pathname.startsWith('/accreditation/inc'),
+          icon: HeartPulse,
+          submenus: []
+        },
+        {
+          href: '/accreditation/ncte',
+          label: 'NCTE (Teacher Ed)',
+          active: pathname.startsWith('/accreditation/ncte'),
+          icon: GraduationCap,
+          submenus: []
+        },
+        {
+          href: '/accreditation/aicte',
+          label: 'AICTE (Technical)',
+          active: pathname.startsWith('/accreditation/aicte'),
+          icon: Rocket,
+          submenus: []
+        },
+        {
+          href: '/accreditation/ugc',
+          label: 'UGC (Overall)',
+          active: pathname.startsWith('/accreditation/ugc'),
+          icon: Scale,
           submenus: []
         }
       ]

@@ -919,7 +919,18 @@ export const PERMISSION_CATEGORIES = [
 
       // NAAC 8.4 Learning Experience Survey + DPDPA 2023 consent
       { key: 'accreditation.naac.surveys.consent.submit', label: 'Submit DPDPA Consent' },
-      { key: 'accreditation.naac.surveys.export', label: 'Export NAAC 8.4 Survey Data' }
+      { key: 'accreditation.naac.surveys.export', label: 'Export NAAC 8.4 Survey Data' },
+
+      // Per-body dashboards (PR-A9 through PR-A15)
+      { key: 'accreditation.nirf.view', label: 'View NIRF Dashboard' },
+      { key: 'accreditation.nba.view', label: 'View NBA Dashboard' },
+      { key: 'accreditation.qs.view', label: 'View QS Dashboard (Phase 2+)' },
+      { key: 'accreditation.dci.view', label: 'View DCI Dashboard' },
+      { key: 'accreditation.pci.view', label: 'View PCI Dashboard' },
+      { key: 'accreditation.inc.view', label: 'View INC Dashboard' },
+      { key: 'accreditation.ncte.view', label: 'View NCTE Dashboard' },
+      { key: 'accreditation.aicte.view', label: 'View AICTE Dashboard' },
+      { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' }
     ]
   }
 ];
