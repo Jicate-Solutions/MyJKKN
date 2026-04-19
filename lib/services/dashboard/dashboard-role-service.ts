@@ -50,8 +50,12 @@ const FACULTY_ROLES = new Set([
 
 const HOD_ROLES = new Set([
   'hod'
+]);
+
 const PRINCIPAL_ROLES = new Set([
   'principal'
+]);
+
 const ACCOUNTS_ROLES = new Set([
   'accounts',
   'accountant_assistant'
