@@ -5,7 +5,11 @@ import {
   HodMetrics,
   HodMetricsService
 } from '@/lib/services/dashboard/hod-metrics-service';
-import { Users, ClipboardCheck, AlertTriangle, CalendarClock } from 'lucide-react';
+import type {
+  ClusterRankPublic,
+  ClusterRankHodsPublic
+} from '@/lib/services/dashboard/cluster-rank-service';
+import { Users, ClipboardCheck, AlertTriangle, CalendarClock, Trophy, Medal } from 'lucide-react';
 
 // ── Tile colour classes (duplicated per spec; do NOT import from hero-strip) ──
 const TILE_COLORS = {
@@ -30,13 +34,21 @@ function TileSkeleton() {
 
 export default function HodHeroStrip() {
   const [metrics, setMetrics] = useState<HodMetrics | null>(null);
+  const [cluster, setCluster] = useState<ClusterRankPublic | null>(null);
+  const [hodCluster, setHodCluster] = useState<ClusterRankHodsPublic | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    HodMetricsService.getMetrics().then((m) => {
+    Promise.all([
+      HodMetricsService.getMetrics(),
+      fetch('/api/dashboard/cluster-rank').then((r) => r.json()).catch(() => null),
+      fetch('/api/dashboard/cluster-rank/hods').then((r) => r.json()).catch(() => null)
+    ]).then(([m, c, h]) => {
       if (!cancelled) {
         setMetrics(m);
+        setCluster(c as ClusterRankPublic | null);
+        setHodCluster(h as ClusterRankHodsPublic | null);
         setLoading(false);
       }
     });
@@ -47,8 +59,8 @@ export default function HodHeroStrip() {
 
   if (loading) {
     return (
-      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
-        {[0, 1, 2, 3].map((i) => (
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4'>
+        {[0, 1, 2, 3, 4, 5].map((i) => (
           <TileSkeleton key={i} />
         ))}
       </div>
@@ -57,29 +69,121 @@ export default function HodHeroStrip() {
 
   if (!metrics) return null;
 
-  const aboveBaseline =
-    metrics.dept_attendance_pct >= metrics.attendance_baseline;
+  // Doctrines v1: tile 1 swapped from standalone attendance → composite DHS.
+  // Attendance surfaces as the largest DHS component (dept_attendance).
+  const dhs = metrics.department_health_score;
+  const dhsBandClass =
+    dhs?.band === 'green' ? TILE_COLORS.attendance.good
+    : dhs?.band === 'amber' ? TILE_COLORS.compliance
+    : TILE_COLORS.attendance.bad;
+  const dhsComponentsLine = dhs?.components
+    ? (['dept_attendance', 'faculty_marking', 'grievance_resolution'] as const)
+        .filter((k) => dhs.components[k] !== null && dhs.components[k] !== undefined)
+        .map((k) => {
+          const labels: Record<string, string> = {
+            dept_attendance: 'Att',
+            faculty_marking: 'Mark',
+            grievance_resolution: 'Griev'
+          };
+          return `${labels[k]} ${dhs.components[k]}`;
+        })
+        .join(' · ')
+    : '';
+  const dhsHint = (dhs?.missing_components?.length ?? 0) > 0
+    ? `Pending: ${dhs?.missing_components?.join(', ')}`
+    : undefined;
+
+  // Cluster rank tile helpers
+  const callerRank = cluster?.caller_rank ?? null;
+  const callerScore = cluster?.caller_score ?? null;
+  const leaderboardLen = cluster?.leaderboard?.length ?? 0;
+  const tiedCount =
+    callerRank != null && cluster
+      ? cluster.leaderboard.filter((e) => e.rank === callerRank).length
+      : 0;
+  const clusterTied = tiedCount > 1;
+  const clusterValue =
+    cluster === null
+      ? '--'
+      : cluster.forbidden || leaderboardLen === 0
+        ? '--'
+        : callerRank != null
+          ? clusterTied
+            ? `#${callerRank} (tied)`
+            : `#${callerRank} / ${leaderboardLen}`
+          : '--';
+  const clusterSubtitle =
+    cluster === null
+      ? 'Loading...'
+      : cluster.forbidden || leaderboardLen === 0
+        ? 'Cluster unavailable'
+        : callerScore != null
+          ? `OHS ${callerScore}`
+          : 'Cluster leaderboard';
+  const clusterBandClass =
+    cluster === null || cluster.forbidden || callerRank === null
+      ? TILE_COLORS.leave
+      : callerRank <= 3
+        ? 'border-emerald-400/40 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-100'
+        : callerRank <= 5
+          ? 'border-amber-400/40 bg-amber-50/60 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100'
+          : 'border-rose-400/40 bg-rose-50/60 dark:bg-rose-950/30 text-rose-950 dark:text-rose-100';
+
+  // ── Task 7b — HOD DHS cluster rank tile (peers see peers) ──
+  const hodRank = hodCluster?.caller_rank ?? null;
+  const hodScore = hodCluster?.caller_score ?? null;
+  const hodLeaderboardLen = hodCluster?.leaderboard?.length ?? 0;
+  const hodTiedCount =
+    hodRank != null && hodCluster
+      ? hodCluster.leaderboard.filter((e) => e.rank === hodRank).length
+      : 0;
+  const hodTied = hodTiedCount > 1;
+  const hodValue =
+    hodCluster === null
+      ? '--'
+      : hodCluster.forbidden || hodLeaderboardLen === 0
+        ? '--'
+        : hodRank != null
+          ? hodTied
+            ? `#${hodRank} (tied)`
+            : `#${hodRank} / ${hodLeaderboardLen}`
+          : '--';
+  const hodSubtitle =
+    hodCluster === null
+      ? 'Loading...'
+      : hodCluster.forbidden || hodLeaderboardLen === 0
+        ? 'HOD cluster unavailable'
+        : hodScore != null
+          ? `DHS ${hodScore}`
+          : 'HOD leaderboard';
+  const hodBandClass =
+    hodCluster === null || hodCluster.forbidden || hodRank === null
+      ? TILE_COLORS.leave
+      : hodRank <= 3
+        ? 'border-emerald-400/40 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-100'
+        : hodRank <= 10
+          ? 'border-amber-400/40 bg-amber-50/60 dark:bg-amber-950/30 text-amber-950 dark:text-amber-100'
+          : 'border-rose-400/40 bg-rose-50/60 dark:bg-rose-950/30 text-rose-950 dark:text-rose-100';
 
   return (
-    <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
-      {/* Tile 1 — Dept Attendance vs Baseline */}
+    <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4'>
+      {/* Tile 1 — Department Health Score (DHS) */}
       <div
-        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${
-          aboveBaseline
-            ? TILE_COLORS.attendance.good
-            : TILE_COLORS.attendance.bad
-        }`}
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${dhsBandClass}`}
       >
         <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
           <Users className='h-3.5 w-3.5' />
-          Dept Attendance
+          Dept Health
         </div>
         <div className='mt-3 text-3xl font-semibold tabular-nums'>
-          {metrics.dept_attendance_pct}%
+          {dhs && dhs.score > 0 ? dhs.score : '--'}
         </div>
-        <div className='mt-1 text-xs opacity-60'>
-          Baseline {metrics.attendance_baseline}%
+        <div className='mt-1 text-xs opacity-70 line-clamp-1'>
+          {dhsComponentsLine || `Att ${metrics.dept_attendance_pct}% (today)`}
         </div>
+        {dhsHint && (
+          <div className='mt-1 text-[10px] opacity-50'>{dhsHint}</div>
+        )}
       </div>
 
       {/* Tile 2 — Faculty Marking Compliance */}
@@ -128,6 +232,64 @@ export default function HodHeroStrip() {
             ? 'No pending'
             : 'Pending review'}
         </div>
+      </div>
+
+      {/* Tile 5 — Cluster Rank */}
+      <div
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${clusterBandClass}`}
+      >
+        <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
+          <Trophy className='h-3.5 w-3.5' />
+          Cluster Rank
+        </div>
+        <div className='mt-3 text-3xl font-semibold tabular-nums'>
+          {clusterValue}
+        </div>
+        <div className='mt-1 text-xs opacity-60 line-clamp-1'>
+          {clusterSubtitle}
+        </div>
+        {cluster && !cluster.forbidden && leaderboardLen > 0 && (
+          <div className='mt-3 pt-2 border-t border-current/10 text-[10px] opacity-70 space-y-0.5'>
+            <div className='uppercase tracking-wider opacity-60 mb-1'>Top 3</div>
+            {cluster.leaderboard
+              .filter((e) => e.rank <= 3)
+              .slice(0, 3)
+              .map((e) => (
+                <div key={e.institution_id}>
+                  {e.counselling_code}: {e.ohs_score}
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
+
+      {/* Tile 6 — HOD DHS Cluster Rank (Task 7b: peers see peers) */}
+      <div
+        className={`rounded-2xl border p-5 backdrop-blur-sm transition-all duration-200 ${hodBandClass}`}
+      >
+        <div className='flex items-center gap-2 text-[11px] uppercase tracking-wider opacity-70'>
+          <Medal className='h-3.5 w-3.5' />
+          HOD DHS Rank
+        </div>
+        <div className='mt-3 text-3xl font-semibold tabular-nums'>
+          {hodValue}
+        </div>
+        <div className='mt-1 text-xs opacity-60 line-clamp-1'>
+          {hodSubtitle}
+        </div>
+        {hodCluster && !hodCluster.forbidden && hodLeaderboardLen > 0 && (
+          <div className='mt-3 pt-2 border-t border-current/10 text-[10px] opacity-70 space-y-0.5'>
+            <div className='uppercase tracking-wider opacity-60 mb-1'>Top 3 HODs</div>
+            {hodCluster.leaderboard
+              .filter((e) => e.rank <= 3)
+              .slice(0, 3)
+              .map((e) => (
+                <div key={e.hod_user_id} className='truncate'>
+                  {e.hod_name}: {e.dhs_score}
+                </div>
+              ))}
+          </div>
+        )}
       </div>
     </div>
   );

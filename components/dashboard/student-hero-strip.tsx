@@ -1,8 +1,9 @@
 /**
- * Dashboard v2 — Student/Learner Hero Strip (4 KPI tiles)
+ * Dashboard v2 — Student/Learner Hero Strip (5 KPI tiles)
  *
  * Server component. Consumes StudentMetrics from getStudentMetrics().
- * Tiles: (1) My Attendance (2) Fee Balance (3) Today's Classes (4) Upcoming Deadlines
+ * Tiles: (1) Career Readiness (2) Fee Balance (3) Today's Classes
+ *        (4) Upcoming Deadlines (5) Cluster Standing (PRIVATE — percentile only, no peers)
  *
  * JKKN terminology: Students are referred to as "Learners".
  *
@@ -16,8 +17,13 @@ import Link from 'next/link';
 import {
   StudentMetrics,
   StudentBand,
+  CareerReadinessScore,
   formatInrAmount
 } from '@/lib/services/dashboard/student-metrics-service';
+import type {
+  ClusterRankPrivate,
+  Quartile
+} from '@/lib/services/dashboard/cluster-rank-service';
 
 type TileColor = StudentBand | 'neutral';
 
@@ -91,23 +97,60 @@ function HeroTile({
 // ============================================================================
 // Tile builders per student metric
 // ============================================================================
-function attendanceTile(metrics: StudentMetrics): HeroTileProps {
-  const { pct_semester, present, total, band } = metrics.attendance;
-  const hasData = total > 0;
+
+/**
+ * Doctrines v1 — Career Readiness Score tile.
+ * Replaces the standalone attendance tile as the primary hook.
+ * Shows composite score + band + component breakdown in footer.
+ * Attendance remains visible as the largest component.
+ */
+function careerReadinessTile(metrics: StudentMetrics): HeroTileProps {
+  const crs: CareerReadinessScore | undefined = metrics.career_readiness_score;
+  if (!crs || crs.data_source === 'empty' || crs.data_source === 'no_learner_profile') {
+    return {
+      label: 'Career Readiness',
+      value: '--',
+      subtitle: 'Your progress will appear as coursework data accumulates',
+      color: 'neutral'
+    };
+  }
+
+  const { score, band, components, missing_components } = crs;
+  const labelMap: Record<string, string> = {
+    attendance: 'Att',
+    grades: 'Grd',
+    competencies: 'Comp',
+    fee_regularity: 'Fees',
+    engagement: 'Eng'
+  };
+
+  // Build compact component breakdown: "Att 78 · Comp 65 · Fees 100 · Eng 42"
+  const parts = (['attendance', 'competencies', 'fee_regularity', 'engagement', 'grades'] as const)
+    .filter((k) => components[k] !== null && components[k] !== undefined)
+    .map((k) => `${labelMap[k]} ${components[k]}`);
+
+  const footerLabel =
+    parts.length > 0 ? parts.join(' · ') : 'No component data yet';
+
+  const missingNote =
+    missing_components && missing_components.length > 0
+      ? `Missing: ${missing_components.map((m) => labelMap[m] || m).join(', ')}`
+      : undefined;
+
+  const subtitle =
+    band === 'green'
+      ? 'Strong trajectory — keep it up'
+      : band === 'amber'
+        ? 'On track — one or two components need attention'
+        : 'Several areas need attention';
+
   return {
-    label: 'My Attendance',
-    value: hasData ? `${pct_semester}%` : '--',
-    subtitle: hasData
-      ? `${present} present out of ${total} classes this semester`
-      : 'No attendance data available yet',
-    hint: hasData
-      ? pct_semester < 75
-        ? 'Below 75% — exam eligibility at risk'
-        : pct_semester >= 90
-          ? 'Excellent attendance record'
-          : 'On track for exam eligibility'
-      : undefined,
-    color: hasData ? band : 'neutral'
+    label: 'Career Readiness',
+    value: score,
+    subtitle,
+    hint: missingNote,
+    color: band,
+    footer: <div className='line-clamp-2'>{footerLabel}</div>
   };
 }
 
@@ -219,23 +262,78 @@ function deadlinesTile(metrics: StudentMetrics): HeroTileProps {
 }
 
 // ============================================================================
+// Ordinal helper
+// ============================================================================
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+// ============================================================================
+// Cluster rank tile builder (Task 8 — PRIVACY CRITICAL)
+// Consumes ONLY: percentile, quartile_label, data_source, forbidden.
+// NEVER references peer_scores, leaderboard, or other_students fields.
+// ============================================================================
+function clusterPercentileTile(cluster: ClusterRankPrivate): HeroTileProps {
+  if (cluster.forbidden || cluster.percentile === null) {
+    const dataSourceMessage = (src: string): string => {
+      if (src === 'insufficient_peers') return 'Not enough peer data yet';
+      if (src === 'no_learner_profile') return 'No learner profile found';
+      return 'Cluster standing unavailable';
+    };
+    return {
+      label: 'Cluster Standing',
+      value: '--',
+      subtitle: dataSourceMessage(cluster.data_source),
+      color: 'neutral'
+    };
+  }
+
+  const { percentile, quartile_label } = cluster;
+
+  const quartileHuman: Record<Quartile, string> = {
+    top_quartile: 'Top Quartile',
+    upper_middle: 'Upper Middle',
+    lower_middle: 'Lower Middle',
+    bottom_quartile: 'Bottom Quartile'
+  };
+
+  const color: TileColor =
+    percentile >= 75 ? 'green' : percentile >= 50 ? 'amber' : 'red';
+
+  return {
+    label: 'Cluster Standing',
+    value: ordinal(percentile),
+    subtitle: quartile_label ? quartileHuman[quartile_label] : 'Percentile rank',
+    hint: 'Among all students cluster-wide',
+    color
+    // No footer — deliberately omitted to prevent any peer breakdown rendering
+  };
+}
+
+// ============================================================================
 // Public component
 // ============================================================================
 type StudentHeroStripProps = {
   metrics: StudentMetrics;
+  cluster: ClusterRankPrivate;
 };
 
-export function StudentHeroStrip({ metrics }: StudentHeroStripProps) {
+export function StudentHeroStrip({ metrics, cluster }: StudentHeroStripProps) {
+  // Doctrines v1: tile 1 swapped from standalone attendance → composite CRS.
+  // tile 5: Cluster Standing (Task 8) — PRIVATE percentile only, no peer data.
   const tiles: HeroTileProps[] = [
-    attendanceTile(metrics),
+    careerReadinessTile(metrics),
     feesTile(metrics),
     timetableTile(metrics),
-    deadlinesTile(metrics)
+    deadlinesTile(metrics),
+    clusterPercentileTile(cluster)
   ];
 
   return (
     <section aria-label='Learner dashboard hero KPIs'>
-      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4'>
         {tiles.map((tile) => (
           <HeroTile key={tile.label} {...tile} />
         ))}

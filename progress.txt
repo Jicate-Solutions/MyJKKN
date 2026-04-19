@@ -1,3 +1,43 @@
+## Session: 2026-04-20 (00:02 → 00:55 IST) — Doctrines v1 PR: 4 more tasks shipped (8 of 11 done), parallel-agent push
+
+### Accomplished
+
+**Shipped to prod Supabase + worktree (all with idempotent migrations, all TS clean):**
+
+- **Task 5 — Counselor CVS tile swap** (complete): `components/dashboard/counselor-hero-strip.tsx` tile 2 swapped from `rankTile` → `conversionVelocityTile`. Mirrors faculty TES pattern. rank signal preserved as CVS component.
+- **Task 6 — Accounts CHS** (complete): Migration `20260419000006_doctrines_accounts_chs.sql` applied. `fn_accounts_metrics` extended with `collections_health_score` composite (collection_vs_plan 30%, overdue_ratio_inverted 25%, reconciliation_freshness 25%, refund_sla 20%). Service typed, tile 1 swapped.
+- **Task 7a — Cluster Rank PUBLIC** (complete): Migration `20260419000007_doctrines_cluster_rank_public.sql`. `fn_compute_ohs_for_institution(uuid)` auth-bypass helper. `mv_cluster_leaderboard_colleges` with 8 real colleges. `fn_cluster_rank_public(role)` role-gated RPC. Principal + HOD 5th tile + `/api/dashboard/cluster-rank` route + page.tsx LivePrincipalHero wiring. All 8 colleges currently tied at OHS=75 (fees=0 past midnight).
+- **Task 8 — Cluster Rank PRIVATE** (complete): Migration `20260419000008_doctrines_cluster_rank_private.sql`. `fn_compute_tes_for_user(uuid)` + `fn_compute_crs_for_user(uuid)` auth-bypass helpers (service_role only, PUBLIC + anon revoked). `fn_cluster_rank_private(role)` returns ONLY {percentile, quartile_label, forbidden, reason} — zero peer name / raw score leakage. Faculty + Student 5th tile + page.tsx Live{Faculty,Student}Hero wiring.
+
+**Parallel execution pattern that worked:** 3 non-overlapping worktree agents dispatched simultaneously (Agent A = DB+service, Agent B = Principal/HOD UI, Agent C = Faculty/Student UI). All completed clean. One merge collision: Agent B reverted Agent C's page.tsx edits thinking they were "phantom auto-format." Recovery: Agent C re-Wrote full file. Separate collision: `DashboardPersona` type ended up with 3 duplicate declarations in dashboard-role-service.ts — fixed by union of all values.
+
+**Decisions locked via AskUserQuestion this session:**
+- HOD gets BOTH tiles: college leaderboard (7a) AND own-DHS rank among HODs (7b pending)
+- Filter "JKKN Testing Institution" via `iqac_code IS NOT NULL`
+
+### Current Status
+- **Branch**: `feat/doctrines-composite-scores-v1` — ~35 commits ahead of jicate/main (many wip auto-saves)
+- **Build**: TS clean across all touched files. Zero Doctrines-v1-introduced errors. One pre-existing TS1128 in admission-tqm-metrics-service.ts (unrelated).
+- **DB on prod `kvizhngldtiuufknvehv`**: 6 helpers + 2 RPCs + 1 MV all live, verified.
+- **Privacy guarantee**: 3-layer defense on Task 8 — (1) fn_compute_*_for_user revoked from anon + authenticated, (2) fn_cluster_rank_private output filtered to 5 keys only, (3) UI code grep-verified to never reference peer_scores/leaderboard/other_students.
+
+### Key Learnings
+- **`list_tables.rows` stat is stale**: `institutions.rows=1` misled me until I verified via SELECT. Live count = 9 (8 real + 1 Testing stub).
+- **Always read source of SECURITY DEFINER functions before calling from MV context**: `fn_dashboard_metrics` auth check would have made the naïve MV design unworkable. Required extracting OHS into auth-bypass helper.
+- **Postgres PUBLIC ACL is the sneaky leak**: `REVOKE FROM authenticated` alone is insufficient on Supabase — `anon` inherits from PUBLIC. Must explicitly `REVOKE FROM PUBLIC` + `REVOKE FROM anon` for service_role-only helpers. Agent A caught this defensively.
+- **Parallel agents on shared files need contract-first coordination**: 3 parallel edits to page.tsx produced a triple-type-declaration artifact. Partitioning by file owner isn't enough when auto-format tools interleave. Solution: one agent owns each FILE, others send the owner a message to update.
+- **Peer enumeration scaling**: `fn_cluster_rank_private` loops `fn_compute_*_for_user` over every staff/learner at query time. O(N × 30-day-window). Fine for JKKN scale (~500 staff, ~5000 students), will need caching in Task 11's Sunday cron.
+
+### Next Session — Tasks (user-stated P0: ship remaining 4 before opening PR)
+1. [P0] Task 7b — HOD-DHS cluster leaderboard: second MV `mv_cluster_leaderboard_hods` + `fn_cluster_rank_hods_private(caller)` or similar, 6th tile on hod-hero-strip (medium, ~90 min). Requires HOD roster discovery: `SELECT DISTINCT role FROM profiles WHERE role ILIKE '%hod%'`.
+2. [P0] Task 9 — Sunday 9 PM Wrap cron: `/api/cron/sunday-wrap/route.ts` + vercel.json schedule + notifications table insert + web push via PR #196 infrastructure (medium, ~60 min). NO WhatsApp.
+3. [P0] Task 10 — Friday 4 PM Reflection cron: `/api/cron/friday-reflection/route.ts` + vercel.json schedule. Student + Faculty only, in-app card only, no push (small, ~45 min).
+4. [P0] Task 11 — Habit anchor config + pre-ship gates: `lib/habits/anchor-schedule.ts` as single source of truth + silent-failure-auditor + pr-preflight + tsc + lint + final squash-rebase of wip auto-saves via `git rebase -i jicate/main` (medium, ~60 min).
+
+**Opening the PR**: After all 4 tasks, create PR on Jicate-Solutions/MyJKKN. DO NOT merge — user merges manually.
+
+---
+
 ## Session: 2026-04-16 (Midnight rebuild → Noon deploy) — HR Sprint 6 Command Center SHIPPED + pr-preflight skill
 
 ### Accomplished

@@ -21,6 +21,7 @@ import { FacultyHeroStrip } from '@/components/dashboard/faculty-hero-strip';
 import { getFacultyMetrics } from '@/lib/services/dashboard/faculty-metrics-service';
 import { PrincipalHeroStrip } from '@/components/dashboard/principal-hero-strip';
 import { getPrincipalMetrics } from '@/lib/services/dashboard/principal-metrics-service';
+import { getClusterRankPublic, getClusterRankPrivate } from '@/lib/services/dashboard/cluster-rank-service';
 import { getStudentMetrics } from '@/lib/services/dashboard/student-metrics-service';
 import { AccountsHeroStrip } from '@/components/dashboard/accounts-hero-strip';
 import { getAccountsMetrics } from '@/lib/services/dashboard/accounts-metrics-service';
@@ -83,22 +84,32 @@ async function LiveCounselorHero() {
   return <CounselorHeroStrip metrics={metrics} />;
 }
 
-// Faculty hero strip: unmarked classes / flags / timetable / week %
+// Faculty hero strip: unmarked classes / TES / timetable / week % / cluster standing (private)
 async function LiveFacultyHero() {
-  const metrics = await getFacultyMetrics();
-  return <FacultyHeroStrip metrics={metrics} />;
+  const [metrics, cluster] = await Promise.all([
+    getFacultyMetrics(),
+    getClusterRankPrivate('faculty')
+  ]);
+  return <FacultyHeroStrip metrics={metrics} cluster={cluster} />;
 }
 
-// Principal hero strip: health score / staff attendance / incidents / approvals (4 users)
+// Principal hero strip: health score / staff attendance / incidents / approvals / cluster rank (5 tiles)
 async function LivePrincipalHero() {
-  const metrics = await getPrincipalMetrics();
-  return <PrincipalHeroStrip metrics={metrics} />;
+  const [metrics, cluster] = await Promise.all([
+    getPrincipalMetrics(),
+    getClusterRankPublic()
+  ]);
+  return <PrincipalHeroStrip metrics={metrics} cluster={cluster} />;
 }
 
 // Week-3 addition: student/learner-scoped hero strip (4,235 active users)
+// Task 8: cluster rank fetched in parallel — private percentile only, no peer data exposed
 async function LiveStudentHero() {
-  const metrics = await getStudentMetrics();
-  return <StudentHeroStrip metrics={metrics} />;
+  const [metrics, cluster] = await Promise.all([
+    getStudentMetrics(),
+    getClusterRankPrivate('student')
+  ]);
+  return <StudentHeroStrip metrics={metrics} cluster={cluster} />;
 }
 
 // HOD hero strip: dept attendance / marking compliance / grievances / leave approvals (48 active HODs)

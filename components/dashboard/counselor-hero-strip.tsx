@@ -2,16 +2,22 @@
  * Dashboard v2 Week-2 — Counselor Hero Strip (4 KPI tiles)
  *
  * Server component. Consumes CounselorMetrics from getCounselorMetrics().
- * Tiles: (1) Your SLA today (2) Your daily rank (3) Hot leads to call (4) Calls / target
+ * Tiles: (1) Your SLA today (2) Conversion Velocity (3) Hot leads to call (4) Calls / target
  *
  * Note: data will populate as admission_leads.assigned_counselor_id gets backfilled
  * (currently 0% populated on staging/prod — tiles render zero-state gracefully).
  *
  * Spec: specs/myjkkn-dashboard-v2-spec.md §5 + §8
+ * Doctrines v1: tile 2 swapped from Daily Rank → CVS composite
+ * (Routines-Stickiness-Ivy-Doctrine.md). rank signal preserved inside CVS.
  */
 
 import Link from 'next/link';
-import { CounselorMetrics, CounselorBand } from '@/lib/services/dashboard/counselor-metrics-service';
+import {
+  CounselorMetrics,
+  CounselorBand,
+  ConversionVelocityScore
+} from '@/lib/services/dashboard/counselor-metrics-service';
 
 type TileColor = CounselorBand | 'neutral';
 
@@ -104,33 +110,60 @@ function slaTile(metrics: CounselorMetrics): HeroTileProps {
   };
 }
 
-function rankTile(metrics: CounselorMetrics): HeroTileProps {
-  const { daily_rank, daily_total, weekly_delta } = metrics.rank;
-  const rankStr =
-    daily_rank === null
-      ? '—'
-      : `#${daily_rank}${daily_total > 0 ? ` / ${daily_total}` : ''}`;
-  let deltaStr = '';
-  let color: TileColor = 'neutral';
-  if (weekly_delta < 0) {
-    deltaStr = `↗ improved ${Math.abs(weekly_delta)} place${Math.abs(weekly_delta) === 1 ? '' : 's'} vs last week`;
-    color = 'green';
-  } else if (weekly_delta > 0) {
-    deltaStr = `↘ dropped ${weekly_delta} place${weekly_delta === 1 ? '' : 's'} vs last week`;
-    color = 'amber';
-  } else if (daily_rank !== null) {
-    deltaStr = '→ flat vs last week';
-    color = daily_rank <= 3 ? 'green' : 'neutral';
-  } else {
-    deltaStr = 'Respond to a lead to enter today\u2019s ranking';
+/**
+ * Doctrines v1 — Conversion Velocity Score tile.
+ * Replaces the `rankTile` (Your Daily Rank) at position 2.
+ * The raw daily-rank signal is preserved inside CVS as one of 4 components
+ * (inverted: 1st = 100), so no operational info is lost. Components
+ * renormalize if conversion or calls data is still populating.
+ */
+function conversionVelocityTile(metrics: CounselorMetrics): HeroTileProps {
+  const cvs: ConversionVelocityScore | undefined =
+    metrics.conversion_velocity_score;
+  if (!cvs || cvs.data_source === 'empty' || cvs.data_source === 'no_staff_record') {
+    return {
+      label: 'Conversion Velocity',
+      value: '--',
+      subtitle: 'Your CVS will appear as you respond, call and convert leads',
+      color: 'neutral'
+    };
   }
+
+  const { score, band, components, missing_components } = cvs;
+  const labelMap: Record<string, string> = {
+    sla_compliance: 'SLA',
+    daily_rank: 'Rank',
+    calls_vs_target: 'Calls',
+    conversion: 'Conv'
+  };
+
+  const parts = (
+    ['sla_compliance', 'daily_rank', 'calls_vs_target', 'conversion'] as const
+  )
+    .filter((k) => components[k] !== null && components[k] !== undefined)
+    .map((k) => `${labelMap[k]} ${components[k]}`);
+
+  const footerLabel =
+    parts.length > 0 ? parts.join(' · ') : 'No component data yet';
+  const missingNote =
+    missing_components && missing_components.length > 0
+      ? `Pending: ${missing_components.map((m) => labelMap[m] || m).join(', ')}`
+      : undefined;
+
+  const subtitle =
+    band === 'green'
+      ? 'Strong conversion trajectory'
+      : band === 'amber'
+        ? 'On track — a component needs attention'
+        : 'Attention needed on multiple components';
+
   return {
-    label: 'Your Daily Rank',
-    value: rankStr,
-    subtitle: 'SLA leaderboard today (lower median = better)',
-    hint: deltaStr,
-    color,
-    href: '/dashboard#leaderboard-sla'
+    label: 'Conversion Velocity',
+    value: score,
+    subtitle,
+    hint: missingNote,
+    color: band,
+    footer: <div className='line-clamp-2'>{footerLabel}</div>
   };
 }
 
@@ -187,9 +220,13 @@ type CounselorHeroStripProps = {
 };
 
 export function CounselorHeroStrip({ metrics }: CounselorHeroStripProps) {
+  // Doctrines v1: tile 2 swapped from rankTile → composite CVS.
+  // The rankTile signal is preserved inside CVS as the inverted daily_rank
+  // component (20% weight), so the leaderboard axis lives on as part of the
+  // composite rather than as a standalone tile.
   const tiles: HeroTileProps[] = [
     slaTile(metrics),
-    rankTile(metrics),
+    conversionVelocityTile(metrics),
     hotLeadsTile(metrics),
     callsTile(metrics)
   ];
