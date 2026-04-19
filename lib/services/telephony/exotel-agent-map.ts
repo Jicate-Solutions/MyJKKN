@@ -152,6 +152,31 @@ export function lookupExoPhone(phone: string): { name: string; department: CallD
 }
 
 /**
+ * Resolve the outbound CallerId to display to prospects when a counselor
+ * initiates a click-to-call. Resolution order:
+ *   1. If counselor phone matches a known admission counselor in AGENT_MAP
+ *      → use their own Exotel-bound mobile (builds familiarity, same number
+ *      prospects already have saved from prior contact)
+ *   2. Else fall back to process.env.EXOTEL_CALLER_ID (institution default)
+ *   3. Final hardcoded fallback: '04446313503' (1-JKKN-COLLEGES admission IVR)
+ *      Prevents silent failure when env var is missing — but the fact that
+ *      this path was taken is a configuration bug worth alerting on.
+ *
+ * NEVER returns empty string. Callers can safely use the result directly.
+ */
+export function getCounselorExoPhone(counselorPhone: string): string {
+  const agent = lookupAgent(counselorPhone);
+  if (agent?.department === 'admission' && agent.isAdmissionCounselor) {
+    return agent.phone;
+  }
+  const envCallerId = process.env.EXOTEL_CALLER_ID;
+  if (envCallerId) return envCallerId;
+  // Hardcoded fallback — intentional safety net for misconfigured deploys.
+  // If you reach this line in production, EXOTEL_CALLER_ID is not set on Vercel.
+  return '04446313503';
+}
+
+/**
  * Determine if a call is admission-related based on agent and ExoPhone.
  */
 export function isAdmissionCall(agentPhone: string, exoPhone: string): boolean {

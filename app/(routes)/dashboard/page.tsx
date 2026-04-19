@@ -19,6 +19,8 @@ import { CounselorHeroStrip } from '@/components/dashboard/counselor-hero-strip'
 import { getCounselorMetrics } from '@/lib/services/dashboard/counselor-metrics-service';
 import { FacultyHeroStrip } from '@/components/dashboard/faculty-hero-strip';
 import { getFacultyMetrics } from '@/lib/services/dashboard/faculty-metrics-service';
+import { PrincipalHeroStrip } from '@/components/dashboard/principal-hero-strip';
+import { getPrincipalMetrics } from '@/lib/services/dashboard/principal-metrics-service';
 import { getStudentMetrics } from '@/lib/services/dashboard/student-metrics-service';
 import { AccountsHeroStrip } from '@/components/dashboard/accounts-hero-strip';
 import { getAccountsMetrics } from '@/lib/services/dashboard/accounts-metrics-service';
@@ -81,6 +83,12 @@ async function LiveCounselorHero() {
 async function LiveFacultyHero() {
   const metrics = await getFacultyMetrics();
   return <FacultyHeroStrip metrics={metrics} />;
+}
+
+// Principal hero strip: health score / staff attendance / incidents / approvals (4 users)
+async function LivePrincipalHero() {
+  const metrics = await getPrincipalMetrics();
+  return <PrincipalHeroStrip metrics={metrics} />;
 }
 
 // Week-3 addition: student/learner-scoped hero strip (4,235 active users)
@@ -224,6 +232,7 @@ export default async function DashboardV2Page({
   const isCounselor = persona === 'counselor';
   const isFaculty = persona === 'faculty';
   const isHod = persona === 'hod';
+  const isPrincipal = persona === 'principal';
   const isAccounts = persona === 'accounts';
   const isStudent = persona === 'student';
   const isLimited = persona === 'limited';
@@ -252,12 +261,14 @@ export default async function DashboardV2Page({
           <LiveMorningBrief />
         </Suspense>
 
+        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Principal / Student / limited safe default) */}
         {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Accounts / Student / limited safe default) */}
         <Suspense fallback={<HeroSkeleton />}>
           {isDirector && <LiveHeroStrip />}
           {isCounselor && <LiveCounselorHero />}
           {isFaculty && <LiveFacultyHero />}
           {isHod && <LiveHodHero />}
+          {isPrincipal && <LivePrincipalHero />}
           {isAccounts && <LiveAccountsHero />}
           {isStudent && <LiveStudentHero />}
           {isLimited && <LimitedHero />}
