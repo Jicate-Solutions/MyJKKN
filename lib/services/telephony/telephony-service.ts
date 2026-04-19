@@ -9,7 +9,7 @@
 import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
 import { CallPipelineService } from './call-pipeline-service';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
-import { getCallContext, lookupAgent, isAdmissionCall } from './exotel-agent-map';
+import { getCallContext, lookupAgent, isAdmissionCall, getCounselorExoPhone } from './exotel-agent-map';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
@@ -503,7 +503,37 @@ export class TelephonyService {
 
     // Step 2: Call Exotel API to initiate the real call
     try {
-      const callerId = input.caller_id || process.env.EXOTEL_CALLER_ID || '';
+      // Resolve caller ID via tiered strategy (agent map → env var → hardcoded IVR).
+      // Never empty — prevents the +44 default fallback that Exotel substitutes
+      // when CallerId is unset (see audit 2026-04-19: 3 stuck pending- rows had from_number='').
+      const callerId = input.caller_id || getCounselorExoPhone(input.counselor_phone);
+
+      if (!callerId) {
+        // Defensive — getCounselorExoPhone has a hardcoded fallback, so this should
+        // be unreachable. If we get here, the agent map file has been corrupted.
+        await supabase
+          .from('admission_call_logs')
+          .update({ status: 'failed' })
+          .eq('id', recordId);
+        logger.error('telephony', 'Caller ID resolution returned empty — agent map may be corrupted', {
+          callLogId: recordId,
+          counselorPhone: input.counselor_phone,
+        });
+        return {
+          success: false,
+          error: 'Caller ID could not be resolved. Contact admin — EXOTEL_CALLER_ID environment variable may be missing.',
+        };
+      }
+
+      // Observability: warn when env var is unset and we relied on the hardcoded fallback.
+      // In healthy prod, EXOTEL_CALLER_ID should always be set → this warn never fires.
+      if (!process.env.EXOTEL_CALLER_ID && !lookupAgent(input.counselor_phone)?.isAdmissionCounselor) {
+        logger.warn('telephony', 'EXOTEL_CALLER_ID env var not set — using hardcoded fallback', {
+          fallbackUsed: callerId,
+          counselorPhone: input.counselor_phone,
+        });
+      }
+
       const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL || ''}/api/webhooks/telephony`;
 
       const response = await ExotelClient.makeCall({
