@@ -8463,3 +8463,219 @@ $$;
 GRANT EXECUTE ON FUNCTION fn_hod_metrics TO authenticated;
 GRANT EXECUTE ON FUNCTION fn_accounts_metrics() TO authenticated;
 COMMENT ON FUNCTION fn_accounts_metrics() IS 'Dashboard v2 — Accounts hero strip: collection vs plan, overdue bills, reconciliation gap, pending refunds. SECURITY DEFINER, institution-scoped via auth.uid().';
+
+-- =============================================================================
+-- Updated: 2026-04-16 — Dashboard v2 streak badge + activity feed
+-- fn_dashboard_streak(): consecutive-day SLA compliance streak (§4.3)
+-- fn_dashboard_activity_feed(): recent team actions (§4.4)
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION fn_dashboard_streak()
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+  v_role TEXT;
+  v_is_super_admin BOOLEAN;
+  v_threshold_hours INT;
+  v_is_director BOOLEAN;
+  v_today DATE;
+  v_current_streak INT := 0;
+  v_best_streak INT := 0;
+  v_today_status TEXT := 'on_track';
+  v_today_pct NUMERIC := 100;
+  v_day DATE;
+  v_compliant BOOLEAN;
+  rec RECORD;
+BEGIN
+  -- Resolve role
+  SELECT p.role, COALESCE(p.is_super_admin, FALSE)
+    INTO v_role, v_is_super_admin
+    FROM profiles p WHERE p.id = v_uid;
+
+  v_is_director := v_is_super_admin
+    OR v_role IN ('admin','administrator','super_admin','admission_manager');
+
+  -- Get SLA threshold from dashboard_config (default 4h)
+  SELECT COALESCE(dc.cold_lead_threshold_hours, 4)
+    INTO v_threshold_hours
+    FROM dashboard_config dc LIMIT 1;
+
+  IF v_threshold_hours IS NULL THEN
+    v_threshold_hours := 4;
+  END IF;
+
+  -- IST today
+  v_today := (NOW() AT TIME ZONE 'Asia/Kolkata')::DATE;
+
+  -- Build daily compliance for the last 90 days
+  FOR rec IN
+    WITH day_series AS (
+      SELECT generate_series(v_today - 89, v_today, '1 day'::INTERVAL)::DATE AS d
+    ),
+    daily_stats AS (
+      SELECT
+        (al.created_at AT TIME ZONE 'Asia/Kolkata')::DATE AS lead_day,
+        COUNT(*) AS total_hot,
+        COUNT(*) FILTER (
+          WHERE al.first_touch_at IS NOT NULL
+            AND al.first_touch_at <= al.created_at + (v_threshold_hours || ' hours')::INTERVAL
+        ) AS touched_in_sla
+      FROM admission_leads al
+      WHERE al.priority = 'hot'
+        AND al.created_at >= (v_today - 89)::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
+        AND (
+          CASE WHEN v_is_director THEN TRUE
+               ELSE al.assigned_counselor_id = v_uid
+          END
+        )
+      GROUP BY lead_day
+    )
+    SELECT
+      ds.d AS day,
+      COALESCE(s.total_hot, 0) AS total_hot,
+      COALESCE(s.touched_in_sla, 0) AS touched_in_sla,
+      CASE
+        WHEN COALESCE(s.total_hot, 0) = 0 THEN TRUE  -- no volume = streak continues
+        WHEN v_is_director THEN
+          (s.touched_in_sla::NUMERIC / s.total_hot * 100) >= 90
+        ELSE
+          s.touched_in_sla = s.total_hot  -- 100% for counselor
+      END AS is_compliant,
+      CASE
+        WHEN COALESCE(s.total_hot, 0) = 0 THEN 100
+        ELSE ROUND(s.touched_in_sla::NUMERIC / s.total_hot * 100, 1)
+      END AS pct
+    FROM day_series ds
+    LEFT JOIN daily_stats s ON s.lead_day = ds.d
+    ORDER BY ds.d DESC
+  LOOP
+    IF rec.day = v_today THEN
+      v_today_pct := rec.pct;
+      IF NOT rec.is_compliant THEN
+        v_today_status := 'broken';
+      END IF;
+    END IF;
+
+    -- Count current streak (consecutive from today backwards)
+    IF rec.is_compliant AND v_current_streak = (v_today - rec.day) THEN
+      v_current_streak := v_current_streak + 1;
+    END IF;
+  END LOOP;
+
+  -- Calculate best streak across the 90-day window
+  v_best_streak := 0;
+  DECLARE
+    v_run INT := 0;
+  BEGIN
+    FOR rec IN
+      WITH day_series AS (
+        SELECT generate_series(v_today - 89, v_today, '1 day'::INTERVAL)::DATE AS d
+      ),
+      daily_stats AS (
+        SELECT
+          (al.created_at AT TIME ZONE 'Asia/Kolkata')::DATE AS lead_day,
+          COUNT(*) AS total_hot,
+          COUNT(*) FILTER (
+            WHERE al.first_touch_at IS NOT NULL
+              AND al.first_touch_at <= al.created_at + (v_threshold_hours || ' hours')::INTERVAL
+          ) AS touched_in_sla
+        FROM admission_leads al
+        WHERE al.priority = 'hot'
+          AND al.created_at >= (v_today - 89)::TIMESTAMP AT TIME ZONE 'Asia/Kolkata'
+          AND (
+            CASE WHEN v_is_director THEN TRUE
+                 ELSE al.assigned_counselor_id = v_uid
+            END
+          )
+        GROUP BY lead_day
+      )
+      SELECT
+        ds.d AS day,
+        CASE
+          WHEN COALESCE(s.total_hot, 0) = 0 THEN TRUE
+          WHEN v_is_director THEN
+            (s.touched_in_sla::NUMERIC / s.total_hot * 100) >= 90
+          ELSE
+            s.touched_in_sla = s.total_hot
+        END AS is_compliant
+      FROM day_series ds
+      LEFT JOIN daily_stats s ON s.lead_day = ds.d
+      ORDER BY ds.d ASC
+    LOOP
+      IF rec.is_compliant THEN
+        v_run := v_run + 1;
+        IF v_run > v_best_streak THEN
+          v_best_streak := v_run;
+        END IF;
+      ELSE
+        v_run := 0;
+      END IF;
+    END LOOP;
+  END;
+
+  RETURN json_build_object(
+    'current_streak', v_current_streak,
+    'best_streak', v_best_streak,
+    'today_status', v_today_status,
+    'today_compliance_pct', v_today_pct
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION fn_dashboard_streak() TO authenticated;
+COMMENT ON FUNCTION fn_dashboard_streak() IS 'Dashboard v2 — SLA streak badge. Counselor: 100% personal compliance streak. Director: >=90% JKKN-wide. SECURITY DEFINER.';
+
+CREATE OR REPLACE FUNCTION fn_dashboard_activity_feed(p_limit INT DEFAULT 10)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+  v_role TEXT;
+  v_is_super_admin BOOLEAN;
+  v_institution_id UUID;
+  v_is_director BOOLEAN;
+  v_result JSON;
+BEGIN
+  -- Resolve role + institution
+  SELECT p.role, COALESCE(p.is_super_admin, FALSE), p.institution_id
+    INTO v_role, v_is_super_admin, v_institution_id
+    FROM profiles p WHERE p.id = v_uid;
+
+  v_is_director := v_is_super_admin
+    OR v_role IN ('admin','administrator','super_admin','admission_manager');
+
+  SELECT json_agg(row_to_json(t))
+  INTO v_result
+  FROM (
+    SELECT
+      pr.full_name AS actor_name,
+      pr.avatar_url,
+      n.title AS action_summary,
+      un.acknowledged_at AS created_at,
+      COALESCE(n.category, 'general') AS category
+    FROM user_notifications un
+    INNER JOIN notifications n ON n.id = un.notification_id
+    INNER JOIN profiles pr ON pr.id = un.user_id
+    WHERE un.acknowledged_at IS NOT NULL
+      AND (
+        CASE WHEN v_is_director THEN TRUE
+             ELSE pr.institution_id = v_institution_id
+        END
+      )
+    ORDER BY un.acknowledged_at DESC
+    LIMIT LEAST(p_limit, 50)
+  ) t;
+
+  RETURN COALESCE(v_result, '[]'::JSON);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION fn_dashboard_activity_feed(INT) TO authenticated;
+COMMENT ON FUNCTION fn_dashboard_activity_feed(INT) IS 'Dashboard v2 — Team activity feed. Returns last N acknowledged notifications with actor details. Institution-scoped for non-admin.';
