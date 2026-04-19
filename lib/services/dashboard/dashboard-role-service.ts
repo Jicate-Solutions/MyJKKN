@@ -27,6 +27,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 
+export type DashboardPersona = 'director' | 'counselor' | 'faculty' | 'hod' | 'student' | 'limited';
 export type DashboardPersona = 'director' | 'counselor' | 'faculty' | 'principal' | 'student' | 'limited';
 export type DashboardPersona = 'director' | 'counselor' | 'faculty' | 'accounts' | 'student' | 'limited';
 
@@ -47,6 +48,8 @@ const FACULTY_ROLES = new Set([
   'faculty'
 ]);
 
+const HOD_ROLES = new Set([
+  'hod'
 const PRINCIPAL_ROLES = new Set([
   'principal'
 const ACCOUNTS_ROLES = new Set([
@@ -109,6 +112,7 @@ export async function resolvePersona(): Promise<PersonaResolution> {
     if (isSuperAdmin || DIRECTOR_ROLES.has(role)) persona = 'director';
     else if (COUNSELOR_ROLES.has(role)) persona = 'counselor';
     else if (FACULTY_ROLES.has(role)) persona = 'faculty';
+    else if (HOD_ROLES.has(role)) persona = 'hod';
     else if (PRINCIPAL_ROLES.has(role)) persona = 'principal';
     else if (ACCOUNTS_ROLES.has(role)) persona = 'accounts';
     else if (STUDENT_ROLES.has(role)) persona = 'student';
