@@ -31,6 +31,7 @@ import HodHeroStrip from '@/components/dashboard/hod-hero-strip';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
+import { ThemeToggle } from '@/components/dashboard/theme-toggle';
 import { PushSubscribeButton } from '@/components/dashboard/push-subscribe-button';
 import { MorningBriefCard } from '@/components/dashboard/morning-brief';
 import { getMorningBrief } from '@/lib/services/dashboard/morning-brief-service';
@@ -329,6 +330,7 @@ export default async function DashboardV2Page({
           <PushSubscribeButton
             vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY}
           />
+          <ThemeToggle />
           <div className='text-xs text-neutral-400 dark:text-neutral-600'>
             Prefer the old dashboard?{' '}
             <Link
