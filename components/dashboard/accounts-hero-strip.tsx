@@ -2,7 +2,9 @@
  * Dashboard v2 — Accounts Hero Strip (4 KPI tiles)
  *
  * Server component. Consumes AccountsMetrics from getAccountsMetrics().
- * Tiles: (1) Today's Collection vs Plan (2) Overdue Bills (3) Reconciliation Gap (4) Pending Refunds
+ * Tiles: (1) Collections Health (CHS) (2) Overdue Bills (3) Reconciliation Gap (4) Pending Refunds
+ * Doctrines v1: tile 1 swapped from Today's Collection ₹ → CHS composite.
+ * The ₹ operational value stays accessible via drill-down to /billing/receipts.
  *
  * Styling kept parallel to hero-strip.tsx and counselor-hero-strip.tsx
  * (helpers duplicated by design — per agent scope, hero-strip.tsx must remain untouched).
@@ -14,6 +16,7 @@ import Link from 'next/link';
 import {
   AccountsMetrics,
   AccountsBand,
+  CollectionsHealthScore,
   formatInrAccounts
 } from '@/lib/services/dashboard/accounts-metrics-service';
 
@@ -89,33 +92,68 @@ function HeroTile({
 // ============================================================================
 // Tile builders per accounts metric
 // ============================================================================
-function collectionTile(metrics: AccountsMetrics): HeroTileProps {
-  const { collected_today, daily_target, pct } = metrics.collection;
-  let color: TileColor = 'neutral';
-  if (pct >= 100) color = 'green';
-  else if (pct >= 50) color = 'amber';
-  else if (daily_target > 0 && collected_today > 0) color = 'red';
+
+/**
+ * Doctrines v1 — Collections Health Score tile.
+ * Replaces `collectionTile` at position 1. CHS composes the same
+ * collection signal (collection_vs_plan) with overdue ratio, reconciliation
+ * freshness, and refund SLA — so the single tile tells the fuller story
+ * of accounts health rather than just one day's ₹ collected.
+ * The operational ₹ value is still one click away via /billing/receipts.
+ */
+function collectionsHealthTile(metrics: AccountsMetrics): HeroTileProps {
+  const chs: CollectionsHealthScore | undefined = metrics.collections_health_score;
+  if (!chs || chs.data_source === 'empty' || chs.data_source === 'not_authenticated') {
+    return {
+      label: 'Collections Health',
+      value: '--',
+      subtitle: 'CHS will appear as receipts, bills, and refunds populate',
+      color: 'neutral',
+      href: '/billing/receipts'
+    };
+  }
+
+  const { score, band, components, missing_components } = chs;
+  const labelMap: Record<string, string> = {
+    collection_vs_plan: 'Plan',
+    overdue_ratio_inverted: 'Overdue',
+    reconciliation_freshness: 'Recon',
+    refund_sla: 'Refund'
+  };
+
+  const parts = (
+    [
+      'collection_vs_plan',
+      'overdue_ratio_inverted',
+      'reconciliation_freshness',
+      'refund_sla'
+    ] as const
+  )
+    .filter((k) => components[k] !== null && components[k] !== undefined)
+    .map((k) => `${labelMap[k]} ${components[k]}`);
+
+  const footerLabel =
+    parts.length > 0 ? parts.join(' · ') : 'No component data yet';
+  const missingNote =
+    missing_components && missing_components.length > 0
+      ? `Pending: ${missing_components.map((m) => labelMap[m] || m).join(', ')}`
+      : undefined;
+
+  const subtitle =
+    band === 'green'
+      ? 'Strong collections trajectory'
+      : band === 'amber'
+        ? 'On track — a component needs attention'
+        : 'Attention needed on multiple components';
 
   return {
-    label: "Today's Collection",
-    value: (
-      <span>
-        <span className='text-lg align-top'>&#8377;</span>
-        {formatInrAccounts(collected_today)}
-      </span>
-    ),
-    subtitle: `Target: \u20B9${formatInrAccounts(daily_target)} per day`,
-    hint: `${pct}% of daily plan achieved`,
-    color,
+    label: 'Collections Health',
+    value: score,
+    subtitle,
+    hint: missingNote,
+    color: band,
     href: '/billing/receipts',
-    footer: (
-      <div className='h-1.5 w-full rounded-full bg-current/10 overflow-hidden'>
-        <div
-          className='h-full bg-current/60 transition-all'
-          style={{ width: `${Math.min(100, pct)}%` }}
-        />
-      </div>
-    )
+    footer: <div className='line-clamp-2'>{footerLabel}</div>
   };
 }
 
@@ -213,8 +251,12 @@ type AccountsHeroStripProps = {
 };
 
 export function AccountsHeroStrip({ metrics }: AccountsHeroStripProps) {
+  // Doctrines v1: tile 1 swapped from collectionTile → composite CHS.
+  // The collected_today ₹ signal is preserved via drill-down to
+  // /billing/receipts; CHS consolidates collection + overdue + recon + refund
+  // SLA into a single 0–100 number with traffic-light band.
   const tiles: HeroTileProps[] = [
-    collectionTile(metrics),
+    collectionsHealthTile(metrics),
     overdueBillsTile(metrics),
     reconciliationTile(metrics),
     pendingRefundsTile(metrics)

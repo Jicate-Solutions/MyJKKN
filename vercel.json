@@ -25,6 +25,14 @@
     {
       "path": "/api/dashboard/cron/queue-escalate",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/sunday-wrap?secret=${CRON_SECRET}",
+      "schedule": "30 15 * * 0"
+    },
+    {
+      "path": "/api/cron/friday-reflection?secret=${CRON_SECRET}",
+      "schedule": "30 10 * * 5"
     }
   ]
 }

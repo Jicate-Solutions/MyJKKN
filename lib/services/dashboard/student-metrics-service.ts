@@ -27,6 +27,36 @@ export type Deadline = {
   type: string;
 };
 
+/**
+ * Doctrines v1 — Career Readiness Score (CRS)
+ * Composite score 0-100 with band, driven by fn_student_metrics RPC.
+ * Components (all optional, NULL when data unavailable):
+ *   - attendance      (25% weight) — trailing 30d attendance %
+ *   - grades          (30% weight) — NULL until grades schema exists
+ *   - competencies    (20% weight) — AVG(progress_percentage)
+ *   - fee_regularity  (10% weight) — on-time payment ratio
+ *   - engagement      (15% weight) — percentile_rank
+ * When components are NULL they're renormalized out server-side.
+ */
+export type CrsComponents = {
+  attendance: number | null;
+  grades: number | null;
+  competencies: number | null;
+  fee_regularity: number | null;
+  engagement: number | null;
+};
+
+export type CareerReadinessScore = {
+  score: number;
+  band: StudentBand;
+  components: CrsComponents;
+  present_components?: string[];
+  missing_components?: string[];
+  effective_weights?: Record<string, number>;
+  window?: 'trailing_30_days';
+  data_source?: string;
+};
+
 export type StudentMetrics = {
   attendance: {
     pct_semester: number;
@@ -51,6 +81,7 @@ export type StudentMetrics = {
     count: number;
     data_source?: string;
   };
+  career_readiness_score?: CareerReadinessScore;
   scope: {
     user_id: string | null;
     learner_id?: string | null;
@@ -64,6 +95,12 @@ const EMPTY_STUDENT_METRICS: StudentMetrics = {
   fees: { balance_due: 0, next_due_date: null, currency: 'INR', data_source: 'empty' },
   timetable_today: { classes: [], total: 0, data_source: 'empty' },
   deadlines: { upcoming: [], count: 0, data_source: 'empty' },
+  career_readiness_score: {
+    score: 0,
+    band: 'red',
+    components: { attendance: null, grades: null, competencies: null, fee_regularity: null, engagement: null },
+    data_source: 'empty'
+  },
   scope: { user_id: null, institution_id: null, computed_at: new Date().toISOString() }
 };
 

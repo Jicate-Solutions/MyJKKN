@@ -1,16 +1,22 @@
 /**
- * Dashboard v2 — Faculty Hero Strip (4 KPI tiles)
+ * Dashboard v2 — Faculty Hero Strip (5 KPI tiles)
  *
  * Server component. Consumes FacultyMetrics from getFacultyMetrics().
- * Tiles: (1) Classes to Mark (2) Learner Flags (3) Upcoming Classes (4) Week Attendance %
+ * Tiles: (1) Classes to Mark (2) Teaching Excellence (3) Upcoming Classes
+ *        (4) Week Attendance % (5) Cluster Standing (PRIVATE — percentile only, no peers)
  *
  * Spec: specs/myjkkn-dashboard-v2-spec.md §5 + §8
  */
 
 import type {
   FacultyMetrics,
-  FacultyBand
+  FacultyBand,
+  TeachingExcellenceScore
 } from '@/lib/services/dashboard/faculty-metrics-service';
+import type {
+  ClusterRankPrivate,
+  Quartile
+} from '@/lib/services/dashboard/cluster-rank-service';
 
 type TileColor = FacultyBand | 'neutral';
 
@@ -100,24 +106,54 @@ function unmarkedTile(metrics: FacultyMetrics): HeroTileProps {
   };
 }
 
-function flagsTile(metrics: FacultyMetrics): HeroTileProps {
-  const { count, data_source } = metrics.learner_flags;
-  const notAvailable = data_source === 'not_available';
-  const color: TileColor = notAvailable
-    ? 'neutral'
-    : count > 0
-      ? 'amber'
-      : 'green';
+/**
+ * Doctrines v1 — Teaching Excellence Score tile.
+ * Replaces the dead `flagsTile` placeholder (which always showed 'not_available').
+ * Components renormalize when NPS/research data is missing.
+ */
+function teachingExcellenceTile(metrics: FacultyMetrics): HeroTileProps {
+  const tes: TeachingExcellenceScore | undefined = metrics.teaching_excellence_score;
+  if (!tes || tes.data_source === 'empty' || tes.data_source === 'no_staff_record') {
+    return {
+      label: 'Teaching Excellence',
+      value: '--',
+      subtitle: 'Your TES will appear as you teach and mark attendance',
+      color: 'neutral'
+    };
+  }
+
+  const { score, band, components, missing_components } = tes;
+  const labelMap: Record<string, string> = {
+    student_attendance: 'StuAtt',
+    marking_compliance: 'Mark',
+    feedback_nps: 'NPS',
+    research_mentorship: 'R&M'
+  };
+
+  const parts = (['student_attendance', 'marking_compliance', 'feedback_nps', 'research_mentorship'] as const)
+    .filter((k) => components[k] !== null && components[k] !== undefined)
+    .map((k) => `${labelMap[k]} ${components[k]}`);
+
+  const footerLabel = parts.length > 0 ? parts.join(' · ') : 'No component data yet';
+  const missingNote =
+    missing_components && missing_components.length > 0
+      ? `Pending modules: ${missing_components.map((m) => labelMap[m] || m).join(', ')}`
+      : undefined;
+
+  const subtitle =
+    band === 'green'
+      ? 'Strong teaching trajectory'
+      : band === 'amber'
+        ? 'On track — a component needs attention'
+        : 'Attention needed on multiple components';
+
   return {
-    label: 'Learner Flags',
-    value: notAvailable ? '--' : count,
-    subtitle: notAvailable
-      ? 'Learner flagging system launching soon'
-      : count === 0
-        ? 'No flags require your attention'
-        : `${count} flag${count === 1 ? '' : 's'} to review`,
-    hint: notAvailable ? 'Will track at-risk learners' : undefined,
-    color
+    label: 'Teaching Excellence',
+    value: score,
+    subtitle,
+    hint: missingNote,
+    color: band,
+    footer: <div className='line-clamp-2'>{footerLabel}</div>
   };
 }
 
@@ -183,23 +219,78 @@ function weekAttendanceTile(metrics: FacultyMetrics): HeroTileProps {
 }
 
 // ============================================================================
+// Ordinal helper
+// ============================================================================
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+// ============================================================================
+// Cluster rank tile builder (Task 8 — PRIVACY CRITICAL)
+// Consumes ONLY: percentile, quartile_label, data_source, forbidden.
+// NEVER references peer_scores, leaderboard, or other_faculty fields.
+// ============================================================================
+function clusterPercentileTile(cluster: ClusterRankPrivate): HeroTileProps {
+  if (cluster.forbidden || cluster.percentile === null) {
+    const dataSourceMessage = (src: string): string => {
+      if (src === 'insufficient_peers') return 'Not enough peer data yet';
+      if (src === 'no_staff_record') return 'No staff record found';
+      return 'Cluster standing unavailable';
+    };
+    return {
+      label: 'Cluster Standing',
+      value: '--',
+      subtitle: dataSourceMessage(cluster.data_source),
+      color: 'neutral'
+    };
+  }
+
+  const { percentile, quartile_label } = cluster;
+
+  const quartileHuman: Record<Quartile, string> = {
+    top_quartile: 'Top Quartile',
+    upper_middle: 'Upper Middle',
+    lower_middle: 'Lower Middle',
+    bottom_quartile: 'Bottom Quartile'
+  };
+
+  const color: TileColor =
+    percentile >= 75 ? 'green' : percentile >= 50 ? 'amber' : 'red';
+
+  return {
+    label: 'Cluster Standing',
+    value: ordinal(percentile),
+    subtitle: quartile_label ? quartileHuman[quartile_label] : 'Percentile rank',
+    hint: 'Among all faculty cluster-wide',
+    color
+    // No footer — deliberately omitted to prevent any peer breakdown rendering
+  };
+}
+
+// ============================================================================
 // Public component
 // ============================================================================
 type FacultyHeroStripProps = {
   metrics: FacultyMetrics;
+  cluster: ClusterRankPrivate;
 };
 
-export function FacultyHeroStrip({ metrics }: FacultyHeroStripProps) {
+export function FacultyHeroStrip({ metrics, cluster }: FacultyHeroStripProps) {
+  // Doctrines v1: tile 2 swapped from placeholder flagsTile → composite TES.
+  // tile 5: Cluster Standing (Task 8) — PRIVATE percentile only, no peer data.
   const tiles: HeroTileProps[] = [
     unmarkedTile(metrics),
-    flagsTile(metrics),
+    teachingExcellenceTile(metrics),
     upcomingTile(metrics),
-    weekAttendanceTile(metrics)
+    weekAttendanceTile(metrics),
+    clusterPercentileTile(cluster)
   ];
 
   return (
     <section aria-label='Faculty dashboard hero KPIs'>
-      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4'>
         {tiles.map((tile) => (
           <HeroTile key={tile.label} {...tile} />
         ))}

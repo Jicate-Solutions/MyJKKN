@@ -27,9 +27,15 @@
 
 import { createClient } from '@/lib/supabase/server';
 
-export type DashboardPersona = 'director' | 'counselor' | 'faculty' | 'hod' | 'student' | 'limited';
-export type DashboardPersona = 'director' | 'counselor' | 'faculty' | 'principal' | 'student' | 'limited';
-export type DashboardPersona = 'director' | 'counselor' | 'faculty' | 'accounts' | 'student' | 'limited';
+export type DashboardPersona =
+  | 'director'
+  | 'counselor'
+  | 'faculty'
+  | 'hod'
+  | 'principal'
+  | 'accounts'
+  | 'student'
+  | 'limited';
 
 const DIRECTOR_ROLES = new Set([
   'admin',

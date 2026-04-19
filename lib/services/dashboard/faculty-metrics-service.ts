@@ -18,6 +18,32 @@ export type UpcomingClass = {
   section: string;
 };
 
+/**
+ * Doctrines v1 — Teaching Excellence Score (TES)
+ * Components (all optional, NULL renormalizes out):
+ *   - student_attendance   (25%) — % Present in faculty's marked classes (30d)
+ *   - marking_compliance   (25%) — % of weekdays marked in trailing 30d
+ *   - feedback_nps         (25%) — NULL until NPS schema exists
+ *   - research_mentorship  (25%) — NULL until research/mentorship schema exists
+ */
+export type TesComponents = {
+  student_attendance: number | null;
+  marking_compliance: number | null;
+  feedback_nps: number | null;
+  research_mentorship: number | null;
+};
+
+export type TeachingExcellenceScore = {
+  score: number;
+  band: FacultyBand;
+  components: TesComponents;
+  present_components?: string[];
+  missing_components?: string[];
+  effective_weights?: Record<string, number>;
+  window?: 'trailing_30_days';
+  data_source?: string;
+};
+
 export type FacultyMetrics = {
   unmarked_classes: {
     count: number;
@@ -39,6 +65,7 @@ export type FacultyMetrics = {
     days_total: number;
     data_source?: string;
   };
+  teaching_excellence_score?: TeachingExcellenceScore;
   scope: {
     user_id: string | null;
     institution_id: string | null;
@@ -51,6 +78,12 @@ const EMPTY_FACULTY_METRICS: FacultyMetrics = {
   learner_flags: { count: 0, data_source: 'not_available' },
   upcoming_timetable: { classes: [], next_2h_count: 0 },
   week_attendance: { pct: 0, days_marked: 0, days_total: 0 },
+  teaching_excellence_score: {
+    score: 0,
+    band: 'red',
+    components: { student_attendance: null, marking_compliance: null, feedback_nps: null, research_mentorship: null },
+    data_source: 'empty'
+  },
   scope: { user_id: null, institution_id: null, computed_at: new Date().toISOString() }
 };
 

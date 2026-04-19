@@ -15,6 +15,7 @@ import type {
   PrincipalMetrics,
   PrincipalBand
 } from '@/lib/services/dashboard/principal-metrics-service';
+import type { ClusterRankPublic } from '@/lib/services/dashboard/cluster-rank-service';
 
 type TileColor = PrincipalBand | 'neutral';
 
@@ -183,23 +184,89 @@ function pendingApprovalsTile(metrics: PrincipalMetrics): HeroTileProps {
 }
 
 // ============================================================================
+// Cluster rank tile builder
+// ============================================================================
+function clusterRankTile(cluster: ClusterRankPublic): HeroTileProps {
+  const { leaderboard, caller_rank, caller_score, forbidden } = cluster;
+
+  if (forbidden || leaderboard.length === 0) {
+    return {
+      label: 'Cluster Rank',
+      value: '--',
+      subtitle: 'Cluster leaderboard unavailable',
+      color: 'neutral'
+    };
+  }
+
+  // Detect tie: count how many entries share the caller's rank
+  const tiedCount =
+    caller_rank != null
+      ? leaderboard.filter((e) => e.rank === caller_rank).length
+      : 0;
+  const tied = tiedCount > 1;
+
+  const valueStr =
+    caller_rank != null
+      ? tied
+        ? `#${caller_rank} (tied)`
+        : `#${caller_rank} / ${leaderboard.length}`
+      : '--';
+
+  let color: TileColor = 'neutral';
+  if (caller_rank != null) {
+    if (caller_rank <= 3) color = 'green';
+    else if (caller_rank <= 5) color = 'amber';
+    else color = 'red';
+  }
+
+  const subtitle =
+    caller_score != null ? `OHS ${caller_score}` : 'Cluster leaderboard';
+
+  // Top-3 footer lines: "CODE: score"
+  const top3 = leaderboard
+    .filter((e) => e.rank <= 3)
+    .slice(0, 3)
+    .map((e) => `${e.counselling_code}: ${e.ohs_score}`);
+
+  return {
+    label: 'Cluster Rank',
+    value: valueStr,
+    subtitle,
+    color,
+    footer:
+      top3.length > 0 ? (
+        <div className='space-y-0.5'>
+          <div className='text-[10px] uppercase tracking-wider opacity-60 mb-1'>
+            Top 3
+          </div>
+          {top3.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+        </div>
+      ) : undefined
+  };
+}
+
+// ============================================================================
 // Public component
 // ============================================================================
 type PrincipalHeroStripProps = {
   metrics: PrincipalMetrics;
+  cluster: ClusterRankPublic;
 };
 
-export function PrincipalHeroStrip({ metrics }: PrincipalHeroStripProps) {
+export function PrincipalHeroStrip({ metrics, cluster }: PrincipalHeroStripProps) {
   const tiles: HeroTileProps[] = [
     healthScoreTile(metrics),
     staffAttendanceTile(metrics),
     incidentsTile(metrics),
-    pendingApprovalsTile(metrics)
+    pendingApprovalsTile(metrics),
+    clusterRankTile(cluster)
   ];
 
   return (
     <section aria-label='Principal dashboard hero KPIs'>
-      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4'>
+      <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4'>
         {tiles.map((tile) => (
           <HeroTile key={tile.label} {...tile} />
         ))}
