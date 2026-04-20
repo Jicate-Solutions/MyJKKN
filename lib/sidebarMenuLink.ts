@@ -469,7 +469,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/workflow-config': 'admission.settings.workflows.manage',
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
-  '/admission/settings/seat-config': 'admission.settings.seats.manage',
+  '/admission/settings/seat-config': 'admission.settings.seats.view',
 
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',

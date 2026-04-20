@@ -4398,3 +4398,21 @@ CREATE INDEX IF NOT EXISTS idx_hr_recruitment_scorecards_recommendation
   ON public.hr_recruitment_scorecards(recommendation);
 
 -- END HR Recruitment Phase 3 tables
+
+-- Updated: 2026-04-18 - Call Notes dialog enrichment
+-- Adds prospect_sentiment, primary_objection, and follow_up_at (timestamptz)
+-- to admission_call_logs so counselors can record richer context when
+-- wrapping a call (sentiment + objection taxonomy + date+time follow-up).
+-- The legacy follow_up_date (DATE) column is kept for backward compatibility.
+ALTER TABLE admission_call_logs
+  ADD COLUMN IF NOT EXISTS prospect_sentiment TEXT,
+  ADD COLUMN IF NOT EXISTS primary_objection TEXT,
+  ADD COLUMN IF NOT EXISTS follow_up_at TIMESTAMPTZ;
+
+-- Backfill follow_up_at from follow_up_date for historical rows (9:00 AM local)
+UPDATE admission_call_logs
+SET follow_up_at = follow_up_date::timestamp AT TIME ZONE 'UTC' + INTERVAL '9 hours'
+WHERE follow_up_at IS NULL AND follow_up_date IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_admission_call_logs_follow_up_at
+  ON admission_call_logs(follow_up_at) WHERE follow_up_at IS NOT NULL;

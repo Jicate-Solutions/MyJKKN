@@ -32,7 +32,16 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { call_notes, call_disposition, follow_up_date } = body;
+    const {
+      call_notes,
+      call_disposition,
+      follow_up_date,
+      follow_up_at,
+      call_outcome,
+      prospect_sentiment,
+      primary_objection,
+      next_action,
+    } = body;
 
     logger.info('admission/calls', 'Updating call notes', {
       callId: id,
@@ -86,6 +95,11 @@ export async function PUT(
       call_notes,
       call_disposition: call_disposition as CallDisposition,
       follow_up_date: follow_up_date || null,
+      follow_up_at: follow_up_at || null,
+      call_outcome: call_outcome || null,
+      prospect_sentiment: prospect_sentiment || null,
+      primary_objection: primary_objection || null,
+      next_action: next_action || null,
       updated_by: user.id, // Track who updated the notes
     }, supabase);
 

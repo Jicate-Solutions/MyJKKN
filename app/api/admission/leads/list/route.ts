@@ -125,7 +125,8 @@ export async function GET(request: NextRequest) {
         expo_event_id,
         created_at,
         updated_at,
-        counselor:admission_counselors(id, name, email)
+        counselor:admission_counselors(id, name, email),
+        institution:institutions(id, name)
       `, { count: 'exact' });
 
     // 5. Apply institution scoping (manual RLS replacement)
@@ -207,8 +208,41 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
+    // 8. Resolve program IDs on `interested_programs` to names server-side so
+    //    the client never renders raw UUIDs while a client-side map loads.
+    //    `interested_programs` is a uuid[] / text[] column — Supabase can't
+    //    auto-join it, so we batch-fetch the names here and inject them.
+    const rows = data || [];
+    const programIds = Array.from(
+      new Set(
+        rows.flatMap((r: any) =>
+          Array.isArray(r.interested_programs) ? r.interested_programs : []
+        )
+      )
+    ) as string[];
+
+    let programNameMap = new Map<string, string>();
+    if (programIds.length) {
+      const { data: programs } = await supabase
+        .from('programs')
+        .select('id, program_name')
+        .in('id', programIds);
+      (programs || []).forEach((p: any) => {
+        if (p?.id && p?.program_name) programNameMap.set(p.id, p.program_name);
+      });
+    }
+
+    const enriched = rows.map((r: any) => ({
+      ...r,
+      interested_program_names: Array.isArray(r.interested_programs)
+        ? r.interested_programs
+            .map((id: string) => programNameMap.get(id))
+            .filter(Boolean)
+        : [],
+    }));
+
     return NextResponse.json({
-      data: data || [],
+      data: enriched,
       metadata: {
         total: count || 0,
         page,

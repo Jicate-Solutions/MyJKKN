@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -103,6 +103,36 @@ const DISPOSITION_OPTIONS: { value: CallDisposition; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
+// Structured Call Notes taxonomy (added 2026-04-18)
+// Keep values snake_case so they round-trip cleanly to the DB's TEXT columns.
+const CALL_OUTCOME_OPTIONS = [
+  { value: 'connected', label: 'Connected' },
+  { value: 'no_answer', label: 'No Answer' },
+  { value: 'busy', label: 'Busy' },
+  { value: 'invalid_number', label: 'Invalid Number' },
+];
+
+const PROSPECT_SENTIMENT_OPTIONS = [
+  { value: 'positive', label: 'Positive' },
+  { value: 'neutral', label: 'Neutral' },
+  { value: 'negative', label: 'Negative' },
+];
+
+const PRIMARY_OBJECTION_OPTIONS = [
+  { value: 'fees', label: 'Fees' },
+  { value: 'distance', label: 'Distance' },
+  { value: 'undecided', label: 'Undecided' },
+  { value: 'competitor', label: 'Competitor' },
+  { value: 'none', label: 'None' },
+];
+
+const NEXT_ACTION_OPTIONS = [
+  { value: 'send_brochure', label: 'Send Brochure' },
+  { value: 'schedule_visit', label: 'Schedule Visit' },
+  { value: 'escalate_admin', label: 'Escalate to Admin' },
+  { value: 'close_lost', label: 'Close-Lost' },
+];
+
 function getStatusBadge(status: CallStatus) {
   const map: Record<CallStatus, { label: string; className: string }> = {
     'initiated': { label: 'Initiated', className: 'bg-blue-100 text-blue-800 border-blue-200' },
@@ -186,7 +216,13 @@ function CallNotesDialog({
   currentNotes,
   currentDisposition,
   currentFollowUp,
+  currentFollowUpAt,
+  currentCallOutcome,
+  currentSentiment,
+  currentObjection,
+  currentNextAction,
   canEdit,
+  onAdvance,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -194,24 +230,80 @@ function CallNotesDialog({
   currentNotes: string | null;
   currentDisposition: CallDisposition | null;
   currentFollowUp: string | null;
+  currentFollowUpAt: string | null;
+  currentCallOutcome: string | null;
+  currentSentiment: string | null;
+  currentObjection: string | null;
+  currentNextAction: string | null;
   canEdit: boolean;
+  onAdvance?: () => void;
 }) {
   const [notes, setNotes] = useState(currentNotes || '');
-  const [disposition, setDisposition] = useState<string>(currentDisposition || '');
-  const [followUpDate, setFollowUpDate] = useState(currentFollowUp || '');
+  const [callOutcome, setCallOutcome] = useState(currentCallOutcome || '');
+  const [sentiment, setSentiment] = useState(currentSentiment || '');
+  const [objection, setObjection] = useState(currentObjection || '');
+  const [nextAction, setNextAction] = useState(currentNextAction || '');
+  // Follow-up datetime-local string (YYYY-MM-DDTHH:mm). Hydrated from
+  // follow_up_at when present, otherwise the legacy DATE column + 09:00.
+  const hydrateFollowUp = () => {
+    if (currentFollowUpAt) {
+      const d = new Date(currentFollowUpAt);
+      if (!isNaN(d.getTime())) {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+    }
+    return currentFollowUp ? `${currentFollowUp.slice(0, 10)}T09:00` : '';
+  };
+  const [followUpLocal, setFollowUpLocal] = useState(hydrateFollowUp());
+  const [formError, setFormError] = useState<string | null>(null);
   const { updateCallNotes, isUpdatingNotes } = useCallMutations();
 
+  // Re-hydrate fields every time the dialog opens on a new call
+  useEffect(() => {
+    if (!open) return;
+    setNotes(currentNotes || '');
+    setCallOutcome(currentCallOutcome || '');
+    setSentiment(currentSentiment || '');
+    setObjection(currentObjection || '');
+    setNextAction(currentNextAction || '');
+    setFollowUpLocal(hydrateFollowUp());
+    setFormError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, callId]);
+
+  // Follow-up is required unless the lead is being closed-lost.
+  const followUpRequired = nextAction !== 'close_lost';
+  const isFollowUpMissing = followUpRequired && !followUpLocal;
+
   const handleSave = () => {
+    if (isFollowUpMissing) {
+      setFormError('Follow-up Date/Time is required unless Next Action is Close-Lost.');
+      return;
+    }
+    setFormError(null);
+
+    const followUpAtIso = followUpLocal ? new Date(followUpLocal).toISOString() : null;
+    const followUpDateOnly = followUpLocal ? followUpLocal.slice(0, 10) : null;
+
     updateCallNotes.mutate(
       {
         call_id: callId,
         call_notes: notes || undefined,
-        call_disposition: (disposition as CallDisposition) || undefined,
-        follow_up_date: followUpDate || null,
+        follow_up_date: followUpDateOnly,
+        follow_up_at: followUpAtIso,
+        call_outcome: callOutcome || null,
+        prospect_sentiment: sentiment || null,
+        primary_objection: objection || null,
+        next_action: nextAction || null,
       },
       {
         onSuccess: () => {
           onOpenChange(false);
+          // Advance to the next lead in the list (if the parent supplied a handler)
+          if (onAdvance) {
+            setTimeout(() => onAdvance(), 150);
+          }
         },
       }
     );
@@ -219,46 +311,107 @@ function CallNotesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Call Notes</DialogTitle>
           <DialogDescription>Record the outcome of this call</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
-          <div>
-            <Label>Disposition</Label>
-            <Select value={disposition} onValueChange={setDisposition}>
-              <SelectTrigger className="mt-1.5">
-                <SelectValue placeholder="Select outcome" />
-              </SelectTrigger>
-              <SelectContent>
-                {DISPOSITION_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Call Outcome</Label>
+              <Select value={callOutcome} onValueChange={setCallOutcome}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Select outcome" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CALL_OUTCOME_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Prospect Sentiment</Label>
+              <Select value={sentiment} onValueChange={setSentiment}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Select sentiment" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROSPECT_SENTIMENT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Primary Objection</Label>
+              <Select value={objection} onValueChange={setObjection}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Select objection" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRIMARY_OBJECTION_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Next Action Required</Label>
+              <Select value={nextAction} onValueChange={setNextAction}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Select next action" />
+                </SelectTrigger>
+                <SelectContent>
+                  {NEXT_ACTION_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+
           <div>
-            <Label>Notes</Label>
+            <Label>
+              Follow-up Date/Time
+              {followUpRequired && <span className="text-destructive"> *</span>}
+            </Label>
+            <Input
+              type="datetime-local"
+              value={followUpLocal}
+              onChange={(e) => setFollowUpLocal(e.target.value)}
+              className={`mt-1.5 ${isFollowUpMissing && formError ? 'border-destructive' : ''}`}
+            />
+            {!followUpRequired && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Optional because Next Action is Close-Lost.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <Label>Caller Notes</Label>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="What was discussed..."
+              placeholder="What was discussed — specific conversational nuances..."
               className="mt-1.5"
               rows={4}
             />
           </div>
-          <div>
-            <Label>Follow-up Date</Label>
-            <Input
-              type="date"
-              value={followUpDate}
-              onChange={(e) => setFollowUpDate(e.target.value)}
-              className="mt-1.5"
-            />
-          </div>
+
+          {formError && (
+            <p className="text-sm text-destructive">{formError}</p>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -267,7 +420,7 @@ function CallNotesDialog({
           {canEdit && (
             <Button onClick={handleSave} disabled={isUpdatingNotes}>
               {isUpdatingNotes && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Save Notes
+              Submit
             </Button>
           )}
         </DialogFooter>
@@ -304,6 +457,11 @@ function CallLogDashboardContent() {
     notes: string | null;
     disposition: CallDisposition | null;
     followUp: string | null;
+    followUpAt: string | null;
+    callOutcome: string | null;
+    sentiment: string | null;
+    objection: string | null;
+    nextAction: string | null;
   } | null>(null);
 
   // Data hooks
@@ -337,8 +495,24 @@ function CallLogDashboardContent() {
       notes: log.call_notes,
       disposition: log.call_disposition,
       followUp: log.follow_up_date,
+      followUpAt: log.follow_up_at ?? null,
+      callOutcome: log.call_outcome ?? null,
+      sentiment: log.prospect_sentiment ?? null,
+      objection: log.primary_objection ?? null,
+      nextAction: log.next_action ?? null,
     });
     setNotesDialogOpen(true);
+  };
+
+  // Auto-advance: after submit, open the next call in the current list that
+  // still lacks a structured Call Outcome. Falls back to closing the dialog
+  // cleanly if nothing remains in the queue.
+  const advanceToNextCall = () => {
+    if (!selectedCall) return;
+    const currentIdx = logs.findIndex((l: any) => l.id === selectedCall.id);
+    if (currentIdx === -1) return;
+    const next = logs.slice(currentIdx + 1).find((l: any) => !l.call_outcome);
+    if (next) openNotesDialog(next);
   };
 
   // Tab state from URL search params
@@ -756,7 +930,13 @@ function CallLogDashboardContent() {
             currentNotes={selectedCall.notes}
             currentDisposition={selectedCall.disposition}
             currentFollowUp={selectedCall.followUp}
+            currentFollowUpAt={selectedCall.followUpAt}
+            currentCallOutcome={selectedCall.callOutcome}
+            currentSentiment={selectedCall.sentiment}
+            currentObjection={selectedCall.objection}
+            currentNextAction={selectedCall.nextAction}
             canEdit={canEditNotes}
+            onAdvance={advanceToNextCall}
           />
         )}
       </ContentLayout>

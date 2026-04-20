@@ -759,7 +759,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.sources.view', label: 'View Lead Sources' },
       { key: 'admission.settings.sources.manage', label: 'Manage Lead Sources' },
       { key: 'admission.settings.whatsapp.view', label: 'View WhatsApp Settings' },
-      { key: 'admission.settings.whatsapp.manage', label: 'Manage WhatsApp Numbers & Settings' }
+      { key: 'admission.settings.whatsapp.manage', label: 'Manage WhatsApp Numbers & Settings' },
+      { key: 'admission.settings.seats.view', label: 'View Seat Configuration' },
+      { key: 'admission.settings.seats.manage', label: 'Manage Seat Configuration' }
     ]
   },
   {

@@ -200,35 +200,40 @@ CREATE POLICY "academic_years_delete_by_role" ON academic_years
 ALTER TABLE degrees ENABLE ROW LEVEL SECURITY;
 
 -- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "degrees_select_admission_role" ON degrees
+-- Updated: 2026-04-18 - Switched to role_has_institution_access() so
+--                       scope='all' admission/counselor roles can see
+--                       degrees across institutions (seat config join).
+DROP POLICY IF EXISTS "degrees_select_admission_role" ON degrees;
+DROP POLICY IF EXISTS "degrees_select_optimized" ON degrees;
+
+CREATE POLICY "degrees_select_by_role" ON degrees
     FOR SELECT USING (
         is_super_admin() OR is_admin()
-        OR institution_id = get_current_user_institution_id()
+        OR role_has_institution_access(institution_id)
         OR user_has_permission('organizations.degrees.view')
+        OR user_has_permission('admission.settings.seats.view')
+        OR user_has_permission('admission.settings.seats.manage')
     );
 
-CREATE POLICY "degrees_select_optimized" ON degrees
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR institution_id = get_current_user_institution_id()
-    );
-
+DROP POLICY IF EXISTS "degrees_insert_by_role" ON degrees;
 CREATE POLICY "degrees_insert_by_role" ON degrees
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.degrees.create'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('organizations.degrees.create'))
     );
 
+DROP POLICY IF EXISTS "degrees_update_by_role" ON degrees;
 CREATE POLICY "degrees_update_by_role" ON degrees
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.degrees.edit'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('organizations.degrees.edit'))
     );
 
+DROP POLICY IF EXISTS "degrees_delete_by_role" ON degrees;
 CREATE POLICY "degrees_delete_by_role" ON degrees
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.degrees.delete'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('organizations.degrees.delete'))
     );
 
 -- DEPARTMENTS TABLE (Optimized policies)
@@ -237,35 +242,40 @@ CREATE POLICY "degrees_delete_by_role" ON degrees
 ALTER TABLE departments ENABLE ROW LEVEL SECURITY;
 
 -- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "departments_select_admission_role" ON departments
+-- Updated: 2026-04-18 - Switched to role_has_institution_access() so
+--                       scope='all' admission/counselor roles can see
+--                       departments across institutions (seat config join).
+DROP POLICY IF EXISTS "departments_select_admission_role" ON departments;
+DROP POLICY IF EXISTS "departments_select_optimized" ON departments;
+
+CREATE POLICY "departments_select_by_role" ON departments
     FOR SELECT USING (
         is_super_admin() OR is_admin()
-        OR institution_id = get_current_user_institution_id()
+        OR role_has_institution_access(institution_id)
         OR user_has_permission('organizations.departments.view')
+        OR user_has_permission('admission.settings.seats.view')
+        OR user_has_permission('admission.settings.seats.manage')
     );
 
-CREATE POLICY "departments_select_optimized" ON departments
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR institution_id = get_current_user_institution_id()
-    );
-
+DROP POLICY IF EXISTS "departments_insert_by_role" ON departments;
 CREATE POLICY "departments_insert_by_role" ON departments
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.departments.create'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('organizations.departments.create'))
     );
 
+DROP POLICY IF EXISTS "departments_update_by_role" ON departments;
 CREATE POLICY "departments_update_by_role" ON departments
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.departments.edit'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('organizations.departments.edit'))
     );
 
+DROP POLICY IF EXISTS "departments_delete_by_role" ON departments;
 CREATE POLICY "departments_delete_by_role" ON departments
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.departments.delete'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('organizations.departments.delete'))
     );
 
 -- PROGRAMS TABLE (Optimized policies)
@@ -274,35 +284,43 @@ CREATE POLICY "departments_delete_by_role" ON departments
 ALTER TABLE programs ENABLE ROW LEVEL SECURITY;
 
 -- Updated: 2026-04-13 - Migrated to dynamic permission-based policies
-CREATE POLICY "programs_select_admission_role" ON programs
+-- Updated: 2026-04-18 - Replaced hardcoded institution_id equality with
+--                       role_has_institution_access() so scope='all' roles
+--                       (admission, counselor) can see programs across
+--                       institutions for seat config / lead assignment.
+--                       Also accept admission seat-config permissions so the
+--                       Seat Configuration page resolves programs.
+DROP POLICY IF EXISTS "programs_select_admission_role" ON programs;
+DROP POLICY IF EXISTS "programs_select_optimized" ON programs;
+
+CREATE POLICY "programs_select_by_role" ON programs
     FOR SELECT USING (
         is_super_admin() OR is_admin()
-        OR institution_id = get_current_user_institution_id()
+        OR role_has_institution_access(institution_id)
         OR user_has_permission('organizations.programs.view')
+        OR user_has_permission('admission.settings.seats.view')
+        OR user_has_permission('admission.settings.seats.manage')
     );
 
-CREATE POLICY "programs_select_optimized" ON programs
-    FOR SELECT USING (
-        is_super_admin() OR is_admin()
-        OR institution_id = get_current_user_institution_id()
-    );
-
+DROP POLICY IF EXISTS "programs_insert_by_role" ON programs;
 CREATE POLICY "programs_insert_by_role" ON programs
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.programs.create'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('organizations.programs.create'))
     );
 
+DROP POLICY IF EXISTS "programs_update_by_role" ON programs;
 CREATE POLICY "programs_update_by_role" ON programs
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.programs.edit'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('organizations.programs.edit'))
     );
 
+DROP POLICY IF EXISTS "programs_delete_by_role" ON programs;
 CREATE POLICY "programs_delete_by_role" ON programs
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR (institution_id = get_current_user_institution_id() AND user_has_permission('organizations.programs.delete'))
+        OR (role_has_institution_access(institution_id) AND user_has_permission('organizations.programs.delete'))
     );
 
 -- SEMESTERS TABLE (Optimized policies)
@@ -741,43 +759,56 @@ CREATE POLICY "students_update_own_learner_profile" ON learners_profiles
 
 -- INTAKE_HISTORY TABLE (Added: 2025-01-31)
 -- Purpose: Capacity analytics and 3-year stability index tracking
+-- Updated: 2026-04-18 - Migrated to dynamic permission-based policies so
+--                       super admins, admission role (scope='all'), and
+--                       users with admission.settings.seats.* permissions
+--                       can read/write intake_history. Old policies locked
+--                       the seat-config page out even for super admins who
+--                       didn't have a user_institution_access row.
 ALTER TABLE intake_history ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "intake_history_select_policy" ON intake_history
+DROP POLICY IF EXISTS "intake_history_select_policy" ON intake_history;
+DROP POLICY IF EXISTS "intake_history_insert_policy" ON intake_history;
+DROP POLICY IF EXISTS "intake_history_update_policy" ON intake_history;
+DROP POLICY IF EXISTS "intake_history_delete_policy" ON intake_history;
+
+CREATE POLICY "intake_history_select_by_role" ON intake_history
     FOR SELECT USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid() AND is_active = true
+        is_super_admin() OR is_admin()
+        OR (
+            role_has_institution_access(institution_id)
+            AND (
+                user_has_permission('admission.settings.seats.view')
+                OR user_has_permission('admission.settings.seats.manage')
+                OR user_has_permission('organizations.programs.view')
+            )
         )
     );
 
-CREATE POLICY "intake_history_insert_policy" ON intake_history
+CREATE POLICY "intake_history_insert_by_role" ON intake_history
     FOR INSERT WITH CHECK (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+        is_super_admin() OR is_admin()
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('admission.settings.seats.manage')
         )
     );
 
-CREATE POLICY "intake_history_update_policy" ON intake_history
+CREATE POLICY "intake_history_update_by_role" ON intake_history
     FOR UPDATE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type IN ('admin', 'write')
-            AND is_active = true
+        is_super_admin() OR is_admin()
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('admission.settings.seats.manage')
         )
     );
 
-CREATE POLICY "intake_history_delete_policy" ON intake_history
+CREATE POLICY "intake_history_delete_by_role" ON intake_history
     FOR DELETE USING (
-        institution_id IN (
-            SELECT institution_id FROM user_institution_access
-            WHERE user_id = auth.uid()
-            AND access_type = 'admin'
-            AND is_active = true
+        is_super_admin() OR is_admin()
+        OR (
+            role_has_institution_access(institution_id)
+            AND user_has_permission('admission.settings.seats.manage')
         )
     );
 

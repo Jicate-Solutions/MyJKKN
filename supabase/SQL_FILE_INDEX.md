@@ -6,6 +6,11 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-18** — Seat Configuration page invisible to admission role with scope='all' (programs returned 0 rows)
+  - `03_policies.sql`: rewrote SELECT/INSERT/UPDATE/DELETE policies on `programs`, `degrees`, `departments` to use `role_has_institution_access(institution_id)` instead of hardcoded `institution_id = get_current_user_institution_id()`. Added `admission.settings.seats.view` / `admission.settings.seats.manage` as acceptable SELECT permissions for programs/degrees/departments so seat config works without granting Organization module perms.
+  - `03_policies.sql`: rewrote `intake_history` policies — previously required a `user_institution_access` row (locked out super admins who didn't have one). Now uses the standard contract `is_super_admin() OR is_admin() OR (role_has_institution_access(...) AND user_has_permission('admission.settings.seats.*'))`.
+  - Root cause: the legacy own-institution equality check in RLS ignored `institution_scope='all'` on the admission role.
+
 - **2026-04-15** — `get_user_roles_with_details` now returns scope columns (fixes "Employment Information section not hiding for own_records users")
   - `02_functions.sql`: added `institution_scope text` and `module_scopes jsonb` to the function's RETURNS TABLE. Required DROP+CREATE because Postgres can't ALTER return shape. Without these, client-side `usePermissions().getModuleScope()` always read undefined and fell back to defaults.
   - Migration: `user_roles_details_include_scopes`. No client code change required — existing `(r as any).module_scopes` reads now resolve.

@@ -58,6 +58,11 @@ export interface CallLog {
   cost_amount: number | null;
   call_notes: string | null;
   follow_up_date: string | null;
+  follow_up_at: string | null;
+  call_outcome: string | null;
+  prospect_sentiment: string | null;
+  primary_objection: string | null;
+  next_action: string | null;
   started_at: string | null;
   ended_at: string | null;
   created_at: string;
@@ -160,6 +165,11 @@ export interface UpdateCallNotesInput {
   call_notes?: string;
   call_disposition?: CallDisposition;
   follow_up_date?: string | null;
+  follow_up_at?: string | null;
+  call_outcome?: string | null;
+  prospect_sentiment?: string | null;
+  primary_objection?: string | null;
+  next_action?: string | null;
   updated_by?: string;
 }
 
@@ -593,6 +603,11 @@ export class TelephonyService {
     if (input.call_notes !== undefined) update.call_notes = input.call_notes;
     if (input.call_disposition !== undefined) update.call_disposition = input.call_disposition;
     if (input.follow_up_date !== undefined) update.follow_up_date = input.follow_up_date;
+    if (input.follow_up_at !== undefined) update.follow_up_at = input.follow_up_at;
+    if (input.call_outcome !== undefined) update.call_outcome = input.call_outcome;
+    if (input.prospect_sentiment !== undefined) update.prospect_sentiment = input.prospect_sentiment;
+    if (input.primary_objection !== undefined) update.primary_objection = input.primary_objection;
+    if (input.next_action !== undefined) update.next_action = input.next_action;
     if (input.updated_by) update.updated_by = input.updated_by;
 
     const { data, error } = await supabase

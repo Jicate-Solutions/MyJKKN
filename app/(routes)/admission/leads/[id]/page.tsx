@@ -157,6 +157,7 @@ const FUNNEL_STAGES = [
 
 const LEAD_SOURCES = [
   { value: 'website', label: 'Website' },
+  { value: 'admission_form', label: 'Admission Form' },
   { value: 'walk_in', label: 'Walk-in' },
   { value: 'referral', label: 'Referral' },
   { value: 'social_media', label: 'Social Media' },
@@ -840,6 +841,7 @@ function LeadDetailPageContent() {
   // Edit lead dialog state
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editForm, setEditForm] = useState({
+    institution_id: '',
     first_name: '',
     last_name: '',
     email: '',
@@ -856,7 +858,17 @@ function LeadDetailPageContent() {
     parent_phone: '',
     parent_email: '',
     source: '',
+    academic_year: '',
+    student_interest_level: '',
+    parent_decision_status: '',
+    notes: '',
   });
+  // Edit form: interested programs multi-select
+  const [editSelectedProgramIds, setEditSelectedProgramIds] = useState<string[]>([]);
+  // Edit form: academic years for the lead's institution
+  const [editAcademicYears, setEditAcademicYears] = useState<
+    { id: string; academic_year_name: string; is_active: boolean }[]
+  >([]);
 
   // Fetch institution name for details display
   const [institutionName, setInstitutionName] = useState<string>('');
@@ -936,6 +948,45 @@ function LeadDetailPageContent() {
     return editForm.state ? getDistrictsByState(editForm.state) : [];
   }, [editForm.state]);
 
+  // Edit form: programs driven by the editable institution (lets user change
+  // institution mid-edit and immediately see the right program list).
+  const editProgramsInstitutionId = editForm.institution_id || lead?.institution_id || undefined;
+  const { data: editProgramsData, isLoading: editProgramsLoading } = usePrograms({
+    institution_id: editProgramsInstitutionId,
+  });
+  const editPrograms = editProgramsData?.data || [];
+
+  // Edit form: fetch academic years for the editable institution
+  useEffect(() => {
+    if (!editProgramsInstitutionId) {
+      setEditAcademicYears([]);
+      return;
+    }
+    const supabase = createClientSupabaseClient();
+    (supabase as any)
+      .from('academic_years')
+      .select('id, academic_year_name, is_active')
+      .eq('institution_id', editProgramsInstitutionId)
+      .order('start_date', { ascending: false })
+      .then(({ data, error }: { data: any; error: any }) => {
+        if (error) {
+          console.error('[admission/leads] Failed to fetch academic years (edit):', error.message);
+          setEditAcademicYears([]);
+        } else {
+          setEditAcademicYears(
+            (data || []) as { id: string; academic_year_name: string; is_active: boolean }[]
+          );
+        }
+      });
+  }, [editProgramsInstitutionId]);
+
+  // Edit form: toggle a program in the interested_programs multi-select
+  const toggleEditProgram = (programId: string) => {
+    setEditSelectedProgramIds((prev) =>
+      prev.includes(programId) ? prev.filter((id) => id !== programId) : [...prev, programId]
+    );
+  };
+
   // Populate edit form when dialog opens
   const openEditDialog = () => {
     if (!lead) return;
@@ -945,6 +996,7 @@ function LeadDetailPageContent() {
     const districts = stateId ? getDistrictsByState(stateId) : [];
     const districtId = districts.find((d) => d.name === l.district)?.id || '';
     setEditForm({
+      institution_id: l.institution_id || '',
       first_name: l.first_name || '',
       last_name: l.last_name || '',
       email: l.email || '',
@@ -961,7 +1013,14 @@ function LeadDetailPageContent() {
       parent_phone: l.parent_phone || '',
       parent_email: l.parent_email || '',
       source: l.source || '',
+      academic_year: (l as any).academic_year || '',
+      student_interest_level: (l as any).student_interest_level || '',
+      parent_decision_status: (l as any).parent_decision_status || '',
+      notes: (l as any).notes || '',
     });
+    setEditSelectedProgramIds(
+      Array.isArray(l.interested_programs) ? (l.interested_programs as string[]) : []
+    );
     // Pre-populate counselor (from assigned_counselor_id which references profiles.id)
     setEditCounselorProfileId(l.assigned_counselor_id || '');
     // Pre-populate referral type and referrer
@@ -976,6 +1035,13 @@ function LeadDetailPageContent() {
   const handleEditChange = (field: string, value: string) => {
     setEditForm((prev) => {
       if (field === 'state') return { ...prev, state: value, district: '' };
+      // Switching institution invalidates programs/academic year (both are per-institution)
+      // and the counselor (counselors are per-institution too)
+      if (field === 'institution_id') {
+        setEditSelectedProgramIds([]);
+        setEditCounselorProfileId('');
+        return { ...prev, institution_id: value, academic_year: '' };
+      }
       // When source changes, clear the irrelevant assignment
       if (field === 'source') {
         if (value === 'referral') {
@@ -1001,6 +1067,7 @@ function LeadDetailPageContent() {
       {
         id: lead.id,
         data: {
+          institution_id: editForm.institution_id || lead.institution_id,
           first_name: editForm.first_name.trim(),
           last_name: editForm.last_name.trim() || null,
           email: editForm.email?.trim() || null,
@@ -1017,6 +1084,12 @@ function LeadDetailPageContent() {
           parent_phone: editForm.parent_phone?.trim() || null,
           parent_email: editForm.parent_email?.trim() || null,
           source: editForm.source as any,
+          academic_year: editForm.academic_year?.trim() || null,
+          student_interest_level: editForm.student_interest_level || null,
+          parent_decision_status: editForm.parent_decision_status || null,
+          notes: editForm.notes?.trim() || null,
+          interested_programs:
+            editSelectedProgramIds.length > 0 ? editSelectedProgramIds : null,
           referral_type: editForm.source === 'referral' && editReferralType ? editReferralType : null,
           referred_by_id: (() => {
             if (editForm.source !== 'referral' || !editReferralType) return null;
@@ -2627,6 +2700,47 @@ function LeadDetailPageContent() {
                 <DialogDescription>Update lead information</DialogDescription>
               </DialogHeader>
               <div className="space-y-6 py-4">
+                {/* Institution */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Institution</h4>
+                  <div>
+                    <Label htmlFor="edit-institution">Institution *</Label>
+                    {institutions.length > 1 ? (
+                      <Select
+                        value={editForm.institution_id}
+                        onValueChange={(v) => handleEditChange('institution_id', v)}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select institution" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {institutions.map((inst) => (
+                            <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="edit-institution"
+                        value={
+                          institutions.find((i) => i.id === editForm.institution_id)?.name ||
+                          institutionName ||
+                          ''
+                        }
+                        disabled
+                        className="mt-1 bg-muted"
+                      />
+                    )}
+                    {editForm.institution_id &&
+                      lead?.institution_id &&
+                      editForm.institution_id !== lead.institution_id && (
+                        <p className="mt-1 text-xs text-amber-600">
+                          Changing institution will clear programs, counselor, and academic year.
+                        </p>
+                      )}
+                  </div>
+                </div>
+
                 {/* Personal Info */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Personal Information</h4>
@@ -2801,6 +2915,128 @@ function LeadDetailPageContent() {
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* Academic & Interest */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Academic & Interest</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="edit-academic_year">Academic Year</Label>
+                      <Select
+                        value={editForm.academic_year}
+                        onValueChange={(v) => handleEditChange('academic_year', v)}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select academic year" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {editAcademicYears.length === 0 ? (
+                            <SelectItem value="_none" disabled>
+                              No academic years available
+                            </SelectItem>
+                          ) : (
+                            editAcademicYears.map((y) => (
+                              <SelectItem key={y.id} value={y.academic_year_name.trim()}>
+                                {y.academic_year_name.trim()}
+                                {y.is_active ? ' (Active)' : ''}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-interest_level">Student Interest Level</Label>
+                      <Select
+                        value={editForm.student_interest_level}
+                        onValueChange={(v) => handleEditChange('student_interest_level', v)}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select interest level" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="very_high">Very High</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="undecided">Undecided</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-2">
+                      <Label htmlFor="edit-parent_decision">Parent Decision Status</Label>
+                      <Select
+                        value={editForm.parent_decision_status}
+                        onValueChange={(v) => handleEditChange('parent_decision_status', v)}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select decision status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="supportive">Supportive</SelectItem>
+                          <SelectItem value="considering">Considering</SelectItem>
+                          <SelectItem value="neutral">Neutral</SelectItem>
+                          <SelectItem value="reluctant">Reluctant</SelectItem>
+                          <SelectItem value="opposed">Opposed</SelectItem>
+                          <SelectItem value="unknown">Unknown</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interested Programs */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Interested Programs</h4>
+                  {!editForm.institution_id ? (
+                    <div className="text-sm text-muted-foreground">
+                      Select an institution first to view programs
+                    </div>
+                  ) : editProgramsLoading ? (
+                    <div className="text-sm text-muted-foreground">Loading programs...</div>
+                  ) : editPrograms.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      No programs available for this institution
+                    </div>
+                  ) : (
+                    <div className="max-h-48 overflow-y-auto rounded-md border p-2 space-y-1">
+                      {editPrograms.map((p) => {
+                        const checked = editSelectedProgramIds.includes(p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => toggleEditProgram(p.id)}
+                            className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-accent ${
+                              checked ? 'bg-accent' : ''
+                            }`}
+                          >
+                            <span>{p.program_name}</span>
+                            {checked && <Badge variant="secondary">Selected</Badge>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {editSelectedProgramIds.length > 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      {editSelectedProgramIds.length} program
+                      {editSelectedProgramIds.length === 1 ? '' : 's'} selected
+                    </div>
+                  )}
+                </div>
+
+                {/* Notes */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Notes</h4>
+                  <Textarea
+                    id="edit-notes"
+                    value={editForm.notes}
+                    onChange={(e) => handleEditChange('notes', e.target.value)}
+                    placeholder="Additional notes about this lead"
+                    rows={3}
+                  />
                 </div>
 
                 {/* Source */}

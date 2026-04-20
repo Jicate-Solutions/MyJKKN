@@ -29,6 +29,11 @@ interface UpdateCallNotesInput {
   call_notes?: string;
   call_disposition?: CallDisposition;
   follow_up_date?: string | null;
+  follow_up_at?: string | null;
+  call_outcome?: string | null;
+  prospect_sentiment?: string | null;
+  primary_objection?: string | null;
+  next_action?: string | null;
 }
 
 // ============================================================================

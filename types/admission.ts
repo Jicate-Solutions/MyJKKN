@@ -111,6 +111,10 @@ export interface AdmissionLead {
 
   // Academic details
   interested_programs: string[] | null;
+  // Resolved program names for `interested_programs` IDs. Populated by the
+  // list API server-side so the table can render names without a second
+  // client-side fetch. May be empty when names weren't resolved.
+  interested_program_names?: string[];
   preferred_campus: string | null;
   academic_year: string | null;
 
@@ -197,6 +201,7 @@ export interface AdmissionLead {
 
   // Relationships (optional populated)
   counselor?: Counselor;
+  institution?: { id: string; name: string } | null;
 }
 
 export interface CreateLeadInput {

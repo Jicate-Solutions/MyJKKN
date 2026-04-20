@@ -476,8 +476,15 @@ export class LeadService {
 
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
-    // Sanitize: strip fields that clients must never override
-    const { id: _stripId, institution_id: _stripInst, created_at: _stripCreated, ...safeData } = leadData as any;
+    // Sanitize: strip fields that clients must never override.
+    // `institution_id` is intentionally NOT stripped — the admission_leads RLS
+    // UPDATE policy already enforces `role_has_institution_access(institution_id)`
+    // on both the old and new row (with_check falls back to using), so users
+    // without cross-institution access cannot move a lead to an institution
+    // they can't see. Stripping it here silently discards legitimate edits
+    // (e.g., a super-admin reassigning a mis-entered lead to the correct
+    // institution) and makes the UI appear to save while the DB doesn't update.
+    const { id: _stripId, created_at: _stripCreated, ...safeData } = leadData as any;
 
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
