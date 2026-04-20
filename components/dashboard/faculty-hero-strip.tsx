@@ -237,6 +237,8 @@ function clusterPercentileTile(cluster: ClusterRankPrivate): HeroTileProps {
     const dataSourceMessage = (src: string): string => {
       if (src === 'insufficient_peers') return 'Not enough peer data yet';
       if (src === 'no_staff_record') return 'No staff record found';
+      if (src === 'not_in_cluster') return 'Not part of cluster leaderboard';
+      if (src === 'pending_cache') return 'Ranking after next weekly refresh';
       return 'Cluster standing unavailable';
     };
     return {

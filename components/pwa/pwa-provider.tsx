@@ -118,6 +118,21 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
       mediaQuery.addListener(handleDisplayModeChange);
     }
 
+    // Dev-mode safety net: proactively unregister any leftover production
+    // service worker + purge its caches. Without this, a stale /sw.js from a
+    // previous `next build` run keeps firing `bad-precaching-response` for
+    // font hashes that no longer exist in the current dev bundle.
+    if ('serviceWorker' in navigator && process.env.NODE_ENV !== 'production') {
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((r) => r.unregister().catch(() => {}));
+      }).catch(() => {});
+      if ('caches' in window) {
+        caches.keys().then((names) => {
+          names.forEach((n) => caches.delete(n).catch(() => {}));
+        }).catch(() => {});
+      }
+    }
+
     // Service worker setup - skip in development (Serwist only generates sw.js in production)
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
       // Check if SW is already registered to prevent multiple registrations

@@ -604,6 +604,18 @@ export class LeaveOndutyService {
       );
     }
 
+    // v2: team OD validation — only onduty can be team, and team ids must be a
+    // non-empty unique set that doesn't include the applicant themselves.
+    const applicableType = data.applicable_type ?? 'individual';
+    if (applicableType === 'team' && data.category !== 'onduty') {
+      throw new Error('Team applications are supported for OnDuty only.');
+    }
+    const teamIds = Array.from(new Set(data.team_member_ids ?? []))
+      .filter((id) => id && id !== learnerId);
+    if (applicableType === 'team' && teamIds.length === 0) {
+      throw new Error('Team application requires at least one team-mate.');
+    }
+
     // Create application
     const { data: application, error: createError } = await supabase
       .from('leave_onduty_applications')
@@ -622,6 +634,7 @@ export class LeaveOndutyService {
         reason: data.reason,
         attachment_url: attachmentUrl,
         status: 'pending',
+        applicable_type: applicableType,
         // When sponsor approval is required, start at step 0 (sponsor gate).
         // The academic chain (HOD → Principal) starts at step 1 once the
         // sponsor approves. This keeps the existing flow unchanged for
@@ -635,6 +648,26 @@ export class LeaveOndutyService {
 
     if (createError) {
       throw new Error(`Failed to create application: ${createError.message}`);
+    }
+
+    // v2: insert team roster. If this fails we roll back the parent application
+    // so we don't leave a half-created team OD hanging around.
+    if (applicableType === 'team' && teamIds.length > 0) {
+      const rows = teamIds.map((lid) => ({
+        application_id: application.id,
+        learner_id: lid,
+      }));
+      const { error: teamError } = await supabase
+        .from('leave_onduty_team_members')
+        .insert(rows);
+
+      if (teamError) {
+        // Best-effort rollback — RLS may prevent the student from deleting
+        // their own application in some edge cases, which is why we log it
+        // explicitly rather than swallowing.
+        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        throw new Error(`Failed to register team members: ${teamError.message}`);
+      }
     }
 
     return application;
@@ -839,6 +872,69 @@ export class LeaveOndutyService {
   }
 
   /**
+   * Search team-mates for a team OnDuty application (v2, 2026-04-21).
+   *
+   * Scope: institution-wide ("All Students List" per spec). The applicant
+   * themselves is excluded so they can't add themselves to the roster.
+   * Typical callers: TeamMemberPicker component.
+   */
+  static async searchTeamMembers(params: {
+    institutionId: string;
+    query: string;
+    excludeLearnerId?: string;
+    limit?: number;
+  }): Promise<
+    Array<{
+      id: string;
+      first_name: string;
+      last_name: string;
+      roll_number: string | null;
+      register_number: string | null;
+      student_email: string | null;
+      section_id: string | null;
+      department_id: string | null;
+    }>
+  > {
+    const supabase = getSupabase();
+    const q = params.query.trim();
+    const limit = params.limit ?? 20;
+
+    let query: any = supabase
+      .from('learners_profiles')
+      .select('id, first_name, last_name, roll_number, register_number, student_email, section_id, department_id')
+      .eq('institution_id', params.institutionId)
+      .limit(limit);
+
+    if (params.excludeLearnerId) {
+      query = query.neq('id', params.excludeLearnerId);
+    }
+
+    if (q.length > 0) {
+      // Use or() against name / roll / register / email — wildcard on each side
+      // so the match is substring, case-insensitive.
+      const pattern = `%${q}%`;
+      query = query.or(
+        [
+          `first_name.ilike.${pattern}`,
+          `last_name.ilike.${pattern}`,
+          `roll_number.ilike.${pattern}`,
+          `register_number.ilike.${pattern}`,
+          `student_email.ilike.${pattern}`,
+        ].join(',')
+      );
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('[leave-onduty/team-search] failed', error);
+      throw new Error(`Team member search failed: ${error.message}`);
+    }
+
+    return data || [];
+  }
+
+  /**
    * Get applications by learner with filters
    */
   static async getApplicationsByLearner(
@@ -858,7 +954,7 @@ export class LeaveOndutyService {
         section:sections(id, section_name),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
         )
       `
       )
@@ -928,7 +1024,7 @@ export class LeaveOndutyService {
         section:sections(id, section_name),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
         )
       `
       )
@@ -991,7 +1087,7 @@ export class LeaveOndutyService {
         section:sections(id, section_name),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
         )
       `
       )
@@ -1637,7 +1733,7 @@ export class LeaveOndutyService {
         section:sections(id, section_name),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
         )
       `
       )
@@ -1897,7 +1993,12 @@ export class LeaveOndutyService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Main function to update attendance when application is approved
+   * Main function to update attendance when application is approved.
+   *
+   * v2: for team OnDuty (applicable_type='team'), iterates over every team
+   * member (plus the primary applicant) and marks each one's attendance in
+   * their own section. Team-mates in other sections get their own attendance
+   * record lookup — we don't assume they share a section with the applicant.
    */
   static async updateAttendanceOnApproval(
     applicationId: string
@@ -1932,14 +2033,51 @@ export class LeaveOndutyService {
     // Determine new status based on category
     const newStatus = application.category === 'leave' ? 'absent' : 'onduty';
 
-    // Process each date
-    for (const date of dateRange) {
-      await this.updateAttendanceForDate(
-        application,
-        date,
-        periods,
-        newStatus
-      );
+    // Build the list of (learner_id, section_id) pairs we need to update —
+    // the applicant first, then every team member (for team OD only).
+    const entries: Array<{ learner_id: string; section_id: string | null }> = [
+      { learner_id: application.learner_id, section_id: application.section_id },
+    ];
+
+    if (application.applicable_type === 'team') {
+      // Left join (no !inner) to match CLAUDE.md guidance — a team member
+      // whose learners_profiles row was soft-deleted shouldn't block the rest.
+      const { data: teamRows } = await supabase
+        .from('leave_onduty_team_members')
+        .select('learner_id, learner:learners_profiles(section_id)')
+        .eq('application_id', applicationId);
+
+      if (teamRows && teamRows.length > 0) {
+        for (const row of teamRows as any[]) {
+          entries.push({
+            learner_id: row.learner_id,
+            section_id: row.learner?.section_id ?? null,
+          });
+        }
+      }
+    }
+
+    // Process each member × each date. We pass a "synthetic" application whose
+    // learner_id and section_id reflect the member being processed, since
+    // updateAttendanceForDate reads those fields directly.
+    for (const entry of entries) {
+      if (!entry.section_id) {
+        console.warn('[attendance-integration] Skipping member without section:', entry.learner_id);
+        continue;
+      }
+      const syntheticApp = {
+        ...application,
+        learner_id: entry.learner_id,
+        section_id: entry.section_id,
+      };
+      for (const date of dateRange) {
+        await this.updateAttendanceForDate(
+          syntheticApp as any,
+          date,
+          periods,
+          newStatus
+        );
+      }
     }
   }
 

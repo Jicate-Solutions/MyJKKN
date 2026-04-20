@@ -13,17 +13,19 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { 
-  CheckCircle, 
-  XCircle, 
-  User, 
-  Calendar, 
-  FileText, 
-  Clock, 
-  Building2, 
-  GraduationCap, 
+import {
+  CheckCircle,
+  XCircle,
+  User,
+  Users,
+  Calendar,
+  FileText,
+  Clock,
+  Building2,
+  GraduationCap,
   BookOpen,
-  MapPin
+  MapPin,
+  Forward as ForwardIcon,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { AttachmentLink } from '@/components/academic/leave-onduty/attachment-link';
@@ -36,6 +38,8 @@ interface ApplicationDetailsDialogProps {
   application: any; // Using any for now to match the flexible structure from page.tsx
   onApprove: () => void;
   onReject: () => void;
+  /** v2: opens the Forward dialog. Hidden when not provided (e.g. from history pages). */
+  onForward?: () => void;
   isSuperAdmin?: boolean;
 }
 
@@ -45,6 +49,7 @@ export function ApplicationDetailsDialog({
   application,
   onApprove,
   onReject,
+  onForward,
   isSuperAdmin = false,
 }: ApplicationDetailsDialogProps) {
   if (!application) return null;
@@ -100,6 +105,12 @@ export function ApplicationDetailsDialog({
             <Badge variant="outline" className={cn("capitalize font-normal border", getCategoryColor(application.category))}>
               {application.category === 'leave' ? 'Leave Application' : 'On-Duty Application'}
             </Badge>
+            {application.applicable_type === 'team' && (
+              <Badge variant="outline" className="gap-1 border-purple-200 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800">
+                <Users className="h-3 w-3" />
+                Team
+              </Badge>
+            )}
           </div>
         </DialogHeader>
 
@@ -165,6 +176,67 @@ export function ApplicationDetailsDialog({
                   )}
                 </CardContent>
               </Card>
+
+              {/* Team Members Card — only for team OD */}
+              {application.applicable_type === 'team' && (
+                <Card>
+                  <CardHeader className="pb-3 bg-muted/10">
+                    <CardTitle className="text-base font-medium flex items-center gap-2">
+                      <Users className="h-4 w-4 text-primary" />
+                      Team Members
+                      <Badge variant="secondary" className="ml-1">
+                        {(application.team_members?.length ?? 0) + 1}
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-4 space-y-2">
+                    <div className="flex items-start gap-2 p-2 rounded-md bg-primary/5 border border-primary/10">
+                      <User className="h-4 w-4 text-primary mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">
+                          {learner?.first_name} {learner?.last_name}
+                          <span className="ml-2 text-xs text-muted-foreground">(applicant)</span>
+                        </p>
+                        {(learner?.roll_number || learner?.register_number) && (
+                          <p className="text-xs text-muted-foreground">
+                            {learner?.roll_number && `Roll: ${learner.roll_number}`}
+                            {learner?.roll_number && learner?.register_number ? ' · ' : ''}
+                            {learner?.register_number && `Reg: ${learner.register_number}`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {(application.team_members ?? []).map((tm: any) => {
+                      const m = tm.learner || tm;
+                      return (
+                        <div key={tm.id || m.id} className="flex items-start gap-2 p-2 rounded-md border">
+                          <User className="h-4 w-4 text-muted-foreground mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">
+                              {m.first_name} {m.last_name}
+                            </p>
+                            {(m.roll_number || m.register_number) && (
+                              <p className="text-xs text-muted-foreground">
+                                {m.roll_number && `Roll: ${m.roll_number}`}
+                                {m.roll_number && m.register_number ? ' · ' : ''}
+                                {m.register_number && `Reg: ${m.register_number}`}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {(!application.team_members || application.team_members.length === 0) && (
+                      <p className="text-xs text-muted-foreground italic">
+                        (Team roster not yet loaded. Attendance will be marked for all members
+                        when approved.)
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Leave Details Card */}
               <Card>
@@ -253,6 +325,16 @@ export function ApplicationDetailsDialog({
             Close
           </Button>
           <div className="flex gap-3 w-full sm:w-auto">
+            {onForward && (
+              <Button
+                variant="outline"
+                className="flex-1 sm:flex-none gap-2"
+                onClick={onForward}
+              >
+                <ForwardIcon className="h-4 w-4" />
+                Forward
+              </Button>
+            )}
             <Button
               variant="destructive"
               className="flex-1 sm:flex-none gap-2"

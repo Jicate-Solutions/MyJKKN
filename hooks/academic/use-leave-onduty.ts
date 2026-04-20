@@ -84,6 +84,11 @@ const KEYS = {
     search: (institutionId: string, query: string) =>
       [...KEYS.approvals.all, 'sponsor-search', institutionId, query] as const,
   },
+  team: {
+    all: ['leave-onduty', 'team'] as const,
+    search: (institutionId: string, query: string) =>
+      ['leave-onduty', 'team', 'search', institutionId, query] as const,
+  },
 };
 
 // =====================================================
@@ -163,6 +168,42 @@ export function useEligibleSponsors(
         institutionId,
         query: searchQuery,
       })) as EligibleSponsor[];
+    },
+    enabled: enabled && !!institutionId,
+    staleTime: 60 * 1000,
+  });
+}
+
+export interface TeamMemberSearchResult {
+  id: string;
+  first_name: string;
+  last_name: string;
+  roll_number: string | null;
+  register_number: string | null;
+  student_email: string | null;
+  section_id: string | null;
+  department_id: string | null;
+}
+
+/**
+ * Search learners institution-wide for team OD roster selection.
+ * Excludes the applicant themselves so they can't add themselves as a team-mate.
+ */
+export function useSearchTeamMembers(
+  institutionId: string | null | undefined,
+  searchQuery: string,
+  applicantLearnerId: string | null | undefined,
+  enabled: boolean = true
+) {
+  return useQuery<TeamMemberSearchResult[]>({
+    queryKey: KEYS.team.search(institutionId || '', searchQuery),
+    queryFn: async () => {
+      if (!institutionId) return [];
+      return await LeaveOndutyApplicationService.searchTeamMembers({
+        institutionId,
+        query: searchQuery,
+        excludeLearnerId: applicantLearnerId || undefined,
+      });
     },
     enabled: enabled && !!institutionId,
     staleTime: 60 * 1000,
@@ -249,6 +290,10 @@ export function useMyLeaveOndutyApplications(
     queryKey: KEYS.applications.learner(learnerId),
     queryFn: () =>
       LeaveOndutyApplicationService.getApplicationsByLearner(learnerId, filters),
+    // Skip the query while profile is still loading — otherwise learnerId=''
+    // fires .eq('learner_id', '') which Supabase rejects as "invalid input
+    // syntax for type uuid", surfaced to users as "Failed to load applications".
+    enabled: !!learnerId,
     ...options,
   });
 }
@@ -551,6 +596,39 @@ export function useProcessApproval() {
     },
     onError: (error: Error) => {
       toast.error(`Failed to process approval: ${error.message}`);
+    },
+  });
+}
+
+/**
+ * Forward a pending approval to another staff member (v2, 2026-04-21).
+ *
+ * Accepts the same query-invalidation pattern as useProcessApproval so the
+ * approvals dashboard refreshes immediately and the forwarded-to staff sees
+ * the new pending row.
+ */
+export function useProcessForward() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      application_id: string;
+      approver_id: string;
+      forward_to_id: string;
+      comments: string;
+    }) => {
+      return await LeaveOndutyApprovalService.processForward(data);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: KEYS.approvals.all });
+      queryClient.invalidateQueries({ queryKey: KEYS.applications.all });
+      queryClient.invalidateQueries({
+        queryKey: KEYS.applications.detail(variables.application_id),
+      });
+      toast.success('Application forwarded successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to forward: ${error.message}`);
     },
   });
 }

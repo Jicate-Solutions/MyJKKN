@@ -20,9 +20,15 @@ export type LeaveSubCategory = 'casual' | 'medical';
 export type OndutySubCategory = 'event_participation' | 'club_activities';
 export type PeriodType = 'fullday' | 'forenoon' | 'afternoon' | 'periodwise';
 export type ApplicationStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'forwarded';
 export type FlowType = 'sequential' | 'parallel';
 export type ApproverRole = 'faculty' | 'hod' | 'principal';
+
+/** Individual applicant vs team OD (v2, 2026-04-21). Leave is always individual. */
+export type ApplicableType = 'individual' | 'team';
+
+/** Approval dashboard actions. 'forward' transfers this step to another staff member. */
+export type ApprovalAction = 'approve' | 'reject' | 'forward';
 
 // =====================================================
 // CORE INTERFACES
@@ -52,6 +58,9 @@ export interface LeaveOndutyApplication {
   attachment_url: string | null;
   status: ApplicationStatus;
   current_step: number;
+
+  /** v2: individual applicant vs team OD. Leave is always 'individual'. */
+  applicable_type: ApplicableType;
 
   // Sponsor approval gate (Phase 2). NULL when sub_category does NOT
   // require sponsor approval. Otherwise tracks the pre-flight gate state.
@@ -95,6 +104,31 @@ export interface LeaveOndutyApplication {
     avatar_url: string | null;
   };
   approvals?: LeaveOndutyApproval[];
+
+  /** v2: team OD members (excluding the primary applicant). Populated when applicable_type = 'team'. */
+  team_members?: LeaveOndutyTeamMember[];
+}
+
+/**
+ * Team member on a team OnDuty application (v2).
+ * One row per team-mate. The primary applicant lives on
+ * leave_onduty_applications.learner_id and is NOT duplicated here.
+ */
+export interface LeaveOndutyTeamMember {
+  id: string;
+  application_id: string;
+  learner_id: string;
+  created_at: string;
+
+  // Joined data (populated by services for display)
+  learner?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    roll_number: string | null;
+    register_number: string | null;
+    student_email: string | null;
+  };
 }
 
 /**
@@ -181,8 +215,25 @@ export interface LeaveOndutyApproval {
   action_taken_at: string | null;
   created_at: string;
 
+  /** v2: when this step was forwarded, points at the staff who now owns it. */
+  forwarded_to_id: string | null;
+  /** v2: when this step received a forward, points at the staff who forwarded. */
+  forwarded_from_id: string | null;
+
   // Joined data
   approver?: {
+    id: string;
+    full_name: string;
+    email: string;
+    avatar_url: string | null;
+  };
+  forwarded_to?: {
+    id: string;
+    full_name: string;
+    email: string;
+    avatar_url: string | null;
+  };
+  forwarded_from?: {
     id: string;
     full_name: string;
     email: string;
@@ -233,6 +284,10 @@ export interface ApplicationFormData {
   attachment_file: File | null;
   /** Phase 2: sponsor (the person the learner is working with) when sub-category requires sponsor approval */
   sponsor_id?: string | null;
+  /** v2: individual (default) or team OD. Leave must always be 'individual'. */
+  applicable_type?: ApplicableType;
+  /** v2: when applicable_type='team', the learner_ids of team-mates (excluding the applicant themself). */
+  team_member_ids?: string[];
 }
 
 /**
@@ -242,8 +297,13 @@ export interface ApplicationFormData {
 export interface ApprovalActionData {
   application_id: string;
   approver_id: string;
-  status: 'approved' | 'rejected';
+  /** @deprecated use `action` instead — kept for wire compatibility with the old UI */
+  status?: 'approved' | 'rejected';
+  /** v2: which action the approver chose. Drives routing in processApproval(). */
+  action?: ApprovalAction;
   comments: string;
+  /** v2: when action='forward', the profile id of the staff member the step is forwarded to. Must reference a profile (staff) in the same institution. */
+  forward_to_id?: string;
 }
 
 /**
@@ -600,6 +660,7 @@ export const APPROVAL_STATUS_COLORS: Record<ApprovalStatus, string> = {
   pending: 'yellow',
   approved: 'green',
   rejected: 'red',
+  forwarded: 'blue',
 };
 
 export const APPROVER_ROLE_LABELS: Record<ApproverRole, string> = {

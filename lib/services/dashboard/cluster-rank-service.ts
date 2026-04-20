@@ -79,8 +79,10 @@ export type ClusterRankPrivate = {
   percentile: number | null;
   quartile_label: Quartile | null;
   data_source: string;
-  // 'live' | 'insufficient_peers' | 'no_staff_record' | 'no_learner_profile'
+  // 'cache' | 'live' | 'insufficient_peers' | 'no_staff_record' | 'no_learner_profile'
   //   | 'not_authenticated' | 'role_not_allowed' | 'no_cluster' | 'no_caller_profile'
+  //   | 'not_in_cluster'     — caller's institution is outside the cluster pool (2026-04-20)
+  //   | 'pending_cache'      — eligible caller awaiting Sunday cron backfill (2026-04-20)
   //   | 'error' | 'no_data' | 'null_user_id'
   forbidden: boolean;
   reason?: string | null;
