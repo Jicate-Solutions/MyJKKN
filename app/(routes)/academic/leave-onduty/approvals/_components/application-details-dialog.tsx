@@ -41,6 +41,11 @@ interface ApplicationDetailsDialogProps {
   /** v2: opens the Forward dialog. Hidden when not provided (e.g. from history pages). */
   onForward?: () => void;
   isSuperAdmin?: boolean;
+  /** Current user's profile id — used to gate Approve/Reject/Forward to only
+   * the user whose step is actually pending. Without this, a user who has
+   * already acted still sees the action buttons and hits a "not authorized"
+   * error when they click Approve a second time. */
+  currentUserId?: string;
 }
 
 export function ApplicationDetailsDialog({
@@ -51,6 +56,7 @@ export function ApplicationDetailsDialog({
   onReject,
   onForward,
   isSuperAdmin = false,
+  currentUserId,
 }: ApplicationDetailsDialogProps) {
   if (!application) return null;
 
@@ -315,44 +321,96 @@ export function ApplicationDetailsDialog({
           </div>
         </ScrollArea>
 
-        {/* Footer Actions */}
-        <DialogFooter className="p-4 border-t bg-muted/10 sm:justify-between flex-row items-center gap-4">
-           <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            className="hidden sm:flex"
-          >
-            Close
-          </Button>
-          <div className="flex gap-3 w-full sm:w-auto">
-            {onForward && (
+        {/* Footer Actions — only visible to the approver whose step is
+            currently pending. A user who has already approved/rejected/forwarded
+            sees a status line instead, preventing the "not authorized" error
+            loop where the UI invites them to click Approve a second time. */}
+        {(() => {
+          const approvals = (application.approvals ?? []) as Array<{
+            approver_id?: string;
+            status?: string;
+            step_order?: number;
+            approver_role?: string;
+          }>;
+          const myPendingStep = currentUserId
+            ? approvals.find(
+                (a) => a.approver_id === currentUserId && a.status === 'pending'
+              )
+            : undefined;
+          const myPastStep = currentUserId
+            ? approvals.find(
+                (a) => a.approver_id === currentUserId && a.status !== 'pending'
+              )
+            : undefined;
+          const nextPendingStep = approvals.find((a) => a.status === 'pending');
+
+          // Super admin always sees the action buttons (for override/support).
+          const showActions = isSuperAdmin || !!myPendingStep;
+          const appStatus = application.status;
+
+          return (
+            <DialogFooter className="p-4 border-t bg-muted/10 sm:justify-between flex-row items-center gap-4">
               <Button
                 variant="outline"
-                className="flex-1 sm:flex-none gap-2"
-                onClick={onForward}
+                onClick={() => onOpenChange(false)}
+                className="hidden sm:flex"
               >
-                <ForwardIcon className="h-4 w-4" />
-                Forward
+                Close
               </Button>
-            )}
-            <Button
-              variant="destructive"
-              className="flex-1 sm:flex-none gap-2"
-              onClick={onReject}
-            >
-              <XCircle className="h-4 w-4" />
-              Reject
-            </Button>
-            <Button
-              variant="default"
-              className="flex-1 sm:flex-none gap-2 bg-green-600 hover:bg-green-700 text-white"
-              onClick={onApprove}
-            >
-              <CheckCircle className="h-4 w-4" />
-              Approve
-            </Button>
-          </div>
-        </DialogFooter>
+              {showActions ? (
+                <div className="flex gap-3 w-full sm:w-auto">
+                  {onForward && myPendingStep && (
+                    <Button
+                      variant="outline"
+                      className="flex-1 sm:flex-none gap-2"
+                      onClick={onForward}
+                    >
+                      <ForwardIcon className="h-4 w-4" />
+                      Forward
+                    </Button>
+                  )}
+                  <Button
+                    variant="destructive"
+                    className="flex-1 sm:flex-none gap-2"
+                    onClick={onReject}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    Reject
+                  </Button>
+                  <Button
+                    variant="default"
+                    className="flex-1 sm:flex-none gap-2 bg-green-600 hover:bg-green-700 text-white"
+                    onClick={onApprove}
+                  >
+                    <CheckCircle className="h-4 w-4" />
+                    Approve
+                  </Button>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground text-right">
+                  {myPastStep ? (
+                    <>
+                      You {myPastStep.status} this application
+                      {myPastStep.status === 'approved' && nextPendingStep && (
+                        <> — waiting for <span className="font-medium capitalize">{nextPendingStep.approver_role}</span></>
+                      )}
+                      {myPastStep.status === 'approved' && !nextPendingStep && appStatus === 'approved' && (
+                        <> — fully approved.</>
+                      )}
+                      .
+                    </>
+                  ) : appStatus !== 'pending' ? (
+                    <>This application is <span className="font-medium capitalize">{appStatus}</span>.</>
+                  ) : nextPendingStep ? (
+                    <>Waiting for <span className="font-medium capitalize">{nextPendingStep.approver_role}</span>.</>
+                  ) : (
+                    <>No action available for you on this application.</>
+                  )}
+                </div>
+              )}
+            </DialogFooter>
+          );
+        })()}
       </DialogContent>
     </Dialog>
   );

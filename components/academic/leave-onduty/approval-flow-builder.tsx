@@ -305,12 +305,19 @@ function StepCard({
   // Ensure customRoles is always an array for safe operations
   const safeRoles = Array.isArray(customRoles) ? customRoles : [];
 
-  // Fetch approvers from faculty, HOD, and principal roles institution-wide
-  const APPROVER_ROLES = ['faculty', 'hod', 'principal'];
+  // Look up the role_key for the currently selected role so we can filter
+  // the approver list to ONLY users holding that exact role. Previously the
+  // list was hard-coded to [faculty, hod, principal] which leaked the full
+  // staff roster regardless of which role was picked.
+  const selectedRole = safeRoles.find((r) => r.id === step.role_id);
+  const selectedRoleKey: string | undefined = selectedRole?.role_key;
+  const isDepartmentScopedRole =
+    selectedRoleKey === 'hod' || selectedRoleKey === 'faculty';
 
   const { data: users, isLoading: usersLoading } = useUsersByRole(
-    step.role_id ? APPROVER_ROLES : null,
-    institutionId
+    selectedRoleKey ? [selectedRoleKey] : null,
+    institutionId,
+    isDepartmentScopedRole && departmentId ? departmentId : undefined
   );
 
   // Ensure users is always an array
@@ -323,6 +330,13 @@ function StepCard({
       onUpdate(step.step_order, {
         role_id: roleId,
         role_name: selectedRole.role_name,
+        // CRITICAL: approver_role is the machine-readable key consumed by the
+        // backend (fn_cluster_rank_private, createApplication seeding, approval
+        // service). role_name is the display label. Previously this was never
+        // updated here, so an edited step kept its stale approver_role (often
+        // 'principal' from the initial template), causing the wrong user to
+        // be seeded as approver even though the UI showed the right role.
+        approver_role: selectedRole.role_key,
         approver_ids: [], // Reset approvers when role changes
       });
     }

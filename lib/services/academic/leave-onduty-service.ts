@@ -670,6 +670,70 @@ export class LeaveOndutyService {
       }
     }
 
+    // Seed approval rows from the applicable flow. Without this, the application
+    // sits in pending state forever because approvers query by approver_id on
+    // leave_onduty_approvals. Skip when sponsor pre-approval is required — the
+    // academic chain is seeded after sponsor approves (see processSponsorApproval).
+    if (!requiresSponsor) {
+      const { data: flow } = await supabase
+        .from('leave_onduty_approval_flows')
+        .select('flow_steps')
+        .eq('institution_id', institutionId)
+        .eq('category', data.category)
+        .eq('sub_category', data.sub_category)
+        .eq('is_active', true)
+        .or(`department_id.is.null,department_id.eq.${learner.department_id}`)
+        .order('department_id', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+
+      const steps = (flow?.flow_steps as Array<{ step_order: number; approver_role: string; approver_id?: string | null }> | null) ?? [];
+
+      if (steps.length > 0) {
+        const approvalRows = await Promise.all(
+          steps.map(async (step) => {
+            let approverId = step.approver_id ?? null;
+            if (!approverId) {
+              let q = supabase
+                .from('profiles')
+                .select('id')
+                .eq('role', step.approver_role)
+                .eq('institution_id', institutionId);
+              if (step.approver_role === 'hod' || step.approver_role === 'faculty') {
+                q = q.eq('department_id', learner.department_id);
+              }
+              const { data: approverProfile } = await q
+                .order('created_at', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+              approverId = approverProfile?.id ?? null;
+            }
+            return approverId
+              ? {
+                  application_id: application.id,
+                  approver_id: approverId,
+                  step_order: step.step_order,
+                  approver_role: step.approver_role,
+                  status: 'pending' as const,
+                }
+              : null;
+          })
+        );
+
+        const validRows = approvalRows.filter((r): r is NonNullable<typeof r> => r !== null);
+        if (validRows.length > 0) {
+          const { error: approvalsError } = await supabase
+            .from('leave_onduty_approvals')
+            .insert(validRows);
+
+          if (approvalsError) {
+            await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+            throw new Error(`Failed to seed approvers: ${approvalsError.message}`);
+          }
+        }
+      }
+    }
+
     return application;
   }
 

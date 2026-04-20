@@ -387,6 +387,7 @@ export class LeaveOndutyApprovalService {
         role: step.role,
         description: step.description,
         approver_name: approval?.approver?.full_name || null,
+        approver_email: approval?.approver?.email || null,
         status: approval?.status || 'pending',
         comments: approval?.comments || null,
         action_taken_at: approval?.action_taken_at || null,

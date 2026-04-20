@@ -49,9 +49,21 @@ interface ActionsProps {
   onViewDetails: (row: ApprovalTableRow) => void;
   onApprove: (row: ApprovalTableRow) => void;
   onReject: (row: ApprovalTableRow) => void;
+  currentUserId?: string;
+  isSuperAdmin?: boolean;
 }
 
-function Actions({ row, onViewDetails, onApprove, onReject }: ActionsProps) {
+function Actions({ row, onViewDetails, onApprove, onReject, currentUserId, isSuperAdmin }: ActionsProps) {
+  // Only show Approve/Reject when the current user still has a pending step
+  // on this application. A user who has already acted sees only View Details,
+  // which prevents the "not authorized" error loop from clicking Approve twice.
+  // Super admin always sees actions for override/support.
+  const approvals = (row?.approvals ?? []) as Array<{ approver_id?: string; status?: string }>;
+  const hasMyPendingStep = !!currentUserId && approvals.some(
+    (a) => a.approver_id === currentUserId && a.status === 'pending'
+  );
+  const showApproveReject = isSuperAdmin || hasMyPendingStep;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -66,15 +78,19 @@ function Actions({ row, onViewDetails, onApprove, onReject }: ActionsProps) {
           <Eye className="mr-2 h-4 w-4" />
           View Details
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => onApprove(row)}>
-          <CheckCircle2 className="mr-2 h-4 w-4 text-green-600" />
-          Approve
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onReject(row)}>
-          <XCircle className="mr-2 h-4 w-4 text-red-600" />
-          Reject
-        </DropdownMenuItem>
+        {showApproveReject && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onApprove(row)}>
+              <CheckCircle2 className="mr-2 h-4 w-4 text-green-600" />
+              Approve
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onReject(row)}>
+              <XCircle className="mr-2 h-4 w-4 text-red-600" />
+              Reject
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -96,7 +112,8 @@ export const createColumns = (
   isSuperAdmin: boolean,
   onViewDetails: (row: ApprovalTableRow) => void,
   onApprove: (row: ApprovalTableRow) => void,
-  onReject: (row: ApprovalTableRow) => void
+  onReject: (row: ApprovalTableRow) => void,
+  currentUserId?: string
 ): ColumnDef<ApprovalTableRow>[] => {
   const columns: ColumnDef<ApprovalTableRow>[] = [
     // Select Column
@@ -174,17 +191,21 @@ export const createColumns = (
         if (!learner) return <span className="text-muted-foreground">Unknown</span>;
 
         return (
-          <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onViewDetails(row.original)}
+            className="flex items-center gap-2 w-full text-left hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+          >
             <User className="h-4 w-4 text-muted-foreground" />
             <div>
-              <div className="font-medium">
+              <div className="font-medium underline-offset-2 hover:underline">
                 {learner.first_name} {learner.last_name}
               </div>
               <div className="text-xs text-muted-foreground">
                 {learner.roll_number || learner.register_number || 'No ID'}
               </div>
             </div>
-          </div>
+          </button>
         );
       },
       enableSorting: false,
@@ -371,22 +392,76 @@ export const createColumns = (
     });
   }
 
-  // Status
+  // Status — shows application-level status, the logged-in user's OWN step
+  // status, and the role of the next pending approver. This lets the HOD
+  // see at a glance that they've approved their step while the application
+  // is still waiting on the Principal, without having to open the details dialog.
   columns.push({
     accessorKey: 'status',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Status" />
     ),
-    size: 100,
-    minSize: 80,
-    maxSize: 120,
+    size: 170,
+    minSize: 150,
+    maxSize: 220,
     cell: ({ row }) => {
-      const status = row.getValue('status') as string;
+      const appStatus = row.getValue('status') as string;
+      const approvals = ((row.original as any)?.approvals ?? []) as Array<{
+        approver_id?: string;
+        status?: string;
+        step_order?: number;
+        approver_role?: string;
+      }>;
+
+      const myStep = currentUserId
+        ? approvals.find((a) => a.approver_id === currentUserId)
+        : undefined;
+      const nextPending = [...approvals]
+        .sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0))
+        .find((a) => a.status === 'pending');
+
+      const appBadge = (
+        <Badge
+          variant="secondary"
+          className={
+            appStatus === 'approved'
+              ? 'text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+              : appStatus === 'rejected'
+              ? 'text-xs bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+              : 'text-xs'
+          }
+        >
+          {appStatus === 'pending' ? 'Pending' : appStatus}
+        </Badge>
+      );
 
       return (
-        <Badge variant="secondary" className="text-xs">
-          {status === 'pending' ? 'Pending' : status}
-        </Badge>
+        <div className="flex flex-col gap-1">
+          {appBadge}
+          {myStep && (
+            <div className="text-[11px] text-muted-foreground">
+              You:{' '}
+              <span
+                className={
+                  myStep.status === 'approved'
+                    ? 'font-medium text-green-700 dark:text-green-400'
+                    : myStep.status === 'rejected'
+                    ? 'font-medium text-red-700 dark:text-red-400'
+                    : myStep.status === 'forwarded'
+                    ? 'font-medium text-blue-700 dark:text-blue-400'
+                    : 'font-medium text-amber-700 dark:text-amber-400'
+                }
+              >
+                {myStep.status}
+              </span>
+            </div>
+          )}
+          {appStatus === 'pending' && nextPending && nextPending.approver_id !== currentUserId && (
+            <div className="text-[11px] text-muted-foreground">
+              Waiting: <span className="font-medium capitalize">{nextPending.approver_role}</span>
+            </div>
+          )}
+        </div>
       );
     },
     enableSorting: false,
@@ -405,6 +480,8 @@ export const createColumns = (
         onViewDetails={onViewDetails}
         onApprove={onApprove}
         onReject={onReject}
+        currentUserId={currentUserId}
+        isSuperAdmin={isSuperAdmin}
       />
     ),
     enableSorting: false,

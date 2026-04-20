@@ -563,6 +563,7 @@ export interface ApprovalTimelineStep {
   role: ApproverRole;
   description: string;
   approver_name: string | null;
+  approver_email: string | null;
   status: ApprovalStatus;
   comments: string | null;
   action_taken_at: string | null;

@@ -182,11 +182,21 @@ export default function ApprovalsPage() {
 
   // Normalize data structure - both super admin and institution return applications directly
   const normalizedApprovals = useMemo(() => {
-    if (isSuperAdmin) {
-      return superAdminApps || [];
-    }
-    return institutionApps || [];
-  }, [isSuperAdmin, superAdminApps, institutionApps]);
+    const raw = isSuperAdmin ? (superAdminApps || []) : (institutionApps || []);
+
+    // On the Pending tab, non-super-admin approvers should only see rows
+    // where THEIR specific step is still pending. Without this the row
+    // stays in the queue after they approve (because the application's
+    // overall status stays 'pending' until all steps finish), inviting a
+    // second click that hits the "not authorized" error.
+    if (statusFilter !== 'pending' || isSuperAdmin || !profile?.id) return raw;
+    return (raw as any[]).filter((app: any) => {
+      const approvals = app.approvals ?? [];
+      return approvals.some(
+        (a: any) => a.approver_id === profile.id && a.status === 'pending'
+      );
+    });
+  }, [isSuperAdmin, superAdminApps, institutionApps, statusFilter, profile?.id]);
 
   const selectedApplication = normalizedApprovals?.find(
     (app: any) => app.id === selectedApplicationId
@@ -281,8 +291,8 @@ export default function ApprovalsPage() {
 
   // Create table columns
   const columns = useMemo(
-    () => createColumns(isSuperAdmin, handleViewDetails, handleApprove, handleReject),
-    [isSuperAdmin]
+    () => createColumns(isSuperAdmin, handleViewDetails, handleApprove, handleReject, profile?.id),
+    [isSuperAdmin, profile?.id]
   );
 
   if (isLoading) {
@@ -844,6 +854,7 @@ export default function ApprovalsPage() {
             : undefined
         }
         isSuperAdmin={isSuperAdmin}
+        currentUserId={profile?.id}
       />
 
       {/* v2: Forward Dialog */}

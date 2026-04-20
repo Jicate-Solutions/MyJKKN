@@ -151,11 +151,24 @@ function TimelineStep({
               {step.description}
             </p>
 
-            {/* Approver Info */}
+            {/* Approver Info — show name + email for every step whose approver
+                has been resolved, not just the one the viewer happens to be.
+                Powered by the view_approvals_for_visible_app RLS policy which
+                exposes the full chain to anyone who can see the application. */}
             {step.approver_name && (
-              <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 mb-2">
-                <User className="h-4 w-4" />
-                <span>{step.approver_name}</span>
+              <div className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 mb-2">
+                <User className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">{step.approver_name}</div>
+                  {step.approver_email && (
+                    <a
+                      href={`mailto:${step.approver_email}`}
+                      className="text-xs text-gray-500 dark:text-gray-400 hover:text-primary hover:underline break-all"
+                    >
+                      {step.approver_email}
+                    </a>
+                  )}
+                </div>
               </div>
             )}
 
