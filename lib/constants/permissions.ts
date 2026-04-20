@@ -745,6 +745,58 @@ export const PERMISSION_CATEGORIES = [
       { key: 'work_pulse.agents.view', label: 'View Agent Opportunity Board' },
       { key: 'work_pulse.impact.view', label: 'View Impact Dashboard' }
     ]
+  },
+  {
+    // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
+    // for every /solutions/* route on production (jicate/main). Scope is
+    // read/view today — write actions are guarded at the service layer.
+    name: 'Solutions Hub',
+    key: 'solutions',
+    permissions: [
+      // Dashboard
+      { key: 'solutions.dashboard.view', label: 'View Solutions Dashboard' },
+
+      // Pipeline
+      { key: 'solutions.pipeline.view', label: 'View Solutions Pipeline' },
+      { key: 'solutions.pipeline.analytics.view', label: 'View Pipeline Analytics' },
+
+      // Parties
+      { key: 'solutions.clients.view', label: 'View Clients' },
+      { key: 'solutions.builders.view', label: 'View Builders' },
+
+      // Training
+      { key: 'solutions.training.view', label: 'View Training' },
+      { key: 'solutions.training.programs.view', label: 'View Training Programs' },
+      { key: 'solutions.training.sessions.view', label: 'View Training Sessions' },
+      { key: 'solutions.training.cohort.view', label: 'View Training Cohorts' },
+
+      // Content
+      { key: 'solutions.content.view', label: 'View Content' },
+      { key: 'solutions.content.deliverables.view', label: 'View Content Deliverables' },
+      { key: 'solutions.content.production.view', label: 'View Content Production' },
+      { key: 'solutions.content.queue.view', label: 'View Content Queue' },
+
+      // Finance
+      { key: 'solutions.payments.view', label: 'View Payments' },
+      { key: 'solutions.earnings.view', label: 'View Earnings' },
+
+      // Discovery & Outputs
+      { key: 'solutions.discovery.view', label: 'View Discovery' },
+      { key: 'solutions.publications.view', label: 'View Publications' },
+      { key: 'solutions.products.view', label: 'View Products' },
+
+      // Software
+      { key: 'solutions.software.view', label: 'View Software Solutions' },
+      { key: 'solutions.software.builders.view', label: 'View Software Builders' },
+      { key: 'solutions.software.phases.view', label: 'View Software Phases' },
+
+      // Specialty Tracks
+      { key: 'solutions.matlab.view', label: 'View MATLAB Track' },
+      { key: 'solutions.paradigm_shift.view', label: 'View Paradigm Shift' },
+
+      // Compliance
+      { key: 'solutions.compliance.view', label: 'View AI Solution Compliance' }
+    ]
   }
 ];
 
