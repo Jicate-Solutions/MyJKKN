@@ -14,6 +14,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/callback',
   '/auth/complete-profile',
   '/auth/test-login', // Dev-only test login page for role permission testing
+  '/auth/lti-login', // Feature-flagged email+password login for MathWorks LTI integration testing
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
   '/billing/payment/success', // HDFC payment success callback
@@ -205,8 +206,19 @@ export async function proxy(request: NextRequest) {
       console.log('[Proxy] 🎓 Student detected:', user.id, 'path:', currentPath);
       console.log('[Proxy] Feature flag ENABLE_STUDENT_PORTAL:', FEATURE_FLAGS.ENABLE_STUDENT_PORTAL);
 
-      // Check feature flag first
-      if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
+      // LTI test student bypass — accounts matching lti.*@jkkn.ac.in are seeded by
+      // scripts/create-lti-test-accounts.ts for MathWorks integration testing. They
+      // must stay logged in regardless of ENABLE_STUDENT_PORTAL and lifecycle status
+      // so MathWorks can reach LTI launch URLs. Removed after LTI sign-off via
+      // scripts/cleanup-lti-test-accounts.ts (soft-ban + password rotate).
+      const isLtiTestStudent =
+        !!user.email && /^lti\..+@jkkn\.ac\.in$/.test(user.email);
+
+      if (isLtiTestStudent) {
+        console.log('[Proxy] ✅ LTI test student bypass for:', user.email);
+        // Fall through to the rest of the middleware (profile-completion check,
+        // role-based routing, permission check). The student portal gate is skipped.
+      } else if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
         // Feature disabled - block all students (original behavior)
         console.log('[Proxy] ❌ Student portal DISABLED - blocking student');
 
@@ -398,6 +410,6 @@ export const config = {
     '/guest/:path*',
     '/driver/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|icons|pwa-test.html).*)'
   ]
 };
