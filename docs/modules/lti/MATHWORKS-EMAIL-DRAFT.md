@@ -40,7 +40,7 @@ Thank you for the collaboration on the LTI integration between JKKN's MyJKKN pla
 ### Test Login URL
 
 ```
-https://<your-deployed-env>/auth/lti-login
+https://jkkn.ai/auth/lti-login
 ```
 
 > **⚠ Important — please read before your team logs in:**
@@ -60,7 +60,7 @@ https://<your-deployed-env>/auth/lti-login
 | Student | `lti.student@jkkn.ac.in`    | MATLAB Grader student launch, assignment submission, grade receipt              |
 | Faculty | `lti.faculty@jkkn.ac.in`    | Faculty launch, NRPS roster, AGS grade passback, OAuth 2.0 client credentials   |
 
-**Password** — sent separately via **\<1Password shared vault / encrypted email / Signal — specify which\>**. If you haven't received it, please reply to this email.
+**Password** — sent separately via a secure channel (1Password shared vault, Signal, or encrypted email). If you haven't received it, please reply to this email.
 
 ### What You Can Test Today
 
@@ -79,7 +79,7 @@ Our platform exposes the following LTI 1.3 endpoints:
 Our platform issuer (`iss` claim in all launch JWTs):
 
 ```
-https://myjkkn.jkkn.ac.in
+https://jkkn.ai
 ```
 
 ### What We Need From Your Team
