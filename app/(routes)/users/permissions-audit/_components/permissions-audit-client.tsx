@@ -19,6 +19,7 @@ import { ExportReportsTab } from './export-reports-tab';
 import { AIDebuggerTab } from './ai-debugger-tab';
 import { AskTab } from './ask-tab';
 import { ActivityTimelineTab } from './activity-timeline-tab';
+import { ModuleAccessTab } from './module-access-tab';
 import { ComplianceReportButton } from './compliance-report-button';
 
 export function PermissionsAuditClient() {
@@ -75,10 +76,11 @@ export function PermissionsAuditClient() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
-          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-5 lg:grid-cols-10'>
+          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-6 lg:grid-cols-11'>
             <TabsTrigger value='ask'>Ask</TabsTrigger>
             <TabsTrigger value='activity'>What Changed</TabsTrigger>
             <TabsTrigger value='unified'>Unified Access</TabsTrigger>
+            <TabsTrigger value='module-access'>Module → Roles</TabsTrigger>
             <TabsTrigger value='rls'>RLS Audit</TabsTrigger>
             <TabsTrigger value='health'>System Health</TabsTrigger>
             <TabsTrigger value='resolver'>User Resolver</TabsTrigger>
@@ -98,6 +100,10 @@ export function PermissionsAuditClient() {
 
           <TabsContent value='unified'>
             <UnifiedAccessMapTab />
+          </TabsContent>
+
+          <TabsContent value='module-access'>
+            <ModuleAccessTab />
           </TabsContent>
 
           <TabsContent value='rls'>
