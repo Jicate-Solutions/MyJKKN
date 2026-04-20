@@ -401,3 +401,15 @@ curl -X POST "https://api.vercel.com/v1/integrations/deploy/prj_yH37MwPX0aAAUXNj
 - Real initiateCall(), webhook handlers, SMS provider
 - Agent mapping (34 co-workers), developer handoff package
 - 250 calls backfilled to staging, Exotel credentials configured
+
+### Continuation Prompt (2026-04-20 /cnext)
+
+(Saved at .claude/continuation-prompt.02078887.md — auto-loads via SessionStart hook on /clear; session-key 02078887 scopes to this terminal pane only)
+
+P0 (verbatim from interview): "enitre solutions hub module"
+Drops: Nothing
+Must-read: Nothing
+
+Brief flags 5-interpretation ambiguity since Solutions Hub shipped 5 days ago.
+Next session MUST disambiguate via AskUserQuestion before any significant work.
+
