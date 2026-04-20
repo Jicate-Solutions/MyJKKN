@@ -12,7 +12,8 @@ export const SYSTEM_ROLES = {
   DRIVER: 'driver',
   PARENT: 'parent',
   HOD: 'hod',
-  PRINCIPAL: 'principal'
+  PRINCIPAL: 'principal',
+  NIF_COORDINATOR: 'nif_coordinator'
 } as const;
 
 export type Gender = 'male' | 'female' | 'other' | 'prefer_not_to_say';

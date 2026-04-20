@@ -668,6 +668,116 @@ export const PERMISSION_CATEGORIES = [
 
       // Checklists
       { key: 'startup_studio.checklists.manage', label: 'Manage Event Checklists' },
+
+      // -----------------------------------------------------------------
+      // NIF Coordinator substrate (PR-0, 2026-04-20)
+      // SF100 granular CRUD + umbrella keys for remaining Studio submodules.
+      // Seeded into custom_roles.nif_coordinator by migration
+      //   20260420000001_nif_coordinator_role_and_audit.sql
+      // -----------------------------------------------------------------
+
+      // SF100 — Programs
+      { key: 'startup_studio.sf100.program.view', label: 'SF100 — View Programs' },
+      { key: 'startup_studio.sf100.program.create', label: 'SF100 — Create Programs' },
+      { key: 'startup_studio.sf100.program.edit', label: 'SF100 — Edit Programs' },
+      { key: 'startup_studio.sf100.program.archive', label: 'SF100 — Archive Programs (soft)' },
+      // Note: startup_studio.sf100.program.delete intentionally reserved for super_admin only
+
+      // SF100 — Teams (Enrollments)
+      { key: 'startup_studio.sf100.team.view', label: 'SF100 — View Teams' },
+      { key: 'startup_studio.sf100.team.create', label: 'SF100 — Create Teams (enroll)' },
+      { key: 'startup_studio.sf100.team.edit', label: 'SF100 — Edit Team Details' },
+      { key: 'startup_studio.sf100.team.archive', label: 'SF100 — Archive Teams (soft delete)' },
+      { key: 'startup_studio.sf100.team.transfer', label: 'SF100 — Approve Team Transfers' },
+      // Note: startup_studio.sf100.team.delete (hard purge) reserved for super_admin only
+
+      // SF100 — Team Members
+      { key: 'startup_studio.sf100.member.view', label: 'SF100 — View Team Members' },
+      { key: 'startup_studio.sf100.member.create', label: 'SF100 — Add Team Members' },
+      { key: 'startup_studio.sf100.member.edit', label: 'SF100 — Edit Team Member Details' },
+      { key: 'startup_studio.sf100.member.remove', label: 'SF100 — Remove Team Members' },
+      { key: 'startup_studio.sf100.member.transfer', label: 'SF100 — Transfer Member Between Teams' },
+
+      // SF100 — Check-ins
+      { key: 'startup_studio.sf100.check_in.view', label: 'SF100 — View Check-ins' },
+      { key: 'startup_studio.sf100.check_in.create', label: 'SF100 — Create Check-ins (incl. on-behalf-of-team)' },
+      { key: 'startup_studio.sf100.check_in.edit', label: 'SF100 — Edit Check-ins' },
+      { key: 'startup_studio.sf100.check_in.delete', label: 'SF100 — Delete Check-ins (triggers metric recompute)' },
+
+      // SF100 — Paid Users
+      { key: 'startup_studio.sf100.paid_user.view', label: 'SF100 — View Paid Users' },
+      { key: 'startup_studio.sf100.paid_user.create', label: 'SF100 — Add Paid Users' },
+      { key: 'startup_studio.sf100.paid_user.edit', label: 'SF100 — Edit Paid Users' },
+      { key: 'startup_studio.sf100.paid_user.delete', label: 'SF100 — Delete Paid Users (triggers revenue recompute)' },
+      { key: 'startup_studio.sf100.paid_user.verify', label: 'SF100 — Verify Paid Users' },
+      { key: 'startup_studio.sf100.paid_user.churn', label: 'SF100 — Mark Paid Users Churned' },
+
+      // SF100 — Customer Interviews
+      { key: 'startup_studio.sf100.interview.view', label: 'SF100 — View Customer Interviews' },
+      { key: 'startup_studio.sf100.interview.create', label: 'SF100 — Create Customer Interviews' },
+      { key: 'startup_studio.sf100.interview.edit', label: 'SF100 — Edit Customer Interviews' },
+      { key: 'startup_studio.sf100.interview.delete', label: 'SF100 — Delete Customer Interviews' },
+
+      // SF100 — Pivots
+      { key: 'startup_studio.sf100.pivot.view', label: 'SF100 — View Pivots' },
+      { key: 'startup_studio.sf100.pivot.create', label: 'SF100 — Record Pivots' },
+      { key: 'startup_studio.sf100.pivot.edit', label: 'SF100 — Edit Pivots' },
+      { key: 'startup_studio.sf100.pivot.delete', label: 'SF100 — Delete Pivots' },
+
+      // SF100 — Exercises
+      { key: 'startup_studio.sf100.exercise.view', label: 'SF100 — View Exercises' },
+      { key: 'startup_studio.sf100.exercise.create', label: 'SF100 — Create Exercises' },
+      { key: 'startup_studio.sf100.exercise.edit', label: 'SF100 — Edit Exercises' },
+      { key: 'startup_studio.sf100.exercise.delete', label: 'SF100 — Delete Exercises' },
+      { key: 'startup_studio.sf100.exercise.respond', label: 'SF100 — Submit Exercise Responses' },
+
+      // SF100 — Roster Changes
+      { key: 'startup_studio.sf100.roster_change.view', label: 'SF100 — View Roster Change Queue' },
+      { key: 'startup_studio.sf100.roster_change.approve', label: 'SF100 — Approve/Reject Roster Changes' },
+      { key: 'startup_studio.sf100.roster_change.cancel', label: 'SF100 — Cancel Pending Roster Change' },
+
+      // SF100 — Audit Log
+      { key: 'startup_studio.sf100.audit_log.view', label: 'SF100 — View Audit Log' },
+
+      // NIF Pipeline (Nattraja Incubation Forum)
+      { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
+      { key: 'startup_studio.nif.manage', label: 'NIF — Manage Candidates' },
+      { key: 'startup_studio.nif.advance', label: 'NIF — Advance Stage' },
+      { key: 'startup_studio.nif.reject', label: 'NIF — Reject Candidate' },
+
+      // Other Studio submodules — umbrella keys (granular refinement as CRUD matures)
+      { key: 'startup_studio.problem_bank.view', label: 'Problem Bank — View' },
+      { key: 'startup_studio.problem_bank.manage', label: 'Problem Bank — Manage' },
+      { key: 'startup_studio.mentors.view', label: 'Mentors — View' },
+      { key: 'startup_studio.mentors.manage', label: 'Mentors — Manage' },
+      { key: 'startup_studio.portfolio.view', label: 'Portfolio — View' },
+      { key: 'startup_studio.portfolio.manage', label: 'Portfolio — Manage' },
+      { key: 'startup_studio.cycles.view', label: 'Cycles — View' },
+      { key: 'startup_studio.cycles.manage', label: 'Cycles — Manage' },
+      { key: 'startup_studio.graduation.view', label: 'Graduation — View' },
+      { key: 'startup_studio.graduation.manage', label: 'Graduation — Manage' },
+      { key: 'startup_studio.trl.view', label: 'TRL — View' },
+      { key: 'startup_studio.trl.manage', label: 'TRL — Manage' },
+      { key: 'startup_studio.kpi.view', label: 'KPI — View' },
+      { key: 'startup_studio.kpi.manage', label: 'KPI — Manage' },
+      { key: 'startup_studio.finance.view', label: 'Finance/Grants — View' },
+      { key: 'startup_studio.finance.manage', label: 'Finance/Grants — Manage' },
+      { key: 'startup_studio.marketing.view', label: 'Marketing — View' },
+      { key: 'startup_studio.marketing.manage', label: 'Marketing — Manage' },
+      { key: 'startup_studio.analytics.view', label: 'Analytics — View' },
+      { key: 'startup_studio.alumni.view', label: 'Alumni — View' },
+      { key: 'startup_studio.alumni.manage', label: 'Alumni — Manage' },
+      { key: 'startup_studio.governance.view', label: 'Governance — View' },
+      { key: 'startup_studio.governance.manage', label: 'Governance — Manage' },
+      { key: 'startup_studio.competitive.view', label: 'Competitive Intel — View' },
+      { key: 'startup_studio.competitive.manage', label: 'Competitive Intel — Manage' },
+      { key: 'startup_studio.risk.view', label: 'Risk Register — View' },
+      { key: 'startup_studio.risk.manage', label: 'Risk Register — Manage' },
+      { key: 'startup_studio.pipeline.view', label: 'Pipeline — View' },
+      { key: 'startup_studio.pipeline.manage', label: 'Pipeline — Manage' },
+      { key: 'startup_studio.teams.view', label: 'Teams — View' },
+      { key: 'startup_studio.teams.manage', label: 'Teams — Manage' },
+      { key: 'startup_studio.notify.send', label: 'Notifications — Send to Studio Participants' },
     ]
   },
   {
