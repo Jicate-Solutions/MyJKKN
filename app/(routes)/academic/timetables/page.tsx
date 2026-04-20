@@ -102,7 +102,8 @@ export default async function TimetablesPage({
         : search.is_template === 'false'
         ? false
         : undefined,
-    timetableFormat: search.timetable_type as 'section' | 'semester' | undefined
+    timetableFormat: search.timetable_type as 'section' | 'semester' | undefined,
+    search: (search.search as string) || undefined
   };
 
   // Fetch data server-side with caching

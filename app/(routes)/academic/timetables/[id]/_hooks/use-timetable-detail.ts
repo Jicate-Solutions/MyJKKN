@@ -211,8 +211,18 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
     setState(prev => ({ ...prev, loading: true, error: null }));
 
     try {
-      // Fetch main timetable record
-      const timetableData = await TimetableService.getTimetable(timetableId);
+      // Fetch main timetable record. If the service throws DRP_PLACEHOLDER
+      // (unresolved Next.js 16 route param), treat it as still loading.
+      let timetableData;
+      try {
+        timetableData = await TimetableService.getTimetable(timetableId);
+      } catch (svcErr: any) {
+        if (svcErr?.code === 'DRP_PLACEHOLDER') {
+          logger.dev('academic/timetables', 'DRP placeholder caught at service boundary — keep loading', { timetableId });
+          return; // keep loading=true silently
+        }
+        throw svcErr;
+      }
 
       // Kick off parallel operations immediately after timetable resolves
       const attendanceStatusPromise = TimetableService.hasAttendanceMarked(timetableId);

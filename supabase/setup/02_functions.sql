@@ -8143,6 +8143,16 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION public.get_geography_analytics(uuid, uuid) TO authenticated;
+
+-- Updated: 2026-04-18 - Grant HOD role staff planning create/edit permissions [BUG-002585]
+-- HOD users were blocked by RLS 42501 error when creating staff plans because
+-- academic.staff.planning.edit was missing from the HOD custom_role permissions JSONB.
+-- Granted: academic.staff.planning.edit, academic.staff.planning.create, academic.staff.planning.view
+UPDATE custom_roles
+SET
+  permissions = permissions || '{"academic.staff.planning.edit": true, "academic.staff.planning.create": true, "academic.staff.planning.view": true}'::jsonb,
+  updated_at = NOW()
+WHERE role_key = 'hod';
 -- END SEAT ANALYTICS RPCs
 
 -- ================================================================================

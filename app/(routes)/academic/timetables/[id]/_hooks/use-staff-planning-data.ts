@@ -12,6 +12,16 @@ interface UseStaffPlanningDataResult {
   // Loading state
   loading: boolean;
 
+  // True when the fetch completed but no staff plan exists for this
+  // (institution, program, semester, academic_year). Distinct from `loading`
+  // so the UI can render an actionable "create staff plan" banner instead
+  // of an empty state that looks broken.
+  isStaffPlanEmpty: boolean;
+
+  // True when a fetch has completed at least once (avoids showing the
+  // empty-state banner during initial load).
+  hasFetched: boolean;
+
   // Actions
   refetch: () => Promise<void>;
 }
@@ -28,6 +38,7 @@ export function useStaffPlanningData(
   const [staffPlanningCourses, setStaffPlanningCourses] = useState<any[]>([]);
   const [staffPlanningStaff, setStaffPlanningStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hasFetched, setHasFetched] = useState(false);
 
   // Extract stable primitive values from timetable to use in dependencies
   // This prevents callback recreation when timetable reference changes but values are same
@@ -173,6 +184,7 @@ export function useStaffPlanningData(
       setStaffPlanningStaff([]);
     } finally {
       setLoading(false);
+      setHasFetched(true);
     }
   }, [timetableId, institutionId, degreeId, programId, departmentId, semesterId, academicYearId]);
 
@@ -183,10 +195,15 @@ export function useStaffPlanningData(
     }
   }, [timetableId, fetchStaffPlanningData]);
 
+  const isStaffPlanEmpty =
+    hasFetched && !loading && staffPlanningCourses.length === 0 && staffPlanningStaff.length === 0;
+
   return {
     staffPlanningCourses,
     staffPlanningStaff,
     loading,
+    isStaffPlanEmpty,
+    hasFetched,
     refetch: fetchStaffPlanningData
   };
 }

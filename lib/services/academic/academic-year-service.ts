@@ -412,10 +412,11 @@ export class AcademicYearService {
   }
 
   static async getAcademicYearsByInstitution(
-    institutionId: string
+    institutionId: string,
+    includeInactive: boolean = false
   ): Promise<AcademicYear[]> {
     try {
-      const { data: academicYears, error } = await this.supabase
+      let query = this.supabase
         .from('academic_years')
         .select(
           `
@@ -427,9 +428,13 @@ export class AcademicYearService {
           )
         `
         )
-        .eq('institution_id', institutionId)
-        .eq('is_active', true)
-        .order('start_date', { ascending: false });
+        .eq('institution_id', institutionId);
+
+      if (!includeInactive) {
+        query = query.eq('is_active', true);
+      }
+
+      const { data: academicYears, error } = await query.order('start_date', { ascending: false });
 
       if (error) throw error;
 

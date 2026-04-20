@@ -32,6 +32,7 @@ export interface TimetablesFilters {
   isActive?: boolean;
   isTemplate?: boolean;
   timetableFormat?: 'section' | 'semester';
+  search?: string;
   page?: number;
   pageSize?: number;
 }
@@ -116,6 +117,15 @@ export const getTimetables = cache(async function getTimetables(
   }
   if (filters.timetableFormat) {
     query = query.eq('timetable_type', filters.timetableFormat);
+  }
+  // Broadened 2026-04-18 — previously the list search was not wired into the
+  // server fetcher at all, so `?search=theory` was silently ignored. Now the
+  // search matches timetable_name, template_name, and template_description.
+  if (filters.search) {
+    const term = filters.search.replace(/'/g, "''").replace(/[%_]/g, '');
+    query = query.or(
+      `timetable_name.ilike.%${term}%,template_name.ilike.%${term}%,template_description.ilike.%${term}%`
+    );
   }
 
   const { data, error, count } = await query;

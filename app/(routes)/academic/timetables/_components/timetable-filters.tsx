@@ -451,7 +451,10 @@ export function TimetableFilters({
               value === 'all' ? undefined : value
             );
           }}
-          disabled={!searchParams.institution_id}
+          // Use effectiveInstitutionId (falls back to user's own institution)
+          // so HODs / non-super-admins can pick an academic year immediately,
+          // without waiting for the server-side institution auto-set round-trip.
+          disabled={!effectiveInstitutionId}
         >
           <SelectTrigger className='w-full sm:w-[180px]'>
             <SelectValue placeholder='Select academic year' />

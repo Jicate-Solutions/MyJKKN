@@ -229,7 +229,7 @@ export default function TimetableDetailPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // Staff planning data
-  const { staffPlanningCourses, staffPlanningStaff } =
+  const { staffPlanningCourses, staffPlanningStaff, isStaffPlanEmpty } =
     useStaffPlanningData(timetable);
 
   // Additional loading states (not from hook)
@@ -1287,6 +1287,36 @@ export default function TimetableDetailPage() {
                     Please configure periods to start creating your timetable.
                     Click the &quot;Configure Periods&quot; button above to get started.
                   </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Warning if no staff plan exists — without one, slot dialog course/staff
+            dropdowns are empty and HODs cannot assign anything to slots.
+            Prior behavior: silent empty dropdowns confused users into thinking
+            the system was broken. Now we surface the root cause + action link. */}
+        {isStaffPlanEmpty && selectedPeriods.length > 0 && (
+          <Card className='border-orange-200 bg-orange-50'>
+            <CardContent className='pt-6'>
+              <div className='flex items-start gap-3'>
+                <AlertCircle className='h-5 w-5 text-orange-600 mt-0.5' />
+                <div className='flex-1'>
+                  <h3 className='font-semibold text-orange-900'>
+                    No Staff Planning Data
+                  </h3>
+                  <p className='text-sm text-orange-700 mt-1'>
+                    No courses/staff are assigned in Staff Planning for this
+                    program &amp; semester. Slots will have empty dropdowns until
+                    a staff plan is created.
+                  </p>
+                  <a
+                    href='/academic/staff-planning'
+                    className='inline-block mt-2 text-sm font-medium text-orange-800 underline hover:text-orange-900'
+                  >
+                    Open Staff Planning →
+                  </a>
                 </div>
               </div>
             </CardContent>
