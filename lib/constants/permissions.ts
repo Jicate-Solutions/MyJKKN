@@ -897,6 +897,41 @@ export const PERMISSION_CATEGORIES = [
       // Export (NAAC / NBA / accreditation reporting downstream)
       { key: 'okr.export', label: 'Export OKR Data' }
     ]
+  },
+  {
+    name: 'Accreditation',
+    key: 'accreditation',
+    permissions: [
+      // Landing + coverage (PR-A7)
+      { key: 'accreditation.view', label: 'View Accreditation Landing' },
+      { key: 'accreditation.coverage.view', label: 'View Cross-Body Coverage Matrix' },
+
+      // NAAC IQAC committees (PR-A8 c2)
+      { key: 'accreditation.naac.view', label: 'View NAAC Dashboard' },
+      { key: 'accreditation.naac.committees.view', label: 'View IQAC Committees' },
+      { key: 'accreditation.naac.committees.create', label: 'Create IQAC Committees' },
+      { key: 'accreditation.naac.committees.edit', label: 'Edit IQAC Committees' },
+      { key: 'accreditation.naac.committees.delete', label: 'Deactivate IQAC Committees' },
+      { key: 'accreditation.naac.committees.members.manage', label: 'Manage IQAC Committee Members' },
+
+      // NAAC DCF 2025 / AQAR export (super-admin path)
+      { key: 'accreditation.naac.dcf_export', label: 'Export NAAC DCF / AQAR Workbook' },
+
+      // NAAC 8.4 Learning Experience Survey + DPDPA 2023 consent
+      { key: 'accreditation.naac.surveys.consent.submit', label: 'Submit DPDPA Consent' },
+      { key: 'accreditation.naac.surveys.export', label: 'Export NAAC 8.4 Survey Data' },
+
+      // Per-body dashboards (PR-A9 through PR-A15)
+      { key: 'accreditation.nirf.view', label: 'View NIRF Dashboard' },
+      { key: 'accreditation.nba.view', label: 'View NBA Dashboard' },
+      { key: 'accreditation.qs.view', label: 'View QS Dashboard (Phase 2+)' },
+      { key: 'accreditation.dci.view', label: 'View DCI Dashboard' },
+      { key: 'accreditation.pci.view', label: 'View PCI Dashboard' },
+      { key: 'accreditation.inc.view', label: 'View INC Dashboard' },
+      { key: 'accreditation.ncte.view', label: 'View NCTE Dashboard' },
+      { key: 'accreditation.aicte.view', label: 'View AICTE Dashboard' },
+      { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' }
+    ]
   }
 ];
 

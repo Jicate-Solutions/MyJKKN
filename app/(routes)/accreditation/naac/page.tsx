@@ -259,7 +259,7 @@ export default function NAACDashboardPage() {
               </div>
             </div>
 
-            {/* Quick actions — sub-routes not yet built; placeholders */}
+            {/* Quick actions — PR-A8 c2 sub-routes live */}
             <div className="mt-4 flex flex-wrap gap-2">
               <Link href="/accreditation/coverage">
                 <Button variant="outline" size="sm">
@@ -267,18 +267,30 @@ export default function NAACDashboardPage() {
                   Coverage matrix
                 </Button>
               </Link>
-              <Button variant="outline" size="sm" disabled title="Lands in PR-A8 commit 2">
-                <Users className="mr-2 h-4 w-4" />
-                IQAC committees (soon)
-              </Button>
-              <Button variant="outline" size="sm" disabled title="Lands in PR-A8 commit 2">
-                <FileText className="mr-2 h-4 w-4" />
-                DCF 2025 / AQAR export (soon)
-              </Button>
-              <Button variant="outline" size="sm" disabled title="Lands in PR-A8 commit 2">
-                <Download className="mr-2 h-4 w-4" />
-                8.4 Survey export (soon)
-              </Button>
+              <Link href="/accreditation/naac/committees">
+                <Button variant="outline" size="sm">
+                  <Users className="mr-2 h-4 w-4" />
+                  IQAC committees
+                </Button>
+              </Link>
+              <Link href="/accreditation/naac/dcf-export">
+                <Button variant="outline" size="sm">
+                  <FileText className="mr-2 h-4 w-4" />
+                  DCF 2025 / AQAR export
+                </Button>
+              </Link>
+              <Link href="/accreditation/naac/surveys/consent">
+                <Button variant="outline" size="sm">
+                  <Award className="mr-2 h-4 w-4" />
+                  Survey consent
+                </Button>
+              </Link>
+              <Link href="/accreditation/naac/surveys/8.4-export">
+                <Button variant="outline" size="sm">
+                  <Download className="mr-2 h-4 w-4" />
+                  8.4 Survey export
+                </Button>
+              </Link>
             </div>
           </CardContent>
         </Card>
