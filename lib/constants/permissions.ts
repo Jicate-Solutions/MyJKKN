@@ -123,6 +123,132 @@ export const PERMISSION_GROUPS = [
     name: 'Contribute',
     description: 'Can view, create and edit but cannot delete',
     permissions: ['view', 'create', 'edit']
+  },
+  {
+    // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
+    // for every /solutions/* route on production (jicate/main). Scope is
+    // read/view today — write actions are guarded at the service layer.
+    name: 'Solutions Hub',
+    key: 'solutions',
+    permissions: [
+      // Dashboard
+      { key: 'solutions.dashboard.view', label: 'View Solutions Dashboard' },
+
+      // Pipeline
+      { key: 'solutions.pipeline.view', label: 'View Solutions Pipeline' },
+      { key: 'solutions.pipeline.analytics.view', label: 'View Pipeline Analytics' },
+
+      // Parties
+      { key: 'solutions.clients.view', label: 'View Clients' },
+      { key: 'solutions.builders.view', label: 'View Builders' },
+
+      // Training
+      { key: 'solutions.training.view', label: 'View Training' },
+      { key: 'solutions.training.programs.view', label: 'View Training Programs' },
+      { key: 'solutions.training.sessions.view', label: 'View Training Sessions' },
+      { key: 'solutions.training.cohort.view', label: 'View Training Cohorts' },
+
+      // Content
+      { key: 'solutions.content.view', label: 'View Content' },
+      { key: 'solutions.content.deliverables.view', label: 'View Content Deliverables' },
+      { key: 'solutions.content.production.view', label: 'View Content Production' },
+      { key: 'solutions.content.queue.view', label: 'View Content Queue' },
+
+      // Finance
+      { key: 'solutions.payments.view', label: 'View Payments' },
+      { key: 'solutions.earnings.view', label: 'View Earnings' },
+
+      // Discovery & Outputs
+      { key: 'solutions.discovery.view', label: 'View Discovery' },
+      { key: 'solutions.publications.view', label: 'View Publications' },
+      { key: 'solutions.products.view', label: 'View Products' },
+
+      // Software
+      { key: 'solutions.software.view', label: 'View Software Solutions' },
+      { key: 'solutions.software.builders.view', label: 'View Software Builders' },
+      { key: 'solutions.software.phases.view', label: 'View Software Phases' },
+
+      // Specialty Tracks
+      { key: 'solutions.matlab.view', label: 'View MATLAB Track' },
+      { key: 'solutions.paradigm_shift.view', label: 'View Paradigm Shift' },
+
+      // Compliance
+      { key: 'solutions.compliance.view', label: 'View AI Solution Compliance' }
+    ]
+  },
+  {
+    // Baseline-only: campus-living was abandoned on clean-ss-deploy; no
+    // campus_living.* keys are enforced in lib/sidebarMenuLink.ts on this
+    // branch (confirmed 2026-04-20). Seeded `.view` pending resurrection.
+    name: 'Campus Living',
+    key: 'campus_living',
+    permissions: [
+      { key: 'campus_living.view', label: 'View Campus Living' }
+    ]
+  },
+  {
+    // Baseline-only: app/api/documents/ exists but no documents.* permission
+    // keys are enforced in lib/sidebarMenuLink.ts or in route guards on this
+    // branch. Seeded `.view` until documents module adds enforcement.
+    name: 'Documents',
+    key: 'documents',
+    permissions: [
+      { key: 'documents.view', label: 'View Documents' }
+    ]
+  },
+  {
+    // Baseline-only: app/(routes)/learners-council/ exists but no
+    // learners_council.* keys are enforced in lib/sidebarMenuLink.ts or in
+    // route guards on this branch. Seeded `.view` pending enforcement PR.
+    name: 'Learners Council',
+    key: 'learners_council',
+    permissions: [
+      { key: 'learners_council.view', label: 'View Learners Council' }
+    ]
+  },
+  {
+    // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
+    // for every /learn/* route. PDE is the Personal Development Engine shipped
+    // under the /learn namespace.
+    name: 'PDE (Personal Development Engine)',
+    key: 'pde',
+    permissions: [
+      { key: 'pde.quests.view', label: 'View Quests' },
+      { key: 'pde.capabilities.view', label: 'View Capabilities' },
+      { key: 'pde.build.view', label: 'View Build Hub' },
+      { key: 'pde.channels.view', label: 'View Channels' },
+      { key: 'pde.profile.view', label: 'View Learner Profile' },
+      { key: 'pde.leaderboard.view', label: 'View Leaderboard' }
+    ]
+  },
+  {
+    // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
+    // for every /vac/* route. Includes the single `.create` key enforced on
+    // /vac/admin/courses/new — every other action is view-only at the sidebar
+    // level (write actions are service-layer guarded).
+    name: 'Value-Added Courses',
+    key: 'vac',
+    permissions: [
+      // Learner-facing
+      { key: 'vac.courses.view', label: 'View VAC Catalogue' },
+      { key: 'vac.my_courses.view', label: 'View My Courses' },
+      { key: 'vac.progress.view', label: 'View My Progress' },
+      { key: 'vac.case.view', label: 'View CASE Track' },
+
+      // Admin
+      { key: 'vac.admin.view', label: 'View VAC Admin' },
+      { key: 'vac.admin.courses.view', label: 'View Admin Courses' },
+      { key: 'vac.admin.courses.create', label: 'Create Admin Course' },
+      { key: 'vac.admin.enrollments.view', label: 'View Enrollments' },
+      { key: 'vac.admin.analytics.view', label: 'View VAC Analytics' },
+      { key: 'vac.admin.settings.view', label: 'View VAC Settings' },
+
+      // CASE admin
+      { key: 'vac.admin.case.view', label: 'View CASE Admin' },
+      { key: 'vac.admin.case.tracks.view', label: 'View CASE Tracks' },
+      { key: 'vac.admin.case.batches.view', label: 'View CASE Batches' },
+      { key: 'vac.admin.case.readiness.view', label: 'View CASE Readiness' }
+    ]
   }
 ];
 
