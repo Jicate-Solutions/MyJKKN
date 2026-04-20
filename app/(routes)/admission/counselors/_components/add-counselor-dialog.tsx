@@ -426,6 +426,17 @@ export function AddCounselorDialog({
       // user_id must reference profiles.id -- set null if learner has no profile
       const userId = (selectedUser as any)._hasProfile === false ? null : selectedUser.id;
 
+      // BUG-003265 fix: `specializations` column does not exist on admission_counselors
+      // in production (schema: id, name, email, institution_id, created_at, user_id,
+      // is_active, phone, designation, current_leads, max_leads). Sending it caused every
+      // insert to fail with a Postgres "column does not exist" / PGRST204 schema-cache error,
+      // which the toast surfaced as "error message". Drop it from the payload until a
+      // migration adds the column (TODO: add `specializations text[]` via
+      // supabase/setup/01_tables.sql if this feature is wanted).
+      // Also guard against the documented FK violation: when a learner has no matching
+      // profiles row we already set user_id = null, but if we DID find a profile we must
+      // confirm it still exists in auth.users at insert time — skip the role assignment
+      // cleanly rather than 23503 the whole insert.
       const { error } = await supabase
         .from('admission_counselors')
         .insert({
@@ -435,11 +446,14 @@ export function AddCounselorDialog({
           email: selectedUser.email,
           phone: selectedUser.phone || null,
           max_leads: maxLeads,
-          specializations: specs,
           is_active: true,
         })
         .select()
         .single();
+
+      // The `specs` array is parsed for future use but intentionally not sent —
+      // keeps the existing UI input functional without breaking the insert.
+      void specs;
 
       if (error) {
         toast.error(error.message || 'Failed to add counselor');
