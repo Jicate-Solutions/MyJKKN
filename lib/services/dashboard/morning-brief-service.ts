@@ -20,6 +20,12 @@ export type MorningBrief = {
   ok: boolean;
   greeting: string;
   name: string;
+  /**
+   * Caller's profiles.role. Used by the client to filter persona-specific
+   * chips (e.g., "Cold leads" renders only for admission-adjacent roles).
+   * Null for unauthenticated / profileless callers (fallback UI rules).
+   */
+  role: string | null;
   date_ist: string;
   yesterday: {
     closed: number;
@@ -39,11 +45,31 @@ const EMPTY_BRIEF: MorningBrief = {
   ok: false,
   greeting: 'Hello',
   name: 'Director',
+  role: null,
   date_ist: new Date().toISOString().slice(0, 10),
   yesterday: { closed: 0, auto_escalated: 0, rescues_claimed: 0 },
   today: { pending_urgent: 0, pending_high: 0, cold_leads: 0, carried_over: 0 },
   top_priorities: []
 };
+
+/**
+ * Roles that actually act on admission leads. "Cold leads" and other
+ * admission-funnel metrics render only for these personas. Students,
+ * faculty, HODs, and accounts never see the admission chip.
+ */
+export const ADMISSION_ROLES = new Set<string>([
+  'counselor',
+  'admission',
+  'admission_staff',
+  'admin',
+  'super_admin',
+  'administrator',
+  'principal'
+]);
+
+export function isAdmissionRole(role: string | null | undefined): boolean {
+  return !!role && ADMISSION_ROLES.has(role);
+}
 
 export async function getMorningBrief(): Promise<MorningBrief> {
   try {

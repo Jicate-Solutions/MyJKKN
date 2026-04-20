@@ -7,7 +7,10 @@
  * Spec: specs/myjkkn-dashboard-v2-spec.md §7.7
  */
 
-import { MorningBrief } from '@/lib/services/dashboard/morning-brief-service';
+import {
+  MorningBrief,
+  isAdmissionRole
+} from '@/lib/services/dashboard/morning-brief-service';
 import { MorningBriefDismissible } from './morning-brief-dismissible';
 import { queueTypeEmoji } from '@/lib/services/dashboard/decision-queue-service';
 
@@ -80,7 +83,11 @@ export function MorningBriefCard({ brief }: MorningBriefCardProps) {
             </div>
           </header>
 
-          {/* Today's at-a-glance */}
+          {/* Today's at-a-glance — chips are role-aware.
+              Cold leads is an admission-funnel metric that only renders
+              for admission-adjacent roles (counselor, admission, admin,
+              super_admin, administrator, principal). Students, faculty,
+              HODs, and accounts see only Urgent / High / Carried over. */}
           <div className='flex flex-wrap gap-2'>
             <StatChip
               label='Urgent'
@@ -92,11 +99,13 @@ export function MorningBriefCard({ brief }: MorningBriefCardProps) {
               value={brief.today.pending_high}
               accent={brief.today.pending_high > 0 ? 'amber' : 'neutral'}
             />
-            <StatChip
-              label='Cold leads'
-              value={brief.today.cold_leads}
-              accent={brief.today.cold_leads > 0 ? 'rose' : 'emerald'}
-            />
+            {isAdmissionRole(brief.role) && (
+              <StatChip
+                label='Cold leads'
+                value={brief.today.cold_leads}
+                accent={brief.today.cold_leads > 0 ? 'rose' : 'emerald'}
+              />
+            )}
             <StatChip
               label='Carried over'
               value={brief.today.carried_over}
