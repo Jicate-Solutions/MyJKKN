@@ -1,3 +1,41 @@
+## Session: 2026-04-20 (End / cnext) — Brief handoff; user-stated P0 = "entire solutions hub module"
+
+### Session scope
+- Resumed (after gap since 2026-04-17 Compliance Unification work)
+- Ran `/cnext` to formalize handoff — no new code shipped this session
+- Captured 3-question end-of-session interview verbatim:
+  - **P0 (verbatim):** "enitre solutions hub module" (typo of "entire")
+  - **Do not drop:** "Nothing — keep all recent context available"
+  - **Must-read first:** "Nothing — context is sufficient from the brief alone"
+
+### Prior context still relevant for next session (do NOT re-investigate)
+- **Solutions Hub module is LIVE on production** (PR #162 merged 2026-04-14, PR #164 RDIF runtime fix merged 2026-04-14)
+- 32/32 SH pages render, 27/27 button actions verified in browser via proper pointer-event methodology
+- 11 DB migrations applied to prod Supabase (kvizhngldtiuufknvehv): 41 sh_* tables, 44 dept_tracker rows seeded, 9 RDIF prereqs seeded, 5 new roles, sh_documents bucket
+- Compliance Unification Program: 10 of 15 PRs merged through 2026-04-17 (PR #236 PR-A8 c1 was open at session end)
+- Recent commits (last 24h): permissions-audit dashboard tabs (Role→Modules, Unified Map, Simulator), auth FK disambiguation fix
+- Open PRs on Jicate-Solutions/MyJKKN: #244 (academic/timetables 23-bug sweep), and possibly newer
+- Current branch: `feat/events-module`
+
+### Lessons captured this session (already in memory)
+- `feedback_radix_synthetic_click.md` — JS .click() doesn't trigger Radix UI; need PointerEvent + main scoping. Indexed in MEMORY.md.
+- 7 skills updated with Radix verification protocol: myjkkn-chain (§1a), deploy-myjkkn (Lesson 9), ship-myjkkn (Lessons row 2026-04-15), silent-failure-auditor, app-cloner, vibe-coder, myjkkn-module
+
+### Current Status
+- **Branch**: feat/events-module
+- **Build**: passing on jicate/main as of last verified deploy
+- **Production Supabase**: 41 sh_* tables live, all migrations applied
+- **Vercel production**: deployed and serving (verified via browser session through Apr 15)
+
+### Next Session — Tasks (P0 = user-verbatim ask)
+
+1. [P0] Clarify what "entire solutions hub module" means as the focus — is it (a) continue building/extending features, (b) audit & test all of it end-to-end, (c) populate with real client data, (d) refactor/restructure, or (e) something else? **Ask Omm before doing any work.**
+2. [P0] Once scope is clear, execute against it. Module file inventory: 122 API routes (`app/api/solutions/`), 106 pages (`app/(routes)/solutions/`), 31 services (`lib/services/solutions/`), 27 hooks (`hooks/solutions/`), 62 components (`components/solutions/`).
+3. [P1] Carry forward (do NOT drop): Compliance Unification Program PRs A9-A15, telephony Fix 3 handoff package, PR #244 timetables sweep, permissions-audit work — they may resurface as related to Solutions Hub or get reprioritized after the P0 clarification.
+4. [P2] If Solutions Hub work uncovers any client-facing UI changes, run the proper pointer-event Action Inventory sweep (per `myjkkn-chain` § 1a) — do NOT rely on synthetic `.click()`.
+
+---
+
 ## Session: 2026-04-17 (End) — Compliance Unification Program: 10 PRs shipped, substrate + landing + retrofits live
 
 ### Accomplished
