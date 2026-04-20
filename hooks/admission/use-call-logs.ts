@@ -54,6 +54,8 @@ export function useCallLogs(filters: CallLogFilters) {
       if (filters.admission_only !== undefined) params.set('admission_only', String(filters.admission_only));
       if (filters.page) params.set('page', String(filters.page));
       if (filters.limit) params.set('limit', String(filters.limit));
+      if (filters.sort_by) params.set('sort_by', filters.sort_by);
+      if (filters.sort_order) params.set('sort_order', filters.sort_order);
 
       const res = await fetch(`/api/admission/calls?${params.toString()}`);
       if (!res.ok) {

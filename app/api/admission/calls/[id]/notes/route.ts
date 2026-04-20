@@ -91,16 +91,21 @@ export async function PUT(
       }
     }
 
+    // Pass fields through untouched. The service uses `!== undefined` to
+    // decide whether to include a column in the UPDATE set, so missing fields
+    // must stay undefined (not coerced to null) — otherwise saving only the
+    // legacy notes/disposition/follow_up_date would wipe sentiment, objection,
+    // outcome, next_action, and follow_up_at written by the list dialog.
     const updatedLog = await TelephonyService.updateCallNotes(id, {
       call_notes,
       call_disposition: call_disposition as CallDisposition,
-      follow_up_date: follow_up_date || null,
-      follow_up_at: follow_up_at || null,
-      call_outcome: call_outcome || null,
-      prospect_sentiment: prospect_sentiment || null,
-      primary_objection: primary_objection || null,
-      next_action: next_action || null,
-      updated_by: user.id, // Track who updated the notes
+      follow_up_date,
+      follow_up_at,
+      call_outcome,
+      prospect_sentiment,
+      primary_objection,
+      next_action,
+      updated_by: user.id,
     }, supabase);
 
     return NextResponse.json({
