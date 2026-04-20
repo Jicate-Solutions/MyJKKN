@@ -20,6 +20,7 @@ import { AIDebuggerTab } from './ai-debugger-tab';
 import { AskTab } from './ask-tab';
 import { ActivityTimelineTab } from './activity-timeline-tab';
 import { ComplianceReportButton } from './compliance-report-button';
+import { ScenarioSimulatorTab } from './scenario-simulator-tab';
 
 export function PermissionsAuditClient() {
   const router = useRouter();
@@ -75,7 +76,7 @@ export function PermissionsAuditClient() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
-          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-5 lg:grid-cols-10'>
+          <TabsList className='grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-11'>
             <TabsTrigger value='ask'>Ask</TabsTrigger>
             <TabsTrigger value='activity'>What Changed</TabsTrigger>
             <TabsTrigger value='unified'>Unified Access</TabsTrigger>
@@ -84,6 +85,7 @@ export function PermissionsAuditClient() {
             <TabsTrigger value='resolver'>User Resolver</TabsTrigger>
             <TabsTrigger value='matrix'>Permission Matrix</TabsTrigger>
             <TabsTrigger value='comparison'>Comparison</TabsTrigger>
+            <TabsTrigger value='simulator'>Simulator</TabsTrigger>
             <TabsTrigger value='export'>Export</TabsTrigger>
             <TabsTrigger value='ai-debug'>AI Debugger</TabsTrigger>
           </TabsList>
@@ -118,6 +120,10 @@ export function PermissionsAuditClient() {
 
           <TabsContent value='comparison'>
             <ComparisonTab />
+          </TabsContent>
+
+          <TabsContent value='simulator'>
+            <ScenarioSimulatorTab />
           </TabsContent>
 
           <TabsContent value='export'>
