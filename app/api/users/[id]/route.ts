@@ -86,12 +86,15 @@ export async function GET(
     }
 
     // Get user by ID with institution data
+    // NOTE: FK-qualified embed required — profiles has two FKs to institutions
+    // (institution_id and accreditation_default_college_id); PostgREST errors
+    // with PGRST201 unless we name the relationship explicitly.
     const { data: userData, error } = await supabase
       .from('profiles')
       .select(
         `
         *,
-        institutions (
+        institutions:institutions!profiles_institution_id_fkey (
           id,
           name,
           category,
