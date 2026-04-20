@@ -144,12 +144,16 @@ export class UserService {
         return { data: null, error: new Error('No active user') };
       }
 
+      // FK disambiguation: profiles has TWO foreign keys to institutions
+      // (institution_id + accreditation_default_college_id, added by PR-A2
+      // compliance substrate). Without !institution_id, PostgREST returns
+      // HTTP 300 Multiple Choices and .single() breaks for every user.
       const { data, error } = (await supabase
         .from('profiles')
         .select(
           `
           *,
-          institutions (
+          institutions!institution_id (
             id,
             name,
             category,
@@ -428,12 +432,14 @@ export class UserService {
   static async getUsersWithRoles(): Promise<Profile[]> {
     try {
       const supabase = createClientSupabaseClient();
+      // FK disambiguation (same fix as getCurrentUserProfile) — profiles has
+      // two FKs to institutions; PostgREST needs !institution_id to pick one.
       const { data, error } = (await supabase
         .from('profiles')
         .select(
           `
           *,
-          institutions (
+          institutions!institution_id (
             id,
             name,
             category,
