@@ -80,6 +80,15 @@ async function LiveHeroStrip({
   return <HeroStrip metrics={metrics} drillBase={drillBase} />;
 }
 
+// Actionability upgrade #2 (2026-04-21): derive "the one thing" from the same
+// metrics the hero strip uses. Duplicate RPC call (~20ms) — trivial given the
+// UX win of lead-with-the-important-thing.
+async function LiveTodaysFocus() {
+  const metrics = await getDashboardMetrics();
+  const focus = deriveTodaysFocus(metrics);
+  return <TodaysFocusCard focus={focus} />;
+}
+
 // Week-2 addition: counselor-scoped hero strip
 async function LiveCounselorHero() {
   const metrics = await getCounselorMetrics();
