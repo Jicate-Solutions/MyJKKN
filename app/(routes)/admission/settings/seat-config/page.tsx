@@ -349,8 +349,8 @@ export default function SeatConfigPage() {
               onRefresh={loadData}
               showRefresh={true}
               permissions={{
-                module: 'admission',
-                actions: { view: true, edit: true },
+                module: 'admission.settings.seats',
+                actions: { view: true },
               }}
             />
           )}

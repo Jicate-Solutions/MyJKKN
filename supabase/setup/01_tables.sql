@@ -1981,6 +1981,31 @@ ALTER TABLE service_request_timeline ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_request_attachments ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
+-- SECTION: ADMISSION SETTINGS - ADMISSION YEARS
+-- Added: 2026-04-21 - Per-program admission year tracking
+-- Purpose: Track admission year per program with program start/end year metadata
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS public.admission_years (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    program_id UUID NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+    admission_year_name VARCHAR(150) NOT NULL,
+    program_start_year INTEGER NOT NULL CHECK (program_start_year BETWEEN 2000 AND 2100),
+    program_end_year INTEGER NOT NULL CHECK (program_end_year BETWEEN 2000 AND 2100),
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_by UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    CONSTRAINT admission_years_year_order CHECK (program_end_year >= program_start_year),
+    CONSTRAINT admission_years_unique_per_program UNIQUE (institution_id, program_id, program_start_year)
+);
+
+CREATE INDEX IF NOT EXISTS idx_admission_years_institution ON admission_years(institution_id);
+CREATE INDEX IF NOT EXISTS idx_admission_years_program ON admission_years(program_id);
+CREATE INDEX IF NOT EXISTS idx_admission_years_name ON admission_years(admission_year_name);
+
+-- =====================================================
 -- SECTION: STARTUP STUDIO MODULE
 -- Created: 2026-03-05 - Startup Studio events platform
 -- Purpose: Generic event platform for hackathons, competitions, buildathons

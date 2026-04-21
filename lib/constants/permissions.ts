@@ -883,7 +883,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.whatsapp.view', label: 'View WhatsApp Settings' },
       { key: 'admission.settings.whatsapp.manage', label: 'Manage WhatsApp Numbers & Settings' },
       { key: 'admission.settings.seats.view', label: 'View Seat Configuration' },
-      { key: 'admission.settings.seats.manage', label: 'Manage Seat Configuration' }
+      { key: 'admission.settings.seats.manage', label: 'Manage Seat Configuration' },
+      { key: 'admission.settings.years.view', label: 'View Admission Years' },
+      { key: 'admission.settings.years.create', label: 'Create Admission Years' },
+      { key: 'admission.settings.years.edit', label: 'Edit Admission Years' },
+      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' }
     ]
   },
   {

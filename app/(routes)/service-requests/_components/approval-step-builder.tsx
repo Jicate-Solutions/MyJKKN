@@ -1,8 +1,10 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
@@ -11,11 +13,34 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, ArrowRight, GitBranch } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import {
+  Plus,
+  Trash2,
+  ArrowRight,
+  GitBranch,
+  ChevronsUpDown,
+  Check,
+  Search,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 import {
   useCustomRolesForApproval,
   useUsersByRole,
   type UserWithRole,
+  type CustomRole,
 } from '@/hooks/organization/use-custom-roles';
 import type { CreateApprovalStepDto, ApprovalWorkflowType } from '@/types/service-request';
 
@@ -24,18 +49,17 @@ interface ApprovalStepBuilderProps {
   onChange: (steps: CreateApprovalStepDto[]) => void;
   workflowType?: ApprovalWorkflowType;
   /**
-   * Institutions the service type is scoped to. When non-empty, the approver
-   * name dropdown is filtered to users in those institutions. When empty
-   * (e.g. "common" scope), all users with the role are shown.
+   * Institutions the service type is scoped to. When populated, the approver
+   * combobox shows only users from those institutions. When empty (e.g.
+   * "common" scope), all approver-eligible users are shown.
    */
   institutionIds?: string[];
 }
 
 /**
- * Step templates used to be stored with a free-form `step_name`. We've removed
- * that input — `step_name` is now auto-generated from the chosen role (and
- * approver name if any). The column is still NOT NULL in the DB, so we always
- * produce a non-empty string here.
+ * step_name was a free-form text field — we've removed it from the UI and now
+ * derive it from the selected approver. The column is still NOT NULL in the
+ * DB, so we always produce a non-empty string.
  */
 function buildStepName(
   order: number,
@@ -54,9 +78,35 @@ export function ApprovalStepBuilder({
 }: ApprovalStepBuilderProps) {
   const { data: roles = [], isLoading: rolesLoading } = useCustomRolesForApproval();
 
+  // Lift the user fetch so all N StepRows share one query. The users are the
+  // same for every step — same role set, same institutions — so querying
+  // per-step would be N identical requests.
+  const roleKeys = useMemo(() => roles.map((r) => r.role_key), [roles]);
+  const { data: allUsers = [], isLoading: usersLoading } = useUsersByRole(
+    roleKeys.length > 0 ? roleKeys : null,
+    institutionIds && institutionIds.length === 1 ? institutionIds[0] : undefined,
+    undefined
+  );
+
+  // For multi-institution scope, useUsersByRole only accepts one institution,
+  // so we fan out and filter client-side.
+  const scopedUsers: UserWithRole[] = useMemo(() => {
+    if (institutionIds && institutionIds.length > 1) {
+      return allUsers.filter(
+        (u) => u.institution_id && institutionIds.includes(u.institution_id)
+      );
+    }
+    return allUsers;
+  }, [allUsers, institutionIds]);
+
+  const rolesByKey = useMemo(() => {
+    const m = new Map<string, CustomRole>();
+    roles.forEach((r) => m.set(r.role_key, r));
+    return m;
+  }, [roles]);
+
   const getRoleLabel = (roleKey: string) =>
-    roles.find((r) => r.role_key === roleKey)?.role_name ||
-    roleKey.replace(/_/g, ' ');
+    rolesByKey.get(roleKey)?.role_name || roleKey.replace(/_/g, ' ');
 
   const addStep = () => {
     const order = steps.length + 1;
@@ -84,6 +134,25 @@ export function ApprovalStepBuilder({
     const updated = [...steps];
     updated[index] = { ...updated[index], ...updates };
     onChange(updated);
+  };
+
+  const handleUserSelect = (index: number, user: UserWithRole) => {
+    const role = rolesByKey.get(user.role);
+    updateStep(index, {
+      approver_role: user.role,
+      step_name: buildStepName(
+        steps[index].step_order,
+        role?.role_name || user.role,
+        user.full_name
+      ),
+    });
+  };
+
+  const handleClearSelection = (index: number) => {
+    updateStep(index, {
+      approver_role: '',
+      step_name: `Step ${steps[index].step_order}`,
+    });
   };
 
   const isSequential = workflowType === 'sequential';
@@ -133,31 +202,12 @@ export function ApprovalStepBuilder({
           step={step}
           steps={steps}
           isSequential={isSequential}
-          rolesLoading={rolesLoading}
-          roles={roles}
+          users={scopedUsers}
+          usersLoading={usersLoading || rolesLoading}
           institutionIds={institutionIds}
           getRoleLabel={getRoleLabel}
-          onRoleChange={(roleKey) => {
-            // Clear any stale approver name when the role changes — it won't
-            // apply to a different role.
-            updateStep(index, {
-              approver_role: roleKey,
-              step_name: buildStepName(
-                step.step_order,
-                roles.find((r) => r.role_key === roleKey)?.role_name,
-                undefined
-              ),
-            });
-          }}
-          onApproverChange={(name) => {
-            updateStep(index, {
-              step_name: buildStepName(
-                step.step_order,
-                roles.find((r) => r.role_key === step.approver_role)?.role_name,
-                name,
-              ),
-            });
-          }}
+          onUserSelect={(user) => handleUserSelect(index, user)}
+          onClearUser={() => handleClearSelection(index)}
           onRequiredChange={(req) => updateStep(index, { is_required: req })}
           onRestartFromChange={(val) =>
             updateStep(index, { on_return_restart_from_step: val })
@@ -194,16 +244,12 @@ interface StepRowProps {
   step: CreateApprovalStepDto;
   steps: CreateApprovalStepDto[];
   isSequential: boolean;
-  rolesLoading: boolean;
-  roles: ReturnType<typeof useCustomRolesForApproval>['data'] extends infer T
-    ? T extends undefined
-      ? never
-      : NonNullable<T>
-    : never;
+  users: UserWithRole[];
+  usersLoading: boolean;
   institutionIds?: string[];
   getRoleLabel: (key: string) => string;
-  onRoleChange: (roleKey: string) => void;
-  onApproverChange: (fullName: string | undefined) => void;
+  onUserSelect: (user: UserWithRole) => void;
+  onClearUser: () => void;
   onRequiredChange: (required: boolean) => void;
   onRestartFromChange: (val: number | null) => void;
   onRemove: () => void;
@@ -214,38 +260,29 @@ function StepRow({
   step,
   steps,
   isSequential,
-  rolesLoading,
-  roles,
+  users,
+  usersLoading,
   institutionIds,
   getRoleLabel,
-  onRoleChange,
-  onApproverChange,
+  onUserSelect,
+  onClearUser,
   onRequiredChange,
   onRestartFromChange,
   onRemove,
 }: StepRowProps) {
-  // Pull the current approver's name out of the auto-generated step_name so
-  // the Select trigger shows the prior selection after a reload. step_name
-  // format: "RoleName – FullName" or just "RoleName".
-  const approverName = step.step_name?.includes(' – ')
+  const [open, setOpen] = useState(false);
+
+  // Recover the saved approver's name from the auto-generated step_name so
+  // the trigger shows the prior selection on edit. Format: "Role – Name".
+  const savedApproverName = step.step_name?.includes(' – ')
     ? step.step_name.split(' – ').slice(1).join(' – ')
     : undefined;
 
-  // Fetch users for the selected role, scoped to the form's institutions.
-  const { data: users = [], isLoading: usersLoading } = useUsersByRole(
-    step.approver_role || null,
-    institutionIds && institutionIds.length === 1 ? institutionIds[0] : undefined,
-    undefined
+  // Prefer matching by approver_role + full_name — guards against two users
+  // with the same name in different roles.
+  const selectedUser = users.find(
+    (u) => u.role === step.approver_role && u.full_name === savedApproverName
   );
-
-  // When multiple institutions are scoped, fan them out: useUsersByRole only
-  // accepts one institution, so we lift the filter to the client side.
-  const filteredUsers: UserWithRole[] =
-    institutionIds && institutionIds.length > 1
-      ? users.filter(
-          (u) => u.institution_id && institutionIds.includes(u.institution_id)
-        )
-      : users;
 
   return (
     <Card>
@@ -257,85 +294,145 @@ function StepRow({
 
           <div className="flex-1 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-              {/* Approver Role */}
-              <div className="sm:col-span-5 space-y-1">
+              {/* Approver combobox — single field replacing Role + Name */}
+              <div className="sm:col-span-9 space-y-1">
                 <Label className="text-xs">
-                  Approver Role <span className="text-red-500">*</span>
+                  Approver <span className="text-red-500">*</span>
                 </Label>
-                <Select
-                  value={step.approver_role}
-                  onValueChange={onRoleChange}
-                  disabled={rolesLoading}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={rolesLoading ? 'Loading roles…' : 'Select role'}
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.map((role) => (
-                      <SelectItem key={role.role_key} value={role.role_key}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{role.role_name}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {role.role_key}
-                          </span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Approver Name — filtered by role + institutions */}
-              <div className="sm:col-span-4 space-y-1">
-                <Label className="text-xs">Approver Name</Label>
-                <Select
-                  value={approverName ?? '__any__'}
-                  onValueChange={(v) =>
-                    onApproverChange(v === '__any__' ? undefined : v)
-                  }
-                  disabled={!step.approver_role || usersLoading}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !step.approver_role
-                          ? 'Select role first'
-                          : usersLoading
-                          ? 'Loading users…'
-                          : 'Any user with this role'
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__any__">
-                      <span className="text-muted-foreground">
-                        Any user with this role
-                      </span>
-                    </SelectItem>
-                    {filteredUsers.length === 0 && !usersLoading ? (
-                      <div className="py-2 px-2 text-xs text-muted-foreground">
-                        No users found in{' '}
-                        {institutionIds && institutionIds.length > 0
-                          ? 'the scoped institutions'
-                          : 'this role'}
-                        .
-                      </div>
-                    ) : (
-                      filteredUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.full_name}>
+                <Popover open={open} onOpenChange={setOpen} modal>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={open}
+                      className={cn(
+                        'w-full justify-between min-h-[44px] h-auto py-2 font-normal',
+                        !step.approver_role && 'text-muted-foreground'
+                      )}
+                      disabled={usersLoading}
+                    >
+                      {selectedUser ? (
+                        <SelectedApproverDisplay
+                          user={selectedUser}
+                          roleLabel={getRoleLabel(selectedUser.role)}
+                        />
+                      ) : savedApproverName && step.approver_role ? (
+                        // Fall back when the saved user can't be found in the
+                        // current list (moved institution, deleted, RLS hides).
+                        <div className="flex items-center gap-2 text-left">
                           <div className="flex flex-col">
-                            <span className="font-medium">{u.full_name}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {u.email}
+                            <span className="text-sm font-medium text-foreground">
+                              {savedApproverName}
+                            </span>
+                            <span className="text-xs text-muted-foreground italic">
+                              Not found in current scope
                             </span>
                           </div>
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
+                          <Badge variant="outline" className="text-[10px] capitalize">
+                            {getRoleLabel(step.approver_role)}
+                          </Badge>
+                        </div>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <Search className="h-4 w-4" />
+                          {usersLoading
+                            ? 'Loading approvers…'
+                            : 'Search by name, email, or role…'}
+                        </span>
+                      )}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-[min(560px,calc(100vw-2rem))] p-0"
+                    align="start"
+                  >
+                    <Command
+                      filter={(value, search) => {
+                        // CommandItem uses `value` as the search target. We
+                        // concatenated name+email+role there, so a simple
+                        // substring check is enough.
+                        return value.toLowerCase().includes(search.toLowerCase())
+                          ? 1
+                          : 0;
+                      }}
+                    >
+                      <CommandInput placeholder="Search by name, email, or role…" />
+                      <CommandList className="max-h-[320px]">
+                        <CommandEmpty>
+                          {usersLoading
+                            ? 'Loading…'
+                            : institutionIds && institutionIds.length > 0
+                            ? 'No approvers found in the scoped institutions.'
+                            : 'No approvers found.'}
+                        </CommandEmpty>
+                        {selectedUser && (
+                          <CommandGroup heading="Current">
+                            <CommandItem
+                              value={`__clear__ ${selectedUser.full_name}`}
+                              onSelect={() => {
+                                onClearUser();
+                                setOpen(false);
+                              }}
+                              className="text-muted-foreground"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Clear selection
+                            </CommandItem>
+                          </CommandGroup>
+                        )}
+                        <CommandGroup heading={`${users.length} approver${users.length === 1 ? '' : 's'}`}>
+                          {users.map((u) => {
+                            const isSelected = selectedUser?.id === u.id;
+                            const roleLabel = getRoleLabel(u.role);
+                            return (
+                              <CommandItem
+                                key={u.id}
+                                // Concatenate all searchable text so
+                                // CommandInput filters across them.
+                                value={`${u.full_name} ${u.email} ${u.role} ${roleLabel}`}
+                                onSelect={() => {
+                                  onUserSelect(u);
+                                  setOpen(false);
+                                }}
+                              >
+                                <div
+                                  className={cn(
+                                    'mr-2 flex h-4 w-4 items-center justify-center rounded border shrink-0',
+                                    isSelected
+                                      ? 'bg-primary border-primary'
+                                      : 'border-muted-foreground'
+                                  )}
+                                >
+                                  {isSelected && (
+                                    <Check className="h-3 w-3 text-primary-foreground" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium truncate">
+                                      {u.full_name}
+                                    </span>
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] capitalize shrink-0"
+                                    >
+                                      {roleLabel}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {u.email}
+                                  </p>
+                                </div>
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               {/* Required + Delete */}
@@ -357,7 +454,7 @@ function StepRow({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-red-500 hover:text-red-700"
+                  className="h-8 w-8 text-red-500 hover:text-red-700 ml-auto"
                   onClick={onRemove}
                 >
                   <Trash2 className="h-4 w-4" />
@@ -404,5 +501,29 @@ function StepRow({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function SelectedApproverDisplay({
+  user,
+  roleLabel,
+}: {
+  user: UserWithRole;
+  roleLabel: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-left flex-1 min-w-0">
+      <div className="flex flex-col min-w-0">
+        <span className="text-sm font-medium text-foreground truncate">
+          {user.full_name}
+        </span>
+        <span className="text-xs text-muted-foreground truncate">
+          {user.email}
+        </span>
+      </div>
+      <Badge variant="outline" className="text-[10px] capitalize shrink-0">
+        {roleLabel}
+      </Badge>
+    </div>
   );
 }

@@ -470,6 +470,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
   '/admission/settings/seat-config': 'admission.settings.seats.view',
+  '/admission/settings/years': 'admission.settings.years.view',
+  '/admission/settings/years/new': 'admission.settings.years.create',
+  '/admission/settings/years/[id]': 'admission.settings.years.view',
+  '/admission/settings/years/[id]/edit': 'admission.settings.years.edit',
 
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',
@@ -1545,6 +1549,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/settings/seat-config',
               label: 'Seat Configuration',
               active: pathname === '/admission/settings/seat-config'
+            },
+            {
+              href: '/admission/settings/years',
+              label: 'Admission Years',
+              active: pathname.startsWith('/admission/settings/years')
             },
             {
               href: '/admission/settings/templates',

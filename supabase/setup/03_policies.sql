@@ -93,10 +93,19 @@ CREATE POLICY "institutions_select_all" ON institutions
 -- Role Management UI is now the single source of truth for access control.
 -- ============================================================================
 
-CREATE POLICY "institutions_select_admission_role" ON institutions
+-- Updated: 2026-04-21 - Broadened so admission seat-config users (who only
+-- hold admission.settings.seats.view/.manage) and scope='all' roles can see
+-- institutions in the Seat Configuration dropdown without needing the full
+-- organizations.institutions.view permission.
+DROP POLICY IF EXISTS "institutions_select_admission_role" ON institutions;
+DROP POLICY IF EXISTS "institutions_select_permission"     ON institutions;
+CREATE POLICY "institutions_select_by_role" ON institutions
     FOR SELECT USING (
         is_super_admin() OR is_admin()
+        OR role_has_institution_access(id)
         OR user_has_permission('organizations.institutions.view')
+        OR user_has_permission('admission.settings.seats.view')
+        OR user_has_permission('admission.settings.seats.manage')
     );
 
 CREATE POLICY "institutions_insert_super_admin" ON institutions
@@ -2583,6 +2592,44 @@ CREATE POLICY "workflow_configs_delete" ON admission_workflow_configs FOR DELETE
     AND cr.role_key = 'admission'
   )
 );
+
+-- ============================================================================
+-- ADMISSION_YEARS TABLE (Dynamic permission-based policies)
+-- Added: 2026-04-21 — per-program admission year tracking under Admission Settings
+-- ============================================================================
+ALTER TABLE admission_years ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "admission_years_select" ON admission_years;
+CREATE POLICY "admission_years_select" ON admission_years
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('admission.settings.years.view')
+            AND role_has_institution_access(institution_id))
+    );
+
+DROP POLICY IF EXISTS "admission_years_insert" ON admission_years;
+CREATE POLICY "admission_years_insert" ON admission_years
+    FOR INSERT WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('admission.settings.years.create')
+            AND role_has_institution_access(institution_id))
+    );
+
+DROP POLICY IF EXISTS "admission_years_update" ON admission_years;
+CREATE POLICY "admission_years_update" ON admission_years
+    FOR UPDATE USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('admission.settings.years.edit')
+            AND role_has_institution_access(institution_id))
+    );
+
+DROP POLICY IF EXISTS "admission_years_delete" ON admission_years;
+CREATE POLICY "admission_years_delete" ON admission_years
+    FOR DELETE USING (
+        is_super_admin() OR is_admin()
+        OR (user_has_permission('admission.settings.years.delete')
+            AND role_has_institution_access(institution_id))
+    );
 
 -- ============================================================================
 -- STORAGE: admission-template-media (WhatsApp template attachments)

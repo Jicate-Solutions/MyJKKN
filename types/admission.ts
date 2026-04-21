@@ -1242,3 +1242,65 @@ export interface FormDeviceBreakdown {
   count: number;
   percentage: number;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMISSION YEARS (Settings → Admission Years)
+// Added: 2026-04-21 — per-program admission year metadata
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface AdmissionYear {
+  id: string;
+  institution_id: string;
+  program_id: string;
+  admission_year_name: string;
+  program_start_year: number;
+  program_end_year: number;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  program?: {
+    id: string;
+    program_id: string;
+    program_name: string;
+    program_duration_yrs?: number | null;
+  };
+}
+
+export interface CreateAdmissionYearDto {
+  institution_id: string;
+  program_id: string;
+  admission_year_name: string;
+  program_start_year: number;
+  program_end_year: number;
+  is_active?: boolean;
+}
+
+export interface UpdateAdmissionYearDto extends Partial<CreateAdmissionYearDto> {}
+
+export interface AdmissionYearFilters {
+  search?: string;
+  institution_id?: string;
+  program_id?: string;
+  program_start_year?: number;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface AdmissionYearListResponse {
+  data: AdmissionYear[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
