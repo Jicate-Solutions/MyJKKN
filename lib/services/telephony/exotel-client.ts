@@ -221,7 +221,12 @@ export function getExotelClient() {
         }
         if (params.status) queryParts.push(`Status=${encodeURIComponent(params.status)}`);
         if (params.direction) {
-          const dir = params.direction === 'inbound' ? 'incoming' : 'outgoing';
+          // Exotel's valid Direction values: 'inbound', 'outbound-dial', 'outbound-api'
+          // (verified via 2026-04-21 direct API probe: sending 'incoming' returns
+          //  HTTP 400 "valid values for Direction are inbound,outbound-dial,outbound-api")
+          // Our internal 'inbound'/'outbound' maps 1:1 to inbound; outbound uses -api
+          // by default since MyJKKN CTC uses the API-initiated flavor.
+          const dir = params.direction === 'inbound' ? 'inbound' : 'outbound-api';
           queryParts.push(`Direction=${dir}`);
         }
 
