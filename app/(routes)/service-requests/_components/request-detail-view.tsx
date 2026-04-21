@@ -15,6 +15,7 @@ import {
   XCircle,
   Circle,
   AlertCircle,
+  Mail,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
@@ -22,6 +23,11 @@ import type {
   ServiceRequestApprovalStep,
   ProcessApprovalDto,
 } from '@/types/service-request';
+import {
+  useEligibleApprovers,
+  roleKeyToLabel,
+  type EligibleApprover,
+} from '@/hooks/service-requests/use-eligible-approvers';
 
 interface RequestDetailViewProps {
   request: ServiceRequest;
@@ -81,6 +87,25 @@ export function RequestDetailView({
   const isCancelled = request.status === 'cancelled';
   const isRejected = request.status === 'rejected';
   const isFullyApproved = ['approved', 'fulfilled', 'closed'].includes(request.status);
+  const isAwaitingApproval =
+    !isCancelled && !isRejected && !isFullyApproved &&
+    (request.status === 'submitted' || request.status === 'in_review');
+
+  // Resolve each step's approver_role -> concrete user(s) in this
+  // institution so the stepper can show "Awaiting: <Name>" instead of
+  // just the bare role key. Returns an empty map until the request is
+  // hydrated, which the renderers below handle gracefully.
+  const { data: approversByRole } = useEligibleApprovers(
+    approvalSteps.map((s) => s.approver_role),
+    request.institution_id
+  );
+  const approversFor = (roleKey: string): EligibleApprover[] =>
+    approversByRole?.get(roleKey) ?? [];
+
+  const currentStep = approvalSteps.find((s) => s.step_order === currentStepOrder);
+  const nextStep = approvalSteps.find((s) => s.step_order === currentStepOrder + 1);
+  const currentApprovers = currentStep ? approversFor(currentStep.approver_role) : [];
+  const nextApprovers = nextStep ? approversFor(nextStep.approver_role) : [];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -212,11 +237,66 @@ export function RequestDetailView({
                           {step.step_name}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {step.approver_role} · Step {step.step_order}
+                          {roleKeyToLabel(step.approver_role)} · Step {step.step_order}
                           {isCurrent && ' — Awaiting approval'}
                           {isDone && ' — Approved'}
                           {isRej && ' — Rejected'}
                         </p>
+
+                        {/* Eligible approver(s) for this step.
+                            Past steps: skip — the Approval History card
+                            below shows who actually approved.
+                            Current + future steps: show the live roster
+                            so the requester can see who they're waiting
+                            on (or will wait on next). */}
+                        {!isDone && !isRej && (() => {
+                          const people = approversFor(step.approver_role);
+                          if (people.length === 0) {
+                            return (
+                              <p className={cn(
+                                'text-xs mt-1.5 flex items-center gap-1.5',
+                                isCurrent
+                                  ? 'text-red-600 dark:text-red-400'
+                                  : 'text-muted-foreground/70'
+                              )}>
+                                <AlertCircle className="h-3 w-3 shrink-0" />
+                                No {roleKeyToLabel(step.approver_role)} configured
+                                in this institution
+                              </p>
+                            );
+                          }
+                          return (
+                            <div className="mt-1.5 space-y-1">
+                              {people.slice(0, 3).map((p) => (
+                                <div
+                                  key={p.id}
+                                  className={cn(
+                                    'flex items-center gap-1.5 text-xs',
+                                    isCurrent
+                                      ? 'text-blue-700 dark:text-blue-400'
+                                      : 'text-muted-foreground'
+                                  )}
+                                >
+                                  <User className="h-3 w-3 shrink-0" />
+                                  <span className="font-medium truncate">{p.full_name}</span>
+                                  {p.email && (
+                                    <a
+                                      href={`mailto:${p.email}`}
+                                      className="text-muted-foreground/80 hover:text-primary hover:underline truncate"
+                                    >
+                                      {p.email}
+                                    </a>
+                                  )}
+                                </div>
+                              ))}
+                              {people.length > 3 && (
+                                <p className="text-[11px] text-muted-foreground pl-[18px]">
+                                  + {people.length - 3} more {roleKeyToLabel(step.approver_role)}(s)
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -380,13 +460,94 @@ export function RequestDetailView({
           </Card>
         )}
 
-        {/* Approval Actions */}
+        {/* Approval Actions (only when the viewer is actually authorized
+            for the current step — canApprove is tightened to match the
+            backend's role check now, so no more "click, get error" loops). */}
         {canApprove && onProcessApproval && !isCancelled && (
           <RequestApprovalPanel
             currentStep={currentApprovalStep || null}
             onProcessApproval={onProcessApproval}
             isProcessing={isProcessing}
           />
+        )}
+
+        {/* "Currently with" callout — surfaces when the request is waiting
+            for someone AND the viewer can't act on it themselves. Gives
+            the requester (and any non-approver reading the page) a clear
+            target to follow up with: name + email + role. */}
+        {isAwaitingApproval && !canApprove && currentStep && (
+          <Card className="border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5" />
+                Currently Waiting For
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2.5">
+              <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                <div className="space-y-0.5">
+                  <p>Step {currentStep.step_order} · {currentStep.step_name}</p>
+                  <p className="text-[11px]">
+                    Role: <span className="font-medium">{roleKeyToLabel(currentStep.approver_role)}</span>
+                  </p>
+                </div>
+              </div>
+
+              {currentApprovers.length === 0 ? (
+                <div className="flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400 p-2 rounded bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    No {roleKeyToLabel(currentStep.approver_role)} configured in
+                    this institution — please contact an administrator.
+                  </span>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {currentApprovers.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex flex-col p-2 rounded border border-blue-200/50 dark:border-blue-900/50 bg-white dark:bg-blue-950/30"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <User className="h-3.5 w-3.5 text-blue-700 dark:text-blue-400 shrink-0" />
+                        <span className="text-sm font-medium truncate">{p.full_name}</span>
+                      </div>
+                      {p.email && (
+                        <a
+                          href={`mailto:${p.email}`}
+                          className="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-400 hover:underline mt-0.5 pl-[22px] truncate"
+                        >
+                          <Mail className="h-3 w-3 shrink-0" />
+                          {p.email}
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Preview the next step so the requester sees the full
+                  remaining path, not just the immediate approver. */}
+              {nextStep && (
+                <div className="pt-2 border-t border-blue-200/50 dark:border-blue-900/50">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-1">
+                    Next Step
+                  </p>
+                  <p className="text-xs">
+                    Step {nextStep.step_order} · {nextStep.step_name}
+                    <span className="text-muted-foreground"> · {roleKeyToLabel(nextStep.approver_role)}</span>
+                  </p>
+                  {nextApprovers.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                      Will go to:{' '}
+                      {nextApprovers.slice(0, 2).map((p) => p.full_name).join(', ')}
+                      {nextApprovers.length > 2 && ` + ${nextApprovers.length - 2} more`}
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* Activity Timeline */}
