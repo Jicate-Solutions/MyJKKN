@@ -119,6 +119,26 @@ function HeroTile({
 // ============================================================================
 function ohsTile(metrics: DashboardMetrics, drillBase: string): HeroTileProps {
   const { score, band, components } = metrics.ohs;
+
+  // Actionability #1: when OHS is not green, point the user at the weakest component.
+  const weakestKey = (['attendance', 'sla', 'fees', 'escalations'] as const).reduce(
+    (lowest, k) => (components[k] < components[lowest] ? k : lowest),
+    'attendance' as const
+  );
+  const weakestHref: Record<typeof weakestKey, string> = {
+    attendance: '/academic/attendance/dashboard',
+    sla: '/admission/leads?filter=sla_breach',
+    fees: '/billing/receipts?status=overdue',
+    escalations: '/dashboard?queue=escalation'
+  };
+  const action: HeroTileAction | undefined =
+    band === 'red' || band === 'amber'
+      ? {
+          label: `Fix weakest: ${weakestKey} (${components[weakestKey]}%)`,
+          href: weakestHref[weakestKey]
+        }
+      : undefined;
+
   return {
     label: 'Operational Health',
     value: score,
@@ -126,6 +146,7 @@ function ohsTile(metrics: DashboardMetrics, drillBase: string): HeroTileProps {
     hint: undefined,
     color: band,
     href: drillBase,
+    action,
     footer: (
       <div className='grid grid-cols-4 gap-1 text-center'>
         {(['attendance', 'sla', 'fees', 'escalations'] as const).map((k) => (
@@ -148,13 +169,22 @@ function pipelineTile(
   drillBase: string
 ): HeroTileProps {
   const { value_inr, lead_count } = metrics.pipeline;
+  // Actionability #1: 0 leads is suspicious — either ingestion is broken or
+  // counselors need to add leads. Either way, director should know where to go.
+  const action: HeroTileAction | undefined =
+    lead_count === 0
+      ? { label: 'No leads? Check ingestion', href: '/admission/leads' }
+      : value_inr === 0
+        ? { label: 'Open admission queue', href: '/admission/leads' }
+        : undefined;
   return {
     label: 'Pipeline Value',
     value: formatInr(value_inr),
     subtitle: 'Σ(active leads × conversion probability × avg course fee)',
     hint: `${lead_count.toLocaleString('en-IN')} hot leads open`,
     color: value_inr > 0 ? 'neutral' : 'red',
-    href: drillBase
+    href: drillBase,
+    action
   };
 }
 
@@ -177,6 +207,17 @@ function attendanceTile(
   } else if (pct_today !== null) {
     color = scoreBand(pct_today);
   }
+
+  // Actionability #1: when attendance is below baseline, link to attendance dashboard.
+  // When no attendance data exists (null), also link — because no data = likely
+  // unmarked classes that need the director's nudge.
+  const action: HeroTileAction | undefined =
+    color === 'red'
+      ? { label: 'Open attendance', href: '/academic/attendance/dashboard' }
+      : pct_today === null
+        ? { label: 'No data — open attendance', href: '/academic/attendance/dashboard' }
+        : undefined;
+
   return {
     label: 'Live Attendance',
     value: primary,
@@ -184,6 +225,7 @@ function attendanceTile(
     hint: delta ?? undefined,
     color,
     href: drillBase,
+    action,
     footer: (
       <div className='flex items-center justify-between text-[10px] opacity-70'>
         <span>Baseline: {pct_baseline?.toFixed(1) ?? '—'}%</span>
@@ -204,6 +246,11 @@ function pendingDecisionsTile(
   const { count } = metrics.pending_decisions;
   const color: TileColor =
     count === 0 ? 'green' : count < 5 ? 'amber' : 'red';
+  // Actionability #1: always give the user a single-click path to clear the queue
+  // when it's non-zero. Tile is already clickable, but an explicit CTA makes the
+  // action obvious and separates "glance" from "act".
+  const action: HeroTileAction | undefined =
+    count > 0 ? { label: `Clear ${count} item${count === 1 ? '' : 's'}`, href: queueHash } : undefined;
   return {
     label: 'Pending Decisions',
     value: count,
@@ -213,7 +260,8 @@ function pendingDecisionsTile(
         : `${count} item${count === 1 ? '' : 's'} awaiting approve / reject / delegate`,
     hint: undefined,
     color,
-    href: queueHash
+    href: queueHash,
+    action
   };
 }
 
