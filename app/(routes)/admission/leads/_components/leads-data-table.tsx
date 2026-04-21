@@ -12,9 +12,9 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { useLeadMutations, useExpoEvents, useCounselorsList } from '@/hooks/admission';
+import { useExpoEvents, useCounselorsList } from '@/hooks/admission';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,7 +57,6 @@ export function LeadsDataTable() {
     || canAccess('admission', 'leads.delete')
     || canAccess('admission', 'leads.edit');
   const { profile } = useAuth();
-  const { deleteLead } = useLeadMutations();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<AdmissionLead[]>(
     []
