@@ -195,11 +195,14 @@ export class InboundCallSyncService {
     const errors: string[] = [];
     let latestCallDate: string | null = null;
 
+    // NOTE: Do NOT pass multi-value Status filter — Exotel's /Calls.json rejects
+    // comma-separated Status with HTTP 400 ("Invalid parameter"). Broke CDR sync
+    // silently 2026-04-11 → 2026-04-21 (10 days of missed webhooks). Exotel's
+    // CDR API only returns terminal-state calls anyway, so this filter is redundant.
     const pages = client.fetchCallRecords({
       direction: 'inbound',
       dateFrom: fromDate,
       dateTo: toDate,
-      status: 'completed,no-answer,busy,failed',
       pageSize: 100,
     });
 
