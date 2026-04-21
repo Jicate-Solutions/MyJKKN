@@ -19,6 +19,50 @@ git worktree list
 
 **Sticky test:** If the user has to ask "have you checked production?" — the rule was skipped. Apologize, run the sweep, restart the plan. See `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/feedback_preflight_must_scan_production_code.md`.
 
+## 🛑 NON-NEGOTIABLE: PR Merge Policy (one-click merge — user clicks, agent never does)
+
+Agent's job on every PR: get it to a state where **Omm clicks ONE button** ("Squash and merge") and we're done. No Draft-then-Ready dance, no manual review flip required.
+
+**Standard bug-fix / narrow-change flow:**
+
+| Step | Agent does | Director does |
+|---|---|---|
+| 1. Fix in isolated worktree | ✓ | — |
+| 2. `npm run type-check` (or `build`) passes | ✓ | — |
+| 3. `gh pr create --draft` (start as Draft) | ✓ | — |
+| 4. `gh pr ready <N> --repo Jicate-Solutions/MyJKKN` (flip to Ready when confident) | ✓ | — |
+| 5. Notify: "PR #N ready — one click to merge" | ✓ | — |
+| 6. Click green "Squash and merge" button | ✗ **NEVER** | ✓ |
+| 7. Tell agent "merged" | — | ✓ |
+| 8. Fire Vercel deploy hook + verify | ✓ | — |
+
+**Forbidden actions (agents must never run these against `Jicate-Solutions/MyJKKN`):**
+- `gh pr merge` (with or without `--admin`, `--squash`, `--merge`, `--rebase` — never)
+- Merging via GitHub API curl
+- Clicking a merge button via browser automation
+- Deploying to production before user confirms merge
+
+**Allowed actions (agents should run these to get PR to one-click state):**
+- `gh pr create` — default to `--draft` during development
+- `gh pr ready` — flip Draft → Ready when type-check passes + diff is narrow + agent is confident
+- `gh pr edit` — update title/body/labels
+- `git push` / `git push --force-with-lease` — to update the PR branch (e.g. after rebase)
+- `gh pr close` — ONLY if the PR is definitively wrong; flag to user first
+
+**When to leave as Draft (not Ready):**
+- Investigation is inconclusive (agent couldn't confidently identify root cause)
+- Fix is wider than planned (>50 LOC, multi-file, touches RLS/auth/payments)
+- Agent skipped any verification step (type-check, local build)
+- Agent is opening PR to document investigation notes, not because it has a confident fix
+
+**When to default to Ready (not Draft):**
+- Bug has narrow scope, fix is single-file, diff <50 lines
+- `npm run type-check` passed locally
+- Agent has high confidence in the root cause
+- CI checks (if any) are expected to pass
+
+See: `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/feedback_never_merge_pr.md` for full history (incidents from 2026-04-11 autonomous-merge mistake and 2026-04-21 one-click-merge refinement).
+
 ## 📚 On-Demand Context Libraries (read when task matches)
 
 These are NOT always loaded. Read the relevant file ONLY when the task requires it.
