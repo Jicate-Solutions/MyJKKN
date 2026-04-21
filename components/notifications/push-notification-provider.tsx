@@ -181,6 +181,12 @@ export function PushNotificationProvider({
   useEffect(() => {
     if (!state.isSupported || state.isLoading) return;
 
+    // Match the init effect above: push testing only happens in prod/preview.
+    // In dev there is no registered SW for /sw.js, so subscribe() would loop
+    // forever with AbortError / storage-error spam whenever a user previously
+    // granted notification permission in a prod build.
+    if (process.env.NODE_ENV !== 'production') return;
+
     // Permission granted but no active subscription → re-subscribe silently
     if (state.permission === 'granted' && !state.isSubscribed) {
       const timer = setTimeout(async () => {
