@@ -308,11 +308,20 @@ export function AddCounselorDialog({
 
         setUserResults((data as LearnerResult[]) || []);
       } else {
+        // BUG (2026-04-21): Pre-registered profiles have a `profiles` row but no
+        // corresponding `auth.users` row, so selecting them caused
+        // `admission_counselors_user_id_fkey` (profiles.user_id -> auth.users.id)
+        // to fail at insert time. Filter them out of the picker: a user who has
+        // not yet activated their account cannot be assigned as a counselor.
+        // `is_pre_registered` flips to false on first OAuth/email login.
+        // Using `.not('is_pre_registered', 'is', true)` matches both `false` and
+        // `NULL`, which is defensive given the column is nullable.
         let query = supabase
           .from('profiles')
           .select('id, full_name, email, phone_number, role')
           .eq('institution_id', existInstitutionId)
-          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator']);
+          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator'])
+          .not('is_pre_registered', 'is', true);
 
         if (departmentId) query = query.eq('department_id', departmentId);
 
@@ -369,7 +378,11 @@ export function AddCounselorDialog({
       const learnerEmail = learner.college_email || learner.student_email || '';
       const learnerName = [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
 
-      // Look up profiles.id via email -- check both college and personal email
+      // Look up profiles.id via email -- check both college and personal email.
+      // Skip pre-registered profiles (profile exists but no auth.users row yet);
+      // otherwise admission_counselors.user_id FK to auth.users fires a 23503
+      // violation on insert. When no activated profile is found we fall back to
+      // user_id = null below via the _hasProfile flag.
       let profileId: string | null = null;
       const emailsToCheck = [learner.college_email, learner.student_email].filter(Boolean) as string[];
       if (emailsToCheck.length > 0) {
@@ -378,6 +391,7 @@ export function AddCounselorDialog({
           .from('profiles')
           .select('id')
           .or(orFilter)
+          .not('is_pre_registered', 'is', true)
           .limit(1)
           .maybeSingle();
         profileId = profile?.id || null;
