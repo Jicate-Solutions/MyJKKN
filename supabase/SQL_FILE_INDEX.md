@@ -6,6 +6,13 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-21** — Persona Design PR-1: scope-extension helpers (block/relationship/contract scopes)
+  - `01_tables.sql`: new junction tables `user_block_access`, `user_learner_relationship`, `user_contract_access`. Each has `revoked_at` for soft-delete + audit trail. `user_contract_access.contract_id` is polymorphic (caterer/maintenance_vendor/laundry_vendor/amc).
+  - `02_functions.sql`: 3 new SECURITY DEFINER helpers — `role_has_block_access(uuid)`, `role_has_relationship_access(uuid)`, `role_has_contract_access(uuid, text DEFAULT NULL)`. All mirror `role_has_institution_access()` pattern: super_admin bypass, NULL target = system-wide, otherwise consult junction table.
+  - `03_policies.sql`: RLS on the 3 junction tables. Standard contract: super_admin/admin full CRUD; users see own grants; delegated via `users.block_access|relationship|contract_access.{view,manage}` permission keys (added in PR-3).
+  - Context: MyJKKN's `institution_scope` supports only 'all'|'own'. Campus Living needs block-level (warden), relationship (parent), and contract (caterer/vendor) scopes. This PR is PR-1 of 4 — INERT infrastructure until PR-2 (roles), PR-3 (permission keys), PR-4 (RLS retrofit on 48 hostel_*/mess_* tables).
+  - See: `docs/persona-design/scope-extension-pr1.md`
+
 - **2026-04-18** — Seat Configuration page invisible to admission role with scope='all' (programs returned 0 rows)
   - `03_policies.sql`: rewrote SELECT/INSERT/UPDATE/DELETE policies on `programs`, `degrees`, `departments` to use `role_has_institution_access(institution_id)` instead of hardcoded `institution_id = get_current_user_institution_id()`. Added `admission.settings.seats.view` / `admission.settings.seats.manage` as acceptable SELECT permissions for programs/degrees/departments so seat config works without granting Organization module perms.
   - `03_policies.sql`: rewrote `intake_history` policies — previously required a `user_institution_access` row (locked out super admins who didn't have one). Now uses the standard contract `is_super_admin() OR is_admin() OR (role_has_institution_access(...) AND user_has_permission('admission.settings.seats.*'))`.

@@ -8689,3 +8689,126 @@ $$;
 
 GRANT EXECUTE ON FUNCTION fn_dashboard_activity_feed(INT) TO authenticated;
 COMMENT ON FUNCTION fn_dashboard_activity_feed(INT) IS 'Dashboard v2 — Team activity feed. Returns last N acknowledged notifications with actor details. Institution-scoped for non-admin.';
+
+
+-- ============================================================================
+-- Updated: 2026-04-21 — Persona Design PR-1 of 4: scope-extension helpers
+--
+-- Three SECURITY DEFINER helpers that mirror role_has_institution_access()
+-- but for row-level scope dimensions that binary 'all'|'own' can't express.
+-- All three follow the same contract:
+--   - Return TRUE for super_admin (bypass)
+--   - Return TRUE for NULL target_id (system-wide records)
+--   - Otherwise consult the corresponding user_*_access junction table
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.role_has_block_access(check_block_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+    -- NULL block_id: system-wide record (e.g. institution-level policy)
+    IF check_block_id IS NULL THEN
+        RETURN true;
+    END IF;
+
+    -- Super admin bypass
+    IF is_super_admin() THEN
+        RETURN true;
+    END IF;
+
+    -- User has an active grant to this specific block
+    RETURN EXISTS (
+        SELECT 1
+        FROM user_block_access uba
+        WHERE uba.user_id = auth.uid()
+          AND uba.block_id = check_block_id
+          AND uba.revoked_at IS NULL
+    );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.role_has_block_access(uuid) IS
+  'Block-level scope helper. Returns TRUE if the current user has an active '
+  'grant in user_block_access for the given block_id, or is a super_admin, '
+  'or the block_id is NULL. Use in RLS policies on hostel_* tables.';
+
+CREATE OR REPLACE FUNCTION public.role_has_relationship_access(check_learner_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+    -- NULL learner_id: system-wide record
+    IF check_learner_id IS NULL THEN
+        RETURN true;
+    END IF;
+
+    -- Super admin bypass
+    IF is_super_admin() THEN
+        RETURN true;
+    END IF;
+
+    -- User has an active, verified relationship to this learner
+    -- Note: unverified relationships are NOT granted access — parents must
+    -- complete verification (id proof + consent form) before seeing data.
+    RETURN EXISTS (
+        SELECT 1
+        FROM user_learner_relationship ulr
+        WHERE ulr.user_id = auth.uid()
+          AND ulr.learner_id = check_learner_id
+          AND ulr.revoked_at IS NULL
+          AND ulr.verified_at IS NOT NULL
+    );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.role_has_relationship_access(uuid) IS
+  'Relationship scope helper (primarily parent portal). Returns TRUE if '
+  'current user has a verified, non-revoked relationship to the learner. '
+  'Unverified parent accounts do NOT gain access via this helper — they '
+  'must complete verification first (ID proof + consent). Use in RLS on '
+  'learner-facing tables when the current role is parent/guardian.';
+
+CREATE OR REPLACE FUNCTION public.role_has_contract_access(
+  check_contract_id uuid,
+  check_contract_type text DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+    -- NULL contract_id: system-wide record
+    IF check_contract_id IS NULL THEN
+        RETURN true;
+    END IF;
+
+    -- Super admin bypass
+    IF is_super_admin() THEN
+        RETURN true;
+    END IF;
+
+    -- User has active grant on this contract (optionally typed)
+    RETURN EXISTS (
+        SELECT 1
+        FROM user_contract_access uca
+        WHERE uca.user_id = auth.uid()
+          AND uca.contract_id = check_contract_id
+          AND uca.revoked_at IS NULL
+          AND (check_contract_type IS NULL OR uca.contract_type = check_contract_type)
+    );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.role_has_contract_access(uuid, text) IS
+  'Contract scope helper for external parties (mess caterers, maintenance '
+  'vendors, laundry vendors, AMC contractors). Returns TRUE if current user '
+  'has an active grant on the contract, or is super_admin, or contract_id is '
+  'NULL. Pass contract_type to restrict to a specific kind of contract.';
+
+-- END Persona Design PR-1 functions
