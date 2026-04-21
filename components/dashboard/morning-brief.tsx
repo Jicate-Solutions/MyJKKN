@@ -127,19 +127,19 @@ export function MorningBriefCard({ brief }: MorningBriefCardProps) {
                 {brief.top_priorities.map((p, i) => (
                   <li
                     key={p.user_notification_id}
-                    className='flex items-center gap-3 rounded-lg bg-white/60 dark:bg-neutral-900/50 border border-white/60 dark:border-neutral-800/60 px-3 py-2'
+                    className='flex items-center gap-2 sm:gap-3 rounded-lg bg-white/60 dark:bg-neutral-900/50 border border-white/60 dark:border-neutral-800/60 px-3 py-2 flex-wrap sm:flex-nowrap'
                   >
-                    <span className='inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold'>
+                    <span className='inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold shrink-0'>
                       {i + 1}
                     </span>
-                    <span className='text-base' aria-hidden>
+                    <span className='text-base shrink-0' aria-hidden>
                       {queueTypeEmoji(p.queue_type)}
                     </span>
-                    <span className='flex-1 text-sm text-neutral-900 dark:text-neutral-100 font-medium truncate'>
+                    <span className='flex-1 min-w-0 text-sm text-neutral-900 dark:text-neutral-100 font-medium truncate'>
                       {p.title}
                     </span>
                     <span
-                      className={`text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ${
+                      className={`text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded shrink-0 ${
                         p.priority === 'urgent'
                           ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
                           : p.priority === 'high'
@@ -149,6 +149,36 @@ export function MorningBriefCard({ brief }: MorningBriefCardProps) {
                     >
                       {p.priority ?? 'normal'}
                     </span>
+                    {/* Actionability upgrade #3 (2026-04-21): inline snooze + open
+                        so the director can clear or defer each priority without
+                        leaving the brief card. Universal actions that work for all
+                        queue types. */}
+                    <div className='flex items-center gap-1 shrink-0'>
+                      <form action={performQueueAction} className='inline-block'>
+                        <input type='hidden' name='userNotificationId' value={p.user_notification_id} />
+                        <input type='hidden' name='action' value='snooze' />
+                        <input type='hidden' name='snoozeMinutes' value='120' />
+                        <input
+                          type='hidden'
+                          name='idempotencyKey'
+                          value={`${p.user_notification_id}:snooze:brief`}
+                        />
+                        <button
+                          type='submit'
+                          className='text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 transition-colors'
+                          title='Snooze 2h'
+                        >
+                          Snooze
+                        </button>
+                      </form>
+                      <a
+                        href='#decision-queue'
+                        className='text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white transition-colors'
+                        title='Open in queue'
+                      >
+                        Open →
+                      </a>
+                    </div>
                   </li>
                 ))}
               </ol>
