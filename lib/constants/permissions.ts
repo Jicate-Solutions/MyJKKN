@@ -144,7 +144,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'roles.create', label: 'Create Roles' },
       { key: 'roles.edit', label: 'Edit Roles' },
       { key: 'roles.delete', label: 'Delete Roles' },
-      { key: 'users.permissions_audit.view', label: 'View Permissions Audit Dashboard' }
+      { key: 'users.permissions_audit.view', label: 'View Permissions Audit Dashboard' },
+      // Added 2026-04-21 — Persona Design PR-3. Keys referenced by RLS on the
+      // 3 scope-extension junction tables (user_block_access,
+      // user_learner_relationship, user_contract_access) introduced in PR-1.
+      // Grant these to hostel_office / chief_warden / super_admin to manage
+      // the per-user grants that back block_scope / relationship_scope /
+      // contract_scope (wired in PR-4).
+      { key: 'users.block_access.view', label: 'View User→Block Access Grants' },
+      { key: 'users.block_access.manage', label: 'Manage User→Block Access Grants' },
+      { key: 'users.relationship.view', label: 'View User→Learner Relationships (Parents)' },
+      { key: 'users.relationship.manage', label: 'Manage User→Learner Relationships (Parents)' },
+      { key: 'users.contract_access.view', label: 'View User→Contract Access Grants (Vendors)' },
+      { key: 'users.contract_access.manage', label: 'Manage User→Contract Access Grants (Vendors)' }
     ]
   },
   {
@@ -1098,13 +1110,194 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    // Baseline-only: campus-living was abandoned on clean-ss-deploy; no
-    // campus_living.* keys are enforced in lib/sidebarMenuLink.ts on this
-    // branch (confirmed 2026-04-20). Seeded `.view` pending resurrection.
+    // Expanded 2026-04-21 — Persona Design PR-3 of 4. Replaces the baseline
+    // `.view`-only stub. Catalogues all Campus Living permission keys so PR-4
+    // can retrofit RLS on the 48 hostel_*/mess_* tables using stable keys.
+    // Key groups below map 1:1 to submodules the module code already surfaces
+    // (see lib/sidebarMenuLink.ts MENU_PERMISSIONS for enforcement points).
     name: 'Campus Living',
     key: 'campus_living',
     permissions: [
-      { key: 'campus_living.view', label: 'View Campus Living' }
+      // Module-level
+      { key: 'campus_living.view', label: 'View Campus Living Module' },
+      { key: 'campus_living.dashboard.view', label: 'View Campus Living Dashboard' },
+      { key: 'campus_living.activity.view', label: 'View Activity Feed' },
+      { key: 'campus_living.calendar.view', label: 'View Calendar' },
+      { key: 'campus_living.settings.view', label: 'View Campus Living Settings' },
+      { key: 'campus_living.settings.edit', label: 'Edit Campus Living Settings' },
+
+      // Physical infrastructure — Blocks
+      { key: 'campus_living.blocks.view', label: 'View Hostel Blocks' },
+      { key: 'campus_living.blocks.create', label: 'Create Hostel Blocks' },
+      { key: 'campus_living.blocks.edit', label: 'Edit Hostel Blocks' },
+      { key: 'campus_living.blocks.delete', label: 'Delete Hostel Blocks' },
+      { key: 'campus_living.blocks.warden_assign', label: 'Assign Warden to Block' },
+
+      // Physical infrastructure — Rooms
+      { key: 'campus_living.rooms.view', label: 'View Rooms' },
+      { key: 'campus_living.rooms.create', label: 'Create Rooms' },
+      { key: 'campus_living.rooms.edit', label: 'Edit Rooms' },
+      { key: 'campus_living.rooms.delete', label: 'Delete Rooms' },
+      { key: 'campus_living.rooms.inspect', label: 'Record Room Inspection' },
+
+      // Physical infrastructure — Beds
+      { key: 'campus_living.beds.view', label: 'View Beds' },
+      { key: 'campus_living.beds.create', label: 'Create Beds' },
+      { key: 'campus_living.beds.edit', label: 'Edit Beds' },
+      { key: 'campus_living.beds.delete', label: 'Delete Beds' },
+      { key: 'campus_living.beds.status_change', label: 'Change Bed Status' },
+
+      // Allocations
+      { key: 'campus_living.allocations.view', label: 'View Hostel Allocations' },
+      { key: 'campus_living.allocations.create', label: 'Create Allocation' },
+      { key: 'campus_living.allocations.edit', label: 'Edit Allocation' },
+      { key: 'campus_living.allocations.transfer', label: 'Transfer Learner Between Rooms' },
+      { key: 'campus_living.allocations.vacate', label: 'Vacate Allocation' },
+      { key: 'campus_living.allocations.approve', label: 'Approve Allocation' },
+
+      // Wardens
+      { key: 'campus_living.wardens.view', label: 'View Wardens' },
+      { key: 'campus_living.wardens.assign', label: 'Assign Warden' },
+      { key: 'campus_living.wardens.remove', label: 'Remove Warden' },
+
+      // Gate passes
+      { key: 'campus_living.gate_passes.view', label: 'View Gate Passes' },
+      { key: 'campus_living.gate_passes.view_own', label: 'View Own Gate Passes (Hosteler)' },
+      { key: 'campus_living.gate_passes.view_block', label: 'View Gate Passes for Assigned Block' },
+      { key: 'campus_living.gate_passes.create', label: 'Request Gate Pass' },
+      { key: 'campus_living.gate_passes.approve', label: 'Approve Gate Pass' },
+      { key: 'campus_living.gate_passes.reject', label: 'Reject Gate Pass' },
+      { key: 'campus_living.gate_passes.verify_at_gate', label: 'Verify Gate Pass at Gate' },
+
+      // Visitors
+      { key: 'campus_living.visitors.view', label: 'View Visitors' },
+      { key: 'campus_living.visitors.log', label: 'Log New Visitor' },
+      { key: 'campus_living.visitors.approve', label: 'Approve Visitor' },
+
+      // Leave
+      { key: 'campus_living.leave.view', label: 'View Leave Requests' },
+      { key: 'campus_living.leave.view_own', label: 'View Own Leave (Hosteler)' },
+      { key: 'campus_living.leave.view_block', label: 'View Leave for Assigned Block' },
+      { key: 'campus_living.leave.request', label: 'Request Leave' },
+      { key: 'campus_living.leave.parent_consent', label: 'Provide Parent Consent' },
+      { key: 'campus_living.leave.warden_approve', label: 'Warden Approve Leave' },
+      { key: 'campus_living.leave.chief_approve', label: 'Chief Warden Approve Leave' },
+
+      // Attendance
+      { key: 'campus_living.attendance.view', label: 'View Hostel Attendance' },
+      { key: 'campus_living.attendance.mark', label: 'Mark Hostel Attendance' },
+      { key: 'campus_living.attendance.edit', label: 'Edit Attendance Record' },
+      { key: 'campus_living.attendance.export', label: 'Export Attendance' },
+
+      // Maintenance
+      { key: 'campus_living.maintenance.view', label: 'View Maintenance Tickets' },
+      { key: 'campus_living.maintenance.create', label: 'Create Maintenance Ticket' },
+      { key: 'campus_living.maintenance.assign', label: 'Assign Maintenance Ticket' },
+      { key: 'campus_living.maintenance.close', label: 'Close Maintenance Ticket' },
+      { key: 'campus_living.maintenance.approve_payment', label: 'Approve Vendor Payment' },
+
+      // Housekeeping
+      { key: 'campus_living.housekeeping.view', label: 'View Housekeeping Schedules' },
+      { key: 'campus_living.housekeeping.schedule', label: 'Create/Edit Schedule' },
+      { key: 'campus_living.housekeeping.mark_done', label: 'Mark Task Done' },
+
+      // Laundry
+      { key: 'campus_living.laundry.view', label: 'View Laundry Config' },
+      { key: 'campus_living.laundry.config', label: 'Configure Laundry Service' },
+      { key: 'campus_living.laundry.orders_manage', label: 'Manage Laundry Orders' },
+
+      // Safety
+      { key: 'campus_living.safety.view', label: 'View Safety Equipment' },
+      { key: 'campus_living.safety.inspect', label: 'Record Safety Inspection' },
+      { key: 'campus_living.safety.record', label: 'Record Safety Event' },
+      { key: 'campus_living.safety.inspections.view', label: 'View Safety Inspections' },
+      { key: 'campus_living.safety.incidents.view', label: 'View Safety Incidents' },
+      { key: 'campus_living.safety.anti_ragging.view', label: 'View Anti-Ragging Incidents' },
+      { key: 'campus_living.safety.anti_ragging.manage', label: 'Manage Anti-Ragging Cases' },
+
+      // Health
+      { key: 'campus_living.health.view', label: 'View Health Cases' },
+      { key: 'campus_living.health.log_case', label: 'Log Health Case' },
+      { key: 'campus_living.health.emergency', label: 'Trigger Health Emergency' },
+
+      // Fees
+      { key: 'campus_living.fees.view', label: 'View Hostel Fees' },
+      { key: 'campus_living.fees.config', label: 'Configure Fee Structure' },
+      { key: 'campus_living.fees.waive', label: 'Waive Fee' },
+      { key: 'campus_living.fees.refund', label: 'Refund Fee' },
+
+      // Deposits
+      { key: 'campus_living.deposits.view', label: 'View Deposits' },
+      { key: 'campus_living.deposits.record', label: 'Record Deposit' },
+      { key: 'campus_living.deposits.refund', label: 'Refund Deposit' },
+
+      // Mess — umbrella
+      { key: 'campus_living.mess.view', label: 'View Mess Module' },
+
+      // Mess — caterers
+      { key: 'campus_living.mess.caterers.view', label: 'View Caterers' },
+      { key: 'campus_living.mess.caterers.onboard', label: 'Onboard Caterer' },
+      { key: 'campus_living.mess.caterers.suspend', label: 'Suspend Caterer' },
+      { key: 'campus_living.mess.caterers.pay', label: 'Process Caterer Payment' },
+
+      // Mess — menus
+      { key: 'campus_living.mess.menu.view', label: 'View Mess Menu' },
+      { key: 'campus_living.mess.menu.publish', label: 'Publish Menu' },
+      { key: 'campus_living.mess.menu.approve', label: 'Approve Menu' },
+
+      // Mess — meals
+      { key: 'campus_living.mess.meals.view', label: 'View Meal Records' },
+      { key: 'campus_living.mess.meals.book', label: 'Book Meal' },
+      { key: 'campus_living.mess.meals.cancel', label: 'Cancel Meal Booking' },
+
+      // Mess — billing
+      { key: 'campus_living.mess.billing.view', label: 'View Mess Billing' },
+      { key: 'campus_living.mess.billing.reconcile', label: 'Reconcile Mess Billing' },
+      { key: 'campus_living.mess.billing.export', label: 'Export Mess Billing' },
+
+      // Mess — feedback + waste
+      { key: 'campus_living.mess.feedback.view', label: 'View Mess Feedback' },
+      { key: 'campus_living.mess.waste.view', label: 'View Mess Waste Log' },
+
+      // Alerts
+      { key: 'campus_living.alerts.view', label: 'View Alert Rules' },
+      { key: 'campus_living.alerts.configure', label: 'Configure Alert Rules' },
+      { key: 'campus_living.alerts.acknowledge', label: 'Acknowledge Alert' },
+
+      // Pulse surveys
+      { key: 'campus_living.pulse.view', label: 'View Pulse Surveys' },
+      { key: 'campus_living.pulse.create', label: 'Create Pulse Survey' },
+      { key: 'campus_living.pulse.respond', label: 'Respond to Pulse Survey' },
+
+      // Wellness
+      { key: 'campus_living.wellness.view', label: 'View Wellness Module' },
+
+      // Community
+      { key: 'campus_living.community.view', label: 'View Community Config' },
+      { key: 'campus_living.community.manage', label: 'Manage Community Config' },
+      { key: 'campus_living.community.post', label: 'Post to Community' },
+      { key: 'campus_living.community.moderate', label: 'Moderate Community' },
+
+      // Analytics
+      { key: 'campus_living.analytics.view', label: 'View Analytics (all)' },
+      { key: 'campus_living.analytics.occupancy', label: 'Analytics: Occupancy' },
+      { key: 'campus_living.analytics.fees', label: 'Analytics: Fees' },
+      { key: 'campus_living.analytics.mess', label: 'Analytics: Mess' },
+      { key: 'campus_living.analytics.maintenance', label: 'Analytics: Maintenance' },
+      { key: 'campus_living.analytics.safety', label: 'Analytics: Safety' },
+      { key: 'campus_living.analytics.cross_domain', label: 'Analytics: Cross-Domain' },
+
+      // Reports (accreditation)
+      { key: 'campus_living.reports.view', label: 'View Reports' },
+      { key: 'campus_living.reports.naac_4_1_4', label: 'NAAC Criterion 4.1.4 (Hostel Infra)' },
+      { key: 'campus_living.reports.nirf_facilities', label: 'NIRF Facilities for Students' },
+      { key: 'campus_living.reports.aicte_eoa', label: 'AICTE EOA Hostel Section' },
+      { key: 'campus_living.reports.anti_ragging_quarterly', label: 'Anti-Ragging Quarterly Report' },
+
+      // Parent portal
+      { key: 'campus_living.parent_portal.view_child', label: 'Parent Portal — View Child' },
+      { key: 'campus_living.parent_portal.consent', label: 'Parent Portal — Provide Consent' },
+      { key: 'campus_living.parent_portal.pay_fee', label: 'Parent Portal — Pay Fee' }
     ]
   },
   {

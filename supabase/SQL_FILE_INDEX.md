@@ -6,6 +6,12 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-21** — Persona Design PR-3: +127 permission keys in PERMISSION_CATEGORIES (TypeScript-only, no DB migration)
+  - `lib/constants/permissions.ts`: replaced 1-key Campus Living stub with 121 granular keys. Submodules: blocks, rooms, beds, allocations, wardens, gate_passes, visitors, leave, attendance, maintenance, housekeeping, laundry, safety (incl. anti_ragging), health, fees, deposits, mess (caterers/menu/meals/billing/feedback/waste), alerts, pulse, wellness, community, analytics, reports (NAAC/NIRF/AICTE/anti-ragging quarterly), parent_portal.
+  - Also added 6 `users.*.access` keys for PR-1's scope-extension junction tables: `users.block_access.{view,manage}`, `users.relationship.{view,manage}`, `users.contract_access.{view,manage}`.
+  - Catalog-sync verified: every MENU_PERMISSIONS campus_living.* key now has a PERMISSION_CATEGORIES home (was: 29 drift warnings; now: 0).
+  - No DB changes — roles still have empty permissions jsonb. PR-4 bulk-updates each role's permissions to wire the new keys alongside RLS retrofit on 48 hostel_*/mess_* tables.
+
 - **2026-04-21** — Persona Design PR-2: 10 new roles for Campus Living + external actors
   - New migration `supabase/migrations/20260421000001_persona_design_pr2_ten_roles.sql`
   - Roles seeded: warden, chief_warden, gate_security, housekeeping_staff, parent, mess_caterer, maintenance_vendor, hostel_office, anti_ragging_member, accreditation_officer
