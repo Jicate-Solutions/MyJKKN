@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useLearnerPrivileges } from '@/hooks/academic/use-privileges';
 import type { ActivePrivilegeInfo, RenewalStatus } from '@/types/privileges';
+import { DownloadCardButton } from './_components/download-card-button';
 
 // ============================================================
 // Renewal status badge configuration
@@ -144,9 +145,18 @@ export default function MyPrivilegesPage() {
     );
   }
 
+  // One card = all active privileges (Vijay TVK Citizen Privilege Card model:
+  // bundling > fragmentation). Use the first active membership as the card's
+  // stable handle; the server resolves the learner and includes every active
+  // membership on the card.
+  const primaryMemberId = privileges[0].member_id;
+
   return (
     <ContentLayout title="My Privileges">
       <div className="space-y-8 max-w-4xl mx-auto">
+        <div className="flex items-center justify-end">
+          <DownloadCardButton memberId={primaryMemberId} />
+        </div>
         {privileges.map((priv) => (
           <PrivilegeGroupView key={priv.group_id} privilege={priv} />
         ))}
