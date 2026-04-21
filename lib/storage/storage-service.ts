@@ -1249,4 +1249,48 @@ export class StorageService {
       console.error('[admission/expos] Error deleting photo:', error);
     }
   }
+
+  /**
+   * BUG-003146: Upload a stall photo, scoped by institution + event + stall.
+   * Path: `<institutionId>/<eventId>/stalls/<stallKey>/<timestamp>.<ext>`
+   * For pre-create stalls, pass `'new-<timestamp>'` as stallKey.
+   */
+  static async uploadExpoStallPhoto(
+    file: File,
+    institutionId: string,
+    eventId: string,
+    stallKey: string
+  ): Promise<{ publicUrl: string | null; error: Error | null }> {
+    try {
+      await this.validateFile(file);
+
+      const { data: { user }, error: userError } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `stall_${Date.now()}.${fileExt}`;
+      const filePath = `${institutionId}/${eventId}/stalls/${stallKey}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.EXPO_PHOTOS)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.EXPO_PHOTOS)
+        .getPublicUrl(filePath);
+
+      return { publicUrl: urlData.publicUrl, error: null };
+    } catch (error) {
+      console.error('[admission/expos/stalls] Error uploading photo:', error);
+      return {
+        publicUrl: null,
+        error: error instanceof Error ? error : new Error('Upload failed'),
+      };
+    }
+  }
 }
