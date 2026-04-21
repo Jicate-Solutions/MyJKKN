@@ -47,7 +47,7 @@ function getRenewalBadge(status: string) {
     case 'pending_review':
       return (
         <Badge className="bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100">
-          Pending Review
+          Under Review
         </Badge>
       );
     case 'paused':
@@ -201,8 +201,8 @@ function ReportContent({ membership }: { membership: MembershipInfo }) {
             Privilege Paused
           </h3>
           <p className="text-muted-foreground max-w-md">
-            Your privilege is paused. Contact your committee for re-approval.
-            Once re-approved, you will be able to submit progress reports again.
+            Your privilege is paused. Contact your committee for review.
+            Once your standing is recognized again, you will be able to submit progress reports.
           </p>
         </CardContent>
       </Card>
