@@ -56,7 +56,7 @@ export default function PrivilegeGroupsPage() {
               Privilege Groups
             </h2>
             <p className="text-muted-foreground mt-1">
-              Manage exceptions and privileges for learners.
+              Recognize standing and grant privileges to learners.
             </p>
           </div>
           <div className="flex items-center gap-2">

@@ -34,7 +34,7 @@ const RENEWAL_BADGE_CONFIG: Record<
     borderColor: 'border-amber-300/60',
   },
   pending_review: {
-    label: 'Pending Review',
+    label: 'Under Review',
     className: 'bg-blue-500/20 text-white border-blue-300/40',
     gradient: 'bg-gradient-to-br from-blue-500 via-blue-400 to-sky-400',
     borderColor: 'border-blue-200/60',
@@ -135,7 +135,7 @@ export default function MyPrivilegesPage() {
             <Award className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No Active Privileges</h3>
             <p className="text-muted-foreground">
-              You currently have no active exceptions or privileges assigned.
+              You currently have no active privileges assigned.
               If you believe this is an error, please contact your department.
             </p>
           </CardContent>
