@@ -1187,6 +1187,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.leave.warden_approve', label: 'Warden Approve Leave' },
       { key: 'campus_living.leave.chief_approve', label: 'Chief Warden Approve Leave' },
 
+      // Leave Types (master data — added 2026-04-21 PR-3b, replaces enum)
+      { key: 'campus_living.leave_types.view', label: 'View Hostel Leave Types' },
+      { key: 'campus_living.leave_types.create', label: 'Create Hostel Leave Type' },
+      { key: 'campus_living.leave_types.edit', label: 'Edit Hostel Leave Type' },
+      { key: 'campus_living.leave_types.delete', label: 'Delete Hostel Leave Type (non-system only)' },
+
       // Attendance
       { key: 'campus_living.attendance.view', label: 'View Hostel Attendance' },
       { key: 'campus_living.attendance.mark', label: 'Mark Hostel Attendance' },
