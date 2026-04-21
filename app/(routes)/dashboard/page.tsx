@@ -282,6 +282,17 @@ export default async function DashboardV2Page({
           ]}
         />
 
+        {/* Today's Focus (actionability upgrade #2, 2026-04-21) — director only.
+            Derives the single most-important thing to act on from current OHS
+            components. Sits above the hero strip so the eye lands on it first. */}
+        {isDirector && (
+          <DashboardErrorBoundary label="Today's Focus" mode='silent'>
+            <Suspense fallback={null}>
+              <LiveTodaysFocus />
+            </Suspense>
+          </DashboardErrorBoundary>
+        )}
+
         {/* 8am Morning Brief (spec §7.7) — dismissible per-day, safe for all personas
             (reads only user's own acked/unacked counts). Silent boundary: a failure
             here renders no card (errors go to DevTools + Vercel logs), since the
