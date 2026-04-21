@@ -32,8 +32,6 @@ export type LeaderboardResult = {
   empty_reason?: 'no_data' | 'not_enough_leads' | null;
 };
 
-const EMPTY: LeaderboardResult = { rows: [], total: 0, empty_reason: 'no_data' };
-
 export async function getSlaDailyLeaderboard(
   limit = 10,
   institutionId?: string | null
