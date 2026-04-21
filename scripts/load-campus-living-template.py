@@ -171,6 +171,23 @@ def translate_value(
     if db_column in array_cols and isinstance(value, str):
         return [v.strip() for v in value.split(",") if v.strip()]
 
+    # learner_year_groups: human labels → snake_case DB values
+    # e.g. "1st Year, 2nd Year" → ["1st_year", "2nd_year"]
+    if db_column == "learner_year_groups" and isinstance(value, str):
+        parts = [v.strip() for v in value.split(",") if v.strip()]
+        return [p.lower().replace(" ", "_") for p in parts]
+
+    # floors_assigned: comma-separated integers
+    # e.g. "1, 2" → [1, 2]. Non-integer values raise to surface the typo.
+    if db_column == "floors_assigned" and isinstance(value, str):
+        parts = [v.strip() for v in value.split(",") if v.strip()]
+        try:
+            return [int(p) for p in parts]
+        except ValueError as exc:
+            raise ValueError(
+                f"Floors Assigned must be comma-separated integers (got '{value}')"
+            ) from exc
+
     return value
 
 
