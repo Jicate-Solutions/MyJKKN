@@ -46,7 +46,12 @@ import { StreakBadge } from '@/components/dashboard/streak-badge';
 import { ActivityFeed } from '@/components/dashboard/activity-feed';
 import { createClient } from '@/lib/supabase/server';
 import { KeyboardShortcuts } from '@/components/dashboard/keyboard-shortcuts';
-import { TodaysFocusCard, deriveTodaysFocus } from '@/components/dashboard/todays-focus';
+import {
+  TodaysFocusCard,
+  deriveTodaysFocus,
+  deriveTodaysFocusFromQueue
+} from '@/components/dashboard/todays-focus';
+import { listQueueItems } from '@/lib/services/dashboard/decision-queue-service';
 
 const VALID_FILTERS: QueueFilter[] = [
   'all',
@@ -80,12 +85,21 @@ async function LiveHeroStrip({
   return <HeroStrip metrics={metrics} drillBase={drillBase} />;
 }
 
-// Actionability upgrade #2 (2026-04-21): derive "the one thing" from the same
-// metrics the hero strip uses. Duplicate RPC call (~20ms) — trivial given the
-// UX win of lead-with-the-important-thing.
+// Actionability upgrade #2 (2026-04-21), phase 2 (2026-04-21 evening):
+// Prefer a REAL queue item when one exists. The work-item generators
+// (fn_generate_all_dashboard_work_items) populate dashboard:* notifications
+// from business signals — overdue invoices, stale leads, pending approvals,
+// unmarked attendance. The top-severity item becomes the focus card.
+// Falls back to the aggregate OHS heuristic when the queue is empty.
 async function LiveTodaysFocus() {
-  const metrics = await getDashboardMetrics();
-  const focus = deriveTodaysFocus(metrics);
+  const [metrics, queue] = await Promise.all([
+    getDashboardMetrics(),
+    listQueueItems('all', 1)
+  ]);
+  const focus =
+    queue.items.length > 0
+      ? deriveTodaysFocusFromQueue(queue.items[0], queue.counts)
+      : deriveTodaysFocus(metrics);
   return <TodaysFocusCard focus={focus} />;
 }
 

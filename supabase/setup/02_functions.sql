@@ -8752,3 +8752,227 @@ COMMENT ON FUNCTION public.role_has_contract_access(uuid, text) IS
   'NULL. Pass contract_type to restrict to a specific kind of contract.';
 
 -- END Persona Design PR-1 functions
+
+-- =====================================================================
+-- Dashboard v2 — Work Item Generators (2026-04-21)
+-- =====================================================================
+-- Closes the "OHS is red but queue is empty" architectural gap.
+-- Applied to prod via migrations `dashboard_work_item_generators_phase1`,
+-- `..._phase1_fixes`, `..._helper_created_by_fix`, `..._helper_targeting_fix`.
+-- Consolidated here as the source-of-truth copy.
+--
+-- Pattern: each generator writes into (notifications, user_notifications)
+-- with category LIKE 'dashboard:%' so fn_dashboard_queue_list surfaces them.
+-- Idempotency-keyed per entity+day+target-user to prevent duplicates.
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION fn_create_dashboard_work_item(
+  p_category TEXT, p_priority TEXT, p_title TEXT, p_body TEXT,
+  p_action_config JSONB, p_target_user UUID, p_idempotency_key TEXT,
+  p_deadline_hours INT DEFAULT 48
+) RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_create$
+DECLARE v_notif_id UUID;
+BEGIN
+  IF EXISTS (SELECT 1 FROM notifications WHERE idempotency_key = p_idempotency_key) THEN
+    RETURN 0;
+  END IF;
+  INSERT INTO notifications (
+    id, title, body, category, priority, requires_acknowledgment,
+    acknowledgment_deadline_hours, action_type, action_config, idempotency_key,
+    created_by, targeting, created_at, updated_at
+  ) VALUES (
+    gen_random_uuid(), p_title, p_body, p_category, p_priority, TRUE,
+    p_deadline_hours, 'open_url', p_action_config, p_idempotency_key,
+    p_target_user, jsonb_build_object('type','user','user_id', p_target_user),
+    NOW(), NOW()
+  ) RETURNING id INTO v_notif_id;
+  INSERT INTO user_notifications (id, notification_id, user_id, created_at)
+  VALUES (gen_random_uuid(), v_notif_id, p_target_user, NOW());
+  RETURN 1;
+END $fn_create$;
+
+-- Generator 1: overdue invoices → dashboard:escalation
+CREATE OR REPLACE FUNCTION fn_generate_overdue_invoice_items()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_ovd$
+DECLARE
+  v_created INT := 0; v_inv RECORD; v_user RECORD; v_key TEXT;
+  v_priority TEXT; v_name TEXT; v_phone TEXT;
+BEGIN
+  FOR v_inv IN
+    SELECT bi.id, bi.institution_id, bi.student_id, bi.grand_total, bi.due_date,
+           bi.invoice_number, bi.billing_period_from,
+           (CURRENT_DATE - bi.due_date)::INT AS days_overdue,
+           COALESCE((SELECT SUM(br.payment_amount) FROM billing_receipts br
+                     WHERE br.student_id = bi.student_id
+                       AND br.receipt_date >= bi.billing_period_from), 0) AS paid_since_period
+    FROM billing_invoices bi
+    WHERE bi.due_date < CURRENT_DATE - INTERVAL '30 days' AND bi.grand_total > 0
+    ORDER BY bi.due_date ASC LIMIT 500
+  LOOP
+    IF v_inv.paid_since_period >= v_inv.grand_total THEN CONTINUE; END IF;
+    v_priority := CASE WHEN v_inv.days_overdue > 90 THEN 'urgent'
+                       WHEN v_inv.days_overdue > 60 THEN 'high' ELSE 'normal' END;
+    SELECT TRIM(COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,'')),
+           COALESCE(lp.student_mobile, lp.father_mobile, lp.mother_mobile)
+    INTO v_name, v_phone FROM learners_profiles lp WHERE lp.id = v_inv.student_id;
+    IF v_name IS NULL OR v_name = '' THEN v_name := 'Student ' || v_inv.student_id::text; END IF;
+    FOR v_user IN
+      SELECT DISTINCT p.id AS uid FROM profiles p
+      WHERE ((p.institution_id = v_inv.institution_id) OR p.is_super_admin = TRUE)
+        AND (p.role IN ('director','super_admin','admin','accounts','principal')
+             OR p.is_super_admin = TRUE)
+    LOOP
+      v_key := 'overdue_invoice:' || v_inv.id::text || ':' || CURRENT_DATE::text
+               || ':' || v_user.uid::text;
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:escalation', v_priority,
+        'Invoice ' || v_inv.invoice_number || ' overdue ' || v_inv.days_overdue || ' days — ₹' || v_inv.grand_total::text,
+        v_name || ' owes ₹' || (v_inv.grand_total - v_inv.paid_since_period)::text || '. ' ||
+          COALESCE('Contact: ' || v_phone, 'No phone on file.'),
+        jsonb_build_object(
+          'invoice_id', v_inv.id, 'student_id', v_inv.student_id,
+          'amount_due', v_inv.grand_total - v_inv.paid_since_period,
+          'days_overdue', v_inv.days_overdue,
+          'url', '/billing/invoices/' || v_inv.id::text,
+          'student_name', v_name, 'student_phone', v_phone),
+        v_user.uid, v_key,
+        CASE WHEN v_priority = 'urgent' THEN 24 WHEN v_priority = 'high' THEN 48 ELSE 72 END);
+    END LOOP;
+  END LOOP;
+  RETURN v_created;
+END $fn_ovd$;
+
+-- Generator 2: stale leads → dashboard:rescue
+CREATE OR REPLACE FUNCTION fn_generate_stale_lead_rescue_items()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_lead$
+DECLARE
+  v_created INT := 0; v_lead RECORD; v_key TEXT;
+  v_target_user UUID; v_hours_stale INT;
+BEGIN
+  FOR v_lead IN
+    SELECT al.id, al.institution_id, al.counselor_id,
+           COALESCE(al.last_activity_at, al.created_at) AS last_touch,
+           EXTRACT(EPOCH FROM (NOW() - COALESCE(al.last_activity_at, al.created_at)))/3600 AS hours_stale
+    FROM admission_leads al
+    WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - INTERVAL '24 hours'
+      AND COALESCE(al.last_activity_at, al.created_at) > NOW() - INTERVAL '30 days'
+    ORDER BY last_touch ASC LIMIT 300
+  LOOP
+    v_hours_stale := v_lead.hours_stale::INT;
+    v_target_user := COALESCE(v_lead.counselor_id,
+      (SELECT p.id FROM profiles p WHERE p.institution_id = v_lead.institution_id
+         AND p.role IN ('admission','admin','admission_staff','super_admin') LIMIT 1));
+    IF v_target_user IS NULL THEN CONTINUE; END IF;
+    v_key := 'stale_lead:' || v_lead.id::text || ':' || CURRENT_DATE::text;
+    v_created := v_created + fn_create_dashboard_work_item(
+      'dashboard:rescue',
+      CASE WHEN v_hours_stale > 72 THEN 'high' ELSE 'normal' END,
+      'Lead stale for ' || v_hours_stale || 'h',
+      'Lead hasn''t been touched in ' || v_hours_stale || ' hours. Call now or broadcast rescue to team.',
+      jsonb_build_object('lead_id', v_lead.id, 'counselor_id', v_lead.counselor_id,
+        'hours_stale', v_hours_stale, 'url', '/admission/leads/' || v_lead.id::text),
+      v_target_user, v_key, 24);
+  END LOOP;
+  RETURN v_created;
+END $fn_lead$;
+
+-- Generator 3: pending leave applications >48h → dashboard:approval
+CREATE OR REPLACE FUNCTION fn_generate_pending_leave_approval_items()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_leave$
+DECLARE
+  v_created INT := 0; v_leave RECORD; v_target UUID; v_key TEXT; v_hours INT;
+BEGIN
+  FOR v_leave IN
+    SELECT la.id, la.employee_id, la.final_approver_id,
+           la.start_date, la.end_date, la.total_days, la.status,
+           la.created_at, la.reason, la.is_emergency,
+           EXTRACT(EPOCH FROM (NOW() - la.created_at))/3600 AS hours_pending
+    FROM hr_leave_applications la
+    WHERE la.status = 'pending' AND la.created_at < NOW() - INTERVAL '48 hours'
+      AND la.created_at > NOW() - INTERVAL '30 days' AND la.superseded_by IS NULL
+    ORDER BY la.created_at ASC LIMIT 200
+  LOOP
+    v_target := v_leave.final_approver_id;
+    IF v_target IS NULL THEN CONTINUE; END IF;
+    v_hours := v_leave.hours_pending::INT;
+    v_key := 'leave_pending:' || v_leave.id::text || ':' || CURRENT_DATE::text;
+    v_created := v_created + fn_create_dashboard_work_item(
+      'dashboard:approval',
+      CASE WHEN v_leave.is_emergency THEN 'urgent' WHEN v_hours > 96 THEN 'high' ELSE 'normal' END,
+      'Leave request pending ' || v_hours || 'h — ' || v_leave.total_days::text || ' day(s)',
+      COALESCE(v_leave.reason, 'No reason provided') || ' | ' ||
+        v_leave.start_date::text || ' to ' || v_leave.end_date::text,
+      jsonb_build_object('leave_id', v_leave.id, 'employee_id', v_leave.employee_id,
+        'days', v_leave.total_days, 'url', '/hr/leave/applications/' || v_leave.id::text,
+        'is_emergency', v_leave.is_emergency),
+      v_target, v_key, CASE WHEN v_leave.is_emergency THEN 4 ELSE 24 END);
+  END LOOP;
+  RETURN v_created;
+END $fn_leave$;
+
+-- Generator 4: unmarked-attendance anomaly → dashboard:anomaly
+CREATE OR REPLACE FUNCTION fn_generate_unmarked_attendance_items()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_att$
+DECLARE v_created INT := 0; v_tt RECORD; v_target RECORD; v_key TEXT;
+BEGIN
+  IF EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Kolkata')) < 11 THEN RETURN 0; END IF;
+  FOR v_tt IN
+    SELECT t.id, t.institution_id, t.section_id, t.timetable_name,
+           t.department_id, t.semester_id
+    FROM timetables t
+    WHERE t.is_active = TRUE AND t.start_date <= CURRENT_DATE
+      AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
+      AND NOT EXISTS (SELECT 1 FROM student_attendance sa
+        WHERE sa.timetable_id = t.id AND sa.attendance_date = CURRENT_DATE)
+      AND EXISTS (SELECT 1 FROM student_attendance sa2
+        WHERE sa2.timetable_id = t.id
+          AND sa2.attendance_date BETWEEN CURRENT_DATE - INTERVAL '14 days' AND CURRENT_DATE - INTERVAL '1 day')
+    LIMIT 100
+  LOOP
+    v_key := 'unmarked_attendance:' || v_tt.id::text || ':' || CURRENT_DATE::text;
+    FOR v_target IN
+      SELECT DISTINCT p.id AS uid FROM profiles p
+      WHERE (p.institution_id = v_tt.institution_id OR p.is_super_admin = TRUE)
+        AND (p.role IN ('director','principal','hod','super_admin','admin') OR p.is_super_admin = TRUE)
+      LIMIT 5
+    LOOP
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:anomaly', 'normal',
+        'Attendance not marked today — ' || COALESCE(v_tt.timetable_name, 'Section timetable'),
+        'No attendance rows for this timetable today as of 11am. Faculty may need a nudge.',
+        jsonb_build_object('timetable_id', v_tt.id, 'section_id', v_tt.section_id,
+          'url', '/academic/attendance/dashboard?timetable=' || v_tt.id::text),
+        v_target.uid, v_key || ':' || v_target.uid::text, 8);
+    END LOOP;
+  END LOOP;
+  RETURN v_created;
+END $fn_att$;
+
+-- Dispatcher: run all 4 generators, capture per-generator errors for debug
+CREATE OR REPLACE FUNCTION fn_generate_all_dashboard_work_items()
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_all$
+DECLARE r1 INT := 0; e1 TEXT := NULL; r2 INT := 0; e2 TEXT := NULL;
+        r3 INT := 0; e3 TEXT := NULL; r4 INT := 0; e4 TEXT := NULL;
+BEGIN
+  BEGIN r1 := fn_generate_overdue_invoice_items();        EXCEPTION WHEN OTHERS THEN e1 := SQLERRM; END;
+  BEGIN r2 := fn_generate_stale_lead_rescue_items();      EXCEPTION WHEN OTHERS THEN e2 := SQLERRM; END;
+  BEGIN r3 := fn_generate_pending_leave_approval_items(); EXCEPTION WHEN OTHERS THEN e3 := SQLERRM; END;
+  BEGIN r4 := fn_generate_unmarked_attendance_items();    EXCEPTION WHEN OTHERS THEN e4 := SQLERRM; END;
+  RETURN jsonb_build_object(
+    'generated_at', NOW(),
+    'overdue_invoices',    jsonb_build_object('count', r1, 'error', e1),
+    'stale_leads',         jsonb_build_object('count', r2, 'error', e2),
+    'pending_leaves',      jsonb_build_object('count', r3, 'error', e3),
+    'unmarked_attendance', jsonb_build_object('count', r4, 'error', e4),
+    'total', r1 + r2 + r3 + r4);
+END $fn_all$;
+
+REVOKE ALL ON FUNCTION fn_create_dashboard_work_item(TEXT,TEXT,TEXT,TEXT,JSONB,UUID,TEXT,INT) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION fn_generate_overdue_invoice_items() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION fn_generate_stale_lead_rescue_items() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION fn_generate_pending_leave_approval_items() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION fn_generate_unmarked_attendance_items() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION fn_generate_all_dashboard_work_items() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_generate_all_dashboard_work_items() TO service_role;
+
+-- END Dashboard Work Item Generators

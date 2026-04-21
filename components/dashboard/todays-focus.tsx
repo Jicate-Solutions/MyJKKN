@@ -20,6 +20,7 @@
 
 import Link from 'next/link';
 import type { DashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
+import type { QueueItem, QueueCounts } from '@/lib/services/dashboard/decision-queue-service';
 
 export type FocusPayload = {
   tone: 'red' | 'amber' | 'green';
@@ -31,6 +32,62 @@ export type FocusPayload = {
     href: string;
   };
 };
+
+// ============================================================================
+// Queue-driven focus (preferred path, 2026-04-21)
+//
+// When the work-item generators have populated the queue, prefer a REAL item
+// over the aggregate heuristic. This is the "nobel-laureate actionability"
+// change: the card names a specific person, amount, or section — not a
+// percentage. Shows the highest-severity item + queue-type counts.
+// ============================================================================
+export function deriveTodaysFocusFromQueue(
+  topItem: QueueItem,
+  counts: QueueCounts
+): FocusPayload {
+  const cfg = (topItem.action_config ?? {}) as Record<string, unknown>;
+  const url = typeof cfg.url === 'string' ? cfg.url : `/dashboard?queue=${topItem.queue_type}`;
+  const tone: FocusPayload['tone'] =
+    topItem.severity_band === 'red' ? 'red' : topItem.severity_band === 'amber' ? 'amber' : 'amber';
+
+  const icon =
+    topItem.queue_type === 'escalation'
+      ? '⚠️'
+      : topItem.queue_type === 'rescue'
+        ? '🔥'
+        : topItem.queue_type === 'approval'
+          ? '✅'
+          : '📡';
+
+  // Build a context line describing the spread of pending items so the
+  // director understands this is ONE of N things, not the only thing.
+  const countLine = [
+    counts.escalation > 0 ? `${counts.escalation} escalation${counts.escalation === 1 ? '' : 's'}` : null,
+    counts.rescue > 0 ? `${counts.rescue} rescue${counts.rescue === 1 ? '' : 's'}` : null,
+    counts.approval > 0 ? `${counts.approval} approval${counts.approval === 1 ? '' : 's'}` : null,
+    counts.anomaly > 0 ? `${counts.anomaly} anomal${counts.anomaly === 1 ? 'y' : 'ies'}` : null
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  const context = [
+    topItem.body || 'Open the item for details.',
+    countLine ? `Queue: ${countLine}.` : null
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return {
+    tone,
+    icon,
+    headline: topItem.title,
+    context,
+    action: {
+      label: 'Open now →',
+      href: url
+    }
+  };
+}
 
 // ============================================================================
 // Heuristic: pick the single thing to focus on
