@@ -38,6 +38,11 @@ const BAND_DOT: Record<TileColor, string> = {
 // ============================================================================
 // Tile primitive
 // ============================================================================
+type HeroTileAction = {
+  label: string;
+  href: string;
+};
+
 type HeroTileProps = {
   label: string;
   value: React.ReactNode;
@@ -46,6 +51,13 @@ type HeroTileProps = {
   color: TileColor;
   href?: string;
   footer?: React.ReactNode;
+  /**
+   * Actionability upgrade #1 (2026-04-21): inline call-to-action rendered
+   * as a pill at the bottom of the tile. Shown regardless of color, but
+   * typically only set when `color` is red/amber so the user has an obvious
+   * next move on the problem metrics.
+   */
+  action?: HeroTileAction;
 };
 
 function HeroTile({
@@ -55,15 +67,20 @@ function HeroTile({
   hint,
   color,
   href,
-  footer
+  footer,
+  action
 }: HeroTileProps) {
-  const Wrapper: React.ElementType = href ? Link : 'div';
-  const wrapperProps = href ? { href } : {};
+  // When we render a nested <Link> for `action`, the outer wrapper can't also
+  // be a <Link> — nested anchors are invalid HTML. Fall back to a <div> in
+  // that case; the action button becomes the primary click target.
+  const useOuterLink = !!href && !action;
+  const Wrapper: React.ElementType = useOuterLink ? Link : 'div';
+  const wrapperProps = useOuterLink ? { href: href! } : {};
 
   return (
     <Wrapper
       {...wrapperProps}
-      className={`group relative rounded-2xl border ${TILE_COLOR_CLASS[color]} p-5 backdrop-blur-sm transition-all duration-200 ${href ? 'hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-500' : ''}`}
+      className={`group relative rounded-2xl border ${TILE_COLOR_CLASS[color]} p-5 backdrop-blur-sm transition-all duration-200 ${useOuterLink ? 'hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] cursor-pointer focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-500' : ''}`}
     >
       <div className='flex items-center justify-between'>
         <span className='text-xs font-medium uppercase tracking-wider opacity-75'>
@@ -83,6 +100,15 @@ function HeroTile({
         <div className='mt-4 pt-3 border-t border-current/10 text-[11px] opacity-80'>
           {footer}
         </div>
+      )}
+      {action && (
+        <Link
+          href={action.href}
+          className='mt-3 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-current/10 hover:bg-current/20 transition-colors'
+        >
+          {action.label}
+          <span aria-hidden='true'>→</span>
+        </Link>
       )}
     </Wrapper>
   );
