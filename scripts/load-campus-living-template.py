@@ -276,6 +276,7 @@ def process_sheet(
     """Insert rows from one sheet. Returns (inserted_count, errors)."""
     table_map = {
         "1. Hostel Blocks":           "hostel_blocks",
+        "1a. Block ↔ College Map":    "hostel_block_institutions",
         "2. Hostel Rooms":            "hostel_rooms",
         "3. Hostel Beds":             "hostel_beds",
         "4. Hostel Wardens":          "hostel_wardens",
