@@ -93,13 +93,15 @@ CREATE INDEX IF NOT EXISTS hostel_block_institutions_institution_idx
 
 ALTER TABLE public.hostel_block_institutions ENABLE ROW LEVEL SECURITY;
 
--- updated_at trigger (uses existing trigger_set_updated_at pattern)
-DROP TRIGGER IF EXISTS hostel_block_institutions_set_updated_at
+-- updated_at trigger (matches Campus Living convention:
+--   update_updated_at_column + trg_<table>_updated_at naming,
+--   per supabase/migrations/20260222000016_campus_living_rls_indexes_triggers.sql)
+DROP TRIGGER IF EXISTS trg_hostel_block_institutions_updated_at
   ON public.hostel_block_institutions;
-CREATE TRIGGER hostel_block_institutions_set_updated_at
+CREATE TRIGGER trg_hostel_block_institutions_updated_at
   BEFORE UPDATE ON public.hostel_block_institutions
   FOR EACH ROW
-  EXECUTE FUNCTION public.trigger_set_updated_at();
+  EXECUTE FUNCTION public.update_updated_at_column();
 
 -- ---------------------------------------------------------------------
 -- PHASE 2: Backfill from existing hostel_blocks.institution_id
