@@ -10,17 +10,19 @@ import {
   Briefcase,
   Layers,
   Calendar,
-  Building2,
   Grid3x3
 } from 'lucide-react';
 
+// NOTE: YUVA Chapters intentionally moved to top-level LC nav.
+// YUVA operates independently from the Learners Council — the only link is
+// the one-way progression path (previous-year Yuva Chairs are eligible for LC
+// promotion). YUVA is NOT a sub-section of LC Structure.
 const structureTabs: SectionTab[] = [
   { href: '/learners-council/structure', icon: Network, label: 'Overview', exact: true },
   { href: '/learners-council/structure/members', icon: Users, label: 'Members' },
   { href: '/learners-council/structure/positions', icon: Briefcase, label: 'Positions' },
   { href: '/learners-council/structure/committees', icon: Layers, label: 'Portfolio Committees' },
   { href: '/learners-council/structure/terms', icon: Calendar, label: 'Terms' },
-  { href: '/learners-council/structure/yuva', icon: Building2, label: 'YUVA Chapters' },
   { href: '/learners-council/structure/verticals', icon: Grid3x3, label: 'Verticals' },
 ];
 

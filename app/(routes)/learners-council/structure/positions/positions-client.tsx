@@ -119,8 +119,12 @@ export function PositionsClient({
   const [deletingPosition, setDeletingPosition] = useState<LCPosition | null>(null);
 
   // Live query, fall back to server data
+  // Filter OUT YUVA chapter positions (tier='yuva_chapter') — YUVA is a separate
+  // governance structure, not part of the LC. Those positions show on the YUVA pages.
   const { data: positions } = usePositions();
-  const displayPositions = positions || initialPositions;
+  const displayPositions = (positions || initialPositions).filter(
+    (p) => (p as LCPosition & { tier?: string }).tier !== 'yuva_chapter'
+  );
 
   const institutionMap = new Map(institutions.map((i) => [i.id, i.name]));
 

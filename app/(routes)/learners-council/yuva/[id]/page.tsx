@@ -114,7 +114,7 @@ export default async function YUVAChapterDetailPage({ params }: PageProps) {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <Link href="/learners-council/structure/yuva">
+            <Link href="/learners-council/yuva">
               <Button variant="ghost" size="sm" className="gap-1">
                 <ArrowLeft className="h-4 w-4" />
                 Back to Chapters
@@ -370,7 +370,7 @@ export default async function YUVAChapterDetailPage({ params }: PageProps) {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              <Link href={`/learners-council/structure/yuva?chapter=${id}`}>
+              <Link href={`/learners-council/yuva?chapter=${id}`}>
                 <Button variant="outline" size="sm">
                   <Users className="h-4 w-4 mr-1" />
                   Manage Members
