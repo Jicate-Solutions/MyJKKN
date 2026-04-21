@@ -6,6 +6,14 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-21** — Persona Design PR-2: 10 new roles for Campus Living + external actors
+  - New migration `supabase/migrations/20260421000001_persona_design_pr2_ten_roles.sql`
+  - Roles seeded: warden, chief_warden, gate_security, housekeeping_staff, parent, mess_caterer, maintenance_vendor, hostel_office, anti_ragging_member, accreditation_officer
+  - All have `permissions='{}'` (empty) and `module_scopes='{}'` — intentional. PR-3 adds catalog keys to `PERMISSION_CATEGORIES`; PR-4 retrofits RLS on 48 hostel_*/mess_* tables AND bulk-updates each role's permissions jsonb to grant its scaffolding.
+  - `accreditation_officer` is the only scope=`all` role (cross-institution evidence pull for NAAC/NIRF/UGC). Nine others are scope=`own`. External actors (parent, mess_caterer, maintenance_vendor) use scope=`own` + row-level checks via PR-1 junction tables (user_block_access, user_learner_relationship, user_contract_access).
+  - Idempotent via `ON CONFLICT (role_key) DO NOTHING`.
+  - Depends on PR-1 (#275 merged 2026-04-21) for scope helpers.
+
 - **2026-04-21** — Persona Design PR-1: scope-extension helpers (block/relationship/contract scopes)
   - `01_tables.sql`: new junction tables `user_block_access`, `user_learner_relationship`, `user_contract_access`. Each has `revoked_at` for soft-delete + audit trail. `user_contract_access.contract_id` is polymorphic (caterer/maintenance_vendor/laundry_vendor/amc).
   - `02_functions.sql`: 3 new SECURITY DEFINER helpers — `role_has_block_access(uuid)`, `role_has_relationship_access(uuid)`, `role_has_contract_access(uuid, text DEFAULT NULL)`. All mirror `role_has_institution_access()` pattern: super_admin bypass, NULL target = system-wide, otherwise consult junction table.
