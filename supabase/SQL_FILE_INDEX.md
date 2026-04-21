@@ -6,6 +6,15 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-21** — Hostel leave types: enum → CRUDable master table (chain Q1 principle, director feedback "can leave types + duration be CRUDable")
+  - New migration `supabase/migrations/20260421000005_hostel_leave_types_crudable.sql` (~320 lines, atomic BEGIN/COMMIT)
+  - PHASE 1: New `public.hostel_leave_types` institution-scoped master table (code, name, description, color, default_max_duration_days, parent_consent/chief_warden/attachment flags, advance_notice_hours, sort_order, is_system, is_active). Unique (institution_id, leave_type_code), check color_code is hex, check durations are positive.
+  - PHASE 2: Seed 7 defaults × every institution with `is_system=true` (home_visit, weekend, vacation, emergency, medical, academic, night_out). ON CONFLICT DO NOTHING = re-run safe.
+  - PHASE 3: Add nullable `leave_type_id UUID FK` to `hostel_leave_type_config` + `hostel_leave_requests`. Backfill from existing enum via JOIN on (institution_id, leave_type_code). Enum column KEPT during transition — drop in future cleanup PR.
+  - PHASE 4: 4 CRUD RLS policies on `hostel_leave_types` using new perms `campus_living.leave_types.{view,create,edit,delete}`. Delete policy includes `AND NOT is_system` so defaults cannot be deleted.
+  - Frontend (PR-3b): replaces the 88-LOC ghost page at `/campus-living/settings/leave-types` with real CRUD consuming the shared `<CrudDataTable>` + `<CrudRowActions>` from PR-3a (#286).
+  - Principle reference: `~/.claude/skills/myjkkn-chain/SKILL.md` Q1 — Value-list check (added 2026-04-21). Value lists masquerading as enums are the failure mode.
+
 - **2026-04-21** — Hostel blocks ↔ multi-college junction (warden feedback follow-up to PR-4)
   - New migration `supabase/migrations/20260421000004_hostel_blocks_multi_college.sql` (~330 lines, atomic BEGIN/COMMIT)
   - PHASE 1: New `hostel_block_institutions` M2M (block_id, institution_id, is_primary, learner_year_groups[], floors_assigned[]) with partial unique index on is_primary=true.
