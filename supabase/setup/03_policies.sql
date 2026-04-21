@@ -5110,3 +5110,107 @@ CREATE POLICY "hr_recruitment_scorecards_delete_super_admin"
   );
 
 -- END HR Recruitment Phase 3 policies
+
+
+-- ============================================================================
+-- Updated: 2026-04-21 — Persona Design PR-1 of 4: RLS on scope-extension tables
+--
+-- RLS policies for the 3 junction tables added in 01_tables.sql.
+-- Standard contract: super_admin/admin manage all, users see their own grants.
+-- ============================================================================
+
+ALTER TABLE public.user_block_access ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_learner_relationship ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_contract_access ENABLE ROW LEVEL SECURITY;
+
+-- user_block_access
+DROP POLICY IF EXISTS "user_block_access_select" ON public.user_block_access;
+CREATE POLICY "user_block_access_select" ON public.user_block_access
+FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR user_id = auth.uid()
+  OR user_has_permission('users.block_access.view')
+);
+
+DROP POLICY IF EXISTS "user_block_access_insert" ON public.user_block_access;
+CREATE POLICY "user_block_access_insert" ON public.user_block_access
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR user_has_permission('users.block_access.manage')
+);
+
+DROP POLICY IF EXISTS "user_block_access_update" ON public.user_block_access;
+CREATE POLICY "user_block_access_update" ON public.user_block_access
+FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR user_has_permission('users.block_access.manage')
+);
+
+DROP POLICY IF EXISTS "user_block_access_delete" ON public.user_block_access;
+CREATE POLICY "user_block_access_delete" ON public.user_block_access
+FOR DELETE USING (
+  is_super_admin() OR is_admin()
+  OR user_has_permission('users.block_access.manage')
+);
+
+-- user_learner_relationship
+DROP POLICY IF EXISTS "user_learner_relationship_select" ON public.user_learner_relationship;
+CREATE POLICY "user_learner_relationship_select" ON public.user_learner_relationship
+FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR user_id = auth.uid()
+  OR user_has_permission('users.relationship.view')
+);
+
+DROP POLICY IF EXISTS "user_learner_relationship_insert" ON public.user_learner_relationship;
+CREATE POLICY "user_learner_relationship_insert" ON public.user_learner_relationship
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR user_has_permission('users.relationship.manage')
+);
+
+DROP POLICY IF EXISTS "user_learner_relationship_update" ON public.user_learner_relationship;
+CREATE POLICY "user_learner_relationship_update" ON public.user_learner_relationship
+FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR user_has_permission('users.relationship.manage')
+);
+
+DROP POLICY IF EXISTS "user_learner_relationship_delete" ON public.user_learner_relationship;
+CREATE POLICY "user_learner_relationship_delete" ON public.user_learner_relationship
+FOR DELETE USING (
+  is_super_admin() OR is_admin()
+  OR user_has_permission('users.relationship.manage')
+);
+
+-- user_contract_access
+DROP POLICY IF EXISTS "user_contract_access_select" ON public.user_contract_access;
+CREATE POLICY "user_contract_access_select" ON public.user_contract_access
+FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR user_id = auth.uid()
+  OR user_has_permission('users.contract_access.view')
+);
+
+DROP POLICY IF EXISTS "user_contract_access_insert" ON public.user_contract_access;
+CREATE POLICY "user_contract_access_insert" ON public.user_contract_access
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR user_has_permission('users.contract_access.manage')
+);
+
+DROP POLICY IF EXISTS "user_contract_access_update" ON public.user_contract_access;
+CREATE POLICY "user_contract_access_update" ON public.user_contract_access
+FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR user_has_permission('users.contract_access.manage')
+);
+
+DROP POLICY IF EXISTS "user_contract_access_delete" ON public.user_contract_access;
+CREATE POLICY "user_contract_access_delete" ON public.user_contract_access
+FOR DELETE USING (
+  is_super_admin() OR is_admin()
+  OR user_has_permission('users.contract_access.manage')
+);
+
+-- END Persona Design PR-1 RLS policies

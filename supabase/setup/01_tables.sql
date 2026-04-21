@@ -4416,3 +4416,98 @@ WHERE follow_up_at IS NULL AND follow_up_date IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_admission_call_logs_follow_up_at
   ON admission_call_logs(follow_up_at) WHERE follow_up_at IS NOT NULL;
+
+-- ============================================================================
+-- Updated: 2026-04-21 — Persona Design PR-1 of 4: scope-extension helper tables
+--
+-- Reason: MyJKKN's custom_roles.institution_scope supports only 'all' | 'own'.
+-- Three common scope shapes cannot be expressed today:
+--   • block_scope         — warden, gate_security, housekeeping_staff
+--   • relationship_scope  — parent (sees only their child)
+--   • contract_scope      — mess_caterer, maintenance_vendor (sees only their contract)
+--
+-- These 3 junction tables back the corresponding role_has_*_access() helpers
+-- in 02_functions.sql. They are INERT infrastructure in PR-1 — no code calls
+-- the helpers yet. PR-2 adds roles; PR-3 adds permission keys; PR-4 retrofits
+-- RLS on hostel_*/mess_* tables to use these.
+--
+-- See: docs/persona-design/scope-extension-pr1.md for background + examples.
+-- ============================================================================
+
+-- 1. user_block_access — which users (wardens, gate security, housekeeping)
+-- have access to which hostel blocks. Primary use: block-scoped RLS on all
+-- 39 hostel_* tables.
+CREATE TABLE IF NOT EXISTS public.user_block_access (
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  block_id UUID NOT NULL REFERENCES public.hostel_blocks(id) ON DELETE CASCADE,
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  granted_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  revoked_at TIMESTAMPTZ,
+  notes TEXT,
+  PRIMARY KEY (user_id, block_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_block_access_block
+  ON public.user_block_access(block_id);
+CREATE INDEX IF NOT EXISTS idx_user_block_access_user_active
+  ON public.user_block_access(user_id) WHERE revoked_at IS NULL;
+
+COMMENT ON TABLE public.user_block_access IS
+  'Per-user grants to specific hostel blocks. Used by role_has_block_access(). '
+  'A user with this grant sees hostel_* records where block_id matches. '
+  'revoked_at nullable — set instead of DELETE to preserve audit trail.';
+
+-- 2. user_learner_relationship — which parent/guardian users can see
+-- which learner. Primary use: parent portal (read-only views of their child).
+CREATE TABLE IF NOT EXISTS public.user_learner_relationship (
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  learner_id UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
+  relationship TEXT NOT NULL CHECK (
+    relationship IN ('parent', 'guardian', 'sibling', 'spouse', 'legal_guardian')
+  ),
+  verified_at TIMESTAMPTZ,
+  verified_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked_at TIMESTAMPTZ,
+  PRIMARY KEY (user_id, learner_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_learner_relationship_learner
+  ON public.user_learner_relationship(learner_id);
+CREATE INDEX IF NOT EXISTS idx_user_learner_relationship_user_active
+  ON public.user_learner_relationship(user_id) WHERE revoked_at IS NULL;
+
+COMMENT ON TABLE public.user_learner_relationship IS
+  'Parent/guardian/family access to a specific learner. Used by '
+  'role_has_relationship_access(). Unverified rows are valid for auth but '
+  'should be flagged in UI until verified_at is set. Multi-row supported '
+  '(one learner can have both parents as separate users).';
+
+-- 3. user_contract_access — which external vendor/caterer users can see
+-- records tied to which contract. Primary use: mess caterer portal + vendor
+-- ticket portal where they only see their own contract's data.
+CREATE TABLE IF NOT EXISTS public.user_contract_access (
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  contract_id UUID NOT NULL,
+  contract_type TEXT NOT NULL CHECK (
+    contract_type IN ('caterer', 'maintenance_vendor', 'laundry_vendor', 'amc', 'other')
+  ),
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  granted_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  revoked_at TIMESTAMPTZ,
+  PRIMARY KEY (user_id, contract_id, contract_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_contract_access_contract
+  ON public.user_contract_access(contract_id, contract_type);
+CREATE INDEX IF NOT EXISTS idx_user_contract_access_user_active
+  ON public.user_contract_access(user_id) WHERE revoked_at IS NULL;
+
+COMMENT ON TABLE public.user_contract_access IS
+  'External vendor/caterer user access to a specific contract. Used by '
+  'role_has_contract_access(). contract_id is polymorphic (references '
+  'mess_caterers.id OR resource_vendor_contracts.id depending on '
+  'contract_type) — FK not enforced at DB level because the target table '
+  'varies. Application layer must validate contract existence on INSERT.';
+
+-- END Persona Design PR-1 tables
