@@ -15,13 +15,15 @@ import {
   ClipboardSignature,
   Vote,
   Kanban,
-  Settings
+  Settings,
+  Building2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const tabs = [
   { value: 'dashboard', href: '/learners-council', icon: Crown, label: 'Dashboard', exact: true },
   { value: 'structure', href: '/learners-council/structure', icon: Network, label: 'Structure' },
+  { value: 'yuva', href: '/learners-council/yuva', icon: Building2, label: 'YUVA Chapters' },
   { value: 'communication', href: '/learners-council/communication', icon: Megaphone, label: 'Communication' },
   { value: 'events', href: '/learners-council/events', icon: CalendarCheck, label: 'Events' },
   { value: 'od', href: '/learners-council/od', icon: ClipboardSignature, label: 'OD' },

@@ -470,10 +470,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
   '/admission/settings/seat-config': 'admission.settings.seats.view',
-  '/admission/settings/years': 'admission.settings.years.view',
-  '/admission/settings/years/new': 'admission.settings.years.create',
-  '/admission/settings/years/[id]': 'admission.settings.years.view',
-  '/admission/settings/years/[id]/edit': 'admission.settings.years.edit',
 
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',
@@ -548,10 +544,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners-council': 'learners_council.dashboard.view',
   '/learners-council/structure': 'learners_council.structure.view',
   '/learners-council/structure/members': 'learners_council.structure.view',
-  '/learners-council/structure/terms': 'learners_council.structure.view',
-  '/learners-council/structure/yuva': 'learners_council.structure.view',
-  '/learners-council/structure/verticals': 'learners_council.structure.view',
   '/learners-council/structure/positions': 'learners_council.structure.view',
+  '/learners-council/structure/terms': 'learners_council.structure.view',
+  '/learners-council/yuva': 'learners_council.structure.view',
+  '/learners-council/structure/verticals': 'learners_council.structure.view',
   '/learners-council/structure/committees': 'learners_council.structure.view',
   '/learners-council/communication': 'learners_council.communication.view',
   '/learners-council/communication/polls': 'learners_council.communication.view',
@@ -1551,11 +1547,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/settings/seat-config',
               label: 'Seat Configuration',
               active: pathname === '/admission/settings/seat-config'
-            },
-            {
-              href: '/admission/settings/years',
-              label: 'Admission Years',
-              active: pathname.startsWith('/admission/settings/years')
             },
             {
               href: '/admission/settings/templates',
@@ -2637,38 +2628,21 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Structure',
           active: pathname.startsWith('/learners-council/structure'),
           icon: Users,
-          submenus: [
-            {
-              href: '/learners-council/structure/members',
-              label: 'Members',
-              active: pathname.startsWith('/learners-council/structure/members'),
-            },
-            {
-              href: '/learners-council/structure/positions',
-              label: 'Positions',
-              active: pathname.startsWith('/learners-council/structure/positions'),
-            },
-            {
-              href: '/learners-council/structure/committees',
-              label: 'Portfolio Committees',
-              active: pathname.startsWith('/learners-council/structure/committees'),
-            },
-            {
-              href: '/learners-council/structure/terms',
-              label: 'Terms',
-              active: pathname.startsWith('/learners-council/structure/terms'),
-            },
-            {
-              href: '/learners-council/structure/yuva',
-              label: 'YUVA Chapters',
-              active: pathname.startsWith('/learners-council/structure/yuva'),
-            },
-            {
-              href: '/learners-council/structure/verticals',
-              label: 'Verticals',
-              active: pathname.startsWith('/learners-council/structure/verticals'),
-            }
-          ]
+          submenus: []
+        },
+        {
+          href: '/learners-council/structure/positions',
+          label: 'Positions',
+          active: pathname.startsWith('/learners-council/structure/positions'),
+          icon: Award,
+          submenus: []
+        },
+        {
+          href: '/learners-council/structure/committees',
+          label: 'Committees',
+          active: pathname.startsWith('/learners-council/structure/committees'),
+          icon: Users,
+          submenus: []
         },
         {
           href: '/learners-council/communication',

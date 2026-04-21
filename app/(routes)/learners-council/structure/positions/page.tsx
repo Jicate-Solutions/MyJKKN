@@ -38,6 +38,7 @@ export default async function PositionsPage() {
     supabase
       .from('lc_positions')
       .select('*')
+      .neq('tier', 'yuva_chapter') // YUVA positions belong on the YUVA page, not here
       .order('sort_order', { ascending: true }),
     supabase
       .from('institutions')
