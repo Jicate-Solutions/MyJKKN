@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
@@ -31,7 +31,16 @@ import {
   type ServiceTypeScopeLevel,
 } from '@/types/service-request';
 import { SCOPE_ICONS } from './scope-icons';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+// Permission-aware org hooks. These honor super_admin (all institutions),
+// admission-global users (all institutions), and otherwise scope the list
+// to the viewer's own institution + any user_institution_access grants.
+// Previously this component queried supabase.from('institutions') directly,
+// which leaked every active institution to HOD/principal/etc. because the
+// institutions table's RLS doesn't scope reads by role.
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useDegrees } from '@/hooks/organization/use-degrees';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { usePrograms } from '@/hooks/organization/use-programs';
 
 interface OrgEntity {
   id: string;
@@ -65,14 +74,6 @@ export function ScopeSelector({
   onProgramIdsChange,
   error,
 }: ScopeSelectorProps) {
-  const supabase = createClientSupabaseClient();
-
-  // Cascading dropdown data
-  const [institutions, setInstitutions] = useState<OrgEntity[]>([]);
-  const [degrees, setDegrees] = useState<OrgEntity[]>([]);
-  const [departments, setDepartments] = useState<OrgEntity[]>([]);
-  const [programs, setPrograms] = useState<OrgEntity[]>([]);
-
   // Parent selections for cascading (single-select parents, multi-select leaf)
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');
   const [selectedDegreeId, setSelectedDegreeId] = useState<string>('');
@@ -80,77 +81,83 @@ export function ScopeSelector({
 
   const [popoverOpen, setPopoverOpen] = useState(false);
 
-  // Load institutions once
-  useEffect(() => {
-    const load = async () => {
-      const { data } = await supabase
-        .from('institutions')
-        .select('id, name')
-        .eq('is_active', true)
-        .order('name');
-      setInstitutions(data || []);
-    };
-    load();
-  }, []);
+  // Permission-aware institution list. HOD/principal/staff see only their
+  // own institution (and anything granted via user_institution_access);
+  // super_admin and admission-global users see all.
+  const { institutions: accessibleInstitutions } = useInstitutionsWithAccess();
+  const institutions = useMemo<OrgEntity[]>(
+    () =>
+      (accessibleInstitutions || []).map((i) => ({ id: i.id, name: i.name })),
+    [accessibleInstitutions]
+  );
 
-  // Load degrees when institution changes (for degree/department/program scopes)
+  // Degrees cascade off selected institution. Only load when scope needs
+  // degrees downstream (degree / department / program scopes).
+  const needsDegreeCascade =
+    scopeLevel === 'degree' || scopeLevel === 'department' || scopeLevel === 'program';
+  const { data: degreesData } = useDegrees({
+    institution_id: needsDegreeCascade && selectedInstitutionId ? selectedInstitutionId : undefined,
+  });
+  const degrees = useMemo<OrgEntity[]>(
+    () =>
+      !needsDegreeCascade || !selectedInstitutionId
+        ? []
+        : (degreesData?.data || []).map((d: any) => ({ id: d.id, name: d.degree_name })),
+    [degreesData, needsDegreeCascade, selectedInstitutionId]
+  );
+
+  // Departments cascade off degree. Only load when scope needs departments.
+  const needsDepartmentCascade = scopeLevel === 'department' || scopeLevel === 'program';
+  const { data: departmentsData } = useDepartments({
+    institution_id: needsDepartmentCascade && selectedInstitutionId ? selectedInstitutionId : undefined,
+    degree_id: needsDepartmentCascade && selectedDegreeId ? selectedDegreeId : undefined,
+  });
+  const departments = useMemo<OrgEntity[]>(
+    () =>
+      !needsDepartmentCascade || !selectedDegreeId
+        ? []
+        : (departmentsData?.data || []).map((d: any) => ({ id: d.id, name: d.department_name })),
+    [departmentsData, needsDepartmentCascade, selectedDegreeId]
+  );
+
+  // Programs cascade off department. Only load when scope is program.
+  const { data: programsData } = usePrograms({
+    institution_id: scopeLevel === 'program' && selectedInstitutionId ? selectedInstitutionId : undefined,
+    degree_id: scopeLevel === 'program' && selectedDegreeId ? selectedDegreeId : undefined,
+    department_id: scopeLevel === 'program' && selectedDepartmentId ? selectedDepartmentId : undefined,
+  });
+  const programs = useMemo<OrgEntity[]>(
+    () =>
+      scopeLevel !== 'program' || !selectedDepartmentId
+        ? []
+        : (programsData?.data || []).map((p: any) => ({ id: p.id, name: p.program_name })),
+    [programsData, scopeLevel, selectedDepartmentId]
+  );
+
+  // Reset downstream picks when scope level changes (keeps stale ids out of
+  // the degree/department/program dropdowns).
   useEffect(() => {
-    if (!selectedInstitutionId || scopeLevel === 'institution') {
-      setDegrees([]);
+    if (scopeLevel === 'institution' || scopeLevel === 'common') {
       setSelectedDegreeId('');
-      return;
-    }
-    const load = async () => {
-      const { data } = await supabase
-        .from('degrees')
-        .select('id, degree_name')
-        .eq('institution_id', selectedInstitutionId)
-        .eq('is_active', true)
-        .order('degree_name');
-      setDegrees((data || []).map((d) => ({ id: d.id, name: d.degree_name })));
-    };
-    load();
-  }, [selectedInstitutionId, scopeLevel]);
-
-  // Load departments when degree changes (for department/program scopes)
-  useEffect(() => {
-    if (!selectedDegreeId || scopeLevel === 'degree') {
-      setDepartments([]);
       setSelectedDepartmentId('');
-      return;
+    } else if (scopeLevel === 'degree') {
+      setSelectedDepartmentId('');
     }
-    const load = async () => {
-      const { data } = await supabase
-        .from('departments')
-        .select('id, department_name')
-        .eq('institution_id', selectedInstitutionId)
-        .eq('degree_id', selectedDegreeId)
-        .eq('is_active', true)
-        .order('department_name');
-      setDepartments(
-        (data || []).map((d) => ({ id: d.id, name: d.department_name }))
-      );
-    };
-    load();
-  }, [selectedInstitutionId, selectedDegreeId, scopeLevel]);
+  }, [scopeLevel]);
 
-  // Load programs when department changes (for program scope)
+  // UX polish for scoped HODs: when the accessible institutions list resolves
+  // to exactly one and we're in a scope that needs an institution parent
+  // (degree/department/program), auto-select it so the user doesn't have to
+  // pick their own institution from a one-item list.
   useEffect(() => {
-    if (!selectedDepartmentId || scopeLevel !== 'program') {
-      setPrograms([]);
-      return;
+    if (
+      needsDegreeCascade
+      && institutions.length === 1
+      && !selectedInstitutionId
+    ) {
+      setSelectedInstitutionId(institutions[0].id);
     }
-    const load = async () => {
-      const { data } = await supabase
-        .from('programs')
-        .select('id, program_name')
-        .eq('department_id', selectedDepartmentId)
-        .eq('is_active', true)
-        .order('program_name');
-      setPrograms((data || []).map((p) => ({ id: p.id, name: p.program_name })));
-    };
-    load();
-  }, [selectedDepartmentId, scopeLevel]);
+  }, [institutions, needsDegreeCascade, selectedInstitutionId]);
 
   // Reset downstream when scope level changes
   const handleScopeLevelChange = useCallback(
