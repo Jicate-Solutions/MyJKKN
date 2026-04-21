@@ -1,5 +1,6 @@
 'use client';
 
+import { createContext, useCallback, useContext, useState } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { AdmissionYearsSearchParams } from './data-table-schema';
@@ -11,6 +12,14 @@ import { AdmissionYearService } from '@/lib/services/admission/admission-year-se
 import type { AdmissionYear } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Skeleton } from '@/components/ui/skeleton';
+
+// Context that lets child cells (row-actions) trigger a list refresh
+// without prop-drilling through TanStack column definitions.
+const AdmissionYearRefreshContext = createContext<() => void>(() => {});
+
+export function useAdmissionYearRefresh() {
+  return useContext(AdmissionYearRefreshContext);
+}
 
 interface AdmissionYearsDataTableProps {
   search: AdmissionYearsSearchParams;
@@ -33,6 +42,13 @@ export function AdmissionYearsDataTable({
     isSuperAdmin || canAccess('admission.settings.years', 'create');
   const canDelete =
     isSuperAdmin || canAccess('admission.settings.years', 'delete');
+
+  // Bump this to force DataTable to re-run fetchDataFn (see DataTable.refetchKey prop)
+  const [refetchKey, setRefetchKey] = useState(0);
+  const bumpRefetch = useCallback(
+    () => setRefetchKey((k) => k + 1),
+    []
+  );
 
   const fetchData = async (params: {
     page: number;
@@ -108,6 +124,8 @@ export function AdmissionYearsDataTable({
         )
       );
       resetSelection();
+      bumpRefetch();       // trigger table re-fetch
+      router.refresh();    // also refresh server-rendered breadcrumbs/layout
     } catch (error) {
       logger.error('admissions', 'Error deleting admission years', error);
     }
@@ -167,28 +185,31 @@ export function AdmissionYearsDataTable({
   }
 
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => columns as any}
-      exportConfig={{
-        entityName: 'admission-years',
-        columnMapping: {},
-        columnWidths: [],
-        headers: []
-      }}
-      idField='id'
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: false,
-        enableRowSelection: true,
-        enableSearch: true,
-        enableColumnFilters: false,
-        enableColumnVisibility: true,
-        enableColumnResizing: true,
-        columnResizingTableId: 'admission-years-table'
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <AdmissionYearRefreshContext.Provider value={bumpRefetch}>
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        refetchKey={refetchKey}
+        exportConfig={{
+          entityName: 'admission-years',
+          columnMapping: {},
+          columnWidths: [],
+          headers: []
+        }}
+        idField='id'
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: false,
+          enableRowSelection: true,
+          enableSearch: true,
+          enableColumnFilters: false,
+          enableColumnVisibility: true,
+          enableColumnResizing: true,
+          columnResizingTableId: 'admission-years-table'
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+    </AdmissionYearRefreshContext.Provider>
   );
 }

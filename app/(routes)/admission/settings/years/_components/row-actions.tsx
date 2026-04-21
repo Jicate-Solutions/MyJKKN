@@ -29,6 +29,7 @@ import {
 import type { AdmissionYear } from '@/types/admission';
 import { AdmissionYearService } from '@/lib/services/admission/admission-year-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAdmissionYearRefresh } from './admission-year-data-table';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -44,6 +45,7 @@ export function DataTableRowActions<TData>({
   const admissionYear = row.original as AdmissionYear;
   const { canAccess, isSuperAdmin } = usePermissions();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const refreshList = useAdmissionYearRefresh();
 
   const canEdit = isSuperAdmin || canAccess('admission.settings.years', 'edit');
   const canDelete =
@@ -57,6 +59,8 @@ export function DataTableRowActions<TData>({
       toast.success('Admission year deleted successfully.');
       queryClient.invalidateQueries({ queryKey: ['admission-years'] });
       setShowDeleteDialog(false);
+      refreshList();      // triggers DataTable.refetchKey bump → re-runs fetchDataFn
+      router.refresh();   // re-renders server page (keeps counts/breadcrumbs fresh)
     },
     onError: (error) => {
       toast.error('Failed to delete admission year', { duration: 5000 });
