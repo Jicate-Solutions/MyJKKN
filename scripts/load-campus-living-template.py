@@ -226,9 +226,18 @@ class LoaderContext:
         self.institutions = institutions  # name → UUID
         # FK caches: lookup key → UUID
         self.blocks: dict[tuple, str] = {}    # (college_uuid, block_code) → block_id
+        # Fallback for shared blocks whose primary institution in sheet 1 is
+        # blank. Needed by sheet "1a. Block ↔ College Map" which resolves
+        # blocks purely by Block Code (the row's college is a mapping target,
+        # not the block's owner).
+        self.blocks_by_code: dict[str, str] = {}  # block_code → block_id
         self.rooms: dict[tuple, str] = {}     # (college_uuid, block_code, room_number) → room_id
         self.caterers: dict[tuple, str] = {}  # (college_uuid, caterer_name) → caterer_id
         self.academic_years: dict[tuple, str] = {}  # (college_uuid, label) → academic_year_id
+        # Tracks which (block_code, institution_name) pairs warden explicitly
+        # listed in sheet 1a — used to skip auto-mapping those blocks in
+        # the "auto-fill from sheet 1" fallback step.
+        self.junction_explicit: set[tuple] = set()
 
     def resolve_institution(self, name: str) -> str:
         uuid = self.institutions.get(name)
