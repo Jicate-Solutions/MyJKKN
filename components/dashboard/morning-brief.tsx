@@ -13,6 +13,7 @@ import {
 } from '@/lib/services/dashboard/morning-brief-service';
 import { MorningBriefDismissible } from './morning-brief-dismissible';
 import { queueTypeEmoji } from '@/lib/services/dashboard/decision-queue-service';
+import { performQueueAction } from '@/app/(routes)/dashboard/_actions/queue-actions';
 
 type MorningBriefCardProps = {
   brief: MorningBrief;
