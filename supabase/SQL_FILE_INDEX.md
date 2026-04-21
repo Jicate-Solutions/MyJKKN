@@ -6,6 +6,16 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-21** — Hostel blocks ↔ multi-college junction (warden feedback follow-up to PR-4)
+  - New migration `supabase/migrations/20260421000004_hostel_blocks_multi_college.sql` (~330 lines, atomic BEGIN/COMMIT)
+  - PHASE 1: New `hostel_block_institutions` M2M (block_id, institution_id, is_primary, learner_year_groups[], floors_assigned[]) with partial unique index on is_primary=true.
+  - PHASE 2: Backfill junction from existing `hostel_blocks.institution_id` (INSERT…ON CONFLICT DO NOTHING).
+  - PHASE 3: `ALTER hostel_blocks.institution_id DROP NOT NULL` (DO block pre-checks is_nullable).
+  - PHASE 4: New helper `role_has_hostel_block_scope(block_id, institution_id)` — super_admin ∪ user_block_access grant ∪ primary institution ∪ ANY junction institution.
+  - PHASE 5: 4 CRUD RLS policies on `hostel_block_institutions` using new helper.
+  - PHASE 6: Swap 4 CRUD policies on `hostel_blocks` from `role_has_institution_access` → `role_has_hostel_block_scope`. `hostel_rooms`/`beds`/`allocations` deliberately out of scope (next PR after junction data populated via xlsx loader — avoids lockout window).
+  - Trigger: warden finding 2026-04-21 12:35 IST — 3 girls' blocks are shared across all 8 colleges, floors separate year-groups. 1-block = 1-college assumption in PR-4 was wrong.
+
 - **2026-04-21** — Persona Design PR-4: Campus Living RLS retrofit + role permission wiring (the big one)
   - New migration `supabase/migrations/20260421000002_persona_design_pr4_rls_retrofit.sql` (~450 lines, atomic BEGIN/COMMIT)
   - PHASE 1: Drops 46 legacy `_institution_isolation` policies (FOR ALL + hardcoded 'super_admin' string — CLAUDE.md anti-pattern).
