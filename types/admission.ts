@@ -147,6 +147,8 @@ export interface AdmissionLead {
   // Expo Bridge — links lead to exhibition event + team member who captured it
   expo_event_id: string | null;
   captured_by: string | null;
+  // BUG-003146: stall attribution (optional, nullable for legacy + non-expo leads)
+  stall_id: string | null;
 
   // Status & Scoring
   funnel_stage: FunnelStage;
@@ -257,6 +259,8 @@ export interface CreateLeadInput {
   // Expo Bridge — optional, set when lead is captured at an exhibition event
   expo_event_id?: string | null;
   captured_by?: string | null;
+  // BUG-003146: stall attribution — set when lead is captured at a specific stall
+  stall_id?: string | null;
   // WhatsApp consent — set during lead capture when visitor opts in
   wa_opt_in?: boolean;
   wa_opt_in_source?: string | null;
@@ -1322,3 +1326,61 @@ export interface AdmissionYearListResponse {
     totalPages: number;
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BUG-003146: Expo event stalls — per-stall accountability + operations
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * A single promotional material carried/distributed at a stall.
+ * e.g., { name: "Brochure - Engineering", quantity: 200, notes: "A4, colour" }
+ */
+export interface PromotionalMaterial {
+  name: string;
+  quantity: number;
+  notes?: string;
+}
+
+/**
+ * A stall staffed by a specific team at an expo event. JKKN frequently runs
+ * MULTIPLE stalls at the same event (Engineering + Nursing + Dental etc).
+ * Each stall has its own staff accountability, expenses, photos, materials.
+ */
+export interface ExpoEventStall {
+  id: string;
+  expo_event_id: string;
+  institution_id: string;
+  stall_name: string;
+  assigned_staff_id: string | null;
+  /** Optional joined profile for display */
+  assigned_staff?: { id: string; full_name: string } | null;
+  total_expenses: number;
+  photos: string[];
+  promotional_materials: PromotionalMaterial[];
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateExpoStallInput {
+  expo_event_id: string;
+  institution_id: string;
+  stall_name: string;
+  assigned_staff_id?: string | null;
+  total_expenses?: number;
+  photos?: string[];
+  promotional_materials?: PromotionalMaterial[];
+  notes?: string | null;
+}
+
+export interface UpdateExpoStallInput {
+  stall_name?: string;
+  institution_id?: string;
+  assigned_staff_id?: string | null;
+  total_expenses?: number;
+  photos?: string[];
+  promotional_materials?: PromotionalMaterial[];
+  notes?: string | null;
+}
+
