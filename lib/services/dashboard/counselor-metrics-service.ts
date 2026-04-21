@@ -80,21 +80,17 @@ const EMPTY_COUNSELOR_METRICS: CounselorMetrics = {
 
 /**
  * Fetches all 4 counselor hero tile metrics in a single RPC call.
- * Returns EMPTY_COUNSELOR_METRICS on error (resilient to DB hiccups).
+ * Throws on error — DashboardErrorBoundary surfaces the failure visibly.
+ * 2026-04-21: Silent-swallow fix.
  */
 export async function getCounselorMetrics(): Promise<CounselorMetrics> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.rpc('fn_counselor_metrics');
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('fn_counselor_metrics');
 
-    if (error) {
-      console.error('[dashboard/counselor-metrics] RPC error:', error);
-      return EMPTY_COUNSELOR_METRICS;
-    }
-
-    return (data as CounselorMetrics) ?? EMPTY_COUNSELOR_METRICS;
-  } catch (err) {
-    console.error('[dashboard/counselor-metrics] unexpected error:', err);
-    return EMPTY_COUNSELOR_METRICS;
+  if (error) {
+    console.error('[dashboard/counselor-metrics] RPC error:', error);
+    throw new Error(`fn_counselor_metrics failed: ${error.message}`);
   }
+
+  return (data as CounselorMetrics) ?? EMPTY_COUNSELOR_METRICS;
 }

@@ -63,23 +63,18 @@ export async function listQueueItems(
   filter: QueueFilter = 'all',
   limit = 50
 ): Promise<QueueListResult> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.rpc('fn_dashboard_queue_list', {
-      p_filter: filter,
-      p_limit: limit
-    });
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('fn_dashboard_queue_list', {
+    p_filter: filter,
+    p_limit: limit
+  });
 
-    if (error) {
-      console.error('[dashboard/queue] list error:', error);
-      return EMPTY_RESULT;
-    }
-
-    return (data as QueueListResult) ?? EMPTY_RESULT;
-  } catch (err) {
-    console.error('[dashboard/queue] unexpected list error:', err);
-    return EMPTY_RESULT;
+  if (error) {
+    console.error('[dashboard/queue] list error:', error);
+    throw new Error(`fn_dashboard_queue_list failed: ${error.message}`);
   }
+
+  return (data as QueueListResult) ?? EMPTY_RESULT;
 }
 
 // ============================================================================

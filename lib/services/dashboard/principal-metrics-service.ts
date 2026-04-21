@@ -59,21 +59,17 @@ const EMPTY_PRINCIPAL_METRICS: PrincipalMetrics = {
 
 /**
  * Fetches all 4 principal hero tile metrics in a single RPC call.
- * Returns EMPTY_PRINCIPAL_METRICS on error (resilient to DB hiccups).
+ * Throws on error — DashboardErrorBoundary surfaces the failure visibly.
+ * 2026-04-21: Silent-swallow fix.
  */
 export async function getPrincipalMetrics(): Promise<PrincipalMetrics> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.rpc('fn_principal_metrics');
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('fn_principal_metrics');
 
-    if (error) {
-      console.error('[dashboard/principal-metrics] RPC error:', error);
-      return EMPTY_PRINCIPAL_METRICS;
-    }
-
-    return (data as PrincipalMetrics) ?? EMPTY_PRINCIPAL_METRICS;
-  } catch (err) {
-    console.error('[dashboard/principal-metrics] unexpected error:', err);
-    return EMPTY_PRINCIPAL_METRICS;
+  if (error) {
+    console.error('[dashboard/principal-metrics] RPC error:', error);
+    throw new Error(`fn_principal_metrics failed: ${error.message}`);
   }
+
+  return (data as PrincipalMetrics) ?? EMPTY_PRINCIPAL_METRICS;
 }

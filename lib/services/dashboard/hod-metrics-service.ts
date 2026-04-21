@@ -47,23 +47,19 @@ const EMPTY_METRICS: HodMetrics = {
 export class HodMetricsService {
   /**
    * Fetch HOD dashboard hero metrics via RPC.
-   * Returns graceful zeros on any error.
+   * Throws on error — DashboardErrorBoundary surfaces the failure visibly.
+   * 2026-04-21: Silent-swallow fix.
    */
   static async getMetrics(): Promise<HodMetrics> {
-    try {
-      const supabase = createClientSupabaseClient();
-      // fn_hod_metrics is a custom RPC not in generated Database type — cast.
-      const { data, error } = await (supabase.rpc as unknown as (name: string) => Promise<{ data: unknown; error: unknown }>)('fn_hod_metrics');
+    const supabase = createClientSupabaseClient();
+    // fn_hod_metrics is a custom RPC not in generated Database type — cast.
+    const { data, error } = await (supabase.rpc as unknown as (name: string) => Promise<{ data: unknown; error: { message?: string } | null }>)('fn_hod_metrics');
 
-      if (error) {
-        logger.error('dashboard/hod', 'fn_hod_metrics RPC failed', error);
-        return EMPTY_METRICS;
-      }
-
-      return (data as unknown as HodMetrics) ?? EMPTY_METRICS;
-    } catch (err) {
-      logger.error('dashboard/hod', 'HodMetricsService.getMetrics threw', err);
-      return EMPTY_METRICS;
+    if (error) {
+      logger.error('dashboard/hod', 'fn_hod_metrics RPC failed', error);
+      throw new Error(`fn_hod_metrics failed: ${error?.message ?? 'unknown error'}`);
     }
+
+    return (data as unknown as HodMetrics) ?? EMPTY_METRICS;
   }
 }

@@ -89,21 +89,17 @@ const EMPTY_FACULTY_METRICS: FacultyMetrics = {
 
 /**
  * Fetches all 4 faculty hero tile metrics in a single RPC call.
- * Returns EMPTY_FACULTY_METRICS on error (resilient to DB hiccups).
+ * Throws on error — DashboardErrorBoundary surfaces the failure visibly.
+ * 2026-04-21: Silent-swallow fix.
  */
 export async function getFacultyMetrics(): Promise<FacultyMetrics> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.rpc('fn_faculty_metrics');
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('fn_faculty_metrics');
 
-    if (error) {
-      console.error('[dashboard/faculty-metrics] RPC error:', error);
-      return EMPTY_FACULTY_METRICS;
-    }
-
-    return (data as FacultyMetrics) ?? EMPTY_FACULTY_METRICS;
-  } catch (err) {
-    console.error('[dashboard/faculty-metrics] unexpected error:', err);
-    return EMPTY_FACULTY_METRICS;
+  if (error) {
+    console.error('[dashboard/faculty-metrics] RPC error:', error);
+    throw new Error(`fn_faculty_metrics failed: ${error.message}`);
   }
+
+  return (data as FacultyMetrics) ?? EMPTY_FACULTY_METRICS;
 }

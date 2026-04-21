@@ -71,17 +71,19 @@ export function isAdmissionRole(role: string | null | undefined): boolean {
   return !!role && ADMISSION_ROLES.has(role);
 }
 
+/**
+ * Fetches the morning brief. Throws on RPC error — the caller wraps this
+ * in a `silent` DashboardErrorBoundary so dashboards without a brief
+ * still render nothing, but the error hits DevTools + Vercel logs.
+ * An `{ok: false}` payload (legitimate "no brief today") is NOT an error.
+ * 2026-04-21: Silent-swallow fix.
+ */
 export async function getMorningBrief(): Promise<MorningBrief> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.rpc('fn_dashboard_morning_brief');
-    if (error) {
-      console.error('[dashboard/morning-brief] rpc error:', error);
-      return EMPTY_BRIEF;
-    }
-    return (data as MorningBrief) ?? EMPTY_BRIEF;
-  } catch (err) {
-    console.error('[dashboard/morning-brief] unexpected error:', err);
-    return EMPTY_BRIEF;
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('fn_dashboard_morning_brief');
+  if (error) {
+    console.error('[dashboard/morning-brief] rpc error:', error);
+    throw new Error(`fn_dashboard_morning_brief failed: ${error.message}`);
   }
+  return (data as MorningBrief) ?? EMPTY_BRIEF;
 }
