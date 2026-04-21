@@ -2580,5 +2580,360 @@ CREATE POLICY "Authenticated users can update ims_shifts"
     ON public.ims_shifts FOR UPDATE TO authenticated USING (true);
 
 -- =====================================================
+-- 21. Inter-Institution Supply Distribution
+-- Added: 2026-04-15 — Central supply office distributes
+--   stationery / housekeeping / etc. to branch institutions.
+-- Reuses ims_indent_requests via request_scope flag.
+-- Note: RLS stays open per project convention; branch isolation
+--   and central-office authorisation enforced in service layer.
+-- =====================================================
+
+-- ---- 21.a Extend ims_item_categories with icon + system flag ----
+ALTER TABLE public.ims_item_categories
+    ADD COLUMN IF NOT EXISTS icon TEXT,
+    ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS idx_ims_item_categories_active_sort
+    ON public.ims_item_categories(is_active, sort_order);
+
+-- ---- 21.b Extend ims_items with distribution metadata ----
+ALTER TABLE public.ims_items
+    ADD COLUMN IF NOT EXISTS is_distributable BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS is_bundle BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS brand TEXT,
+    ADD COLUMN IF NOT EXISTS variant_attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS image_url TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_ims_items_is_distributable
+    ON public.ims_items(is_distributable) WHERE is_distributable = true;
+CREATE INDEX IF NOT EXISTS idx_ims_items_brand
+    ON public.ims_items(brand) WHERE brand IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ims_items_variant_attributes
+    ON public.ims_items USING GIN(variant_attributes);
+
+-- A bundle must be distributable (cleaning kits etc. are by definition shippable)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ims_items_bundle_distributable_check'
+    ) THEN
+        ALTER TABLE public.ims_items
+            ADD CONSTRAINT ims_items_bundle_distributable_check
+            CHECK (NOT is_bundle OR is_distributable);
+    END IF;
+END$$;
+
+-- ---- 21.c Extend ims_stores with central-office flag ----
+ALTER TABLE public.ims_stores
+    ADD COLUMN IF NOT EXISTS is_central_supply_store BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS requires_local_approval BOOLEAN NOT NULL DEFAULT true;
+
+-- Only one central supply store can exist at a time
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ims_stores_one_central_supply
+    ON public.ims_stores(is_central_supply_store)
+    WHERE is_central_supply_store = true;
+
+-- ---- 21.d Extend ims_indent_requests with inter-institution scope ----
+ALTER TABLE public.ims_indent_requests
+    ADD COLUMN IF NOT EXISTS request_scope TEXT NOT NULL DEFAULT 'internal',
+    ADD COLUMN IF NOT EXISTS source_store_id UUID REFERENCES public.ims_stores(id),
+    ADD COLUMN IF NOT EXISTS destination_institution_id UUID REFERENCES public.institutions(id),
+    ADD COLUMN IF NOT EXISTS destination_store_id UUID REFERENCES public.ims_stores(id),
+    ADD COLUMN IF NOT EXISTS local_approved_by UUID REFERENCES public.profiles(id),
+    ADD COLUMN IF NOT EXISTS local_approved_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+
+-- department_id is required for internal indents but not for inter-institution
+-- requests (no specific department, the institution itself is the consumer)
+ALTER TABLE public.ims_indent_requests
+    ALTER COLUMN department_id DROP NOT NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ims_indent_requests_scope_check'
+    ) THEN
+        ALTER TABLE public.ims_indent_requests
+            ADD CONSTRAINT ims_indent_requests_scope_check
+            CHECK (request_scope IN ('internal', 'inter_institution'));
+    END IF;
+END$$;
+
+-- Replace status CHECK to add new transitions
+ALTER TABLE public.ims_indent_requests DROP CONSTRAINT IF EXISTS ims_indent_requests_status_check;
+ALTER TABLE public.ims_indent_requests
+    ADD CONSTRAINT ims_indent_requests_status_check
+    CHECK (status IN (
+        'draft',
+        'pending_local_approval',
+        'pending_approval',
+        'approved',
+        'rejected',
+        'pending_issue',
+        'partially_issued',
+        'issued',
+        'delivered',
+        'shipped',
+        'received',
+        'received_with_variance',
+        'cancelled',
+        'expired'
+    ));
+
+-- Inter-institution requests must have source/destination set
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ims_indent_requests_inter_inst_required_check'
+    ) THEN
+        ALTER TABLE public.ims_indent_requests
+            ADD CONSTRAINT ims_indent_requests_inter_inst_required_check
+            CHECK (
+                request_scope = 'internal'
+                OR (source_store_id IS NOT NULL AND destination_institution_id IS NOT NULL)
+            );
+    END IF;
+END$$;
+
+CREATE INDEX IF NOT EXISTS idx_ims_indent_requests_request_scope
+    ON public.ims_indent_requests(request_scope);
+CREATE INDEX IF NOT EXISTS idx_ims_indent_requests_source_store
+    ON public.ims_indent_requests(source_store_id) WHERE source_store_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ims_indent_requests_destination_institution
+    ON public.ims_indent_requests(destination_institution_id) WHERE destination_institution_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ims_indent_requests_expires_at
+    ON public.ims_indent_requests(expires_at) WHERE expires_at IS NOT NULL;
+
+-- ---- 21.e ims_item_bundle_components: bundle composition (e.g., Bathroom Cleaning Kit) ----
+CREATE TABLE IF NOT EXISTS public.ims_item_bundle_components (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bundle_item_id UUID NOT NULL REFERENCES public.ims_items(id) ON DELETE CASCADE,
+    component_item_id UUID NOT NULL REFERENCES public.ims_items(id),
+    quantity NUMERIC(12,2) NOT NULL CHECK (quantity > 0),
+    is_substitutable BOOLEAN NOT NULL DEFAULT false,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (bundle_item_id, component_item_id),
+    CHECK (bundle_item_id <> component_item_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ims_item_bundle_components_bundle
+    ON public.ims_item_bundle_components(bundle_item_id);
+CREATE INDEX IF NOT EXISTS idx_ims_item_bundle_components_component
+    ON public.ims_item_bundle_components(component_item_id);
+
+ALTER TABLE public.ims_item_bundle_components ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated users can read ims_item_bundle_components"
+    ON public.ims_item_bundle_components FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated users can insert ims_item_bundle_components"
+    ON public.ims_item_bundle_components FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated users can update ims_item_bundle_components"
+    ON public.ims_item_bundle_components FOR UPDATE TO authenticated USING (true);
+CREATE POLICY "Authenticated users can delete ims_item_bundle_components"
+    ON public.ims_item_bundle_components FOR DELETE TO authenticated USING (true);
+
+-- ---- 21.f ims_supply_shipments: dispatch from main office to branch institution ----
+CREATE TABLE IF NOT EXISTS public.ims_supply_shipments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    shipment_no TEXT NOT NULL UNIQUE,
+    request_id UUID NOT NULL REFERENCES public.ims_indent_requests(id),
+    source_store_id UUID NOT NULL REFERENCES public.ims_stores(id),
+    destination_institution_id UUID NOT NULL REFERENCES public.institutions(id),
+    destination_store_id UUID REFERENCES public.ims_stores(id),
+    dispatched_at TIMESTAMPTZ,
+    dispatched_by UUID REFERENCES public.profiles(id),
+    vehicle_no TEXT,
+    courier_name TEXT,
+    driver_name TEXT,
+    driver_contact TEXT,
+    expected_arrival DATE,
+    received_at TIMESTAMPTZ,
+    received_by UUID REFERENCES public.profiles(id),
+    receipt_notes TEXT,
+    status TEXT NOT NULL DEFAULT 'preparing'
+        CHECK (status IN ('preparing', 'dispatched', 'received', 'received_with_variance', 'cancelled')),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ims_supply_shipments_request
+    ON public.ims_supply_shipments(request_id);
+CREATE INDEX IF NOT EXISTS idx_ims_supply_shipments_source_store
+    ON public.ims_supply_shipments(source_store_id);
+CREATE INDEX IF NOT EXISTS idx_ims_supply_shipments_destination_inst
+    ON public.ims_supply_shipments(destination_institution_id);
+CREATE INDEX IF NOT EXISTS idx_ims_supply_shipments_status
+    ON public.ims_supply_shipments(status);
+-- Partial index supports the "stock in transit" report
+CREATE INDEX IF NOT EXISTS idx_ims_supply_shipments_in_transit
+    ON public.ims_supply_shipments(dispatched_at)
+    WHERE dispatched_at IS NOT NULL AND received_at IS NULL;
+
+ALTER TABLE public.ims_supply_shipments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated users can read ims_supply_shipments"
+    ON public.ims_supply_shipments FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated users can insert ims_supply_shipments"
+    ON public.ims_supply_shipments FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated users can update ims_supply_shipments"
+    ON public.ims_supply_shipments FOR UPDATE TO authenticated USING (true);
+CREATE POLICY "Authenticated users can delete ims_supply_shipments"
+    ON public.ims_supply_shipments FOR DELETE TO authenticated USING (true);
+
+-- ---- 21.g ims_supply_shipment_items: line items inside a shipment ----
+-- For bundles, expand_bundle_to_components() inserts one row per component
+-- so stock movement and chain-of-custody are tracked at the atomic item level.
+CREATE TABLE IF NOT EXISTS public.ims_supply_shipment_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    shipment_id UUID NOT NULL REFERENCES public.ims_supply_shipments(id) ON DELETE CASCADE,
+    request_item_id UUID NOT NULL REFERENCES public.ims_indent_request_items(id),
+    item_id UUID NOT NULL REFERENCES public.ims_items(id),
+    source_batch_id UUID REFERENCES public.ims_stock_batches(id),
+    -- Bundle traceability: if this row was generated from a bundle expansion,
+    -- the original bundle item is recorded so the receipt UI can group components
+    bundle_parent_item_id UUID REFERENCES public.ims_items(id),
+    dispatched_qty NUMERIC(12,2) NOT NULL CHECK (dispatched_qty > 0),
+    received_qty NUMERIC(12,2),
+    variance_qty NUMERIC(12,2) GENERATED ALWAYS AS (COALESCE(received_qty, 0) - dispatched_qty) STORED,
+    variance_reason TEXT,
+    cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ims_supply_shipment_items_shipment
+    ON public.ims_supply_shipment_items(shipment_id);
+CREATE INDEX IF NOT EXISTS idx_ims_supply_shipment_items_item
+    ON public.ims_supply_shipment_items(item_id);
+CREATE INDEX IF NOT EXISTS idx_ims_supply_shipment_items_bundle_parent
+    ON public.ims_supply_shipment_items(bundle_parent_item_id)
+    WHERE bundle_parent_item_id IS NOT NULL;
+
+ALTER TABLE public.ims_supply_shipment_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated users can read ims_supply_shipment_items"
+    ON public.ims_supply_shipment_items FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated users can insert ims_supply_shipment_items"
+    ON public.ims_supply_shipment_items FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Authenticated users can update ims_supply_shipment_items"
+    ON public.ims_supply_shipment_items FOR UPDATE TO authenticated USING (true);
+CREATE POLICY "Authenticated users can delete ims_supply_shipment_items"
+    ON public.ims_supply_shipment_items FOR DELETE TO authenticated USING (true);
+
+-- =====================================================
+-- 22. Pre-seeded JKKN Supply Category Taxonomy
+-- Added: 2026-04-15 — Two-level hierarchy for distribution catalog.
+-- Idempotent via ON CONFLICT (code).
+-- =====================================================
+
+-- Parents (8)
+INSERT INTO public.ims_item_categories (code, name, description, parent_id, icon, sort_order, is_system, is_active)
+VALUES
+    ('SUP-STAT',  'Stationery',     'Pens, paper, desk tools, filing supplies',                NULL, 'pencil',          10, true, true),
+    ('SUP-HKP',   'Housekeeping',   'Cleaning supplies, tools, kits, bathroom supplies',       NULL, 'spray-can',       20, true, true),
+    ('SUP-FUR',   'Furniture',      'Seating, tables, storage units',                          NULL, 'armchair',        30, true, true),
+    ('SUP-ELEC',  'Electrical',     'Lighting, fans, cables and plugs',                        NULL, 'lightbulb',       40, true, true),
+    ('SUP-IT',    'IT Peripherals', 'Cables, accessories, storage media',                      NULL, 'cable',           50, true, true),
+    ('SUP-PRT',   'Printing',       'Toner, ink, printer paper, spare parts',                  NULL, 'printer',         60, true, true),
+    ('SUP-PNT',   'Pantry',         'Disposables, beverages, event-day snacks',                NULL, 'coffee',          70, true, true),
+    ('SUP-SAF',   'Safety',         'First aid, PPE, fire safety supplies',                    NULL, 'shield-check',    80, true, true)
+ON CONFLICT (code) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    icon = EXCLUDED.icon,
+    sort_order = EXCLUDED.sort_order,
+    is_system = true;
+
+-- Sub-categories (~30) — resolve parent_id by code lookup
+INSERT INTO public.ims_item_categories (code, name, description, parent_id, icon, sort_order, is_system, is_active)
+SELECT v.code, v.name, v.description, p.id, v.icon, v.sort_order, true, true
+FROM (VALUES
+    -- Stationery
+    ('SUP-STAT-WRT',  'Writing',         'Pens, pencils, markers, erasers, sharpeners',  'SUP-STAT',  'pen-tool',     10),
+    ('SUP-STAT-PPR',  'Paper',           'A4 sheets, notebooks, registers, sticky notes','SUP-STAT',  'file-text',    20),
+    ('SUP-STAT-DSK',  'Desk Tools',      'Stapler, punch, scissors, tape dispenser',     'SUP-STAT',  'scissors',     30),
+    ('SUP-STAT-FIL',  'Filing',          'File folders, lever arch, document covers',    'SUP-STAT',  'folder',       40),
+    -- Housekeeping
+    ('SUP-HKP-CLN',   'Cleaning Supplies','Phenyl, detergent, hand wash, bleach',         'SUP-HKP',   'droplet',      10),
+    ('SUP-HKP-TOL',   'Cleaning Tools',  'Broom, mop, bucket, scrub, dustbin',           'SUP-HKP',   'wrench',       20),
+    ('SUP-HKP-KIT',   'Cleaning Kits',   'Bathroom / room / lab cleaning bundles',       'SUP-HKP',   'package',      30),
+    ('SUP-HKP-BTH',   'Bathroom Supplies','Toilet paper, tissue, air freshener, sanitiser','SUP-HKP',  'shower-head',  40),
+    -- Furniture
+    ('SUP-FUR-SEA',   'Seating',         'Plastic / executive / visitor chairs, stools', 'SUP-FUR',   'armchair',     10),
+    ('SUP-FUR-TBL',   'Tables',          'Desks, conference tables, side tables',        'SUP-FUR',   'square',       20),
+    ('SUP-FUR-STG',   'Storage',         'Almirah, filing cabinets, racks',              'SUP-FUR',   'archive',      30),
+    -- Electrical
+    ('SUP-ELEC-LGT',  'Lighting',        'LED bulbs, tube lights, table lamps',          'SUP-ELEC',  'lightbulb',    10),
+    ('SUP-ELEC-FAN',  'Fans',            'Ceiling, table, exhaust fans',                 'SUP-ELEC',  'fan',          20),
+    ('SUP-ELEC-CAB',  'Cables & Plugs',  'Extension cords, multi-plugs, adaptors',       'SUP-ELEC',  'plug',         30),
+    -- IT Peripherals
+    ('SUP-IT-CAB',    'Cables',          'HDMI, USB, LAN, power cables',                 'SUP-IT',    'cable',        10),
+    ('SUP-IT-ACC',    'Accessories',     'Mouse, keyboard, USB drives',                  'SUP-IT',    'mouse',        20),
+    ('SUP-IT-STR',    'Storage Media',   'DVD, external HDD, SD cards',                  'SUP-IT',    'hard-drive',   30),
+    -- Printing
+    ('SUP-PRT-INK',   'Toner & Ink',     'Laser toner, inkjet cartridges',               'SUP-PRT',   'droplets',     10),
+    ('SUP-PRT-PPR',   'Printer Paper',   'A3, A4, legal, photo paper',                   'SUP-PRT',   'file',         20),
+    ('SUP-PRT-SPR',   'Spare Parts',     'Drum, fuser, rollers',                         'SUP-PRT',   'cog',          30),
+    -- Pantry
+    ('SUP-PNT-DSP',   'Disposables',     'Paper cups, plates, spoons',                   'SUP-PNT',   'cup-soda',     10),
+    ('SUP-PNT-BEV',   'Beverages',       'Tea, coffee, sugar',                           'SUP-PNT',   'coffee',       20),
+    ('SUP-PNT-SNK',   'Snacks',          'Biscuits, water bottles for events',           'SUP-PNT',   'cookie',       30),
+    -- Safety
+    ('SUP-SAF-FAID',  'First Aid',       'Bandages, antiseptic, cotton, basic medicines','SUP-SAF',   'heart-pulse',  10),
+    ('SUP-SAF-PPE',   'PPE',             'Gloves, masks, hand sanitiser',                'SUP-SAF',   'hand',         20),
+    ('SUP-SAF-FIRE',  'Fire Safety',     'Extinguisher refills, smoke alarm batteries',  'SUP-SAF',   'flame',        30)
+) AS v(code, name, description, parent_code, icon, sort_order)
+JOIN public.ims_item_categories p ON p.code = v.parent_code
+ON CONFLICT (code) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    parent_id = EXCLUDED.parent_id,
+    icon = EXCLUDED.icon,
+    sort_order = EXCLUDED.sort_order,
+    is_system = true;
+
+-- =====================================================
+-- IMS Supply Distribution Events (Phase C audit trail)
+-- Append-only log of inter-institution supply distribution
+-- state transitions. Powers in-app activity feeds.
+-- =====================================================
+CREATE TABLE IF NOT EXISTS public.ims_supply_distribution_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type TEXT NOT NULL
+    CHECK (event_type IN (
+      'request_submitted',
+      'request_local_approved',
+      'request_local_rejected',
+      'request_central_approved',
+      'request_central_rejected',
+      'request_cancelled',
+      'shipment_created',
+      'shipment_dispatched',
+      'shipment_received',
+      'shipment_received_with_variance',
+      'shipment_cancelled'
+    )),
+  request_id UUID REFERENCES public.ims_indent_requests(id) ON DELETE CASCADE,
+  shipment_id UUID REFERENCES public.ims_supply_shipments(id) ON DELETE CASCADE,
+  actor_id UUID REFERENCES public.profiles(id),
+  actor_name TEXT,
+  summary TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ims_supply_events_request
+  ON public.ims_supply_distribution_events(request_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ims_supply_events_shipment
+  ON public.ims_supply_distribution_events(shipment_id, created_at DESC)
+  WHERE shipment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ims_supply_events_actor
+  ON public.ims_supply_distribution_events(actor_id, created_at DESC);
+
+ALTER TABLE public.ims_supply_distribution_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Authenticated can read supply events"
+  ON public.ims_supply_distribution_events FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Authenticated can insert supply events"
+  ON public.ims_supply_distribution_events FOR INSERT TO authenticated WITH CHECK (true);
+
+-- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

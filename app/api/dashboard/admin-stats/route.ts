@@ -21,29 +21,20 @@ export async function GET(request: NextRequest) {
   const supabase = createServiceRoleClient();
 
   if (type === 'overview') {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-
+    // Query Supabase directly — faster and reliable, no external API dependency
     const [instRes, deptRes, progRes, sectRes, usersRes] = await Promise.all([
-      fetch(`${baseUrl}/api/jkkn/institutions?page=1&limit=1`)
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null),
-      fetch(`${baseUrl}/api/jkkn/departments?page=1&limit=1`)
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null),
-      fetch(`${baseUrl}/api/jkkn/programs?page=1&limit=1`)
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null),
-      fetch(`${baseUrl}/api/jkkn/sections?page=1&limit=1`)
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null),
+      supabase.from('institutions').select('id', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('departments').select('id', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('programs').select('id', { count: 'exact', head: true }).eq('is_active', true),
+      supabase.from('sections').select('id', { count: 'exact', head: true }).eq('is_active', true),
       supabase.from('profiles').select('id', { count: 'exact', head: true }),
     ]);
 
     return NextResponse.json({
-      total_institutions: instRes?.metadata?.total ?? 0,
-      total_departments:  deptRes?.metadata?.total ?? 0,
-      total_programs:     progRes?.metadata?.total ?? 0,
-      total_sections:     sectRes?.metadata?.total ?? 0,
+      total_institutions: instRes.count ?? 0,
+      total_departments:  deptRes.count ?? 0,
+      total_programs:     progRes.count ?? 0,
+      total_sections:     sectRes.count ?? 0,
       total_users:        usersRes.count ?? 0,
       active_sessions:    0,
     });

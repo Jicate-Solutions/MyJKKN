@@ -22,3 +22,4 @@ export * from './reports';
 export * from './stores';
 export * from './receipt';
 export * from './shifts';
+export * from './supply-transfers';

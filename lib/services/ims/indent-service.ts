@@ -67,6 +67,21 @@ export class ImsIndentService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
+      // Cross-store scope filter
+      if (filters.request_scope) {
+        query = query.eq('request_scope', filters.request_scope);
+      }
+
+      // Source store filter (who raised the request)
+      if (filters.source_store_id) {
+        query = query.eq('source_store_id', filters.source_store_id);
+      }
+
+      // Destination store filter (who should fulfill it)
+      if (filters.destination_store_id) {
+        query = query.eq('destination_store_id', filters.destination_store_id);
+      }
+
       // Date range
       if (filters.date_from) {
         query = query.gte('created_at', filters.date_from);
@@ -165,7 +180,7 @@ export class ImsIndentService {
         .from('ims_indent_requests')
         .insert({
           indent_number: indentNumber,
-          department_id: data.department_id,
+          department_id: data.department_id || null,
           requested_by: userId,
           required_date: data.required_date || null,
           purpose: data.purpose,
@@ -175,6 +190,10 @@ export class ImsIndentService {
           status: 'pending_approval',
           institution_id: data.institution_id,
           ...(data.store_id ? { store_id: data.store_id } : {}),
+          request_scope: data.request_scope ?? 'internal',
+          ...(data.source_store_id ? { source_store_id: data.source_store_id } : {}),
+          ...(data.destination_institution_id ? { destination_institution_id: data.destination_institution_id } : {}),
+          ...(data.destination_store_id ? { destination_store_id: data.destination_store_id } : {}),
         })
         .select()
         .single();
@@ -263,6 +282,31 @@ export class ImsIndentService {
     } catch (error) {
       const errDetail = (error as any)?.message ?? (error as any)?.details ?? JSON.stringify(error);
       console.error('[ImsIndentService] Error in rejectIndent:', errDetail, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Local (branch) approval for inter-institution requests.
+   * Transitions: pending_local_approval → pending_approval
+   */
+  static async localApproveIndent(id: string, userId: string): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from('ims_indent_requests')
+        .update({
+          status: 'pending_approval',
+          local_approved_by: userId,
+          local_approved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('status', 'pending_local_approval');   // guard: only from this status
+
+      if (error) throw error;
+    } catch (error) {
+      const errDetail = (error as any)?.message ?? (error as any)?.details ?? JSON.stringify(error);
+      console.error('[ImsIndentService] Error in localApproveIndent:', errDetail, error);
       throw error;
     }
   }

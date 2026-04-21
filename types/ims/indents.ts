@@ -4,6 +4,7 @@
 
 export type ImsIndentStatus =
   | 'draft'
+  | 'pending_local_approval'
   | 'pending_approval'
   | 'approved'
   | 'rejected'
@@ -11,14 +12,20 @@ export type ImsIndentStatus =
   | 'pending_issue'
   | 'partially_issued'
   | 'issued'
-  | 'delivered';
+  | 'delivered'
+  | 'shipped'
+  | 'received'
+  | 'received_with_variance'
+  | 'expired';
 
 export type ImsIndentUrgency = 'normal' | 'urgent' | 'emergency';
+
+export type ImsRequestScope = 'internal' | 'inter_institution';
 
 export interface ImsIndentRequest {
   id: string;
   indent_number: string;
-  department_id: string;
+  department_id: string | null;
   requested_by: string;
   required_date: string | null;
   purpose: string;
@@ -32,12 +39,23 @@ export interface ImsIndentRequest {
   notes: string | null;
   institution_id: string;
   store_id: string | null;
+  request_scope: ImsRequestScope;
+  source_store_id: string | null;
+  destination_institution_id: string | null;
+  destination_store_id: string | null;
+  local_approved_by: string | null;
+  local_approved_at: string | null;
+  expires_at: string | null;
   created_at: string;
   updated_at: string;
   // Joined
   department?: { id: string; department_name: string } | null;
   requested_by_profile?: { full_name: string } | null;
   approved_by_profile?: { full_name: string } | null;
+  local_approved_by_profile?: { full_name: string } | null;
+  source_store?: { id: string; name: string; code: string } | null;
+  destination_institution?: { id: string; institution_name: string } | null;
+  destination_store?: { id: string; name: string; code: string } | null;
 }
 
 export interface ImsIndentRequestItem {
@@ -65,6 +83,10 @@ export interface ImsIndentFilters {
   requested_by?: string;
   institution_id?: string;
   store_id?: string;
+  // Cross-store transfer filters (inter_institution scope)
+  request_scope?: ImsRequestScope;
+  source_store_id?: string;
+  destination_store_id?: string;
   date_from?: string;
   date_to?: string;
   page?: number;
@@ -72,7 +94,7 @@ export interface ImsIndentFilters {
 }
 
 export type CreateImsIndentDto = {
-  department_id: string;
+  department_id?: string;           // optional for inter-institution (no dept required)
   required_date?: string;
   purpose: string;
   urgency: ImsIndentUrgency;
@@ -80,6 +102,11 @@ export type CreateImsIndentDto = {
   emergency_reason?: string;
   institution_id: string;
   store_id?: string;
+  // Cross-store transfer fields
+  request_scope?: ImsRequestScope;
+  source_store_id?: string;
+  destination_institution_id?: string;
+  destination_store_id?: string;
   items: Array<{
     item_id: string;
     quantity: number;
@@ -90,6 +117,7 @@ export type CreateImsIndentDto = {
 
 export const INDENT_STATUS_CONFIG: Record<ImsIndentStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   draft: { label: 'Draft', variant: 'secondary' },
+  pending_local_approval: { label: 'Awaiting Branch Approval', variant: 'outline' },
   pending_approval: { label: 'Pending Approval', variant: 'outline' },
   approved: { label: 'Approved', variant: 'default' },
   rejected: { label: 'Rejected', variant: 'destructive' },
@@ -98,6 +126,10 @@ export const INDENT_STATUS_CONFIG: Record<ImsIndentStatus, { label: string; vari
   partially_issued: { label: 'Partially Issued', variant: 'outline' },
   issued: { label: 'Issued', variant: 'default' },
   delivered: { label: 'Delivered', variant: 'default' },
+  shipped: { label: 'Shipped', variant: 'default' },
+  received: { label: 'Received', variant: 'default' },
+  received_with_variance: { label: 'Received (Variance)', variant: 'outline' },
+  expired: { label: 'Expired', variant: 'destructive' },
 };
 
 export const INDENT_URGENCY_CONFIG: Record<ImsIndentUrgency, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {

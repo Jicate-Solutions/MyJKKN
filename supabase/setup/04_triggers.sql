@@ -551,6 +551,54 @@ CREATE TRIGGER update_service_requests_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- ================================================================================
+-- IMS — INTER-INSTITUTION SUPPLY DISTRIBUTION TRIGGERS
+-- Added: 2026-04-15
+-- ================================================================================
+
+-- updated_at maintenance for new tables
+DROP TRIGGER IF EXISTS update_ims_supply_shipments_updated_at ON public.ims_supply_shipments;
+CREATE TRIGGER update_ims_supply_shipments_updated_at
+    BEFORE UPDATE ON public.ims_supply_shipments
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- Reserve stock at source store when an inter-institution request is approved.
+-- Uses BEFORE so the trigger function can also stamp expires_at on NEW.
+DROP TRIGGER IF EXISTS trg_ims_reserve_stock_on_supply_approval ON public.ims_indent_requests;
+CREATE TRIGGER trg_ims_reserve_stock_on_supply_approval
+    BEFORE UPDATE OF status ON public.ims_indent_requests
+    FOR EACH ROW
+    WHEN (NEW.request_scope = 'inter_institution')
+    EXECUTE FUNCTION public.ims_reserve_stock_on_supply_approval();
+
+-- Release reserved stock when an approved request moves to a non-shipped terminal state.
+DROP TRIGGER IF EXISTS trg_ims_release_reserved_stock_on_terminal ON public.ims_indent_requests;
+CREATE TRIGGER trg_ims_release_reserved_stock_on_terminal
+    AFTER UPDATE OF status ON public.ims_indent_requests
+    FOR EACH ROW
+    WHEN (NEW.request_scope = 'inter_institution'
+          AND NEW.status IN ('rejected', 'cancelled', 'expired'))
+    EXECUTE FUNCTION public.ims_release_reserved_stock_on_terminal();
+
+-- Apply shipment status changes to stock and parent request status.
+DROP TRIGGER IF EXISTS trg_ims_apply_shipment_to_stock ON public.ims_supply_shipments;
+CREATE TRIGGER trg_ims_apply_shipment_to_stock
+    AFTER UPDATE OF status ON public.ims_supply_shipments
+    FOR EACH ROW
+    EXECUTE FUNCTION public.ims_apply_shipment_to_stock();
+
+COMMENT ON TRIGGER trg_ims_apply_shipment_to_stock ON public.ims_supply_shipments IS
+'Dispatch: deducts current+reserved at source. Receipt: creates destination batches and updates parent request status.';
+
+-- T2.5 — Shipment state-machine guard (Phase B). Fires BEFORE updated_at so
+-- invalid transitions abort cleanly without partial updates.
+DROP TRIGGER IF EXISTS trg_ims_validate_shipment_transition ON public.ims_supply_shipments;
+CREATE TRIGGER trg_ims_validate_shipment_transition
+    BEFORE UPDATE OF status ON public.ims_supply_shipments
+    FOR EACH ROW
+    EXECUTE FUNCTION public.ims_validate_shipment_transition();
+
+-- ================================================================================
 -- End of Triggers File
--- Total Triggers: 77 (Updated: 2026-02-09)
+-- Total Triggers: 81 (Updated: 2026-04-15 — added 4 IMS supply distribution triggers)
 -- ================================================================================

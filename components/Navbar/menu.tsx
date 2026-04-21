@@ -70,6 +70,7 @@ export function Menu({ isOpen }: MenuProps) {
     ? []
     : GetRoleBasedPages(pathname, roleData);
 
+
   const handleLogout = async () => {
     try {
       await AuthService.signOut();

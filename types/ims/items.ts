@@ -27,6 +27,11 @@ export interface ImsItem {
   track_batch: boolean;
   track_expiry: boolean;
   is_sellable_to_students: boolean;
+  is_distributable: boolean;
+  is_bundle: boolean;
+  brand: string | null;
+  variant_attributes: Record<string, string | number | boolean>;
+  image_url: string | null;
   institution_id: string | null;
   store_id: string | null;
   created_at: string;
@@ -47,11 +52,19 @@ export interface ImsItemFilters {
   category_id?: string;
   item_type?: ImsItemType;
   is_active?: boolean;
+  is_distributable?: boolean;
+  is_bundle?: boolean;
+  brand?: string;
   institution_id?: string;
   store_id?: string;
   page?: number;
   limit?: number;
 }
 
-export type CreateImsItemDto = Omit<ImsItem, 'id' | 'created_at' | 'updated_at'>;
+// New distribution fields default at DB level, so they're optional on create
+type ImsItemDistributionFields = 'is_distributable' | 'is_bundle' | 'brand' | 'variant_attributes' | 'image_url';
+
+export type CreateImsItemDto =
+  Omit<ImsItem, 'id' | 'created_at' | 'updated_at' | ImsItemDistributionFields>
+  & Partial<Pick<ImsItem, ImsItemDistributionFields>>;
 export type UpdateImsItemDto = Partial<CreateImsItemDto>;

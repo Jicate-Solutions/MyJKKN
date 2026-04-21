@@ -18,3 +18,4 @@ export { ImsReportsService } from './reports-service';
 export { ImsStockAdjustmentService } from './stock-adjustment-service';
 export { ImsStoreService } from './store-service';
 export { ImsPaymentService } from './payment-service';
+export { ImsSupplyTransferService } from './supply-transfer-service';

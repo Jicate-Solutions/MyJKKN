@@ -22,6 +22,8 @@ export interface ImsStore {
   sale_number_prefix: string;
   manager_id: string | null;
   is_active: boolean;
+  is_central_supply_store: boolean;
+  requires_local_approval: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -31,7 +33,12 @@ export interface ImsStoreWithRelations extends ImsStore {
   manager: { id: string; full_name: string } | null;
 }
 
-export type CreateImsStoreDto = Omit<ImsStore, 'id' | 'created_at' | 'updated_at'>;
+// New distribution flags default at DB level, so they're optional on create
+type ImsStoreDistributionFields = 'is_central_supply_store' | 'requires_local_approval';
+
+export type CreateImsStoreDto =
+  Omit<ImsStore, 'id' | 'created_at' | 'updated_at' | ImsStoreDistributionFields>
+  & Partial<Pick<ImsStore, ImsStoreDistributionFields>>;
 
 export type UpdateImsStoreDto = Partial<
   Omit<ImsStore, 'id' | 'created_at' | 'updated_at' | 'created_by'>
@@ -41,6 +48,7 @@ export interface ImsStoreFilters {
   search?: string;
   is_active?: boolean;
   institution_id?: string;
+  is_central_supply_store?: boolean;   // for resolving central store
   page?: number;
   limit?: number;
 }

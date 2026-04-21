@@ -58,6 +58,10 @@ export class ImsStoreService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
+      if (filters.is_central_supply_store !== undefined) {
+        query = query.eq('is_central_supply_store', filters.is_central_supply_store);
+      }
+
       const page = filters.page || 1;
       const limit = filters.limit || 20;
       const from = (page - 1) * limit;

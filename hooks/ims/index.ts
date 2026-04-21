@@ -13,3 +13,4 @@ export * from './use-ims-stores';
 export * from './use-ims-active-store';
 export * from './use-ims-store-context';
 export * from './use-ims-cart';
+export * from './use-ims-transfers';

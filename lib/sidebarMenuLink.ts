@@ -73,7 +73,6 @@ import {
   ShoppingCart,
   Warehouse,
   DollarSign,
-  Truck,
   Ruler,
   ArrowLeftRight,
   RotateCcw
@@ -421,6 +420,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents': 'ims.indent.view',
   '/ims/indents/new': 'ims.indent.create',
   '/ims/indents/pending': 'ims.indent.approve',
+  '/ims/transfers': 'ims.indent.view',
+  '/ims/transfers/[id]': 'ims.indent.view',
+
   // Sales submenu items
   '/ims/sales': 'ims.sales.view',
   '/ims/sales/history': 'ims.sales.view',
@@ -661,6 +663,19 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/ims/indents/pending',
               label: 'Pending Approval',
               active: pathname === '/ims/indents/pending'
+            }
+          ]
+        },
+        {
+          href: '/ims/transfers',
+          label: 'Transfers',
+          active: pathname.startsWith('/ims/transfers'),
+          icon: ArrowLeftRight,
+          submenus: [
+            {
+              href: '/ims/transfers',
+              label: 'Overview',
+              active: pathname === '/ims/transfers'
             }
           ]
         },

@@ -113,3 +113,16 @@ export function useCancelImsIndent() {
     },
   });
 }
+
+export function useLocalApproveImsIndent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, userId }: { id: string; userId: string }) =>
+      ImsIndentService.localApproveIndent(id, userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ims-indents'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-indent'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-transfers'] });
+    },
+  });
+}

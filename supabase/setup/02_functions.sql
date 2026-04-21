@@ -4291,3 +4291,532 @@ AS $$
     AND service_type_id = p_service_type_id
     AND status NOT IN ('closed', 'cancelled', 'rejected');
 $$;
+
+-- ================================================================================
+-- IMS — INTER-INSTITUTION SUPPLY DISTRIBUTION
+-- Added: 2026-04-15
+-- ================================================================================
+
+-- Validate that all items in an array are flagged is_distributable.
+-- Called by service layer before creating an inter-institution request.
+CREATE OR REPLACE FUNCTION public.ims_validate_distributable_items(p_item_ids UUID[])
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_offending TEXT;
+BEGIN
+    SELECT string_agg(name, ', ')
+    INTO v_offending
+    FROM public.ims_items
+    WHERE id = ANY(p_item_ids) AND is_distributable = false;
+
+    IF v_offending IS NOT NULL THEN
+        RAISE EXCEPTION 'Items not distributable from central supply: %', v_offending
+            USING ERRCODE = 'check_violation';
+    END IF;
+END;
+$$;
+
+-- Expand a bundle item into its component (item_id, total_qty) pairs.
+-- Used during shipment preparation so that requesting "1 Bathroom Cleaning Kit"
+-- yields one shipment row per component, with stock movement at the atomic level.
+CREATE OR REPLACE FUNCTION public.ims_expand_bundle_to_components(
+    p_bundle_item_id UUID,
+    p_qty NUMERIC
+)
+RETURNS TABLE (component_item_id UUID, total_qty NUMERIC)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT c.component_item_id, (c.quantity * p_qty)::NUMERIC AS total_qty
+    FROM public.ims_item_bundle_components c
+    WHERE c.bundle_item_id = p_bundle_item_id;
+$$;
+
+-- On shipment receipt, materialise stock at the destination store as
+-- new ims_stock_batches rows with batch numbers SHP-<reqNo>-<short shipment id>-<line>.
+-- cost_price and expiry_date are inherited from the source batch (via the
+-- shipment item's source_batch_id) so valuation and shelf-life are preserved.
+-- Note: the destination institution_id is used for the batch row.
+CREATE OR REPLACE FUNCTION public.ims_create_branch_batches_from_shipment(p_shipment_id UUID)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_request_no TEXT;
+    v_dest_inst UUID;
+    v_ship_suffix TEXT;
+    v_count INTEGER := 0;
+    v_line INTEGER := 0;
+    r RECORD;
+BEGIN
+    SELECT ir.indent_number, s.destination_institution_id
+    INTO v_request_no, v_dest_inst
+    FROM public.ims_supply_shipments s
+    JOIN public.ims_indent_requests ir ON ir.id = s.request_id
+    WHERE s.id = p_shipment_id;
+
+    IF v_request_no IS NULL THEN
+        RAISE EXCEPTION 'Shipment % not found', p_shipment_id;
+    END IF;
+
+    -- Short shipment discriminator prevents batch_number collisions across
+    -- split shipments that share a request (addresses DB-H1 from audit).
+    v_ship_suffix := substr(p_shipment_id::text, 1, 6);
+
+    FOR r IN
+        SELECT
+            si.id,
+            si.item_id,
+            COALESCE(si.received_qty, 0) AS qty,
+            si.cost_price,
+            sb.expiry_date AS source_expiry
+        FROM public.ims_supply_shipment_items si
+        LEFT JOIN public.ims_stock_batches sb ON sb.id = si.source_batch_id
+        WHERE si.shipment_id = p_shipment_id
+        ORDER BY si.created_at
+    LOOP
+        v_line := v_line + 1;
+        IF r.qty <= 0 THEN
+            CONTINUE;  -- nothing physically received for this line
+        END IF;
+
+        INSERT INTO public.ims_stock_batches (
+            item_id,
+            batch_number,
+            expiry_date,
+            quantity,
+            cost_price,
+            total_value,
+            location_type,
+            grn_id,
+            institution_id
+        )
+        VALUES (
+            r.item_id,
+            'SHP-' || v_request_no || '-' || v_ship_suffix || '-' || LPAD(v_line::TEXT, 2, '0'),
+            r.source_expiry,
+            r.qty,
+            r.cost_price,
+            (r.qty * COALESCE(r.cost_price, 0))::NUMERIC(14,2),
+            'central_store',  -- arrives at the branch's central store; can be moved later
+            NULL,
+            v_dest_inst
+        );
+
+        v_count := v_count + 1;
+    END LOOP;
+
+    RETURN v_count;
+END;
+$$;
+
+-- Atomic receipt confirmation.
+-- Takes a JSONB array of {shipment_item_id, received_qty, variance_reason} and
+-- guarantees: (1) all line qty updates + shipment status flip land in ONE transaction,
+-- (2) concurrent receipts are serialized via SELECT FOR UPDATE on the parent,
+-- (3) lines NOT present in the payload default received_qty=0 with an auto-variance reason,
+-- (4) status flip is guarded on OLD.status='dispatched' so a second caller silently no-ops.
+-- Addresses audit findings svc-C1 (missing-line corruption) and svc-C2 (partial-write race).
+CREATE OR REPLACE FUNCTION public.ims_confirm_supply_receipt(
+    p_shipment_id UUID,
+    p_received_by UUID,
+    p_receipt_notes TEXT,
+    p_lines JSONB  -- [{shipment_item_id:uuid, received_qty:numeric, variance_reason:text|null}, ...]
+)
+RETURNS TABLE (
+    shipment_id UUID,
+    final_status TEXT,
+    updated_lines INTEGER
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_current_status TEXT;
+    v_updated INTEGER := 0;
+    v_has_variance BOOLEAN := false;
+    v_new_status TEXT;
+BEGIN
+    -- Lock the parent shipment; anyone else calling concurrently waits here.
+    SELECT status INTO v_current_status
+    FROM public.ims_supply_shipments
+    WHERE id = p_shipment_id
+    FOR UPDATE;
+
+    IF v_current_status IS NULL THEN
+        RAISE EXCEPTION 'Shipment % not found', p_shipment_id;
+    END IF;
+    IF v_current_status <> 'dispatched' THEN
+        RAISE EXCEPTION 'Shipment % cannot be received: status is %', p_shipment_id, v_current_status
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+
+    -- Update each line. LEFT JOIN so lines NOT in payload still get updated (to 0).
+    WITH payload AS (
+        SELECT
+            (elem->>'shipment_item_id')::UUID AS shipment_item_id,
+            COALESCE((elem->>'received_qty')::NUMERIC, 0) AS received_qty,
+            elem->>'variance_reason' AS variance_reason
+        FROM jsonb_array_elements(COALESCE(p_lines, '[]'::jsonb)) AS elem
+    ),
+    updated AS (
+        UPDATE public.ims_supply_shipment_items si
+        SET received_qty = COALESCE(p.received_qty, 0),
+            variance_reason = CASE
+                WHEN p.shipment_item_id IS NULL
+                  THEN 'Missing from receipt confirmation (auto-marked 0)'
+                WHEN NULLIF(trim(p.variance_reason), '') IS NOT NULL
+                  THEN p.variance_reason
+                ELSE NULL
+            END
+        FROM (
+            SELECT si2.id AS shipment_item_id
+            FROM public.ims_supply_shipment_items si2
+            WHERE si2.shipment_id = p_shipment_id
+            FOR UPDATE
+        ) AS lines
+        LEFT JOIN payload p ON p.shipment_item_id = lines.shipment_item_id
+        WHERE si.id = lines.shipment_item_id
+        RETURNING si.id, si.received_qty, si.dispatched_qty
+    )
+    SELECT COUNT(*)::INTEGER, bool_or(received_qty <> dispatched_qty)
+    INTO v_updated, v_has_variance
+    FROM updated;
+
+    v_new_status := CASE WHEN v_has_variance THEN 'received_with_variance' ELSE 'received' END;
+
+    UPDATE public.ims_supply_shipments
+    SET status = v_new_status,
+        received_at = now(),
+        received_by = p_received_by,
+        receipt_notes = p_receipt_notes,
+        updated_at = now()
+    WHERE id = p_shipment_id
+      AND status = 'dispatched';  -- redundant with the lock, kept for defensiveness
+
+    -- Return result. The AFTER UPDATE trigger ims_apply_shipment_to_stock fires
+    -- on the status change and handles destination-batch materialisation + parent
+    -- request status transition, so the caller does not need to do either.
+    RETURN QUERY SELECT p_shipment_id, v_new_status, v_updated;
+END;
+$$;
+
+-- Cron-callable: mark approved-but-untouched inter-institution requests as expired.
+-- Triggers the release-reservation flow via the status-change trigger.
+CREATE OR REPLACE FUNCTION public.ims_expire_stale_supply_requests()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_count INTEGER;
+BEGIN
+    UPDATE public.ims_indent_requests
+    SET status = 'expired', updated_at = now()
+    WHERE request_scope = 'inter_institution'
+      AND status = 'approved'
+      AND expires_at IS NOT NULL
+      AND expires_at < now();
+
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    RETURN v_count;
+END;
+$$;
+
+-- ----------------------------------------------------------------
+-- Trigger functions for stock reservation lifecycle
+-- ----------------------------------------------------------------
+
+-- DESIGN NOTE (2026-04-15):
+-- ims_stock_summary is keyed UNIQUE(item_id) — stock is tracked as item-global
+-- per the current schema. These triggers operate on that single row.
+-- Physical per-location tracking lives in ims_stock_batches (location_type,
+-- department_id, institution_id). A future migration may add store_id to
+-- ims_stock_summary for per-store buckets; that is intentionally out of
+-- scope for Phase B.
+
+-- T2.1 — Reserve stock on supply approval, with bundle expansion.
+-- For each line item: if ims_items.is_bundle = true, reserve the expanded
+-- components (via ims_expand_bundle_to_components); otherwise reserve the
+-- line's own item_id. Preserves the inter_institution scope guard and the
+-- approved-transition guard, and keeps the 7-day expires_at default.
+CREATE OR REPLACE FUNCTION public.ims_reserve_stock_on_supply_approval()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    ri RECORD;
+    comp RECORD;
+BEGIN
+    IF COALESCE(NEW.request_scope, '') <> 'inter_institution' THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.status <> 'approved' OR OLD.status IS NOT DISTINCT FROM 'approved' THEN
+        RETURN NEW;
+    END IF;
+
+    -- Default 7-day expiry if not set
+    IF NEW.expires_at IS NULL THEN
+        NEW.expires_at := now() + INTERVAL '7 days';
+    END IF;
+
+    FOR ri IN
+        SELECT iri.item_id, iri.quantity, COALESCE(ii.is_bundle, false) AS is_bundle
+        FROM public.ims_indent_request_items iri
+        JOIN public.ims_items ii ON ii.id = iri.item_id
+        WHERE iri.indent_id = NEW.id
+    LOOP
+        IF ri.is_bundle THEN
+            FOR comp IN
+                SELECT component_item_id, total_qty
+                FROM public.ims_expand_bundle_to_components(ri.item_id, ri.quantity)
+            LOOP
+                UPDATE public.ims_stock_summary
+                SET reserved_quantity = COALESCE(reserved_quantity, 0) + comp.total_qty,
+                    updated_at = now()
+                WHERE item_id = comp.component_item_id;
+            END LOOP;
+        ELSE
+            UPDATE public.ims_stock_summary
+            SET reserved_quantity = COALESCE(reserved_quantity, 0) + ri.quantity,
+                updated_at = now()
+            WHERE item_id = ri.item_id;
+        END IF;
+    END LOOP;
+
+    RETURN NEW;
+END;
+$$;
+
+-- T2.1 — Release reserved stock when an approved inter-institution request
+-- moves to rejected/cancelled/expired. Mirrors the bundle-expansion logic
+-- from the reserve trigger. Uses GREATEST(0, ...) to avoid negatives if a
+-- reservation was manually reconciled elsewhere.
+CREATE OR REPLACE FUNCTION public.ims_release_reserved_stock_on_terminal()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    ri RECORD;
+    comp RECORD;
+BEGIN
+    IF COALESCE(NEW.request_scope, '') <> 'inter_institution' THEN
+        RETURN NEW;
+    END IF;
+
+    IF OLD.status <> 'approved' THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.status NOT IN ('rejected', 'cancelled', 'expired') THEN
+        RETURN NEW;
+    END IF;
+
+    FOR ri IN
+        SELECT iri.item_id, iri.quantity, COALESCE(ii.is_bundle, false) AS is_bundle
+        FROM public.ims_indent_request_items iri
+        JOIN public.ims_items ii ON ii.id = iri.item_id
+        WHERE iri.indent_id = NEW.id
+    LOOP
+        IF ri.is_bundle THEN
+            FOR comp IN
+                SELECT component_item_id, total_qty
+                FROM public.ims_expand_bundle_to_components(ri.item_id, ri.quantity)
+            LOOP
+                UPDATE public.ims_stock_summary
+                SET reserved_quantity = GREATEST(0, COALESCE(reserved_quantity, 0) - comp.total_qty),
+                    updated_at = now()
+                WHERE item_id = comp.component_item_id;
+            END LOOP;
+        ELSE
+            UPDATE public.ims_stock_summary
+            SET reserved_quantity = GREATEST(0, COALESCE(reserved_quantity, 0) - ri.quantity),
+                updated_at = now()
+            WHERE item_id = ri.item_id;
+        END IF;
+    END LOOP;
+
+    RETURN NEW;
+END;
+$$;
+
+-- T2.5 — Shipment state-machine guard.
+-- Allowed transitions on ims_supply_shipments.status:
+--   preparing  -> dispatched | cancelled
+--   dispatched -> received | received_with_variance | cancelled
+--   received | received_with_variance | cancelled are TERMINAL.
+-- Same-value updates (vehicle_no, driver edits without status change) pass.
+CREATE OR REPLACE FUNCTION public.ims_validate_shipment_transition()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+        RETURN NEW;
+    END IF;
+
+    IF OLD.status IN ('received', 'received_with_variance', 'cancelled') THEN
+        RAISE EXCEPTION
+            'Invalid shipment status transition: % -> % (shipment is in a terminal state)',
+            OLD.status, NEW.status
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+
+    IF OLD.status = 'preparing'
+       AND NEW.status IN ('dispatched', 'cancelled') THEN
+        RETURN NEW;
+    END IF;
+
+    IF OLD.status = 'dispatched'
+       AND NEW.status IN ('received', 'received_with_variance', 'cancelled') THEN
+        RETURN NEW;
+    END IF;
+
+    RAISE EXCEPTION
+        'Invalid shipment status transition: % -> %',
+        OLD.status, NEW.status
+        USING ERRCODE = 'invalid_parameter_value';
+END;
+$$;
+
+-- T2.6 — Bundle-has-components validator.
+-- Raises if any id in the array refers to a bundle item with zero component
+-- rows in ims_item_bundle_components. Called from the service layer in
+-- createShipment before the insert to fail fast on empty bundles.
+CREATE OR REPLACE FUNCTION public.ims_validate_bundle_has_components(p_bundle_item_ids UUID[])
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_offenders UUID[];
+BEGIN
+    IF p_bundle_item_ids IS NULL OR array_length(p_bundle_item_ids, 1) IS NULL THEN
+        RETURN;
+    END IF;
+
+    SELECT COALESCE(array_agg(ii.id), ARRAY[]::UUID[])
+    INTO v_offenders
+    FROM public.ims_items ii
+    WHERE ii.id = ANY(p_bundle_item_ids)
+      AND ii.is_bundle = true
+      AND NOT EXISTS (
+          SELECT 1 FROM public.ims_item_bundle_components ibc
+          WHERE ibc.bundle_item_id = ii.id
+      );
+
+    IF array_length(v_offenders, 1) IS NOT NULL THEN
+        RAISE EXCEPTION
+            'Bundle(s) have no components defined: %',
+            array_to_string(v_offenders, ', ')
+            USING ERRCODE = 'check_violation';
+    END IF;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.ims_validate_bundle_has_components(UUID[]) TO authenticated;
+
+-- On shipment dispatch: deduct current stock at source AND release reservation.
+-- On shipment receipt: materialise destination batches via helper.
+CREATE OR REPLACE FUNCTION public.ims_apply_shipment_to_stock()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    -- Dispatch: source stock leaves the building
+    IF NEW.status = 'dispatched' AND OLD.status IS DISTINCT FROM 'dispatched' THEN
+        UPDATE public.ims_stock_summary ss
+        SET current_quantity = GREATEST(0, COALESCE(ss.current_quantity, 0) - si.dispatched_qty),
+            reserved_quantity = GREATEST(0, COALESCE(ss.reserved_quantity, 0) - si.dispatched_qty),
+            updated_at = now()
+        FROM public.ims_supply_shipment_items si
+        WHERE si.shipment_id = NEW.id
+          AND ss.item_id = si.item_id;
+
+        -- Mark the parent request as shipped
+        UPDATE public.ims_indent_requests
+        SET status = 'shipped', updated_at = now()
+        WHERE id = NEW.request_id AND status = 'approved';
+    END IF;
+
+    -- Receipt: materialise stock at destination
+    IF NEW.status IN ('received', 'received_with_variance')
+       AND OLD.status NOT IN ('received', 'received_with_variance')
+    THEN
+        PERFORM public.ims_create_branch_batches_from_shipment(NEW.id);
+
+        UPDATE public.ims_indent_requests
+        SET status = CASE WHEN NEW.status = 'received_with_variance'
+                          THEN 'received_with_variance'
+                          ELSE 'received'
+                     END,
+            updated_at = now()
+        WHERE id = NEW.request_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+-- =====================================================
+-- ims_log_supply_event: append-only audit logger for
+-- inter-institution supply distribution state changes.
+-- Called from ImsSupplyDistributionService after each
+-- successful mutation. SECURITY DEFINER so any
+-- authenticated actor can write audit rows regardless of
+-- their direct INSERT privileges on the events table.
+-- =====================================================
+CREATE OR REPLACE FUNCTION public.ims_log_supply_event(
+  p_event_type TEXT,
+  p_request_id UUID,
+  p_shipment_id UUID,
+  p_actor_id UUID,
+  p_summary TEXT,
+  p_metadata JSONB DEFAULT '{}'::jsonb
+)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_actor_name TEXT;
+  v_id UUID;
+BEGIN
+  SELECT full_name INTO v_actor_name
+  FROM public.profiles
+  WHERE id = p_actor_id;
+
+  INSERT INTO public.ims_supply_distribution_events(
+    event_type, request_id, shipment_id, actor_id, actor_name, summary, metadata
+  )
+  VALUES (
+    p_event_type, p_request_id, p_shipment_id, p_actor_id, v_actor_name, p_summary, COALESCE(p_metadata, '{}'::jsonb)
+  )
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.ims_log_supply_event(TEXT, UUID, UUID, UUID, TEXT, JSONB) TO authenticated;
