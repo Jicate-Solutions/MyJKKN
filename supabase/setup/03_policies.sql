@@ -5261,3 +5261,45 @@ FOR DELETE USING (
 );
 
 -- END Persona Design PR-1 RLS policies
+
+-- =====================================================================
+-- Updated: 2026-04-21 - BUG-003146 expo_event_stalls RLS policies
+-- Modern pattern: is_super_admin()/is_admin() bypass + user_has_permission
+-- + role_has_institution_access (matches CLAUDE.md canonical pattern).
+-- =====================================================================
+
+ALTER TABLE expo_event_stalls ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "expo_event_stalls_select" ON expo_event_stalls;
+CREATE POLICY "expo_event_stalls_select" ON expo_event_stalls
+FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.view')
+      AND role_has_institution_access(institution_id))
+);
+
+DROP POLICY IF EXISTS "expo_event_stalls_insert" ON expo_event_stalls;
+CREATE POLICY "expo_event_stalls_insert" ON expo_event_stalls
+FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.create')
+      AND role_has_institution_access(institution_id))
+);
+
+DROP POLICY IF EXISTS "expo_event_stalls_update" ON expo_event_stalls;
+CREATE POLICY "expo_event_stalls_update" ON expo_event_stalls
+FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.edit')
+      AND role_has_institution_access(institution_id))
+);
+
+DROP POLICY IF EXISTS "expo_event_stalls_delete" ON expo_event_stalls;
+CREATE POLICY "expo_event_stalls_delete" ON expo_event_stalls
+FOR DELETE USING (
+  is_super_admin() OR is_admin()
+  OR (user_has_permission('admission.marketing.expos.delete')
+      AND role_has_institution_access(institution_id))
+);
+
+-- END BUG-003146 expo_event_stalls RLS policies

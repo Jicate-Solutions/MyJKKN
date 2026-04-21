@@ -899,3 +899,25 @@ CREATE TRIGGER trg_notify_push_on_queue_insert
   AFTER INSERT ON public.user_notifications
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_notify_push_on_queue_insert_fn();
+
+-- =====================================================================
+-- Updated: 2026-04-21 - BUG-003146 expo_event_stalls updated_at trigger
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION touch_expo_event_stalls_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_expo_event_stalls_touch ON expo_event_stalls;
+CREATE TRIGGER trg_expo_event_stalls_touch
+  BEFORE UPDATE ON expo_event_stalls
+  FOR EACH ROW
+  EXECUTE FUNCTION touch_expo_event_stalls_updated_at();
+
+-- END BUG-003146 expo_event_stalls trigger

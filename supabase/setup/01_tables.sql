@@ -4539,3 +4539,45 @@ COMMENT ON TABLE public.user_contract_access IS
   'varies. Application layer must validate contract existence on INSERT.';
 
 -- END Persona Design PR-1 tables
+
+-- =====================================================================
+-- Updated: 2026-04-21 - BUG-003146 per-stall accountability
+-- Per-stall accountability + operations + lead attribution on expo events.
+-- assigned_staff_id references profiles(id) to match the existing
+-- expo_event_team_members pattern (staff_id UUID REFERENCES profiles(id)).
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS expo_event_stalls (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  expo_event_id uuid NOT NULL REFERENCES expo_events(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
+  stall_name text NOT NULL,
+  assigned_staff_id uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  total_expenses numeric(10,2) DEFAULT 0,
+  photos text[] DEFAULT ARRAY[]::text[],
+  -- promotional_materials is an array of { name, quantity, notes? }
+  promotional_materials jsonb DEFAULT '[]'::jsonb,
+  notes text,
+  created_by uuid REFERENCES auth.users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_expo_event_stalls_expo_event_id
+  ON expo_event_stalls(expo_event_id);
+CREATE INDEX IF NOT EXISTS idx_expo_event_stalls_institution_id
+  ON expo_event_stalls(institution_id);
+CREATE INDEX IF NOT EXISTS idx_expo_event_stalls_assigned_staff_id
+  ON expo_event_stalls(assigned_staff_id)
+  WHERE assigned_staff_id IS NOT NULL;
+
+-- BUG-003146: attribute admission leads to a specific stall (optional).
+ALTER TABLE admission_leads
+  ADD COLUMN IF NOT EXISTS stall_id uuid
+  REFERENCES expo_event_stalls(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_admission_leads_stall_id
+  ON admission_leads(stall_id)
+  WHERE stall_id IS NOT NULL;
+
+-- END BUG-003146 per-stall accountability

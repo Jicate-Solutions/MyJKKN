@@ -6,6 +6,16 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-21** — BUG-003146 Expo per-stall accountability, operations, lead attribution
+  - New migration `supabase/migrations/20260421200000_bug_003146_expo_event_stalls.sql` (~120 lines, atomic BEGIN/COMMIT)
+  - New table `expo_event_stalls` (expo_event_id FK CASCADE, institution_id FK RESTRICT, stall_name, assigned_staff_id → profiles(id) SET NULL, total_expenses numeric, photos text[], promotional_materials jsonb, notes, created_by, created_at, updated_at). 3 indexes (expo_event_id, institution_id, assigned_staff_id partial).
+  - `assigned_staff_id` references `profiles(id)` (matches existing `expo_event_team_members.staff_id` pattern) NOT `staff(id)`.
+  - Adds nullable `admission_leads.stall_id` FK (SET NULL on stall delete) + partial index. Preserves all existing/non-expo leads.
+  - 4 RLS policies using modern pattern: `is_super_admin() OR is_admin() OR (user_has_permission('admission.marketing.expos.{view,create,edit,delete}') AND role_has_institution_access(institution_id))`.
+  - Reuses existing perm keys — no permission catalogue changes needed.
+  - `updated_at` trigger via new `touch_expo_event_stalls_updated_at()` function.
+  - DB migration must be applied manually post-merge (Supabase MCP is read-only).
+
 - **2026-04-21** — Hostel leave types: enum → CRUDable master table (chain Q1 principle, director feedback "can leave types + duration be CRUDable")
   - New migration `supabase/migrations/20260421000005_hostel_leave_types_crudable.sql` (~320 lines, atomic BEGIN/COMMIT)
   - PHASE 1: New `public.hostel_leave_types` institution-scoped master table (code, name, description, color, default_max_duration_days, parent_consent/chief_warden/attachment flags, advance_notice_hours, sort_order, is_system, is_active). Unique (institution_id, leave_type_code), check color_code is hex, check durations are positive.
