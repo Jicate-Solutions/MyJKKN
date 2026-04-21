@@ -39,6 +39,53 @@ function SeverityPill({ band, priority }: { band: string; priority: string | nul
 }
 
 // ============================================================================
+// Overdue/Due-soon pill — makes stale decisions visually impossible to ignore.
+// Actionability upgrade #5 (2026-04-21).
+// ============================================================================
+type DeadlineStatus = 'overdue' | 'due_soon' | 'on_track';
+
+function computeDeadlineStatus(item: QueueItem): DeadlineStatus {
+  // Auto-escalated = system already flagged it; show OVERDUE regardless of hours.
+  if (item.escalated_at) return 'overdue';
+  const hrs = item.acknowledgment_deadline_hours;
+  if (hrs == null || hrs <= 0) return 'on_track';
+  const deadlineSec = hrs * 3600;
+  if (item.age_seconds >= deadlineSec) return 'overdue';
+  // Within 30 min of deadline → due_soon (1800s buffer)
+  if (item.age_seconds >= deadlineSec - 1800) return 'due_soon';
+  return 'on_track';
+}
+
+function DeadlinePill({ status, item }: { status: DeadlineStatus; item: QueueItem }) {
+  if (status === 'on_track') return null;
+  const hrs = item.acknowledgment_deadline_hours ?? 2;
+  const ageH = (item.age_seconds / 3600).toFixed(1);
+  if (status === 'overdue') {
+    const label = item.escalated_at
+      ? `OVERDUE · escalated lvl ${item.escalation_level ?? 1}`
+      : `OVERDUE · ${ageH}h / ${hrs}h limit`;
+    return (
+      <span
+        className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-rose-600 text-white shadow-sm animate-pulse'
+        aria-label='Overdue'
+        title='This item is past its acknowledgment deadline and will auto-escalate to Chief of Staff.'
+      >
+        ⏰ {label}
+      </span>
+    );
+  }
+  return (
+    <span
+      className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-amber-500 text-white'
+      aria-label='Due soon'
+      title='Acknowledgment deadline approaching (under 30 minutes).'
+    >
+      ⏳ DUE SOON · {ageH}h / {hrs}h
+    </span>
+  );
+}
+
+// ============================================================================
 // Inline action button (submit button inside a form)
 // ============================================================================
 type ActionButtonProps = {
