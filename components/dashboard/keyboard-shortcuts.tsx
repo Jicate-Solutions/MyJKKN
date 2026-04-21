@@ -68,6 +68,34 @@ export function KeyboardShortcuts() {
         return;
       }
 
+      // Actionability upgrade #7 (2026-04-21) — single-key operator shortcuts.
+
+      // `.` — activate "Today's Focus" action link (the derived #1 action)
+      if (key === '.') {
+        const focusAction = document.querySelector(
+          'section[aria-label="Today\'s focus"] a'
+        );
+        if (focusAction instanceof HTMLElement) {
+          focusAction.click();
+          e.preventDefault();
+          return;
+        }
+      }
+
+      // `r` — hard refresh the dashboard (reload metrics)
+      if (key === 'r' && !pendingRef.current) {
+        window.location.reload();
+        e.preventDefault();
+        return;
+      }
+
+      // `j` / `k` — navigate queue items (scroll highlight)
+      if (key === 'j' || key === 'k') {
+        navigateQueueItem(key === 'j' ? 1 : -1);
+        e.preventDefault();
+        return;
+      }
+
       // Two-key chord: g + <second key>
       if (key === 'g' && !pendingRef.current) {
         pendingRef.current = true;
@@ -93,6 +121,11 @@ export function KeyboardShortcuts() {
             break;
           case 'c':
             router.push('/dashboard/classic');
+            e.preventDefault();
+            break;
+          case 'f':
+            // g+f — jump to Today's Focus card
+            scrollToElement('section[aria-label="Today\'s focus"]');
             e.preventDefault();
             break;
           default:
