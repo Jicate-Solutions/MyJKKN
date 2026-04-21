@@ -171,6 +171,23 @@ def translate_value(
     if db_column in array_cols and isinstance(value, str):
         return [v.strip() for v in value.split(",") if v.strip()]
 
+    # learner_year_groups: human labels → snake_case DB values
+    # e.g. "1st Year, 2nd Year" → ["1st_year", "2nd_year"]
+    if db_column == "learner_year_groups" and isinstance(value, str):
+        parts = [v.strip() for v in value.split(",") if v.strip()]
+        return [p.lower().replace(" ", "_") for p in parts]
+
+    # floors_assigned: comma-separated integers
+    # e.g. "1, 2" → [1, 2]. Non-integer values raise to surface the typo.
+    if db_column == "floors_assigned" and isinstance(value, str):
+        parts = [v.strip() for v in value.split(",") if v.strip()]
+        try:
+            return [int(p) for p in parts]
+        except ValueError as exc:
+            raise ValueError(
+                f"Floors Assigned must be comma-separated integers (got '{value}')"
+            ) from exc
+
     return value
 
 
@@ -226,9 +243,18 @@ class LoaderContext:
         self.institutions = institutions  # name → UUID
         # FK caches: lookup key → UUID
         self.blocks: dict[tuple, str] = {}    # (college_uuid, block_code) → block_id
+        # Fallback for shared blocks whose primary institution in sheet 1 is
+        # blank. Needed by sheet "1a. Block ↔ College Map" which resolves
+        # blocks purely by Block Code (the row's college is a mapping target,
+        # not the block's owner).
+        self.blocks_by_code: dict[str, str] = {}  # block_code → block_id
         self.rooms: dict[tuple, str] = {}     # (college_uuid, block_code, room_number) → room_id
         self.caterers: dict[tuple, str] = {}  # (college_uuid, caterer_name) → caterer_id
         self.academic_years: dict[tuple, str] = {}  # (college_uuid, label) → academic_year_id
+        # Tracks which (block_code, institution_name) pairs warden explicitly
+        # listed in sheet 1a — used to skip auto-mapping those blocks in
+        # the "auto-fill from sheet 1" fallback step.
+        self.junction_explicit: set[tuple] = set()
 
     def resolve_institution(self, name: str) -> str:
         uuid = self.institutions.get(name)
@@ -267,6 +293,7 @@ def process_sheet(
     """Insert rows from one sheet. Returns (inserted_count, errors)."""
     table_map = {
         "1. Hostel Blocks":           "hostel_blocks",
+        "1a. Block ↔ College Map":    "hostel_block_institutions",
         "2. Hostel Rooms":            "hostel_rooms",
         "3. Hostel Beds":             "hostel_beds",
         "4. Hostel Wardens":          "hostel_wardens",
@@ -361,6 +388,25 @@ def apply_fk_resolutions(
         info = raw.get(key)
         return info["value"].strip() if info and isinstance(info.get("value"), str) else (info["value"] if info else None)
 
+    # Block ↔ College Map: block_id from block_code ONLY (the row's
+    # institution_id is the mapping target, not the block's owner — so the
+    # shared-block case where sheet 1 blanked College Name still resolves.)
+    if sheet_name == "1a. Block ↔ College Map":
+        block_code = get_virtual("_block_code")
+        if block_code:
+            bid = ctx.blocks_by_code.get(block_code)
+            if not bid:
+                raise ValueError(
+                    f"Block Code '{block_code}' not found — make sure sheet "
+                    f"'1. Hostel Blocks' is processed first and lists this code."
+                )
+            row["block_id"] = bid
+        # Record which (block, college) pairs are explicit so the auto-map
+        # step can skip them.
+        inst_name_raw = raw.get("institution_id", {}).get("value")
+        if block_code and inst_name_raw:
+            ctx.junction_explicit.add((block_code, str(inst_name_raw).strip()))
+
     # Rooms: block_id from (institution, block_code)
     if sheet_name == "2. Hostel Rooms":
         block_code = get_virtual("_block_code")
@@ -449,8 +495,13 @@ def cache_fk_lookups(ctx: LoaderContext, sheet_name: str, raw: dict, result: dic
     if sheet_name == "1. Hostel Blocks":
         code = raw.get("code", {}).get("value")
         inst = ctx.institutions.get(raw.get("institution_id", {}).get("value", ""))
-        if code and inst:
-            ctx.blocks[(inst, code.strip())] = result["id"]
+        if code:
+            code_key = code.strip()
+            # Always cache by code (handles shared blocks where sheet 1 leaves
+            # College Name blank — sheet 1a then resolves by code alone).
+            ctx.blocks_by_code[code_key] = result["id"]
+            if inst:
+                ctx.blocks[(inst, code_key)] = result["id"]
     elif sheet_name == "2. Hostel Rooms":
         block_code = raw.get("_block_code", {}).get("value")
         room_number = raw.get("room_number", {}).get("value")

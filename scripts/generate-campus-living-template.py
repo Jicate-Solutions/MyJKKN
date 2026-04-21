@@ -251,9 +251,12 @@ INST = "institution"
 
 SHEETS = [
     ("1. Hostel Blocks",
-     "Start here. One row per physical hostel block (e.g. Boys' Block A, Girls' Block B).",
+     "Start here. One row per physical hostel block (e.g. Boys' Block A, Girls' Block B). "
+     "If a block is shared across colleges, pick the PRIMARY college here and list the full "
+     "set in sheet '1a. Block↔College Map'. Leave College Name blank only if no one college "
+     "is primary (rare).",
      [
-        ("College Name", True, "Pick your college from the dropdown", INST, "institution_id"),
+        ("College Name", False, "Primary owning college (optional — see hint above).", INST, "institution_id"),
         ("Block Name", True, "e.g. 'Boys Block A', 'Anna Block'", None, "name"),
         ("Block Code", True, "Short unique code e.g. 'BLK-A', 'AB'. This is how Rooms sheet links back.", None, "code"),
         ("Type of Hostel", True, "Pick from dropdown", "hostel_type", "hostel_type"),
@@ -269,8 +272,31 @@ SHEETS = [
      [
         ["JKKN College of Engineering and Technology", "Boys Block A", "BLK-A", "Boys' Hostel", 4,
          "Main campus, Gate 1", "9876543210", "22:00", "23:00", "16:00", "19:00", "Active"],
-        ["JKKN College of Engineering and Technology", "Girls Block A", "GRL-A", "Girls' Hostel", 3,
+        # Shared block — no primary college (girls' block serves all colleges, see sheet 1a)
+        ["", "Girls Block A", "GRL-A", "Girls' Hostel", 3,
          "Main campus, Gate 2", "9876543211", "21:30", "22:30", "16:00", "18:30", "Active"],
+     ]),
+
+    ("1a. Block ↔ College Map",
+     "FILL THIS IF any block serves multiple colleges (shared hostels). One row per "
+     "(block, college) pair. Is Primary = Yes for exactly ONE row per block; No for the others. "
+     "If your hostels are 1-college-only you can skip this sheet — the primary college from sheet 1 "
+     "will be auto-mapped.",
+     [
+        ("Block Code", True, "Must match a Block Code from sheet '1. Hostel Blocks'", None, "_block_code"),
+        ("College Name", True, "Which college does this block serve?", INST, "institution_id"),
+        ("Is Primary", True, "Yes = this is the block's 'home' college (exactly one per block). No = shared/secondary.", "yes_no", "is_primary"),
+        ("Year Groups Served", False, "Optional: which year cohorts of this college live here. Comma-separated, e.g. '1st Year, 2nd Year'.", None, "learner_year_groups"),
+        ("Floors Assigned", False, "Optional: which floors this college's learners occupy. Comma-separated integers, e.g. '1, 2'.", None, "floors_assigned"),
+        ("Notes", False, "Anything else the loader should know about this mapping.", None, "notes"),
+     ],
+     [
+        # Girls Block A (shared) — maps to three colleges, Engineering is primary
+        ["GRL-A", "JKKN College of Engineering and Technology", "Yes", "1st Year, 2nd Year", "1, 2", "Engineering girls on floors 1-2"],
+        ["GRL-A", "JKKN College of Nursing and Research",       "No",  "1st Year",             "3",    "Nursing 1st-years on floor 3"],
+        ["GRL-A", "JKKN Dental College and Hospital",           "No",  "2nd Year, 3rd Year",   "",     "Dental seniors — floor TBD"],
+        # Boys Block A (single-college) — loader can auto-fill this from sheet 1, row is optional
+        ["BLK-A", "JKKN College of Engineering and Technology", "Yes", "",                     "",     "Auto-mapped from sheet 1"],
      ]),
 
     ("2. Hostel Rooms",
