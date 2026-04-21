@@ -507,9 +507,13 @@ export function LeadsDataTable() {
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2 bg-muted/30 rounded-md border border-dashed">
           <span className="text-xs text-muted-foreground font-medium shrink-0">Advanced:</span>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* College / Institution filter — visible to all users, useful
-                whenever the account has access to 2+ institutions. */}
-            {accessibleInstitutions.length > 1 && (
+            {/* College / Institution filter — visible to all users with
+                access to at least one institution. Super-admin / global
+                users must pick a college here before ProgramTabs can
+                render (ProgramTabs is institution-scoped). Non-global
+                users with one institution see a single-option dropdown,
+                which is harmless and keeps the feature discoverable. */}
+            {accessibleInstitutions.length >= 1 && (
               <Select
                 value={collegeFilter ?? '_all'}
                 onValueChange={handleCollegeSelect}
