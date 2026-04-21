@@ -291,13 +291,17 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
   const ageText = formatRelativeAge(item.age_seconds);
   const typeLabel = queueTypeLabel(item.queue_type);
   const emoji = queueTypeEmoji(item.queue_type);
+  const deadlineStatus = computeDeadlineStatus(item);
 
+  // Overdue items get an extra-strong border to pop visually in a long queue.
   const borderClass =
-    item.severity_band === 'red'
-      ? 'border-l-rose-500 dark:border-l-rose-400'
-      : item.severity_band === 'amber'
-        ? 'border-l-amber-500 dark:border-l-amber-400'
-        : 'border-l-neutral-300 dark:border-l-neutral-700';
+    deadlineStatus === 'overdue'
+      ? 'border-l-rose-600 dark:border-l-rose-500 ring-1 ring-rose-200 dark:ring-rose-900'
+      : item.severity_band === 'red'
+        ? 'border-l-rose-500 dark:border-l-rose-400'
+        : item.severity_band === 'amber'
+          ? 'border-l-amber-500 dark:border-l-amber-400'
+          : 'border-l-neutral-300 dark:border-l-neutral-700';
 
   return (
     <article
@@ -311,6 +315,7 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
               {typeLabel}
             </span>
             <SeverityPill band={item.severity_band} priority={item.priority} />
+            <DeadlinePill status={deadlineStatus} item={item} />
             <span className='tabular-nums font-mono text-[11px] text-neutral-500'>· {ageText}</span>
           </div>
           <h3 className='mt-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100 leading-snug'>
