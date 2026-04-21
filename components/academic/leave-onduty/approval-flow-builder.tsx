@@ -13,17 +13,13 @@ import {
   ApprovalFlowStep,
   FlowType,
 } from '@/types/leave-onduty';
-import { useCustomRolesForApproval, useUsersByRole } from '@/hooks/organization/use-custom-roles';
+import {
+  useCustomRolesForApproval,
+  useInstitutionApprovers,
+} from '@/hooks/organization/use-custom-roles';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -37,7 +33,8 @@ interface ApprovalFlowBuilderProps {
   onFlowTypeChange: (type: FlowType) => void;
   onFlowStepsChange: (steps: ApprovalFlowStep[]) => void;
   institutionId: string;
-  departmentId: string;
+  /** @deprecated Kept for back-compat; no longer used by the picker. */
+  departmentId?: string;
   className?: string;
 }
 
@@ -47,10 +44,9 @@ export function ApprovalFlowBuilder({
   onFlowTypeChange,
   onFlowStepsChange,
   institutionId,
-  departmentId,
   className,
 }: ApprovalFlowBuilderProps) {
-  const { data: customRoles, isLoading: rolesLoading } = useCustomRolesForApproval();
+  const { data: customRoles } = useCustomRolesForApproval();
 
   // Ensure flowSteps is always an array and normalize steps
   const safeFlowSteps = Array.isArray(flowSteps) ? flowSteps : [];
@@ -208,9 +204,7 @@ export function ApprovalFlowBuilder({
                 flowType={flowType}
                 flowSteps={normalizedSteps}
                 customRoles={safeCustomRoles}
-                rolesLoading={rolesLoading}
                 institutionId={institutionId}
-                departmentId={departmentId}
                 onUpdate={updateStep}
                 onRemove={removeStep}
                 onMoveUp={() => moveStep(index, index - 1)}
@@ -277,9 +271,7 @@ interface StepCardProps {
   flowType: FlowType;
   flowSteps: ApprovalFlowStep[];
   customRoles: any[];
-  rolesLoading: boolean;
   institutionId: string;
-  departmentId: string;
   onUpdate: (stepOrder: number, updates: Partial<ApprovalFlowStep>) => void;
   onRemove: (stepOrder: number) => void;
   onMoveUp: () => void;
@@ -292,9 +284,7 @@ function StepCard({
   flowType,
   flowSteps,
   customRoles,
-  rolesLoading,
   institutionId,
-  departmentId,
   onUpdate,
   onRemove,
   onMoveUp,
@@ -305,45 +295,43 @@ function StepCard({
   // Ensure customRoles is always an array for safe operations
   const safeRoles = Array.isArray(customRoles) ? customRoles : [];
 
-  // Look up the role_key for the currently selected role so we can filter
-  // the approver list to ONLY users holding that exact role. Previously the
-  // list was hard-coded to [faculty, hod, principal] which leaked the full
-  // staff roster regardless of which role was picked.
-  const selectedRole = safeRoles.find((r) => r.id === step.role_id);
-  const selectedRoleKey: string | undefined = selectedRole?.role_key;
-  const isDepartmentScopedRole =
-    selectedRoleKey === 'hod' || selectedRoleKey === 'faculty';
-
-  const { data: users, isLoading: usersLoading } = useUsersByRole(
-    selectedRoleKey ? [selectedRoleKey] : null,
-    institutionId,
-    isDepartmentScopedRole && departmentId ? departmentId : undefined
-  );
+  // Fetch every non-student user in the institution. The step no longer
+  // requires a role to be picked first — the admin just searches for any
+  // staff/faculty/HOD/principal and selects them directly. The step's
+  // approver_role / role_name / role_id fields are auto-derived from the
+  // first-selected approver's profile.role at selection time (see
+  // handleUserToggle below).
+  const { data: users, isLoading: usersLoading } = useInstitutionApprovers(institutionId);
 
   // Ensure users is always an array
   const safeUsers = Array.isArray(users) ? users : [];
 
-  const handleRoleChange = (roleId: string) => {
-    const selectedRole = safeRoles.find((r) => r.id === roleId);
-    if (selectedRole) {
-      setApproverSearch(''); // Reset search when role changes
-      onUpdate(step.step_order, {
-        role_id: roleId,
-        role_name: selectedRole.role_name,
-        // CRITICAL: approver_role is the machine-readable key consumed by the
-        // backend (fn_cluster_rank_private, createApplication seeding, approval
-        // service). role_name is the display label. Previously this was never
-        // updated here, so an edited step kept its stale approver_role (often
-        // 'principal' from the initial template), causing the wrong user to
-        // be seeded as approver even though the UI showed the right role.
-        approver_role: selectedRole.role_key,
-        approver_ids: [], // Reset approvers when role changes
-      });
-    }
+  // Build a name/email lookup for the role BADGE we render per row. We prefer
+  // the display name from custom_roles when available; fall back to the raw
+  // profiles.role enum value capitalized.
+  const roleNameByKey = new Map<string, string>(
+    safeRoles.map((r) => [r.role_key, r.role_name])
+  );
+  const getRoleDisplay = (roleKey: string | null | undefined): string => {
+    if (!roleKey) return 'No Role';
+    return roleNameByKey.get(roleKey) ?? roleKey.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  // Resolve role metadata (role_id, role_name, approver_role) from a selected
+  // approver's profile.role. This is what keeps the step record
+  // backward-compatible with the approval seeder in
+  // lib/services/academic/leave-onduty-service.ts — approver_role is NOT NULL
+  // on leave_onduty_approvals, so we MUST persist something.
+  const deriveRoleFieldsFromUser = (roleKey: string) => {
+    const match = safeRoles.find((r) => r.role_key === roleKey);
+    return {
+      role_id: match?.id ?? '',
+      role_name: match?.role_name ?? getRoleDisplay(roleKey),
+      approver_role: roleKey,
+    };
   };
 
   const handleUserToggle = (userId: string) => {
-    // Ensure approver_ids is always an array
     const currentApprovers = Array.isArray(step.approver_ids) ? step.approver_ids : [];
     const isSelected = currentApprovers.includes(userId);
 
@@ -351,14 +339,34 @@ function StepCard({
       ? currentApprovers.filter((id) => id !== userId)
       : [...currentApprovers, userId];
 
+    // Derive role fields from the FIRST remaining approver (so the step's
+    // role metadata always reflects the current picked set). If the last
+    // approver was removed, clear the fields so the empty-state UX is clean.
+    const primaryUserId = newApprovers[0];
+    const primaryUser = primaryUserId
+      ? safeUsers.find((u) => u.id === primaryUserId)
+      : undefined;
+    const derivedRole = primaryUser?.role
+      ? deriveRoleFieldsFromUser(primaryUser.role)
+      : { role_id: '', role_name: '', approver_role: '' };
+
     onUpdate(step.step_order, {
       approver_ids: newApprovers,
+      ...derivedRole,
     });
   };
 
   // Safely get selected users
   const approverIds = Array.isArray(step.approver_ids) ? step.approver_ids : [];
   const selectedUsers = safeUsers.filter((u) => approverIds.includes(u.id));
+
+  // Check for mixed-role warning: if selected approvers have different roles,
+  // warn the admin that only the first approver's role will be stored on the
+  // step (which affects badges/labels downstream, not the approval itself).
+  const selectedRoleKeys = Array.from(
+    new Set(selectedUsers.map((u) => u.role).filter(Boolean))
+  );
+  const hasMixedRoles = selectedRoleKeys.length > 1;
 
   return (
     <div>
@@ -406,132 +414,142 @@ function StepCard({
 
             {/* Step Fields */}
             <div className="space-y-4">
-              {/* Approver Role */}
+              {/* Approver Picker — single unified list of institution staff.
+                  No separate "Approver Role" field: the step's role_name /
+                  approver_role are auto-derived from the first selected
+                  approver (see handleUserToggle). */}
               <div className="space-y-2">
-                <Label>Approver Role *</Label>
-                <Select value={step.role_id} onValueChange={handleRoleChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {rolesLoading ? (
-                      <SelectItem value="loading" disabled>
-                        Loading roles...
-                      </SelectItem>
-                    ) : safeRoles.length > 0 ? (
-                      safeRoles.map((role) => (
-                        <SelectItem key={role.id} value={role.id}>
-                          {role.role_name}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value="no-roles" disabled>
-                        No roles available
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Approver Users */}
-              {step.role_id && (
-                <div className="space-y-2">
+                <div className="flex items-center justify-between">
                   <Label>Select Approvers *</Label>
-                  {!institutionId ? (
-                    <div className="text-sm text-gray-500 italic p-2 border border-gray-200 dark:border-gray-700 rounded-md">
-                      Please select institution first to view available users
-                    </div>
-                  ) : usersLoading ? (
-                    <div className="text-sm text-gray-500 italic p-2 border border-gray-200 dark:border-gray-700 rounded-md">
-                      Loading users...
-                    </div>
-                  ) : safeUsers.length === 0 ? (
-                    <div className="text-sm text-gray-500 italic p-2 border border-gray-200 dark:border-gray-700 rounded-md">
-                      No users found with this role in selected institution
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {/* Search input for approvers */}
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                        <Input
-                          placeholder="Search approvers by name or email..."
-                          value={approverSearch}
-                          onChange={(e) => setApproverSearch(e.target.value)}
-                          className="pl-9"
-                        />
-                      </div>
-                      {/* Filtered user list - only shown when searching */}
-                      {approverSearch.trim() && (
-                        <div className="border border-gray-200 dark:border-gray-700 rounded-md max-h-48 overflow-y-auto">
-                          {(() => {
-                            const query = approverSearch.trim().toLowerCase();
-                            const filtered = safeUsers.filter(
-                              (user) =>
-                                user.full_name?.toLowerCase().includes(query) ||
-                                user.email?.toLowerCase().includes(query)
-                            );
-                            if (filtered.length === 0) {
-                              return (
-                                <div className="p-3 text-sm text-gray-500 text-center">
-                                  No matching approvers found
-                                </div>
-                              );
-                            }
-                            return filtered.map((user) => {
-                              const isChecked = approverIds.includes(user.id);
-                              return (
-                                <div
-                                  key={user.id}
-                                  className={cn(
-                                    'flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-700 last:border-b-0',
-                                    isChecked && 'bg-primary/5'
-                                  )}
-                                  onClick={() => handleUserToggle(user.id)}
-                                >
-                                  <Checkbox
-                                    checked={isChecked}
-                                    onCheckedChange={() => handleUserToggle(user.id)}
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="font-medium text-sm truncate">{user.full_name}</div>
-                                    <div className="text-xs text-gray-500 truncate">{user.email}</div>
-                                  </div>
-                                  {isChecked && (
-                                    <Check className="h-4 w-4 text-primary flex-shrink-0" />
-                                  )}
-                                </div>
-                              );
-                            });
-                          })()}
-                        </div>
-                      )}
-                      <p className="text-xs text-gray-500">
-                        {approverIds.length} of {safeUsers.length} user(s) selected
-                      </p>
-                    </div>
-                  )}
-                  {/* Selected Users Display */}
-                  {selectedUsers && selectedUsers.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {selectedUsers.map((user) => (
-                        <Badge
-                          key={user.id}
-                          variant="secondary"
-                          className="gap-1"
-                        >
-                          {user.full_name}
-                          <X
-                            className="h-3 w-3 cursor-pointer hover:text-red-600"
-                            onClick={() => handleUserToggle(user.id)}
-                          />
-                        </Badge>
-                      ))}
-                    </div>
+                  {step.role_name && (
+                    <Badge variant="outline" className="text-xs font-normal">
+                      Role: {step.role_name}
+                    </Badge>
                   )}
                 </div>
-              )}
+                {!institutionId ? (
+                  <div className="text-sm text-gray-500 italic p-2 border border-gray-200 dark:border-gray-700 rounded-md">
+                    Please select an institution first to view available users.
+                  </div>
+                ) : usersLoading ? (
+                  <div className="text-sm text-gray-500 italic p-2 border border-gray-200 dark:border-gray-700 rounded-md">
+                    Loading users...
+                  </div>
+                ) : safeUsers.length === 0 ? (
+                  <div className="text-sm text-gray-500 italic p-2 border border-gray-200 dark:border-gray-700 rounded-md">
+                    No staff users found in this institution.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Search input for approvers */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input
+                        placeholder="Search by name, email, or role..."
+                        value={approverSearch}
+                        onChange={(e) => setApproverSearch(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                    {/* Filtered user list - only shown when searching */}
+                    {approverSearch.trim() && (
+                      <div className="border border-gray-200 dark:border-gray-700 rounded-md max-h-64 overflow-y-auto">
+                        {(() => {
+                          const query = approverSearch.trim().toLowerCase();
+                          const filtered = safeUsers.filter((user) => {
+                            const roleDisplay = getRoleDisplay(user.role).toLowerCase();
+                            return (
+                              user.full_name?.toLowerCase().includes(query) ||
+                              user.email?.toLowerCase().includes(query) ||
+                              roleDisplay.includes(query) ||
+                              user.role?.toLowerCase().includes(query)
+                            );
+                          });
+                          if (filtered.length === 0) {
+                            return (
+                              <div className="p-3 text-sm text-gray-500 text-center">
+                                No matching approvers found
+                              </div>
+                            );
+                          }
+                          return filtered.map((user) => {
+                            const isChecked = approverIds.includes(user.id);
+                            return (
+                              <div
+                                key={user.id}
+                                className={cn(
+                                  'flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-700 last:border-b-0',
+                                  isChecked && 'bg-primary/5'
+                                )}
+                                onClick={() => handleUserToggle(user.id)}
+                              >
+                                <Checkbox
+                                  checked={isChecked}
+                                  onCheckedChange={() => handleUserToggle(user.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm truncate">
+                                      {user.full_name}
+                                    </span>
+                                    <Badge variant="secondary" className="text-[10px] capitalize flex-shrink-0">
+                                      {getRoleDisplay(user.role)}
+                                    </Badge>
+                                  </div>
+                                  <div className="text-xs text-gray-500 truncate">
+                                    {user.email}
+                                  </div>
+                                </div>
+                                {isChecked && (
+                                  <Check className="h-4 w-4 text-primary flex-shrink-0" />
+                                )}
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500">
+                      {approverIds.length} of {safeUsers.length} user(s) selected
+                      {!approverSearch.trim() && (
+                        <span className="ml-1">· Type to search approvers</span>
+                      )}
+                    </p>
+                  </div>
+                )}
+
+                {/* Selected Users Display — chips show name + role */}
+                {selectedUsers && selectedUsers.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {selectedUsers.map((user) => (
+                      <Badge
+                        key={user.id}
+                        variant="secondary"
+                        className="gap-1"
+                      >
+                        <span>{user.full_name}</span>
+                        <span className="opacity-60 text-[10px]">
+                          ({getRoleDisplay(user.role)})
+                        </span>
+                        <X
+                          className="h-3 w-3 cursor-pointer hover:text-red-600"
+                          onClick={() => handleUserToggle(user.id)}
+                        />
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {/* Mixed-roles hint — only the first approver's role drives
+                    the step's role_name/approver_role metadata. */}
+                {hasMixedRoles && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Selected approvers hold multiple roles. The step will be
+                    labeled as &quot;{step.role_name}&quot; (first approver&apos;s role).
+                  </p>
+                )}
+              </div>
 
               {/* Required Checkbox */}
               <div className="flex items-center gap-2">
