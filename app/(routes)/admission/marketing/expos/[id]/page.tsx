@@ -117,6 +117,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { StallsSection } from './_components/stalls-section';
 
 // ─── Status helpers ────────────────────────────────────────────────────────
 
@@ -1012,6 +1013,7 @@ function ExpoEventDetailContent() {
               </Badge>
             )}
           </TabsTrigger>
+          <TabsTrigger value="stalls">Stalls</TabsTrigger>
           <TabsTrigger value="reports">
             Daily Reports
             {dailyReports.length > 0 && (
@@ -1224,6 +1226,14 @@ function ExpoEventDetailContent() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── Tab: Stalls (BUG-003146) ── */}
+        <TabsContent value="stalls" className="mt-4">
+          <StallsSection
+            expoEventId={event.id}
+            defaultInstitutionId={institutionId}
+          />
         </TabsContent>
 
         {/* ── Tab 3: Daily Reports ── */}
