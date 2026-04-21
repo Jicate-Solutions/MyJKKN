@@ -122,6 +122,7 @@ export class LeadService {
     if (filters.expo_event_id) params.set('expo_event_id', filters.expo_event_id);
     if (filters.captured_by) params.set('captured_by', filters.captured_by);
     if (filters.counselor_id) params.set('counselor_id', filters.counselor_id);
+    if (filters.program_id) params.set('program_id', filters.program_id);
 
     // Funnel stage: support single value (array handled by caller)
     if (filters.funnel_stage) {

@@ -92,6 +92,7 @@ export async function GET(request: NextRequest) {
   const dateTo = searchParams.get('date_to') || undefined;
   const institutionId = searchParams.get('institution_id') || undefined;
   const waOptIn = searchParams.get('wa_opt_in') || undefined;
+  const programId = searchParams.get('program_id') || undefined;
 
   try {
     // 4. Build the query with service role (no RLS overhead)
@@ -181,6 +182,13 @@ export async function GET(request: NextRequest) {
 
     if (waOptIn === 'true') {
       query = query.eq('wa_opt_in', true);
+    }
+
+    // Filter by program — `interested_programs` is a uuid[] column.
+    // `.contains()` translates to the PostgreSQL `@>` array-contains operator,
+    // so this returns rows whose interested_programs array includes programId.
+    if (programId) {
+      query = query.contains('interested_programs', [programId]);
     }
 
     if (search) {

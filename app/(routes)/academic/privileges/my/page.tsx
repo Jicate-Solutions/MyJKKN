@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useLearnerPrivileges } from '@/hooks/academic/use-privileges';
 import type { ActivePrivilegeInfo, RenewalStatus } from '@/types/privileges';
+import { DownloadCardButton } from './_components/download-card-button';
 
 // ============================================================
 // Renewal status badge configuration
@@ -34,7 +35,7 @@ const RENEWAL_BADGE_CONFIG: Record<
     borderColor: 'border-amber-300/60',
   },
   pending_review: {
-    label: 'Pending Review',
+    label: 'Under Review',
     className: 'bg-blue-500/20 text-white border-blue-300/40',
     gradient: 'bg-gradient-to-br from-blue-500 via-blue-400 to-sky-400',
     borderColor: 'border-blue-200/60',
@@ -135,7 +136,7 @@ export default function MyPrivilegesPage() {
             <Award className="h-12 w-12 text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No Active Privileges</h3>
             <p className="text-muted-foreground">
-              You currently have no active exceptions or privileges assigned.
+              You currently have no active privileges assigned.
               If you believe this is an error, please contact your department.
             </p>
           </CardContent>
@@ -144,9 +145,18 @@ export default function MyPrivilegesPage() {
     );
   }
 
+  // One card = all active privileges (Vijay TVK Citizen Privilege Card model:
+  // bundling > fragmentation). Use the first active membership as the card's
+  // stable handle; the server resolves the learner and includes every active
+  // membership on the card.
+  const primaryMemberId = privileges[0].member_id;
+
   return (
     <ContentLayout title="My Privileges">
       <div className="space-y-8 max-w-4xl mx-auto">
+        <div className="flex items-center justify-end">
+          <DownloadCardButton memberId={primaryMemberId} />
+        </div>
         {privileges.map((priv) => (
           <PrivilegeGroupView key={priv.group_id} privilege={priv} />
         ))}
