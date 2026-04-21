@@ -192,7 +192,17 @@ export class ClientsService extends BaseService {
       .select()
       .single();
 
-    if (error) throw new Error(`Failed to create client: ${error.message}`);
+    if (error) {
+      // BUG-003291: preserve the PG error code so withAuth's PG_ERROR_MAP can
+      // surface 42501 (RLS denied) as 403, 23505 (duplicate) as 409, etc.
+      // Without this, every DB error falls through to a generic 500
+      // "Internal server error" which hides the real cause from the user.
+      const wrapped: Error & { code?: string } = new Error(
+        `Failed to create client: ${error.message}`
+      );
+      if (error.code) wrapped.code = error.code;
+      throw wrapped;
+    }
     return data as Client;
   }
 
