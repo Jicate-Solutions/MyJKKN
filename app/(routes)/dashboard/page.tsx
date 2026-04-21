@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { DashboardErrorBoundary } from '@/components/dashboard/dashboard-error-boundary';
 import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
 import { HeroStrip } from '@/components/dashboard/hero-strip';
 import { CounselorHeroStrip } from '@/components/dashboard/counselor-hero-strip';
