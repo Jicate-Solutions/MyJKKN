@@ -1255,6 +1255,7 @@ export interface AdmissionYear {
   admission_year_name: string;
   program_start_year: number;
   program_end_year: number;
+  sanctioned_intake: number;
   is_active: boolean;
   created_by?: string | null;
   created_at: string;
@@ -1278,6 +1279,7 @@ export interface CreateAdmissionYearDto {
   admission_year_name: string;
   program_start_year: number;
   program_end_year: number;
+  sanctioned_intake?: number;
   is_active?: boolean;
 }
 

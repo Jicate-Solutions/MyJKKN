@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation';
 import { AdmissionYearService } from '@/lib/services/admission/admission-year-service';
 import type { AdmissionYear } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { Skeleton } from '@/components/ui/skeleton';
 
 // Context that lets child cells (row-actions) trigger a list refresh
@@ -35,6 +36,12 @@ export function AdmissionYearsDataTable({
     userProfile,
     isLoading: permissionsLoading
   } = usePermissions();
+  // Used only to detect "cross-institution access". RLS still enforces the real scope.
+  const { institutions: accessibleInstitutions } = useInstitutionsWithAccess({
+    isActive: true
+  });
+  const hasCrossInstitutionAccess =
+    isSuperAdmin || accessibleInstitutions.length > 1;
 
   const isReady = !permissionsLoading && !!userProfile;
 
@@ -68,7 +75,7 @@ export function AdmissionYearsDataTable({
         sortOrder: (params.sort_order as 'asc' | 'desc') || undefined,
         institution_id:
           search.institution_id ||
-          (!isSuperAdmin && userProfile?.institution_id
+          (!hasCrossInstitutionAccess && userProfile?.institution_id
             ? userProfile.institution_id
             : undefined),
         program_id: search.program_id,
@@ -85,7 +92,7 @@ export function AdmissionYearsDataTable({
         await AdmissionYearService.getAdmissionYearsWithAccess(
           filters,
           userProfile?.institution_id,
-          isSuperAdmin
+          hasCrossInstitutionAccess
         );
 
       return {

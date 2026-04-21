@@ -1993,12 +1993,15 @@ CREATE TABLE IF NOT EXISTS public.admission_years (
     admission_year_name VARCHAR(150) NOT NULL,
     program_start_year INTEGER NOT NULL CHECK (program_start_year BETWEEN 2000 AND 2100),
     program_end_year INTEGER NOT NULL CHECK (program_end_year BETWEEN 2000 AND 2100),
+    -- Added 2026-04-21 — per-cohort seat allocation (replaces academic-year based intake_history for admission flow)
+    sanctioned_intake INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     CONSTRAINT admission_years_year_order CHECK (program_end_year >= program_start_year),
-    CONSTRAINT admission_years_unique_per_program UNIQUE (institution_id, program_id, program_start_year)
+    CONSTRAINT admission_years_unique_per_program UNIQUE (institution_id, program_id, program_start_year),
+    CONSTRAINT admission_years_sanctioned_intake_nonnegative CHECK (sanctioned_intake >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_admission_years_institution ON admission_years(institution_id);

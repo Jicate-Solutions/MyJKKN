@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import {
   Select,
   SelectContent,
@@ -10,9 +10,7 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { RotateCcw } from 'lucide-react';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { usePermissions } from '@/hooks/use-permissions';
-import { logger } from '@/lib/utils/enhanced-logger';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import type { AdmissionYearsSearchParams } from './data-table-schema';
 
 interface AdmissionYearFiltersProps {
@@ -26,43 +24,26 @@ export function AdmissionYearFilters({
   onFilterChange,
   onClearFilters
 }: AdmissionYearFiltersProps) {
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
-  const [loading, setLoading] = useState(false);
-  const { isSuperAdmin, userProfile } = usePermissions();
+  // Access-aware institution list — honors institution_scope on the user's role.
+  const { institutions, loading } = useInstitutionsWithAccess({
+    isActive: true
+  });
+  const canPickInstitution = institutions.length > 1;
 
+  // If the user has exactly one accessible institution, auto-apply it as a filter
+  // so the table is pre-scoped correctly.
   useEffect(() => {
-    async function loadInstitutions() {
-      try {
-        setLoading(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
-      } catch (error) {
-        logger.error('admissions', 'Error loading institutions', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadInstitutions();
-  }, []);
-
-  // Auto-set institution filter for non-super admin users
-  useEffect(() => {
-    if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !searchParams.institution_id &&
-      !loading
-    ) {
-      onFilterChange('institution_id', userProfile.institution_id);
-    }
+    if (loading) return;
+    if (canPickInstitution) return;
+    if (institutions.length === 0) return;
+    if (searchParams.institution_id === institutions[0].id) return;
+    onFilterChange('institution_id', institutions[0].id);
   }, [
-    userProfile,
-    isSuperAdmin,
+    institutions,
+    canPickInstitution,
+    loading,
     searchParams.institution_id,
-    onFilterChange,
-    loading
+    onFilterChange
   ]);
 
   const currentYear = new Date().getFullYear();
@@ -79,7 +60,7 @@ export function AdmissionYearFilters({
     <div className='space-y-4'>
       <div className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between'>
         <div className='flex flex-col gap-4 sm:flex-row sm:items-center'>
-          {isSuperAdmin && (
+          {canPickInstitution && (
             <div className='min-w-[200px]'>
               <Select
                 value={searchParams.institution_id || 'all'}

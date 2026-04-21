@@ -13,7 +13,7 @@ import * as z from 'zod';
 import { toast } from 'react-hot-toast';
 import type { AdmissionYear } from '@/types/admission';
 import { AdmissionYearService } from '@/lib/services/admission/admission-year-service';
-import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
@@ -82,10 +82,10 @@ export function AdmissionYearForm({
 }: AdmissionYearFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [institutions, setInstitutions] = useState<
-    Array<{ id: string; name: string; counselling_code: string }>
-  >([]);
-  const [loadingInstitutions, setLoadingInstitutions] = useState(true);
+  // Access-aware institution list — super_admin + any scope='all' role (admission,
+  // admission_staff, counselor) gets the full list; scope='own' gets only their own.
+  const { institutions, loading: loadingInstitutions } =
+    useInstitutionsWithAccess({ isActive: true });
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [loadingPrograms, setLoadingPrograms] = useState(false);
   const [nameManuallyEdited, setNameManuallyEdited] = useState(
@@ -93,6 +93,9 @@ export function AdmissionYearForm({
   );
 
   const { isSuperAdmin, userProfile } = usePermissions();
+  // Show the dropdown whenever the user can actually CHOOSE — i.e. they have
+  // access to more than one institution. Otherwise lock to the single one.
+  const canPickInstitution = institutions.length > 1;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(admissionYearSchema),
@@ -126,40 +129,34 @@ export function AdmissionYearForm({
         is_active: admissionYear.is_active
       });
     } else if (!isEditing) {
-      const institutionId = userProfile?.institution_id || '';
-      if (institutionId && form.getValues('institution_id') !== institutionId) {
-        form.setValue('institution_id', institutionId);
+      // Only auto-fill institution if the user has access to exactly one.
+      // Users with cross-institution access must pick explicitly.
+      if (!canPickInstitution) {
+        const institutionId =
+          institutions[0]?.id || userProfile?.institution_id || '';
+        if (
+          institutionId &&
+          form.getValues('institution_id') !== institutionId
+        ) {
+          form.setValue('institution_id', institutionId);
+        }
       }
     }
-  }, [admissionYear, userProfile, form, isEditing]);
+  }, [admissionYear, userProfile, form, isEditing, canPickInstitution, institutions]);
 
-  // Load institutions
-  useEffect(() => {
-    async function loadInstitutions() {
-      try {
-        setLoadingInstitutions(true);
-        const data = await OrganizationService.getInstitutionNames(true);
-        setInstitutions(data);
-      } catch (error) {
-        logger.error('admissions', 'Error loading institutions', error);
-        toast.error('Failed to load institutions');
-      } finally {
-        setLoadingInstitutions(false);
-      }
-    }
-    loadInstitutions();
-  }, []);
+  // Institutions are fetched by useInstitutionsWithAccess() above — no manual effect needed.
 
-  // Auto-set institution for non-super admins
+  // Auto-set institution for users who can only see one institution
   useEffect(() => {
-    if (!isSuperAdmin && userProfile?.institution_id) {
-      const currentValue = form.getValues('institution_id');
-      if (!currentValue || currentValue !== userProfile.institution_id) {
-        form.setValue('institution_id', userProfile.institution_id);
-        form.clearErrors('institution_id');
-      }
+    if (canPickInstitution) return; // user has a choice, don't override
+    if (institutions.length === 0) return;
+    const only = institutions[0].id;
+    const currentValue = form.getValues('institution_id');
+    if (!currentValue || currentValue !== only) {
+      form.setValue('institution_id', only);
+      form.clearErrors('institution_id');
     }
-  }, [userProfile, isSuperAdmin, form]);
+  }, [institutions, canPickInstitution, form]);
 
   // Load programs whenever institution changes.
   // Direct Supabase call (mirrors the seat-config page pattern) — avoids the
@@ -305,14 +302,14 @@ export function AdmissionYearForm({
         <Card>
           <CardContent className='p-6 space-y-6'>
             <div className='grid gap-6 md:grid-cols-2'>
-              {/* Institution */}
+              {/* Institution — dropdown if user has access to multiple; locked otherwise */}
               <FormField
                 control={form.control}
                 name='institution_id'
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Institution</FormLabel>
-                    {!isSuperAdmin || isEditing ? (
+                    {!canPickInstitution || isEditing ? (
                       <div className='flex flex-col gap-1'>
                         <div className='flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm'>
                           {loadingInstitutions ? (
@@ -339,9 +336,10 @@ export function AdmissionYearForm({
                           )}
                         </div>
                         <FormMessage />
-                        {!isSuperAdmin && !isEditing && (
+                        {!canPickInstitution && !isEditing && (
                           <p className='text-xs text-muted-foreground'>
-                            Institution is automatically set from your profile
+                            You have access to a single institution — it is set
+                            automatically
                           </p>
                         )}
                         {isEditing && (

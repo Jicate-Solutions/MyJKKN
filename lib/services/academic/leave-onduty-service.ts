@@ -292,23 +292,67 @@ export class LeaveOndutyService {
   }
 
   /**
-   * Delete a flow
+   * Delete a flow.
+   *
+   * We can't just count every pending application — applications don't store
+   * which flow handled them (flows are resolved at submit time via
+   * match_leave_onduty_flow). So we replay the flow's own match scope against
+   * pending apps: only block deletion when at least one pending app falls
+   * inside this flow's (institution, dept?, semester?, category?, sub_category?)
+   * envelope. Conditional filters mirror the matcher — a flow with NULL on a
+   * field matches apps with any value for that field.
    */
   static async deleteFlow(flowId: string): Promise<void> {
     const supabase = getSupabase();
 
-    // Check if flow is being used by any pending applications
-    const { count } = await supabase
+    // 1. Load the flow so we know its scope.
+    const { data: flow, error: flowError } = await supabase
+      .from('leave_onduty_approval_flows')
+      .select(
+        'id, institution_id, department_id, semester_id, category, sub_category'
+      )
+      .eq('id', flowId)
+      .maybeSingle();
+
+    if (flowError || !flow) {
+      throw new Error('Flow not found or already deleted.');
+    }
+
+    // 2. Count pending applications that would match this flow's scope.
+    let query = supabase
       .from('leave_onduty_applications')
       .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending');
+      .eq('status', 'pending')
+      .eq('institution_id', flow.institution_id);
 
-    if (count && count > 0) {
+    if (flow.category && flow.category !== 'all') {
+      query = query.eq('category', flow.category);
+    }
+    if (flow.sub_category) {
+      query = query.eq('sub_category', flow.sub_category);
+    }
+    if (flow.department_id) {
+      query = query.eq('department_id', flow.department_id);
+    }
+    if (flow.semester_id) {
+      query = query.eq('semester_id', flow.semester_id);
+    }
+
+    const { count, error: countError } = await query;
+
+    if (countError) {
       throw new Error(
-        'Cannot delete flow that is being used by pending applications. Deactivate instead.'
+        `Failed to check flow usage: ${countError.message}`
       );
     }
 
+    if (count && count > 0) {
+      throw new Error(
+        `Cannot delete flow — ${count} pending application${count === 1 ? '' : 's'} match${count === 1 ? 'es' : ''} its scope. Deactivate the flow instead.`
+      );
+    }
+
+    // 3. Safe to delete.
     const { error } = await supabase
       .from('leave_onduty_approval_flows')
       .delete()
