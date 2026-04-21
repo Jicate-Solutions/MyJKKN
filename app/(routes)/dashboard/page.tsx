@@ -46,6 +46,7 @@ import { StreakBadge } from '@/components/dashboard/streak-badge';
 import { ActivityFeed } from '@/components/dashboard/activity-feed';
 import { createClient } from '@/lib/supabase/server';
 import { KeyboardShortcuts } from '@/components/dashboard/keyboard-shortcuts';
+import { TodaysFocusCard, deriveTodaysFocus } from '@/components/dashboard/todays-focus';
 
 const VALID_FILTERS: QueueFilter[] = [
   'all',
