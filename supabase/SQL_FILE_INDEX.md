@@ -6,6 +6,18 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-21** — Persona Design PR-4: Campus Living RLS retrofit + role permission wiring (the big one)
+  - New migration `supabase/migrations/20260421000002_persona_design_pr4_rls_retrofit.sql` (~450 lines, atomic BEGIN/COMMIT)
+  - PHASE 1: Drops 46 legacy `_institution_isolation` policies (FOR ALL + hardcoded 'super_admin' string — CLAUDE.md anti-pattern).
+  - PHASE 2: Creates ~184 new policies (46 tables × 4 = SELECT/INSERT/UPDATE/DELETE) using the standardized pattern: `is_super_admin() OR is_admin() OR (user_has_permission(key) AND role_has_*_access(...))`.
+    - 13 institution-only tables: +role_has_institution_access(institution_id)
+    - 18 block-scoped tables (have block_id): +role_has_block_access(block_id)
+    - 11 block-conceptual tables (no block_id column): app-layer filters block narrowing; RLS uses institution-only
+    - 7 mess contract-scoped tables (have caterer_id): +role_has_contract_access(caterer_id, 'caterer')
+  - PHASE 3: UPDATEs each of the 10 new roles' permissions jsonb with their scaffolding (warden gets 51 keys, chief_warden 84, accreditation_officer 23, etc.)
+  - Atomic cutover — RLS and role perms land together (partial = all-super_admin-only lockout, avoided via BEGIN/COMMIT).
+  - Depends on: #275 (PR-1 scope helpers), #276 (PR-2 10 roles), #277 (PR-3 permission keys)
+
 - **2026-04-21** — Persona Design PR-3: +127 permission keys in PERMISSION_CATEGORIES (TypeScript-only, no DB migration)
   - `lib/constants/permissions.ts`: replaced 1-key Campus Living stub with 121 granular keys. Submodules: blocks, rooms, beds, allocations, wardens, gate_passes, visitors, leave, attendance, maintenance, housekeeping, laundry, safety (incl. anti_ragging), health, fees, deposits, mess (caterers/menu/meals/billing/feedback/waste), alerts, pulse, wellness, community, analytics, reports (NAAC/NIRF/AICTE/anti-ragging quarterly), parent_portal.
   - Also added 6 `users.*.access` keys for PR-1's scope-extension junction tables: `users.block_access.{view,manage}`, `users.relationship.{view,manage}`, `users.contract_access.{view,manage}`.
