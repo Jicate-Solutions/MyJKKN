@@ -6909,16 +6909,153 @@ $function$;
 -- =====================================================
 -- Dashboard v2 Week-2 — fn_counselor_metrics (Role-aware view)
 -- Added: 2026-04-15 — Counselor-scoped hero tile RPC, SECURITY DEFINER
--- Reads auth.uid() directly — no parameters. Returns JSONB with 4 tiles:
+-- Updated: 2026-04-19 — Added conversion_velocity_score (Doctrines CVS v1).
+--                       Body was applied via MCP apply_migration and never
+--                       round-tripped into source (see migration
+--                       20260419000005_doctrines_counselor_cvs.sql).
+-- Updated: 2026-04-21 — Restored full body into source (was orphaned by a
+--                       prior merge) and fixed calls-made query to use
+--                       admission_lead_activities.created_by; the live body
+--                       was referencing performed_by which does not exist
+--                       on that table (42703 undefined_column every render
+--                       for counselor / admission-role dashboard loads).
+-- Reads auth.uid() directly — no parameters. Returns JSONB with 5 tiles:
 --   sla: median_minutes_today, compliance_pct, band
 --   rank: daily_rank, daily_total, weekly_delta (negative = improved)
 --   hot_leads: to_call_count (score>=70, no first_touch, active), cold_count (>=4h old)
 --   calls: made_today (activity_type LIKE 'call%'), daily_target, pct
+--   conversion_velocity_score: renormalized composite (sla 30 + rank 20 + calls 25 + conv 25)
 --   scope: user_id, computed_at
 -- Spec: specs/myjkkn-dashboard-v2-spec.md §5 + §8
 -- =====================================================
 
-CREATE OR REPLACE FUNCTION fn_counselor_metrics()
+CREATE OR REPLACE FUNCTION public.fn_counselor_metrics()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_user_id UUID := auth.uid();
+  v_today_ist DATE := (NOW() AT TIME ZONE 'Asia/Kolkata')::date;
+  v_today_start TIMESTAMPTZ := (v_today_ist::timestamp AT TIME ZONE 'Asia/Kolkata');
+  v_30d_start TIMESTAMPTZ := v_today_start - INTERVAL '30 days';
+  v_cfg dashboard_config;
+  v_sla_median_min NUMERIC := NULL;
+  v_sla_total INT := 0; v_sla_compliant INT := 0; v_sla_compliance_pct INT := 100;
+  v_sla_band TEXT := 'green';
+  v_daily_rank INT := NULL; v_daily_total INT := 0; v_weekly_delta INT := 0;
+  v_rank_today INT := NULL; v_rank_last_week INT := NULL;
+  v_hot_to_call INT := 0; v_cold_count INT := 0;
+  v_calls_made INT := 0; v_call_target INT := 25; v_call_pct INT := 0;
+  v_cvs_sla numeric; v_cvs_rank numeric; v_cvs_calls numeric; v_cvs_conv numeric;
+  v_cvs_enrolled int := 0; v_cvs_total int := 0;
+  v_cvs_composite jsonb;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'sla', jsonb_build_object('median_minutes_today', NULL, 'compliance_pct', 0, 'band', 'red'),
+      'rank', jsonb_build_object('daily_rank', NULL, 'daily_total', 0, 'weekly_delta', 0),
+      'hot_leads', jsonb_build_object('to_call_count', 0, 'cold_count', 0),
+      'calls', jsonb_build_object('made_today', 0, 'daily_target', 25, 'pct', 0),
+      'conversion_velocity_score', jsonb_build_object('score', 0, 'band', 'red', 'components', '{}'::jsonb, 'data_source', 'not_authenticated'),
+      'scope', jsonb_build_object('user_id', NULL, 'computed_at', NOW()));
+  END IF;
+
+  SELECT * INTO v_cfg FROM dashboard_config WHERE scope = 'global' LIMIT 1;
+  v_call_target := COALESCE(v_cfg.counselor_daily_call_target, 25);
+
+  SELECT COUNT(*) FILTER (WHERE first_touch_at IS NOT NULL),
+         COUNT(*) FILTER (WHERE first_touch_at IS NOT NULL AND EXTRACT(EPOCH FROM (first_touch_at - created_at))/3600.0 <= COALESCE(v_cfg.cold_lead_threshold_hours, 4)),
+         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_touch_at - created_at))/60.0) FILTER (WHERE first_touch_at IS NOT NULL)
+  INTO v_sla_total, v_sla_compliant, v_sla_median_min
+  FROM admission_leads
+  WHERE assigned_counselor_id = v_user_id AND first_touch_at >= v_today_start
+    AND first_touch_at < v_today_start + INTERVAL '1 day';
+  IF v_sla_total > 0 THEN v_sla_compliance_pct := ROUND(v_sla_compliant::numeric * 100.0 / v_sla_total)::int; END IF;
+  v_sla_band := CASE WHEN v_sla_compliance_pct >= 90 THEN 'green' WHEN v_sla_compliance_pct >= 70 THEN 'amber' ELSE 'red' END;
+
+  WITH today_sla AS (
+    SELECT assigned_counselor_id,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_touch_at - created_at))/60.0) AS median_min,
+      COUNT(*) AS lead_cnt
+    FROM admission_leads
+    WHERE first_touch_at >= v_today_start AND first_touch_at < v_today_start + INTERVAL '1 day'
+      AND assigned_counselor_id IS NOT NULL
+    GROUP BY assigned_counselor_id HAVING COUNT(*) > 0
+  ), ranked AS (
+    SELECT assigned_counselor_id, RANK() OVER (ORDER BY median_min ASC NULLS LAST) AS rnk, COUNT(*) OVER () AS total
+    FROM today_sla
+  )
+  SELECT rnk::int, total::int INTO v_rank_today, v_daily_total FROM ranked WHERE assigned_counselor_id = v_user_id;
+  v_daily_rank := v_rank_today;
+  IF v_daily_total = 0 THEN v_daily_total := 0; END IF;
+
+  WITH last_week_sla AS (
+    SELECT assigned_counselor_id,
+      PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_touch_at - created_at))/60.0) AS median_min
+    FROM admission_leads
+    WHERE first_touch_at >= v_today_start - INTERVAL '7 days' AND first_touch_at < v_today_start - INTERVAL '6 days'
+      AND assigned_counselor_id IS NOT NULL
+    GROUP BY assigned_counselor_id HAVING COUNT(*) > 0
+  ), ranked_lw AS (
+    SELECT assigned_counselor_id, RANK() OVER (ORDER BY median_min ASC NULLS LAST) AS rnk FROM last_week_sla
+  )
+  SELECT rnk::int INTO v_rank_last_week FROM ranked_lw WHERE assigned_counselor_id = v_user_id;
+  IF v_rank_today IS NOT NULL AND v_rank_last_week IS NOT NULL THEN
+    v_weekly_delta := v_rank_today - v_rank_last_week;
+  ELSE v_weekly_delta := 0; END IF;
+
+  SELECT COUNT(*),
+         COUNT(*) FILTER (WHERE EXTRACT(EPOCH FROM (NOW() - created_at))/3600.0 >= COALESCE(v_cfg.cold_lead_threshold_hours, 4))
+  INTO v_hot_to_call, v_cold_count
+  FROM admission_leads
+  WHERE assigned_counselor_id = v_user_id AND score >= 70 AND first_touch_at IS NULL
+    AND funnel_stage::text NOT IN ('enrolled', 'lost', 'withdrew', 'declined', 'expired');
+
+  -- Calls made today. admission_lead_activities.created_by is the doer; the
+  -- table has no performed_by column (prior drift fixed 2026-04-21).
+  SELECT COUNT(*) INTO v_calls_made
+  FROM admission_lead_activities
+  WHERE created_by = v_user_id AND activity_type LIKE 'call%'
+    AND created_at >= v_today_start AND created_at < v_today_start + INTERVAL '1 day';
+  IF v_call_target > 0 THEN
+    v_call_pct := LEAST(100, ROUND(v_calls_made::numeric * 100.0 / v_call_target)::int);
+  END IF;
+
+  v_cvs_sla := v_sla_compliance_pct;
+  IF v_rank_today IS NOT NULL AND v_daily_total > 0 THEN
+    v_cvs_rank := LEAST(100, GREATEST(0, ROUND(((v_daily_total - v_rank_today + 1)::numeric / v_daily_total::numeric) * 100)));
+  ELSE v_cvs_rank := NULL; END IF;
+  v_cvs_calls := v_call_pct;
+
+  BEGIN
+    SELECT COUNT(*) FILTER (WHERE funnel_stage::text = 'enrolled'), COUNT(*)
+    INTO v_cvs_enrolled, v_cvs_total
+    FROM admission_leads
+    WHERE assigned_counselor_id = v_user_id AND created_at >= v_30d_start;
+    IF v_cvs_total > 0 THEN
+      v_cvs_conv := LEAST(100, GREATEST(0, ROUND((v_cvs_enrolled::numeric / v_cvs_total::numeric) * 100)));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN v_cvs_conv := NULL; END;
+
+  v_cvs_composite := compute_renormalized_composite(
+    jsonb_build_object('sla_compliance', v_cvs_sla, 'daily_rank', v_cvs_rank, 'calls_vs_target', v_cvs_calls, 'conversion', v_cvs_conv),
+    jsonb_build_object('sla_compliance', 30, 'daily_rank', 20, 'calls_vs_target', 25, 'conversion', 25)
+  );
+
+  RETURN jsonb_build_object(
+    'sla', jsonb_build_object('median_minutes_today', CASE WHEN v_sla_median_min IS NULL THEN NULL ELSE ROUND(v_sla_median_min)::int END, 'compliance_pct', v_sla_compliance_pct, 'band', v_sla_band),
+    'rank', jsonb_build_object('daily_rank', v_daily_rank, 'daily_total', v_daily_total, 'weekly_delta', v_weekly_delta),
+    'hot_leads', jsonb_build_object('to_call_count', v_hot_to_call, 'cold_count', v_cold_count),
+    'calls', jsonb_build_object('made_today', v_calls_made, 'daily_target', v_call_target, 'pct', v_call_pct),
+    'conversion_velocity_score', v_cvs_composite || jsonb_build_object(
+      'components', jsonb_build_object('sla_compliance', v_cvs_sla, 'daily_rank', v_cvs_rank, 'calls_vs_target', v_cvs_calls, 'conversion', v_cvs_conv),
+      'window', 'trailing_30_days'),
+    'scope', jsonb_build_object('user_id', v_user_id, 'computed_at', NOW())
+  );
+END;
+$function$;
 -- =====================================================================
 -- 2026-04-15 — Dashboard v2: Web Push delivery trigger functions
 -- Spec: specs/myjkkn-dashboard-v2-spec.md §4.4, §6.2
