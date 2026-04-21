@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { RoleSimulationOverlay } from './role-simulation-overlay';
 import {
   Select,
   SelectContent,
@@ -24,6 +25,7 @@ import {
   ChevronRight,
   Eye,
   Filter,
+  FlaskConical,
   Loader2,
   Package,
   RefreshCw,
@@ -321,6 +323,21 @@ export function UnifiedAccessMapTab() {
   const [expandedModules, setExpandedModules] = useState<Set<string>>(
     new Set()
   );
+  const [simulationOpen, setSimulationOpen] = useState(false);
+
+  // Derive a flat permission-key → granted map for the simulation overlay.
+  // RoleSimulationOverlay needs this baseline to detect diffs when the user
+  // toggles permissions inside the overlay.
+  const rolePermissions = useMemo<Record<string, boolean>>(() => {
+    if (!data) return {};
+    const map: Record<string, boolean> = {};
+    for (const mod of data.modules) {
+      for (const detail of mod.codePermissionDetails) {
+        map[detail.key] = detail.granted;
+      }
+    }
+    return map;
+  }, [data]);
 
   // Fetch role list on mount
   useEffect(() => {
@@ -401,6 +418,18 @@ export function UnifiedAccessMapTab() {
     return true;
   });
 
+  // If simulation is open and we have data, render the overlay in place of the map.
+  // The overlay owns its own header + exit button and calls onClose to return here.
+  if (simulationOpen && data) {
+    return (
+      <RoleSimulationOverlay
+        unifiedData={data}
+        rolePermissions={rolePermissions}
+        onClose={() => setSimulationOpen(false)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Controls Card */}
@@ -461,6 +490,18 @@ export function UnifiedAccessMapTab() {
                 className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`}
               />
               Refresh
+            </Button>
+
+            {/* Simulate Changes Button — opens the RLS-aware simulation overlay */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSimulationOpen(true)}
+              disabled={!data || loading}
+              title={!data ? 'Select a role first' : 'Preview permission changes with RLS awareness'}
+            >
+              <FlaskConical className="h-3.5 w-3.5 mr-1.5" />
+              Simulate Changes
             </Button>
 
             {/* Conflict Summary Badge */}
