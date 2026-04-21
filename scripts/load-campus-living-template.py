@@ -495,8 +495,13 @@ def cache_fk_lookups(ctx: LoaderContext, sheet_name: str, raw: dict, result: dic
     if sheet_name == "1. Hostel Blocks":
         code = raw.get("code", {}).get("value")
         inst = ctx.institutions.get(raw.get("institution_id", {}).get("value", ""))
-        if code and inst:
-            ctx.blocks[(inst, code.strip())] = result["id"]
+        if code:
+            code_key = code.strip()
+            # Always cache by code (handles shared blocks where sheet 1 leaves
+            # College Name blank — sheet 1a then resolves by code alone).
+            ctx.blocks_by_code[code_key] = result["id"]
+            if inst:
+                ctx.blocks[(inst, code_key)] = result["id"]
     elif sheet_name == "2. Hostel Rooms":
         block_code = raw.get("_block_code", {}).get("value")
         room_number = raw.get("room_number", {}).get("value")
