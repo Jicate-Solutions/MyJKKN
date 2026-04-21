@@ -21,10 +21,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Save, MessageCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2, Check, AlertTriangle, Save, MessageCircle, Store } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useStallsByEvent } from '@/hooks/admission/use-stalls';
 import { useFormDraftObject } from '@/hooks/use-form-draft';
 import { ProgramChipPicker } from './program-chip-picker';
 import type { CreateLeadInput } from '@/types/admission';
@@ -54,6 +55,9 @@ interface FormData {
   notes: string;
   // WhatsApp consent
   waOptIn: boolean;
+  // BUG-003146: which stall this lead was captured at (optional). Persists
+  // across captures via useFormDraftObject so a counselor sets it once.
+  stallId: string;
 }
 
 const INITIAL_FORM: FormData = {
@@ -70,6 +74,7 @@ const INITIAL_FORM: FormData = {
   zone: 'regular',
   notes: '',
   waOptIn: true,
+  stallId: '',
 };
 
 export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannelPreference = 'meta_waba' }: RapidCaptureFormProps) {
@@ -79,6 +84,8 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
 
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>(institutionId);
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+  // BUG-003146: stall picker — only rendered if the event has any stalls.
+  const { stalls } = useStallsByEvent(eventId);
   const [expanded, setExpanded] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitState, setSubmitState] = useState<'idle' | 'success' | 'duplicate'>('idle');
@@ -196,6 +203,8 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
         source: 'education_fair',
         expo_event_id: eventId,
         captured_by: capturedBy,
+        // BUG-003146: attribute to stall when the counselor selected one.
+        ...(form.stallId && { stall_id: form.stallId }),
         referral_type: 'learner_ambassador',
         referred_by_id: capturedBy,
         // BUG-003222: parent fields and programs are now optional per
@@ -271,6 +280,44 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-6">
+      {/* ── Stall Assignment (BUG-003146, only shown if event has stalls) ── */}
+      {stalls.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Store className="h-4 w-4" />
+              Which stall are you at?
+            </CardTitle>
+            <CardDescription>
+              Tags each lead below to your stall so expenses and attribution are
+              accurate. Your choice is remembered across captures.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select
+              value={form.stallId || '_none'}
+              onValueChange={(v) => updateField('stallId', v === '_none' ? '' : v)}
+              disabled={isSubmitting}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select stall" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_none">— Not tied to a stall —</SelectItem>
+                {stalls.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.stall_name}
+                    {s.assigned_staff?.full_name
+                      ? ` · ${s.assigned_staff.full_name}`
+                      : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Learner Details ── */}
       <Card>
         <CardHeader>
