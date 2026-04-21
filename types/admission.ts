@@ -284,6 +284,9 @@ export interface LeadFilters {
   source?: LeadSource | LeadSource[];
   counselor_id?: string;
   interested_programs?: string;
+  // Course/Program tab filter — matches rows whose interested_programs
+  // uuid[] column contains this program_id.
+  program_id?: string;
   // Expo Bridge — filter leads by exhibition event
   expo_event_id?: string;
   captured_by?: string;
