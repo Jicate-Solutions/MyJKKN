@@ -68,35 +68,30 @@ export async function getConversionMonthlyLeaderboard(
   limit = 10,
   institutionId?: string | null
 ): Promise<LeaderboardResult> {
-  try {
-    const supabase = await createClient();
-    let q = supabase
-      .from('v_dashboard_conversion_monthly')
-      .select(
-        'counselor_id, full_name, avatar_url, institution_id, institution_name, lead_count, rank_global, converted_count, conversion_pct',
-        { count: 'exact' }
-      )
-      .order('rank_global', { ascending: true })
-      .limit(limit);
+  const supabase = await createClient();
+  let q = supabase
+    .from('v_dashboard_conversion_monthly')
+    .select(
+      'counselor_id, full_name, avatar_url, institution_id, institution_name, lead_count, rank_global, converted_count, conversion_pct',
+      { count: 'exact' }
+    )
+    .order('rank_global', { ascending: true })
+    .limit(limit);
 
-    if (institutionId) {
-      q = q.eq('institution_id', institutionId);
-    }
-
-    const { data, error, count } = await q;
-    if (error) {
-      console.error('[dashboard/leaderboard] conversion_monthly error:', error);
-      return EMPTY;
-    }
-    return {
-      rows: (data ?? []) as LeaderboardRow[],
-      total: count ?? 0,
-      empty_reason: (data?.length ?? 0) === 0 ? 'not_enough_leads' : null
-    };
-  } catch (err) {
-    console.error('[dashboard/leaderboard] conversion unexpected error:', err);
-    return EMPTY;
+  if (institutionId) {
+    q = q.eq('institution_id', institutionId);
   }
+
+  const { data, error, count } = await q;
+  if (error) {
+    console.error('[dashboard/leaderboard] conversion_monthly error:', error);
+    throw new Error(`v_dashboard_conversion_monthly select failed: ${error.message}`);
+  }
+  return {
+    rows: (data ?? []) as LeaderboardRow[],
+    total: count ?? 0,
+    empty_reason: (data?.length ?? 0) === 0 ? 'not_enough_leads' : null
+  };
 }
 
 /**
