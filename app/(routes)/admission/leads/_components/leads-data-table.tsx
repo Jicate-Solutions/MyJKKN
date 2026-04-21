@@ -2,6 +2,7 @@
 
 import { DataTable } from '@/components/data-table/data-table';
 import { getLeadColumns, FUNNEL_STAGES } from './columns';
+import { ProgramTabs } from './program-tabs';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Flame, Star, Loader2, Filter, X, RefreshCw } from 'lucide-react';
@@ -11,8 +12,9 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { useLeadMutations, useExpoEvents, useCounselorsList } from '@/hooks/admission';
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useExpoEvents, useCounselorsList } from '@/hooks/admission';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,7 +57,6 @@ export function LeadsDataTable() {
     || canAccess('admission', 'leads.delete')
     || canAccess('admission', 'leads.edit');
   const { profile } = useAuth();
-  const { deleteLead } = useLeadMutations();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [selectedForDelete, setSelectedForDelete] = useState<AdmissionLead[]>(
     []
@@ -95,17 +96,42 @@ export function LeadsDataTable() {
   const [expoFilter, setExpoFilter] = useState<string>(
     searchParams.get('expo_event_id') || '_all'
   );
+  // Program/Course filter — chosen via the ProgramTabs strip above the table
+  const [programFilter, setProgramFilter] = useState<string | null>(
+    searchParams.get('program_id') || null
+  );
+  // College filter — visible to ALL users with access to more than one
+  // institution. Non-global users typically have a single institution, so
+  // the College dropdown becomes a no-op for them (BUG-003181 asked for this
+  // to be visible across roles, not just global admission users).
+  const [collegeFilter, setCollegeFilter] = useState<string | null>(
+    searchParams.get('institution_id') || null
+  );
   // Advanced filters panel toggle
   const [showAdvanced, setShowAdvanced] = useState(false);
   const { data: expoEvents = [] } = useExpoEvents();
   const { counselors = [] } = useCounselorsList(profile?.institution_id);
+  const { institutions: accessibleInstitutions = [] } = useInstitutionsWithAccess({
+    isActive: true,
+  });
 
   const canCreate = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.create');
   const isManager = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'counselors.view');
 
   // Super admins and admission global users can see leads across all institutions.
   // Regular users are scoped to their own institution_id.
-  const institutionId = (isSuperAdmin || isAdmissionGlobalUser) ? undefined : profile?.institution_id;
+  // The collegeFilter (from the College dropdown) narrows the scope further:
+  //   - global users: undefined = all, or a specific institution_id
+  //   - non-global users: always clamped to profile.institution_id at the API
+  //     side, but we still honour collegeFilter if it matches an accessible one.
+  const baseInstitutionId = (isSuperAdmin || isAdmissionGlobalUser)
+    ? undefined
+    : profile?.institution_id;
+  const institutionId = collegeFilter || baseInstitutionId;
+  // Institution used by ProgramTabs — tabs only show when we have a single
+  // institution in focus. For global users without a college selected, tabs
+  // hide entirely.
+  const tabsInstitutionId = institutionId || null;
 
   // Auto-detect counselor ID for non-manager counselors (they only see assigned leads)
   const [myCounselorId, setMyCounselorId] = useState<string | null>(null);
@@ -134,6 +160,8 @@ export function LeadsDataTable() {
   counselorFilterRef.current = counselorFilter;
   const expoFilterRef = useRef(expoFilter);
   expoFilterRef.current = expoFilter;
+  const programFilterRef = useRef(programFilter);
+  programFilterRef.current = programFilter;
   const myCounselorIdRef = useRef(myCounselorId);
   myCounselorIdRef.current = myCounselorId;
 
@@ -152,6 +180,7 @@ export function LeadsDataTable() {
       const currentSourceFilter = sourceFilterRef.current;
       const currentCounselorFilter = counselorFilterRef.current;
       const currentExpoFilter = expoFilterRef.current;
+      const currentProgramFilter = programFilterRef.current;
 
       const result = await LeadService.getLeads({
         institution_id: institutionId || '',
@@ -183,6 +212,7 @@ export function LeadsDataTable() {
           currentExpoFilter && currentExpoFilter !== '_all'
             ? currentExpoFilter
             : undefined,
+        program_id: currentProgramFilter || undefined,
       });
 
       const leads = result.data || [];
@@ -272,7 +302,8 @@ export function LeadsDataTable() {
 
   // Count active advanced filters for badge
   const activeAdvancedCount = [sourceFilter, counselorFilter, expoFilter]
-    .filter((f) => f !== '_all').length;
+    .filter((f) => f !== '_all').length
+    + (collegeFilter ? 1 : 0);
 
   const clearAllFilters = useCallback(() => {
     setStageFilter('_all');
@@ -280,6 +311,26 @@ export function LeadsDataTable() {
     setSourceFilter('_all');
     setCounselorFilter('_all');
     setExpoFilter('_all');
+    setProgramFilter(null);
+    // Only clear college filter for users who can change it (global users);
+    // for non-global users the base institution stays in place via profile.
+    if (isSuperAdmin || isAdmissionGlobalUser) {
+      setCollegeFilter(null);
+    }
+    setRefetchKey((prev) => prev + 1);
+  }, [isSuperAdmin, isAdmissionGlobalUser]);
+
+  const handleProgramSelect = useCallback((programId: string | null) => {
+    setProgramFilter(programId);
+    setRefetchKey((prev) => prev + 1);
+  }, []);
+
+  const handleCollegeSelect = useCallback((value: string) => {
+    const next = value === '_all' ? null : value;
+    setCollegeFilter(next);
+    // Changing the college invalidates the active program selection since
+    // programs are institution-scoped.
+    setProgramFilter(null);
     setRefetchKey((prev) => prev + 1);
   }, []);
 
@@ -409,7 +460,7 @@ export function LeadsDataTable() {
               )}
             </Button>
 
-            {(stageFilter !== '_all' || priorityFilter !== '_all' || sourceFilter !== '_all' || counselorFilter !== '_all' || expoFilter !== '_all') && (
+            {(stageFilter !== '_all' || priorityFilter !== '_all' || sourceFilter !== '_all' || counselorFilter !== '_all' || expoFilter !== '_all' || programFilter || collegeFilter) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -422,6 +473,14 @@ export function LeadsDataTable() {
           </div>
         </div>
       </div>
+
+      {/* Course/Program tab strip — hidden until a single institution is in focus */}
+      <ProgramTabs
+        institutionId={tabsInstitutionId}
+        selectedProgramId={programFilter}
+        onSelect={handleProgramSelect}
+        refetchKey={refetchKey}
+      />
 
       {/* Bulk action bar */}
       {props.selectedRows.length > 0 && canBulkDelete && (
@@ -448,6 +507,27 @@ export function LeadsDataTable() {
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2 bg-muted/30 rounded-md border border-dashed">
           <span className="text-xs text-muted-foreground font-medium shrink-0">Advanced:</span>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* College / Institution filter — visible to all users, useful
+                whenever the account has access to 2+ institutions. */}
+            {accessibleInstitutions.length > 1 && (
+              <Select
+                value={collegeFilter ?? '_all'}
+                onValueChange={handleCollegeSelect}
+              >
+                <SelectTrigger className="w-full sm:w-[200px] h-8 text-xs">
+                  <SelectValue placeholder="All Colleges" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">All Colleges</SelectItem>
+                  {accessibleInstitutions.map((inst) => (
+                    <SelectItem key={inst.id} value={inst.id}>
+                      {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
             <Select
               value={counselorFilter}
               onValueChange={(value) => {
