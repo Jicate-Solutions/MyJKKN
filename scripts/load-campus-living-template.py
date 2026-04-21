@@ -388,6 +388,25 @@ def apply_fk_resolutions(
         info = raw.get(key)
         return info["value"].strip() if info and isinstance(info.get("value"), str) else (info["value"] if info else None)
 
+    # Block ↔ College Map: block_id from block_code ONLY (the row's
+    # institution_id is the mapping target, not the block's owner — so the
+    # shared-block case where sheet 1 blanked College Name still resolves.)
+    if sheet_name == "1a. Block ↔ College Map":
+        block_code = get_virtual("_block_code")
+        if block_code:
+            bid = ctx.blocks_by_code.get(block_code)
+            if not bid:
+                raise ValueError(
+                    f"Block Code '{block_code}' not found — make sure sheet "
+                    f"'1. Hostel Blocks' is processed first and lists this code."
+                )
+            row["block_id"] = bid
+        # Record which (block, college) pairs are explicit so the auto-map
+        # step can skip them.
+        inst_name_raw = raw.get("institution_id", {}).get("value")
+        if block_code and inst_name_raw:
+            ctx.junction_explicit.add((block_code, str(inst_name_raw).strip()))
+
     # Rooms: block_id from (institution, block_code)
     if sheet_name == "2. Hostel Rooms":
         block_code = get_virtual("_block_code")
