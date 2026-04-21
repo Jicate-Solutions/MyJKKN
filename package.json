@@ -12,7 +12,8 @@
     "typecheck:watch": "tsc --noEmit --watch",
     "clean": "rimraf .next/cache node_modules/.cache .tsbuildinfo",
     "clean:all": "rimraf .next node_modules/.cache .tsbuildinfo",
-    "clear-cache": "node scripts/clear-cache.bat"
+    "clear-cache": "node scripts/clear-cache.bat",
+    "check:permissions": "node scripts/check-permissions-catalog.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
