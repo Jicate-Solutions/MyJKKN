@@ -167,7 +167,9 @@ export class LeadService {
     let query = (this.supabase as any).from('admission_leads')
       .select(`
         *,
-        counselor:admission_counselors(id, name, email)
+        counselor:admission_counselors(id, name, email),
+        program:programs!program_id(id, program_name, program_id),
+        admission_year:admission_years(id, admission_year_name, program_start_year, program_end_year)
       `)
       .eq('id', id);
 
@@ -259,8 +261,11 @@ export class LeadService {
     // Add optional columns that exist in the table
     if (leadData.counselor_id) insertData.counselor_id = leadData.counselor_id;
     if (leadData.preferred_channel) insertData.preferred_channel = leadData.preferred_channel;
-    if (leadData.interested_programs && leadData.interested_programs.length > 0) {
-      insertData.interested_programs = leadData.interested_programs;
+    // 2026-04-21 — primary interested program (single) + optional alternatives (multi).
+    // Legacy `interested_programs` array no longer written; kept on DB for historical reads.
+    if (leadData.program_id) insertData.program_id = leadData.program_id;
+    if (leadData.alternative_programs && leadData.alternative_programs.length > 0) {
+      insertData.alternative_programs = leadData.alternative_programs;
     }
     if (leadData.parent_name) insertData.parent_name = leadData.parent_name;
     if (cleanParent) insertData.parent_phone = cleanParent;
@@ -281,7 +286,7 @@ export class LeadService {
     // JKKN Tier-1 fields
     if (leadData.student_interest_level) insertData.student_interest_level = leadData.student_interest_level;
     if (leadData.parent_decision_status) insertData.parent_decision_status = leadData.parent_decision_status;
-    if (leadData.academic_year) insertData.academic_year = leadData.academic_year;
+    if (leadData.admission_year_id) insertData.admission_year_id = leadData.admission_year_id;
     // Expo Bridge — link lead to exhibition event and team member who captured it
     if (leadData.expo_event_id) insertData.expo_event_id = leadData.expo_event_id;
     if (leadData.captured_by) insertData.captured_by = leadData.captured_by;

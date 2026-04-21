@@ -110,13 +110,26 @@ export interface AdmissionLead {
   pincode: string | null;
 
   // Academic details
+  // DEPRECATED 2026-04-21 — replaced by program_id (primary) + alternative_programs.
+  // Kept for 350 historical rows' read-path fallback.
   interested_programs: string[] | null;
-  // Resolved program names for `interested_programs` IDs. Populated by the
-  // list API server-side so the table can render names without a second
-  // client-side fetch. May be empty when names weren't resolved.
+  // Resolved program names for legacy `interested_programs` IDs.
   interested_program_names?: string[];
+  // 2026-04-21 — alternative / backup programs the lead is considering
+  alternative_programs: string[] | null;
+  alternative_program_names?: string[];
   preferred_campus: string | null;
+  // DEPRECATED 2026-04-21 — replaced by admission_year_id. Kept on the type
+  // for backward compat with reads against historical rows (319 existing).
   academic_year: string | null;
+  // 2026-04-21 — FK to admission_years (per-program cohort window)
+  admission_year_id: string | null;
+  admission_year?: {
+    id: string;
+    admission_year_name: string;
+    program_start_year: number;
+    program_end_year: number;
+  } | null;
 
   // Application fields (merged from admission_applications)
   degree_id?: string | null;
@@ -218,9 +231,12 @@ export interface CreateLeadInput {
   state?: string | null;
   district?: string | null;
   pincode?: string | null;
-  interested_programs?: string[] | null;
+  // Primary interested program (single). Already existed on the DB; now surfaced through the UI.
+  program_id?: string | null;
+  // Backup / alternative programs (multi). Replaces the legacy `interested_programs` multi-select.
+  alternative_programs?: string[] | null;
   preferred_campus?: string | null;
-  academic_year?: string | null;
+  admission_year_id?: string | null;
   source: LeadSource;
   referral_type?: ReferralType | null;
   referred_by_id?: string | null;
@@ -256,7 +272,7 @@ export interface UpdateLeadInput extends Partial<CreateLeadInput> {
   last_contact_at?: string | null;
   student_interest_level?: string | null;
   parent_decision_status?: string | null;
-  academic_year?: string | null;
+  admission_year_id?: string | null;
 }
 
 export interface LeadFilters {

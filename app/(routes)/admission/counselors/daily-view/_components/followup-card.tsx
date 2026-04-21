@@ -175,8 +175,18 @@ export function FollowupCard({
     ? PARENT_STATUS_CONFIG[lead.parent_decision_status]
     : null;
 
-  // Show "N programs" for UUID arrays; show actual names otherwise
+  // 2026-04-21 — show the resolved primary program name if joined,
+  // otherwise legacy fallback (UUID-list from pre-split rows).
   const programsDisplay = (() => {
+    if (lead.program_name) {
+      // Count alternatives from legacy interested_programs (total minus primary)
+      // or from a future alternative_programs field if the service ever surfaces it.
+      const legacyCount = lead.interested_programs?.length ?? 0;
+      const altExtra = Math.max(0, legacyCount - (lead.program_name ? 1 : 0));
+      return altExtra > 0
+        ? `${lead.program_name} +${altExtra} alt${altExtra === 1 ? '' : 's'}`
+        : lead.program_name;
+    }
     const progs = lead.interested_programs;
     if (!progs?.length) return null;
     if (isUUID(String(progs[0]))) {
@@ -276,10 +286,11 @@ export function FollowupCard({
               via {lead.source}
             </span>
           )}
-          {lead.academic_year && (
+          {/* 2026-04-21 — prefer admission_year_name; fall back to legacy academic_year string for historical rows */}
+          {(lead.admission_year_name || lead.academic_year) && (
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <Calendar className="h-3 w-3" />
-              {lead.academic_year}
+              {lead.admission_year_name || lead.academic_year}
             </span>
           )}
         </div>

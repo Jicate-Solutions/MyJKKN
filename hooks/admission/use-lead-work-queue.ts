@@ -207,7 +207,7 @@ export function useLeadWorkQueue(
       // counselor-scoped query that returns at most a few hundred rows.
       let q = (supabase as any)
         .from('admission_leads')
-        .select('*')
+        .select('*, program:programs!program_id(id, program_name)')
         .eq('counselor_id', counselorId!)
         .eq('is_active', true)
         .not(

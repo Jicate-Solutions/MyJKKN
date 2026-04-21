@@ -183,12 +183,23 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
                 id="slug"
                 placeholder="auto-generated"
                 {...register('slug')}
-                readOnly={!!initialData}
-                className={initialData ? 'bg-muted' : ''}
+                readOnly={!!initialData?.is_system_default}
+                className={initialData?.is_system_default ? 'bg-muted' : ''}
               />
               {errors.slug && (
                 <p className="text-xs text-red-500">{errors.slug.message}</p>
               )}
+              {initialData?.is_system_default ? (
+                <p className="text-xs text-muted-foreground">
+                  System-default slugs are wired into integrations (e.g.
+                  transport webhooks) and cannot be changed.
+                </p>
+              ) : initialData ? (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  Changing the slug can break bookmarks and any external system
+                  that references this service type by its slug.
+                </p>
+              ) : null}
             </div>
           </div>
 

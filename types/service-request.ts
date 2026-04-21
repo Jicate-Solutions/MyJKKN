@@ -269,7 +269,7 @@ export interface CreateApprovalStepDto {
   on_return_restart_from_step?: number | null;
 }
 
-export interface UpdateServiceTypeDto extends Partial<Omit<CreateServiceTypeDto, 'slug'>> {
+export interface UpdateServiceTypeDto extends Partial<CreateServiceTypeDto> {
   is_active?: boolean;
 }
 

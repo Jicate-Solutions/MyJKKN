@@ -492,7 +492,8 @@ function LeadDetailPageContent() {
       ['Parent Name', !!lead.parent_name],
       ['Parent Phone', !!lead.parent_phone],
       ['Parent Email', !!lead.parent_email],
-      ['Interested Programs', !!(lead.interested_programs?.length)],
+      // 2026-04-21 — primary program now lives on program_id (legacy interested_programs kept as fallback for pre-split rows)
+      ['Interested Programs', !!(lead.program_id || lead.interested_programs?.length)],
       ['Source', !!lead.source],
       ['Preferred Channel', !!lead.preferred_channel],
     ];
@@ -858,16 +859,25 @@ function LeadDetailPageContent() {
     parent_phone: '',
     parent_email: '',
     source: '',
-    academic_year: '',
+    admission_year_id: '',
     student_interest_level: '',
     parent_decision_status: '',
     notes: '',
   });
-  // Edit form: interested programs multi-select
-  const [editSelectedProgramIds, setEditSelectedProgramIds] = useState<string[]>([]);
-  // Edit form: academic years for the lead's institution
-  const [editAcademicYears, setEditAcademicYears] = useState<
-    { id: string; academic_year_name: string; is_active: boolean }[]
+  // Edit form: primary program (single) + alternative programs (multi) — 2026-04-21
+  const [editPrimaryProgramId, setEditPrimaryProgramId] = useState<string>('');
+  const [editAlternativeProgramIds, setEditAlternativeProgramIds] = useState<
+    string[]
+  >([]);
+  // Edit form: admission years (per-program cohort) for the lead's institution
+  const [editAdmissionYears, setEditAdmissionYears] = useState<
+    {
+      id: string;
+      admission_year_name: string;
+      program_start_year: number;
+      program_end_year: number;
+      is_active: boolean;
+    }[]
   >([]);
 
   // Fetch institution name for details display
@@ -934,9 +944,19 @@ function LeadDetailPageContent() {
   const [editReferralType, setEditReferralType] = useState<ReferralType | ''>('');
   const [editReferrerId, setEditReferrerId] = useState('');
 
-  // Map interested program IDs to names
-  const interestedProgramNames = useMemo(() => {
-    const ids = lead?.interested_programs || [];
+  // Primary program display name (from lead.program_id, with join fallback)
+  const primaryProgramName = useMemo(() => {
+    if (!lead) return '';
+    if ((lead as any).program?.program_name) return (lead as any).program.program_name;
+    if (!lead.program_id || !programs.length) return '';
+    return programs.find((p) => p.id === lead.program_id)?.program_name || '';
+  }, [lead, programs]);
+
+  // Alternative program names (from lead.alternative_programs, with legacy
+  // fallback to interested_programs for 350 historical rows).
+  const alternativeProgramNames = useMemo(() => {
+    const ids =
+      (lead as any)?.alternative_programs ?? lead?.interested_programs ?? [];
     if (!ids.length || !programs.length) return [];
     return ids
       .map((id: string) => programs.find((p) => p.id === id)?.program_name)
@@ -956,34 +976,46 @@ function LeadDetailPageContent() {
   });
   const editPrograms = editProgramsData?.data || [];
 
-  // Edit form: fetch academic years for the editable institution
+  // Edit form: fetch admission years scoped to institution + primary program.
   useEffect(() => {
-    if (!editProgramsInstitutionId) {
-      setEditAcademicYears([]);
+    if (!editProgramsInstitutionId || !editPrimaryProgramId) {
+      setEditAdmissionYears([]);
       return;
     }
     const supabase = createClientSupabaseClient();
     (supabase as any)
-      .from('academic_years')
-      .select('id, academic_year_name, is_active')
+      .from('admission_years')
+      .select('id, admission_year_name, program_start_year, program_end_year, is_active')
       .eq('institution_id', editProgramsInstitutionId)
-      .order('start_date', { ascending: false })
+      .eq('program_id', editPrimaryProgramId)
+      .eq('is_active', true)
+      .order('program_start_year', { ascending: false })
       .then(({ data, error }: { data: any; error: any }) => {
         if (error) {
-          console.error('[admission/leads] Failed to fetch academic years (edit):', error.message);
-          setEditAcademicYears([]);
+          console.error('[admission/leads] Failed to fetch admission years (edit):', error.message);
+          setEditAdmissionYears([]);
         } else {
-          setEditAcademicYears(
-            (data || []) as { id: string; academic_year_name: string; is_active: boolean }[]
-          );
+          setEditAdmissionYears(data ?? []);
         }
       });
-  }, [editProgramsInstitutionId]);
+  }, [editProgramsInstitutionId, editPrimaryProgramId]);
 
-  // Edit form: toggle a program in the interested_programs multi-select
-  const toggleEditProgram = (programId: string) => {
-    setEditSelectedProgramIds((prev) =>
-      prev.includes(programId) ? prev.filter((id) => id !== programId) : [...prev, programId]
+  // Clear admission_year_id when primary program changes (old value stale)
+  useEffect(() => {
+    setEditForm((prev) =>
+      prev.admission_year_id
+        ? { ...prev, admission_year_id: '' }
+        : prev
+    );
+  }, [editPrimaryProgramId]);
+
+  // Toggle for alternative programs — excludes the chosen primary.
+  const toggleEditAlternativeProgram = (programId: string) => {
+    if (programId === editPrimaryProgramId) return;
+    setEditAlternativeProgramIds((prev) =>
+      prev.includes(programId)
+        ? prev.filter((id) => id !== programId)
+        : [...prev, programId]
     );
   };
 
@@ -1013,14 +1045,18 @@ function LeadDetailPageContent() {
       parent_phone: l.parent_phone || '',
       parent_email: l.parent_email || '',
       source: l.source || '',
-      academic_year: (l as any).academic_year || '',
+      admission_year_id: (l as any).admission_year_id || '',
       student_interest_level: (l as any).student_interest_level || '',
       parent_decision_status: (l as any).parent_decision_status || '',
       notes: (l as any).notes || '',
     });
-    setEditSelectedProgramIds(
-      Array.isArray(l.interested_programs) ? (l.interested_programs as string[]) : []
-    );
+    // 2026-04-21 — primary program from program_id; alternatives from new column
+    // with legacy fallback to interested_programs for rows created before the split.
+    setEditPrimaryProgramId(((l as any).program_id as string) || '');
+    const altIds =
+      ((l as any).alternative_programs as string[] | null) ??
+      (Array.isArray(l.interested_programs) ? (l.interested_programs as string[]) : []);
+    setEditAlternativeProgramIds(altIds ?? []);
     // Pre-populate counselor (from assigned_counselor_id which references profiles.id)
     setEditCounselorProfileId(l.assigned_counselor_id || '');
     // Pre-populate referral type and referrer
@@ -1038,9 +1074,10 @@ function LeadDetailPageContent() {
       // Switching institution invalidates programs/academic year (both are per-institution)
       // and the counselor (counselors are per-institution too)
       if (field === 'institution_id') {
-        setEditSelectedProgramIds([]);
+        setEditPrimaryProgramId('');
+        setEditAlternativeProgramIds([]);
         setEditCounselorProfileId('');
-        return { ...prev, institution_id: value, academic_year: '' };
+        return { ...prev, institution_id: value, admission_year_id: '' };
       }
       // When source changes, clear the irrelevant assignment
       if (field === 'source') {
@@ -1084,12 +1121,13 @@ function LeadDetailPageContent() {
           parent_phone: editForm.parent_phone?.trim() || null,
           parent_email: editForm.parent_email?.trim() || null,
           source: editForm.source as any,
-          academic_year: editForm.academic_year?.trim() || null,
+          admission_year_id: editForm.admission_year_id || null,
           student_interest_level: editForm.student_interest_level || null,
           parent_decision_status: editForm.parent_decision_status || null,
           notes: editForm.notes?.trim() || null,
-          interested_programs:
-            editSelectedProgramIds.length > 0 ? editSelectedProgramIds : null,
+          program_id: editPrimaryProgramId || null,
+          alternative_programs:
+            editAlternativeProgramIds.length > 0 ? editAlternativeProgramIds : null,
           referral_type: editForm.source === 'referral' && editReferralType ? editReferralType : null,
           referred_by_id: (() => {
             if (editForm.source !== 'referral' || !editReferralType) return null;
@@ -1873,8 +1911,13 @@ function LeadDetailPageContent() {
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-sm text-muted-foreground">Academic Year</dt>
-                          <dd className="font-medium">{lead.academic_year || '-'}</dd>
+                          <dt className="text-sm text-muted-foreground">Admission Year</dt>
+                          <dd className="font-medium">
+                            {lead.admission_year?.admission_year_name
+                              ? `${lead.admission_year.admission_year_name} (${lead.admission_year.program_start_year}–${lead.admission_year.program_end_year})`
+                              : lead.academic_year /* legacy fallback for historical rows */
+                                || '-'}
+                          </dd>
                         </div>
                        
                         <div>
@@ -1885,14 +1928,24 @@ function LeadDetailPageContent() {
                           <dt className="text-sm text-muted-foreground">Parent Decision Status</dt>
                           <dd className="font-medium capitalize">{(lead.parent_decision_status || '-').replace(/_/g, ' ')}</dd>
                         </div>
-                        <div className="col-span-2">
-                          <dt className="text-sm text-muted-foreground">Interested Programs</dt>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Interested Program</dt>
                           <dd className="font-medium">
                             {programsLoading ? (
                               <span className="text-muted-foreground text-sm">Loading...</span>
-                            ) : interestedProgramNames.length > 0 ? (
+                            ) : primaryProgramName ? (
+                              <Badge variant="default">{primaryProgramName}</Badge>
+                            ) : '-'}
+                          </dd>
+                        </div>
+                        <div className="col-span-2">
+                          <dt className="text-sm text-muted-foreground">Alternative Programs</dt>
+                          <dd className="font-medium">
+                            {programsLoading ? (
+                              <span className="text-muted-foreground text-sm">Loading...</span>
+                            ) : alternativeProgramNames.length > 0 ? (
                               <div className="flex flex-wrap gap-1.5 mt-1">
-                                {interestedProgramNames.map((name: string, i: number) => (
+                                {alternativeProgramNames.map((name: string, i: number) => (
                                   <Badge key={i} variant="secondary">{name}</Badge>
                                 ))}
                               </div>
@@ -2922,24 +2975,31 @@ function LeadDetailPageContent() {
                   <h4 className="text-sm font-semibold text-muted-foreground">Academic & Interest</h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="edit-academic_year">Academic Year</Label>
+                      <Label htmlFor="edit-admission_year">Admission Year</Label>
                       <Select
-                        value={editForm.academic_year}
-                        onValueChange={(v) => handleEditChange('academic_year', v)}
+                        value={editForm.admission_year_id}
+                        onValueChange={(v) => handleEditChange('admission_year_id', v)}
+                        disabled={!editPrimaryProgramId}
                       >
                         <SelectTrigger className="mt-1">
-                          <SelectValue placeholder="Select academic year" />
+                          <SelectValue placeholder={
+                            !editPrimaryProgramId
+                              ? 'Select the Interested Program first'
+                              : 'Select admission year'
+                          } />
                         </SelectTrigger>
                         <SelectContent>
-                          {editAcademicYears.length === 0 ? (
+                          {editAdmissionYears.length === 0 ? (
                             <SelectItem value="_none" disabled>
-                              No academic years available
+                              No admission years for this program
                             </SelectItem>
                           ) : (
-                            editAcademicYears.map((y) => (
-                              <SelectItem key={y.id} value={y.academic_year_name.trim()}>
-                                {y.academic_year_name.trim()}
-                                {y.is_active ? ' (Active)' : ''}
+                            editAdmissionYears.map((y) => (
+                              <SelectItem key={y.id} value={y.id}>
+                                {y.admission_year_name}
+                                <span className="ml-2 text-xs text-muted-foreground">
+                                  ({y.program_start_year}–{y.program_end_year})
+                                </span>
                               </SelectItem>
                             ))
                           )}
@@ -2986,45 +3046,85 @@ function LeadDetailPageContent() {
                   </div>
                 </div>
 
-                {/* Interested Programs */}
+                {/* Interested Program (single) + Alternative Programs (multi) — 2026-04-21 */}
                 <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-muted-foreground">Interested Programs</h4>
-                  {!editForm.institution_id ? (
-                    <div className="text-sm text-muted-foreground">
-                      Select an institution first to view programs
-                    </div>
-                  ) : editProgramsLoading ? (
-                    <div className="text-sm text-muted-foreground">Loading programs...</div>
-                  ) : editPrograms.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">
-                      No programs available for this institution
-                    </div>
-                  ) : (
-                    <div className="max-h-48 overflow-y-auto rounded-md border p-2 space-y-1">
-                      {editPrograms.map((p) => {
-                        const checked = editSelectedProgramIds.includes(p.id);
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => toggleEditProgram(p.id)}
-                            className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-accent ${
-                              checked ? 'bg-accent' : ''
-                            }`}
-                          >
-                            <span>{p.program_name}</span>
-                            {checked && <Badge variant="secondary">Selected</Badge>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {editSelectedProgramIds.length > 0 && (
-                    <div className="text-xs text-muted-foreground">
-                      {editSelectedProgramIds.length} program
-                      {editSelectedProgramIds.length === 1 ? '' : 's'} selected
-                    </div>
-                  )}
+                  <div>
+                    <h4 className="text-sm font-semibold text-muted-foreground mb-2">
+                      Interested Program
+                    </h4>
+                    {!editForm.institution_id ? (
+                      <div className="text-sm text-muted-foreground">
+                        Select an institution first to view programs
+                      </div>
+                    ) : editProgramsLoading ? (
+                      <div className="text-sm text-muted-foreground">Loading programs...</div>
+                    ) : editPrograms.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        No programs available for this institution
+                      </div>
+                    ) : (
+                      <Select
+                        value={editPrimaryProgramId}
+                        onValueChange={(v) => setEditPrimaryProgramId(v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select the primary program" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {editPrograms.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.program_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-semibold text-muted-foreground mb-2">
+                      Alternative Programs{' '}
+                      <span className="text-xs font-normal">(optional)</span>
+                    </h4>
+                    {!editPrimaryProgramId ? (
+                      <div className="text-sm text-muted-foreground">
+                        Pick an Interested Program first to add backup options.
+                      </div>
+                    ) : editPrograms.filter((p) => p.id !== editPrimaryProgramId).length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        No other programs available as alternatives.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="max-h-40 overflow-y-auto rounded-md border p-2 space-y-1">
+                          {editPrograms
+                            .filter((p) => p.id !== editPrimaryProgramId)
+                            .map((p) => {
+                              const checked = editAlternativeProgramIds.includes(p.id);
+                              return (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => toggleEditAlternativeProgram(p.id)}
+                                  className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-accent ${
+                                    checked ? 'bg-accent' : ''
+                                  }`}
+                                >
+                                  <span>{p.program_name}</span>
+                                  {checked && <Badge variant="secondary">Selected</Badge>}
+                                </button>
+                              );
+                            })}
+                        </div>
+                        {editAlternativeProgramIds.length > 0 && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {editAlternativeProgramIds.length} alternative
+                            {editAlternativeProgramIds.length === 1 ? '' : 's'} selected
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Notes */}
