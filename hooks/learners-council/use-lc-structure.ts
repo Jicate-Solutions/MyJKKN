@@ -140,6 +140,84 @@ export function usePositionHistory(positionId: string) {
 }
 
 // ============================================================================
+// POSITION MUTATION HOOKS
+// ============================================================================
+
+/**
+ * Create a new LC position
+ */
+export function useCreatePosition() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: {
+      title: string;
+      category: string;
+      tier?: string;
+      institution_id?: string;
+      description?: string;
+      max_holders?: number;
+      sort_order?: number;
+    }) => LCStructureService.createPosition(data),
+    onSuccess: () => {
+      toast.success('Position created successfully');
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.positions.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create position');
+    }
+  });
+}
+
+/**
+ * Update an existing LC position
+ */
+export function useUpdatePosition() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: {
+      id: string;
+      data: Partial<{
+        title: string;
+        category: string;
+        tier: string;
+        institution_id: string | null;
+        description: string | null;
+        max_holders: number;
+        sort_order: number;
+        is_active: boolean;
+      }>;
+    }) => LCStructureService.updatePosition(id, data),
+    onSuccess: () => {
+      toast.success('Position updated successfully');
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.positions.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update position');
+    }
+  });
+}
+
+/**
+ * Delete an LC position (soft-delete if members exist, hard-delete otherwise)
+ */
+export function useDeletePosition() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => LCStructureService.deletePosition(id),
+    onSuccess: () => {
+      toast.success('Position deleted');
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.positions.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete position');
+    }
+  });
+}
+
+// ============================================================================
 // MEMBER HOOKS
 // ============================================================================
 

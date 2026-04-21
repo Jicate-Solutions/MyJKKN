@@ -551,6 +551,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners-council/structure/terms': 'learners_council.structure.view',
   '/learners-council/structure/yuva': 'learners_council.structure.view',
   '/learners-council/structure/verticals': 'learners_council.structure.view',
+  '/learners-council/structure/positions': 'learners_council.structure.view',
+  '/learners-council/structure/committees': 'learners_council.structure.view',
   '/learners-council/communication': 'learners_council.communication.view',
   '/learners-council/communication/polls': 'learners_council.communication.view',
   '/learners-council/communication/forums': 'learners_council.communication.view',
@@ -2635,7 +2637,38 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Structure',
           active: pathname.startsWith('/learners-council/structure'),
           icon: Users,
-          submenus: []
+          submenus: [
+            {
+              href: '/learners-council/structure/members',
+              label: 'Members',
+              active: pathname.startsWith('/learners-council/structure/members'),
+            },
+            {
+              href: '/learners-council/structure/positions',
+              label: 'Positions',
+              active: pathname.startsWith('/learners-council/structure/positions'),
+            },
+            {
+              href: '/learners-council/structure/committees',
+              label: 'Portfolio Committees',
+              active: pathname.startsWith('/learners-council/structure/committees'),
+            },
+            {
+              href: '/learners-council/structure/terms',
+              label: 'Terms',
+              active: pathname.startsWith('/learners-council/structure/terms'),
+            },
+            {
+              href: '/learners-council/structure/yuva',
+              label: 'YUVA Chapters',
+              active: pathname.startsWith('/learners-council/structure/yuva'),
+            },
+            {
+              href: '/learners-council/structure/verticals',
+              label: 'Verticals',
+              active: pathname.startsWith('/learners-council/structure/verticals'),
+            }
+          ]
         },
         {
           href: '/learners-council/communication',
@@ -2742,25 +2775,21 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/accreditation/naac/committees',
               label: 'IQAC Committees',
               active: pathname.startsWith('/accreditation/naac/committees'),
-              icon: Users
             },
             {
               href: '/accreditation/naac/dcf-export',
               label: 'DCF / AQAR Export',
               active: pathname.startsWith('/accreditation/naac/dcf-export'),
-              icon: FileText
             },
             {
               href: '/accreditation/naac/surveys/consent',
               label: 'Survey Consent (DPDPA)',
               active: pathname.startsWith('/accreditation/naac/surveys/consent'),
-              icon: Scale
             },
             {
               href: '/accreditation/naac/surveys/8.4-export',
               label: '8.4 Survey Export',
               active: pathname.startsWith('/accreditation/naac/surveys/8.4-export'),
-              icon: FileBarChart
             }
           ]
         },

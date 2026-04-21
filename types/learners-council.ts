@@ -9,8 +9,12 @@
 // LC Tier
 export type LCTier = 'jkkn_wide' | 'yuva_chapter';
 
-// LC Position Categories
-export type LCPositionCategory = 'executive' | 'institution_president' | 'portfolio_head' | 'at_large';
+// LC Position Categories (V4 corrected structure)
+// - 'executive': President, Vice President, Secretary, Treasurer (elected FROM the 27)
+// - 'representative': 3 reps per institution x 9 institutions = 27 total
+// Legacy values 'institution_president', 'portfolio_head', 'at_large' kept for backwards compatibility
+// but no longer used in seeded data as of 2026-04-21 restructure.
+export type LCPositionCategory = 'executive' | 'representative' | 'institution_president' | 'portfolio_head' | 'at_large';
 
 // YUVA Role Types
 export type YUVARoleType = 'chapter_chair' | 'chapter_co_chair' | 'stakeholder_chair' | 'stakeholder_co_chair' | 'vertical_chair' | 'vertical_co_chair';
@@ -794,4 +798,65 @@ export interface LCMemberDashboard extends LCDashboardStats {
   my_assigned_issues: number;
   my_upcoming_events: number;
   my_od_requests: { pending: number; approved: number };
+}
+
+// ============================================================
+// PORTFOLIO COMMITTEE INTERFACES
+// ============================================================
+
+/** Portfolio Committee - cross-institution topical committee within a term */
+export interface LCPortfolioCommittee {
+  id: string;
+  name: string;
+  description?: string | null;
+  focus_area?: string | null;
+  term_id?: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // optional joins
+  member_count?: number;
+  members?: LCCommitteeMember[];
+}
+
+/** Committee Member junction - allows overlapping membership across committees */
+export interface LCCommitteeMember {
+  id: string;
+  committee_id: string;
+  member_id: string;
+  role: 'chair' | 'co_chair' | 'member';
+  assigned_at: string;
+  ended_at?: string | null;
+  is_active: boolean;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+  // optional joins
+  member?: LCMember;
+  committee?: LCPortfolioCommittee;
+}
+
+export interface CreateCommitteeDto {
+  name: string;
+  description?: string;
+  focus_area?: string;
+  term_id?: string;
+  sort_order?: number;
+}
+
+export interface UpdateCommitteeDto {
+  name?: string;
+  description?: string;
+  focus_area?: string;
+  term_id?: string;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+export interface AssignCommitteeMemberDto {
+  committee_id: string;
+  member_id: string;
+  role?: 'chair' | 'co_chair' | 'member';
+  notes?: string;
 }
