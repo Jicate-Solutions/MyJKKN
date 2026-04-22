@@ -1330,6 +1330,46 @@ export class TelephonyService {
     }
   }
 
+  /**
+   * Match an inbound caller's phone to an admission lead in the given institution.
+   * Tries exact E.164 match first, then falls back to last-10-digits (handles legacy
+   * non-normalized phone data in admission_leads.phone). Returns the lead id or null.
+   *
+   * Extracted from the webhook's createInboundCallLog() so the CDR-sync path and
+   * the matchUnmatchedLeads() batch retry can share the same logic.
+   */
+  static async matchLeadByPhone(
+    phone: string | null | undefined,
+    institutionId: string,
+    supabase: any
+  ): Promise<string | null> {
+    if (!phone) return null;
+
+    const normalized = normalizePhone(phone);
+    if (!normalized) return null;
+
+    const { data: exact } = await supabase
+      .from('admission_leads')
+      .select('id')
+      .eq('institution_id', institutionId)
+      .eq('phone', normalized)
+      .limit(1)
+      .maybeSingle();
+    if (exact) return exact.id;
+
+    const last10 = phoneLastDigits(normalized);
+    if (last10.length < 10) return null;
+
+    const { data: fuzzy } = await supabase
+      .from('admission_leads')
+      .select('id')
+      .eq('institution_id', institutionId)
+      .like('phone', `%${last10}`)
+      .limit(1)
+      .maybeSingle();
+    return fuzzy?.id ?? null;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // HELPERS
   // ═══════════════════════════════════════════════════════════════════════
