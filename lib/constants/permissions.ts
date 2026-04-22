@@ -1165,6 +1165,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.residents.edit', label: 'Edit Hostel Resident Record' },
       { key: 'campus_living.residents.delete', label: 'Delete Hostel Resident (no allocation history)' },
 
+      // Approval chains (engine master data — added 2026-04-22 PR-0, drives vacate + future workflows)
+      { key: 'campus_living.approval_chains.view', label: 'View Approval Chain Rules' },
+      { key: 'campus_living.approval_chains.create', label: 'Create Approval Chain Rule' },
+      { key: 'campus_living.approval_chains.edit', label: 'Edit Approval Chain Rule (name / description / active / priority)' },
+      { key: 'campus_living.approval_chains.delete', label: 'Delete Approval Chain Rule (no active runs)' },
+
       // Wardens
       { key: 'campus_living.wardens.view', label: 'View Wardens' },
       { key: 'campus_living.wardens.assign', label: 'Assign Warden' },
