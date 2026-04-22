@@ -542,11 +542,11 @@ components/shared/crud-master/
 ## Hand-off chain (per `/sdd` pipeline)
 
 - [x] `/spec` (this document)
-- [ ] `/writing-plans` — break PR-B1 + PR-B2 into day-by-day task list with test strategy
-- [ ] `/assumption-thrash` — 14-category silent-assumption sweep on the locked decisions
+- [x] `/writing-plans` — execution plan at `specs/myjkkn-audit-workflow-sprint-01-execution-plan.md`
+- [x] `/assumption-thrash` — 19 decisions locked across 5 rounds (see §Silent Assumption Decisions below)
 - [ ] `/myjkkn-api` — implement PR-B1 (substrate + extraction)
 - [ ] `silent-failure-auditor` on PR-B1 diff — block on critical/high
-- [ ] `catalog-sync` on PR-B1 — verify 8 new permission keys are in `PERMISSION_CATEGORIES`
+- [ ] `catalog-sync` on PR-B1 — verify 10 new permission keys are in `PERMISSION_CATEGORIES`
 - [ ] `pr-preflight` on PR-B1 against open-PR file set — block if overlap
 - [ ] `/ship-myjkkn` — create draft PR, flip to Ready
 - [ ] User clicks "Squash and merge" on GitHub
@@ -555,6 +555,76 @@ components/shared/crud-master/
 
 ---
 
-*Spec locked: 2026-04-22 16:00 IST. Maintained by: MD/CAIO office.
+## Silent Assumption Decisions (from `/assumption-thrash` — 2026-04-22 16:45 IST)
+
+19 decisions locked across 5 rounds of business-framed interview. Each decision has schema or workflow implications noted below. Parent spec's §Interview decisions (numbered 1-20) are behavioural; THIS section records structural/operational choices probed by `/assumption-thrash` afterwards.
+
+### Round 1 — highest-impact structural
+| # | Question | Decision | Schema/code impact |
+|---|---|---|---|
+| T1 | When a closed finding is reopened, what happens to already-emitted evidence rows in `quality_evidence_mappings`? | **Auto-revoke evidence on reopen** | NEW trigger `revoke_audit_finding_evidence()` on `service_requests` UPDATE when `status` transitions back from `closed` to `reopened` — DELETEs matching evidence rows and logs to `audit_logs`. Fills SPEC GAP flagged in execution-plan §6.6. |
+| T2 | How to represent institution-specific override of a system parameter (e.g., JKKN Dental's DCI variant of G1-P02)? | **Separate row with institution_id set + same code** | Change `audit_parameter_catalog` UNIQUE constraint from `UNIQUE (code)` to `UNIQUE (code, institution_id)` — NULL institution_id = system default, non-null = institution override. Service resolves via "institution-specific-wins-else-default". |
+| T3 | CAO and CEO co-sign an attestation within seconds. How to handle collision? | **Optimistic lock via updated_at version stamp** | Service-layer check in `AuditAttestationService.sign/cosign`: incoming request carries `expected_updated_at`; if DB row's `updated_at` differs, return 409 Conflict with "refresh and retry" message. No DB trigger needed. |
+| T4 | Discovery query returns 10,000 rows. What does the UI do? | **Paginate 100/page + "Export all to CSV" button** | API: `/api/audit/parameters/[code]/run-query` returns `{rows, page, page_size, total_count, metadata}`. Separate `/api/audit/parameters/[code]/export-query` streams CSV. UI uses existing pagination component from academic/leaves. |
+
+### Round 2 — edge cases + workflow
+| # | Question | Decision | Schema/code impact |
+|---|---|---|---|
+| T5 | SLA nudge cadence for owner rectification? | **Email (T-7, T-3, T-0, overdue) + in-app banner on /audit/my-findings** | Reuses existing notifications module (email templates). In-app banner component on `/audit/my-findings` — schema-driven (days-to-deadline chip + colour code). WhatsApp deferred to Sprint 02. |
+| T6 | How to represent "closed" cycles for long-term history? | **`phase='closed'` + hidden from active view by default; 10-year retention** | No schema change. `/audit/cycles` UI filters `WHERE phase != 'closed'` by default with "Show archive" toggle. No cron archival job in Sprint 01. |
+| T7 | Empty `institution_ids` on cycle create = what? | **Empty/NULL = all 8 JKKN colleges (filtered by creator's scope)** | Service resolves null array: `if NULL, SELECT institutions WHERE role_has_institution_access(id)`. UI wizard's institution-picker defaults to "all my institutions" with individual toggles. |
+| T8 | Can lead_auditor delete their own draft cycles? | **Yes, if creator AND phase='draft'; super_admin always** | RLS policy on `audit_cycles DELETE`: `USING ((created_by = auth.uid() AND phase = 'draft') OR is_super_admin())`. Phase transition to `in-progress` makes deletion blocked except for super_admin. |
+
+### Round 3 — operational edges
+| # | Question | Decision | Schema/code impact |
+|---|---|---|---|
+| T9 | Emergency sign-off when cosigner unreachable before a NAAC peer-visit? | **No bypass — signatures are signatures** | DB CHECK constraint on `audit_attestations`: for attestations where `framework_mapping` includes `naac` OR `nba`, require `cosigners ? 'cao' AND cosigners ? 'ceo'`. Attestation stays `pending` until fully signed. No "emergency" flag. |
+| T10 | Can HoD close a finding on behalf of an unreachable faculty? | **Yes — HoD (escalation_role) can proxy-close findings in their dept** | Service-requests already supports this via existing `can_proxy_close` logic. Adds `closed_by_on_behalf_of` to metadata JSONB of the finding row. Audit-log captures the delegation. |
+| T11 | Can Dean delegate evidence upload to Admin Assistant? | **Yes — per-finding delegation to a named user** | NEW small table `audit_finding_delegations (id, finding_id, delegated_to, delegated_by, delegated_at, revoked_at)`. Delegation auto-revokes when finding closes. RLS on `audit_evidence` writes: owner OR delegated_to (non-revoked). |
+| T12 | Bilingual UI + parameter names for Sprint 01? | **English only for Sprint 01** | No schema change. `audit_parameter_catalog.name` stays TEXT (no `name_ta` column in Sprint 01). Tamil deferred to Sprint 02 with terminology-freeze pass. |
+
+### Round 4 — compliance + visibility
+| # | Question | Decision | Schema/code impact |
+|---|---|---|---|
+| T13 | Who sees in-progress findings during an active cycle? | **Selvamani + CAO + CEO + MD/CAIO + each finding's owner; board/regulator see only post-close** | RLS policy on `service_requests` WHERE `type_code='audit_finding'`: `SELECT` allowed if (is_super_admin OR user_has_permission('audit.leadership.view') OR finding.assigned_to = auth.uid() OR finding.reported_by = auth.uid()). New permission key `audit.leadership.view` granted to cao, ceo, md_caio. |
+| T14 | Evidence file retention after cycle close? | **10 years** | Supabase Storage lifecycle policy on `audit-evidence` bucket: archive after cycle close + 10 years. Configured at bucket level, not schema. |
+| T15 | Sidebar placement for `/audit`? | **Under 'Compliance & Audit' parent section, next to /accreditation + /grievance** | Update `lib/sidebarMenuLink.ts`: new top-level `compliance_and_audit` section with children: Accreditation, Audit Workflow, Grievance. Matches Compliance Unification Program structure. |
+| T16 | Audit action-log retention? | **Cycle lifetime + 10 years** | No change to `audit_logs` schema. Lifecycle policy documented in schema comment. Drop only when parent cycle is archived beyond 10 years (Sprint 02+ archival job). |
+
+### Round 5 — final cleanup
+| # | Question | Decision | Schema/code impact |
+|---|---|---|---|
+| T17 | Evidence upload required to close finding? | **Required per parameter's `evidence_required` schema** | Service-layer validation in `AuditFindingService.close()`: iterate `audit_parameter_catalog.evidence_required` JSONB; every item with `required=true` must have a matching entry in the finding's `metadata.evidence_uploaded` array. Rejected close → 422 with list of missing items. UI shows checklist before enabling Close button. |
+| T18 | Auto-generate cycle report on close vs on-demand? | **On-demand 'Generate Report' button in Sprint 01; auto-gen deferred** | NEW route `/api/audit/cycles/[id]/report?format=pdf\|docx`. Uses `@react-pdf/renderer` for PDF, `docx` npm library for Word. Template renders from cycle + attestations + findings aggregates. Adds ~1 day to Sprint 01. |
+| T19 | Default cycle naming convention? | **Auto-suggest `Q{n} {FY} Institutional Audit` + editable** | UI wizard pre-fills `audit_cycles.name` based on current fiscal quarter + year. User can override. No schema change. |
+
+### Schema implications (net delta from Sprint 01 baseline)
+
+Additional items on top of the spec's original DDL:
+
+1. **NEW trigger** `revoke_audit_finding_evidence()` — T1
+2. **Constraint change** on `audit_parameter_catalog`: UNIQUE (code) → UNIQUE (code, institution_id) — T2
+3. **NEW table** `audit_finding_delegations (id, finding_id, delegated_to, delegated_by, delegated_at, revoked_at)` — T11
+4. **CHECK constraint** on `audit_attestations.cosigners` requiring CAO+CEO for NAAC/NBA — T9
+5. **NEW permission key** `audit.leadership.view` — T13 (total now 11 new keys, up from 10)
+6. **RLS policy** update on `service_requests` for type_code='audit_finding' — T13
+7. **RLS policy** update on `audit_cycles DELETE` — T8
+8. **NEW API route** `/api/audit/cycles/[id]/report` — T18
+9. **NEW UI component** in-app banner on `/audit/my-findings` — T5
+10. **Sidebar restructure** — T15 (new `compliance_and_audit` parent section)
+
+### Estimated Sprint 01 impact
+
+| Baseline (spec) | Post-thrash (spec + thrash delta) | Delta |
+|---|---|---|
+| 2 new tables + 2 CRUDable masters | + 1 more small table (delegations) = 3 tables + 2 masters | +1 table |
+| ~10 working days | ~11 working days (report generator + delegations table) | +1 day |
+| 10 permission keys | 11 permission keys | +1 key |
+| No auto-revoke trigger | +1 trigger | +1 trigger |
+| 2 PRs (B1 substrate, B2 UI) | Still 2 PRs — delta absorbs into existing batches (primarily B1 batch 3 + B2 batch 8/11) | unchanged |
+
+---
+
+*Spec locked: 2026-04-22 16:00 IST. Thrash complete: 2026-04-22 16:45 IST. Maintained by: MD/CAIO office.
 All DDL idempotent (`IF NOT EXISTS`, `ON CONFLICT`), RLS follows project convention, shared extraction prevents 5th-copy accumulation.
-Production-code-sweep output visible in `/myjkkn-chain` gate log above.*
+Production-code-sweep + Q1 + Q2 + persona-design + assumption-thrash outputs visible in `/myjkkn-chain` gate log + this document §Silent Assumption Decisions.*
