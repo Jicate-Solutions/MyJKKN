@@ -1,6 +1,14 @@
+'use client';
+
 /**
  * Structure Section Layout
  * Renders a sub-nav tab bar above all /learners-council/structure/* pages.
+ *
+ * NOTE: This layout is a Client Component because it passes lucide-react
+ * icon components (function references) through the tabs array into
+ * SectionSubNav. Next.js 15 cannot serialize function props across the
+ * Server→Client boundary. Marking the layout "use client" keeps children
+ * (pages) as Server Components — they render fine as children props.
  */
 
 import { SectionSubNav, type SectionTab } from '../_components/section-subnav';

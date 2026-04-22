@@ -1,6 +1,10 @@
+'use client';
+
 /**
  * Events Section Layout
  * Sub-nav for /learners-council/events/*
+ *
+ * Client Component — see structure/layout.tsx for rationale.
  */
 
 import { SectionSubNav, type SectionTab } from '../_components/section-subnav';

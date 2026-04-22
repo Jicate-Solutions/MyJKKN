@@ -1,6 +1,10 @@
+'use client';
+
 /**
  * Selection Section Layout
  * Sub-nav for /learners-council/selection/*
+ *
+ * Client Component — see structure/layout.tsx for rationale.
  */
 
 import { SectionSubNav, type SectionTab } from '../_components/section-subnav';
