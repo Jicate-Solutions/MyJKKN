@@ -10,7 +10,8 @@ import Link from 'next/link';
  * we do this work", not dev vanity credit or legal boilerplate.
  */
 const BRAND = 'JKKN Institutions';
-const VISION = 'Knowledge to Wisdom · Learners to Leaders';
+// Official JKKN Vision — provided verbatim by MD/CAIO. Do not paraphrase.
+const VISION = 'To be a global innovation solution provider for the ever-changing needs of the society';
 
 export function Footer() {
   return (
