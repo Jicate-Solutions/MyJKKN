@@ -1660,159 +1660,25 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
     {
       groupLabel: 'Startup Studio',
-      menus: (() => {
-        // Extract active event ID from pathname: /startup-studio/events/[uuid]/...
-        const eventMatch = pathname.match(/\/startup-studio\/events\/([^/]+)/);
-        const activeId = eventMatch?.[1] && eventMatch[1] !== 'events' ? eventMatch[1] : null;
-
-        return [
-          {
-            href: '/startup-studio/portfolio',
-            label: 'Portfolio Intelligence',
-            active: pathname === '/startup-studio/portfolio',
-            icon: Gauge,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/mentors',
-            label: 'Mentor Network',
-            active: pathname.startsWith('/startup-studio/mentors'),
-            icon: Users,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/alumni',
-            label: 'Alumni Network',
-            active: pathname.startsWith('/startup-studio/alumni'),
-            icon: Award,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/kpi',
-            label: 'KPI Dashboard',
-            active: pathname.startsWith('/startup-studio/kpi'),
-            icon: PieChart,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/marketing',
-            label: 'Marketing',
-            active: pathname.startsWith('/startup-studio/marketing'),
-            icon: Megaphone,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/finance',
-            label: 'Finance',
-            active: pathname.startsWith('/startup-studio/finance'),
-            icon: Wallet,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/governance',
-            label: 'Governance',
-            active: pathname.startsWith('/startup-studio/governance'),
-            icon: Scale,
-            submenus: []
-          },
-          {
-            href: '/startup-studio/solve-for-100',
-            label: 'Solve for 100',
-            active: pathname.startsWith('/startup-studio/solve-for-100'),
-            icon: Target,
-            submenus: pathname.startsWith('/startup-studio/solve-for-100') ? [
-              { href: '/startup-studio/solve-for-100/dashboard', label: 'My Team', active: pathname.includes('/dashboard') },
-              { href: '/startup-studio/solve-for-100/leaderboard', label: 'Leaderboard', active: pathname.includes('/leaderboard') },
-              { href: '/startup-studio/solve-for-100/admin', label: 'Admin', active: pathname.includes('/admin') },
-              { href: '/startup-studio/solve-for-100/mentor', label: 'My Mentees', active: pathname.includes('/mentor') },
-              { href: '/startup-studio/solve-for-100/programs', label: 'Programs', active: pathname.includes('/programs') },
-            ] : []
-          },
-          {
-            href: '/startup-studio/events',
-            label: 'Events',
-            active: pathname.startsWith('/startup-studio/events'),
-            icon: Rocket,
-            submenus: activeId ? [
-              {
-                href: `/startup-studio/events/${activeId}/dashboard`,
-                label: 'Analytics Dashboard',
-                active: pathname.includes('/dashboard')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/my-team`,
-                label: 'My Team',
-                active: pathname.includes('/my-team')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/my-registration`,
-                label: 'My Registration',
-                active: pathname.includes('/my-registration')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/submit`,
-                label: 'Submit Project',
-                active: pathname.includes('/submit')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/my-assignment`,
-                label: 'My Assignment',
-                active: pathname.includes('/my-assignment')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/registrations`,
-                label: 'Registrations',
-                active: pathname.includes('/registrations')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/venues`,
-                label: 'Venues & Mentors',
-                active: pathname.includes('/venues')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/demo-day`,
-                label: 'Demo Day',
-                active: pathname.includes('/demo-day')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/evaluate`,
-                label: 'Evaluate Teams',
-                active: pathname.includes('/evaluate')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/leaderboard`,
-                label: 'Leaderboard',
-                active: pathname.includes('/leaderboard')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/vote`,
-                label: 'Live Voting',
-                active: pathname.includes('/vote')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/checklists`,
-                label: 'Checklists',
-                active: pathname.includes('/checklists')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/declare`,
-                label: 'Declare Track',
-                active: pathname.includes('/declare')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/case-study`,
-                label: 'Case Study',
-                active: pathname.includes('/case-study')
-              },
-              {
-                href: `/startup-studio/events/${activeId}/solve-for-100`,
-                label: 'Solve for 100',
-                active: pathname.includes('/solve-for-100')
-              },
-            ] : []
-          }
-        ];
-      })()
+      menus: [
+        // Single sidebar entry — all Startup Studio navigation lives in the
+        // module's in-page tab bar (StartupStudioNav, see app/(routes)/
+        // startup-studio/_components/startup-studio-nav.tsx). Event-specific
+        // 15-tab SectionSubNav renders dynamically on /events/[id] pages
+        // via layout.tsx (useParams-driven). Mirrors Campus Living +
+        // Learners Council + Admission CRM.
+        //
+        // Why: flat sidebar (1 entry per module) + dynamic in-page subnav
+        // for event context. URLs UNCHANGED — all /events/[id]/<tab> routes
+        // preserved.
+        {
+          href: '/startup-studio/portfolio',
+          label: 'Startup Studio',
+          active: pathname.startsWith('/startup-studio'),
+          icon: Rocket,
+          submenus: []
+        }
+      ]
     },
     {
       groupLabel: 'Solution Hub',
