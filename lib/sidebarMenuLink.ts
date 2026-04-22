@@ -681,6 +681,23 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
   '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
 
+  // Audit Workflow Sprint 01
+  '/audit': 'audit.cycle.view',
+  '/audit/dashboard': 'audit.cycle.view',
+  '/audit/cycles': 'audit.cycle.view',
+  '/audit/cycles/new': 'audit.cycle.manage',
+  '/audit/cycles/[id]': 'audit.cycle.view',
+  '/audit/cycles/[id]/findings': 'audit.finding.view',
+  '/audit/cycles/[id]/parameters': 'audit.parameter.view',
+  '/audit/cycles/[id]/attestations': 'audit.attestation.view',
+  '/audit/findings': 'audit.finding.view',
+  '/audit/findings/[id]': 'audit.finding.view',
+  '/audit/my-findings': 'audit.finding.rectify',
+  '/audit/parameters': 'audit.parameter.view',
+  '/audit/parameters/[code]': 'audit.parameter.view',
+  '/audit/parameters/settings': 'audit.parameter.manage',
+  '/audit/finding-types/settings': 'audit.finding_type.manage',
+
   // OKR Module (resurrected from clean-ss-deploy, PR #230)
   '/okr': 'okr.view',
   '/okr/objectives': 'okr.objectives.view',
