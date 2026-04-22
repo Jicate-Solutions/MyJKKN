@@ -290,6 +290,13 @@ export class InboundCallSyncService {
       supabase
     );
 
+    // Classify as admission or not, using the same rules the webhook uses
+    // (see exotel-agent-map.isAdmissionCall). Without this, CDR-sourced records
+    // have is_admission_call=null and are invisible to dashboards that filter on
+    // `is_admission_call = true`.
+    const exoPhone = record.PhoneNumber || record.PhoneNumberSid || '';
+    const isAdm = isAdmissionCall(record.To || '', exoPhone);
+
     // Insert new record
     const { error } = await supabase
       .from('admission_call_logs')
@@ -310,6 +317,7 @@ export class InboundCallSyncService {
         created_at: record.StartTime || new Date().toISOString(),
         lead_id: leadId,
         counselor_id: null,
+        is_admission_call: isAdm,
       });
 
     if (error) {
