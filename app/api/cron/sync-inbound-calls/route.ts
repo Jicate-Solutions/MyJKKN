@@ -9,7 +9,7 @@ import { InboundCallSyncService } from '@/lib/services/telephony/inbound-call-sy
 import { isExotelConfigured } from '@/lib/services/telephony/exotel-client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
-export const maxDuration = 120; // Allow up to 2 minutes for sync
+export const maxDuration = 300; // Allow up to 5 minutes for sync (Vercel Pro ceiling)
 
 export async function GET(request: NextRequest) {
   // Verify cron secret (Vercel sets this automatically)

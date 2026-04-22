@@ -96,6 +96,17 @@ export class InboundCallSyncService {
               latestCallDate = chunkResult.latestCallDate;
             }
           }
+
+          // Persist cursor per-chunk so a mid-run timeout doesn't lose progress.
+          // Next invocation's resolveDateRange() will pick up from this cursor
+          // instead of restarting the full historical backfill.
+          if (latestCallDate) {
+            await InboundCallSyncService.updateSyncMetadata(institutionId, supabase, {
+              status: 'running',
+              last_synced_call_date: latestCallDate,
+              records_synced: result.synced,
+            }).catch(() => {}); // Don't fail the chunk loop on metadata write errors
+          }
         } catch (chunkError) {
           const errMsg = `Chunk ${chunkFrom}–${chunkTo} failed: ${chunkError instanceof Error ? chunkError.message : String(chunkError)}`;
           logger.error(MODULE, errMsg);
