@@ -1,18 +1,18 @@
 import { useState, useCallback } from 'react';
 import type {
-  BillingCategory,
-  BillingCategoryFilters
+  BillingSubCategory,
+  BillingSubCategoryFilters
 } from '@/types/billing';
-import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import { BillingSubCategoryService } from '@/lib/services/billing/categories/billing-sub-category-service';
 
-export function useBillingCategories(
-  initialFilters: BillingCategoryFilters = {}
+export function useBillingSubCategories(
+  initialFilters: BillingSubCategoryFilters = {}
 ) {
-  const [categories, setCategories] = useState<BillingCategory[]>([]);
+  const [subCategories, setSubCategories] = useState<BillingSubCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] =
-    useState<BillingCategoryFilters>(initialFilters);
+    useState<BillingSubCategoryFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
     total: 0,
     page: 1,
@@ -20,23 +20,24 @@ export function useBillingCategories(
     totalPages: 0
   });
 
-  const fetchCategories = useCallback(
-    async (newFilters?: BillingCategoryFilters) => {
+  const fetchSubCategories = useCallback(
+    async (newFilters?: BillingSubCategoryFilters) => {
       try {
         setLoading(true);
         setError(null);
         const currentFilters = newFilters || filters;
 
-        const result =
-          await BillingCategoryService.getBillingCategories(currentFilters);
-        setCategories(result.data);
+        const result = await BillingSubCategoryService.getBillingSubCategories(
+          currentFilters
+        );
+        setSubCategories(result.data);
         setMetadata(result.metadata);
 
         if (newFilters) {
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('[hooks/use-billing-categories] fetch error:', err);
+        console.error('Error fetching billing sub categories:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
@@ -46,35 +47,35 @@ export function useBillingCategories(
   );
 
   const updateFilters = useCallback(
-    (newFilters: Partial<BillingCategoryFilters>) => {
+    (newFilters: Partial<BillingSubCategoryFilters>) => {
       const updatedFilters = {
         ...filters,
         ...newFilters,
-        page: 1
+        page: 1 // Reset to first page when filters change
       };
       setFilters(updatedFilters);
-      fetchCategories(updatedFilters);
+      fetchSubCategories(updatedFilters);
     },
-    [filters, fetchCategories]
+    [filters, fetchSubCategories]
   );
 
   const changePage = useCallback(
     (page: number) => {
       const updatedFilters = { ...filters, page };
       setFilters(updatedFilters);
-      fetchCategories(updatedFilters);
+      fetchSubCategories(updatedFilters);
     },
-    [filters, fetchCategories]
+    [filters, fetchSubCategories]
   );
 
   return {
-    categories,
+    subCategories,
     loading,
     error,
     metadata,
     filters,
     updateFilters,
     changePage,
-    fetchCategories
+    fetchSubCategories
   };
 }

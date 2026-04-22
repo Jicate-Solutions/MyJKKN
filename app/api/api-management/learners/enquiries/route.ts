@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     const expand = url.searchParams.get('expand');
 
     // Build query - select all fields except migration fields
-    // Default filter: only enquiries (lifecycle_status = 'enquiry')
+    // Default filter: only enquiries (lifecycle_status = 'admitted')
     const selectFields = `
       id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
       gender, religion, community, caste, father_name, father_occupation, father_mobile,
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
     let query = (supabase as any)
       .from('learners_profiles')
       .select(selectFields, { count: 'exact' })
-      .eq('lifecycle_status', 'enquiry');
+      .eq('lifecycle_status', 'admitted');
 
     // Apply filters
     if (programId) {

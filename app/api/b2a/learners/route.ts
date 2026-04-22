@@ -7,7 +7,7 @@ import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 const VALID_LIFECYCLE_STATUSES = [
-  'enquiry',
+  'admitted',
   'pending',
   'approved',
   'rejected',

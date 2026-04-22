@@ -338,10 +338,18 @@ export default function NewRefundPage() {
                           <TableCell>
                             <div className='space-y-1'>
                               <div className='text-sm font-medium'>
-                                {(bill as any).category?.category_name}
+                                {bill.item_category?.item_category_name}
                               </div>
-                              <div className='text-xs text-muted-foreground capitalize'>
-                                {(bill as any).category?.frequency || ''}
+                              <div className='text-xs text-muted-foreground'>
+                                {
+                                  bill.item_category?.parent_category
+                                    ?.parent_category_name
+                                }{' '}
+                                →{' '}
+                                {
+                                  bill.item_category?.sub_category
+                                    ?.sub_category_name
+                                }
                               </div>
                             </div>
                           </TableCell>

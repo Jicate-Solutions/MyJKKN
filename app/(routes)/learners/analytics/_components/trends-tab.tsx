@@ -186,7 +186,7 @@ export function TrendsTab({ data, filters }: TrendsTabProps) {
       <Tabs value={selectedView} onValueChange={(value: any) => setSelectedView(value)}>
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="all">All Trends</TabsTrigger>
-          <TabsTrigger value="enquiries">Enquiries</TabsTrigger>
+          <TabsTrigger value="enquiries">Admitted</TabsTrigger>
           <TabsTrigger value="activations">Activations</TabsTrigger>
           <TabsTrigger value="graduations">Graduations</TabsTrigger>
         </TabsList>
@@ -245,11 +245,11 @@ export function TrendsTab({ data, filters }: TrendsTabProps) {
           </Card>
         </TabsContent>
 
-        {/* Enquiries Trend */}
+        {/* Admitted Trend */}
         <TabsContent value="enquiries">
           <Card>
             <CardHeader>
-              <CardTitle>Enquiries Trend</CardTitle>
+              <CardTitle>Admitted Trend</CardTitle>
               <CardDescription>
                 Daily enquiries over the selected period
               </CardDescription>

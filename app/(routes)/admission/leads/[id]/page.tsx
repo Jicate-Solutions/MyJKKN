@@ -830,7 +830,7 @@ function LeadDetailPageContent() {
         }
         throw new Error(json.error || 'Conversion failed');
       }
-      toast.success('Learner enquiry created — redirecting...');
+      toast.success('Admitted created — redirecting...');
       router.push(`/learners/enquiries/${json.profileId}/edit`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Conversion failed');
@@ -1442,7 +1442,7 @@ function LeadDetailPageContent() {
                 <Star className="h-4 w-4 mr-1" />
                 {lead.is_priority ? 'Priority' : 'Mark Priority'}
               </Button>
-              {/* Convert to Learner Enquiry — shows "View Learner Profile" once converted */}
+              {/* Convert to Admitted — shows "View Learner Profile" once converted */}
               {lead.learner_profile_id ? (
                 <Button variant="outline" size="sm" asChild>
                   <a href={`/learners/profiles/${lead.learner_profile_id}`}>
@@ -1459,7 +1459,7 @@ function LeadDetailPageContent() {
                   className="bg-purple-600 hover:bg-purple-700"
                 >
                   <UserPlus className={`h-4 w-4 mr-2 ${isConverting ? 'animate-pulse' : ''}`} />
-                  {isConverting ? 'Converting...' : 'Convert to Learner Enquiry'}
+                  {isConverting ? 'Converting...' : 'Convert to Admitted'}
                 </Button>
               )}
 

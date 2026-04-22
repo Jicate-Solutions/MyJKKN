@@ -42,7 +42,7 @@ export interface StudentBill {
   id: string;
   student_id: string;
   institution_id: string;
-  category_id: string; // Renamed 2026-04-15 from item_category_id (flat billing_categories)
+  item_category_id: string;
   bill_description: string;
   due_date: string;
   quantity: number;
@@ -87,12 +87,17 @@ export interface StudentBill {
     name: string;
     counselling_code: string;
   };
-  category?: {
+  item_category?: {
     id: string;
-    category_name: string;
-    amount?: number | null;
-    frequency?: string;
-    description?: string | null;
+    item_category_name: string;
+    parent_category?: {
+      id: string;
+      parent_category_name: string;
+    };
+    sub_category?: {
+      id: string;
+      sub_category_name: string;
+    };
   };
   discounts?: BillingDiscount[];
   receipt_items?: ReceiptItem[];
@@ -102,7 +107,7 @@ export interface StudentBill {
 export interface CreateStudentBillDto {
   student_id: string;
   institution_id: string;
-  category_id: string;
+  item_category_id: string;
   bill_description?: string;
   due_date: string;
   quantity?: number;
@@ -127,7 +132,7 @@ export interface StudentBillFilters {
   search?: string;
   student_id?: string;
   institution_id?: string;
-  category_id?: string;
+  item_category_id?: string;
   status?: BillStatus;
   due_date_from?: string;
   due_date_to?: string;
@@ -765,8 +770,8 @@ export interface BillTemplate {
   id: string;
   template_name: string;
   institution_id: string;
-  categories: {
-    category_id: string;
+  item_categories: {
+    item_category_id: string;
     quantity: number;
     unit_amount?: number;
   }[];
@@ -778,8 +783,8 @@ export interface BillTemplate {
 export interface CreateBillTemplateDto {
   template_name: string;
   institution_id: string;
-  categories: {
-    category_id: string;
+  item_categories: {
+    item_category_id: string;
     quantity: number;
     unit_amount?: number;
   }[];

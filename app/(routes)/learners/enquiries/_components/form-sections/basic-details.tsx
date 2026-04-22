@@ -124,7 +124,7 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
         </div>
       )}
 
-      {/* Enquiry Date and Admission Year - Hidden in Student View */}
+      {/* Admitted Date and Admission Year - Hidden in Student View */}
       {!isStudentView && (
         <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
           <FormField
@@ -132,7 +132,7 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
             name="enquiry_date"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Enquiry Date</FormLabel>
+                <FormLabel>Admitted Date</FormLabel>
                 <FormControl>
                   <Input type="date" {...field} value={field.value || ''} />
                 </FormControl>

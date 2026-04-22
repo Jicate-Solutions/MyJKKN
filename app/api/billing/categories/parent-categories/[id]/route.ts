@@ -2,26 +2,25 @@ export const dynamic = 'force-dynamic';
 
 import { z } from 'zod';
 import { NextResponse, connection } from 'next/server';
-import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import { BillingParentCategoryService } from '@/lib/services/billing/categories/billing-parent-category-service';
 import { getAuthSession } from '@/lib/supabase/server';
-
-const FREQUENCIES = ['monthly', 'quarterly', 'yearly', 'one-time'] as const;
 
 const updateCategorySchema = z.object({
   institution_id: z.string().uuid('Invalid institution ID').optional(),
-  category_name: z
+  parent_category_name: z
     .string()
-    .min(1, 'Category name is required')
-    .max(150, 'Category name must be less than 150 characters')
+    .min(1, 'Parent category name is required')
+    .max(100, 'Parent category name must be less than 100 characters')
+    .regex(
+      /^[a-zA-Z0-9\s\-]+$/,
+      'Only letters, numbers, spaces, and hyphens are allowed'
+    )
     .optional(),
-  amount: z.number().nonnegative().nullable().optional(),
-  frequency: z.enum(FREQUENCIES).optional(),
-  description: z.string().nullable().optional(),
   is_active: z.boolean().optional()
 });
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   await connection();
@@ -31,23 +30,28 @@ export async function GET(
     if (sessionError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!id) {
+
+    if (!id || typeof id !== 'string') {
       return NextResponse.json(
         { error: 'Invalid category ID' },
         { status: 400 }
       );
     }
 
-    const category = await BillingCategoryService.getBillingCategory(id);
+    const category =
+      await BillingParentCategoryService.getBillingParentCategory(id);
+
     return NextResponse.json(category);
   } catch (error) {
-    console.error('[api/billing/categories/:id] GET error:', error);
+    console.error('Error in GET /api/billing/parent-categories/[id]:', error);
+
     if (error instanceof Error && error.message.includes('not found')) {
       return NextResponse.json(
-        { error: 'Billing category not found' },
+        { error: 'Billing parent category not found' },
         { status: 404 }
       );
     }
+
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 }
@@ -66,7 +70,8 @@ export async function PUT(
     if (sessionError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!id) {
+
+    if (!id || typeof id !== 'string') {
       return NextResponse.json(
         { error: 'Invalid category ID' },
         { status: 400 }
@@ -74,32 +79,40 @@ export async function PUT(
     }
 
     const json = await request.json();
+
+    // Validate request body
     const validatedData = updateCategorySchema.parse(json);
 
-    const category = await BillingCategoryService.updateBillingCategory(
-      id,
-      validatedData
-    );
+    const category =
+      await BillingParentCategoryService.updateBillingParentCategory(
+        id,
+        validatedData
+      );
+
     return NextResponse.json(category);
   } catch (error) {
-    console.error('[api/billing/categories/:id] PUT error:', error);
+    console.error('Error in PUT /api/billing/parent-categories/[id]:', error);
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Validation failed', details: error.errors },
         { status: 400 }
       );
     }
+
     if (error instanceof Error) {
       if (error.message.includes('not found')) {
         return NextResponse.json(
-          { error: 'Billing category not found' },
+          { error: 'Billing parent category not found' },
           { status: 404 }
         );
       }
+
       if (error.message.includes('already exists')) {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
     }
+
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 }
@@ -108,7 +121,7 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   await connection();
@@ -118,23 +131,42 @@ export async function DELETE(
     if (sessionError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    if (!id) {
+
+    if (!id || typeof id !== 'string') {
       return NextResponse.json(
         { error: 'Invalid category ID' },
         { status: 400 }
       );
     }
 
-    await BillingCategoryService.deleteBillingCategory(id);
+    await BillingParentCategoryService.deleteBillingParentCategory(id);
+
     return NextResponse.json({ message: 'Category deleted successfully' });
   } catch (error) {
-    console.error('[api/billing/categories/:id] DELETE error:', error);
-    if (error instanceof Error && error.message.includes('not found')) {
-      return NextResponse.json(
-        { error: 'Billing category not found' },
-        { status: 404 }
-      );
+    console.error(
+      'Error in DELETE /api/billing/parent-categories/[id]:',
+      error
+    );
+
+    if (error instanceof Error) {
+      if (error.message.includes('not found')) {
+        return NextResponse.json(
+          { error: 'Billing parent category not found' },
+          { status: 404 }
+        );
+      }
+
+      if (error.message.includes('associated sub-categories')) {
+        return NextResponse.json(
+          {
+            error:
+              'Cannot delete parent category with associated sub-categories'
+          },
+          { status: 409 }
+        );
+      }
     }
+
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 }

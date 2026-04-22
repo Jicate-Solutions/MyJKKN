@@ -61,8 +61,8 @@ interface UpdateResult {
 
 const STATUS_OPTIONS = [
   {
-    value: 'enquiry',
-    label: 'Enquiry',
+    value: 'admitted',
+    label: 'Admitted',
     icon: HelpCircle,
     color: 'text-gray-500',
     description: 'Mark as enquiry (initial stage)',

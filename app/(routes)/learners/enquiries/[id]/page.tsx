@@ -41,7 +41,7 @@ export default async function EnquiryDetailPage({ params }: EnquiryDetailPagePro
 
   if (!isValidUUID(id)) {
     return (
-      <ContentLayout title="Enquiry Details">
+      <ContentLayout title="Admitted Details">
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <h2 className="text-xl font-semibold mb-2">Page Not Found</h2>
           <p className="text-muted-foreground mb-4">
@@ -62,7 +62,7 @@ export default async function EnquiryDetailPage({ params }: EnquiryDetailPagePro
   } catch (error) {
     console.error('[learners/enquiries/[id]] Error fetching enquiry:', error);
     return (
-      <ContentLayout title="Enquiry Details">
+      <ContentLayout title="Admitted Details">
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <h2 className="text-xl font-semibold mb-2">Error Loading Enquiry</h2>
           <p className="text-muted-foreground mb-4">
@@ -78,9 +78,9 @@ export default async function EnquiryDetailPage({ params }: EnquiryDetailPagePro
 
   if (!enquiry) {
     return (
-      <ContentLayout title="Enquiry Details">
+      <ContentLayout title="Admitted Details">
         <div className="flex flex-col items-center justify-center p-8 text-center">
-          <h2 className="text-xl font-semibold mb-2">Enquiry Not Found</h2>
+          <h2 className="text-xl font-semibold mb-2">Admitted Not Found</h2>
           <p className="text-muted-foreground mb-4">
             The requested enquiry could not be found.
           </p>
@@ -94,13 +94,13 @@ export default async function EnquiryDetailPage({ params }: EnquiryDetailPagePro
 
   return (
     <ContentLayout
-      title={`Enquiry: ${enquiry.first_name} ${enquiry.last_name || ''}`.trim()}
+      title={`Admitted: ${enquiry.first_name} ${enquiry.last_name || ''}`.trim()}
     >
       <div className="space-y-6">
         <PageBreadcrumb
           items={[
             { label: 'Home', href: '/' },
-            { label: 'Enquiries', href: '/learners/enquiries' },
+            { label: 'Admitted', href: '/learners/enquiries' },
             {
               label: `${enquiry.first_name} ${enquiry.last_name || ''}`.trim(),
             },

@@ -219,6 +219,30 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/staff/dashboard': 'staff.dashboard.view',
   '/staff/class-incharges': 'staff.class_incharges.view',
 
+  // HR Management (Sprints 1-6) — keys match permissions.ts HR block and hr_* RLS policies
+  '/hr': 'hr.dashboard.view',
+  '/hr/employees': 'hr.employees.view',
+  '/hr/employees/new': 'hr.employees.create',
+  '/hr/employees/[id]': 'hr.employees.view',
+  '/hr/employees/[id]/edit': 'hr.employees.edit',
+  '/hr/policies': 'hr.policies.view',
+  '/hr/policies/[table]': 'hr.policies.view',
+  // HR Leave — parent + 6 submenus shown in sidebar
+  '/hr/leave': 'hr.leave.view',
+  '/hr/leave/apply': 'hr.leave.apply',
+  '/hr/leave/my-applications': 'hr.leave.view',
+  '/hr/leave/approve': 'hr.leave.approve',
+  '/hr/leave/calendar': 'hr.leave.view',
+  '/hr/leave/balance': 'hr.leave.balance.view',
+  '/hr/leave/encashment': 'hr.leave.encashment.view',
+  '/hr/leave/[id]': 'hr.leave.view',
+  // HR Recruitment — parent + 3 submenus
+  '/hr/recruitment': 'hr.recruitment.view',
+  '/hr/recruitment/submit': 'hr.recruitment.create',
+  '/hr/recruitment/my': 'hr.recruitment.view',
+  '/hr/recruitment/candidates': 'hr.recruitment.view',
+  '/hr/recruitment/approvals': 'hr.recruitment.approve',
+
   // Academic Management
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -318,10 +342,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/lti/launches': 'lti.launches.view',
 
   // Billing Management - Admin/Staff Views
-  // Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) categories into flat /billing/categories.
-  '/billing/categories': 'billing.categories.view',
-  '/billing/categories/new': 'billing.categories.create',
-  '/billing/categories/[id]/edit': 'billing.categories.edit',
+  // 3-tier categories. RLS uses 4 keys (billing.categories.{view,create,edit,delete})
+  // for all 3 tables, so all 9 paths below check the same 4 keys.
+  '/billing/categories/parent-categories': 'billing.categories.view',
+  '/billing/categories/parent-categories/new': 'billing.categories.create',
+  '/billing/categories/parent-categories/[id]/edit': 'billing.categories.edit',
+  '/billing/categories/sub-categories': 'billing.categories.view',
+  '/billing/categories/sub-categories/new': 'billing.categories.create',
+  '/billing/categories/sub-categories/[id]/edit': 'billing.categories.edit',
+  '/billing/categories/item-categories': 'billing.categories.view',
+  '/billing/categories/item-categories/new': 'billing.categories.create',
+  '/billing/categories/item-categories/[id]/edit': 'billing.categories.edit',
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
@@ -1703,12 +1734,12 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             {
               href: '/learners/enquiries',
-              label: 'All Enquiries',
+              label: 'All Admitted',
               active: pathname === '/learners/enquiries'
             },
             {
               href: '/learners/enquiries/new',
-              label: 'New Enquiry',
+              label: 'New Admitted',
               active: pathname === '/learners/enquiries/new'
             }
           ]
@@ -1752,11 +1783,27 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Accounts',
       menus: [
         {
-          href: '/billing/categories',
+          href: '/billing/categories/parent-categories',
           label: 'Categories',
           active: pathname.startsWith('/billing/categories'),
           icon: FolderTree,
-          submenus: []
+          submenus: [
+            {
+              href: '/billing/categories/parent-categories',
+              label: 'All Parent Categories',
+              active: pathname === '/billing/categories/parent-categories'
+            },
+            {
+              href: '/billing/categories/sub-categories',
+              label: 'All Sub Categories',
+              active: pathname === '/billing/categories/sub-categories'
+            },
+            {
+              href: '/billing/categories/item-categories',
+              label: 'All Item Categories',
+              active: pathname === '/billing/categories/item-categories'
+            }
+          ]
         },
         {
           href: '/billing/schedule',

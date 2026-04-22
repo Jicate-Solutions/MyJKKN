@@ -9,7 +9,7 @@ export function registerAdmissionTool(server: McpServer): void {
     'myjkkn_query_admission',
     'Query admission/application records. Returns applicant details with lifecycle status. Filter by lifecycle status. Admins see all institution admissions.',
     {
-      status: z.enum(['enquiry', 'pending', 'approved', 'rejected', 'waitlisted', 'active', 'inactive', 'exited', 'graduated', 'alumni']).optional()
+      status: z.enum(['admitted', 'pending', 'approved', 'rejected', 'waitlisted', 'active', 'inactive', 'exited', 'graduated', 'alumni']).optional()
         .describe('Filter by lifecycle status'),
       page: z.number().int().min(1).optional()
         .describe('Page number (default 1)'),

@@ -923,8 +923,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       reference_name: data.reference_name,
       reference_contact: data.reference_contact,
 
-      // IMPORTANT: Enquiries start with lifecycle_status='enquiry'
-      lifecycle_status: 'enquiry',
+      // IMPORTANT: Enquiries start with lifecycle_status='admitted'
+      lifecycle_status: 'admitted',
       is_profile_complete: false,
       created_by: user.id,
       updated_by: user.id

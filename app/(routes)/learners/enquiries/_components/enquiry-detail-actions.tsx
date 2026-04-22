@@ -78,7 +78,7 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
   const handleDelete = async () => {
     try {
       await deleteMutation.mutateAsync(enquiry.id);
-      toast.success('Enquiry deleted successfully');
+      toast.success('Admitted deleted successfully');
       router.push('/learners/enquiries');
     } catch (error) {
       console.error('[enquiry-detail-actions] Error deleting enquiry:', error);
@@ -172,8 +172,10 @@ export function EnquiryDetailActions({ enquiry }: EnquiryDetailActionsProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Send to Accounts Team?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will create bills for {enquiry.first_name} {enquiry.last_name || ''} based on their
-              fee structure and send them to the accounts team for payment processing.
+              {enquiry.first_name} {enquiry.last_name || ''} will move to the
+              Accounts team's onboarding queue. Bills will not be created
+              automatically — the accounts team will create them manually
+              using the captured fee items as reference.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

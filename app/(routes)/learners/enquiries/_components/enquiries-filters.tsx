@@ -29,7 +29,7 @@ import {
 
 interface EnquiriesFiltersProps {
   searchParams: EnquiriesSearchParams;
-  statusFilter?: 'enquiry' | 'pending' | 'rejected' | 'waitlisted';
+  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted';
 }
 
 export function EnquiriesFilters({

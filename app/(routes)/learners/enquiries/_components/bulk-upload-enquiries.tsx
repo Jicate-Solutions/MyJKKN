@@ -830,7 +830,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
             // Enquiry specific
             enquiry_date: data.enquiry_date || new Date().toISOString().split('T')[0],
-            lifecycle_status: 'enquiry' as const,
+            lifecycle_status: 'admitted' as const,
             is_profile_complete: false,
           };
 
@@ -921,7 +921,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
           'Semester': row.sanitizedData.semester_name,
           'Section': row.sanitizedData.section_name,
           'Academic Year': row.sanitizedData.academic_year_name,
-          'Status': 'Enquiry',
+          'Status': 'Admitted',
           'Uploaded': new Date().toLocaleDateString()
         }));
 
@@ -1354,7 +1354,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                         <TableHead className="min-w-[120px]">Ref. Contact</TableHead>
 
                         {/* SECTION 12: Enquiry */}
-                        <TableHead className="min-w-[100px]">Enquiry Date</TableHead>
+                        <TableHead className="min-w-[100px]">Admitted Date</TableHead>
 
                         {/* Errors Column - Sticky Right */}
                         <TableHead className="sticky right-0 bg-background z-20 min-w-[300px] border-l">Issues</TableHead>
@@ -1572,7 +1572,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardDescription>Enquiries Created</CardDescription>
+                    <CardDescription>Admitted Created</CardDescription>
                     <CardTitle className="text-3xl text-green-600">
                       {state.result.upload_summary.enquiries_created}
                     </CardTitle>

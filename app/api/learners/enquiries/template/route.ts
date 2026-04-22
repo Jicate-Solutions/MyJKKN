@@ -360,7 +360,7 @@ export async function GET(request: NextRequest) {
     // ============================================================
     // SHEET 1: Main Data Sheet (Enquiries)
     // ============================================================
-    const worksheet = workbook.addWorksheet('Enquiries');
+    const worksheet = workbook.addWorksheet('Admitted');
 
     // Define columns with proper headers
     worksheet.columns = [

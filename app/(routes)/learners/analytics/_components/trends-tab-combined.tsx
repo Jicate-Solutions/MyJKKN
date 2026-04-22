@@ -279,7 +279,7 @@ export function TrendsTabCombined({ basicData, advancedData, filters }: TrendsTa
           <div className="grid gap-6 md:grid-cols-3">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Enquiries Trend</CardTitle>
+                <CardTitle className="text-base">Admitted Trend</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="h-[200px]">

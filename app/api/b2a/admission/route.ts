@@ -43,7 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') ?? '20', 10) || 20));
   const status = url.searchParams.get('status');
 
-  const VALID_STATUSES = ['enquiry', 'pending', 'approved', 'rejected', 'waitlisted', 'active', 'inactive', 'exited', 'graduated', 'alumni'];
+  const VALID_STATUSES = ['admitted', 'pending', 'approved', 'rejected', 'waitlisted', 'active', 'inactive', 'exited', 'graduated', 'alumni'];
   const offset = (page - 1) * limit;
 
   // Step 5: Fetch data

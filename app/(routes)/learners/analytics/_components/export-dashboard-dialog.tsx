@@ -209,15 +209,15 @@ export function ExportDashboardDialog({
       const overviewData = [
         ['Metric', 'Value'],
         ['Total Learners', dashboardData.totalCount],
-        ['Enquiries', dashboardData.enquiriesCount],
+        ['Admitted', dashboardData.enquiriesCount],
         ['Pending', dashboardData.pendingCount],
         ['Approved', dashboardData.approvedCount],
         ['Active Students', dashboardData.activeCount],
         ['Inactive', dashboardData.inactiveCount],
         ['Graduated', dashboardData.graduatedCount],
         ['Exited', dashboardData.exitedCount],
-        ['New Enquiries (30 Days)', dashboardData.newEnquiries30Days.current],
-        ['New Enquiries Trend', `${dashboardData.newEnquiries30Days.change > 0 ? '+' : ''}${dashboardData.newEnquiries30Days.change.toFixed(1)}%`],
+        ['New Admitted (30 Days)', dashboardData.newEnquiries30Days.current],
+        ['New Admitted Trend', `${dashboardData.newEnquiries30Days.change > 0 ? '+' : ''}${dashboardData.newEnquiries30Days.change.toFixed(1)}%`],
         ['Awaiting Activation', dashboardData.profileCompletion.awaitingActivation]
       ];
       const ws = XLSX.utils.aoa_to_sheet(overviewData);

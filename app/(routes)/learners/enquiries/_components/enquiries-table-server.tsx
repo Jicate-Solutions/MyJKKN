@@ -35,7 +35,7 @@ interface EnquiriesTableServerProps {
     limit: number;
     total_pages: number;
   };
-  statusFilter?: 'enquiry' | 'pending' | 'rejected' | 'waitlisted';
+  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted';
 }
 
 /**

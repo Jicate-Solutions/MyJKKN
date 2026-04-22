@@ -97,7 +97,7 @@ async function getEnquiriesInner(
   if (lifecycle_status) {
     query = query.eq('lifecycle_status', lifecycle_status);
   } else {
-    query = query.in('lifecycle_status', ['enquiry', 'pending']);
+    query = query.in('lifecycle_status', ['admitted', 'pending']);
   }
 
   // Apply filters - Parse advanced search format
@@ -186,7 +186,7 @@ async function getEnquiriesInner(
   if (lifecycle_status) {
     countQuery = countQuery.eq('lifecycle_status', lifecycle_status);
   } else {
-    countQuery = countQuery.in('lifecycle_status', ['enquiry', 'pending']);
+    countQuery = countQuery.in('lifecycle_status', ['admitted', 'pending']);
   }
 
   if (search) {

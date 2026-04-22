@@ -44545,6 +44545,7 @@ export type Database = {
       service_request_approval_steps: {
         Row: {
           approver_role: string
+          approver_user_ids: string[]
           created_at: string
           id: string
           is_required: boolean
@@ -44555,6 +44556,7 @@ export type Database = {
         }
         Insert: {
           approver_role: string
+          approver_user_ids?: string[]
           created_at?: string
           id?: string
           is_required?: boolean
@@ -44565,6 +44567,7 @@ export type Database = {
         }
         Update: {
           approver_role?: string
+          approver_user_ids?: string[]
           created_at?: string
           id?: string
           is_required?: boolean
@@ -66556,7 +66559,7 @@ export type Database = {
         | "expired"
       leave_sub_category: "casual" | "medical"
       lifecycle_status:
-        | "enquiry"
+        | "admitted"
         | "pending"
         | "approved"
         | "account"
@@ -67829,7 +67832,7 @@ export const Constants = {
       ],
       leave_sub_category: ["casual", "medical"],
       lifecycle_status: [
-        "enquiry",
+        "admitted",
         "pending",
         "approved",
         "account",

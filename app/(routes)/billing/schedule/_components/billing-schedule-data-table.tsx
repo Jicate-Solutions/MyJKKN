@@ -62,7 +62,7 @@ export function BillingScheduleDataTable({
               ? userProfile.institution_id
               : undefined),
           student_id: search.student_id || undefined,
-          category_id: search.category_id || undefined,
+          item_category_id: search.item_category_id || undefined,
           status: search.status || undefined,
           is_recurring:
             search.is_recurring === 'true'
@@ -106,7 +106,7 @@ export function BillingScheduleDataTable({
     [
       search.institution_id,
       search.student_id,
-      search.category_id,
+      search.item_category_id,
       search.status,
       search.is_recurring,
       search.amount_from,
@@ -293,7 +293,7 @@ export function BillingScheduleDataTable({
             student_name: 'Student',
             'institution.name': 'Institution',
             department_semester: 'Department / Semester',
-            'category.category_name': 'Category',
+            'item_category.item_category_name': 'Category',
             due_date: 'Due Date',
             final_amount: 'Amount',
             status: 'Status',

@@ -99,7 +99,7 @@ export async function GET(
       .from('learners_profiles')
       .select(selectFields)
       .eq('id', id)
-      .eq('lifecycle_status', 'enquiry')
+      .eq('lifecycle_status', 'admitted')
       .single();
 
     if (error || !enquiry) {

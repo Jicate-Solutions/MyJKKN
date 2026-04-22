@@ -48708,7 +48708,7 @@ export type Database = {
         | "cancelled"
         | "expired"
       lifecycle_status:
-        | "enquiry"
+        | "admitted"
         | "pending"
         | "approved"
         | "rejected"
@@ -49900,7 +49900,7 @@ export const Constants = {
         "expired",
       ],
       lifecycle_status: [
-        "enquiry",
+        "admitted",
         "pending",
         "approved",
         "rejected",

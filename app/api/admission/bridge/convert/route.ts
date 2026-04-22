@@ -88,7 +88,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     referred_by_id: lead.referred_by_id || null,
     referred_by_name: lead.referred_by_name || null,
     // Required fields with safe defaults
-    lifecycle_status: 'enquiry',
+    lifecycle_status: 'admitted',
     accommodation_type: 'DAY SCHOLAR',
     entry_type: 'FIRST YEAR',
     last_school: '',

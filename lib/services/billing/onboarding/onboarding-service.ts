@@ -283,7 +283,13 @@ export class OnboardingService {
 
   // ── 3. createBillsFromProfile ────────────────────────────────────────────
 
-  static async createBillsFromProfile(learnerId: string): Promise<void> {
+  /**
+   * Creates billing_student_bills rows from learner.fee_items (or legacy fields).
+   * Returns the number of bills inserted (0 if learner already has bills,
+   * or 0 if no fee data exists). Idempotent — calling twice is a no-op the
+   * second time because the bill-existence guard skips already-billed learners.
+   */
+  static async createBillsFromProfile(learnerId: string): Promise<number> {
     try {
       const supabase = this.supabase as any;
 
@@ -297,21 +303,32 @@ export class OnboardingService {
       if (fetchError) throw fetchError;
       if (!learner) throw new Error(`Learner ${learnerId} not found`);
 
+      // Idempotency guard — if learner already has bills, do nothing.
+      // Bulk-generate flows rely on this to skip already-billed learners.
+      const { count: existingBillCount, error: countError } = await supabase
+        .from('billing_student_bills')
+        .select('id', { count: 'exact', head: true })
+        .eq('student_id', learnerId);
+      if (countError) throw countError;
+      if ((existingBillCount ?? 0) > 0) {
+        return 0;
+      }
+
       // Get current user for created_by
       const { data: userData } = await supabase.auth.getUser();
       const currentUserId = userData?.user?.id ?? null;
 
-      // Fetch billing categories for this institution (used as fallback for legacy columns)
+      // Fetch billing item categories for this institution (used as fallback for legacy columns)
       const { data: itemCategories } = await supabase
-        .from('billing_categories')
-        .select('id, category_name, institution_id')
+        .from('billing_item_categories')
+        .select('id, item_category_name, institution_id')
         .eq('institution_id', learner.institution_id)
         .eq('is_active', true);
 
       const categoryLookup: Record<string, string> = {};
       if (itemCategories) {
         for (const cat of itemCategories) {
-          categoryLookup[cat.category_name] = cat.id;
+          categoryLookup[cat.item_category_name] = cat.id;
         }
       }
 
@@ -337,7 +354,7 @@ export class OnboardingService {
           billsToInsert.push({
             student_id: learnerId,
             institution_id: learner.institution_id,
-            category_id: item.category_id || null,
+            item_category_id: item.category_id || null,
             bill_description: item.category_name || 'Fee',
             due_date: dueDateStr,
             quantity: 1,
@@ -361,7 +378,7 @@ export class OnboardingService {
             billsToInsert.push({
               student_id: learnerId,
               institution_id: learner.institution_id,
-              category_id: categoryId,
+              item_category_id: categoryId,
               bill_description: description,
               due_date: dueDateStr,
               quantity: 1,
@@ -389,6 +406,7 @@ export class OnboardingService {
         .insert(billsToInsert);
 
       if (insertError) throw insertError;
+      return billsToInsert.length;
     } catch (error) {
       console.error('[billing/onboarding] createBillsFromProfile failed:', error);
       throw error;
@@ -399,10 +417,12 @@ export class OnboardingService {
 
   /**
    * Admission team calls this to send a learner to the accounts team.
-   * 1. Validates lifecycle_status is enquiry, pending, or approved.
-   * 2. Validates all required finance fields are filled.
+   * 1. Validates lifecycle_status is admitted, pending, or approved.
+   * 2. Validates all required finance fields are filled (draft for accounts).
    * 3. Updates lifecycle_status → 'account'.
-   * 4. Auto-generates bills from the finance profile with proper categories.
+   *
+   * Bills are NOT auto-created. The accounts team creates bills manually
+   * from the onboarding page using the captured fee_items as a reference.
    */
   static async markAsAccount(learnerId: string): Promise<void> {
     try {
@@ -419,7 +439,7 @@ export class OnboardingService {
       if (!learner) throw new Error(`Learner ${learnerId} not found`);
 
       // Guard: must be in a pre-billing status
-      const allowedStatuses = ['enquiry', 'pending', 'approved'];
+      const allowedStatuses = ['admitted', 'pending', 'approved'];
       if (!allowedStatuses.includes(learner.lifecycle_status)) {
         throw new Error(
           `Cannot mark as account: learner is '${learner.lifecycle_status}'. Must be enquiry, pending, or approved.`
@@ -442,8 +462,10 @@ export class OnboardingService {
 
       if (updateError) throw updateError;
 
-      // Auto-generate bills
-      await this.createBillsFromProfile(learnerId);
+      // NOTE: Bills are not auto-created here. Accounts team creates them
+      // manually in /billing/onboarding once the learner appears there.
+      // createBillsFromProfile() remains as a callable helper if you ever
+      // want to opt back into auto-creation per-learner.
     } catch (error) {
       console.error('[billing/onboarding] markAsAccount failed:', error);
       throw error;

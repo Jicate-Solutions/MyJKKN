@@ -971,8 +971,8 @@ export function EnquiryForm({
             }))
         : [],
 
-      // System fields - Preserve existing values when editing, default to 'enquiry' when creating
-      lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),
+      // System fields - Preserve existing values when editing, default to 'admitted' when creating
+      lifecycle_status: learner?.lifecycle_status || ('admitted' as const),
       is_profile_complete: learner?.is_profile_complete ?? false,
     };
   };
@@ -1213,14 +1213,14 @@ export function EnquiryForm({
       if (learner) {
         result = await LearnerProfileService.updateLearnerProfile(learner.id, data);
         const isProfile = ['active', 'inactive', 'graduated', 'exited'].includes(learner.lifecycle_status);
-        toast.success(isProfile ? 'Profile updated successfully' : 'Enquiry updated successfully');
+        toast.success(isProfile ? 'Profile updated successfully' : 'Admitted updated successfully');
       } else if (savedEnquiryId) {
         // Update existing draft with final submission
         result = await LearnerProfileService.updateLearnerProfile(savedEnquiryId, data);
-        toast.success('Enquiry submitted successfully');
+        toast.success('Admitted submitted successfully');
       } else {
         result = await LearnerProfileService.createLearnerProfile(data as any);
-        toast.success('Enquiry created successfully');
+        toast.success('Admitted created successfully');
       }
 
       // Check if user account was created
@@ -1266,7 +1266,7 @@ export function EnquiryForm({
   const filledFieldsCount = requiredForActivation.filter(f => f.valid).length;
   const isProfileComplete = filledFieldsCount === 4;
   const currentStatus = learner?.lifecycle_status;
-  const canAutoActivate = currentStatus && ['enquiry', 'pending', 'approved'].includes(currentStatus);
+  const canAutoActivate = currentStatus && ['admitted', 'pending', 'approved'].includes(currentStatus);
 
   return (
     <Form {...form}>

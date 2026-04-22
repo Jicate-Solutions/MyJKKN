@@ -83,7 +83,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
     },
     {
       id: 'enquiry',
-      label: 'Enquiry Details',
+      label: 'Admitted Details',
       icon: BookText
     }
   ];
@@ -1024,11 +1024,11 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
             </>
           )}
 
-          {/* Enquiry Details Section */}
+          {/* Admitted Details Section */}
           {activeSection === 'enquiry' && (
             <>
               <CardHeader>
-                <CardTitle>Enquiry Details</CardTitle>
+                <CardTitle>Admitted Details</CardTitle>
                 <CardDescription>
                   Application and lifecycle information
                 </CardDescription>
@@ -1051,7 +1051,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                   </div>
                   <div className='space-y-1'>
                     <h3 className='text-sm font-medium text-muted-foreground'>
-                      Enquiry Date
+                      Admitted Date
                     </h3>
                     <p className='text-sm'>
                       {formatDate(enquiry.enquiry_date || enquiry.created_at)}
