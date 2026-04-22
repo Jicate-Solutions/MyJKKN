@@ -602,6 +602,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/blocks': 'campus_living.blocks.view',
   '/campus-living/allocations': 'campus_living.allocations.view',
   '/campus-living/allocations/roommate-matching': 'campus_living.allocations.view',
+  '/campus-living/residents': 'campus_living.residents.view',
   '/campus-living/attendance': 'campus_living.attendance.view',
   '/campus-living/leave': 'campus_living.leave.view',
   '/campus-living/gate-passes': 'campus_living.gate_passes.view',
@@ -1101,6 +1102,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/campus-living/allocations/onboarding',
               label: 'Onboarding',
               active: pathname.startsWith('/campus-living/allocations/onboarding')
+            },
+            {
+              href: '/campus-living/residents',
+              label: 'Residents',
+              active: pathname.startsWith('/campus-living/residents')
             }
           ]
         },
