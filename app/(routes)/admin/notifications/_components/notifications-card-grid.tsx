@@ -42,11 +42,14 @@ export function NotificationsCardGrid({
   const [editingNotification, setEditingNotification] =
     useState<NotificationWithStats | null>(null);
 
-  // Filter notifications by active category
+  // Filter notifications by active category (case-insensitive match;
+  // tabs normalize keys to lowercase so 'Alerts' and 'alerts' share a tab).
   const filtered =
     activeCategory === 'all'
       ? notifications
-      : notifications.filter((n) => n.category === activeCategory);
+      : notifications.filter(
+          (n) => (n.category || 'uncategorized').toLowerCase() === activeCategory
+        );
 
   const handleEdit = useCallback((notification: Notification) => {
     setEditingNotification({
