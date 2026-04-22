@@ -179,7 +179,7 @@ export function TermActions({ userId }: { userId: string }) {
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-1.5">
-              JKKN academic year runs <span className="font-medium">July 1 → June 30</span>. Defaults are pre-filled based on the term type; override if backfilling a past period.
+              JKKN LC/YUVA terms run <span className="font-medium">January 1 → December 31</span> (calendar year, single-year labels like "LC Term 2026"). Defaults are pre-filled; override if backfilling a past period.
             </p>
           </div>
 
