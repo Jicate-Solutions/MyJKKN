@@ -1159,6 +1159,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.allocations.vacate', label: 'Vacate Allocation' },
       { key: 'campus_living.allocations.approve', label: 'Approve Allocation' },
 
+      // Residents (master data — added 2026-04-22 PR-2, classifies non-learner residents: staff / international / married / visitor / other)
+      { key: 'campus_living.residents.view', label: 'View Hostel Residents' },
+      { key: 'campus_living.residents.create', label: 'Create Hostel Resident Record' },
+      { key: 'campus_living.residents.edit', label: 'Edit Hostel Resident Record' },
+      { key: 'campus_living.residents.delete', label: 'Delete Hostel Resident (no allocation history)' },
+
       // Wardens
       { key: 'campus_living.wardens.view', label: 'View Wardens' },
       { key: 'campus_living.wardens.assign', label: 'Assign Warden' },
