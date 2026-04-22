@@ -1,6 +1,6 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
 import { useHostelAllocation } from '@/hooks/campus-living/use-hostel-allocations';
+import { VacateDialog } from '../_components/vacate-dialog';
+import { TransferDialog } from '../_components/transfer-dialog';
 import {
   ArrowLeft,
   User,
@@ -40,6 +42,8 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
   const { id } = use(params);
   const { profile } = useAuth();
   const { data: allocation, isLoading } = useHostelAllocation(id);
+  const [vacateOpen, setVacateOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
 
   if (isLoading || !allocation) {
     return (
@@ -92,11 +96,11 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
           </div>
           {allocation.status === 'active' && (
             <div className="flex gap-2">
-              <Button variant="outline">
+              <Button variant="outline" onClick={() => setTransferOpen(true)}>
                 <ArrowRightLeft className="mr-2 h-4 w-4" />
                 Transfer
               </Button>
-              <Button variant="destructive">
+              <Button variant="destructive" onClick={() => setVacateOpen(true)}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Vacate
               </Button>
@@ -274,6 +278,20 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
           </div>
         </div>
       </div>
+
+      <VacateDialog
+        allocationId={id}
+        open={vacateOpen}
+        onOpenChange={setVacateOpen}
+      />
+      <TransferDialog
+        allocationId={id}
+        currentBlockId={alloc.block_id}
+        currentRoomId={alloc.room_id}
+        currentBedId={alloc.bed_id}
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+      />
     </ContentLayout>
   );
 }
