@@ -26,6 +26,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Notification } from '@/types/notifications';
 import { stripHtml } from '@/components/ui/rich-text-editor';
+import { NotificationActionButtons } from './notification-action-buttons';
 
 // ---- Styling helpers ----
 
@@ -174,6 +175,19 @@ export function NotificationCard({
           <Bell className='h-3 w-3 text-muted-foreground/60' aria-label='Notification' />
         </div>
       </Link>
+
+      {/* Action buttons — rendered when action_type + action_config are set.
+          Self-hides for standard/no-action notifications. Lives outside the
+          Link so button clicks don't trigger card navigation. */}
+      {notification.action_type && notification.action_config && (
+        <div className='px-4 pb-3'>
+          <NotificationActionButtons
+            notificationId={notification.id}
+            actionType={notification.action_type}
+            actionConfig={notification.action_config}
+          />
+        </div>
+      )}
 
       {/* Overflow menu — positioned absolute, outside the Link */}
       <div className='absolute top-2 right-2' onClick={(e) => e.stopPropagation()}>
