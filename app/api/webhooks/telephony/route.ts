@@ -35,23 +35,64 @@ export async function POST(request: NextRequest) {
 
     // ========================================================================
     // STEP 2: Parse Callback Payload
+    //
+    // Exotel delivers call events via two distinct paths, each using a
+    // different payload convention. We MUST handle both.
+    //
+    //   1. StatusCallback (DID-level, configured on each ExoPhone):
+    //        POST with form-encoded body, fields named `From`, `To`, `Status`
+    //   2. Passthru (in-flow applet dropped into an ExoML flow):
+    //        POST with EMPTY body; metadata appended to the URL as query
+    //        params, fields named `CallFrom`, `CallTo`, `CallStatus`
+    //
+    // Previously this handler only read the body + only recognised the
+    // StatusCallback naming — which meant every in-flow Passthru delivery
+    // (the 16 async passthrus set up 2026-04-22/23) was ACK'd with HTTP 200
+    // but silently dropped because the payload came out empty and CallSid
+    // was missing.
+    //
+    // Fix: merge URL query params with body params (body wins on conflict)
+    // and normalise the Passthru `CallX` names into the StatusCallback `X`
+    // names so downstream code keeps working unchanged.
     // ========================================================================
-    let payload: ExotelCallbackPayload;
-
     const contentType = request.headers.get('content-type') || '';
+    const data: Record<string, string> = {};
 
+    // 2a. Start with URL query params (Exotel Passthru puts metadata here).
+    //     Skip the `token` auth param — it's for verifyWebhookAuth, not payload.
+    request.nextUrl.searchParams.forEach((value, key) => {
+      if (key !== 'token') data[key] = value;
+    });
+
+    // 2b. Overlay body params (Exotel StatusCallback puts metadata here).
+    //     Body wins on conflict — StatusCallback values are more authoritative.
     if (contentType.includes('application/x-www-form-urlencoded')) {
-      // Exotel sends as form-encoded data
-      const formData = await request.formData();
-      const data: Record<string, string> = {};
-      formData.forEach((value, key) => {
-        data[key] = value.toString();
-      });
-      payload = data as ExotelCallbackPayload;
-    } else {
-      // JSON fallback
-      payload = await request.json();
+      try {
+        const formData = await request.formData();
+        formData.forEach((value, key) => {
+          data[key] = value.toString();
+        });
+      } catch {
+        // Empty or malformed body is fine — we already have query params.
+      }
+    } else if (contentType.includes('application/json')) {
+      try {
+        const json = await request.json();
+        if (json && typeof json === 'object') {
+          for (const [k, v] of Object.entries(json)) data[k] = String(v);
+        }
+      } catch {
+        // Empty or malformed body is fine — we already have query params.
+      }
     }
+
+    // 2c. Normalise Passthru field names (`CallFrom`, `CallTo`, `CallStatus`)
+    //     to StatusCallback names so the rest of the code is oblivious.
+    if (data.CallFrom && !data.From) data.From = data.CallFrom;
+    if (data.CallTo && !data.To) data.To = data.CallTo;
+    if (data.CallStatus && !data.Status) data.Status = data.CallStatus;
+
+    const payload = data as ExotelCallbackPayload;
 
     logger.info('telephony/webhook', 'Processing callback', {
       callSid: payload.CallSid,
