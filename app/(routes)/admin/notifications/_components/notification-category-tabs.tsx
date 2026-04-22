@@ -3,10 +3,10 @@
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Notification } from '@/types/notifications';
+import { getCanonicalCategoryLabel } from '@/lib/constants/notification-categories';
 
 /**
- * Humanize a category key for display.
- * "announcements"     → "Announcements"
+ * Humanize an ad-hoc category key (one not in the canonical list).
  * "dashboard:rescue"  → "Dashboard Rescue"
  * "billing_invoice"   → "Billing Invoice"
  */
@@ -14,7 +14,7 @@ function prettify(key: string): string {
   if (!key) return 'Uncategorized';
   return key
     .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .split(/[:_-]/)
+    .split(/[:_\-\s]+/)
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
@@ -30,13 +30,17 @@ interface NotificationCategoryTabsProps {
 /**
  * Horizontal scrollable category tabs for filtering notifications.
  *
- * Tabs are generated dynamically from the categories actually present in the
- * notifications array. Any module can emit any category (e.g. "dashboard:rescue",
- * "admission:lead-stale") and the UI adapts without code changes.
+ * Tab composition:
+ *   1. "All" tab always first (total count)
+ *   2. All canonical categories from NOTIFICATION_CATEGORIES (shared with the
+ *      Send Notification form), shown when count > 0 — labels match the form
+ *      dropdown ("Announcement", "Action Required", etc.)
+ *   3. Any organic categories emitted by modules (e.g. "Dashboard:Rescue"
+ *      from the lead-rescue cron) also appear when present — prettified
  *
- * Order: "All" first, then remaining categories sorted by count (desc) so the
- * most common category surfaces next. Category keys are normalized to lowercase
- * to avoid split tabs for "Alerts" vs "alerts".
+ * Sort within (2)+(3): by count descending so the most common surfaces next.
+ * Category keys are normalized to lowercase so "Alerts" and "alerts" share
+ * a tab.
  */
 export function NotificationCategoryTabs({
   notifications,
@@ -50,6 +54,7 @@ export function NotificationCategoryTabs({
       counts.set(cat, (counts.get(cat) || 0) + 1);
     }
 
+    // Sort by count desc, then alphabetically as tiebreaker
     const sorted = Array.from(counts.entries()).sort((a, b) => {
       if (b[1] !== a[1]) return b[1] - a[1];
       return a[0].localeCompare(b[0]);
@@ -59,7 +64,9 @@ export function NotificationCategoryTabs({
       { key: 'all', label: 'All', count: notifications.length },
       ...sorted.map(([key, count]) => ({
         key,
-        label: prettify(key),
+        // Prefer canonical label from the shared constant so the tab reads
+        // exactly like the form's dropdown option (case-for-case)
+        label: getCanonicalCategoryLabel(key) ?? prettify(key),
         count
       }))
     ];
