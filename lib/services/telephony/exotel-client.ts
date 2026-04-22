@@ -166,6 +166,8 @@ export interface ExotelCallRecord {
   DateCreated: string;
   DateUpdated?: string;
   PhoneNumberSid?: string;
+  /** The Exotel DID (ExoPhone) that received the inbound call, e.g. "04446313503". */
+  PhoneNumber?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
