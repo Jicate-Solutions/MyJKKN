@@ -650,6 +650,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/analytics': 'campus_living.analytics.view',
   '/campus-living/reports': 'campus_living.reports.view',
   '/campus-living/settings': 'campus_living.settings.view',
+  '/campus-living/settings/approval-chains': 'campus_living.approval_chains.view',
 
   // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15)
   '/faculty/innovation': 'faculty_innovation.initiative.submit',
