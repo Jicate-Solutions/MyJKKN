@@ -11,7 +11,7 @@ import Link from 'next/link';
  */
 const BRAND = 'JKKN Institutions';
 // Official JKKN Vision — provided verbatim by MD/CAIO. Do not paraphrase.
-const VISION = 'To be a global innovation solution provider for the ever-changing needs of the society';
+const VISION = 'To be a Leading Global Innovative Solutions provider for the ever changing needs of the society.';
 
 export function Footer() {
   return (
