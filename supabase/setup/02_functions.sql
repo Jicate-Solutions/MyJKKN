@@ -1871,55 +1871,67 @@ $$;
 -- Updated: 2025-10-15 - Store profile_id back in staff table
 -- Updated: 2026-04-14 - Role is now dynamic (NEW.role_key) instead of hardcoded 'faculty'.
 --                       Supports teaching + non-teaching onboarding. UPDATE branch also resyncs role.
+-- Updated: 2026-04-22 - Mirror live body back to source (drift fix). Two changes:
+--   1. Priority ladder: staff.profile_id FK first, then email lookup. Survives email rename
+--      and makes the trigger deterministic when profile_id is already linked.
+--   2. SECURITY DEFINER. The email-fallback ORDER BY references auth.users to prefer
+--      auth-linked profiles on duplicate emails. auth.users grants SELECT only to postgres,
+--      so SECURITY INVOKER would fail for any caller other than a superuser (42501 error).
+--      search_path pinned to public to close the classic definer-hijack vector.
 CREATE OR REPLACE FUNCTION public.sync_staff_to_profiles()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     existing_profile_id UUID;
 BEGIN
     IF NEW.institution_email IS NOT NULL AND NEW.institution_email != '' THEN
-        SELECT id INTO existing_profile_id
-        FROM profiles
-        WHERE email = NEW.institution_email
-        LIMIT 1;
+        -- Priority 1: durable FK. Survives email rename.
+        IF NEW.profile_id IS NOT NULL THEN
+            SELECT id INTO existing_profile_id
+            FROM profiles WHERE id = NEW.profile_id;
+        END IF;
+
+        -- Priority 2: email lookup with deterministic ordering (auth-linked first, then newest).
+        IF existing_profile_id IS NULL THEN
+            SELECT p.id INTO existing_profile_id
+            FROM profiles p
+            WHERE p.email = NEW.institution_email
+            ORDER BY
+                (EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)) DESC,
+                p.updated_at DESC
+            LIMIT 1;
+        END IF;
 
         IF existing_profile_id IS NOT NULL THEN
             UPDATE profiles
-            SET
-                full_name = CONCAT(NEW.first_name, ' ', NEW.last_name),
-                phone_number = NEW.phone,
+            SET email          = NEW.institution_email,
+                full_name      = CONCAT(NEW.first_name, ' ', NEW.last_name),
+                phone_number   = NEW.phone,
+                avatar_url     = COALESCE(NEW.profile_picture, avatar_url),
                 institution_id = NEW.institution_id,
-                department_id = NEW.department_id,
-                gender = NEW.gender,
-                designation = NEW.designation,
-                role = NEW.role_key,
-                is_active = NEW.is_active,
-                updated_at = NOW()
+                department_id  = NEW.department_id,
+                gender         = NEW.gender,
+                designation    = NEW.designation,
+                role           = NEW.role_key,
+                is_active      = NEW.is_active,
+                updated_at     = NOW()
             WHERE id = existing_profile_id;
-
             NEW.profile_id := existing_profile_id;
         ELSE
             existing_profile_id := gen_random_uuid();
-
             INSERT INTO profiles (
-                id,
-                email,
-                full_name,
-                phone_number,
-                institution_id,
-                department_id,
-                gender,
-                designation,
-                role,
-                is_pre_registered,
-                is_active
-            )
-            VALUES (
+                id, email, full_name, phone_number, avatar_url,
+                institution_id, department_id, gender, designation,
+                role, is_pre_registered, is_active
+            ) VALUES (
                 existing_profile_id,
                 NEW.institution_email,
                 CONCAT(NEW.first_name, ' ', NEW.last_name),
                 NEW.phone,
+                NEW.profile_picture,
                 NEW.institution_id,
                 NEW.department_id,
                 NEW.gender,
@@ -1928,7 +1940,6 @@ BEGIN
                 true,
                 NEW.is_active
             );
-
             NEW.profile_id := existing_profile_id;
         END IF;
     END IF;
