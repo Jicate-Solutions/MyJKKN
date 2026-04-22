@@ -36,6 +36,8 @@ import {
   usePrivilegeGroup,
   usePrivilegeSourceTypes,
 } from '@/hooks/academic/use-privileges';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useYuvaVerticals } from '@/hooks/academic/use-yuva-verticals';
 import toast from 'react-hot-toast';
 import type { PrivilegeSourceType, PrivilegeSourceTypeField, PrivilegeType } from '@/types/privileges';
 
@@ -123,8 +125,8 @@ export default function CreatePrivilegeGroupPage() {
   const templateIdFromUrl = searchParams.get('template');
 
   const { userProfile, isSuperAdmin } = usePermissions();
-  // Always use the user's institution_id — even super_admin has one in most cases
-  const institutionId = userProfile?.institution_id || undefined;
+
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
 
   const { data: privilegeTypes, isLoading: typesLoading } = usePrivilegeTypes();
   const { data: templates, isLoading: templatesLoading } = usePrivilegeTemplates();
@@ -143,9 +145,24 @@ export default function CreatePrivilegeGroupPage() {
   const [selectedTypeIds, setSelectedTypeIds] = useState<string[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
 
+  // Institution selection — super_admin picks from dropdown; others are locked to their own
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');
+
+  // Seed institution once profile + institutions list are ready
+  useEffect(() => {
+    if (!isSuperAdmin && userProfile?.institution_id && !selectedInstitutionId) {
+      setSelectedInstitutionId(userProfile.institution_id);
+    }
+  }, [isSuperAdmin, userProfile?.institution_id, selectedInstitutionId]);
+
   // Source state
   const [sourceKind, setSourceKind] = useState<string>('manual');
   const [sourceConfig, setSourceConfig] = useState<Record<string, unknown>>({});
+
+  // Vertical selection — only relevant when sourceKind === 'yuva_vertical_chairs'
+  const [selectedVerticalId, setSelectedVerticalId] = useState<string | null>(null);
+  const isYuvaVerticalChairs = sourceKind === 'yuva_vertical_chairs';
+  const { data: yuvaVerticals, isLoading: verticalsLoading } = useYuvaVerticals(isYuvaVerticalChairs);
 
   // Handle both array and paginated response shapes
   const typesList: PrivilegeType[] = Array.isArray(privilegeTypes)
@@ -201,6 +218,7 @@ export default function CreatePrivilegeGroupPage() {
   const handleSourceSelect = (kind: string) => {
     setSourceKind(kind);
     setSourceConfig({}); // reset config whenever source changes
+    setSelectedVerticalId(null); // reset vertical when source changes
   };
 
   const handleConfigChange = (key: string, val: unknown) => {
@@ -210,6 +228,10 @@ export default function CreatePrivilegeGroupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!selectedInstitutionId) {
+      toast.error('Institution is required');
+      return;
+    }
     if (!name.trim()) {
       toast.error('Name is required');
       return;
@@ -222,6 +244,15 @@ export default function CreatePrivilegeGroupPage() {
       toast.error('Select at least one privilege type');
       return;
     }
+    if (isYuvaVerticalChairs && !selectedVerticalId) {
+      toast.error('Vertical is required for YUVA Vertical Chairs source');
+      return;
+    }
+
+    // Build source_config — yuva_vertical_chairs adds vertical_id; others use dynamic config
+    const resolvedSourceConfig: Record<string, unknown> = isYuvaVerticalChairs
+      ? { vertical_id: selectedVerticalId }
+      : sourceConfig;
 
     // If creating from a template via dropdown
     if (selectedTemplateId && selectedTemplateId !== 'none') {
@@ -233,11 +264,11 @@ export default function CreatePrivilegeGroupPage() {
             description: description.trim() || undefined,
             reference_code: referenceCode.trim(),
             semester_id: semesterId || undefined,
-            institution_id: institutionId || '',
+            institution_id: selectedInstitutionId,
             created_by: userProfile?.id || '',
             privilege_type_ids: selectedTypeIds,
             source_kind: sourceKind,
-            source_config: sourceConfig,
+            source_config: resolvedSourceConfig,
           },
         },
         {
@@ -251,7 +282,7 @@ export default function CreatePrivilegeGroupPage() {
 
     createGroup.mutate(
       {
-        institution_id: institutionId || '',
+        institution_id: selectedInstitutionId,
         name: name.trim(),
         description: description.trim() || undefined,
         reference_code: referenceCode.trim(),
@@ -259,7 +290,7 @@ export default function CreatePrivilegeGroupPage() {
         created_by: userProfile?.id || '',
         privilege_type_ids: selectedTypeIds,
         source_kind: sourceKind,
-        source_config: sourceConfig,
+        source_config: resolvedSourceConfig,
       },
       {
         onSuccess: () => {
@@ -344,6 +375,49 @@ export default function CreatePrivilegeGroupPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Institution picker — appears first in the form (which college → what group) */}
+              <div className="space-y-2">
+                <Label htmlFor="institution">Institution *</Label>
+                {isSuperAdmin ? (
+                  <>
+                    {institutionsLoading ? (
+                      <Skeleton className="h-9 w-full" />
+                    ) : (
+                      <Select
+                        value={selectedInstitutionId}
+                        onValueChange={setSelectedInstitutionId}
+                      >
+                        <SelectTrigger id="institution">
+                          <SelectValue placeholder="Select institution" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {institutions.map((inst) => (
+                            <SelectItem key={inst.id} value={inst.id}>
+                              {inst.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Input
+                      id="institution"
+                      value={
+                        institutions.find((i) => i.id === selectedInstitutionId)?.name ??
+                        (institutionsLoading ? 'Loading…' : 'Your institution')
+                      }
+                      disabled
+                      className="bg-muted/50 text-muted-foreground cursor-not-allowed"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      You can only create groups for your own institution.
+                    </p>
+                  </>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Name *</Label>
@@ -495,6 +569,35 @@ export default function CreatePrivilegeGroupPage() {
                     ))}
                   </div>
                 )}
+
+              {/* Vertical picker — only shown for yuva_vertical_chairs source */}
+              {isYuvaVerticalChairs && (
+                <div className="space-y-2 rounded-lg border p-4">
+                  <Label htmlFor="vertical">Vertical *</Label>
+                  {verticalsLoading ? (
+                    <Skeleton className="h-9 w-full" />
+                  ) : (
+                    <Select
+                      value={selectedVerticalId ?? ''}
+                      onValueChange={(v) => setSelectedVerticalId(v)}
+                    >
+                      <SelectTrigger id="vertical">
+                        <SelectValue placeholder="Select a vertical" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(yuvaVerticals ?? []).map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Each group = one institution + one vertical. Review cadence is per-group-per-month.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
