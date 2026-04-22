@@ -96,7 +96,7 @@ export function validateSidebar(
         threshold: WARN_THRESHOLD,
         message:
           `Group "${groupLabel}" has ${topLevelCount} top-level items (suggested max: ${WARN_THRESHOLD}). ` +
-          `Consider grouping related items under a parent with nested submenus (see Campus Living or Learners Council in sidebarMenuLink.ts).`,
+          `Collapse this module to a single sidebar entry and move section tabs IN-PAGE — see Campus Living or Learners Council (lc-nav.tsx / cl-nav.tsx + SectionSubNav).`,
       });
     }
 
@@ -113,7 +113,7 @@ export function validateSidebar(
           threshold: WARN_THRESHOLD,
           message:
             `Submenu "${menu.label}" under "${groupLabel}" has ${flatChildren} flat children. ` +
-            `Consider adding a 3rd-tier nest — see Services → Mess/Laundry/Housekeeping in Campus Living.`,
+            `Collapse parent to a single sidebar entry and move these tabs IN-PAGE via SectionSubNav — see Learners Council structure/layout.tsx or Campus Living cl-nav.tsx.`,
         });
       }
 
@@ -133,7 +133,7 @@ export function validateSidebar(
             threshold: WARN_THRESHOLD,
             message:
               `3rd-tier submenu "${(child as { label: string }).label}" has ${flatGrandchildren} flat items. ` +
-              `Split into two related parents (e.g. "Daily" vs "Configuration") rather than one long list.`,
+              `Sidebar should never be this deep — move the entire module to in-page SectionSubNav tabs.`,
           });
         }
       }
