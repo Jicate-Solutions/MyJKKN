@@ -38,6 +38,10 @@
     {
       "path": "/api/cron/dashboard-work-items?secret=${CRON_SECRET}",
       "schedule": "7 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-inbound-calls",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
