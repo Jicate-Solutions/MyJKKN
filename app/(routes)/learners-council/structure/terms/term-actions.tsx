@@ -5,7 +5,7 @@
  * Includes create term dialog and status update buttons
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -34,13 +34,62 @@ import { useCreateTerm, useUpdateTerm } from '@/hooks/learners-council/use-lc-st
 // CREATE TERM DIALOG
 // ============================================================================
 
+/**
+ * Compute sensible calendar-year defaults for a new term.
+ *
+ * JKKN's LC and YUVA terms follow the calendar year (January 1 →
+ * December 31) with single-year labels: "LC Term 2026", "LC Term 2027",
+ * etc. These defaults prevent users from accidentally creating
+ * half-year or academic-year terms.
+ *
+ *   Current month range | Default term year
+ *   --------------------|-------------------
+ *   Jan–Oct             | current year           (normal case — planning or midway through)
+ *   Nov–Dec             | current year + 1       (likely planning next year's term)
+ *
+ * Executive rotation defaults to H1 (January–June) of the same year.
+ * User can always override any field manually.
+ */
+function computeCalendarYearDefaults(
+  termType: 'annual' | 'executive_rotation'
+): { name: string; start_date: string; end_date: string } {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1-12
+  const termYear = month >= 11 ? year + 1 : year;
+
+  if (termType === 'executive_rotation') {
+    return {
+      name: `LC Exec Rotation H1 ${termYear}`,
+      start_date: `${termYear}-01-01`,
+      end_date: `${termYear}-06-30`,
+    };
+  }
+  return {
+    name: `LC Term ${termYear}`,
+    start_date: `${termYear}-01-01`,
+    end_date: `${termYear}-12-31`,
+  };
+}
+
 export function TermActions({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const initial = computeCalendarYearDefaults('annual');
+  const [name, setName] = useState(initial.name);
+  const [startDate, setStartDate] = useState(initial.start_date);
+  const [endDate, setEndDate] = useState(initial.end_date);
   const [termType, setTermType] = useState<'annual' | 'executive_rotation'>('annual');
   const [description, setDescription] = useState('');
+
+  // Re-prefill calendar-year defaults when the term type changes. Users can
+  // still manually edit any field afterward — this just sets a sensible
+  // starting point so the dialog never presents empty date inputs.
+  useEffect(() => {
+    const d = computeCalendarYearDefaults(termType);
+    setName(d.name);
+    setStartDate(d.start_date);
+    setEndDate(d.end_date);
+  }, [termType]);
 
   const createTerm = useCreateTerm();
 
@@ -58,9 +107,11 @@ export function TermActions({ userId }: { userId: string }) {
       userId
     });
 
-    setName('');
-    setStartDate('');
-    setEndDate('');
+    // Reset to fresh calendar-year defaults for the next term creation
+    const d = computeCalendarYearDefaults('annual');
+    setName(d.name);
+    setStartDate(d.start_date);
+    setEndDate(d.end_date);
     setTermType('annual');
     setDescription('');
     setOpen(false);
@@ -106,25 +157,30 @@ export function TermActions({ userId }: { userId: string }) {
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="start-date">Start Date</Label>
-              <Input
-                id="start-date"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
+          <div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="start-date">Start Date</Label>
+                <Input
+                  id="start-date"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="end-date">End Date</Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="end-date">End Date</Label>
-              <Input
-                id="end-date"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </div>
+            <p className="text-xs text-muted-foreground mt-1.5">
+              JKKN LC/YUVA terms run <span className="font-medium">January 1 → December 31</span> (calendar year, single-year labels like "LC Term 2026"). Defaults are pre-filled; override if backfilling a past period.
+            </p>
           </div>
 
           <div>
