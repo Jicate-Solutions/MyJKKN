@@ -222,12 +222,16 @@ export function useDeletePosition() {
 // ============================================================================
 
 /**
- * Fetch LC members with filters
+ * Fetch LC members with filters.
+ *
+ * Pass `tier: 'tier_1'` for LC proper, `tier: 'yuva_chapter'` for YUVA
+ * Chapter Chairs & Co-Chairs. Omitting tier returns both (legacy behavior).
  */
 export function useLCMembers(filters: {
   term_id?: string;
   status?: string;
   institution_id?: string;
+  tier?: string;
 }) {
   return useQuery({
     queryKey: lcStructureKeys.members.list(filters as Record<string, unknown>),

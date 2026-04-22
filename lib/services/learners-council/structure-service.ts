@@ -298,17 +298,27 @@ export class LCStructureService {
   /**
    * Get LC members with filters and joined data.
    * institution_id is conditional to support super_admin cross-institution view.
+   *
+   * The `tier` filter selects LC proper ('tier_1') vs YUVA chapter leadership
+   * ('yuva_chapter') — both live in lc_members but are segregated by
+   * lc_positions.tier. When tier is provided, the position join becomes an
+   * inner join so the tier filter can be pushed into PostgREST.
    */
   static async getMembers(filters: {
     term_id?: string;
     status?: string;
     institution_id?: string;
+    tier?: string;
   }): Promise<LCMember[]> {
+    const positionJoin = filters.tier
+      ? 'position:lc_positions!inner(*)'
+      : 'position:lc_positions(*)';
+
     let query = this.supabase
       .from('lc_members')
       .select(`
         *,
-        position:lc_positions(*),
+        ${positionJoin},
         user:profiles(id, full_name, email, avatar_url),
         term:lc_terms(id, name, status)
       `)
@@ -322,6 +332,9 @@ export class LCStructureService {
     }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.tier) {
+      query = query.eq('position.tier', filters.tier);
     }
 
     const { data, error } = await query;
