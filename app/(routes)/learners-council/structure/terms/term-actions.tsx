@@ -74,18 +74,18 @@ function computeCalendarYearDefaults(
 
 export function TermActions({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false);
-  const initial = computeAcademicYearDefaults('annual');
+  const initial = computeCalendarYearDefaults('annual');
   const [name, setName] = useState(initial.name);
   const [startDate, setStartDate] = useState(initial.start_date);
   const [endDate, setEndDate] = useState(initial.end_date);
   const [termType, setTermType] = useState<'annual' | 'executive_rotation'>('annual');
   const [description, setDescription] = useState('');
 
-  // Re-prefill academic-year defaults when the term type changes. Users can
+  // Re-prefill calendar-year defaults when the term type changes. Users can
   // still manually edit any field afterward — this just sets a sensible
   // starting point so the dialog never presents empty date inputs.
   useEffect(() => {
-    const d = computeAcademicYearDefaults(termType);
+    const d = computeCalendarYearDefaults(termType);
     setName(d.name);
     setStartDate(d.start_date);
     setEndDate(d.end_date);
