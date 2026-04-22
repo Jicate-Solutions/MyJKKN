@@ -62,6 +62,11 @@ export interface HostelVacateRequest {
   warden_last_action_at: string | null;
   warden_idle_escalated_at: string | null;
 
+  // Parent OTP (PR-C, 2026-04-23)
+  parent_consent_otp: string | null;
+  parent_consent_otp_expires_at: string | null;
+  parent_consent_at: string | null;
+
   created_at: string;
   updated_at: string;
 }

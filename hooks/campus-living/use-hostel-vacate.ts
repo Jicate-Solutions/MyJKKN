@@ -216,3 +216,44 @@ export function useFinalizeVacate() {
     },
   });
 }
+
+// --- Parent OTP (PR-C) ---
+
+export function useGenerateParentOtp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (requestId: string) =>
+      HostelVacateRequestService.generateParentOtp(requestId),
+    onSuccess: (_data, requestId) => {
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(requestId) });
+      toast.success('Parent OTP generated (30-minute validity)');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to generate OTP: ${error.message}`);
+    },
+  });
+}
+
+export function useVerifyParentOtp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      requestId,
+      otp,
+      actorId,
+    }: {
+      requestId: string;
+      otp: string;
+      actorId: string | null;
+    }) => HostelVacateRequestService.verifyParentOtp(requestId, otp, actorId),
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.all });
+      queryClient.invalidateQueries({ queryKey: hostelVacateKeys.detail(variables.requestId) });
+      if (result.valid) toast.success('Parent consent recorded. Advancing to warden.');
+      else toast.error(result.reason ?? 'OTP verification failed');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to verify OTP: ${error.message}`);
+    },
+  });
+}

@@ -438,6 +438,90 @@ export class HostelVacateRequestService {
     }
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  // PARENT OTP (PR-C, 2026-04-23) — mirrors hostel_leave_service pattern.
+  //
+  // Flow: hostel_office / admin generates a 6-digit OTP (30-min expiry,
+  // stored on the request row), relays it to the parent via phone, then
+  // enters it on the vacate detail page. Verify advances the engine past
+  // the pending_parent stage. SMS dispatch is NOT wired here — same state
+  // as hostel_leave (see notification-service.ts:470).
+  // ════════════════════════════════════════════════════════════════════
+
+  static async generateParentOtp(requestId: string) {
+    try {
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_vacate_requests')
+        .update({
+          parent_consent_otp: otp,
+          parent_consent_otp_expires_at: expiresAt,
+        })
+        .eq('id', requestId)
+        .select('id, parent_consent_otp, parent_consent_otp_expires_at, status')
+        .single();
+      if (error) {
+        logger.error('campus-living/vacate', 'Failed to generate parent OTP', error);
+        throw error;
+      }
+      if (data.status !== 'pending_parent') {
+        logger.warn?.(
+          'campus-living/vacate',
+          `Parent OTP generated but request ${requestId} is not in pending_parent (status=${data.status}); OTP will not advance engine on verify.`
+        );
+      }
+      return { otp, expiresAt };
+    } catch (error) {
+      logger.error('campus-living/vacate', 'Unexpected error in generateParentOtp', error);
+      throw error;
+    }
+  }
+
+  static async verifyParentOtp(
+    requestId: string,
+    submittedOtp: string,
+    actorId: string | null
+  ): Promise<{ valid: boolean; reason?: string }> {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data: row, error } = await supabase
+        .from('hostel_vacate_requests')
+        .select('parent_consent_otp, parent_consent_otp_expires_at, status')
+        .eq('id', requestId)
+        .single();
+      if (error) throw error;
+
+      if (row.status !== 'pending_parent') {
+        return { valid: false, reason: `Request is not at parent consent stage (status=${row.status}).` };
+      }
+      if (!row.parent_consent_otp || row.parent_consent_otp !== submittedOtp) {
+        return { valid: false, reason: 'Invalid OTP.' };
+      }
+      if (row.parent_consent_otp_expires_at && new Date(row.parent_consent_otp_expires_at) < new Date()) {
+        return { valid: false, reason: 'OTP expired. Generate a fresh one.' };
+      }
+
+      // Stamp consent + clear OTP (one-time use)
+      await supabase
+        .from('hostel_vacate_requests')
+        .update({
+          parent_consent_at: new Date().toISOString(),
+          parent_consent_otp: null,
+          parent_consent_otp_expires_at: null,
+        })
+        .eq('id', requestId);
+
+      // Advance engine through the parent_consent stage.
+      await this.advance(requestId, actorId, 'approve', 'Parent consent recorded via OTP');
+      return { valid: true };
+    } catch (error) {
+      logger.error('campus-living/vacate', 'Unexpected error in verifyParentOtp', error);
+      throw error;
+    }
+  }
+
   /**
    * Checks that all required clearance items are cleared.
    * UI should gate the finalize button on this.

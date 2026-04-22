@@ -31,6 +31,8 @@ import {
   useCancelVacate,
   useMarkClearanceItem,
   useFinalizeVacate,
+  useGenerateParentOtp,
+  useVerifyParentOtp,
 } from '@/hooks/campus-living/use-hostel-vacate';
 import { ApprovalChainService } from '@/lib/services/approval-chain-service';
 import { ApprovalStepper } from '../_components/approval-stepper';
@@ -301,26 +303,14 @@ export default function VacateRequestDetailPage({
 
           {/* Side column: action area */}
           <div className='space-y-6'>
-            {/* Parent stage info */}
+            {/* Parent stage OTP flow */}
             {isParentStage && (
-              <Card className='border-amber-200'>
-                <CardHeader>
-                  <CardTitle className='text-base flex items-center gap-2'>
-                    <Clock className='h-4 w-4 text-amber-600' />
-                    Waiting for Parent Consent
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className='text-sm text-muted-foreground'>
-                    Parent receives an OTP SMS. Once consent is recorded, the request advances
-                    to warden review.
-                  </p>
-                  <p className='text-xs text-muted-foreground mt-2 italic'>
-                    OTP dispatch is wired in a follow-up PR — this stage currently requires
-                    hostel office to advance via engine control.
-                  </p>
-                </CardContent>
-              </Card>
+              <ParentOtpCard
+                requestId={id}
+                hasActiveOtp={!!request.parent_consent_otp}
+                otpExpiresAt={request.parent_consent_otp_expires_at ?? null}
+                canAct={!!canMarkClearance}
+              />
             )}
 
             {/* Approval form for current actor */}
@@ -470,5 +460,156 @@ function ClearanceItemRow({
         <p className='text-xs text-muted-foreground mt-2'>{item.notes}</p>
       )}
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Parent OTP card (PR-C, 2026-04-23)
+//
+// Two-step flow on the detail page:
+//   1. Hostel office / admin clicks "Generate OTP" — a 6-digit code is stored
+//      on the request with 30-min expiry. The UI displays it prominently so
+//      the hostel office can relay by phone (SMS dispatch is not wired yet —
+//      same as hostel_leave today).
+//   2. Once parent confirms the OTP, the actor enters it back into the input
+//      and clicks Verify. Verify advances the engine past pending_parent.
+//
+// For learners (resident_type='learner'), this stage is mandatory. The chain
+// skips straight to pending_warden for non-learners.
+// ══════════════════════════════════════════════════════════════════════════
+
+function ParentOtpCard({
+  requestId,
+  hasActiveOtp,
+  otpExpiresAt,
+  canAct,
+}: {
+  requestId: string;
+  hasActiveOtp: boolean;
+  otpExpiresAt: string | null;
+  canAct: boolean;
+}) {
+  const { user } = useAuth();
+  const [enteredOtp, setEnteredOtp] = useState('');
+  const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
+  const generateMut = useGenerateParentOtp();
+  const verifyMut = useVerifyParentOtp();
+
+  if (!canAct) {
+    return (
+      <Card className='border-amber-200'>
+        <CardHeader>
+          <CardTitle className='text-base flex items-center gap-2'>
+            <Clock className='h-4 w-4 text-amber-600' />
+            Waiting for Parent Consent
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className='text-sm text-muted-foreground'>
+            Hostel office is generating an OTP for the parent. Once verified, this request
+            advances to warden review.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const expired =
+    !!otpExpiresAt && new Date(otpExpiresAt) < new Date();
+  const canGenerateNew = !hasActiveOtp || expired || !!generatedOtp;
+
+  async function handleGenerate() {
+    const result = await generateMut.mutateAsync(requestId);
+    setGeneratedOtp(result.otp);
+    setEnteredOtp('');
+  }
+
+  async function handleVerify() {
+    if (!user || enteredOtp.length !== 6) return;
+    const res = await verifyMut.mutateAsync({
+      requestId,
+      otp: enteredOtp,
+      actorId: user.id,
+    });
+    if (res.valid) {
+      setEnteredOtp('');
+      setGeneratedOtp(null);
+    }
+  }
+
+  return (
+    <Card className='border-amber-200'>
+      <CardHeader>
+        <CardTitle className='text-base flex items-center gap-2'>
+          <Clock className='h-4 w-4 text-amber-600' />
+          Parent Consent OTP
+        </CardTitle>
+        <CardDescription>
+          Generate a 6-digit OTP and relay it to the parent. They confirm it, you enter it
+          back here to advance the request to warden review.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className='space-y-3'>
+        {generatedOtp && (
+          <div className='rounded-md border border-amber-300 bg-amber-50 p-3'>
+            <p className='text-xs text-muted-foreground uppercase tracking-wide'>
+              Active OTP (30 min)
+            </p>
+            <p className='text-3xl font-mono font-bold tracking-widest text-amber-900 mt-1'>
+              {generatedOtp}
+            </p>
+            <p className='text-xs text-muted-foreground mt-1'>
+              Share this with the parent by phone.
+            </p>
+          </div>
+        )}
+
+        {!generatedOtp && hasActiveOtp && !expired && (
+          <div className='rounded-md border bg-muted p-2 text-xs text-muted-foreground'>
+            An OTP is active on this request. Regenerate to see it again, or enter it below
+            if the parent already confirmed.
+          </div>
+        )}
+
+        {expired && (
+          <div className='rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive'>
+            Previous OTP expired. Generate a fresh one.
+          </div>
+        )}
+
+        <div className='flex items-center gap-2'>
+          <Button
+            variant='outline'
+            onClick={handleGenerate}
+            disabled={generateMut.isPending}
+            size='sm'
+          >
+            {generateMut.isPending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+            <Send className='mr-2 h-4 w-4' />
+            {hasActiveOtp ? 'Regenerate' : 'Generate OTP'}
+          </Button>
+        </div>
+
+        <div className='pt-2 border-t space-y-2'>
+          <p className='text-xs font-medium'>Enter parent's 6-digit confirmation</p>
+          <div className='flex items-center gap-2'>
+            <Input
+              value={enteredOtp}
+              onChange={(e) => setEnteredOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder='XXXXXX'
+              className='font-mono text-lg tracking-widest text-center max-w-[140px]'
+              inputMode='numeric'
+            />
+            <Button
+              onClick={handleVerify}
+              disabled={enteredOtp.length !== 6 || verifyMut.isPending}
+            >
+              {verifyMut.isPending && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+              Verify
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
