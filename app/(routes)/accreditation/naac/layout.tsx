@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * NAAC (IQAC) Section Layout
  *

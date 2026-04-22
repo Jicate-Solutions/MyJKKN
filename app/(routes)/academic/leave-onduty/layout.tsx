@@ -1,3 +1,5 @@
+'use client';
+
 import { CheckCircle2, Settings, BarChart3 } from 'lucide-react';
 import { SectionSubNav, type SectionTab } from '@/components/navigation/section-subnav';
 

@@ -1,3 +1,5 @@
+'use client';
+
 import { LayoutGrid, List, LineChart } from 'lucide-react';
 import { SectionSubNav, type SectionTab } from '@/components/navigation/section-subnav';
 

@@ -1,3 +1,5 @@
+'use client';
+
 import { Users, Trophy, Shield, UserCheck, BookOpen } from 'lucide-react';
 import { SectionSubNav, type SectionTab } from '@/components/navigation/section-subnav';
 

@@ -1,3 +1,5 @@
+'use client';
+
 import { LayoutGrid, BookOpen, CalendarClock, Users } from 'lucide-react';
 import { SectionSubNav, type SectionTab } from '@/components/navigation/section-subnav';
 
