@@ -7,7 +7,6 @@ import {
   Box,
   FileText,
   School,
-  HeadphonesIcon,
   MessageSquare,
   Settings,
   BarChart,
@@ -17,7 +16,6 @@ import {
   Bell,
   HelpCircle,
   LogOut,
-  UserPlus,
   Shield,
   ClipboardList,
   TabletSmartphone,
@@ -68,14 +66,11 @@ import {
   PhoneCall,
   Target,
   Megaphone,
-  LineChart,
   Workflow,
   MessagesSquare,
   Radio,
   Rocket,
   Vote,
-  SearchCheck,
-  UserCog,
   Activity,
   Brain,
   Hammer,
@@ -1085,306 +1080,20 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Admission CRM',
       menus: [
+        // Single sidebar entry — all Admission navigation lives in the module's
+        // in-page tab bar (AdmissionNav, see app/(routes)/admission/
+        // _components/admission-nav.tsx). Mirrors Campus Living + Learners
+        // Council. Section sub-tabs (Marketing, Counselors, Consultants,
+        // Data Quality, Settings) render via per-section SectionSubNav.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs keeps nav
+        // adjacent to content. URLs are UNCHANGED — no bookmarks break.
         {
           href: '/admission/dashboard',
-          label: 'Dashboard',
-          active: pathname === '/admission/dashboard',
+          label: 'Admission CRM',
+          active: pathname === '/admission' || pathname.startsWith('/admission/'),
           icon: LayoutGrid,
           submenus: []
-        },
-        {
-          href: '/admission/analytics',
-          label: 'Analytics',
-          active: pathname === '/admission/analytics',
-          icon: LineChart,
-          submenus: []
-        },
-        {
-          href: '/admission/group-dashboard',
-          label: 'Group Dashboard',
-          active: pathname === '/admission/group-dashboard',
-          icon: Building2,
-          submenus: []
-        },
-        {
-          href: '/admission/leads',
-          label: 'Leads',
-          active: pathname.startsWith('/admission/leads'),
-          icon: UserPlus,
-          submenus: [
-            {
-              href: '/admission/leads',
-              label: 'All Leads',
-              active: pathname === '/admission/leads'
-            },
-            {
-              href: '/admission/leads/new',
-              label: 'New Lead',
-              active: pathname === '/admission/leads/new'
-            }
-          ]
-        },
-        {
-          href: '/admission/applications',
-          label: 'Applications',
-          active: pathname.startsWith('/admission/applications'),
-          icon: FileText,
-          submenus: []
-        },
-        {
-          href: '/admission/gd-pi',
-          label: 'GD-PI',
-          active: pathname.startsWith('/admission/gd-pi'),
-          icon: Award,
-          submenus: [
-            {
-              href: '/admission/gd-pi',
-              label: 'All Sessions',
-              active: pathname === '/admission/gd-pi'
-            },
-            {
-              href: '/admission/gd-pi/new',
-              label: 'New Session',
-              active: pathname === '/admission/gd-pi/new'
-            }
-          ]
-        },
-        {
-          href: '/admission/counselors',
-          label: 'Counselors',
-          active: pathname.startsWith('/admission/counselors'),
-          icon: HeadphonesIcon,
-          submenus: [
-            {
-              href: '/admission/counselors',
-              label: 'All Counselors',
-              active: pathname === '/admission/counselors'
-            },
-            {
-              href: '/admission/counselors/daily-view',
-              label: 'Daily View',
-              active: pathname === '/admission/counselors/daily-view'
-            },
-            {
-              href: '/admission/counselors/calls',
-              label: 'Call Logs',
-              active: pathname === '/admission/counselors/calls'
-            },
-            {
-              href: '/admission/counselors/reminders',
-              label: 'Reminders',
-              active: pathname === '/admission/counselors/reminders'
-            },
-            {
-              href: '/admission/counselors/alerts',
-              label: 'Activity Alerts',
-              active: pathname === '/admission/counselors/alerts'
-            },
-            {
-              href: '/admission/counselors/briefing',
-              label: 'Daily Briefing',
-              active: pathname === '/admission/counselors/briefing'
-            }
-          ]
-        },
-        {
-          href: '/admission/consultants',
-          label: 'Consultants',
-          active: pathname.startsWith('/admission/consultants'),
-          icon: UserCog,
-          submenus: [
-            {
-              href: '/admission/consultants',
-              label: 'All Consultants',
-              active: pathname === '/admission/consultants'
-            },
-            {
-              href: '/admission/consultants/new',
-              label: 'Add Consultant',
-              active: pathname === '/admission/consultants/new'
-            },
-            {
-              href: '/admission/consultants/commissions',
-              label: 'Commissions',
-              active: pathname === '/admission/consultants/commissions'
-            },
-            {
-              href: '/admission/consultants/referrals',
-              label: 'Referrals',
-              active: pathname === '/admission/consultants/referrals'
-            },
-            {
-              href: '/admission/consultants/rewards',
-              label: 'Rewards',
-              active: pathname === '/admission/consultants/rewards'
-            },
-            {
-              href: '/admission/consultants/analytics',
-              label: 'Analytics',
-              active: pathname === '/admission/consultants/analytics'
-            }
-          ]
-        },
-        {
-          href: '/admission/insights',
-          label: 'AI Insights',
-          active: pathname.startsWith('/admission/insights'),
-          icon: Sparkles,
-          submenus: []
-        },
-        {
-          href: '/admission/marketing',
-          label: 'Marketing',
-          active: pathname.startsWith('/admission/marketing'),
-          icon: Megaphone,
-          submenus: [
-            {
-              href: '/admission/marketing/campaigns/monitoring',
-              label: 'Campaign Monitor',
-              active: pathname === '/admission/marketing/campaigns/monitoring'
-            },
-            {
-              href: '/admission/marketing/campaigns/roi',
-              label: 'Campaign ROI',
-              active: pathname === '/admission/marketing/campaigns/roi'
-            },
-            {
-              href: '/admission/marketing/campaigns/segments',
-              label: 'Segments',
-              active: pathname === '/admission/marketing/campaigns/segments'
-            },
-            {
-              href: '/admission/marketing/chat',
-              label: 'WhatsApp Chat',
-              active: pathname.startsWith('/admission/marketing/chat')
-            },
-            {
-              href: '/admission/marketing/chatbot',
-              label: 'Chatbot',
-              active: pathname.startsWith('/admission/marketing/chatbot')
-            },
-            {
-              href: '/admission/marketing/parent-communication',
-              label: 'Parent Communication',
-              active: pathname === '/admission/marketing/parent-communication'
-            },
-            {
-              href: '/admission/marketing/re-engagement',
-              label: 'Re-engagement',
-              active: pathname === '/admission/marketing/re-engagement'
-            },
-            {
-              href: '/admission/marketing/remarketing',
-              label: 'Remarketing',
-              active: pathname === '/admission/marketing/remarketing'
-            },
-            {
-              href: '/admission/marketing/voice-agents',
-              label: 'Voice Agents',
-              active: pathname === '/admission/marketing/voice-agents'
-            },
-            {
-              href: '/admission/marketing/voice-broadcast',
-              label: 'Voice Broadcast',
-              active: pathname === '/admission/marketing/voice-broadcast'
-            },
-            {
-              href: '/admission/marketing/database',
-              label: 'Database',
-              active: pathname === '/admission/marketing/database'
-            },
-            {
-              href: '/admission/marketing/publishers',
-              label: 'Publishers',
-              active: pathname === '/admission/marketing/publishers'
-            },
-            {
-              href: '/admission/marketing/expos',
-              label: 'Expos',
-              active: pathname.startsWith('/admission/marketing/expos')
-            },
-            {
-              href: '/admission/marketing/expos/masters',
-              label: 'Expo Masters',
-              active: pathname === '/admission/marketing/expos/masters'
-            },
-            {
-              href: '/admission/marketing/expos/analytics',
-              label: 'Expo Analytics',
-              active: pathname === '/admission/marketing/expos/analytics'
-            },
-          ]
-        },
-        {
-          href: '/admission/data-quality',
-          label: 'Data Quality',
-          active: pathname.startsWith('/admission/data-quality'),
-          icon: SearchCheck,
-          submenus: [
-            {
-              href: '/admission/data-quality/data-profiling',
-              label: 'Data Profiling',
-              active: pathname === '/admission/data-quality/data-profiling'
-            },
-            {
-              href: '/admission/data-quality/deduplication',
-              label: 'Deduplication',
-              active: pathname === '/admission/data-quality/deduplication'
-            },
-            {
-              href: '/admission/data-quality/phone-validation',
-              label: 'Phone Validation',
-              active: pathname === '/admission/data-quality/phone-validation'
-            }
-          ]
-        },
-        {
-          href: '/admission/settings',
-          label: 'Settings',
-          active: pathname.startsWith('/admission/settings'),
-          icon: Settings,
-          submenus: [
-            {
-              href: '/admission/settings',
-              label: 'General Settings',
-              active: pathname === '/admission/settings'
-            },
-            {
-              href: '/admission/settings/workflows',
-              label: 'Workflows',
-              active: pathname === '/admission/settings/workflows'
-            },
-            {
-              href: '/admission/settings/workflow-config',
-              label: 'Workflow Config',
-              active: pathname === '/admission/settings/workflow-config'
-            },
-            {
-              href: '/admission/settings/assignment-rules',
-              label: 'Assignment Rules',
-              active: pathname === '/admission/settings/assignment-rules'
-            },
-            {
-              href: '/admission/settings/sources',
-              label: 'Lead Sources',
-              active: pathname === '/admission/settings/sources'
-            },
-            {
-              href: '/admission/settings/seat-config',
-              label: 'Seat Configuration',
-              active: pathname === '/admission/settings/seat-config'
-            },
-            {
-              href: '/admission/settings/templates',
-              label: 'Templates',
-              active: pathname.startsWith('/admission/settings/templates')
-            },
-            {
-              href: '/admission/settings/whatsapp-numbers',
-              label: 'WhatsApp Numbers',
-              active: pathname === '/admission/settings/whatsapp-numbers'
-            }
-          ]
         }
       ]
     },
