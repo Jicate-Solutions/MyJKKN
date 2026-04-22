@@ -12,7 +12,7 @@
 //      - originator: the INITIATING super admin's id
 //      - mode: 'read' | 'write'        (write is director@jkkn.ac.in ONLY)
 //      - sessionId: random UUID        (for audit correlation)
-//      - iat / exp                     (15-minute hard expiry)
+//      - iat / exp                     (30-minute hard expiry)
 //      - role: 'preview'               (distinct from normal 'authenticated')
 //
 // 3. Token is delivered via a secure httpOnly cookie (sb-preview-session).
@@ -55,7 +55,7 @@ export const WRITE_MODE_ALLOWED_EMAILS: readonly string[] = [
 export const PREVIEW_COOKIE_NAME = 'sb-preview-session'
 
 /** Hard maximum preview session lifetime. */
-const PREVIEW_TTL_SECONDS = 15 * 60
+const PREVIEW_TTL_SECONDS = 30 * 60
 
 /** Issuer string stored in JWT for defense in depth. */
 const PREVIEW_ISSUER = 'myjkkn-preview'
