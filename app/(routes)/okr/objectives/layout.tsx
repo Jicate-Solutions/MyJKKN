@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * OKR Objectives Section Layout
  *

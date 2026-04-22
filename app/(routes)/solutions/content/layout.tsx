@@ -1,3 +1,5 @@
+'use client';
+
 import { ClipboardList, Package, Factory, ListTodo } from 'lucide-react';
 import { SectionSubNav, type SectionTab } from '@/components/navigation/section-subnav';
 

@@ -1,3 +1,5 @@
+'use client';
+
 import { Wallet, TrendingUp } from 'lucide-react';
 import { SectionSubNav, type SectionTab } from '@/components/navigation/section-subnav';
 
