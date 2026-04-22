@@ -46,8 +46,9 @@ async function fetchVerifyData(memberId: string): Promise<VerifyData | null> {
   // fields are exposed.
   const supabase = createServiceRoleClient() as any;
 
+  // Read from the unified view so lc_members-sourced memberships resolve too.
   const { data: member } = await supabase
-    .from('privilege_members')
+    .from('v_privilege_memberships_effective')
     .select('learner_id, status')
     .eq('id', memberId)
     .maybeSingle();
@@ -72,30 +73,45 @@ async function fetchVerifyData(memberId: string): Promise<VerifyData | null> {
       ? supabase.from('programs').select('program_name').eq('id', learner.program_id).maybeSingle()
       : Promise.resolve({ data: null }),
     supabase
-      .from('privilege_members')
-      .select(
-        `id, status, renewal_status,
-         group:privilege_groups!privilege_members_group_id_fkey(
-           id, name, reference_code, status,
-           privilege_group_types(privilege_type:privilege_types(name))
-         )`,
-      )
+      .from('v_privilege_memberships_effective')
+      .select('id, group_id, status, renewal_status')
       .eq('learner_id', learnerId)
       .eq('status', 'active')
       .in('renewal_status', ['active', 'pending_report', 'pending_review', 'paused']),
   ]);
 
-  const rows = Array.isArray(memberships.data) ? memberships.data : [];
-  const active_privileges = rows
-    .filter((r: any) => r.group?.status === 'active')
-    .map((r: any) => ({
-      group_name: r.group.name,
-      reference_code: r.group.reference_code,
-      renewal_status: r.renewal_status ?? 'active',
-      privilege_types: (r.group.privilege_group_types ?? [])
-        .map((gt: any) => gt.privilege_type?.name)
-        .filter(Boolean),
-    }));
+  const membershipRows = Array.isArray(memberships.data) ? memberships.data : [];
+  const groupIds: string[] = Array.from(
+    new Set(membershipRows.map((m: any) => m.group_id).filter(Boolean)),
+  );
+
+  let groupsById = new Map<string, any>();
+  if (groupIds.length > 0) {
+    const { data: groups } = await supabase
+      .from('privilege_groups')
+      .select(
+        `id, name, reference_code, status,
+         privilege_group_types(privilege_type:privilege_types(name))`,
+      )
+      .in('id', groupIds)
+      .eq('status', 'active');
+    groupsById = new Map((groups ?? []).map((g: any) => [g.id, g]));
+  }
+
+  const active_privileges = membershipRows
+    .map((r: any) => {
+      const group = groupsById.get(r.group_id);
+      if (!group) return null;
+      return {
+        group_name: group.name,
+        reference_code: group.reference_code,
+        renewal_status: r.renewal_status ?? 'active',
+        privilege_types: (group.privilege_group_types ?? [])
+          .map((gt: any) => gt.privilege_type?.name)
+          .filter(Boolean),
+      };
+    })
+    .filter((p: any): p is NonNullable<typeof p> => p !== null);
 
   return {
     learner_name: [learner.first_name, learner.last_name].filter(Boolean).join(' ') || 'Learner',
@@ -104,7 +120,8 @@ async function fetchVerifyData(memberId: string): Promise<VerifyData | null> {
     roll_number: learner.roll_number ?? null,
     active_privileges,
     anyPending: active_privileges.some(
-      (p) => p.renewal_status === 'pending_report' || p.renewal_status === 'pending_review',
+      (p: { renewal_status: string }) =>
+        p.renewal_status === 'pending_report' || p.renewal_status === 'pending_review',
     ),
   };
 }

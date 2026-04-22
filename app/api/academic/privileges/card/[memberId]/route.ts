@@ -45,8 +45,10 @@ export const GET = withAuth(
     const isAdminish = ['super_admin', 'admin', 'administrator'].includes(role);
 
     if (!isAdminish) {
+      // Read from the unified view so lc_members-sourced memberships (virtual
+      // IDs) resolve too — not just rows in privilege_members.
       const { data: member, error: memberErr } = await auth.supabase
-        .from('privilege_members')
+        .from('v_privilege_memberships_effective')
         .select('learner_id')
         .eq('id', memberId)
         .maybeSingle();

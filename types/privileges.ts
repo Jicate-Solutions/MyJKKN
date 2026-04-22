@@ -1,4 +1,27 @@
 // ============================================================
+// Privilege Source Types (membership-source registry)
+// ============================================================
+
+export interface PrivilegeSourceTypeField {
+  key: string;
+  label: string;
+  type: 'text' | 'select' | 'checkbox';
+  required?: boolean;
+  options?: Array<{ value: string; label: string }>;
+}
+
+export interface PrivilegeSourceType {
+  kind: string;
+  display_name: string;
+  description: string | null;
+  icon: string | null;
+  is_available: boolean;
+  config_schema: { fields?: PrivilegeSourceTypeField[] };
+  available_note: string | null;
+  sort_order: number;
+}
+
+// ============================================================
 // Privilege Types (Extensible Registry)
 // ============================================================
 
@@ -52,6 +75,8 @@ export interface CreatePrivilegeGroupDto {
   created_by: string;
   privilege_type_ids: string[]; // IDs of privilege_types to link
   type_configs?: Record<string, Record<string, unknown>>; // type_id -> config
+  source_kind?: string; // defaults to 'manual' in createGroup if not provided
+  source_config?: Record<string, unknown>; // source-specific config, defaults to {}
 }
 
 export interface UpdatePrivilegeGroupDto {

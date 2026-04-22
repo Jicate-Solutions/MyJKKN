@@ -67,8 +67,10 @@ export async function fetchPrivilegeCardData(
   verificationBaseUrl: string,
 ): Promise<PrivilegeCardData | null> {
   // Step 1: Resolve the requested member to get learner_id.
+  // Read from the unified view so lc_members-sourced memberships (virtual
+  // IDs) resolve too — manual and live-sourced groups are opaque to the caller.
   const { data: member, error: memberErr } = await supabase
-    .from('privilege_members')
+    .from('v_privilege_memberships_effective')
     .select('learner_id')
     .eq('id', memberId)
     .maybeSingle();
@@ -113,22 +115,12 @@ export async function fetchPrivilegeCardData(
 
   // Step 4: Fetch ALL active privilege memberships for this learner
   // (one card = all active privileges, not per-privilege).
+  //
+  // Two-step fetch because the view has no FK hints for Supabase's nested-join
+  // syntax — but the semantics are identical once we hydrate groups client-side.
   const { data: memberships, error: mErr } = await supabase
-    .from('privilege_members')
-    .select(
-      `id,
-       group_id,
-       status,
-       renewal_status,
-       start_date,
-       end_date,
-       group:privilege_groups!privilege_members_group_id_fkey(
-         id, name, reference_code, status,
-         privilege_group_types(
-           privilege_type:privilege_types(key, name)
-         )
-       )`,
-    )
+    .from('v_privilege_memberships_effective')
+    .select('id, group_id, status, renewal_status, start_date, end_date')
     .eq('learner_id', learnerId)
     .eq('status', 'active')
     .in('renewal_status', ['active', 'pending_report', 'pending_review', 'paused']);
@@ -138,21 +130,48 @@ export async function fetchPrivilegeCardData(
     return null;
   }
 
+  const groupIds: string[] = Array.from(
+    new Set((memberships ?? []).map((m: any) => m.group_id).filter(Boolean)),
+  );
+
+  let groupsById = new Map<string, any>();
+  if (groupIds.length > 0) {
+    const { data: groups, error: gErr } = await supabase
+      .from('privilege_groups')
+      .select(
+        `id, name, reference_code, status,
+         privilege_group_types(
+           privilege_type:privilege_types(key, name)
+         )`,
+      )
+      .in('id', groupIds)
+      .eq('status', 'active');
+    if (gErr) {
+      logger.error('privileges/card', 'groups hydration failed', gErr);
+      return null;
+    }
+    groupsById = new Map((groups ?? []).map((g: any) => [g.id, g]));
+  }
+
   const activeMemberships: PrivilegeCardMember[] = (memberships ?? [])
-    .filter((row: any) => row.group?.status === 'active')
-    .map((row: any) => ({
-      member_id: row.id,
-      group_id: row.group.id,
-      group_name: row.group.name,
-      reference_code: row.group.reference_code,
-      renewal_status: row.renewal_status ?? 'active',
-      start_date: row.start_date,
-      end_date: row.end_date,
-      privilege_types: (row.group.privilege_group_types ?? []).map((gt: any) => ({
-        key: gt.privilege_type?.key ?? '',
-        name: gt.privilege_type?.name ?? '',
-      })),
-    }));
+    .map((row: any) => {
+      const group = groupsById.get(row.group_id);
+      if (!group) return null; // group inactive or missing — drop silently
+      return {
+        member_id: row.id,
+        group_id: group.id,
+        group_name: group.name,
+        reference_code: group.reference_code,
+        renewal_status: row.renewal_status ?? 'active',
+        start_date: row.start_date,
+        end_date: row.end_date,
+        privilege_types: (group.privilege_group_types ?? []).map((gt: any) => ({
+          key: gt.privilege_type?.key ?? '',
+          name: gt.privilege_type?.name ?? '',
+        })),
+      };
+    })
+    .filter((m: any): m is PrivilegeCardMember => m !== null);
 
   const fullName = [learner.first_name, learner.last_name].filter(Boolean).join(' ').trim() || 'Learner';
 
