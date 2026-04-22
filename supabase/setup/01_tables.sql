@@ -1871,6 +1871,10 @@ CREATE TABLE service_request_approval_steps (
     step_order INTEGER NOT NULL,
     step_name VARCHAR(255) NOT NULL,
     approver_role VARCHAR(50) NOT NULL,
+    -- Updated 2026-04-22 — multi-approver support. Non-empty = only these
+    -- users can approve (OR logic, first to act wins). Empty array = falls
+    -- back to role-based matching via approver_role.
+    approver_user_ids UUID[] NOT NULL DEFAULT '{}'::UUID[],
     is_required BOOLEAN NOT NULL DEFAULT true,
     on_return_restart_from_step INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1880,6 +1884,8 @@ CREATE TABLE service_request_approval_steps (
 CREATE INDEX idx_sr_approval_steps_type_id ON service_request_approval_steps(service_type_id);
 CREATE INDEX idx_sr_approval_steps_order ON service_request_approval_steps(service_type_id, step_order);
 CREATE INDEX idx_sr_approval_steps_role ON service_request_approval_steps(approver_role);
+CREATE INDEX idx_sr_approval_steps_approver_user_ids
+    ON service_request_approval_steps USING GIN (approver_user_ids);
 
 -- Service Requests: Actual request submissions
 CREATE TABLE service_requests (

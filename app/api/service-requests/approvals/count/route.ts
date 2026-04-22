@@ -26,7 +26,8 @@ export async function GET() {
     }
 
     const count = await ServiceRequestApprovalService.getPendingApprovalCount(
-      profile.role
+      profile.role,
+      session.user.id
     );
 
     return NextResponse.json({ count });

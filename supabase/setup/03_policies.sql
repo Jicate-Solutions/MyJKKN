@@ -2222,6 +2222,8 @@ CREATE POLICY "Admins can view all service requests"
         OR user_has_permission('service_requests.view_all')
     );
 
+-- Updated 2026-04-22 — multi-approver support. Users qualify either by
+-- role match (legacy) or by being explicitly listed in approver_user_ids.
 CREATE POLICY "Approvers can view pending requests"
     ON service_requests FOR SELECT
     USING (
@@ -2229,7 +2231,10 @@ CREATE POLICY "Approvers can view pending requests"
             SELECT 1 FROM service_request_approval_steps sras
             WHERE sras.service_type_id = service_requests.service_type_id
             AND sras.step_order = service_requests.current_approval_step
-            AND sras.approver_role = get_my_role()
+            AND (
+                sras.approver_role = get_my_role()
+                OR auth.uid() = ANY(sras.approver_user_ids)
+            )
         )
     );
 

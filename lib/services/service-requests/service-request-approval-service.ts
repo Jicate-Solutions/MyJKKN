@@ -77,7 +77,11 @@ export class ServiceRequestApprovalService {
       throw new Error('Current approval step not found');
     }
 
-    // Verify approver's role matches (or is super_admin)
+    // Verify approver is authorized. Two paths:
+    //   1) Super admin bypass — always allowed.
+    //   2) Step has explicit approver_user_ids — approver must be in that set.
+    //      (Role is irrelevant here; the UI let the author pick specific users.)
+    //   3) Legacy role-based — approver's profiles.role must match approver_role.
     const { data: approverProfile, error: profileError } = await supabase
       .from('profiles')
       .select('role')
@@ -89,10 +93,22 @@ export class ServiceRequestApprovalService {
     }
 
     const isSuperAdmin = approverProfile.role === 'super_admin';
-    if (!isSuperAdmin && approverProfile.role !== currentStep.approver_role) {
-      throw new Error(
-        `Only users with role "${currentStep.approver_role}" can approve this step`
-      );
+    const authorizedUserIds: string[] = Array.isArray(currentStep.approver_user_ids)
+      ? currentStep.approver_user_ids
+      : [];
+    const hasMultiApproverList = authorizedUserIds.length > 0;
+
+    if (!isSuperAdmin) {
+      const matchesUserList = hasMultiApproverList && authorizedUserIds.includes(approverId);
+      const matchesRole = !hasMultiApproverList && approverProfile.role === currentStep.approver_role;
+
+      if (!matchesUserList && !matchesRole) {
+        throw new Error(
+          hasMultiApproverList
+            ? 'You are not authorized to approve this step'
+            : `Only users with role "${currentStep.approver_role}" can approve this step`
+        );
+      }
     }
 
     // Find or create the approval record for this step
@@ -297,10 +313,16 @@ export class ServiceRequestApprovalService {
   }
 
   /**
-   * Get requests pending approval for a user based on their role
+   * Get requests pending approval for a user.
+   *
+   * A step is considered "assigned to this user" if EITHER:
+   *   • the step's approver_role matches the user's role, OR
+   *   • the user's id is in the step's approver_user_ids array (multi-approver
+   *     mode — a specific subset of named approvers).
    */
   static async getPendingApprovalsForUser(
     userRole: string,
+    userId: string,
     filters?: ServiceRequestFilters
   ): Promise<ServiceRequestListResponse> {
     const supabase = await getSupabase();
@@ -310,11 +332,12 @@ export class ServiceRequestApprovalService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    // Get steps where this role is the approver
+    // Union of role-matched and explicit-user-id-matched steps.
+    // Supabase/PostgREST: `contains` on an array column uses the @> operator.
     const { data: matchingSteps } = await supabase
       .from('service_request_approval_steps')
       .select('step_order, service_type_id')
-      .eq('approver_role', userRole);
+      .or(`approver_role.eq.${userRole},approver_user_ids.cs.{${userId}}`);
 
     if (!matchingSteps || matchingSteps.length === 0) {
       return {
@@ -366,15 +389,20 @@ export class ServiceRequestApprovalService {
   }
 
   /**
-   * Get count of pending approvals for badge display
+   * Get count of pending approvals for badge display.
+   * Matches on role OR explicit user-id assignment (see
+   * getPendingApprovalsForUser for the full rationale).
    */
-  static async getPendingApprovalCount(userRole: string): Promise<number> {
+  static async getPendingApprovalCount(
+    userRole: string,
+    userId: string
+  ): Promise<number> {
     const supabase = await getSupabase();
 
     const { data: matchingSteps } = await supabase
       .from('service_request_approval_steps')
       .select('step_order, service_type_id')
-      .eq('approver_role', userRole);
+      .or(`approver_role.eq.${userRole},approver_user_ids.cs.{${userId}}`);
 
     if (!matchingSteps || matchingSteps.length === 0) return 0;
 
@@ -397,10 +425,12 @@ export class ServiceRequestApprovalService {
   }
 
   /**
-   * Check if a user with the given role can approve a specific request
+   * Check if the given user can approve a specific request.
+   * Accepts the role-match path OR the explicit user-id path.
    */
   static async canUserApprove(
     userRole: string,
+    userId: string,
     requestId: string
   ): Promise<boolean> {
     const supabase = await getSupabase();
@@ -418,16 +448,29 @@ export class ServiceRequestApprovalService {
 
     if (userRole === 'super_admin') return true;
 
-    // Check if there's a matching step
+    // Fetch the step for this request's current position, then check either
+    // the role match OR presence in approver_user_ids. Done in a single row
+    // read so we see both fields together.
     const { data: step } = await supabase
       .from('service_request_approval_steps')
-      .select('id')
+      .select('approver_role, approver_user_ids')
       .eq('service_type_id', request.service_type_id)
       .eq('step_order', request.current_approval_step)
-      .eq('approver_role', userRole)
       .maybeSingle();
 
-    return !!step;
+    if (!step) return false;
+
+    const userIds: string[] = Array.isArray(step.approver_user_ids)
+      ? step.approver_user_ids
+      : [];
+    const hasMultiApproverList = userIds.length > 0;
+
+    if (hasMultiApproverList) {
+      // Multi-approver mode: only listed users may approve (role ignored).
+      return userIds.includes(userId);
+    }
+    // Legacy role-based mode.
+    return step.approver_role === userRole;
   }
 
   /**

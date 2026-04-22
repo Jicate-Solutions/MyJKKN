@@ -69,6 +69,9 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
       step_order: s.step_order,
       step_name: s.step_name,
       approver_role: s.approver_role,
+      // Older rows may not carry this column (pre-2026-04-22) — default to
+      // empty and let the UI/zod enforce a fresh selection.
+      approver_user_ids: s.approver_user_ids ?? [],
       is_required: s.is_required,
       on_return_restart_from_step: s.on_return_restart_from_step,
     })) || []

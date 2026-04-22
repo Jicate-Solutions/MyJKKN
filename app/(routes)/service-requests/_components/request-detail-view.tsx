@@ -25,6 +25,7 @@ import type {
 } from '@/types/service-request';
 import {
   useEligibleApprovers,
+  useApproversByIds,
   roleKeyToLabel,
   type EligibleApprover,
 } from '@/hooks/service-requests/use-eligible-approvers';
@@ -91,21 +92,37 @@ export function RequestDetailView({
     !isCancelled && !isRejected && !isFullyApproved &&
     (request.status === 'submitted' || request.status === 'in_review');
 
-  // Resolve each step's approver_role -> concrete user(s) in this
-  // institution so the stepper can show "Awaiting: <Name>" instead of
-  // just the bare role key. Returns an empty map until the request is
-  // hydrated, which the renderers below handle gracefully.
+  // Resolve each step's approvers into real profile rows so the stepper
+  // can show "Awaiting: <Name>" instead of the bare role key.
+  //
+  // Two data sources, merged in `approversFor`:
+  //   1. Role-based roster (legacy) — any active user in this institution
+  //      whose profiles.role matches the step's approver_role.
+  //   2. Explicit user IDs (new 2026-04-22) — when the step has
+  //      approver_user_ids populated, we fetch those specific profiles
+  //      regardless of institution/role. Those users take precedence
+  //      because they represent a named, narrower authorization list.
   const { data: approversByRole } = useEligibleApprovers(
     approvalSteps.map((s) => s.approver_role),
     request.institution_id
   );
-  const approversFor = (roleKey: string): EligibleApprover[] =>
-    approversByRole?.get(roleKey) ?? [];
+  const allExplicitIds = approvalSteps.flatMap((s) => s.approver_user_ids ?? []);
+  const { data: approversById } = useApproversByIds(allExplicitIds);
+
+  const approversFor = (step: ServiceRequestApprovalStep): EligibleApprover[] => {
+    const explicitIds = step.approver_user_ids ?? [];
+    if (explicitIds.length > 0) {
+      return explicitIds
+        .map((id) => approversById?.get(id))
+        .filter((p): p is EligibleApprover => Boolean(p));
+    }
+    return approversByRole?.get(step.approver_role) ?? [];
+  };
 
   const currentStep = approvalSteps.find((s) => s.step_order === currentStepOrder);
   const nextStep = approvalSteps.find((s) => s.step_order === currentStepOrder + 1);
-  const currentApprovers = currentStep ? approversFor(currentStep.approver_role) : [];
-  const nextApprovers = nextStep ? approversFor(nextStep.approver_role) : [];
+  const currentApprovers = currentStep ? approversFor(currentStep) : [];
+  const nextApprovers = nextStep ? approversFor(nextStep) : [];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -250,7 +267,8 @@ export function RequestDetailView({
                             so the requester can see who they're waiting
                             on (or will wait on next). */}
                         {!isDone && !isRej && (() => {
-                          const people = approversFor(step.approver_role);
+                          const people = approversFor(step);
+                          const hasExplicitList = (step.approver_user_ids ?? []).length > 0;
                           if (people.length === 0) {
                             return (
                               <p className={cn(
@@ -260,8 +278,9 @@ export function RequestDetailView({
                                   : 'text-muted-foreground/70'
                               )}>
                                 <AlertCircle className="h-3 w-3 shrink-0" />
-                                No {roleKeyToLabel(step.approver_role)} configured
-                                in this institution
+                                {hasExplicitList
+                                  ? 'Named approvers are no longer available — please contact an administrator'
+                                  : `No ${roleKeyToLabel(step.approver_role)} configured in this institution`}
                               </p>
                             );
                           }
@@ -291,7 +310,12 @@ export function RequestDetailView({
                               ))}
                               {people.length > 3 && (
                                 <p className="text-[11px] text-muted-foreground pl-[18px]">
-                                  + {people.length - 3} more {roleKeyToLabel(step.approver_role)}(s)
+                                  + {people.length - 3} more
+                                </p>
+                              )}
+                              {(step.approver_user_ids?.length ?? 0) > 1 && (
+                                <p className="text-[11px] text-muted-foreground/80 italic pl-[18px]">
+                                  Any one can approve
                                 </p>
                               )}
                             </div>
@@ -497,8 +521,9 @@ export function RequestDetailView({
                 <div className="flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400 p-2 rounded bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>
-                    No {roleKeyToLabel(currentStep.approver_role)} configured in
-                    this institution — please contact an administrator.
+                    {(currentStep.approver_user_ids?.length ?? 0) > 0
+                      ? 'Named approvers for this step are no longer available — please contact an administrator.'
+                      : `No ${roleKeyToLabel(currentStep.approver_role)} configured in this institution — please contact an administrator.`}
                   </span>
                 </div>
               ) : (
