@@ -1,26 +1,24 @@
 export const dynamic = 'force-dynamic';
 
-import { NextRequest, NextResponse , connection } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authenticate';
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
+// Status values match production grievance_tickets_status_check constraint.
 const VALID_STATUSES = [
-  'draft',
-  'submitted',
-  'in_review',
-  'approved',
-  'rejected',
-  'returned',
-  'fulfilled',
+  'open',
+  'in_progress',
+  'pending_info',
+  'resolved',
   'closed',
-  'cancelled',
+  'reopened',
 ] as const;
-type ServiceRequestStatus = typeof VALID_STATUSES[number];
+type GrievanceStatus = typeof VALID_STATUSES[number];
 
-const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
-type ServiceRequestPriority = typeof VALID_PRIORITIES[number];
+const VALID_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
+type GrievancePriority = typeof VALID_PRIORITIES[number];
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const startTime = Date.now();
@@ -59,38 +57,47 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') ?? '20', 10) || 20));
   const statusParam = url.searchParams.get('status');
   const priorityParam = url.searchParams.get('priority');
+  const emergencyParam = url.searchParams.get('is_emergency');
   const offset = (page - 1) * limit;
 
-  // Validate status param
-  const status: ServiceRequestStatus | null =
+  const status: GrievanceStatus | null =
     statusParam && (VALID_STATUSES as readonly string[]).includes(statusParam)
-      ? (statusParam as ServiceRequestStatus)
+      ? (statusParam as GrievanceStatus)
       : null;
 
-  // Validate priority param
-  const priority: ServiceRequestPriority | null =
+  const priority: GrievancePriority | null =
     priorityParam && (VALID_PRIORITIES as readonly string[]).includes(priorityParam)
-      ? (priorityParam as ServiceRequestPriority)
+      ? (priorityParam as GrievancePriority)
       : null;
+
+  const emergencyFilter: boolean | null =
+    emergencyParam === 'true' ? true : emergencyParam === 'false' ? false : null;
 
   // Step 5: Fetch data
-  interface ServiceRequestRow {
+  interface GrievanceRow {
     id: string;
-    request_number: string;
-    service_type_id: string;
-    requester_id: string;
-    institution_id: string | null;
-    status: string;
+    ticket_number: string;
+    category_id: string;
+    institution_id: string;
+    subject: string;
     priority: string | null;
-    submitted_at: string | null;
-    approved_at: string | null;
-    fulfilled_at: string | null;
-    closed_at: string | null;
-    created_at: string;
-    updated_at: string;
+    status: string | null;
+    raised_by_type: string;
+    raised_by_id: string | null;
+    raised_by_name: string | null;
+    assigned_to: string | null;
+    department_id: string | null;
+    sla_deadline: string;
+    sla_status: string | null;
+    resolved_at: string | null;
+    is_emergency: boolean;
+    is_anonymous: boolean;
+    escalation_level: number;
+    created_at: string | null;
+    updated_at: string | null;
   }
 
-  let items: ServiceRequestRow[] = [];
+  let items: GrievanceRow[] = [];
   let total = 0;
   let statusCode = 200;
   let errorResponse: NextResponse | null = null;
@@ -99,10 +106,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const supabase = createServiceRoleClient();
 
     let query = supabase
-      .from('service_requests')
+      .from('grievance_tickets')
       .select(
-        'id, request_number, service_type_id, requester_id, institution_id, status, priority, ' +
-        'submitted_at, approved_at, fulfilled_at, closed_at, created_at, updated_at',
+        'id, ticket_number, category_id, institution_id, subject, priority, status, ' +
+        'raised_by_type, raised_by_id, raised_by_name, assigned_to, department_id, ' +
+        'sla_deadline, sla_status, resolved_at, is_emergency, is_anonymous, escalation_level, ' +
+        'created_at, updated_at',
         { count: 'exact' }
       );
 
@@ -118,6 +127,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       query = query.eq('priority', priority);
     }
 
+    if (emergencyFilter !== null) {
+      query = query.eq('is_emergency', emergencyFilter);
+    }
+
     query = query
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -131,7 +144,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         { status: 500 }
       );
     } else {
-      items = (data ?? []) as unknown as ServiceRequestRow[]; // required: Supabase infers GenericStringError[] with multiple chained .eq() calls
+      items = (data ?? []) as unknown as GrievanceRow[];
       total = count ?? 0;
     }
   } catch {
