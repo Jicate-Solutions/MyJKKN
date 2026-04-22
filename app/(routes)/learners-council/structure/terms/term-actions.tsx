@@ -5,7 +5,7 @@
  * Includes create term dialog and status update buttons
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -34,13 +34,67 @@ import { useCreateTerm, useUpdateTerm } from '@/hooks/learners-council/use-lc-st
 // CREATE TERM DIALOG
 // ============================================================================
 
+/**
+ * Compute sensible academic-year defaults for a new term.
+ *
+ * JKKN's academic year runs July 1 → June 30 and is labeled "YYYY-YY"
+ * (e.g. 2026-27 = Jul 2026 → Jun 2027). These defaults steer users away
+ * from accidentally creating calendar-year terms (Jan 1 → Dec 31), which
+ * has been a source of drift.
+ *
+ *   Current month range   | Default academic year
+ *   ----------------------|----------------------
+ *   Jul–Dec               | current year          (e.g. Oct 2026 → 2026-27)
+ *   Jan–Mar               | current year − 1      (e.g. Feb 2027 → 2026-27, still in it)
+ *   Apr–Jun               | current year          (planning the upcoming Jul start)
+ *
+ * Executive rotation defaults to the first half (Jul–Dec) of the same
+ * academic year. User can always override the dates manually.
+ */
+function computeAcademicYearDefaults(
+  termType: 'annual' | 'executive_rotation'
+): { name: string; start_date: string; end_date: string } {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1-12
+  // Picks the academic year the user is most likely planning.
+  const startYear =
+    month >= 7 ? year : month <= 3 ? year - 1 : year; // Apr–Jun: plan upcoming Jul.
+  const endYear = startYear + 1;
+  const label = `${startYear}-${String(endYear).slice(-2)}`;
+
+  if (termType === 'executive_rotation') {
+    return {
+      name: `LC Exec Rotation H1 ${label}`,
+      start_date: `${startYear}-07-01`,
+      end_date: `${startYear}-12-31`,
+    };
+  }
+  return {
+    name: `LC Term ${label}`,
+    start_date: `${startYear}-07-01`,
+    end_date: `${endYear}-06-30`,
+  };
+}
+
 export function TermActions({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const initial = computeAcademicYearDefaults('annual');
+  const [name, setName] = useState(initial.name);
+  const [startDate, setStartDate] = useState(initial.start_date);
+  const [endDate, setEndDate] = useState(initial.end_date);
   const [termType, setTermType] = useState<'annual' | 'executive_rotation'>('annual');
   const [description, setDescription] = useState('');
+
+  // Re-prefill academic-year defaults when the term type changes. Users can
+  // still manually edit any field afterward — this just sets a sensible
+  // starting point so the dialog never presents empty date inputs.
+  useEffect(() => {
+    const d = computeAcademicYearDefaults(termType);
+    setName(d.name);
+    setStartDate(d.start_date);
+    setEndDate(d.end_date);
+  }, [termType]);
 
   const createTerm = useCreateTerm();
 
@@ -58,9 +112,11 @@ export function TermActions({ userId }: { userId: string }) {
       userId
     });
 
-    setName('');
-    setStartDate('');
-    setEndDate('');
+    // Reset to fresh academic-year defaults for the next term creation
+    const d = computeAcademicYearDefaults('annual');
+    setName(d.name);
+    setStartDate(d.start_date);
+    setEndDate(d.end_date);
     setTermType('annual');
     setDescription('');
     setOpen(false);
@@ -106,25 +162,30 @@ export function TermActions({ userId }: { userId: string }) {
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="start-date">Start Date</Label>
-              <Input
-                id="start-date"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
+          <div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="start-date">Start Date</Label>
+                <Input
+                  id="start-date"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="end-date">End Date</Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
             </div>
-            <div>
-              <Label htmlFor="end-date">End Date</Label>
-              <Input
-                id="end-date"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </div>
+            <p className="text-xs text-muted-foreground mt-1.5">
+              JKKN academic year runs <span className="font-medium">July 1 → June 30</span>. Defaults are pre-filled based on the term type; override if backfilling a past period.
+            </p>
           </div>
 
           <div>
