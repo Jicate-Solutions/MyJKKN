@@ -1396,6 +1396,27 @@ export const PERMISSION_CATEGORIES = [
       { key: 'vac.admin.case.batches.view', label: 'View CASE Batches' },
       { key: 'vac.admin.case.readiness.view', label: 'View CASE Readiness' }
     ]
+  },
+  // Added 2026-04-22 — Audit Workflow Sprint 01
+  {
+    name: 'Audit Workflow',
+    key: 'audit',
+    permissions: [
+      { key: 'audit.cycle.view', label: 'View Audit Cycles' },
+      { key: 'audit.cycle.manage', label: 'Create / Manage Audit Cycles' },
+      { key: 'audit.finding.view', label: 'View Audit Findings' },
+      { key: 'audit.finding.log', label: 'Log New Audit Findings' },
+      { key: 'audit.finding.review', label: 'Review Finding Rectifications' },
+      { key: 'audit.finding.rectify', label: 'Rectify Assigned Findings' },
+      { key: 'audit.evidence.upload', label: 'Upload Audit-Finding Evidence' },
+      { key: 'audit.attestation.view', label: 'View Parameter Attestations' },
+      { key: 'audit.attestation.sign', label: 'Sign Parameter Attestations (Lead Auditor)' },
+      { key: 'audit.attestation.cosign', label: 'Co-sign Attestations (CAO / CEO / MD-CAIO)' },
+      { key: 'audit.parameter.view', label: 'View Audit Parameter Catalog' },
+      { key: 'audit.parameter.manage', label: 'Manage Institution-scoped Parameter Overrides' },
+      { key: 'audit.finding_type.manage', label: 'Manage Finding-Type Master' },
+      { key: 'audit.leadership.view', label: 'View In-Progress Findings (CAO / CEO / MD)' }
+    ]
   }
 ];
 
