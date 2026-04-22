@@ -50,8 +50,8 @@ export const metadata: Metadata = {
     'offline app',
     'installable app'
   ],
-  authors: [{ name: 'BOOBALAN A' }],
-  creator: 'BOOBALAN A',
+  authors: [{ name: 'JKKN Institutions' }],
+  creator: 'JKKN Institutions',
   publisher: 'JKKN Institutions',
   formatDetection: {
     telephone: false
