@@ -8,7 +8,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
-const supabase = createClientSupabaseClient();
+function getSupabase() { return createClientSupabaseClient(); }
 
 // ============================================
 // TYPES
@@ -178,7 +178,7 @@ function mapRowToNotification(row: any): BriefingNotification {
  * Create a new briefing (writes to admission_daily_briefings)
  */
 export async function createBriefing(input: CreateBriefingInput): Promise<Briefing> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (getSupabase() as any)
     .from('admission_daily_briefings')
     .insert({
       institution_id: input.institution_id,
@@ -201,7 +201,7 @@ export async function createBriefing(input: CreateBriefingInput): Promise<Briefi
  * Get a briefing by ID (reads from admission_daily_briefings)
  */
 export async function getBriefing(briefingId: string): Promise<Briefing | null> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (getSupabase() as any)
     .from('admission_daily_briefings')
     .select('*')
     .eq('id', briefingId)
@@ -222,7 +222,7 @@ export async function getBriefing(briefingId: string): Promise<Briefing | null> 
  * Get the latest briefing for an institution
  */
 export async function getLatestBriefing(institutionId: string | undefined): Promise<Briefing | null> {
-  let query = (supabase as any)
+  let query = (getSupabase() as any)
     .from('admission_daily_briefings')
     .select('*')
     .order('briefing_date', { ascending: false })
@@ -247,7 +247,7 @@ export async function getLatestBriefing(institutionId: string | undefined): Prom
 export async function getTodaysBriefing(institutionId: string | undefined): Promise<Briefing | null> {
   const today = new Date().toISOString().split('T')[0];
 
-  let query = (supabase as any)
+  let query = (getSupabase() as any)
     .from('admission_daily_briefings')
     .select('*')
     .eq('briefing_date', today)
@@ -301,7 +301,7 @@ export async function getBriefingNotifications(
   userId: string,
   filters: Omit<BriefingNotificationFilters, 'user_id'> = {}
 ): Promise<BriefingNotification[]> {
-  let query = (supabase as any)
+  let query = (getSupabase() as any)
     .from('admission_daily_briefings')
     .select('*')
     .eq('user_id', userId)
@@ -341,7 +341,7 @@ export async function getBriefingNotifications(
  * Get unread briefing count for a user (reads from admission_daily_briefings)
  */
 export async function getUnreadBriefingCount(userId: string): Promise<number> {
-  const { count, error } = await (supabase as any)
+  const { count, error } = await (getSupabase() as any)
     .from('admission_daily_briefings')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
@@ -359,7 +359,7 @@ export async function getUnreadBriefingCount(userId: string): Promise<number> {
  * Get the latest unread briefing notification for a user (reads from admission_daily_briefings)
  */
 export async function getLatestUnreadBriefing(userId: string): Promise<BriefingNotification | null> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (getSupabase() as any)
     .from('admission_daily_briefings')
     .select('*')
     .eq('user_id', userId)
@@ -387,7 +387,7 @@ export async function getLatestUnreadBriefing(userId: string): Promise<BriefingN
  * Mark a notification as read (updates admission_daily_briefings)
  */
 export async function markNotificationRead(notificationId: string): Promise<BriefingNotification> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (getSupabase() as any)
     .from('admission_daily_briefings')
     .update({
       is_read: true,
@@ -409,7 +409,7 @@ export async function markNotificationRead(notificationId: string): Promise<Brie
  * Mark all notifications as read for a user (updates admission_daily_briefings)
  */
 export async function markAllNotificationsRead(userId: string): Promise<void> {
-  const { error } = await (supabase as any)
+  const { error } = await (getSupabase() as any)
     .from('admission_daily_briefings')
     .update({
       is_read: true,

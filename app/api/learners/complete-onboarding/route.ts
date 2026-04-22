@@ -13,16 +13,13 @@ import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 // ============================================
 
 // Create admin client for user management
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 /**
  * Generate a random temporary password
@@ -51,7 +48,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // 1. Fetch learner profile
-    const { data: learner, error: learnerError } = await supabaseAdmin
+    const { data: learner, error: learnerError } = await getAdminClient()
       .from('learners_profiles')
       .select(
         'id, first_name, last_name, college_email, student_mobile, gender, student_photo_url, institution_id, department_id, is_profile_complete, lifecycle_status'
@@ -86,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Check for existing profile
-    const { data: existingProfile } = await supabaseAdmin
+    const { data: existingProfile } = await getAdminClient()
       .from('profiles')
       .select('id')
       .eq('email', learner.college_email)
@@ -104,7 +101,7 @@ export async function POST(request: NextRequest) {
 
     // 4. Create auth user
     const tempPassword = generateTemporaryPassword();
-    let authUserResponse = await supabaseAdmin.auth.admin.createUser({
+    let authUserResponse = await getAdminClient().auth.admin.createUser({
       email: learner.college_email,
       password: tempPassword,
       email_confirm: true,
@@ -121,7 +118,7 @@ export async function POST(request: NextRequest) {
       );
 
       // Fetch users and find matching email
-      const { data: { users }, error: listError } = (await supabaseAdmin.auth.admin.listUsers()) as { data: { users: any[] }; error: any };
+      const { data: { users }, error: listError } = (await getAdminClient().auth.admin.listUsers()) as { data: { users: any[] }; error: any };
 
       if (listError) {
         return NextResponse.json(
@@ -167,7 +164,7 @@ export async function POST(request: NextRequest) {
     };
     const profileGender = learner.gender ? genderMapping[learner.gender.toUpperCase()] || 'other' : null;
 
-    const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
+    const { error: profileError } = await getAdminClient().from('profiles').upsert({
       id: authUser.id,
       email: learner.college_email,
       full_name: `${learner.first_name} ${learner.last_name || ''}`.trim(),
@@ -184,7 +181,7 @@ export async function POST(request: NextRequest) {
 
     if (profileError) {
       // Rollback: delete auth user
-      await supabaseAdmin.auth.admin.deleteUser(authUser.id);
+      await getAdminClient().auth.admin.deleteUser(authUser.id);
       return NextResponse.json(
         { error: `Failed to create profile: ${profileError.message}` },
         { status: 500 }

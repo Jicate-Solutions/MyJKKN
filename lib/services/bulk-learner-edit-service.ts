@@ -11,16 +11,13 @@ import { createClient } from '@supabase/supabase-js';
 import { LearnerValidationService, ValidationResult } from './learner-validation-service';
 
 // Create admin client for database operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 export interface BulkEditRow {
   rowNumber: number;
@@ -187,7 +184,7 @@ export class BulkLearnerEditService {
     }
 
     // Fetch full learner data
-    const { data: existingLearner, error } = await supabaseAdmin
+    const { data: existingLearner, error } = await getAdminClient()
       .from('learners_profiles')
       .select('*')
       .eq('id', learnerId)
@@ -350,7 +347,7 @@ export class BulkLearnerEditService {
         updateData.updated_at = new Date().toISOString();
 
         // Perform update
-        const { data: updatedLearner, error: updateError } = await supabaseAdmin
+        const { data: updatedLearner, error: updateError } = await getAdminClient()
           .from('learners_profiles')
           .update(updateData)
           .eq('id', learnerId)
@@ -416,7 +413,7 @@ export class BulkLearnerEditService {
 
     // Build base query
     const buildQuery = () => {
-      let query = supabaseAdmin
+      let query = getAdminClient()
         .from('learners_profiles')
         .select(`
           *,

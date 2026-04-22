@@ -10,30 +10,32 @@ import { RESOURCE_TYPES } from '@/types/activity';
 
 
 // Create admin client for database operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    },
-    db: {
-      schema: 'public'
-    },
-    global: {
-      headers: {
-        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
-      }
-    },
-    // Ensure service role bypasses RLS
-    realtime: {
-      params: {
-        eventsPerSecond: 10
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      },
+      db: {
+        schema: 'public'
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
+        }
+      },
+      // Ensure service role bypasses RLS
+      realtime: {
+        params: {
+          eventsPerSecond: 10
+        }
       }
     }
-  }
-);
+  );
+}
 
 export async function POST(request: Request) {
   try {
@@ -179,7 +181,7 @@ export async function POST(request: Request) {
     }
 
     // Validate role against database roles
-    const { data: validRoleData, error: roleError } = await supabaseAdmin
+    const { data: validRoleData, error: roleError } = await getAdminClient()
       .from('custom_roles')
       .select('role_key, is_system_role')
       .eq('role_key', role)
@@ -276,7 +278,7 @@ export async function POST(request: Request) {
     // The profile will be linked to Google auth when the user logs in
 
     // Check if a profile with this email already exists
-    const { data: existingProfile } = await supabaseAdmin
+    const { data: existingProfile } = await getAdminClient()
       .from('profiles')
       .select('id, email')
       .eq('email', email)
@@ -312,7 +314,7 @@ export async function POST(request: Request) {
 
     // Test admin client authentication
     const { data: authTest, error: authError } =
-      await supabaseAdmin.auth.getSession();
+      await getAdminClient().auth.getSession();
     console.log('Admin client auth test:', { authTest: !!authTest, authError });
 
     // Use the secure function to create pre-registered profile
@@ -381,7 +383,7 @@ export async function POST(request: Request) {
         assigned_by: session.user.id
       }));
 
-      const { error: roleAssignError } = await supabaseAdmin
+      const { error: roleAssignError } = await getAdminClient()
         .from('user_roles')
         .insert(roleAssignments);
 
@@ -395,14 +397,14 @@ export async function POST(request: Request) {
       }
     } else {
       // Legacy single role: look up the role ID and create a single assignment
-      const { data: roleData, error: roleLookupError } = await supabaseAdmin
+      const { data: roleData, error: roleLookupError } = await getAdminClient()
         .from('custom_roles')
         .select('id')
         .eq('role_key', role)
         .single();
 
       if (!roleLookupError && roleData) {
-        const { error: roleAssignError } = await supabaseAdmin
+        const { error: roleAssignError } = await getAdminClient()
           .from('user_roles')
           .insert({
             user_id: placeholderId,
@@ -526,9 +528,9 @@ export async function GET(request: NextRequest) {
     // Build query - use service role client to bypass RLS so admins see ALL profiles.
     // The anon-key client is subject to RLS; if the live DB policy restricts SELECT to
     // the caller's own row (id = auth.uid()), non-super-admin users would only see
-    // themselves. supabaseAdmin (service role) always returns the full result set and
+    // themselves. getAdminClient() (service role) always returns the full result set and
     // lets us apply our own role-based scoping below.
-    let query = supabaseAdmin
+    let query = getAdminClient()
       .from('profiles')
       .select('*', { count: 'exact' });
 

@@ -5,11 +5,13 @@ import type { JkknLearner } from '@/types/jkkn-api/learners';
 import type { LifecycleStatus } from '@/types/learner-profile';
 
 // Service-role client — bypasses RLS, used only server-side
-const supabaseAdmin = createClient_(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
+function getAdminClient() {
+  return createClient_(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 const JKKN_API_BASE_URL =
   process.env.JKKN_API_BASE_URL ?? 'https://www.jkkn.ai/api';
@@ -175,7 +177,7 @@ export async function POST() {
 
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const batch = rows.slice(i, i + BATCH_SIZE);
-      const { error: upsertError } = await supabaseAdmin
+      const { error: upsertError } = await getAdminClient()
         .from('learners_profiles')
         .upsert(batch, {
           onConflict: 'original_student_id',

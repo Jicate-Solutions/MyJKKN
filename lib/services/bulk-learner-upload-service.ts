@@ -11,16 +11,13 @@ import type { LearnerProfile } from '@/types/learner-profile';
 import { randomUUID } from 'crypto';
 
 // Create admin client for user management
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 /**
  * Generate temporary password for new users
@@ -238,7 +235,7 @@ export class BulkLearnerUploadService {
     const resultMap = new Map<string, {id: string, inserted: boolean}>();
 
     // STEP 1: Check which emails already exist in profiles table
-    const { data: existingProfiles, error: checkError } = await supabaseAdmin
+    const { data: existingProfiles, error: checkError } = await getAdminClient()
       .from('profiles')
       .select('id, email')
       .in('email', emails);
@@ -313,7 +310,7 @@ export class BulkLearnerUploadService {
     // STEP 3: Batch update existing profiles
     if (toUpdate.length > 0) {
       for (const { id, data } of toUpdate) {
-        const { error: updateError } = await supabaseAdmin
+        const { error: updateError } = await getAdminClient()
           .from('profiles')
           .update({
             institution_id: data.institution_id,
@@ -336,7 +333,7 @@ export class BulkLearnerUploadService {
     if (toInsert.length > 0) {
       console.log(`[bulk-upload] Inserting ${toInsert.length} new profiles with generated UUIDs`);
 
-      const { data: newProfiles, error: insertError } = await supabaseAdmin
+      const { data: newProfiles, error: insertError } = await getAdminClient()
         .from('profiles')
         .insert(toInsert)
         .select('id, email');
@@ -373,7 +370,7 @@ export class BulkLearnerUploadService {
     const resultMap = new Map<string, {id: string, inserted: boolean}>();
 
     // STEP 1: Check which learners already exist
-    const { data: existingLearners, error: checkError } = await supabaseAdmin
+    const { data: existingLearners, error: checkError } = await getAdminClient()
       .from('learners_profiles')
       .select('id, college_email')
       .in('college_email', emails);
@@ -420,7 +417,7 @@ export class BulkLearnerUploadService {
       console.log('[bulk-upload] Sample learner data (first record):', JSON.stringify(learnerData[0], null, 2));
     }
 
-    const { data: insertedLearners, error: insertError } = await supabaseAdmin
+    const { data: insertedLearners, error: insertError } = await getAdminClient()
       .from('learners_profiles')
       .insert(learnerData)
       .select('id, college_email, is_profile_complete');
@@ -478,7 +475,7 @@ export class BulkLearnerUploadService {
         const fullName = `${row.data.first_name} ${row.data.last_name || ''}`.trim();
 
         // Create auth user
-        const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        const { data: authUser, error: authError } = await getAdminClient().auth.admin.createUser({
           email: row.data.college_email!,
           password: tempPassword,
           email_confirm: true,

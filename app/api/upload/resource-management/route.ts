@@ -2,15 +2,13 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 // Create server-side Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!; // Use service role key for server-side operations
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
-});
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 export async function POST(request: Request) {
   try {
@@ -47,7 +45,7 @@ export async function POST(request: Request) {
     try {
       // Test bucket access first
       const { data: buckets, error: bucketError } =
-        await supabase.storage.listBuckets();
+        await getAdminClient().storage.listBuckets();
       console.log(
         'Available buckets:',
         buckets?.map((b) => b.name)
@@ -63,7 +61,7 @@ export async function POST(request: Request) {
 
       console.log('Uploading to path:', filePath);
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await getAdminClient().storage
         .from('resource-management')
         .upload(filePath, file, {
           cacheControl: '3600',
@@ -78,7 +76,7 @@ export async function POST(request: Request) {
       console.log('Upload successful:', uploadData);
 
       // Get public URL
-      const { data: urlData } = supabase.storage
+      const { data: urlData } = getAdminClient().storage
         .from('resource-management')
         .getPublicUrl(filePath);
 

@@ -4,16 +4,13 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 
 // Create admin client for user management
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 // Helper function to generate a random password
 function generateTemporaryPassword(length = 12): string {
@@ -100,7 +97,7 @@ export async function POST(request: Request) {
     const selectedLearnerIds: string[] | undefined = body.learner_ids;
 
     // 4. Get all active learners with college emails
-    const { data: allLearners, error: learnersError } = await supabaseAdmin
+    const { data: allLearners, error: learnersError } = await getAdminClient()
       .from('learners_profiles')
       .select(`
         id,
@@ -124,7 +121,7 @@ export async function POST(request: Request) {
     }
 
     // 5. Get existing profiles for comparison
-    const { data: existingProfiles, error: profilesError } = await supabaseAdmin
+    const { data: existingProfiles, error: profilesError } = await getAdminClient()
       .from('profiles')
       .select('id, email, role, institution_id, department_id, learner_id, full_name, phone_number, gender, is_active');
 
@@ -240,7 +237,7 @@ export async function POST(request: Request) {
           if (updateData[key] === undefined) delete updateData[key];
         });
 
-        const { error: updateError } = await supabaseAdmin
+        const { error: updateError } = await getAdminClient()
           .from('profiles')
           .update(updateData)
           .eq('id', profileId);
@@ -284,7 +281,7 @@ export async function POST(request: Request) {
         const fullName = `${learner.first_name} ${learner.last_name || ''}`.trim();
 
         // Double-check if profile already exists (real-time check)
-        const { data: existingProfileCheck } = await supabaseAdmin
+        const { data: existingProfileCheck } = await getAdminClient()
           .from('profiles')
           .select('id, email, role, institution_id, department_id, learner_id')
           .ilike('email', learner.college_email)
@@ -311,7 +308,7 @@ export async function POST(request: Request) {
             };
             if (learner.gender) fallbackUpdate.gender = learner.gender;
 
-            const { error: updateError } = await supabaseAdmin
+            const { error: updateError } = await getAdminClient()
               .from('profiles')
               .update(fallbackUpdate)
               .eq('id', existingProfileCheck.id);
@@ -345,7 +342,7 @@ export async function POST(request: Request) {
         // Create auth user
         const tempPassword = generateTemporaryPassword();
         const { data: authUser, error: authCreateError } =
-          await supabaseAdmin.auth.admin.createUser({
+          await getAdminClient().auth.admin.createUser({
             email: learner.college_email,
             password: tempPassword,
             email_confirm: true,
@@ -376,13 +373,13 @@ export async function POST(request: Request) {
         };
         if (learner.gender) newProfileData.gender = learner.gender;
 
-        const { error: profileInsertError } = await supabaseAdmin
+        const { error: profileInsertError } = await getAdminClient()
           .from('profiles')
           .insert(newProfileData);
 
         if (profileInsertError) {
           // Clean up auth user on profile failure
-          await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+          await getAdminClient().auth.admin.deleteUser(authUser.user.id);
           throw new Error(
             `Failed to create profile for ${learner.college_email}: ${profileInsertError.message}`
           );

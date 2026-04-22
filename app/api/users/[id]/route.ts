@@ -9,16 +9,13 @@ import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 import { RESOURCE_TYPES } from '@/types/activity';
 
 // Create admin client for user management
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 export async function GET(
   request: NextRequest,
@@ -287,7 +284,7 @@ export async function PATCH(
     if (body.profile_complete !== undefined) updateData.profile_completed = body.profile_complete;
 
     // Update the user profile - use admin client for cross-user updates
-    const updateClient = user.id === userId ? supabase : supabaseAdmin;
+    const updateClient = user.id === userId ? supabase : getAdminClient();
     const { data, error } = await updateClient
       .from('profiles')
       .update(updateData)
@@ -308,7 +305,7 @@ export async function PATCH(
     if (body.role_ids !== undefined && Array.isArray(body.role_ids)) {
       try {
         // Delete existing role assignments
-        await supabaseAdmin
+        await getAdminClient()
           .from('user_roles')
           .delete()
           .eq('user_id', userId);
@@ -323,7 +320,7 @@ export async function PATCH(
             assigned_by: user.id
           }));
 
-          const { error: roleAssignError } = await supabaseAdmin
+          const { error: roleAssignError } = await getAdminClient()
             .from('user_roles')
             .insert(roleAssignments);
 
@@ -505,7 +502,7 @@ export async function DELETE(
     let staffRecords: { id: string; institution_email: string }[] | null = null;
 
     // Get the profile email to find matching staff records
-    const { data: profileData, error: profileFetchError } = await supabaseAdmin
+    const { data: profileData, error: profileFetchError } = await getAdminClient()
       .from('profiles')
       .select('email')
       .eq('id', id)
@@ -514,7 +511,7 @@ export async function DELETE(
     if (!profileFetchError && profileData?.email) {
       console.log(`Looking for staff records with institution_email: ${profileData.email}`);
 
-      const { data: staffData, error: staffQueryError } = await supabaseAdmin
+      const { data: staffData, error: staffQueryError } = await getAdminClient()
         .from('staff')
         .select('id, institution_email')
         .eq('institution_email', profileData.email);
@@ -538,7 +535,7 @@ export async function DELETE(
 
       // Delete staff records that reference this profile
       for (const staffRecord of staffRecords) {
-        const { error: staffDeleteError } = await supabaseAdmin
+        const { error: staffDeleteError } = await getAdminClient()
           .from('staff')
           .delete()
           .eq('id', staffRecord.id);
@@ -560,7 +557,7 @@ export async function DELETE(
 
     // Now delete from auth.users table (this will cascade to profiles if properly configured)
     const { error: authDeleteError } =
-      await supabaseAdmin.auth.admin.deleteUser(id);
+      await getAdminClient().auth.admin.deleteUser(id);
 
     if (authDeleteError) {
       console.error('Error deleting auth user:', authDeleteError);
@@ -579,7 +576,7 @@ export async function DELETE(
     }
 
     // Then delete from profiles table (in case auth deletion didn't cascade properly)
-    const { error: profileDeleteError } = await supabaseAdmin
+    const { error: profileDeleteError } = await getAdminClient()
       .from('profiles')
       .delete()
       .eq('id', id);

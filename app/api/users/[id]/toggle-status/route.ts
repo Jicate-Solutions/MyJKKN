@@ -7,16 +7,13 @@ import { createClient } from '@supabase/supabase-js';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
 
 // Create admin client for user management
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -114,7 +111,7 @@ export async function PATCH(
     const newStatus = !targetUser.is_active;
 
     // Update user status using admin client to bypass RLS
-    const { data: updatedUser, error: updateError } = await supabaseAdmin
+    const { data: updatedUser, error: updateError } = await getAdminClient()
       .from('profiles')
       .update({
         is_active: newStatus,

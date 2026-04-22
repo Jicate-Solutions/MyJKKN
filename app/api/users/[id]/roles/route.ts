@@ -14,16 +14,13 @@ import { Database } from '@/types/auth';
 import { createClient } from '@supabase/supabase-js';
 
 // Create admin client for role management
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 /**
  * GET /api/users/[id]/roles
@@ -181,7 +178,7 @@ export async function POST(
     }
 
     // Delete existing role assignments
-    const { error: deleteError } = await supabaseAdmin
+    const { error: deleteError } = await getAdminClient()
       .from('user_roles')
       .delete()
       .eq('user_id', userId);
@@ -202,7 +199,7 @@ export async function POST(
       assigned_by: user.id
     }));
 
-    const { error: insertError } = await supabaseAdmin
+    const { error: insertError } = await getAdminClient()
       .from('user_roles')
       .insert(roleAssignments);
 
@@ -215,7 +212,7 @@ export async function POST(
     }
 
     // Fetch the newly assigned roles
-    const { data: newRoles } = await supabaseAdmin.rpc(
+    const { data: newRoles } = await getAdminClient().rpc(
       'get_user_roles_with_details',
       { p_user_id: userId }
     );
@@ -306,7 +303,7 @@ export async function DELETE(
     }
 
     // Check how many roles the user currently has
-    const { count, error: countError } = await supabaseAdmin
+    const { count, error: countError } = await getAdminClient()
       .from('user_roles')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId);
@@ -326,7 +323,7 @@ export async function DELETE(
     }
 
     // Check if this is the primary role
-    const { data: roleToRemove, error: fetchError } = await supabaseAdmin
+    const { data: roleToRemove, error: fetchError } = await getAdminClient()
       .from('user_roles')
       .select('is_primary')
       .eq('user_id', userId)
@@ -341,7 +338,7 @@ export async function DELETE(
     }
 
     // Delete the role assignment
-    const { error: deleteError } = await supabaseAdmin
+    const { error: deleteError } = await getAdminClient()
       .from('user_roles')
       .delete()
       .eq('user_id', userId)
@@ -357,7 +354,7 @@ export async function DELETE(
 
     // If we removed the primary role, set another role as primary
     if (roleToRemove?.is_primary) {
-      const { data: remainingRoles } = await supabaseAdmin
+      const { data: remainingRoles } = await getAdminClient()
         .from('user_roles')
         .select('id')
         .eq('user_id', userId)
@@ -365,7 +362,7 @@ export async function DELETE(
         .limit(1);
 
       if (remainingRoles && remainingRoles.length > 0) {
-        await supabaseAdmin
+        await getAdminClient()
           .from('user_roles')
           .update({ is_primary: true })
           .eq('id', remainingRoles[0].id);
@@ -454,7 +451,7 @@ export async function PATCH(
     }
 
     // Verify the role is assigned to this user
-    const { data: existingRole, error: checkError } = await supabaseAdmin
+    const { data: existingRole, error: checkError } = await getAdminClient()
       .from('user_roles')
       .select('id')
       .eq('user_id', userId)
@@ -469,13 +466,13 @@ export async function PATCH(
     }
 
     // Unset all primary flags for this user
-    await supabaseAdmin
+    await getAdminClient()
       .from('user_roles')
       .update({ is_primary: false })
       .eq('user_id', userId);
 
     // Set the new primary role
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await getAdminClient()
       .from('user_roles')
       .update({ is_primary: true })
       .eq('user_id', userId)

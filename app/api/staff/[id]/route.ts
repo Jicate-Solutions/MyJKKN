@@ -6,16 +6,13 @@ import { createClient } from '@supabase/supabase-js';
 import type { CookieOptions } from '@supabase/ssr';
 
 // Create admin client for database operations (bypasses RLS)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 // PATCH endpoint for updating a staff record (bypasses RLS for faculty users)
 export async function PATCH(
@@ -64,7 +61,7 @@ export async function PATCH(
     }
 
     // Get user profile to check permissions
-    const { data: userProfile, error: profileError } = await supabaseAdmin
+    const { data: userProfile, error: profileError } = await getAdminClient()
       .from('profiles')
       .select('is_super_admin, role, institution_id, email')
       .eq('id', session.user.id)
@@ -81,7 +78,7 @@ export async function PATCH(
       userProfile.is_super_admin || userProfile.role === 'super_admin';
 
     // Get the staff record to verify ownership for faculty users
-    const { data: staffRecord, error: staffFetchError } = await supabaseAdmin
+    const { data: staffRecord, error: staffFetchError } = await getAdminClient()
       .from('staff')
       .select('id, institution_email')
       .eq('id', id)
@@ -121,7 +118,7 @@ export async function PATCH(
     const json = await request.json();
 
     // Update the staff record using admin client (bypasses RLS)
-    const { data: updatedStaff, error: updateError } = await supabaseAdmin
+    const { data: updatedStaff, error: updateError } = await getAdminClient()
       .from('staff')
       .update({
         ...json,
@@ -149,7 +146,7 @@ export async function PATCH(
 
     // If institution_id was updated and staff has institution_email, sync profile
     if (json.institution_id && staffRecord.institution_email) {
-      const { error: profileUpdateError } = await supabaseAdmin
+      const { error: profileUpdateError } = await getAdminClient()
         .from('profiles')
         .update({ institution_id: json.institution_id })
         .eq('email', staffRecord.institution_email);

@@ -2,7 +2,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
-const supabase = createClientSupabaseClient();
+function getSupabase() { return createClientSupabaseClient(); }
 import type {
   Notification,
   NotificationFilters,
@@ -28,7 +28,7 @@ import {
 export async function getNotifications(
   filters: NotificationFilters = {}
 ): Promise<Notification[]> {
-  let query = supabase
+  let query = getSupabase()
     .from('user_notifications')
     .select(
       `
@@ -89,7 +89,7 @@ export async function getNotifications(
 export async function getNotification(
   id: string
 ): Promise<Notification | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('user_notifications')
     .select(
       `
@@ -127,7 +127,7 @@ export async function createNotification(
     is_archived: false
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('notifications')
     .insert(notificationData as any)
     .select()
@@ -157,7 +157,7 @@ export async function updateNotification(
     updateData.archived_at = new Date().toISOString();
   }
 
-  const { data, error } = await (supabase
+  const { data, error } = await (getSupabase()
     .from('notifications') as any)
     .update(updateData)
     .eq('id', id)
@@ -169,7 +169,7 @@ export async function updateNotification(
 }
 
 export async function deleteNotification(id: string): Promise<void> {
-  const { error } = await (supabase as any).from('notifications').delete().eq('id', id);
+  const { error } = await (getSupabase() as any).from('notifications').delete().eq('id', id);
 
   if (error) throw error;
 }
@@ -195,7 +195,7 @@ export async function bulkUpdateNotifications(
     }
   }
 
-  const { error } = await (supabase
+  const { error } = await (getSupabase()
     .from('notifications') as any)
     .update(updateData)
     .in('id', dto.notification_ids);
@@ -204,7 +204,7 @@ export async function bulkUpdateNotifications(
 }
 
 export async function markAsRead(notificationId: string): Promise<void> {
-  const { error } = await (supabase
+  const { error } = await (getSupabase()
     .from('user_notifications') as any)
     .update({ read_at: new Date().toISOString() })
     .eq('id', notificationId);
@@ -213,7 +213,7 @@ export async function markAsRead(notificationId: string): Promise<void> {
 }
 
 export async function markAllAsRead(userId: string): Promise<void> {
-  const { error } = await (supabase
+  const { error } = await (getSupabase()
     .from('user_notifications') as any)
     .update({
       read_at: new Date().toISOString()
@@ -234,7 +234,7 @@ export async function archiveNotification(
 }
 
 export async function deleteAllRead(userId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('user_notifications')
     .delete()
     .eq('user_id', userId)
@@ -248,7 +248,7 @@ export async function deleteAllRead(userId: string): Promise<void> {
 export async function getNotificationStats(
   userId: string
 ): Promise<NotificationStats> {
-  const { data: userNotifications, error } = await supabase
+  const { data: userNotifications, error } = await getSupabase()
     .from('user_notifications')
     .select('read_at, notification:notifications!user_notifications_notification_id_fkey(category, priority)')
     .eq('user_id', userId);
@@ -302,7 +302,7 @@ export async function getNotificationStats(
 export async function getUserPreferences(
   userId: string
 ): Promise<NotificationPreference[]> {
-  const { data, error } = await (supabase
+  const { data, error } = await (getSupabase()
     .from('notification_preferences' as any) as any)
     .select('*')
     .eq('user_id', userId);
@@ -314,7 +314,7 @@ export async function getUserPreferences(
 export async function createPreference(
   dto: CreateNotificationPreferenceDto
 ): Promise<NotificationPreference> {
-  const { data, error } = await (supabase
+  const { data, error } = await (getSupabase()
     .from('notification_preferences' as any) as any)
     .insert({
       ...dto,
@@ -331,7 +331,7 @@ export async function updatePreference(
   id: string,
   dto: UpdateNotificationPreferenceDto
 ): Promise<NotificationPreference> {
-  const { data, error } = await (supabase
+  const { data, error } = await (getSupabase()
     .from('notification_preferences' as any) as any)
     .update(dto)
     .eq('id', id)
@@ -343,7 +343,7 @@ export async function updatePreference(
 }
 
 export async function deletePreference(id: string): Promise<void> {
-  const { error } = await (supabase
+  const { error } = await (getSupabase()
     .from('notification_preferences' as any) as any)
     .delete()
     .eq('id', id);

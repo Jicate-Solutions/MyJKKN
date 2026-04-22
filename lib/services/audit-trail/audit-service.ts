@@ -2,7 +2,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
-const supabase = createClientSupabaseClient();
+function getSupabase() { return createClientSupabaseClient(); }
 import type {
   AuditLog,
   AuditFilters,
@@ -18,7 +18,7 @@ import { AuditAction, AuditModule, AuditSeverity } from '@/types/audit-trail';
 export async function getAuditLogs(
   filters: AuditFilters = {}
 ): Promise<AuditLog[]> {
-  let query = (supabase as any)
+  let query = (getSupabase() as any)
     .from('audit_logs')
     .select(
       `
@@ -84,7 +84,7 @@ export async function getAuditLogs(
 }
 
 export async function getAuditLog(id: string): Promise<AuditLog | null> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (getSupabase() as any)
     .from('audit_logs')
     .select(
       `
@@ -107,7 +107,7 @@ export async function createAuditLog(
     severity: dto.severity || AuditSeverity.INFO
   };
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (getSupabase() as any)
     .from('audit_logs')
     .insert(auditData)
     .select()
@@ -118,7 +118,7 @@ export async function createAuditLog(
 }
 
 export async function deleteAuditLog(id: string): Promise<void> {
-  const { error } = await (supabase as any).from('audit_logs').delete().eq('id', id);
+  const { error } = await (getSupabase() as any).from('audit_logs').delete().eq('id', id);
 
   if (error) throw error;
 }
@@ -128,7 +128,7 @@ export async function deleteAuditLog(id: string): Promise<void> {
 export async function getAuditStats(
   filters: Omit<AuditFilters, 'limit' | 'offset'> = {}
 ): Promise<AuditStats> {
-  let query = (supabase as any).from('audit_logs').select(`
+  let query = (getSupabase() as any).from('audit_logs').select(`
     action,
     module,
     severity,

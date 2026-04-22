@@ -9,16 +9,13 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Create admin client for database operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 export interface NameToIdResult {
   id: string | null;
@@ -155,7 +152,7 @@ export class NameToIdResolver {
       console.log(`[name-to-id] 🔍 Resolving Degree ID for: "${degreeName}"`);
 
       // Try EXACT match first
-      let query = supabaseAdmin
+      let query = getAdminClient()
         .from('degrees')
         .select('id, degree_name')
         .ilike('degree_name', degreeName.trim());
@@ -191,7 +188,7 @@ export class NameToIdResolver {
 
         // Try pattern matching with keywords
         for (const term of searchTerms) {
-          let patternQuery = supabaseAdmin
+          let patternQuery = getAdminClient()
             .from('degrees')
             .select('id, degree_name')
             .ilike('degree_name', `%${term}%`);
@@ -238,7 +235,7 @@ export class NameToIdResolver {
       console.log(`[name-to-id] 📋 Query params:`, { departmentName: departmentName.trim(), institutionId });
 
       // Build query with institution filter
-      let query = supabaseAdmin
+      let query = getAdminClient()
         .from('departments')
         .select('id, department_name, institution_id');
 
@@ -260,7 +257,7 @@ export class NameToIdResolver {
       }
 
       // If no exact match, try to get all matches to provide suggestions
-      const { data: allMatches, error: allError } = await supabaseAdmin
+      const { data: allMatches, error: allError } = await getAdminClient()
         .from('departments')
         .select('id, department_name, institution_id')
         .ilike('department_name', `%${departmentName.trim()}%`)
@@ -308,7 +305,7 @@ export class NameToIdResolver {
       console.log(`[name-to-id] 📋 Query params:`, { programName: programName.trim(), institutionId, departmentId });
 
       // Try EXACT match first
-      let query = supabaseAdmin
+      let query = getAdminClient()
         .from('programs')
         .select('id, program_name')
         .ilike('program_name', programName.trim());
@@ -327,7 +324,7 @@ export class NameToIdResolver {
       if (error || !data) {
         console.log(`[name-to-id] 🔄 Exact match failed, trying pattern match...`);
 
-        let patternQuery = supabaseAdmin
+        let patternQuery = getAdminClient()
           .from('programs')
           .select('id, program_name')
           .ilike('program_name', `%${programName.trim()}%`);
@@ -350,7 +347,7 @@ export class NameToIdResolver {
         console.error(`[name-to-id] 💡 Trying to find similar programs in database...`);
 
         // Try to find all programs to get suggestions
-        let suggestionQuery = supabaseAdmin
+        let suggestionQuery = getAdminClient()
           .from('programs')
           .select('program_name');
 
@@ -378,7 +375,7 @@ export class NameToIdResolver {
         console.error(`[name-to-id] ❌ No program found matching "${programName}"`);
 
         // Get suggestions
-        let suggestionQuery = supabaseAdmin
+        let suggestionQuery = getAdminClient()
           .from('programs')
           .select('program_name');
 
@@ -426,7 +423,7 @@ export class NameToIdResolver {
       console.log(`[name-to-id] 📋 Query params:`, { semesterName: semesterName.trim(), institutionId, programId });
 
       // Try EXACT match first
-      let query = supabaseAdmin
+      let query = getAdminClient()
         .from('semesters')
         .select('id, semester_name, semester_code')
         .ilike('semester_name', semesterName.trim());
@@ -450,7 +447,7 @@ export class NameToIdResolver {
 
         if (semesterNum) {
           // Try matching semester_name or semester_code containing the number
-          let numberQuery = supabaseAdmin
+          let numberQuery = getAdminClient()
             .from('semesters')
             .select('id, semester_name, semester_code')
             .or(`semester_name.ilike.%${semesterNum}%,semester_code.ilike.%${semesterNum}%`);
@@ -473,7 +470,7 @@ export class NameToIdResolver {
         console.error(`[name-to-id] ❌ Semester query error:`, error);
 
         // Try to find all semesters to get suggestions
-        let suggestionQuery = supabaseAdmin
+        let suggestionQuery = getAdminClient()
           .from('semesters')
           .select('semester_name');
 
@@ -501,7 +498,7 @@ export class NameToIdResolver {
         console.error(`[name-to-id] ❌ No semester found matching "${semesterName}"`);
 
         // Get suggestions
-        let suggestionQuery = supabaseAdmin
+        let suggestionQuery = getAdminClient()
           .from('semesters')
           .select('semester_name');
 
@@ -547,7 +544,7 @@ export class NameToIdResolver {
       console.log(`[name-to-id] 🔍 Resolving Section ID for: "${sectionName}"`);
       console.log(`[name-to-id] 📋 Query params:`, { sectionName: sectionName.trim(), institutionId, semesterId });
 
-      let query = supabaseAdmin
+      let query = getAdminClient()
         .from('sections')
         .select('id, section_name')
         .ilike('section_name', sectionName.trim());
@@ -566,7 +563,7 @@ export class NameToIdResolver {
         console.error(`[name-to-id] ❌ Section query error:`, error);
 
         // Try to find all sections to get suggestions
-        let suggestionQuery = supabaseAdmin
+        let suggestionQuery = getAdminClient()
           .from('sections')
           .select('section_name');
 
@@ -594,7 +591,7 @@ export class NameToIdResolver {
         console.error(`[name-to-id] ❌ No section found matching "${sectionName}"`);
 
         // Get suggestions
-        let suggestionQuery = supabaseAdmin
+        let suggestionQuery = getAdminClient()
           .from('sections')
           .select('section_name');
 
@@ -640,7 +637,7 @@ export class NameToIdResolver {
       console.log(`[name-to-id] 🔍 Resolving Academic Year ID for: "${yearName}"`);
 
       // Try EXACT match first
-      let query = supabaseAdmin
+      let query = getAdminClient()
         .from('academic_years')
         .select('id, academic_year_name')
         .ilike('academic_year_name', yearName.trim());
@@ -659,7 +656,7 @@ export class NameToIdResolver {
         console.log(`[name-to-id] 📅 Generated year formats:`, yearFormats);
 
         for (const format of yearFormats) {
-          let formatQuery = supabaseAdmin
+          let formatQuery = getAdminClient()
             .from('academic_years')
             .select('id, academic_year_name')
             .ilike('academic_year_name', format);
@@ -683,7 +680,7 @@ export class NameToIdResolver {
           if (yearNumbers && yearNumbers.length > 0) {
             console.log(`[name-to-id] 🔄 Trying pattern match with year: ${yearNumbers[0]}`);
 
-            let patternQuery = supabaseAdmin
+            let patternQuery = getAdminClient()
               .from('academic_years')
               .select('id, academic_year_name')
               .ilike('academic_year_name', `%${yearNumbers[0]}%`);
@@ -734,7 +731,7 @@ export class NameToIdResolver {
 
       // Build flexible matching patterns
       // "R2021" should match "R2021", "R-2021", "REG-2021", etc.
-      let query = supabaseAdmin
+      let query = getAdminClient()
         .from('regulations')
         .select('id, regulation_code, regulation_year')
         .eq('is_active', true);
@@ -783,7 +780,7 @@ export class NameToIdResolver {
     try {
       const trimmedValue = batchName.trim();
 
-      let query = supabaseAdmin
+      let query = getAdminClient()
         .from('batches')
         .select('id, batch_name, batch_code')
         .eq('is_active', true);
@@ -833,7 +830,7 @@ export class NameToIdResolver {
     }
 
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getAdminClient()
         .from('institutions')
         .select('id')
         .ilike('name', institutionName.trim())

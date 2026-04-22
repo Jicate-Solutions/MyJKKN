@@ -7,7 +7,6 @@
 // Purpose: Validation logic for bulk learner operations
 // ============================================
 
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { createClient } from '@supabase/supabase-js';
 import {
   validateDropdownValue,
@@ -21,16 +20,13 @@ import {
 } from '@/lib/constants/learner-dropdown-values';
 
 // Create admin client for server-side validation
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 export interface ValidationError {
   field: string;
@@ -296,7 +292,7 @@ export class LearnerValidationService {
    */
   static async checkEmailExists(email: string): Promise<boolean> {
     // Use admin client for server-side validation
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await getAdminClient()
       .from('learners_profiles')
       .select('id')
       .ilike('college_email', email)
@@ -320,7 +316,7 @@ export class LearnerValidationService {
     learner?: any;
   }> {
     // Use admin client for server-side validation
-    const { data: learner, error } = await supabaseAdmin
+    const { data: learner, error } = await getAdminClient()
       .from('learners_profiles')
       .select('id, lifecycle_status, institution_id')
       .eq('id', learnerId)
@@ -351,7 +347,7 @@ export class LearnerValidationService {
     id: string
   ): Promise<boolean> {
     // Use admin client for server-side validation
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await getAdminClient()
       .from(table)
       .select('id')
       .eq('id', id)

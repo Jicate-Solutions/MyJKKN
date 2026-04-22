@@ -5,11 +5,13 @@ import type { JkknLearner } from '@/types/jkkn-api/learners';
 
 // Service-role client for reading all profiles (needs SUPABASE_SERVICE_ROLE_KEY).
 // Used only for the profiles comparison step — not for the learner data fetch.
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 const JKKN_API_BASE_URL =
   process.env.JKKN_API_BASE_URL ?? 'https://www.jkkn.ai/api';
@@ -110,8 +112,8 @@ export async function GET() {
     }
 
     // 4. Get existing Supabase auth profiles for comparison.
-    //    Uses supabaseAdmin (service role) to read all profiles regardless of RLS.
-    const { data: existingProfiles, error: profilesError } = await supabaseAdmin
+    //    Uses getAdminClient() (service role) to read all profiles regardless of RLS.
+    const { data: existingProfiles, error: profilesError } = await getAdminClient()
       .from('profiles')
       .select('id, email, role, institution_id, department_id, learner_id, full_name, phone_number, gender, is_active');
 

@@ -12,7 +12,7 @@ import type {
 } from '@/types/analytics';
 import { AnalyticsPeriod } from '@/types/analytics';
 
-const supabase = createClientSupabaseClient();
+function getSupabase() { return createClientSupabaseClient(); }
 
 class AnalyticsService {
   /**
@@ -93,7 +93,7 @@ class AnalyticsService {
     );
 
     // Base query with filters - using explicit eq() calls instead of match() to avoid TS2589
-    let resourceQuery: any = supabase
+    let resourceQuery: any = getSupabase()
       .from('resources')
       .select(`
         *,
@@ -217,7 +217,7 @@ class AnalyticsService {
     // First, get filtered resource IDs if institution/department filters exist
     let resourceIds: string[] | undefined;
     if (filters.institution_id || filters.department_id) {
-      let resourceQuery = supabase.from('resources').select('id');
+      let resourceQuery = getSupabase().from('resources').select('id');
 
       if (filters.institution_id) {
         resourceQuery = resourceQuery.eq(
@@ -253,7 +253,7 @@ class AnalyticsService {
       }
     }
 
-    let reservationQuery: any = supabase
+    let reservationQuery: any = getSupabase()
       .from('resource_reservations')
       .select(
         `
@@ -375,7 +375,7 @@ class AnalyticsService {
       filters.end_date
     );
 
-    let query: any = supabase
+    let query: any = getSupabase()
       .from('resource_maintenance_logs')
       .select('*')
       .gte('scheduled_date', dateRange.start_date)
@@ -505,7 +505,7 @@ class AnalyticsService {
       filters.end_date
     );
 
-    const { data: reservations, error } = await supabase
+    const { data: reservations, error } = await getSupabase()
       .from('resource_reservations')
       .select(
         `

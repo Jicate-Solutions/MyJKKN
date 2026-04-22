@@ -5,16 +5,13 @@ import { createClient } from '@supabase/supabase-js';
 
 
 // Create admin client for user management
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 export async function GET() {
   try {
@@ -67,7 +64,7 @@ export async function GET() {
     }
 
     // Get all staff with emails
-    const { data: allStaff, error: staffError } = await supabaseAdmin
+    const { data: allStaff, error: staffError } = await getAdminClient()
       .from('staff')
       .select(
         `
@@ -90,7 +87,7 @@ export async function GET() {
     }
 
     // Get existing profiles with all relevant fields
-    const { data: existingProfiles, error: profilesError } = await supabaseAdmin
+    const { data: existingProfiles, error: profilesError } = await getAdminClient()
       .from('profiles')
       .select('email, id, role, institution_id, department_id, gender, phone_number, designation')
       .in(
@@ -103,7 +100,7 @@ export async function GET() {
     }
 
     // Get existing auth users
-    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers();
+    const { data: authUsers } = await getAdminClient().auth.admin.listUsers();
     const existingAuthEmails = new Set(
       authUsers.users.map((user) => user.email)
     );

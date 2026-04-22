@@ -7,24 +7,26 @@ import type { CookieOptions } from '@supabase/ssr';
 
 
 // Create admin client for database operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    },
-    db: {
-      schema: 'public'
-    },
-    global: {
-      headers: {
-        Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      },
+      db: {
+        schema: 'public'
+      },
+      global: {
+        headers: {
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
+        }
       }
     }
-  }
-);
+  );
+}
 
 // GET endpoint for fetching staff (bypasses RLS for performance)
 export async function GET(request: NextRequest) {
@@ -70,7 +72,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get user profile to check permissions
-    const { data: userProfile, error: profileError } = await supabaseAdmin
+    const { data: userProfile, error: profileError } = await getAdminClient()
       .from('profiles')
       .select('is_super_admin, role, institution_id')
       .eq('id', session.user.id)
@@ -103,7 +105,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Additional access: Institutions granted via user_institution_access (for billing module)
-      const { data: additionalAccess } = await supabaseAdmin
+      const { data: additionalAccess } = await getAdminClient()
         .from('user_institution_access')
         .select('institution_id')
         .eq('user_id', session.user.id)
@@ -141,7 +143,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
 
     // Build query using admin client (bypasses RLS)
-    let query = supabaseAdmin.from('staff').select(
+    let query = getAdminClient().from('staff').select(
       `
         *,
         category:employment_categories(id, category_name),
@@ -305,7 +307,7 @@ export async function POST(request: Request) {
 
     // Check if staff_id already exists if provided
     if (json.staff_id) {
-      const { data: existing } = await supabaseAdmin
+      const { data: existing } = await getAdminClient()
         .from('staff')
         .select('id')
         .eq('staff_id', json.staff_id)
@@ -320,7 +322,7 @@ export async function POST(request: Request) {
     }
 
     // Create the staff record using admin client
-    const { data: staff, error: createError } = await supabaseAdmin
+    const { data: staff, error: createError } = await getAdminClient()
       .from('staff')
       .insert([
         {

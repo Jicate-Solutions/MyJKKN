@@ -5,16 +5,13 @@ import { createClient } from '@supabase/supabase-js';
 
 
 // Create admin client for user management
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 // Type for staff with profile_id
 interface StaffWithProfileId {
@@ -97,7 +94,7 @@ export async function POST(request: Request) {
     const selectedStaffIds: string[] | undefined = body.staff_ids;
 
     // Get all staff with institution emails
-    const { data: allStaff, error: staffError } = await supabaseAdmin
+    const { data: allStaff, error: staffError } = await getAdminClient()
       .from('staff')
       .select(
         `
@@ -120,7 +117,7 @@ export async function POST(request: Request) {
     }
 
     // Get existing profiles with all fields to check if they need updates
-    const { data: existingProfiles, error: profilesError } = await supabaseAdmin
+    const { data: existingProfiles, error: profilesError } = await getAdminClient()
       .from('profiles')
       .select('email, id, role, institution_id, department_id, gender, phone_number, designation')
       .in(
@@ -286,7 +283,7 @@ export async function POST(request: Request) {
         }
 
         // Update existing profile with correct data
-        const { data: updatedProfile, error: updateError } = await supabaseAdmin
+        const { data: updatedProfile, error: updateError } = await getAdminClient()
           .from('profiles')
           .update(updateData)
           .eq('id', profileId)
@@ -339,7 +336,7 @@ export async function POST(request: Request) {
         console.log(`Creating profile for: ${fullName} (${staff.institution_email})`);
 
         // Double-check if profile already exists (real-time check)
-        const { data: existingProfileCheck } = await supabaseAdmin
+        const { data: existingProfileCheck } = await getAdminClient()
           .from('profiles')
           .select('id, email, role, institution_id, department_id, gender, phone_number, designation')
           .eq('email', staff.institution_email)
@@ -388,7 +385,7 @@ export async function POST(request: Request) {
             }
 
             // Update the profile
-            const { error: updateError } = await supabaseAdmin
+            const { error: updateError } = await getAdminClient()
               .from('profiles')
               .update(updateData)
               .eq('id', existingProfileCheck.id);
@@ -429,7 +426,7 @@ export async function POST(request: Request) {
         console.log(`Creating new profile with ID: ${profileId}`);
 
         // Create new profile
-        const { data: profileData, error: profileError } = await supabaseAdmin
+        const { data: profileData, error: profileError } = await getAdminClient()
           .from('profiles')
           .insert({
             id: profileId,

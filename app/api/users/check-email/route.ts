@@ -4,16 +4,13 @@ import { createClient } from '@supabase/supabase-js';
 
 
 // Create admin client for user management
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
+function getAdminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,7 +28,7 @@ export async function GET(request: NextRequest) {
     }
 
     // For OAuth-only system, only check profiles table (including pre-registered)
-    const { data: profileData, error: profileError } = await supabaseAdmin
+    const { data: profileData, error: profileError } = await getAdminClient()
       .from('profiles')
       .select('id, email, full_name, role, is_active, created_at, is_pre_registered')
       .eq('email', email)
