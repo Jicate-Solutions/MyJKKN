@@ -8987,3 +8987,57 @@ REVOKE ALL ON FUNCTION fn_generate_all_dashboard_work_items() FROM PUBLIC, anon,
 GRANT EXECUTE ON FUNCTION fn_generate_all_dashboard_work_items() TO service_role;
 
 -- END Dashboard Work Item Generators
+
+-- ================================================================================
+-- Updated: 2026-04-22 - RPC to mirror a staff row's role_key into user_roles,
+-- callable from the browser by any user with staff.create permission.
+-- Solves: HOD creating staff → direct-insert succeeds → client-side
+-- UserRolesService.assignRoles() fails RLS (user_roles requires roles.create).
+-- SECURITY DEFINER bypasses RLS safely; authorization is enforced in-function
+-- (caller must have staff.create AND target must be a staff-linked profile
+-- with matching role_key, preventing drive-by role assignment).
+-- ================================================================================
+CREATE OR REPLACE FUNCTION public.mirror_staff_role_to_user_roles(
+    p_profile_id uuid,
+    p_role_key text
+) RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_role_id uuid;
+    v_caller uuid := auth.uid();
+BEGIN
+    IF NOT (is_super_admin() OR is_admin() OR user_has_permission('staff.create')) THEN
+        RAISE EXCEPTION 'Insufficient permission to mirror staff role'
+            USING ERRCODE = '42501';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM staff s
+        WHERE s.profile_id = p_profile_id
+          AND s.role_key = p_role_key
+    ) THEN
+        RAISE EXCEPTION 'profile_id % is not linked to a staff row with role_key %',
+            p_profile_id, p_role_key
+            USING ERRCODE = '23503';
+    END IF;
+
+    SELECT id INTO v_role_id
+    FROM custom_roles
+    WHERE role_key = p_role_key;
+
+    IF v_role_id IS NULL THEN
+        RAISE EXCEPTION 'No custom_role found for role_key %', p_role_key
+            USING ERRCODE = '23503';
+    END IF;
+
+    DELETE FROM user_roles WHERE user_id = p_profile_id;
+
+    INSERT INTO user_roles (user_id, role_id, is_primary, assigned_by)
+    VALUES (p_profile_id, v_role_id, true, v_caller);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) TO authenticated;

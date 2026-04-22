@@ -6,6 +6,14 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-22** — Staff role mirror RPC (HOD still hit `user_roles` RLS even after PR #326)
+  - New migration `supabase/migrations/20260422000004_mirror_staff_role_to_user_roles_rpc.sql`
+  - New function `public.mirror_staff_role_to_user_roles(p_profile_id uuid, p_role_key text)` — SECURITY DEFINER, pinned search_path. Verifies caller has `staff.create` AND target is a real `staff.profile_id` row with matching `role_key` before upserting `user_roles`. `GRANT EXECUTE` to `authenticated`.
+  - Root cause of remaining failure: `staff_insert_permission` RLS allows HOD to INSERT staff directly (they have `staff.create` + `role_has_institution_access`). So `/api/staff` fallback was never triggered, and the client-side `UserRolesService.assignRoles()` call (after successful direct insert) still hit `user_roles_insert_permission` which requires `roles.create`.
+  - Fix: browser now calls the RPC instead of `user_roles.insert()`. Authorization is enforced inside the function (caller must have `staff.create` AND target must be a staff-linked profile with matching `role_key` — no drive-by role assignment possible).
+  - Backfill: 2 orphan staff profiles from earlier HOD attempts had missing `user_roles` rows; backfilled via one-shot INSERT scoped to the last 2 hours (verified recovery for both).
+  - Followup to PR #326 which fixed only the trigger half.
+
 - **2026-04-22** — Staff INSERT fails 42501 "permission denied for table users" for HOD/non-super-admin staff.create
   - New migration `supabase/migrations/20260422000003_fix_sync_staff_trigger_auth_access.sql`
   - `02_functions.sql`: `sync_staff_to_profiles()` trigger function switched from SECURITY INVOKER (default) to SECURITY DEFINER with `SET search_path = public`. Body was also updated to mirror the live version that had drifted from source (profile_id-first lookup + auth-linked-first tiebreaker on email collisions).
