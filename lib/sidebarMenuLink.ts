@@ -1965,126 +1965,20 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Solution Hub',
       menus: [
+        // Single sidebar entry — all Solution Hub navigation lives in the
+        // module's in-page tab bar (SolutionsNav, see app/(routes)/solutions/
+        // _components/solutions-nav.tsx). Mirrors Campus Living + Learners
+        // Council + Admission CRM. Section sub-tabs (Pipeline, Training,
+        // Content, Software, Payments+Earnings, Discovery+Publications)
+        // render via per-section SectionSubNav.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs keeps nav
+        // adjacent to content. URLs are UNCHANGED — no bookmarks break.
         {
           href: '/solutions',
-          label: 'Dashboard',
-          active: pathname === '/solutions' || pathname === '/solutions/list',
+          label: 'Solution Hub',
+          active: pathname === '/solutions' || pathname.startsWith('/solutions/'),
           icon: LayoutGrid,
-          submenus: []
-        },
-        {
-          href: '/solutions/pipeline',
-          label: 'Pipeline',
-          active: pathname.startsWith('/solutions/pipeline'),
-          icon: Workflow,
-          submenus: [
-            { href: '/solutions/pipeline', label: 'Board View', active: pathname === '/solutions/pipeline' },
-            { href: '/solutions/pipeline/list', label: 'List View', active: pathname === '/solutions/pipeline/list' },
-            { href: '/solutions/pipeline/analytics', label: 'Analytics', active: pathname === '/solutions/pipeline/analytics' }
-          ]
-        },
-        {
-          href: '/solutions/clients',
-          label: 'Clients',
-          active: pathname.startsWith('/solutions/clients'),
-          icon: Users,
-          submenus: []
-        },
-        {
-          href: '/solutions/builders',
-          label: 'Builders',
-          active: pathname.startsWith('/solutions/builders'),
-          icon: Hammer,
-          submenus: []
-        },
-        {
-          href: '/solutions/training',
-          label: 'Training',
-          active: pathname.startsWith('/solutions/training'),
-          icon: GraduationCap,
-          submenus: [
-            { href: '/solutions/training', label: 'Overview', active: pathname === '/solutions/training' },
-            { href: '/solutions/training/programs', label: 'Programs', active: pathname === '/solutions/training/programs' },
-            { href: '/solutions/training/sessions', label: 'Sessions', active: pathname === '/solutions/training/sessions' },
-            { href: '/solutions/training/cohort', label: 'Cohort', active: pathname.startsWith('/solutions/training/cohort') }
-          ]
-        },
-        {
-          href: '/solutions/content',
-          label: 'Content',
-          active: pathname.startsWith('/solutions/content'),
-          icon: FileText,
-          submenus: [
-            { href: '/solutions/content', label: 'Orders', active: pathname === '/solutions/content' },
-            { href: '/solutions/content/deliverables', label: 'Deliverables', active: pathname.startsWith('/solutions/content/deliverables') },
-            { href: '/solutions/content/production', label: 'Production', active: pathname.startsWith('/solutions/content/production') },
-            { href: '/solutions/content/queue', label: 'Queue', active: pathname === '/solutions/content/queue' }
-          ]
-        },
-        {
-          href: '/solutions/payments',
-          label: 'Payments',
-          active: pathname.startsWith('/solutions/payments') || pathname.startsWith('/solutions/earnings'),
-          icon: Wallet,
-          submenus: [
-            { href: '/solutions/payments', label: 'Payments', active: pathname === '/solutions/payments' },
-            { href: '/solutions/earnings', label: 'Earnings', active: pathname === '/solutions/earnings' }
-          ]
-        },
-        {
-          href: '/solutions/discovery',
-          label: 'Discovery',
-          active: pathname.startsWith('/solutions/discovery') || pathname.startsWith('/solutions/publications'),
-          icon: Compass,
-          submenus: [
-            { href: '/solutions/discovery', label: 'Visits', active: pathname === '/solutions/discovery' },
-            { href: '/solutions/publications', label: 'Publications', active: pathname.startsWith('/solutions/publications') }
-          ]
-        },
-        {
-          href: '/solutions/products',
-          label: 'Products',
-          active: pathname.startsWith('/solutions/products'),
-          icon: Package,
-          submenus: []
-        },
-        {
-          href: '/solutions/software',
-          label: 'Software',
-          active: pathname.startsWith('/solutions/software'),
-          icon: Cpu,
-          submenus: [
-            { href: '/solutions/software', label: 'Overview', active: pathname === '/solutions/software' },
-            { href: '/solutions/software/builders', label: 'Builders', active: pathname.startsWith('/solutions/software/builders') },
-            { href: '/solutions/software/phases', label: 'Phases', active: pathname.startsWith('/solutions/software/phases') }
-          ]
-        },
-        {
-          href: '/solutions/matlab',
-          label: 'MATLAB',
-          active: pathname.startsWith('/solutions/matlab'),
-          icon: Cpu,
-          submenus: []
-        },
-        {
-          href: '/solutions/paradigm-shift',
-          label: 'Paradigm Shift',
-          active: pathname.startsWith('/solutions/paradigm-shift'),
-          icon: Lightbulb,
-          submenus: []
-        },
-        {
-          href: '/solutions/ai-solution-compliance',
-          label: 'AI-Solution Compliance',
-          active: pathname.startsWith('/solutions/ai-solution-compliance'),
-          icon: ShieldCheck,
-          submenus: []
-        },
-        {
-          href: '/solutions/paradigm-shift',
-          label: 'Departments',
-          active: pathname.startsWith('/solutions/paradigm-shift'),
-          icon: Building2,
           submenus: []
         }
       ]
