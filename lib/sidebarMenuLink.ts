@@ -903,169 +903,21 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Academic Management',
       menus: [
+        // Single sidebar entry — all Academic navigation lives in the
+        // module's in-page tab bar (AcademicNav, see app/(routes)/academic/
+        // _components/academic-nav.tsx). Mirrors Campus Living + Learners
+        // Council + Admission CRM. Per-section SectionSubNavs for Leaves,
+        // Leave/OnDuty, Privileges, Timetables, Attendance.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs scales
+        // across JKKN's 8+ high-traffic modules. URLs UNCHANGED — preserves
+        // faculty daily workflow bookmarks.
         {
           href: '/academic/years',
-          label: 'Academic Years',
-          active: pathname === '/academic/years',
-          icon: CalendarDays,
+          label: 'Academic Management',
+          active: pathname.startsWith('/academic/'),
+          icon: GraduationCap,
           submenus: []
-        },
-        {
-          href: '/academic/regulations',
-          label: 'Regulations',
-          active: pathname.startsWith('/academic/regulations'),
-          icon: Bookmark,
-          submenus: []
-        },
-        {
-          href: '/academic/batches',
-          label: 'Batches',
-          active: pathname.startsWith('/academic/batches'),
-          icon: Boxes,
-          submenus: []
-        },
-        {
-          href: '/academic/periods',
-          label: 'Periods',
-          active: pathname === '/academic/periods',
-          icon: Clock,
-          submenus: []
-        },
-        {
-          href: '/academic/leave-calendar',
-          label: 'Leave Calendar',
-          active: pathname === '/academic/leave-calendar',
-          icon: Calendar,
-          submenus: []
-        },
-        {
-          href: '/academic/leaves',
-          label: 'Leave Management',
-          active: pathname.startsWith('/academic/leaves'),
-          icon: CalendarX2,
-          submenus: [
-            {
-              href: '/academic/leaves',
-              label: 'All Leaves',
-              active: pathname === '/academic/leaves'
-            },
-            {
-              href: '/academic/leaves/settings/types',
-              label: 'Leave Types',
-              active: pathname === '/academic/leaves/settings/types'
-            },
-            {
-              href: '/academic/leaves/settings/workflows',
-              label: 'Approval Workflows',
-              active: pathname === '/academic/leaves/settings/workflows'
-            }
-          ]
-        },
-        {
-          href: '/academic/leave-onduty',
-          label: 'Leave/OnDuty',
-          active: pathname.startsWith('/academic/leave-onduty'),
-          icon: Briefcase,
-          submenus: [
-            {
-              href: '/academic/leave-onduty/approvals',
-              label: 'Approvals',
-              active: pathname === '/academic/leave-onduty/approvals'
-            },
-            {
-              href: '/academic/leave-onduty/settings',
-              label: 'Workflow Settings',
-              active: pathname === '/academic/leave-onduty/settings'
-            },
-            {
-              href: '/academic/leave-onduty/reports',
-              label: 'Reports',
-              active: pathname === '/academic/leave-onduty/reports'
-            }
-          ]
-        },
-        {
-          href: '/academic/privileges',
-          label: 'Privileges',
-          active: pathname.startsWith('/academic/privileges'),
-          icon: Shield,
-          submenus: [
-            {
-              href: '/academic/privileges',
-              label: 'Manage Groups',
-              active: pathname === '/academic/privileges'
-            },
-            {
-              href: '/academic/privileges/templates',
-              label: 'Templates',
-              active: pathname === '/academic/privileges/templates'
-            }
-          ]
-        },
-        {
-          href: '/academic/staff-planning',
-          label: 'Staff Planning',
-          active: pathname === '/academic/staff-planning',
-          icon: UserSearch,
-          submenus: []
-        },
-        {
-          href: '/academic/timetables',
-          label: 'Timetables',
-          active: pathname.startsWith('/academic/timetables'),
-          icon: CalendarClock,
-          submenus: [
-            {
-              href: '/academic/timetables',
-              label: 'Manage Timetables',
-              active: pathname === '/academic/timetables'
-            },
-            {
-              href: '/academic/timetables/templates',
-              label: 'Template Library',
-              active: pathname.startsWith('/academic/timetables/templates')
-            },
-            {
-              href: '/academic/timetables/faculty-calendar',
-              label: 'Timetable Calendar',
-              active: pathname.startsWith(
-                '/academic/timetables/faculty-calendar'
-              )
-            }
-          ]
-        },
-        {
-          href: '/academic/attendance',
-          label: 'Attendance',
-          active: pathname.startsWith('/academic/attendance'),
-          icon: ClipboardCheck,
-          submenus: [
-            {
-              href: '/academic/attendance/dashboard',
-              label: 'Attendance Dashboard',
-              active: pathname.startsWith('/academic/attendance/dashboard')
-            },
-            {
-              href: '/academic/attendance/pending',
-              label: 'Pending Attendance',
-              active: pathname.startsWith('/academic/attendance/pending')
-            },
-            {
-              href: '/academic/attendance',
-              label: 'Mark Attendance',
-              active: pathname === '/academic/attendance'
-            },
-            {
-              href: '/academic/attendance/reports',
-              label: 'Attendance Reports',
-              active: pathname.startsWith('/academic/attendance/reports')
-            },
-            {
-              href: '/academic/attendance/consolidation',
-              label: 'Consolidation Reports',
-              active: pathname.startsWith('/academic/attendance/consolidation')
-            }
-          ]
         }
       ]
     },
