@@ -116,13 +116,19 @@ export class InboundCallSyncService {
         }
       }
 
-      // Update sync metadata
-      await InboundCallSyncService.updateSyncMetadata(institutionId, supabase, {
+      // Update sync metadata. Preserve the existing cursor when no records
+      // were processed this run — overwriting with `null` would make the next
+      // run fall back to the 7-day default window, replaying the same records
+      // and hitting the 300s function timeout. See: 2026-04-22 regression.
+      const finalUpdates: Record<string, any> = {
         status: result.errors.length > 0 ? 'partial' : 'success',
-        last_synced_call_date: latestCallDate,
         records_synced: result.synced,
         error_message: result.errors.length > 0 ? result.errors.join('; ') : null,
-      });
+      };
+      if (latestCallDate) {
+        finalUpdates.last_synced_call_date = latestCallDate;
+      }
+      await InboundCallSyncService.updateSyncMetadata(institutionId, supabase, finalUpdates);
 
       logger.info(MODULE, 'Inbound CDR sync completed', {
         institutionId,
@@ -244,6 +250,18 @@ export class InboundCallSyncService {
           errors.push(msg);
           logger.warn(MODULE, 'Failed to upsert CDR record', { sid: record.Sid, error: msg });
         }
+      }
+
+      // Persist cursor after every page (~100 records) so a mid-chunk timeout
+      // still saves progress. The per-chunk save above only fires after the
+      // whole chunk completes; for a 7-day window that is ONE chunk, so
+      // without this, a timeout anywhere in the page loop wipes all progress.
+      if (latestCallDate) {
+        await InboundCallSyncService.updateSyncMetadata(institutionId, supabase, {
+          status: 'running',
+          last_synced_call_date: latestCallDate,
+          records_synced: synced,
+        }).catch(() => {});
       }
     }
 
