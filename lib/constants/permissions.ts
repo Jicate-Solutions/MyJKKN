@@ -1171,6 +1171,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.approval_chains.edit', label: 'Edit Approval Chain Rule (name / description / active / priority)' },
       { key: 'campus_living.approval_chains.delete', label: 'Delete Approval Chain Rule (no active runs)' },
 
+      // Vacate requests (workflow — added 2026-04-22 PR-A, student-initiated hostel vacate with parent/warden/chief/dues approval chain)
+      { key: 'campus_living.vacate_requests.view', label: 'View Hostel Vacate Requests' },
+      { key: 'campus_living.vacate_requests.view_own', label: 'View Own Vacate Requests (Student / Resident)' },
+      { key: 'campus_living.vacate_requests.submit', label: 'Submit Own Vacate Request' },
+      { key: 'campus_living.vacate_requests.submit_on_behalf', label: 'Submit Vacate Request on Behalf of Student' },
+      { key: 'campus_living.vacate_requests.approve_warden', label: 'Warden Approve Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_chief', label: 'Chief Warden Approve Vacate Request' },
+      { key: 'campus_living.vacate_requests.mark_clearance', label: 'Mark Dues Clearance Items' },
+      { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (trigger hostel_allocations.vacate)' },
+      { key: 'campus_living.vacate_requests.cancel', label: 'Cancel Vacate Request (Admin / Hostel Office)' },
+
       // Wardens
       { key: 'campus_living.wardens.view', label: 'View Wardens' },
       { key: 'campus_living.wardens.assign', label: 'Assign Warden' },
