@@ -174,4 +174,23 @@ export class HostelResidentService {
       throw error;
     }
   }
+
+  // ── Bulk delete ───────────────────────────────────────────────────
+  // Per-ID isolation so one FK-restricted failure doesn't abort the whole batch.
+  static async bulkDeleteResidents(ids: string[]): Promise<{
+    success: string[];
+    failed: { id: string; error: string }[];
+  }> {
+    const success: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+    for (const id of ids) {
+      try {
+        await this.deleteResident(id);
+        success.push(id);
+      } catch (err) {
+        failed.push({ id, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { success, failed };
+  }
 }
