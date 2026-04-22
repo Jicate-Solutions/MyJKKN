@@ -359,7 +359,72 @@ export async function POST(request: Request) {
 
     console.log('Staff created successfully via API route:', staff.id);
 
-    return NextResponse.json(staff);
+    // Mirror the staff's role_key into user_roles for the synced profile.
+    // Done here (service_role) rather than browser-side so non-super-admin
+    // callers don't get blocked by the user_roles INSERT RLS policy, which
+    // requires roles.create (HOD/administrator/etc. only have staff.create).
+    // Non-fatal: profile.role still carries the string, so auth can work;
+    // user_roles can be resynced later. See 2026-04-22 fix notes.
+    let roleAssignmentApplied = false;
+    if (staff?.profile_id && staff?.role_key) {
+      const { data: roleRow, error: roleLookupError } = await supabaseAdmin
+        .from('custom_roles')
+        .select('id')
+        .eq('role_key', staff.role_key)
+        .maybeSingle();
+
+      if (roleLookupError) {
+        console.warn(
+          '[/api/staff] custom_roles lookup failed for role_key=',
+          staff.role_key,
+          roleLookupError
+        );
+      } else if (roleRow?.id) {
+        // Delete any stale assignments first (idempotent; matches
+        // UserRolesService.assignRoles semantics).
+        const { error: deleteError } = await supabaseAdmin
+          .from('user_roles')
+          .delete()
+          .eq('user_id', staff.profile_id);
+        if (deleteError) {
+          console.warn(
+            '[/api/staff] user_roles pre-delete failed (continuing):',
+            deleteError
+          );
+        }
+
+        const { error: insertError } = await supabaseAdmin
+          .from('user_roles')
+          .insert({
+            user_id: staff.profile_id,
+            role_id: roleRow.id,
+            is_primary: true,
+            assigned_by: session.user.id
+          });
+
+        if (insertError) {
+          console.warn(
+            '[/api/staff] user_roles insert failed (non-fatal):',
+            insertError
+          );
+        } else {
+          roleAssignmentApplied = true;
+          console.log(
+            '[/api/staff] user_roles assigned for profile',
+            staff.profile_id
+          );
+        }
+      } else {
+        console.warn(
+          '[/api/staff] No custom_role found for role_key=',
+          staff.role_key
+        );
+      }
+    }
+
+    // Signal to the browser that server-side role assignment succeeded so it
+    // can skip its own (RLS-blocked-for-non-admins) assignRoles call.
+    return NextResponse.json({ ...staff, _role_assignment_applied: roleAssignmentApplied });
   } catch (error) {
     console.error('Error in POST /api/staff:', error);
     return NextResponse.json(

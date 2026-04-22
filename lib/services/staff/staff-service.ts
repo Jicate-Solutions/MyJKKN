@@ -131,7 +131,7 @@ export class StaffService {
       }
 
       // First attempt: Try with regular authenticated client
-      let { data: staff, error } = await (this.supabase as any) 
+      let { data: staff, error } = await (this.supabase as any)
         .from('staff')
         .insert([
           {
@@ -142,6 +142,11 @@ export class StaffService {
         ])
         .select()
         .single();
+
+      // Track which path produced `staff` so we know whether the server
+      // already handled user_roles assignment (API route does it; the
+      // direct-insert path does not).
+      let usedApiRoute = false;
 
       // If we get a 403/RLS error, try using the API route instead
       if (
@@ -168,6 +173,7 @@ export class StaffService {
 
           staff = await response.json();
           error = null;
+          usedApiRoute = true;
         } catch (apiError) {
           console.error('API route also failed:', apiError);
           // Fall back to original error
@@ -181,7 +187,15 @@ export class StaffService {
       // and written profiles.role = NEW.role_key. We now mirror that into user_roles so the
       // merged-permission flow works for staff even before their first OAuth login.
       // Added: 2026-04-14
-      if (staff?.profile_id && staff?.role_key) {
+      //
+      // Skip when the API route was used: /api/staff already performed the
+      // assignment via supabaseAdmin (signalled by _role_assignment_applied).
+      // Repeating it here would hit user_roles' INSERT RLS policy, which
+      // requires roles.create (HOD/administrator only have staff.create).
+      // Updated: 2026-04-22
+      const serverApplied =
+        usedApiRoute && (staff as any)?._role_assignment_applied === true;
+      if (!serverApplied && staff?.profile_id && staff?.role_key) {
         try {
           const { data: roleRow } = await this.supabase
             .from('custom_roles')

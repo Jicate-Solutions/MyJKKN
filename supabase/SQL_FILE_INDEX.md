@@ -6,6 +6,13 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-22** — Staff INSERT fails 42501 "permission denied for table users" for HOD/non-super-admin staff.create
+  - New migration `supabase/migrations/20260422000003_fix_sync_staff_trigger_auth_access.sql`
+  - `02_functions.sql`: `sync_staff_to_profiles()` trigger function switched from SECURITY INVOKER (default) to SECURITY DEFINER with `SET search_path = public`. Body was also updated to mirror the live version that had drifted from source (profile_id-first lookup + auth-linked-first tiebreaker on email collisions).
+  - Root cause: the trigger's email-fallback branch orders by `EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)` to prefer auth-linked profiles on duplicate emails. `auth.users` grants SELECT only to `postgres` — not to `service_role`/`authenticated`/`anon` — so with SECURITY INVOKER every insert failed unless the caller was the superuser. `POST /api/staff` uses `supabaseAdmin` (service_role) and still tripped it because the trigger ran as the invoker.
+  - Fix: DEFINER makes the function execute as its owner (`postgres`), which has the grant. `search_path` is pinned to close the classic definer hijack vector. No behaviour change for callers.
+  - Reported by director 2026-04-22 ~15:35 IST when HOD test user hit "Failed to create staff record" with server-side `code: 42501, message: 'permission denied for table users'`.
+
 - **2026-04-22** — Service Requests: multi-approver per step (OR logic)
   - New migration `supabase/migrations/20260422000002_service_request_multi_approver_support.sql`
   - `01_tables.sql`: adds `approver_user_ids UUID[] NOT NULL DEFAULT '{}'` column to `service_request_approval_steps` + GIN index `idx_sr_approval_steps_approver_user_ids`.
