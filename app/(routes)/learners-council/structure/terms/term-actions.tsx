@@ -107,8 +107,8 @@ export function TermActions({ userId }: { userId: string }) {
       userId
     });
 
-    // Reset to fresh academic-year defaults for the next term creation
-    const d = computeAcademicYearDefaults('annual');
+    // Reset to fresh calendar-year defaults for the next term creation
+    const d = computeCalendarYearDefaults('annual');
     setName(d.name);
     setStartDate(d.start_date);
     setEndDate(d.end_date);
