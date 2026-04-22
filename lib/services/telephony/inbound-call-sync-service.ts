@@ -3,6 +3,7 @@
 
 import { getExotelClient, isExotelConfigured, type ExotelCallRecord } from './exotel-client';
 import { TelephonyService } from './telephony-service';
+import { isAdmissionCall } from './exotel-agent-map';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const MODULE = 'telephony/inbound-sync';
