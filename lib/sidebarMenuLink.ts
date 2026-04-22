@@ -2309,109 +2309,19 @@ export function GetPages(pathname: string): MenuGroup[] {
       // Compliance Unification Program — Accreditation group
       groupLabel: 'Accreditation',
       menus: [
+        // Single sidebar entry — all 10 accreditation bodies live in the
+        // module's in-page tab bar (AccreditationNav, see app/(routes)/
+        // accreditation/_components/accreditation-nav.tsx). Mirrors Campus
+        // Living + Learners Council + Admission CRM. NAAC has a 5-tab
+        // SectionSubNav on /accreditation/naac for its DCF/survey/IQAC pages.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs scales
+        // better as more compliance bodies are added. URLs UNCHANGED.
         {
           href: '/accreditation',
-          label: 'Hub (10 Bodies)',
-          active: pathname === '/accreditation',
+          label: 'Accreditation',
+          active: pathname === '/accreditation' || pathname.startsWith('/accreditation/'),
           icon: Award,
-          submenus: []
-        },
-        {
-          href: '/accreditation/coverage',
-          label: 'Coverage Matrix',
-          active: pathname.startsWith('/accreditation/coverage'),
-          icon: BarChart3,
-          submenus: []
-        },
-        {
-          href: '/accreditation/naac',
-          label: 'NAAC (IQAC)',
-          active: pathname.startsWith('/accreditation/naac'),
-          icon: ShieldCheck,
-          submenus: [
-            {
-              href: '/accreditation/naac/committees',
-              label: 'IQAC Committees',
-              active: pathname.startsWith('/accreditation/naac/committees'),
-            },
-            {
-              href: '/accreditation/naac/dcf-export',
-              label: 'DCF / AQAR Export',
-              active: pathname.startsWith('/accreditation/naac/dcf-export'),
-            },
-            {
-              href: '/accreditation/naac/surveys/consent',
-              label: 'Survey Consent (DPDPA)',
-              active: pathname.startsWith('/accreditation/naac/surveys/consent'),
-            },
-            {
-              href: '/accreditation/naac/surveys/8.4-export',
-              label: '8.4 Survey Export',
-              active: pathname.startsWith('/accreditation/naac/surveys/8.4-export'),
-            }
-          ]
-        },
-        {
-          href: '/accreditation/nirf',
-          label: 'NIRF Ranking',
-          active: pathname.startsWith('/accreditation/nirf'),
-          icon: TrendingUp,
-          submenus: []
-        },
-        {
-          href: '/accreditation/nba',
-          label: 'NBA (Engineering)',
-          active: pathname.startsWith('/accreditation/nba'),
-          icon: Briefcase,
-          submenus: []
-        },
-        {
-          href: '/accreditation/qs',
-          label: 'QS World Ranking (Phase 2+)',
-          active: pathname.startsWith('/accreditation/qs'),
-          icon: Globe,
-          submenus: []
-        },
-        {
-          href: '/accreditation/dci',
-          label: 'DCI (Dental)',
-          active: pathname.startsWith('/accreditation/dci'),
-          icon: Stethoscope,
-          submenus: []
-        },
-        {
-          href: '/accreditation/pci',
-          label: 'PCI (Pharmacy)',
-          active: pathname.startsWith('/accreditation/pci'),
-          icon: ClipboardPlus,
-          submenus: []
-        },
-        {
-          href: '/accreditation/inc',
-          label: 'INC (Nursing)',
-          active: pathname.startsWith('/accreditation/inc'),
-          icon: HeartPulse,
-          submenus: []
-        },
-        {
-          href: '/accreditation/ncte',
-          label: 'NCTE (Teacher Ed)',
-          active: pathname.startsWith('/accreditation/ncte'),
-          icon: GraduationCap,
-          submenus: []
-        },
-        {
-          href: '/accreditation/aicte',
-          label: 'AICTE (Technical)',
-          active: pathname.startsWith('/accreditation/aicte'),
-          icon: Rocket,
-          submenus: []
-        },
-        {
-          href: '/accreditation/ugc',
-          label: 'UGC (Overall)',
-          active: pathname.startsWith('/accreditation/ugc'),
-          icon: Scale,
           submenus: []
         }
       ]
