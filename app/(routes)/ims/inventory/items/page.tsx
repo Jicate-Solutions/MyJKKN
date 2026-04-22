@@ -318,7 +318,7 @@ export default function InventoryItemsPage() {
           track_batch: formData.track_batch,
           track_expiry: formData.track_expiry,
           is_sellable_to_students: formData.is_sellable_to_students,
-          store_id: storeId || '',
+          store_id: storeId || null,
           institution_id: institutionId || null,
         };
         const item = await createItem.mutateAsync(createData);

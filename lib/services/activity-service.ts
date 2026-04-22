@@ -1,5 +1,4 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { IPDetector } from '@/lib/utils/ip-detector';
 import {
   UserActivityLog,
@@ -20,9 +19,6 @@ export class ActivityService {
   private static async getServerSupabase() {
     return await createServerSupabaseClient();
   }
-
-  // Keep client supabase for client-side operations
-  private static supabase = createClientSupabaseClient();
 
   /**
    * Create a new activity log entry
