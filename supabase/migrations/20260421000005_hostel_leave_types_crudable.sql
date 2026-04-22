@@ -213,27 +213,39 @@ END $$;
 
 -- hostel_leave_requests stores institution via join on block → for the
 -- backfill we JOIN through hostel_blocks to get the learner's institution.
+-- PG rule: JOIN ON clauses in UPDATE...FROM cannot reference the UPDATE
+-- target. The `req.leave_type_code` condition must live in WHERE, not
+-- in the JOIN ON clause. (Fixed 2026-04-22 during prod apply — original
+-- version crashed with "invalid reference to FROM-clause entry for
+-- table 'req'".)
 UPDATE public.hostel_leave_requests req
 SET leave_type_id = hlt.id
 FROM public.hostel_blocks blk
 JOIN public.hostel_leave_types hlt
   ON hlt.institution_id = blk.institution_id
- AND hlt.leave_type_code = req.leave_type::text
 WHERE req.leave_type_id IS NULL
-  AND req.block_id = blk.id;
+  AND req.block_id = blk.id
+  AND hlt.leave_type_code = req.leave_type::text;
 
 -- For leave requests on SHARED blocks (institution_id NULL after PR-1
 -- #282), fall back to any matching type code regardless of institution.
 -- Best-effort — warden can update manually later if wrong.
+-- Fallback uses a scalar subquery (SELECT ... LIMIT 1) instead of IN(...)
+-- because PG doesn't allow outer-table references inside a grouped
+-- subquery. Deterministic pick: oldest created_at, then smallest id.
+-- (Fixed 2026-04-22 same commit as the JOIN-ON fix above.)
 UPDATE public.hostel_leave_requests req
-SET leave_type_id = hlt.id
-FROM public.hostel_leave_types hlt
+SET leave_type_id = (
+    SELECT hlt.id
+    FROM public.hostel_leave_types hlt
+    WHERE hlt.leave_type_code = req.leave_type::text
+    ORDER BY hlt.created_at ASC, hlt.id ASC
+    LIMIT 1
+)
 WHERE req.leave_type_id IS NULL
-  AND hlt.leave_type_code = req.leave_type::text
-  AND hlt.id IN (
-      SELECT MIN(id::text)::uuid FROM public.hostel_leave_types
-      WHERE leave_type_code = req.leave_type::text
-      GROUP BY leave_type_code
+  AND EXISTS (
+      SELECT 1 FROM public.hostel_leave_types hlt2
+      WHERE hlt2.leave_type_code = req.leave_type::text
   );
 
 CREATE INDEX IF NOT EXISTS hostel_leave_requests_leave_type_id_idx
