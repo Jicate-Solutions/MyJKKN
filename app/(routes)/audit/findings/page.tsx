@@ -301,13 +301,10 @@ function FindingRow({
   onClick: () => void;
 }) {
   const age = ageInDays(finding.submitted_at);
-  // SLA window from server-set requester_context (we derive severity → p1/p2 mapping
-  // from the service's logged context; we fall back to null so the chip is n/a).
-  const expected = finding.form_data?.evidence_required ? undefined : undefined;
-  // Note: the cycle-filtered list projection doesn't return requester_context; we
-  // only surface a best-effort default based on severity. Red=7, Yellow=30, Green=60.
-  // The canonical SLA lives on service_requests.requester_context; /service-requests/[id]
-  // shows the accurate deadline.
+  // The cycle-filtered list projection doesn't return requester_context, so we
+  // surface a best-effort SLA default from severity. Red=7, Yellow=30, Green=60.
+  // The canonical SLA lives on service_requests.requester_context; the detail
+  // page at /service-requests/[id] renders the accurate deadline.
   const fallbackSla =
     finding.severity === 'red' ? 7 : finding.severity === 'yellow' ? 30 : 60;
 
@@ -341,7 +338,7 @@ function FindingRow({
       <TableCell>
         <SlaChip
           submittedAt={finding.submitted_at}
-          expectedResolutionDays={expected ?? fallbackSla}
+          expectedResolutionDays={fallbackSla}
         />
       </TableCell>
       <TableCell className="text-xs font-mono text-muted-foreground truncate max-w-[220px]">
