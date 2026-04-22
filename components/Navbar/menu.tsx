@@ -21,6 +21,7 @@ import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { useCommitteeMembership } from '@/hooks/events/marathon/use-committee-membership';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebarSection';
+import { FavoriteStar } from '@/components/Favorites/FavoriteStar';
 import { Search } from 'lucide-react';
 import { getShortcutForPath } from '@/lib/navigation/keyboard-shortcuts';
 
@@ -161,15 +162,18 @@ export function Menu({ isOpen }: MenuProps) {
                   <p className='pb-2'></p>
                 )}
                 {menus.map(
-                  ({ href, label, icon: Icon, active, submenus }, index) =>
-                    submenus.length === 0 ? (
-                      <div className='w-full' key={index}>
+                  ({ href, label, icon: Icon, active, submenus }, index) => {
+                    const iconName = (Icon as { displayName?: string }).displayName || 'Folder';
+                    const moduleName = groupLabel || 'General';
+
+                    return submenus.length === 0 ? (
+                      <div className='w-full group/row flex items-center' key={index}>
                         <TooltipProvider disableHoverableContent>
                           <Tooltip delayDuration={100}>
                             <TooltipTrigger asChild>
                               <Button
                                 variant={active ? 'secondary' : 'ghost'}
-                                className={cn('w-full justify-start h-10 mb-1', !active && 'dark:text-gray-400')}
+                                className={cn('flex-1 justify-start h-10 mb-1', !active && 'dark:text-gray-400')}
                                 asChild
                               >
                                 <Link href={href}>
@@ -208,6 +212,16 @@ export function Menu({ isOpen }: MenuProps) {
                             )}
                           </Tooltip>
                         </TooltipProvider>
+                        {isOpen !== false && (
+                          <FavoriteStar
+                            pagePath={href}
+                            pageTitle={label}
+                            module={moduleName}
+                            iconName={iconName}
+                            size='sm'
+                            className='opacity-0 group-hover/row:opacity-100 transition-opacity mr-1'
+                          />
+                        )}
                       </div>
                     ) : (
                       <div className='w-full' key={index}>
@@ -218,9 +232,12 @@ export function Menu({ isOpen }: MenuProps) {
                           submenus={submenus}
                           isOpen={isOpen}
                           shortcut={getShortcutForPath(href)}
+                          module={moduleName}
+                          parentIconName={iconName}
                         />
                       </div>
-                    )
+                    );
+                  }
                 )}
               </li>
             ))}

@@ -109,16 +109,25 @@ export interface RolePermissionData {
   permissions: Record<string, boolean>;
 }
 
-interface MenuItem {
+/**
+ * Recursive submenu type — can nest arbitrarily deep.
+ * Optional `icon` and `submenus` fields make existing flat submenus continue to work
+ * while also enabling multi-tier nesting (e.g. Learners Council → Structure → Positions).
+ */
+export interface Submenu {
+  href: string;
+  label: string;
+  active: boolean;
+  icon?: LucideIcon;
+  submenus?: Submenu[];
+}
+
+export interface MenuItem {
   href: string;
   label: string;
   icon: LucideIcon;
   active: boolean;
-  submenus: Array<{
-    href: string;
-    label: string;
-    active: boolean;
-  }>;
+  submenus: Submenu[];
 }
 
 interface MenuGroup {
@@ -2624,46 +2633,62 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Structure: parent that nests Positions + Committees under it.
+          // Active if on /structure OR any of its children.
           href: '/learners-council/structure',
           label: 'Structure',
           active: pathname.startsWith('/learners-council/structure'),
           icon: Users,
-          submenus: []
+          submenus: [
+            {
+              href: '/learners-council/structure',
+              label: 'Overview',
+              active: pathname === '/learners-council/structure',
+              icon: Users
+            },
+            {
+              href: '/learners-council/structure/positions',
+              label: 'Positions',
+              active: pathname.startsWith('/learners-council/structure/positions'),
+              icon: Award
+            },
+            {
+              href: '/learners-council/structure/committees',
+              label: 'Committees',
+              active: pathname.startsWith('/learners-council/structure/committees'),
+              icon: Users
+            }
+          ]
         },
         {
-          href: '/learners-council/structure/positions',
-          label: 'Positions',
-          active: pathname.startsWith('/learners-council/structure/positions'),
-          icon: Award,
-          submenus: []
-        },
-        {
-          href: '/learners-council/structure/committees',
-          label: 'Committees',
-          active: pathname.startsWith('/learners-council/structure/committees'),
-          icon: Users,
-          submenus: []
-        },
-        {
+          // Activities: groups related operational work (communication, events, OD)
           href: '/learners-council/communication',
-          label: 'Communication',
-          active: pathname.startsWith('/learners-council/communication'),
-          icon: MessagesSquare,
-          submenus: []
-        },
-        {
-          href: '/learners-council/events',
-          label: 'Events',
-          active: pathname.startsWith('/learners-council/events'),
+          label: 'Activities',
+          active:
+            pathname.startsWith('/learners-council/communication') ||
+            pathname.startsWith('/learners-council/events') ||
+            pathname.startsWith('/learners-council/od'),
           icon: CalendarDays,
-          submenus: []
-        },
-        {
-          href: '/learners-council/od',
-          label: 'OD Requests',
-          active: pathname.startsWith('/learners-council/od'),
-          icon: Briefcase,
-          submenus: []
+          submenus: [
+            {
+              href: '/learners-council/communication',
+              label: 'Communication',
+              active: pathname.startsWith('/learners-council/communication'),
+              icon: MessagesSquare
+            },
+            {
+              href: '/learners-council/events',
+              label: 'Events',
+              active: pathname.startsWith('/learners-council/events'),
+              icon: CalendarDays
+            },
+            {
+              href: '/learners-council/od',
+              label: 'OD Requests',
+              active: pathname.startsWith('/learners-council/od'),
+              icon: Briefcase
+            }
+          ]
         },
         {
           href: '/learners-council/selection',
