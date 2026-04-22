@@ -152,6 +152,7 @@ LABELS = {
         ("Fixed monthly charge", "fixed_monthly"),
     ],
     "leave_type": [
+        # Original 7 (present in the legacy hostel_leave_type_enum)
         ("Home Visit", "home_visit"),
         ("Weekend Out", "weekend"),
         ("Vacation", "vacation"),
@@ -159,6 +160,16 @@ LABELS = {
         ("Medical", "medical"),
         ("Academic (exam / conference)", "academic"),
         ("Night Out", "night_out"),
+        # +9 added 2026-04-22 (master-table-only — not in legacy enum)
+        ("Festival / Public Holiday", "festival"),
+        ("Wedding / Family Function", "family_function"),
+        ("Bereavement / Condolence", "bereavement"),
+        ("Clinical / Hospital Rotation", "clinical_rotation"),
+        ("Industrial Visit / Field Trip", "industrial_visit"),
+        ("Internship / Placement", "internship"),
+        ("Training / Workshop", "training"),
+        ("Sports / Cultural Event", "sports_cultural"),
+        ("Convocation / Alumni Event", "convocation"),
     ],
     "cleaning_type": [
         ("Daily Sweeping", "daily_sweep"),
@@ -251,9 +262,12 @@ INST = "institution"
 
 SHEETS = [
     ("1. Hostel Blocks",
-     "Start here. One row per physical hostel block (e.g. Boys' Block A, Girls' Block B).",
+     "Start here. One row per physical hostel block (e.g. Boys' Block A, Girls' Block B). "
+     "If a block is shared across colleges, pick the PRIMARY college here and list the full "
+     "set in sheet '1a. Block↔College Map'. Leave College Name blank only if no one college "
+     "is primary (rare).",
      [
-        ("College Name", True, "Pick your college from the dropdown", INST, "institution_id"),
+        ("College Name", False, "Primary owning college (optional — see hint above).", INST, "institution_id"),
         ("Block Name", True, "e.g. 'Boys Block A', 'Anna Block'", None, "name"),
         ("Block Code", True, "Short unique code e.g. 'BLK-A', 'AB'. This is how Rooms sheet links back.", None, "code"),
         ("Type of Hostel", True, "Pick from dropdown", "hostel_type", "hostel_type"),
@@ -269,8 +283,31 @@ SHEETS = [
      [
         ["JKKN College of Engineering and Technology", "Boys Block A", "BLK-A", "Boys' Hostel", 4,
          "Main campus, Gate 1", "9876543210", "22:00", "23:00", "16:00", "19:00", "Active"],
-        ["JKKN College of Engineering and Technology", "Girls Block A", "GRL-A", "Girls' Hostel", 3,
+        # Shared block — no primary college (girls' block serves all colleges, see sheet 1a)
+        ["", "Girls Block A", "GRL-A", "Girls' Hostel", 3,
          "Main campus, Gate 2", "9876543211", "21:30", "22:30", "16:00", "18:30", "Active"],
+     ]),
+
+    ("1a. Block ↔ College Map",
+     "FILL THIS IF any block serves multiple colleges (shared hostels). One row per "
+     "(block, college) pair. Is Primary = Yes for exactly ONE row per block; No for the others. "
+     "If your hostels are 1-college-only you can skip this sheet — the primary college from sheet 1 "
+     "will be auto-mapped.",
+     [
+        ("Block Code", True, "Must match a Block Code from sheet '1. Hostel Blocks'", None, "_block_code"),
+        ("College Name", True, "Which college does this block serve?", INST, "institution_id"),
+        ("Is Primary", True, "Yes = this is the block's 'home' college (exactly one per block). No = shared/secondary.", "yes_no", "is_primary"),
+        ("Year Groups Served", False, "Optional: which year cohorts of this college live here. Comma-separated, e.g. '1st Year, 2nd Year'.", None, "learner_year_groups"),
+        ("Floors Assigned", False, "Optional: which floors this college's learners occupy. Comma-separated integers, e.g. '1, 2'.", None, "floors_assigned"),
+        ("Notes", False, "Anything else the loader should know about this mapping.", None, "notes"),
+     ],
+     [
+        # Girls Block A (shared) — maps to three colleges, Engineering is primary
+        ["GRL-A", "JKKN College of Engineering and Technology", "Yes", "1st Year, 2nd Year", "1, 2", "Engineering girls on floors 1-2"],
+        ["GRL-A", "JKKN College of Nursing and Research",       "No",  "1st Year",             "3",    "Nursing 1st-years on floor 3"],
+        ["GRL-A", "JKKN Dental College and Hospital",           "No",  "2nd Year, 3rd Year",   "",     "Dental seniors — floor TBD"],
+        # Boys Block A (single-college) — loader can auto-fill this from sheet 1, row is optional
+        ["BLK-A", "JKKN College of Engineering and Technology", "Yes", "",                     "",     "Auto-mapped from sheet 1"],
      ]),
 
     ("2. Hostel Rooms",
@@ -354,21 +391,24 @@ SHEETS = [
      ]),
 
     ("6. Leave Types",
-     "Which leave types are allowed at each college + approval rules.",
+     "OPTIONAL — 16 leave types are pre-seeded per college (see /campus-living/settings/leave-types). "
+     "Only fill this sheet to OVERRIDE the default max days or approval flags for specific (college, type) pairs. "
+     "Leave blank rows alone. Dropdown shows all 16 available types. "
+     "Admins can also add custom types via the UI — those will NOT auto-appear in this dropdown.",
      [
         ("College Name", True, "Which college", INST, "institution_id"),
-        ("Leave Type", True, "Pick from dropdown", "leave_type", "leave_type"),
-        ("Max Duration (days)", False, "Max days allowed in one request", None, "max_duration_days"),
-        ("Parent Consent Required", False, "Yes / No", "yes_no", "requires_parent_consent"),
+        ("Leave Type", True, "Pick from dropdown — matches a pre-seeded type in /campus-living/settings/leave-types", "leave_type", "leave_type"),
+        ("Max Duration (days)", False, "Override master default. Leave blank for no cap. Example: Home Visit master default is 30d, override to 21d for your college here.", None, "max_duration_days"),
+        ("Parent Consent Required", False, "Yes / No — overrides type default", "yes_no", "requires_parent_consent"),
         ("Advance Notice (hours)", False, "Hours of advance notice required before leave starts", None, "advance_notice_hours"),
-        ("Chief Warden Approval Required", False, "Yes / No", "yes_no", "requires_chief_warden"),
-        ("Attachment Required", False, "e.g. medical certificate. Yes / No", "yes_no", "requires_attachment"),
-        ("Active", False, "Is this leave type enabled? Yes / No", "yes_no", "is_active"),
+        ("Chief Warden Approval Required", False, "Yes / No — overrides type default", "yes_no", "requires_chief_warden"),
+        ("Attachment Required", False, "e.g. medical certificate. Yes / No — overrides type default", "yes_no", "requires_attachment"),
+        ("Active", False, "Disable a pre-seeded type for this college (Yes = active, No = hidden from warden flows)", "yes_no", "is_active"),
      ],
      [
-        ["JKKN College of Engineering and Technology", "Home Visit", 30, "Yes", 24, "No", "No", "Yes"],
-        ["JKKN College of Engineering and Technology", "Medical", 15, "Yes", 0, "No", "Yes", "Yes"],
-        ["JKKN College of Engineering and Technology", "Emergency", 7, "Yes", 0, "Yes", "No", "Yes"],
+        ["JKKN College of Engineering and Technology", "Home Visit", 21, "Yes", 24, "No", "No", "Yes"],
+        ["JKKN College of Engineering and Technology", "Clinical / Hospital Rotation", None, "Yes", 168, "No", "Yes", "No"],
+        ["JKKN College of Nursing and Research", "Clinical / Hospital Rotation", 180, "No", 168, "Yes", "Yes", "Yes"],
      ]),
 
     ("7. Mess Caterers",
