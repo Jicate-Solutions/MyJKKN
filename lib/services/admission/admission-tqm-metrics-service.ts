@@ -48,18 +48,19 @@ export class AdmissionTQMMetricsService {
    * and COPQ incidents from billing_copq_incidents
    */
   static async getMetrics(institutionId: string): Promise<AdmissionTQMMetrics> {
-    
-
-    // Fetch metrics from the view (last 2 months)
-    // Using 'as any' because Supabase views may not be in the typed .from() overload
-    const { data: metricsData, error: metricsError } = await (this.supabase as any)
+    // Fetch metrics from the view (last 2 months).
+    // Using 'as any' because Supabase views may not be in the typed .from() overload.
+    // Conditional institution_id filter supports super_admin cross-institution view
+    // (caller passes '' or undefined when not scoping to a single institution).
+    let query = (this.supabase as any)
       .from('admission_process_metrics')
-      .select('*')
-
+      .select('*');
 
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
     }
+
+    const { data: metricsData, error: metricsError } = await query
       .order('month', { ascending: false })
       .limit(2);
 
