@@ -113,9 +113,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       slaBreachedQuery,
     ]);
 
-    // Void unused helper (kept for readability of intent; remove if ts-prune flags)
-    void withInstitution;
-
     const firstError = [
       openResult,
       inProgressResult,
