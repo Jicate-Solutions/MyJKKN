@@ -67,9 +67,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const supabase = createServiceRoleClient();
 
-    const withInstitution = <T extends { eq: (...args: never[]) => T }>(q: T) =>
-      institutionId ? q.eq('institution_id' as never, institutionId as never) : q;
-
     const makeCountQueryByStatus = (status: string) => {
       const base = supabase
         .from('grievance_tickets')
