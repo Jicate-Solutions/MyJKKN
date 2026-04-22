@@ -219,7 +219,7 @@ export function Menu({ isOpen }: MenuProps) {
                             module={moduleName}
                             iconName={iconName}
                             size='sm'
-                            className='opacity-0 group-hover/row:opacity-100 transition-opacity mr-1'
+                            className='opacity-0 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity mr-1'
                           />
                         )}
                       </div>
@@ -234,6 +234,7 @@ export function Menu({ isOpen }: MenuProps) {
                           shortcut={getShortcutForPath(href)}
                           module={moduleName}
                           parentIconName={iconName}
+                          href={href}
                         />
                       </div>
                     );

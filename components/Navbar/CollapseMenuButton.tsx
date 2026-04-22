@@ -44,6 +44,8 @@ interface CollapseMenuButtonProps {
   shortcut?: string;
   module?: string;
   parentIconName?: string;
+  /** Real URL for the parent item — used when favoriting the top-level row */
+  href?: string;
 }
 
 /**
@@ -94,7 +96,7 @@ function SubmenuRow({
           module={module}
           iconName={parentIconName}
           size='sm'
-          className='opacity-0 group-hover/row:opacity-100 transition-opacity mr-1'
+          className='opacity-0 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity mr-1'
         />
       </div>
     );
@@ -134,7 +136,7 @@ function SubmenuRow({
           module={module}
           iconName={parentIconName}
           size='sm'
-          className='opacity-0 group-hover/row:opacity-100 transition-opacity mr-1'
+          className='opacity-0 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity mr-1'
         />
       </div>
       <CollapsibleContent className='overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down'>
@@ -161,6 +163,7 @@ export function CollapseMenuButton({
   shortcut,
   module = 'Unknown',
   parentIconName = 'Folder',
+  href,
 }: CollapseMenuButtonProps) {
   const isSubmenuActive = submenus.some(
     (submenu) =>
@@ -222,14 +225,16 @@ export function CollapseMenuButton({
             </div>
           </Button>
         </CollapsibleTrigger>
-        <FavoriteStar
-          pagePath={`group:${label}`}
-          pageTitle={label}
-          module={module}
-          iconName={parentIconName}
-          size='sm'
-          className='opacity-0 group-hover/row:opacity-100 transition-opacity mr-1'
-        />
+        {href && (
+          <FavoriteStar
+            pagePath={href}
+            pageTitle={label}
+            module={module}
+            iconName={parentIconName}
+            size='sm'
+            className='opacity-0 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity mr-1'
+          />
+        )}
       </div>
       <CollapsibleContent className='overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down'>
         {submenus.map((child, index) => (
