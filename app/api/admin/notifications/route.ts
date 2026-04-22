@@ -18,6 +18,13 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
+    // Clamp caller-supplied limit to avoid unbounded fetches on admin view.
+    // Default 500 covers ~a week of activity even with a noisy notification
+    // source (e.g. lead-rescue cron that fires 100+ per day).
+    const requestedLimit = parseInt(searchParams.get('limit') || '500', 10);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 1000)
+      : 500;
 
     let query = (supabase as any).from('notifications').select(`
         id, title, body, url, icon, priority, category, sent_at,
@@ -32,7 +39,7 @@ export async function GET(request: NextRequest) {
 
     const { data: notifications, error } = await query
       .order('sent_at', { ascending: false })
-      .limit(100); // Add a reasonable limit
+      .limit(limit);
 
     if (error) throw error;
 
