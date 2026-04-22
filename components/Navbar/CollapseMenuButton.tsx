@@ -181,7 +181,7 @@ export function CollapseMenuButton({
     >
       <div className='flex items-center group/row mb-1'>
         <CollapsibleTrigger
-          className='[&[data-state=open]>button>div>div>svg]:rotate-180 flex-1'
+          className='[&[data-state=open]>div>div>svg]:rotate-180 flex-1'
           asChild
         >
           <Button
