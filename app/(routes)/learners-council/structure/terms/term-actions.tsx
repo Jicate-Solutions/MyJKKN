@@ -35,45 +35,40 @@ import { useCreateTerm, useUpdateTerm } from '@/hooks/learners-council/use-lc-st
 // ============================================================================
 
 /**
- * Compute sensible academic-year defaults for a new term.
+ * Compute sensible calendar-year defaults for a new term.
  *
- * JKKN's academic year runs July 1 → June 30 and is labeled "YYYY-YY"
- * (e.g. 2026-27 = Jul 2026 → Jun 2027). These defaults steer users away
- * from accidentally creating calendar-year terms (Jan 1 → Dec 31), which
- * has been a source of drift.
+ * JKKN's LC and YUVA terms follow the calendar year (January 1 →
+ * December 31) with single-year labels: "LC Term 2026", "LC Term 2027",
+ * etc. These defaults prevent users from accidentally creating
+ * half-year or academic-year terms.
  *
- *   Current month range   | Default academic year
- *   ----------------------|----------------------
- *   Jul–Dec               | current year          (e.g. Oct 2026 → 2026-27)
- *   Jan–Mar               | current year − 1      (e.g. Feb 2027 → 2026-27, still in it)
- *   Apr–Jun               | current year          (planning the upcoming Jul start)
+ *   Current month range | Default term year
+ *   --------------------|-------------------
+ *   Jan–Oct             | current year           (normal case — planning or midway through)
+ *   Nov–Dec             | current year + 1       (likely planning next year's term)
  *
- * Executive rotation defaults to the first half (Jul–Dec) of the same
- * academic year. User can always override the dates manually.
+ * Executive rotation defaults to H1 (January–June) of the same year.
+ * User can always override any field manually.
  */
-function computeAcademicYearDefaults(
+function computeCalendarYearDefaults(
   termType: 'annual' | 'executive_rotation'
 ): { name: string; start_date: string; end_date: string } {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1; // 1-12
-  // Picks the academic year the user is most likely planning.
-  const startYear =
-    month >= 7 ? year : month <= 3 ? year - 1 : year; // Apr–Jun: plan upcoming Jul.
-  const endYear = startYear + 1;
-  const label = `${startYear}-${String(endYear).slice(-2)}`;
+  const termYear = month >= 11 ? year + 1 : year;
 
   if (termType === 'executive_rotation') {
     return {
-      name: `LC Exec Rotation H1 ${label}`,
-      start_date: `${startYear}-07-01`,
-      end_date: `${startYear}-12-31`,
+      name: `LC Exec Rotation H1 ${termYear}`,
+      start_date: `${termYear}-01-01`,
+      end_date: `${termYear}-06-30`,
     };
   }
   return {
-    name: `LC Term ${label}`,
-    start_date: `${startYear}-07-01`,
-    end_date: `${endYear}-06-30`,
+    name: `LC Term ${termYear}`,
+    start_date: `${termYear}-01-01`,
+    end_date: `${termYear}-12-31`,
   };
 }
 
