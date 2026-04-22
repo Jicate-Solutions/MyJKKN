@@ -10,6 +10,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -45,9 +46,23 @@ export function ServiceTypeDetailDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         {isLoading || !serviceType ? (
-          <div className="flex items-center justify-center min-h-[200px]">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
+          <>
+            {/* Radix a11y: DialogContent requires a title+description from
+                the moment it mounts. During the fetch we don't have the
+                service-type name yet, so render screen-reader-only
+                placeholders to satisfy the contract without showing empty
+                chrome. These get replaced by the real header below once
+                the data resolves. */}
+            <VisuallyHidden>
+              <DialogTitle>Loading service type details</DialogTitle>
+              <DialogDescription>
+                Fetching service type configuration…
+              </DialogDescription>
+            </VisuallyHidden>
+            <div className="flex items-center justify-center min-h-[200px]">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          </>
         ) : (
           <>
             <DialogHeader>
@@ -229,6 +244,12 @@ export function ServiceTypeDetailDialog({
                             </span>
                             <p className="text-xs text-muted-foreground capitalize">
                               {step.approver_role.replace(/_/g, ' ')}
+                              {step.approver_user_ids && step.approver_user_ids.length > 0 && (
+                                <span className="ml-1 normal-case">
+                                  · {step.approver_user_ids.length} named approver
+                                  {step.approver_user_ids.length === 1 ? '' : 's'}
+                                </span>
+                              )}
                             </p>
                           </div>
                           {step.is_required && (

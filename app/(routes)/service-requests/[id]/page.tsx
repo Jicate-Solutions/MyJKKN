@@ -64,21 +64,27 @@ export default function ServiceRequestDetailPage({
   }, [request]);
 
   // Gate Approve/Reject/Return buttons. We mirror the backend's
-  // authorization check (service-request-approval-service.ts:92) so the
-  // buttons only render when clicking them will actually succeed:
+  // authorization check in service-request-approval-service.processApproval
+  // so the buttons only render when clicking them will actually succeed:
   //   - request status must still be waiting on approval
   //   - super admin always passes
-  //   - otherwise the caller must hold the service_requests.approve
-  //     permission AND have a role that matches the CURRENT step's
-  //     approver_role. Previously the UI only checked the permission,
-  //     so a principal viewing an HOD-gated step saw the buttons, clicked,
-  //     and received a "wrong role" error toast.
+  //   - otherwise the caller must hold the service_requests.approve permission
+  //     AND either (a) be explicitly listed in the step's approver_user_ids
+  //     when that array is non-empty, or (b) have a role matching the step's
+  //     approver_role when no explicit user list is configured.
   const canApprove = useMemo(() => {
     if (!request || !profile) return false;
     if (request.status !== 'in_review' && request.status !== 'submitted') return false;
     if (isSuperAdmin) return true;
     if (!can('service_requests.approve')) return false;
     if (!currentApprovalStep) return false;
+
+    const userIds = currentApprovalStep.approver_user_ids ?? [];
+    if (userIds.length > 0) {
+      // Multi-approver mode — role is irrelevant, only the explicit list matters.
+      return userIds.includes(profile.id);
+    }
+    // Legacy role-based mode.
     return profile.role === currentApprovalStep.approver_role;
   }, [request, profile, isSuperAdmin, can, currentApprovalStep]);
 

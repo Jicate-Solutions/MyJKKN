@@ -6,6 +6,13 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-22** — Service Requests: multi-approver per step (OR logic)
+  - New migration `supabase/migrations/20260422000002_service_request_multi_approver_support.sql`
+  - `01_tables.sql`: adds `approver_user_ids UUID[] NOT NULL DEFAULT '{}'` column to `service_request_approval_steps` + GIN index `idx_sr_approval_steps_approver_user_ids`.
+  - `03_policies.sql`: extends "Approvers can view pending requests" to also match users listed in `approver_user_ids` (not just those whose role matches `approver_role`). Also picks up the institution-scope guard previously only in the migration file.
+  - Semantics: empty array = legacy role-based matching; populated = approval restricted to listed users, first to act wins. `approver_role` stays populated (set to first selected user's role) so legacy inbox queries keep working.
+  - Use case: service-type author wants to pick 2–5 specific users per step (e.g. "HOD Priya OR HOD Rahul OR Principal") instead of "any user with HOD role".
+
 - **2026-04-22** — Hostel leave types seed expansion (+9 defaults) + fix bug in #287 migration
   - New migration `supabase/migrations/20260422000001_seed_hostel_leave_types_expansion.sql` (~90 lines, atomic BEGIN/COMMIT)
   - Seeds 9 new system defaults × 11 institutions = 99 rows: festival, family_function, bereavement, clinical_rotation, industrial_visit, internship, training, sports_cultural, convocation. All is_system=true so UI blocks delete (admins can deactivate via is_active toggle instead).

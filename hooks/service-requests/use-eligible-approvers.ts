@@ -83,6 +83,54 @@ export function useEligibleApprovers(
   });
 }
 
+/**
+ * Resolve a flat list of profile IDs (from `approval_step.approver_user_ids`)
+ * to the full profile objects, regardless of institution or role. Used when a
+ * step has explicit named approvers — those users should display even if
+ * they're outside the request's current institution scope (which is a valid
+ * case for cross-institution types).
+ *
+ * Returns a stable id -> profile map; empty until there's at least one ID
+ * to look up.
+ */
+export function useApproversByIds(userIds: (string | null | undefined)[]) {
+  const uniqueIds = useMemo(
+    () => Array.from(new Set(userIds.filter((id): id is string => !!id))),
+    [userIds]
+  );
+
+  return useQuery<Map<string, EligibleApprover>>({
+    queryKey: ['eligible-approvers-by-id', uniqueIds.slice().sort().join(',')],
+    queryFn: async () => {
+      const result = new Map<string, EligibleApprover>();
+      if (uniqueIds.length === 0) return result;
+
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, is_active')
+        .in('id', uniqueIds);
+
+      if (error) {
+        console.error('[eligible-approvers-by-id] fetch failed', error);
+        return result;
+      }
+
+      for (const row of (data || []) as any[]) {
+        result.set(row.id, {
+          id: row.id,
+          full_name: row.full_name,
+          email: row.email,
+          role: row.role,
+        });
+      }
+      return result;
+    },
+    enabled: uniqueIds.length > 0,
+    staleTime: 60_000,
+  });
+}
+
 /** Title-case a role_key for display when no custom_roles mapping is loaded. */
 export function roleKeyToLabel(roleKey: string | null | undefined): string {
   if (!roleKey) return 'Unknown';
