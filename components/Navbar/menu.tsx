@@ -24,6 +24,7 @@ import { FavoritesSidebarSection } from '@/components/Favorites/FavoritesSidebar
 import { FavoriteStar } from '@/components/Favorites/FavoriteStar';
 import { Search } from 'lucide-react';
 import { getShortcutForPath } from '@/lib/navigation/keyboard-shortcuts';
+import { logSidebarHealthDev } from '@/lib/sidebar-validator';
 
 interface MenuProps {
   isOpen: boolean | undefined;
@@ -88,6 +89,13 @@ export function Menu({ isOpen }: MenuProps) {
 
   // Use the role-based menu with merged permissions
   const pages = GetRoleBasedPages(pathname, roleData);
+
+  // DEV-only: warn if any group exceeds the flat-item thresholds set by the
+  // validator (prevents regression back to cluttered flat lists on new modules).
+  // No-op in production.
+  if (process.env.NODE_ENV !== 'production' && pages.length > 0) {
+    logSidebarHealthDev(pages);
+  }
 
   const handleLogout = async () => {
     try {
