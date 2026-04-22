@@ -109,16 +109,25 @@ export interface RolePermissionData {
   permissions: Record<string, boolean>;
 }
 
-interface MenuItem {
+/**
+ * Recursive submenu type — can nest arbitrarily deep.
+ * Optional `icon` and `submenus` fields make existing flat submenus continue to work
+ * while also enabling multi-tier nesting (e.g. Learners Council → Structure → Positions).
+ */
+export interface Submenu {
+  href: string;
+  label: string;
+  active: boolean;
+  icon?: LucideIcon;
+  submenus?: Submenu[];
+}
+
+export interface MenuItem {
   href: string;
   label: string;
   icon: LucideIcon;
   active: boolean;
-  submenus: Array<{
-    href: string;
-    label: string;
-    active: boolean;
-  }>;
+  submenus: Submenu[];
 }
 
 interface MenuGroup {
@@ -1047,6 +1056,7 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Campus Living',
       menus: [
+        // Leaf top-level: always-accessed landing pages
         {
           href: '/campus-living',
           label: 'Overview',
@@ -1056,42 +1066,36 @@ export function GetPages(pathname: string): MenuGroup[] {
         },
         {
           href: '/campus-living/dashboard',
-          label: 'Mgmt Dashboard',
+          label: 'Dashboard',
           active: pathname === '/campus-living/dashboard',
           icon: LayoutDashboard,
           submenus: []
         },
-        {
-          href: '/campus-living/activity',
-          label: 'Activity Feed',
-          active: pathname === '/campus-living/activity',
-          icon: Activity,
-          submenus: []
-        },
-        {
-          href: '/campus-living/calendar',
-          label: 'Calendar',
-          active: pathname === '/campus-living/calendar',
-          icon: Calendar,
-          submenus: []
-        },
-        {
-          href: '/campus-living/community',
-          label: 'Community',
-          active: pathname.startsWith('/campus-living/community'),
-          icon: UsersRound,
-          submenus: []
-        },
+
+        // Residents & Rooms — foundational assignments
         {
           href: '/campus-living/blocks',
-          label: 'Hostel Blocks',
-          active: pathname.startsWith('/campus-living/blocks'),
+          label: 'Residents & Rooms',
+          active:
+            pathname.startsWith('/campus-living/blocks') ||
+            pathname.startsWith('/campus-living/allocations') ||
+            pathname.startsWith('/campus-living/residents'),
           icon: Hotel,
           submenus: [
             {
+              href: '/campus-living/blocks',
+              label: 'Hostel Blocks',
+              active: pathname.startsWith('/campus-living/blocks')
+            },
+            {
+              href: '/campus-living/residents',
+              label: 'Residents',
+              active: pathname.startsWith('/campus-living/residents')
+            },
+            {
               href: '/campus-living/allocations',
               label: 'Room Allocations',
-              active: pathname.startsWith('/campus-living/allocations') && !pathname.startsWith('/campus-living/allocations/onboarding')
+              active: pathname.startsWith('/campus-living/allocations') && !pathname.startsWith('/campus-living/allocations/roommate-matching') && !pathname.startsWith('/campus-living/allocations/onboarding')
             },
             {
               href: '/campus-living/allocations/roommate-matching',
@@ -1110,12 +1114,23 @@ export function GetPages(pathname: string): MenuGroup[] {
             }
           ]
         },
+
+        // Attendance & Access — daily gate/leave ops
         {
           href: '/campus-living/attendance',
-          label: 'Attendance',
-          active: pathname.startsWith('/campus-living/attendance'),
+          label: 'Attendance & Access',
+          active:
+            pathname.startsWith('/campus-living/attendance') ||
+            pathname.startsWith('/campus-living/leave') ||
+            pathname.startsWith('/campus-living/gate-passes') ||
+            pathname.startsWith('/campus-living/visitors'),
           icon: UserCheck,
           submenus: [
+            {
+              href: '/campus-living/attendance',
+              label: 'Attendance',
+              active: pathname.startsWith('/campus-living/attendance')
+            },
             {
               href: '/campus-living/leave',
               label: 'Leave Management',
@@ -1125,165 +1140,228 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/campus-living/gate-passes',
               label: 'Gate Passes',
               active: pathname.startsWith('/campus-living/gate-passes')
+            },
+            {
+              href: '/campus-living/visitors',
+              label: 'Visitors',
+              active: pathname.startsWith('/campus-living/visitors')
             }
           ]
         },
+
+        // Services — recurring resident-facing delivery
+        // Three-tier: parent → Mess/Laundry/Housekeeping → their own sub-pages
         {
           href: '/campus-living/mess',
-          label: 'Mess & Cafeteria',
-          active: pathname.startsWith('/campus-living/mess'),
+          label: 'Services',
+          active:
+            pathname.startsWith('/campus-living/mess') ||
+            pathname.startsWith('/campus-living/laundry') ||
+            pathname.startsWith('/campus-living/housekeeping'),
           icon: UtensilsCrossed,
           submenus: [
             {
-              href: '/campus-living/mess/menu',
-              label: 'Menu',
-              active: pathname.startsWith('/campus-living/mess/menu')
+              href: '/campus-living/mess',
+              label: 'Mess & Cafeteria',
+              active: pathname.startsWith('/campus-living/mess'),
+              icon: UtensilsCrossed,
+              submenus: [
+                {
+                  href: '/campus-living/mess/menu',
+                  label: 'Menu',
+                  active: pathname.startsWith('/campus-living/mess/menu')
+                },
+                {
+                  href: '/campus-living/mess/meals',
+                  label: 'Meal Tracking',
+                  active: pathname.startsWith('/campus-living/mess/meals')
+                },
+                {
+                  href: '/campus-living/mess/billing',
+                  label: 'Mess Billing',
+                  active: pathname.startsWith('/campus-living/mess/billing')
+                },
+                {
+                  href: '/campus-living/mess/feedback',
+                  label: 'Feedback',
+                  active: pathname === '/campus-living/mess/feedback'
+                },
+                {
+                  href: '/campus-living/mess/waste',
+                  label: 'Waste Tracking',
+                  active: pathname === '/campus-living/mess/waste'
+                }
+              ]
             },
             {
-              href: '/campus-living/mess/meals',
-              label: 'Meal Tracking',
-              active: pathname.startsWith('/campus-living/mess/meals')
+              href: '/campus-living/laundry',
+              label: 'Laundry',
+              active: pathname.startsWith('/campus-living/laundry'),
+              icon: WashingMachine,
+              submenus: [
+                {
+                  href: '/campus-living/laundry/orders',
+                  label: 'Orders',
+                  active: pathname.startsWith('/campus-living/laundry/orders')
+                },
+                {
+                  href: '/campus-living/laundry/settings',
+                  label: 'Configuration',
+                  active: pathname === '/campus-living/laundry/settings'
+                }
+              ]
             },
             {
-              href: '/campus-living/mess/billing',
-              label: 'Mess Billing',
-              active: pathname.startsWith('/campus-living/mess/billing')
-            },
-            {
-              href: '/campus-living/mess/feedback',
-              label: 'Feedback',
-              active: pathname === '/campus-living/mess/feedback'
-            },
-            {
-              href: '/campus-living/mess/waste',
-              label: 'Waste Tracking',
-              active: pathname === '/campus-living/mess/waste'
+              href: '/campus-living/housekeeping',
+              label: 'Housekeeping',
+              active: pathname.startsWith('/campus-living/housekeeping'),
+              icon: SprayCan,
+              submenus: [
+                {
+                  href: '/campus-living/housekeeping/schedules',
+                  label: 'Schedules',
+                  active: pathname.startsWith('/campus-living/housekeeping/schedules')
+                },
+                {
+                  href: '/campus-living/housekeeping/tasks',
+                  label: 'Tasks',
+                  active: pathname === '/campus-living/housekeeping/tasks'
+                }
+              ]
             }
           ]
         },
-        {
-          href: '/campus-living/visitors',
-          label: 'Visitors',
-          active: pathname.startsWith('/campus-living/visitors'),
-          icon: UserPlus,
-          submenus: []
-        },
+
+        // Facility Care — reactive property upkeep + resident wellbeing
         {
           href: '/campus-living/maintenance',
-          label: 'Maintenance',
-          active: pathname.startsWith('/campus-living/maintenance'),
+          label: 'Facility Care',
+          active:
+            pathname.startsWith('/campus-living/maintenance') ||
+            pathname.startsWith('/campus-living/safety') ||
+            pathname.startsWith('/campus-living/wellness') ||
+            pathname.startsWith('/campus-living/health'),
           icon: Wrench,
           submenus: [
             {
-              href: '/campus-living/maintenance/preventive',
-              label: 'Preventive Schedules',
-              active: pathname.startsWith('/campus-living/maintenance/preventive')
+              href: '/campus-living/maintenance',
+              label: 'Maintenance',
+              active: pathname.startsWith('/campus-living/maintenance'),
+              icon: Wrench,
+              submenus: [
+                {
+                  href: '/campus-living/maintenance/preventive',
+                  label: 'Preventive Schedules',
+                  active: pathname.startsWith('/campus-living/maintenance/preventive') && !pathname.startsWith('/campus-living/maintenance/preventive/tasks')
+                },
+                {
+                  href: '/campus-living/maintenance/preventive/tasks',
+                  label: 'PM Tasks',
+                  active: pathname === '/campus-living/maintenance/preventive/tasks'
+                },
+                {
+                  href: '/campus-living/maintenance/contracts',
+                  label: 'AMC Contracts',
+                  active: pathname.startsWith('/campus-living/maintenance/contracts')
+                }
+              ]
             },
             {
-              href: '/campus-living/maintenance/preventive/tasks',
-              label: 'PM Tasks',
-              active: pathname === '/campus-living/maintenance/preventive/tasks'
+              href: '/campus-living/safety',
+              label: 'Safety & Compliance',
+              active: pathname.startsWith('/campus-living/safety'),
+              icon: ShieldCheck,
+              submenus: [
+                {
+                  href: '/campus-living/safety/incidents',
+                  label: 'Incidents',
+                  active: pathname.startsWith('/campus-living/safety/incidents')
+                },
+                {
+                  href: '/campus-living/safety/anti-ragging',
+                  label: 'Anti-Ragging',
+                  active: pathname === '/campus-living/safety/anti-ragging'
+                },
+                {
+                  href: '/campus-living/safety/inspections',
+                  label: 'Inspections',
+                  active: pathname.startsWith('/campus-living/safety/inspections')
+                }
+              ]
             },
             {
-              href: '/campus-living/maintenance/contracts',
-              label: 'AMC Contracts',
-              active: pathname.startsWith('/campus-living/maintenance/contracts')
+              href: '/campus-living/wellness',
+              label: 'Wellness',
+              active: pathname.startsWith('/campus-living/wellness'),
+              icon: HeartPulse,
+              submenus: [
+                {
+                  href: '/campus-living/wellness/surveys',
+                  label: 'Pulse Surveys',
+                  active: pathname.startsWith('/campus-living/wellness/surveys')
+                }
+              ]
+            },
+            {
+              href: '/campus-living/health',
+              label: 'Health Cases',
+              active: pathname.startsWith('/campus-living/health'),
+              icon: Stethoscope
             }
           ]
         },
+
+        // Community & Events — social layer
         {
-          href: '/campus-living/housekeeping',
-          label: 'Housekeeping',
-          active: pathname.startsWith('/campus-living/housekeeping'),
-          icon: SprayCan,
+          href: '/campus-living/activity',
+          label: 'Community & Events',
+          active:
+            pathname.startsWith('/campus-living/activity') ||
+            pathname.startsWith('/campus-living/calendar') ||
+            pathname.startsWith('/campus-living/community'),
+          icon: UsersRound,
           submenus: [
             {
-              href: '/campus-living/housekeeping/schedules',
-              label: 'Schedules',
-              active: pathname.startsWith('/campus-living/housekeeping/schedules')
+              href: '/campus-living/activity',
+              label: 'Activity Feed',
+              active: pathname.startsWith('/campus-living/activity')
             },
             {
-              href: '/campus-living/housekeeping/tasks',
-              label: 'Tasks',
-              active: pathname === '/campus-living/housekeeping/tasks'
+              href: '/campus-living/calendar',
+              label: 'Calendar',
+              active: pathname.startsWith('/campus-living/calendar')
+            },
+            {
+              href: '/campus-living/community',
+              label: 'Community',
+              active: pathname.startsWith('/campus-living/community')
             }
           ]
         },
-        {
-          href: '/campus-living/laundry',
-          label: 'Laundry',
-          active: pathname.startsWith('/campus-living/laundry'),
-          icon: WashingMachine,
-          submenus: [
-            {
-              href: '/campus-living/laundry/orders',
-              label: 'Orders',
-              active: pathname.startsWith('/campus-living/laundry/orders')
-            },
-            {
-              href: '/campus-living/laundry/settings',
-              label: 'Configuration',
-              active: pathname === '/campus-living/laundry/settings'
-            }
-          ]
-        },
-        {
-          href: '/campus-living/wellness',
-          label: 'Wellness',
-          active: pathname.startsWith('/campus-living/wellness'),
-          icon: HeartPulse,
-          submenus: [
-            {
-              href: '/campus-living/wellness/surveys',
-              label: 'Pulse Surveys',
-              active: pathname.startsWith('/campus-living/wellness/surveys')
-            }
-          ]
-        },
-        {
-          href: '/campus-living/health',
-          label: 'Health Cases',
-          active: pathname.startsWith('/campus-living/health'),
-          icon: Stethoscope,
-          submenus: []
-        },
-        {
-          href: '/campus-living/safety',
-          label: 'Safety & Compliance',
-          active: pathname.startsWith('/campus-living/safety'),
-          icon: ShieldCheck,
-          submenus: [
-            {
-              href: '/campus-living/safety/incidents',
-              label: 'Incidents',
-              active: pathname.startsWith('/campus-living/safety/incidents')
-            },
-            {
-              href: '/campus-living/safety/anti-ragging',
-              label: 'Anti-Ragging',
-              active: pathname === '/campus-living/safety/anti-ragging'
-            },
-            {
-              href: '/campus-living/safety/inspections',
-              label: 'Inspections',
-              active: pathname.startsWith('/campus-living/safety/inspections')
-            }
-          ]
-        },
+
+        // Insights — periodic
         {
           href: '/campus-living/analytics',
-          label: 'Analytics',
-          active: pathname.startsWith('/campus-living/analytics'),
+          label: 'Insights',
+          active:
+            pathname.startsWith('/campus-living/analytics') ||
+            pathname.startsWith('/campus-living/reports'),
           icon: BarChart3,
-          submenus: []
+          submenus: [
+            {
+              href: '/campus-living/analytics',
+              label: 'Analytics',
+              active: pathname.startsWith('/campus-living/analytics')
+            },
+            {
+              href: '/campus-living/reports',
+              label: 'Reports',
+              active: pathname.startsWith('/campus-living/reports')
+            }
+          ]
         },
-        {
-          href: '/campus-living/reports',
-          label: 'Reports',
-          active: pathname.startsWith('/campus-living/reports'),
-          icon: FileText,
-          submenus: []
-        },
+
+        // Settings (leaf)
         {
           href: '/campus-living/settings',
           label: 'Settings',
@@ -2677,46 +2755,62 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Structure: parent that nests Positions + Committees under it.
+          // Active if on /structure OR any of its children.
           href: '/learners-council/structure',
           label: 'Structure',
           active: pathname.startsWith('/learners-council/structure'),
           icon: Users,
-          submenus: []
+          submenus: [
+            {
+              href: '/learners-council/structure',
+              label: 'Overview',
+              active: pathname === '/learners-council/structure',
+              icon: Users
+            },
+            {
+              href: '/learners-council/structure/positions',
+              label: 'Positions',
+              active: pathname.startsWith('/learners-council/structure/positions'),
+              icon: Award
+            },
+            {
+              href: '/learners-council/structure/committees',
+              label: 'Committees',
+              active: pathname.startsWith('/learners-council/structure/committees'),
+              icon: Users
+            }
+          ]
         },
         {
-          href: '/learners-council/structure/positions',
-          label: 'Positions',
-          active: pathname.startsWith('/learners-council/structure/positions'),
-          icon: Award,
-          submenus: []
-        },
-        {
-          href: '/learners-council/structure/committees',
-          label: 'Committees',
-          active: pathname.startsWith('/learners-council/structure/committees'),
-          icon: Users,
-          submenus: []
-        },
-        {
+          // Activities: groups related operational work (communication, events, OD)
           href: '/learners-council/communication',
-          label: 'Communication',
-          active: pathname.startsWith('/learners-council/communication'),
-          icon: MessagesSquare,
-          submenus: []
-        },
-        {
-          href: '/learners-council/events',
-          label: 'Events',
-          active: pathname.startsWith('/learners-council/events'),
+          label: 'Activities',
+          active:
+            pathname.startsWith('/learners-council/communication') ||
+            pathname.startsWith('/learners-council/events') ||
+            pathname.startsWith('/learners-council/od'),
           icon: CalendarDays,
-          submenus: []
-        },
-        {
-          href: '/learners-council/od',
-          label: 'OD Requests',
-          active: pathname.startsWith('/learners-council/od'),
-          icon: Briefcase,
-          submenus: []
+          submenus: [
+            {
+              href: '/learners-council/communication',
+              label: 'Communication',
+              active: pathname.startsWith('/learners-council/communication'),
+              icon: MessagesSquare
+            },
+            {
+              href: '/learners-council/events',
+              label: 'Events',
+              active: pathname.startsWith('/learners-council/events'),
+              icon: CalendarDays
+            },
+            {
+              href: '/learners-council/od',
+              label: 'OD Requests',
+              active: pathname.startsWith('/learners-council/od'),
+              icon: Briefcase
+            }
+          ]
         },
         {
           href: '/learners-council/selection',

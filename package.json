@@ -7,6 +7,7 @@
     "build": "NODE_OPTIONS='--max-old-space-size=49152 --max-semi-space-size=128' next build --webpack",
     "start": "next start",
     "lint": "next lint",
+    "check:sidebar": "tsx scripts/check-sidebar-health.ts",
     "typecheck": "tsc --noEmit --pretty",
     "typecheck:report": "tsc --noEmit --pretty > type-errors.txt 2>&1 || echo 'Type errors saved to type-errors.txt'",
     "typecheck:watch": "tsc --noEmit --watch",
