@@ -52,6 +52,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = REPO_ROOT / ".env.production.local"
 GENERATOR_PATH = REPO_ROOT / "scripts/generate-campus-living-template.py"
 
+# The 7 values that exist in the legacy PG enum `hostel_leave_type_enum`
+# (shipped 2026-02). The 9 new codes added 2026-04-22 live ONLY in
+# the hostel_leave_types master table, not in the enum. When writing
+# to hostel_leave_type_config, the enum column must be NULL for new codes
+# (requires migration 20260422100000 to have dropped NOT NULL on it).
+LEGACY_HOSTEL_LEAVE_TYPE_ENUM_VALUES = {
+    "home_visit", "weekend", "vacation", "emergency",
+    "medical", "academic", "night_out",
+}
+
 
 # --- Import generator module (no __main__ side effects) ---------------------
 def import_generator() -> Any:
@@ -412,6 +422,35 @@ def apply_fk_resolutions(
             row["academic_year_id"] = ctx.resolve_academic_year(
                 row.get("institution_id"), str(year_label)
             )
+
+    # Leave Types: resolve leave_type_id from the master (hostel_leave_types);
+    # null out the legacy enum column for new codes that aren't in the
+    # 7-value hostel_leave_type_enum. Requires migration
+    # 20260422100000_hostel_leave_type_config_nullable_enum.sql applied first.
+    if sheet_name == "6. Leave Types":
+        institution_id = row.get("institution_id")
+        type_code = row.get("leave_type")  # already translated to enum-string via LABELS
+        if institution_id and type_code:
+            path = (
+                f"hostel_leave_types?institution_id=eq.{institution_id}"
+                f"&leave_type_code=eq.{urllib.parse.quote(str(type_code))}"
+                f"&select=id&limit=1"
+            )
+            master_rows = [] if ctx.sb.dry_run else ctx.sb.query(path)
+            if ctx.sb.dry_run:
+                row["leave_type_id"] = f"dry-hlt-{type_code}"
+            elif not master_rows:
+                raise ValueError(
+                    f"Leave type '{type_code}' not found in hostel_leave_types "
+                    f"master for this institution. Seed the master via migration "
+                    f"first (it should already contain the 16 defaults)."
+                )
+            else:
+                row["leave_type_id"] = master_rows[0]["id"]
+            # Null the legacy enum column for new (post-2026-04-22) codes so
+            # the PG enum constraint doesn't reject the insert.
+            if type_code not in LEGACY_HOSTEL_LEAVE_TYPE_ENUM_VALUES:
+                row.pop("leave_type", None)
 
     # Mess Menus: caterer_id from caterer_name, optional block_id
     if sheet_name == "8. Mess Menus":

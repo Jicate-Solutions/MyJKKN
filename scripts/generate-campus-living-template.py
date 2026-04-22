@@ -152,6 +152,7 @@ LABELS = {
         ("Fixed monthly charge", "fixed_monthly"),
     ],
     "leave_type": [
+        # Original 7 (present in the legacy hostel_leave_type_enum)
         ("Home Visit", "home_visit"),
         ("Weekend Out", "weekend"),
         ("Vacation", "vacation"),
@@ -159,6 +160,16 @@ LABELS = {
         ("Medical", "medical"),
         ("Academic (exam / conference)", "academic"),
         ("Night Out", "night_out"),
+        # +9 added 2026-04-22 (master-table-only — not in legacy enum)
+        ("Festival / Public Holiday", "festival"),
+        ("Wedding / Family Function", "family_function"),
+        ("Bereavement / Condolence", "bereavement"),
+        ("Clinical / Hospital Rotation", "clinical_rotation"),
+        ("Industrial Visit / Field Trip", "industrial_visit"),
+        ("Internship / Placement", "internship"),
+        ("Training / Workshop", "training"),
+        ("Sports / Cultural Event", "sports_cultural"),
+        ("Convocation / Alumni Event", "convocation"),
     ],
     "cleaning_type": [
         ("Daily Sweeping", "daily_sweep"),
@@ -354,21 +365,24 @@ SHEETS = [
      ]),
 
     ("6. Leave Types",
-     "Which leave types are allowed at each college + approval rules.",
+     "OPTIONAL — 16 leave types are pre-seeded per college (see /campus-living/settings/leave-types). "
+     "Only fill this sheet to OVERRIDE the default max days or approval flags for specific (college, type) pairs. "
+     "Leave blank rows alone. Dropdown shows all 16 available types. "
+     "Admins can also add custom types via the UI — those will NOT auto-appear in this dropdown.",
      [
         ("College Name", True, "Which college", INST, "institution_id"),
-        ("Leave Type", True, "Pick from dropdown", "leave_type", "leave_type"),
-        ("Max Duration (days)", False, "Max days allowed in one request", None, "max_duration_days"),
-        ("Parent Consent Required", False, "Yes / No", "yes_no", "requires_parent_consent"),
+        ("Leave Type", True, "Pick from dropdown — matches a pre-seeded type in /campus-living/settings/leave-types", "leave_type", "leave_type"),
+        ("Max Duration (days)", False, "Override master default. Leave blank for no cap. Example: Home Visit master default is 30d, override to 21d for your college here.", None, "max_duration_days"),
+        ("Parent Consent Required", False, "Yes / No — overrides type default", "yes_no", "requires_parent_consent"),
         ("Advance Notice (hours)", False, "Hours of advance notice required before leave starts", None, "advance_notice_hours"),
-        ("Chief Warden Approval Required", False, "Yes / No", "yes_no", "requires_chief_warden"),
-        ("Attachment Required", False, "e.g. medical certificate. Yes / No", "yes_no", "requires_attachment"),
-        ("Active", False, "Is this leave type enabled? Yes / No", "yes_no", "is_active"),
+        ("Chief Warden Approval Required", False, "Yes / No — overrides type default", "yes_no", "requires_chief_warden"),
+        ("Attachment Required", False, "e.g. medical certificate. Yes / No — overrides type default", "yes_no", "requires_attachment"),
+        ("Active", False, "Disable a pre-seeded type for this college (Yes = active, No = hidden from warden flows)", "yes_no", "is_active"),
      ],
      [
-        ["JKKN College of Engineering and Technology", "Home Visit", 30, "Yes", 24, "No", "No", "Yes"],
-        ["JKKN College of Engineering and Technology", "Medical", 15, "Yes", 0, "No", "Yes", "Yes"],
-        ["JKKN College of Engineering and Technology", "Emergency", 7, "Yes", 0, "Yes", "No", "Yes"],
+        ["JKKN College of Engineering and Technology", "Home Visit", 21, "Yes", 24, "No", "No", "Yes"],
+        ["JKKN College of Engineering and Technology", "Clinical / Hospital Rotation", None, "Yes", 168, "No", "Yes", "No"],
+        ["JKKN College of Nursing and Research", "Clinical / Hospital Rotation", 180, "No", 168, "Yes", "Yes", "Yes"],
      ]),
 
     ("7. Mess Caterers",
