@@ -45,7 +45,6 @@ export async function GET(
   // Next.js 15 async params
   const { id } = await params;
 
-  // Validate UUID format — Postgres throws 22P02 on invalid UUIDs, which maps to 500
   if (!UUID_REGEX.test(id)) {
     logApiUsage({
       apiKeyId: context.keyId,
@@ -63,27 +62,44 @@ export async function GET(
     );
   }
 
-  // Step 5: Fetch single record
-  interface ServiceRequestDetail {
+  // Step 5: Fetch single grievance ticket
+  interface GrievanceDetail {
     id: string;
-    request_number: string;
-    service_type_id: string;
-    requester_id: string;
-    institution_id: string | null;
-    status: string;
+    ticket_number: string;
+    category_id: string;
+    institution_id: string;
+    subject: string;
+    description: string;
     priority: string | null;
-    current_approval_step: number;
-    submitted_at: string | null;
-    approved_at: string | null;
-    fulfilled_at: string | null;
-    closed_at: string | null;
-    cancelled_at: string | null;
-    cancellation_reason: string | null;
-    created_at: string;
-    updated_at: string;
+    status: string | null;
+    raised_by_type: string;
+    raised_by_id: string | null;
+    raised_by_name: string | null;
+    raised_by_email: string | null;
+    raised_by_phone: string | null;
+    assigned_to: string | null;
+    assigned_at: string | null;
+    department_id: string | null;
+    sla_hours: number;
+    sla_deadline: string;
+    sla_status: string | null;
+    resolution: string | null;
+    resolved_at: string | null;
+    resolved_by: string | null;
+    satisfaction_rating: number | null;
+    satisfaction_feedback: string | null;
+    is_emergency: boolean;
+    is_anonymous: boolean;
+    is_icc_only: boolean;
+    escalation_level: number;
+    sla_breached_at: string | null;
+    withdrawn_at: string | null;
+    withdrawn_reason: string | null;
+    created_at: string | null;
+    updated_at: string | null;
   }
 
-  let record: ServiceRequestDetail | null = null;
+  let record: GrievanceDetail | null = null;
   let statusCode = 200;
   let errorResponse: NextResponse | null = null;
 
@@ -91,11 +107,14 @@ export async function GET(
     const supabase = createServiceRoleClient();
 
     let query = supabase
-      .from('service_requests')
+      .from('grievance_tickets')
       .select(
-        'id, request_number, service_type_id, requester_id, institution_id, status, priority, ' +
-        'current_approval_step, submitted_at, approved_at, fulfilled_at, closed_at, ' +
-        'cancelled_at, cancellation_reason, created_at, updated_at'
+        'id, ticket_number, category_id, institution_id, subject, description, priority, status, ' +
+        'raised_by_type, raised_by_id, raised_by_name, raised_by_email, raised_by_phone, ' +
+        'assigned_to, assigned_at, department_id, sla_hours, sla_deadline, sla_status, ' +
+        'resolution, resolved_at, resolved_by, satisfaction_rating, satisfaction_feedback, ' +
+        'is_emergency, is_anonymous, is_icc_only, escalation_level, sla_breached_at, ' +
+        'withdrawn_at, withdrawn_reason, created_at, updated_at'
       )
       .eq('id', id);
 
@@ -107,7 +126,6 @@ export async function GET(
 
     if (error) {
       if (error.code === 'PGRST116') {
-        // No rows found
         statusCode = 404;
         errorResponse = NextResponse.json(
           { error: { code: 'NOT_FOUND', message: 'Grievance record not found.' } },
@@ -121,7 +139,7 @@ export async function GET(
         );
       }
     } else {
-      record = data as unknown as ServiceRequestDetail;
+      record = data as unknown as GrievanceDetail;
     }
   } catch {
     statusCode = 500;
