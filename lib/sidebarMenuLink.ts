@@ -1615,92 +1615,18 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'OKR & Performance',
       menus: [
+        // Single sidebar entry — all OKR navigation lives in the module's
+        // in-page tab bar (OKRNav, see app/(routes)/okr/_components/
+        // okr-nav.tsx). Mirrors Campus Living + Learners Council + Admission
+        // CRM. SectionSubNav on /okr/objectives for All/Create.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs scales
+        // across JKKN's 8+ modules. URLs UNCHANGED.
         {
           href: '/okr',
-          label: 'Dashboard',
-          active: pathname === '/okr',
+          label: 'OKR & Performance',
+          active: pathname === '/okr' || pathname.startsWith('/okr/'),
           icon: Target,
-          submenus: []
-        },
-        {
-          href: '/okr/objectives',
-          label: 'My Objectives',
-          active: pathname.startsWith('/okr/objectives'),
-          icon: Target,
-          submenus: [
-            {
-              href: '/okr/objectives',
-              label: 'All Objectives',
-              active: pathname === '/okr/objectives'
-            },
-            {
-              href: '/okr/objectives/new',
-              label: 'Create Objective',
-              active: pathname === '/okr/objectives/new' || pathname.startsWith('/okr/objectives/create')
-            }
-          ]
-        },
-        {
-          href: '/okr/check-in',
-          label: 'Check-ins',
-          active: pathname === '/okr/check-in',
-          icon: CheckSquare,
-          submenus: []
-        },
-        {
-          href: '/okr/team',
-          label: 'Team OKRs',
-          active: pathname === '/okr/team',
-          icon: Users,
-          submenus: []
-        },
-        {
-          href: '/okr/department',
-          label: 'Department OKRs',
-          active: pathname === '/okr/department',
-          icon: Building2,
-          submenus: []
-        },
-        {
-          href: '/okr/organization',
-          label: 'Organization OKRs',
-          active: pathname === '/okr/organization',
-          icon: Building,
-          submenus: []
-        },
-        {
-          href: '/okr/cascade',
-          label: 'Cascade View',
-          active: pathname === '/okr/cascade',
-          icon: FolderTree,
-          submenus: []
-        },
-        {
-          href: '/okr/analytics',
-          label: 'Analytics',
-          active: pathname === '/okr/analytics',
-          icon: BarChart,
-          submenus: []
-        },
-        {
-          href: '/okr/manage',
-          label: 'Manage OKRs',
-          active: pathname === '/okr/manage',
-          icon: Settings,
-          submenus: []
-        },
-        {
-          href: '/okr/admin/compliance',
-          label: 'Compliance',
-          active: pathname.startsWith('/okr/admin'),
-          icon: Shield,
-          submenus: []
-        },
-        {
-          href: '/okr/abcd',
-          label: 'ABCD Matrix',
-          active: pathname.startsWith('/okr/abcd'),
-          icon: CircleDot,
           submenus: []
         }
       ]
