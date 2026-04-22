@@ -6,6 +6,15 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-22** — Hostel leave types seed expansion (+9 defaults) + fix bug in #287 migration
+  - New migration `supabase/migrations/20260422000001_seed_hostel_leave_types_expansion.sql` (~90 lines, atomic BEGIN/COMMIT)
+  - Seeds 9 new system defaults × 11 institutions = 99 rows: festival, family_function, bereavement, clinical_rotation, industrial_visit, internship, training, sports_cultural, convocation. All is_system=true so UI blocks delete (admins can deactivate via is_active toggle instead).
+  - ON CONFLICT (institution_id, leave_type_code) DO NOTHING → re-run safe.
+  - Applied to production via Supabase management API on 2026-04-22 ~10:15 IST. Verification count: 99 new rows confirmed (11 per code × 9 codes).
+  - FIX to `supabase/migrations/20260421000005_hostel_leave_types_crudable.sql` (the original migration from PR #287): two UPDATE statements had invalid references to the UPDATE target `req` — one from a JOIN ON clause, one from a GROUP BY subquery. PG rejects both patterns. Rewritten: (1) moved `req.leave_type_code` condition from JOIN ON to WHERE; (2) replaced the `IN (SELECT ... GROUP BY)` subquery with a scalar `SELECT ... ORDER BY ... LIMIT 1` correlated subquery. Migration is now atomic-clean; applied successfully to prod during the apply flow.
+  - Trigger: director feedback 2026-04-21 ~15:20 IST — "Leave types have to be increased, max days for each leave is not fixed." The CRUDable table (from #287) made this a data seed, not a DDL change.
+  - Principle reference: `~/.claude/skills/myjkkn-chain/SKILL.md` Q1 — Value-list check (added 2026-04-21). This seed is the first test of the principle under fire — adding rows to an already-CRUDable master table instead of another enum migration.
+
 - **2026-04-21** — BUG-003146 Expo per-stall accountability, operations, lead attribution
   - New migration `supabase/migrations/20260421200000_bug_003146_expo_event_stalls.sql` (~120 lines, atomic BEGIN/COMMIT)
   - New table `expo_event_stalls` (expo_event_id FK CASCADE, institution_id FK RESTRICT, stall_name, assigned_staff_id → profiles(id) SET NULL, total_expenses numeric, photos text[], promotional_materials jsonb, notes, created_by, created_at, updated_at). 3 indexes (expo_event_id, institution_id, assigned_staff_id partial).
