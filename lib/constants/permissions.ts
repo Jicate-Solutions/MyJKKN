@@ -1058,7 +1058,29 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.inc.view', label: 'View INC Dashboard' },
       { key: 'accreditation.ncte.view', label: 'View NCTE Dashboard' },
       { key: 'accreditation.aicte.view', label: 'View AICTE Dashboard' },
-      { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' }
+      { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' },
+
+      // CRUD retrofit 2026-04-23 — admin UIs for catalog tables (metrics + source registry).
+      // Required for /accreditation/manage/metrics + the source-kind picker in evidence admin.
+      { key: 'accreditation.metrics.view', label: 'View Accreditation Metrics Catalog' },
+      { key: 'accreditation.metrics.manage', label: 'Manage Accreditation Metrics (add local/supplementary)' },
+      { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
+      { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' }
+    ]
+  },
+  {
+    // Grievance module — PR-A6a (module live) + CRUD retrofit 2026-04-23.
+    // Categories are managed per-institution; tickets follow modernized RLS
+    // that bypasses hardcoded role names in favor of these permission keys.
+    name: 'Grievance',
+    key: 'grievance',
+    permissions: [
+      { key: 'grievance.tickets.view', label: 'View Grievance Tickets' },
+      { key: 'grievance.tickets.create', label: 'File Grievance Tickets' },
+      { key: 'grievance.tickets.edit', label: 'Update Grievance Tickets (assign/comment/resolve)' },
+      { key: 'grievance.tickets.delete', label: 'Delete Grievance Tickets (super-admin cleanup only)' },
+      { key: 'grievance.categories.view', label: 'View Grievance Categories' },
+      { key: 'grievance.categories.manage', label: 'Manage Grievance Categories (add local categories)' }
     ]
   },
   {
