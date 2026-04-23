@@ -1975,6 +1975,30 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      // Audit Workflow Sprint 01 — Lead Auditor / Group Registrar surface
+      groupLabel: 'Audit Workflow',
+      menus: [
+        // Single sidebar entry — all audit navigation lives in the module's
+        // in-page tab bar (AutoTabNav, see app/(routes)/audit/nav-config.ts)
+        // with 5 tabs: Dashboard, Cycles, Findings (+ All/My/Types), Parameters
+        // (+ Catalog/Settings), Attestations. Mirrors Accreditation + OKR +
+        // Campus Living + Learners Council pattern.
+        //
+        // Why: flat sidebar (1 entry per module) + in-page tabs keep the
+        // sidebar scalable as the 36-parameter audit workflow grows. Route
+        // permission gating (audit.cycle.view) lives in MENU_PERMISSIONS map
+        // above. Distinct from /audit-trail (platform activity log) in the
+        // Administration group.
+        {
+          href: '/audit',
+          label: 'Audit Workflow',
+          active: pathname === '/audit' || pathname.startsWith('/audit/'),
+          icon: ShieldCheck,
+          submenus: []
+        }
+      ]
+    },
+    {
       // Compliance Unification Program — Accreditation group
       groupLabel: 'Accreditation',
       menus: [
