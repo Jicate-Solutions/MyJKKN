@@ -7,7 +7,7 @@ import { Plus } from 'lucide-react';
 import { SessionsList } from './_components/sessions-list';
 
 export const metadata: Metadata = {
-  title: 'Training Sessions | Solutions Hub',
+  title: 'Training Sessions',
   description: 'Manage training sessions calendar',
 };
 

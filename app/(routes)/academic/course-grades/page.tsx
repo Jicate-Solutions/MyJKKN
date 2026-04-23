@@ -24,7 +24,7 @@ import { CourseGradesService } from '@/lib/services/academic/course-grades-servi
 import type { CourseGrade } from '@/lib/services/academic/course-grades-service';
 
 export const metadata = {
-  title: 'Course Grades | MyJKKN',
+  title: 'Course Grades',
   description: 'View and manage student grades from external learning tools'
 };
 

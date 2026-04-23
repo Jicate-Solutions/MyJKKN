@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SolutionTypesManager } from './_components/solution-types-manager';
 
 export const metadata: Metadata = {
-  title: 'Solution Types | Settings',
+  title: 'Solution Types',
   description: 'Manage solution type categories',
 };
 

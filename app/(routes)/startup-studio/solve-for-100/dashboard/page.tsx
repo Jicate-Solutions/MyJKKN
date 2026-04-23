@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SF100MyTeamDashboard } from './_components/sf100-my-team-dashboard';
 
 export const metadata: Metadata = {
-  title: 'My Team | Solve for 100',
+  title: 'My Team',
   description: 'Your team\'s progress, check-ins, customers, interviews, and pivots — all in one place',
 };
 

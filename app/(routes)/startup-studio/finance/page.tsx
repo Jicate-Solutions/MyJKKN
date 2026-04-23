@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { FinanceDashboard } from './_components/finance-dashboard';
 
 export const metadata: Metadata = {
-  title: 'Finance | Startup Studio',
+  title: 'Finance',
 };
 
 export default function FinancePage() {

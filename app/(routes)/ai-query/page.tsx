@@ -7,7 +7,7 @@ import { Metadata } from 'next';
 import { AIQueryContainer } from '@/components/ai-query';
 
 export const metadata: Metadata = {
-  title: 'AI Assistant | MyJKKN',
+  title: 'AI Assistant',
   description: 'Ask questions about students, attendance, billing, and more using natural language',
 };
 

@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SolutionsDashboard } from './_components/solutions-dashboard';
 
 export const metadata: Metadata = {
-  title: 'Dashboard | Solutions Hub',
+  title: 'Dashboard',
   description: 'Overview of all solutions across software, training, and content',
 };
 

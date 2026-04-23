@@ -5,8 +5,8 @@ import { AdmissionNav } from './_components/admission-nav';
 
 export const metadata: Metadata = {
   title: {
-    template: '%s | Admission',
-    default: 'Admission',
+    template: '%s · Admission · MyJKKN',
+    default: 'Admission · MyJKKN',
   },
   description: 'JKKN Admission CRM - Lead management, WhatsApp chat, and enrollment',
 };

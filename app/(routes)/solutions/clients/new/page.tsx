@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { NewClientForm } from './_components/new-client-form';
 
 export const metadata: Metadata = {
-  title: 'Add Client | Solutions Hub',
+  title: 'Add Client',
   description: 'Add a new client to the Solutions Hub',
 };
 

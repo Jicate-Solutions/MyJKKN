@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { ContentOverview } from './_components/content-overview';
 
 export const metadata: Metadata = {
-  title: 'Content Production | Solutions Hub',
+  title: 'Content Production',
   description: 'Manage content production orders and deliverables',
 };
 

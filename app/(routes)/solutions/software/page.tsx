@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SoftwareOverview } from './_components/software-overview';
 
 export const metadata: Metadata = {
-  title: 'Software Development | Solutions Hub',
+  title: 'Software Development',
   description: 'Manage software development solutions',
 };
 

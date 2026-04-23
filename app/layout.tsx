@@ -28,7 +28,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   ),
-  title: 'MyJKKN',
+  title: {
+    template: '%s · MyJKKN',
+    default: 'MyJKKN',
+  },
   description:
     'Central Hub Application for JKKN Institutions - Manage admissions, students, billing, attendance and more',
   generator: 'Next.js',

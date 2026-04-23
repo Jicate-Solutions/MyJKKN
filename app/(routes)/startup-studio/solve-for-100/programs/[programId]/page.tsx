@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SF100ProgramOverview } from './_components/sf100-program-overview';
 
 export const metadata: Metadata = {
-  title: 'Program Overview | Solve for 100',
+  title: 'Program Overview',
 };
 
 interface SF100ProgramPageProps {

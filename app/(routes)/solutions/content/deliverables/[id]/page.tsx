@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { DeliverableDetail } from './_components/deliverable-detail';
 
 export const metadata: Metadata = {
-  title: 'Deliverable Detail | Solutions Hub',
+  title: 'Deliverable Detail',
   description: 'View and approve content deliverable',
 };
 

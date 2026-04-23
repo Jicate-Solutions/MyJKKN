@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { NewProspectForm } from './_components/new-prospect-form';
 
 export const metadata: Metadata = {
-  title: 'New Prospect | Solutions Hub',
+  title: 'New Prospect',
   description: 'Add a new prospect to the pipeline',
 };
 

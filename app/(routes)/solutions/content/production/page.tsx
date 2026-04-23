@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { ProductionLearnersList } from './_components/production-learners-list';
 
 export const metadata: Metadata = {
-  title: 'Production Learners | Solutions Hub',
+  title: 'Production Learners',
   description: 'Manage content production learners',
 };
 

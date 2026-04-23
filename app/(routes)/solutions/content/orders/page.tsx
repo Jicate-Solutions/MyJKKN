@@ -7,7 +7,7 @@ import { Plus } from 'lucide-react';
 import { ContentOrdersList } from './_components/content-orders-list';
 
 export const metadata: Metadata = {
-  title: 'Content Orders | Solutions Hub',
+  title: 'Content Orders',
   description: 'Manage content production orders',
 };
 

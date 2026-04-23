@@ -1,5 +1,14 @@
+import { Metadata } from 'next';
 import { Suspense } from 'react';
 import { StartupStudioNav } from './_components/startup-studio-nav';
+
+export const metadata: Metadata = {
+  title: {
+    template: '%s · Startup Studio · MyJKKN',
+    default: 'Startup Studio · MyJKKN',
+  },
+  description: 'JKKN Startup Studio - Innovation cycles, mentorship, and portfolio',
+};
 
 interface StartupStudioLayoutProps {
   children: React.ReactNode;

@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SSDashboard } from './_components/ss-dashboard';
 
 export const metadata: Metadata = {
-  title: 'Dashboard | Startup Studio',
+  title: 'Dashboard',
   description: 'Overview of all Startup Studio innovation cycles and metrics',
 };
 

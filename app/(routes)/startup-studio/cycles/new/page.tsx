@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { NewCycleForm } from './_components/new-cycle-form';
 
 export const metadata: Metadata = {
-  title: 'New Cycle | Startup Studio',
+  title: 'New Cycle',
   description: 'Start a new innovation cycle',
 };
 

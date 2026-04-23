@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { NewSolutionForm } from './_components/new-solution-form';
 
 export const metadata: Metadata = {
-  title: 'New Solution | Solutions Hub',
+  title: 'New Solution',
   description: 'Create a new solution',
 };
 

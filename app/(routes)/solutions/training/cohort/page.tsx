@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { CohortList } from './_components/cohort-list';
 
 export const metadata: Metadata = {
-  title: 'Cohort Management | Solutions Hub',
+  title: 'Cohort Management',
   description: 'Manage training cohort members',
 };
 

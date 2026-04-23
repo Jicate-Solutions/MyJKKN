@@ -24,7 +24,7 @@ import { LaunchDebugStats } from './_components/launch-debug-stats';
 import { subDays, startOfDay, endOfDay } from 'date-fns';
 
 export const metadata = {
-  title: 'LTI Launch Debug View | MyJKKN',
+  title: 'LTI Launch Debug View',
   description: 'Debug and monitor LTI tool launches'
 };
 

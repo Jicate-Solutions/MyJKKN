@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SF100CheckInForm } from '../../_components/sf100-checkin-form';
 
 export const metadata: Metadata = {
-  title: 'Submit Check-in | Solve for 100',
+  title: 'Submit Check-in',
 };
 
 interface SF100CheckInPageProps {

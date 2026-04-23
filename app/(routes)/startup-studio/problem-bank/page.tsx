@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { ProblemsList } from './_components/problems-list';
 
 export const metadata: Metadata = {
-  title: 'Problem Bank | Startup Studio',
+  title: 'Problem Bank',
 };
 
 export default function ProblemBankPage() {

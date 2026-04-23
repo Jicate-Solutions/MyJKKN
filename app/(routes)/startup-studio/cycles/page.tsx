@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { CyclesList } from './_components/cycles-list';
 
 export const metadata: Metadata = {
-  title: 'Cycles | Startup Studio',
+  title: 'Cycles',
   description: 'View and manage all innovation cycles',
 };
 

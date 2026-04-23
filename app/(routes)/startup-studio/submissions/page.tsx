@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SubmissionsList } from './_components/submissions-list';
 
 export const metadata: Metadata = {
-  title: 'Submissions | Startup Studio',
+  title: 'Submissions',
 };
 
 export default function SubmissionsPage() {
