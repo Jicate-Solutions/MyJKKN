@@ -1,7 +1,7 @@
 import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
 
 /**
- * Startup Studio — 9 logical module tabs.
+ * Startup Studio — 13 logical module tabs.
  *
  * Mirrors the original StartupStudioNav design (previously at
  * _components/startup-studio-nav.tsx) but as data. Solve-for-100 carries
@@ -11,6 +11,10 @@ import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
  * Event-specific 15-tab subnav is NOT in this config — it renders
  * dynamically per eventId via events/[id]/layout.tsx using useParams().
  * AutoTabNav cannot replicate dynamic-URL-parameterized tabs.
+ *
+ * Extended to cover 6 orphan pages (/analytics, /cycles, /cycles/new,
+ * /nif, /problem-bank, /submissions) that existed at module root but
+ * were unreachable from nav before this config was fleshed out.
  */
 const config: ModuleNavConfig = {
   module: 'startup-studio',
@@ -20,6 +24,19 @@ const config: ModuleNavConfig = {
       icon: 'Gauge',
       href: '/startup-studio/portfolio',
       matchPaths: ['/startup-studio/portfolio'],
+    },
+    {
+      label: 'Cycles',
+      icon: 'RefreshCw',
+      href: '/startup-studio/cycles',
+      // Covers /cycles, /cycles/new, and /cycles/[id] via startsWith.
+      matchPaths: ['/startup-studio/cycles'],
+    },
+    {
+      label: 'Analytics',
+      icon: 'BarChart3',
+      href: '/startup-studio/analytics',
+      matchPaths: ['/startup-studio/analytics'],
     },
     {
       label: 'Mentors',
@@ -96,6 +113,25 @@ const config: ModuleNavConfig = {
           matchPaths: ['/startup-studio/solve-for-100/programs'],
         },
       ],
+    },
+    {
+      label: 'Problem Bank',
+      icon: 'Lightbulb',
+      href: '/startup-studio/problem-bank',
+      // Groups the problems-to-solve catalog with the submissions pipeline
+      // that flows from it. One tier-2 tab activates for both paths.
+      matchPaths: [
+        '/startup-studio/problem-bank',
+        '/startup-studio/submissions',
+      ],
+    },
+    {
+      label: 'NIF',
+      icon: 'Sprout',
+      href: '/startup-studio/nif',
+      // National Innovation Foundation tracking — distinct pipeline from
+      // Solve-for-100 and Events; stands alone.
+      matchPaths: ['/startup-studio/nif'],
     },
     {
       label: 'Events',
