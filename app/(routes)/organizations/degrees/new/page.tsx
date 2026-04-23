@@ -7,6 +7,14 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { DegreeForm } from '../_components/degree-form';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -16,14 +24,6 @@ import {
 export const navMeta = {
   invokedFrom: '/organizations/degrees',
 } as const;
-
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
 
 export default function NewDegreePage() {
   return (

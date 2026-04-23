@@ -13,6 +13,15 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreateHostelLeave } from '@/hooks/campus-living/use-hostel-leave';
 import {
+  ArrowLeft,
+  Save,
+  Loader2,
+  CalendarOff,
+  Clock,
+  Info,
+  AlertTriangle
+} from 'lucide-react';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -22,15 +31,6 @@ import {
 export const navMeta = {
   invokedFrom: '/campus-living/leave',
 } as const;
-
-  ArrowLeft,
-  Save,
-  Loader2,
-  CalendarOff,
-  Clock,
-  Info,
-  AlertTriangle
-} from 'lucide-react';
 
 const leaveTypeRules: Record<string, { label: string; maxDays: string; parentConsent: string; advanceNotice: string; approver: string }> = {
   home_visit: { label: 'Home Visit', maxDays: '3 days', parentConsent: 'Required', advanceNotice: '48 hours', approver: 'Warden' },

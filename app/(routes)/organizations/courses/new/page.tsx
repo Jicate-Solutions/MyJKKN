@@ -5,6 +5,14 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { CourseForm } from '../_components/course-form';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -14,14 +22,6 @@ import {
 export const navMeta = {
   invokedFrom: '/organizations/courses',
 } as const;
-
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
 
 export default function NewCoursePage() {
   return (

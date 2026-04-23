@@ -31,6 +31,15 @@ import { useAuth } from '@/hooks/use-auth';
 import { BeatLoader } from 'react-spinners';
 import { Plus, Trash2, Save, ArrowLeft, GripVertical } from 'lucide-react';
 import type {
+  CreateAssessmentInput,
+  CreateQuestionInput,
+  AssessmentType,
+  QuestionType,
+  FinksDimension,
+  Difficulty,
+  MCQOption,
+} from '@/types/pde';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -40,15 +49,6 @@ import type {
 export const navMeta = {
   invokedFrom: '/admin/pde/assessments',
 } as const;
-
-  CreateAssessmentInput,
-  CreateQuestionInput,
-  AssessmentType,
-  QuestionType,
-  FinksDimension,
-  Difficulty,
-  MCQOption,
-} from '@/types/pde';
 
 const ASSESSMENT_TYPES: { value: AssessmentType; label: string }[] = [
   { value: 'quiz', label: 'Quiz' },

@@ -26,6 +26,14 @@ import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-r
 import type { Institution } from '@/types/organizations';
 import type { CreateReceiptDto } from '@/types/billing-schedule';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -35,14 +43,6 @@ import {
 export const navMeta = {
   invokedFrom: '/billing/receipts',
 } as const;
-
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
 
 export default function NewReceiptPage() {
   const router = useRouter();

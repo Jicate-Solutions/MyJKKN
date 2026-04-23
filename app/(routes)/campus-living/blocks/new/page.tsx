@@ -13,6 +13,12 @@ import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreateHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
 import {
+  Building2,
+  ArrowLeft,
+  Save,
+  Loader2
+} from 'lucide-react';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -22,12 +28,6 @@ import {
 export const navMeta = {
   invokedFrom: '/campus-living/blocks',
 } as const;
-
-  Building2,
-  ArrowLeft,
-  Save,
-  Loader2
-} from 'lucide-react';
 
 export default function NewBlockPage() {
   const router = useRouter();

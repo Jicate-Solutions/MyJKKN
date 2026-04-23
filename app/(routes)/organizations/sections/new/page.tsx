@@ -8,6 +8,14 @@ import { Button } from '@/components/ui/button';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -17,14 +25,6 @@ import {
 export const navMeta = {
   invokedFrom: '/organizations/sections',
 } as const;
-
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator
-} from '@/components/ui/breadcrumb';
 
 export default function NewSectionPage() {
   const { canAccess, isSuperAdmin, isLoading, userProfile } = usePermissions();
