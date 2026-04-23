@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -120,7 +121,13 @@ export default function LaundryPage() {
               Track laundry pickup, processing and delivery.
             </p>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('Inline new-order dialog ships next.', {
+                description: 'Use the orders sub-page to create an order until the inline form is wired.',
+              })
+            }
+          >
             <Plus className="mr-2 h-4 w-4" />
             New Order
           </Button>

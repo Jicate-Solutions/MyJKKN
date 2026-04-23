@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -129,7 +130,13 @@ export default function HealthPage() {
               Log illnesses, track treatment and monitor recovery for hostel residents.
             </p>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('Inline log-case dialog ships next.', {
+                description: 'Health-case logging UI is being wired in a follow-up PR.',
+              })
+            }
+          >
             <Plus className="mr-2 h-4 w-4" />
             Log Case
           </Button>

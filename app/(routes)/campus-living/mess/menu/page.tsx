@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -99,7 +100,13 @@ export default function MenuPlannerPage() {
               Plan and manage daily meals for all hostel blocks
             </p>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('Menu builder ships next.', {
+                description: 'Inline create-menu form is being wired in a follow-up PR.',
+              })
+            }
+          >
             <Plus className="mr-2 h-4 w-4" />
             Create Menu
           </Button>
@@ -109,7 +116,11 @@ export default function MenuPlannerPage() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <Button variant="outline" size="sm">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedWeek('prev')}
+              >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div className="flex items-center gap-4">
@@ -126,7 +137,11 @@ export default function MenuPlannerPage() {
                 </Select>
                 <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Published</Badge>
               </div>
-              <Button variant="outline" size="sm">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedWeek('next')}
+              >
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
@@ -159,7 +174,15 @@ export default function MenuPlannerPage() {
                         </TableCell>
                       ))}
                       <TableCell>
-                        <Button variant="ghost" size="sm">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            toast.info('Menu cell edit ships next.', {
+                              description: `Edit-row dialog for ${day} is being wired in a follow-up PR.`,
+                            })
+                          }
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
                       </TableCell>

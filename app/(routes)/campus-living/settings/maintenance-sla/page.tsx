@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,8 +15,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Save, Wrench } from 'lucide-react';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function MaintenanceSlaPage() {
+  // SAMPLE DATA — SLA persistence not yet wired (PreviewBanner shown).
   const slaConfig = [
     { category: 'Plumbing', critical: 4, high: 12, medium: 24, low: 72 },
     { category: 'Electrical', critical: 2, high: 8, medium: 24, low: 72 },
@@ -29,12 +32,24 @@ export default function MaintenanceSlaPage() {
   return (
     <ContentLayout title="Maintenance SLA">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="maintenance SLA configuration"
+          note="SLA targets and escalation rules below do NOT save anywhere yet. The current effective SLA values are whatever the database holds — your changes here are discarded on reload."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Maintenance SLA Configuration</h1>
             <p className="text-muted-foreground">Set resolution time targets (in hours) by category and priority</p>
           </div>
-          <Button><Save className="mr-2 h-4 w-4" />Save Changes</Button>
+          <Button
+            onClick={() =>
+              toast.warning('SLA persistence not yet wired.', {
+                description: 'Inputs do not save. The hostel-maintenance-sla service ships in a follow-up PR.',
+              })
+            }
+          >
+            <Save className="mr-2 h-4 w-4" />Save Changes
+          </Button>
         </div>
 
         <Card>

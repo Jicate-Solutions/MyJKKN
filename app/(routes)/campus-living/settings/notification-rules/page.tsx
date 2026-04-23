@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Save, Bell, Mail, MessageSquare, Smartphone } from 'lucide-react';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function NotificationRulesPage() {
   const notificationCategories = [
@@ -56,12 +58,24 @@ export default function NotificationRulesPage() {
   return (
     <ContentLayout title="Notification Rules">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="notification rules"
+          note="The toggles below do NOT save anywhere yet. Channel preferences (Email / SMS / Push) revert on every reload. Save Changes shows a warning instead of pretending to succeed."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Notification Preferences</h1>
             <p className="text-muted-foreground">Configure which events trigger notifications and through which channels</p>
           </div>
-          <Button><Save className="mr-2 h-4 w-4" />Save Changes</Button>
+          <Button
+            onClick={() =>
+              toast.warning('Notification preferences not yet wired.', {
+                description: 'Toggles do not persist. The notification-rules service ships in a follow-up PR.',
+              })
+            }
+          >
+            <Save className="mr-2 h-4 w-4" />Save Changes
+          </Button>
         </div>
 
         {notificationCategories.map((cat) => (

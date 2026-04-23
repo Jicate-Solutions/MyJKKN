@@ -1,7 +1,8 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,7 +27,11 @@ import {
   MessageSquare,
   Loader2,
 } from 'lucide-react';
-import { useHostelMaintenanceRequest } from '@/hooks/campus-living/use-hostel-maintenance';
+import {
+  useHostelMaintenanceRequest,
+  useUpdateHostelMaintenance,
+  useResolveMaintenance,
+} from '@/hooks/campus-living/use-hostel-maintenance';
 
 interface MaintenanceDetailPageProps {
   params: Promise<{ id: string }>;
@@ -34,8 +39,13 @@ interface MaintenanceDetailPageProps {
 
 export default function MaintenanceDetailPage({ params }: MaintenanceDetailPageProps) {
   const { id } = use(params);
+  const [updateNote, setUpdateNote] = useState('');
+  const [updateStatus, setUpdateStatus] = useState<string>('');
 
   const { data: request, isLoading } = useHostelMaintenanceRequest(id);
+  const updateMaintenance = useUpdateHostelMaintenance();
+  const resolveMaintenance = useResolveMaintenance();
+  const isMutating = updateMaintenance.isPending || resolveMaintenance.isPending;
 
   if (isLoading || !request) {
     return (
@@ -171,9 +181,15 @@ export default function MaintenanceDetailPage({ params }: MaintenanceDetailPageP
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Textarea placeholder="Add a status update or note..." rows={3} />
+                <Textarea
+                  placeholder="Add a status update or note..."
+                  rows={3}
+                  value={updateNote}
+                  onChange={(e) => setUpdateNote(e.target.value)}
+                  disabled={isMutating}
+                />
                 <div className="flex gap-2">
-                  <Select>
+                  <Select value={updateStatus} onValueChange={setUpdateStatus} disabled={isMutating}>
                     <SelectTrigger className="w-[180px]">
                       <SelectValue placeholder="Update status" />
                     </SelectTrigger>
@@ -183,7 +199,44 @@ export default function MaintenanceDetailPage({ params }: MaintenanceDetailPageP
                       <SelectItem value="on_hold">On Hold</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button>Submit Update</Button>
+                  <Button
+                    disabled={isMutating}
+                    onClick={() => {
+                      if (!updateStatus && !updateNote.trim()) {
+                        toast.error('Pick a new status or add an update note before submitting');
+                        return;
+                      }
+                      // "resolved" goes through the dedicated resolve mutation so the
+                      // service can stamp resolved_at and SLA-met flags correctly.
+                      if (updateStatus === 'resolved') {
+                        resolveMaintenance.mutate(
+                          { id, payload: { resolution_notes: updateNote || undefined } as any },
+                          {
+                            onSuccess: () => {
+                              setUpdateNote('');
+                              setUpdateStatus('');
+                            },
+                          }
+                        );
+                        return;
+                      }
+                      const payload: Record<string, unknown> = {};
+                      if (updateStatus) payload.status = updateStatus;
+                      if (updateNote.trim()) payload.resolution_notes = updateNote.trim();
+                      updateMaintenance.mutate(
+                        { id, payload: payload as any },
+                        {
+                          onSuccess: () => {
+                            setUpdateNote('');
+                            setUpdateStatus('');
+                          },
+                        }
+                      );
+                    }}
+                  >
+                    {isMutating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Submit Update
+                  </Button>
                 </div>
               </CardContent>
             </Card>

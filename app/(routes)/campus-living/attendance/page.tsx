@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -172,7 +173,15 @@ export default function AttendanceDashboardPage() {
               <CardTitle className="text-base">Block-wise Attendance</CardTitle>
               <CardDescription>Today&apos;s attendance by hostel block</CardDescription>
             </div>
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                toast.info('Attendance export ships next.', {
+                  description: 'Block-wise CSV export will be available once the export endpoint is live.',
+                })
+              }
+            >
               <Download className="mr-2 h-4 w-4" />
               Export
             </Button>

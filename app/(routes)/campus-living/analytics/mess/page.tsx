@@ -11,13 +11,16 @@ import {
 } from '@/components/ui/select';
 import { UtensilsCrossed, Trash2, Star, IndianRupee } from 'lucide-react';
 import { useState } from 'react';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function MessAnalyticsPage() {
+  // SAMPLE DATA — mess analytics hook not yet wired (PreviewBanner shown)
   const [period, setPeriod] = useState('30d');
 
   return (
     <ContentLayout title="Mess Analytics">
       <div className="space-y-6">
+        <PreviewBanner feature="mess analytics" />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Mess & Cafeteria Analytics</h1>

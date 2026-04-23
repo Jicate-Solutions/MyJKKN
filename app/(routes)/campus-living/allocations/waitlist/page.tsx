@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -98,7 +99,14 @@ export default function WaitlistPage() {
               </p>
             </div>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('Add-to-waitlist dialog ships next.', {
+                description:
+                  'Use the allocations module to create a new waitlist entry until the inline form is wired.',
+              })
+            }
+          >
             <UserPlus className="mr-2 h-4 w-4" />
             Add to Waitlist
           </Button>
@@ -206,12 +214,28 @@ export default function WaitlistPage() {
                       <TableCell>
                         <div className="flex gap-1">
                           {entry.status === 'waiting' && (
-                            <Button variant="outline" size="sm">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                toast.info('Allocate-from-waitlist flow ships next.', {
+                                  description: `Would open the allocation dialog for waitlist entry ${entry.id}.`,
+                                })
+                              }
+                            >
                               Allocate
                             </Button>
                           )}
                           {entry.status === 'offered' && (
-                            <Button variant="outline" size="sm">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                toast.info('Offer-confirm flow ships next.', {
+                                  description: `Would mark waitlist entry ${entry.id} as accepted.`,
+                                })
+                              }
+                            >
                               Confirm
                             </Button>
                           )}

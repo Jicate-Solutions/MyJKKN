@@ -12,10 +12,12 @@ import {
 } from '@/components/ui/select';
 import { Building2, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function OccupancyAnalyticsPage() {
   const [period, setPeriod] = useState('30d');
 
+  // SAMPLE DATA — analytics hook for this page is not yet wired (PreviewBanner shown)
   const blockData = [
     { block: 'Block A', total: 100, occupied: 96, rate: 96 },
     { block: 'Block B', total: 80, occupied: 74, rate: 93 },
@@ -27,6 +29,7 @@ export default function OccupancyAnalyticsPage() {
   return (
     <ContentLayout title="Occupancy Analytics">
       <div className="space-y-6">
+        <PreviewBanner feature="occupancy analytics" />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Occupancy Trends</h1>

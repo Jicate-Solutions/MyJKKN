@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,10 +16,17 @@ import {
 } from '@/components/ui/table';
 import { Clock, Search, Plus, CheckCircle2, XCircle } from 'lucide-react';
 import { useState } from 'react';
+import { PreviewBanner } from '../../_components/preview-banner';
+
+const previewToast = (action: string, target: string) =>
+  toast.info('Curfew exception workflow ships next.', {
+    description: `${action} for "${target}" would call the matching mutation hook once wired.`,
+  });
 
 export default function CurfewExceptionsPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
+  // SAMPLE DATA — curfew-exception data hook not yet wired (PreviewBanner shown).
   const exceptions = [
     { id: '1', student: 'Arun Kumar', roll: 'CS2024001', block: 'Block A', date: '2026-02-21', from: '10:00 PM', to: '11:30 PM', reason: 'Lab work submission deadline', approved_by: 'Prof. Kumar', status: 'approved' },
     { id: '2', student: 'Priya Sharma', roll: 'EC2024015', block: 'Block B', date: '2026-02-22', from: '10:00 PM', to: '6:00 AM', reason: 'Train arrival delayed', approved_by: null, status: 'pending' },
@@ -42,12 +50,13 @@ export default function CurfewExceptionsPage() {
   return (
     <ContentLayout title="Curfew Exceptions">
       <div className="space-y-6">
+        <PreviewBanner feature="curfew exceptions" />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Curfew Exceptions</h1>
             <p className="text-muted-foreground">Manage curfew exception requests (Curfew: 10:00 PM - 6:00 AM)</p>
           </div>
-          <Button>
+          <Button onClick={() => previewToast('New Exception', 'curfew exception')}>
             <Plus className="mr-2 h-4 w-4" />
             New Exception
           </Button>
@@ -110,8 +119,22 @@ export default function CurfewExceptionsPage() {
                     <TableCell className="text-right">
                       {exc.status === 'pending' && (
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="sm" className="text-green-600">Approve</Button>
-                          <Button variant="ghost" size="sm" className="text-red-600">Reject</Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-green-600"
+                            onClick={() => previewToast('Approve', exc.student)}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600"
+                            onClick={() => previewToast('Reject', exc.student)}
+                          >
+                            Reject
+                          </Button>
                         </div>
                       )}
                     </TableCell>

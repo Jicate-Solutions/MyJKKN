@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,8 +16,16 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Save, Plus, Edit, IndianRupee } from 'lucide-react';
+import { PreviewBanner } from '../../_components/preview-banner';
+
+const previewSave = () =>
+  toast.warning('Fee configuration not yet wired.', {
+    description:
+      'Add Room Type / Edit / Save Changes do nothing yet. Hostel and mess fees stay at their database values regardless of edits here.',
+  });
 
 export default function FeeConfigPage() {
+  // SAMPLE DATA — fee-config persistence not yet wired (PreviewBanner shown).
   const feeStructure = [
     { id: '1', room_type: 'Single (AC)', hostel_fee: 60000, mess_fee: 54000, deposit: 5000, maintenance: 2000, total: 121000 },
     { id: '2', room_type: 'Single (Non-AC)', hostel_fee: 45000, mess_fee: 54000, deposit: 5000, maintenance: 2000, total: 106000 },
@@ -32,14 +41,15 @@ export default function FeeConfigPage() {
   return (
     <ContentLayout title="Fee Configuration">
       <div className="space-y-6">
+        <PreviewBanner feature="fee configuration" />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Fee Configuration</h1>
             <p className="text-muted-foreground">Set hostel fees by room type and category</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline"><Plus className="mr-2 h-4 w-4" />Add Room Type</Button>
-            <Button><Save className="mr-2 h-4 w-4" />Save Changes</Button>
+            <Button variant="outline" onClick={previewSave}><Plus className="mr-2 h-4 w-4" />Add Room Type</Button>
+            <Button onClick={previewSave}><Save className="mr-2 h-4 w-4" />Save Changes</Button>
           </div>
         </div>
 
@@ -73,7 +83,7 @@ export default function FeeConfigPage() {
                     <TableCell>{formatCurrency(row.maintenance)}</TableCell>
                     <TableCell className="font-bold">{formatCurrency(row.total)}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm"><Edit className="h-4 w-4" /></Button>
+                      <Button variant="ghost" size="sm" onClick={previewSave}><Edit className="h-4 w-4" /></Button>
                     </TableCell>
                   </TableRow>
                 ))}
