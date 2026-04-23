@@ -23,6 +23,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useRef } from 'react';
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -58,16 +59,48 @@ function getIcon(iconName: string): LucideIcon {
 
 function TabBar({ chips }: { chips: Chip[] }) {
   if (chips.length < 2) return null;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const activeHref = chips.find((c) => c.isActive)?.href ?? null;
+
+  // Mobile-first: the chip strip is a single horizontal-scroll row (< md).
+  // When the active chip may be off-screen after nav, bring it into view so
+  // the user can see where they are. On desktop (md+) chips wrap, so the
+  // active chip is always visible — scrollIntoView is a harmless no-op.
+  useEffect(() => {
+    if (!activeHref || !containerRef.current) return;
+    const activeEl = containerRef.current.querySelector<HTMLElement>(
+      `[data-chip-href="${CSS.escape(activeHref)}"]`
+    );
+    activeEl?.scrollIntoView({
+      behavior: 'smooth',
+      inline: 'center',
+      block: 'nearest',
+    });
+  }, [activeHref]);
+
   return (
-    <div className='flex flex-wrap gap-1 p-1 rounded-lg bg-muted/50 border max-w-full'>
+    <div
+      ref={containerRef}
+      className={cn(
+        // Mobile: single horizontal-scroll strip — no more 40%-of-viewport
+        // multi-row stacks on phones (82% of sessions). Desktop (md+) keeps
+        // the existing wrap behaviour.
+        'flex flex-nowrap md:flex-wrap gap-1 p-1 rounded-lg bg-muted/50 border',
+        'overflow-x-auto md:overflow-x-visible max-w-full',
+        // Hide the horizontal scrollbar; the active-chip scrollIntoView
+        // above is the discoverability affordance.
+        '[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
+      )}
+    >
       {chips.map((c) => {
         const Icon = getIcon(c.iconName);
         return (
           <Link
             key={c.href}
             href={c.href}
+            data-chip-href={c.href}
             className={cn(
-              'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors whitespace-nowrap',
+              'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors whitespace-nowrap shrink-0',
               c.isActive
                 ? 'bg-background text-foreground shadow-sm font-medium'
                 : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
