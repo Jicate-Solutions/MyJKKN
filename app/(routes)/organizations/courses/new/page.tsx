@@ -5,6 +5,16 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { CourseForm } from '../_components/course-form';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/organizations/courses',
+} as const;
+
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,

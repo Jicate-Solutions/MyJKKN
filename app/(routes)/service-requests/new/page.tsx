@@ -29,6 +29,16 @@ import { ServiceTypeCard } from '../_components/service-type-card';
 import { DynamicRequestForm } from '../_components/dynamic-request-form';
 import type { ServiceType, ServiceRequestPriority } from '@/types/service-request';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/service-requests',
+} as const;
+
+
 export default function NewServiceRequestPage() {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2>(1);

@@ -22,6 +22,16 @@ import Loading from '@/components/Loading/Loading';
 import { CreateRegulationDto } from '@/types/academics';
 import { logger } from '@/lib/utils/enhanced-logger';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/academic/regulations',
+} as const;
+
+
 
 export default function NewRegulationPage() {
   const router = useRouter();

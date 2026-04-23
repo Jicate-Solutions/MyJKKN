@@ -27,6 +27,15 @@ import { useAuth } from '@/hooks/use-auth';
 import { useGraduationReadiness } from '@/hooks/vac/use-case';
 import type { CASEGraduationReadiness } from '@/types/case';
 import {
+
+/**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/vac/admin/case',
+} as const;
+
   ArrowLeft,
   ShieldCheck,
   AlertTriangle,

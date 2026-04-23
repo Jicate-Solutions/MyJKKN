@@ -7,6 +7,16 @@ import { InstitutionForm } from '../_components/institution-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import {
+
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/organizations/institutions',
+} as const;
+
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,

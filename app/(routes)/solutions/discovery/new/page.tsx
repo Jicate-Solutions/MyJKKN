@@ -30,6 +30,16 @@ import { format } from 'date-fns';
 import { useCreateDiscoveryVisit } from '@/hooks/solutions/use-discovery';
 import { useClients } from '@/hooks/solutions/use-clients';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/discovery',
+} as const;
+
+
 interface FormState {
   client_id: string;
   department_id: string;

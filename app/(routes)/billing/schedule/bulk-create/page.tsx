@@ -55,6 +55,15 @@ import type { Institution } from '@/types/organizations';
 import type { BillingItemCategory } from '@/types/billing';
 import type { StudentForBilling } from '@/types/billing-schedule';
 
+/**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/billing/schedule',
+} as const;
+
+
 const bulkBillSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
   department_id: z.string().optional(),

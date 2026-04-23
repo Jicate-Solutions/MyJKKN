@@ -42,6 +42,16 @@ import { RoleService } from '@/lib/services/roles/role-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/users',
+} as const;
+
+
 const formSchema = z.object({
   email: z
     .string()

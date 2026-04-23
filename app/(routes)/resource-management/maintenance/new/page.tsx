@@ -17,6 +17,16 @@ import { useCreateMaintenanceLog } from '@/hooks/resource-management/use-mainten
 import { useAuth } from '@/hooks/use-auth';
 import type { CreateMaintenanceLogDto } from '@/types/maintenance';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/resource-management/maintenance',
+} as const;
+
+
 export default function NewMaintenancePage() {
   const router = useRouter();
   const { profile: user } = useAuth();

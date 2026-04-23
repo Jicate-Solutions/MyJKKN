@@ -13,6 +13,16 @@ import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { ExpoEventForm } from '../_components/expo-event-form';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/admission/marketing/expos',
+} as const;
+
+
 function NewExpoPageContent() {
   return (
     <PermissionGuard module="admission.marketing.expos" action="create">

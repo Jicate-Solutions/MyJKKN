@@ -26,6 +26,16 @@ import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-r
 import type { Institution } from '@/types/organizations';
 import type { CreateReceiptDto } from '@/types/billing-schedule';
 import {
+
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/billing/receipts',
+} as const;
+
   Table,
   TableBody,
   TableCell,

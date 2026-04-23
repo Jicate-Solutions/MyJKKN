@@ -25,6 +25,16 @@ import { useCreateProduct, DOMAIN_LABELS, SECTOR_LABELS } from '@/hooks/solution
 import type { ProductDomain, RDIFSector } from '@/hooks/solutions/use-products';
 import { useSolutions } from '@/hooks/solutions/use-solutions';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/products',
+} as const;
+
+
 export default function NewProductPage() {
   const router = useRouter();
   const searchParams = useSearchParams();

@@ -27,6 +27,16 @@ import {
 import { GrievanceService } from '@/lib/services/grievance/grievance-service';
 import { useAuth } from '@/hooks/use-auth';
 import type {
+
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/accreditation/naac/grievance',
+} as const;
+
   GrievancePriority, RaisedByType, GrievanceCategory,
 } from '@/lib/types/grievance';
 
