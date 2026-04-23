@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { MentorDetail } from './_components/mentor-detail';
 
 export const metadata: Metadata = {
-  title: 'Mentor Detail | Startup Studio',
+  title: 'Mentor Detail',
 };
 
 export default async function MentorDetailPage({

@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { GovernanceDashboard } from './_components/governance-dashboard';
 
 export const metadata: Metadata = {
-  title: 'Governance | Startup Studio',
+  title: 'Governance',
 };
 
 export default function GovernancePage() {

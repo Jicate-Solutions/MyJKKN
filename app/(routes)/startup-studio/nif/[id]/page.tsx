@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { NifCandidateDetail } from './_components/nif-candidate-detail';
 
 export const metadata: Metadata = {
-  title: 'NIF Candidate | Startup Studio',
+  title: 'NIF Candidate',
 };
 
 export default async function NifCandidateDetailPage({

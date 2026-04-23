@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SF100AdminDashboard } from './_components/sf100-admin-dashboard';
 
 export const metadata: Metadata = {
-  title: 'Program Admin | Solve for 100',
+  title: 'Program Admin',
   description: 'Manage enrollments, verify paid users, and track phase progression',
 };
 

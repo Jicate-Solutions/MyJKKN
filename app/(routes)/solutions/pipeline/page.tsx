@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { PipelineBoard } from './_components/pipeline-board';
 
 export const metadata: Metadata = {
-  title: 'Pipeline Board | Solutions Hub',
+  title: 'Pipeline Board',
   description: 'Manage prospects through the sales pipeline',
 };
 

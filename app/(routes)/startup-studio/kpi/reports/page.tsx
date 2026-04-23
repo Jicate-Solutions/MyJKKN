@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { ImpactReportsView } from './_components/impact-reports-view';
 
 export const metadata: Metadata = {
-  title: 'Impact Reports | Startup Studio',
+  title: 'Impact Reports',
 };
 
 export default function ImpactReportsPage() {

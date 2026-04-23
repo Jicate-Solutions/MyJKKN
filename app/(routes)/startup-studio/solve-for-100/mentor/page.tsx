@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SF100MentorDashboard } from './_components/sf100-mentor-dashboard';
 
 export const metadata: Metadata = {
-  title: 'Mentor Dashboard | Solve for 100',
+  title: 'Mentor Dashboard',
   description: 'Review check-ins, track assigned teams, and flag teams that need attention',
 };
 

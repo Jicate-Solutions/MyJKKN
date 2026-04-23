@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { SF100SmartRouter } from './_components/sf100-smart-router';
 
 export const metadata: Metadata = {
-  title: 'Solve for 100 | Startup Studio',
+  title: 'Solve for 100',
   description:
     'JKKN\'s flagship startup program. Build a real product, get 100 paying users, and graduate to the Nattraja Incubation Forum.',
 };

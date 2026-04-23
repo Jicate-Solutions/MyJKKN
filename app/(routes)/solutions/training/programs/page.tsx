@@ -7,7 +7,7 @@ import { Plus } from 'lucide-react';
 import { ProgramsList } from './_components/programs-list';
 
 export const metadata: Metadata = {
-  title: 'Training Programs | Solutions Hub',
+  title: 'Training Programs',
   description: 'Manage training programs',
 };
 

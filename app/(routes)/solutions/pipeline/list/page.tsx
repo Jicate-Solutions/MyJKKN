@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { ProspectList } from './_components/prospect-list';
 
 export const metadata: Metadata = {
-  title: 'Prospect List | Solutions Hub',
+  title: 'Prospect List',
   description: 'View and manage all prospects in the pipeline',
 };
 

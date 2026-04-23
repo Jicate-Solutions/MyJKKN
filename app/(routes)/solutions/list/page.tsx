@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SolutionsList } from './_components/solutions-list';
 
 export const metadata: Metadata = {
-  title: 'All Solutions | Solutions Hub',
+  title: 'All Solutions',
   description: 'View and manage all solutions',
 };
 

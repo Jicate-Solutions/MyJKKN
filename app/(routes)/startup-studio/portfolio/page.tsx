@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { PortfolioDashboard } from './_components/portfolio-dashboard';
 
 export const metadata: Metadata = {
-  title: 'Portfolio Intelligence | Startup Studio',
+  title: 'Portfolio Intelligence',
 };
 
 export default function PortfolioPage() {

@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { BuildersList } from './_components/builders-list';
 
 export const metadata: Metadata = {
-  title: 'Builders | Solutions Hub',
+  title: 'Builders',
   description: 'Manage the builder talent pool across all solution types',
 };
 

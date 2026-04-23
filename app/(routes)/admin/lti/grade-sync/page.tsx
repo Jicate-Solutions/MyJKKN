@@ -25,7 +25,7 @@ import { GradeSyncFilters } from './_components/grade-sync-filters';
 import { subDays, startOfDay, endOfDay } from 'date-fns';
 
 export const metadata = {
-  title: 'Grade Sync Monitoring | MyJKKN',
+  title: 'Grade Sync Monitoring',
   description: 'Monitor grade passback from LTI tools'
 };
 

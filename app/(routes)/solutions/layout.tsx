@@ -4,8 +4,8 @@ import { SolutionsNav } from './_components/solutions-nav';
 
 export const metadata: Metadata = {
   title: {
-    template: '%s | Solutions Hub',
-    default: 'Solutions Hub',
+    template: '%s · Solutions Hub · MyJKKN',
+    default: 'Solutions Hub · MyJKKN',
   },
   description: 'JKKN Solutions Hub - Managing software, training, and content solutions',
 };
