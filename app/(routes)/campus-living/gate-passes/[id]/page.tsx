@@ -2,13 +2,14 @@
 
 import { use } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
-import { useGatePass } from '@/hooks/campus-living/use-gate-passes';
+import { useGatePass, useReturnGatePass } from '@/hooks/campus-living/use-gate-passes';
 import {
   ArrowLeft,
   User,
@@ -55,7 +56,16 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
   const { id } = use(params);
   const { profile } = useAuth();
   const { data: passData, isLoading } = useGatePass(id);
+  const returnPass = useReturnGatePass();
   const pass = passData as any;
+
+  const handleRecordReturn = () => {
+    if (!profile?.id) {
+      toast.error('Unable to identify security user — please sign in again');
+      return;
+    }
+    returnPass.mutate({ id, securityId: profile.id });
+  };
 
   if (isLoading || !pass) {
     return (
@@ -110,8 +120,12 @@ export default function GatePassDetailPage({ params }: { params: Promise<{ id: s
           </div>
 
           {pass.status === 'active' && (
-            <Button>
-              <LogIn className="mr-2 h-4 w-4" />
+            <Button onClick={handleRecordReturn} disabled={returnPass.isPending}>
+              {returnPass.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <LogIn className="mr-2 h-4 w-4" />
+              )}
               Record Return
             </Button>
           )}

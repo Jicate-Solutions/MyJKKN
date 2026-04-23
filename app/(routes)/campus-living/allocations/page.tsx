@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -258,7 +259,15 @@ export default function AllocationsPage() {
               View Waitlist
             </Link>
           </Button>
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              toast.info('Allocations export ships next.', {
+                description: 'CSV export will be available once the export endpoint is live.',
+              })
+            }
+          >
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>

@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,8 +8,16 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Settings, Plus, Bell, AlertTriangle, Shield, UtensilsCrossed, Wrench, Users } from 'lucide-react';
+import { PreviewBanner } from '../../_components/preview-banner';
+
+const previewToast = (action: string) =>
+  toast.info('Preview only — alert rule wiring ships next.', {
+    description: `${action} would call the matching mutation hook (useCreateHostelAlertRule / useUpdateHostelAlertRule).`,
+  });
 
 export default function AlertRulesPage() {
+  // SAMPLE DATA — useHostelAlertRules hook exists but the page is not wired yet.
+  // Add Rule, Switch toggle, Settings buttons are placeholders.
   const rules = [
     { id: '1', name: 'Attendance Below Threshold', domain: 'Attendance', condition: 'Night attendance < 85%', severity: 'warning', enabled: true, icon: Users },
     { id: '2', name: 'Maintenance SLA Breach', domain: 'Maintenance', condition: 'Any request exceeds SLA deadline', severity: 'critical', enabled: true, icon: Wrench },
@@ -23,12 +32,16 @@ export default function AlertRulesPage() {
   return (
     <ContentLayout title="Alert Rules">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="alert rules"
+          note="This Alert Rules page shows sample rules. Add Rule, the per-rule enable Switch, and the per-rule Settings button are placeholders — they have no effect yet. The hooks (useHostelAlertRules / useCreateHostelAlertRule / useUpdateHostelAlertRule / useDeleteHostelAlertRule) exist and ship next."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Alert Rule Configuration</h1>
             <p className="text-muted-foreground">Configure alert thresholds and notification rules</p>
           </div>
-          <Button>
+          <Button onClick={() => previewToast('Add Rule')}>
             <Plus className="mr-2 h-4 w-4" />
             Add Rule
           </Button>
@@ -81,10 +94,17 @@ export default function AlertRulesPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
-                      <Switch checked={rule.enabled} />
+                      <Switch
+                        checked={rule.enabled}
+                        onCheckedChange={() => previewToast(`Toggle "${rule.name}"`)}
+                      />
                       <Label className="text-sm">{rule.enabled ? 'Active' : 'Disabled'}</Label>
                     </div>
-                    <Button variant="ghost" size="sm">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => previewToast(`Edit "${rule.name}"`)}
+                    >
                       <Settings className="h-4 w-4" />
                     </Button>
                   </div>

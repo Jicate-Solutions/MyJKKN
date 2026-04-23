@@ -24,10 +24,14 @@ import {
 import { Download, ArrowLeft, UserPlus, Search, Users, Clock, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function VisitorRegisterReportPage() {
   const { profile } = useAuth();
   const exportReport = useExportReport();
+  // SAMPLE DATA — the on-screen rows below are illustrative.
+  // The Export CSV button DOES call the real /api/campus-living/reports endpoint
+  // and returns whatever rows the back-end has. So the export is real, the UI preview is not.
   const summaryStats = [
     { label: 'Total Visitors Today', value: '24', icon: Users },
     { label: 'Currently Inside', value: '3', icon: UserPlus },
@@ -48,6 +52,10 @@ export default function VisitorRegisterReportPage() {
   return (
     <ContentLayout title="Visitor Register Report">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="visitor register report"
+          note="The on-screen rows are illustrative samples. Use Export CSV to download the real visitor log from your institution."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center gap-3">
             <Link href="/campus-living/reports">

@@ -23,12 +23,14 @@ import { Download, Printer, Building2, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function OccupancyReportPage() {
   const [blockFilter, setBlockFilter] = useState('all');
   const { profile } = useAuth();
   const exportReport = useExportReport();
 
+  // SAMPLE DATA — Print is a no-op placeholder. Export does call the real report endpoint.
   const occupancyData = [
     { block: 'Block A', floor: 'Ground', total_rooms: 25, occupied: 24, vacant: 1, total_beds: 50, beds_occupied: 48 },
     { block: 'Block A', floor: '1st', total_rooms: 25, occupied: 25, vacant: 0, total_beds: 50, beds_occupied: 50 },
@@ -44,13 +46,22 @@ export default function OccupancyReportPage() {
   return (
     <ContentLayout title="Occupancy Report">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="occupancy report"
+          note="The on-screen table shows illustrative sample data. Use Export to pull the real occupancy snapshot. Print button is a placeholder and will be wired in a future PR."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Occupancy Report</h1>
             <p className="text-muted-foreground">Room and bed occupancy status across all blocks</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline"><Printer className="mr-2 h-4 w-4" />Print</Button>
+            <Button
+              variant="outline"
+              onClick={() => window.print()}
+            >
+              <Printer className="mr-2 h-4 w-4" />Print
+            </Button>
             <Button
               variant="outline"
               disabled={exportReport.isPending}

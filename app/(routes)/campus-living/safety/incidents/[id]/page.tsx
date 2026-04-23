@@ -1,7 +1,8 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,12 @@ import {
   FileText,
   Camera,
   CheckCircle2,
+  Loader2,
 } from 'lucide-react';
+import {
+  useHostelIncident,
+  useUpdateHostelIncident,
+} from '@/hooks/campus-living/use-hostel-incidents';
 
 interface IncidentDetailPageProps {
   params: Promise<{ id: string }>;
@@ -24,27 +30,44 @@ interface IncidentDetailPageProps {
 
 export default function IncidentDetailPage({ params }: IncidentDetailPageProps) {
   const { id } = use(params);
+  const { data, isLoading, error } = useHostelIncident(id);
+  const updateIncident = useUpdateHostelIncident();
+  const [actionNote, setActionNote] = useState('');
+  const incident = data as any;
 
-  const incident = {
-    id,
-    title: 'Ragging complaint (verbal)',
-    type: 'ragging',
-    severity: 'high',
-    location: 'Block A - Common Area',
-    reported_by: 'Anonymous',
-    reporter_role: 'Student',
-    date: '2026-02-17 08:30 PM',
-    status: 'investigating',
-    description: 'A group of senior students was reported verbally harassing a first-year student in the common area of Block A. The incident lasted approximately 15 minutes. The victim was asked to perform tasks and was ridiculed.',
-    immediate_action: 'Warden was alerted immediately. CCTV footage has been pulled. Both parties have been separated.',
-    involved_parties: 'Victim: First-year student (name withheld). Accused: 3 senior students (identities being verified).',
-    actions_taken: [
-      { date: '2026-02-17 09:00 PM', action: 'Warden notified and CCTV reviewed', by: 'Security' },
-      { date: '2026-02-18 10:00 AM', action: 'Anti-Ragging Committee convened', by: 'Dean' },
-      { date: '2026-02-18 02:00 PM', action: 'Statements recorded from witnesses', by: 'Committee' },
-      { date: '2026-02-19 11:00 AM', action: 'Accused students identified and called for hearing', by: 'Committee' },
-    ],
-  };
+  if (isLoading) {
+    return (
+      <ContentLayout title="Incident Detail">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (error || !incident) {
+    return (
+      <ContentLayout title="Incident Detail">
+        <div className="space-y-4">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/campus-living/safety/incidents">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Incidents
+            </Link>
+          </Button>
+          <Card>
+            <CardContent className="py-12 text-center space-y-2">
+              <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto" />
+              <p className="font-medium">Incident not found</p>
+              <p className="text-sm text-muted-foreground">
+                {error instanceof Error ? error.message : `No incident with ID ${id}`}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   const getSeverityBadge = (severity: string) => {
     switch (severity) {
@@ -55,6 +78,58 @@ export default function IncidentDetailPage({ params }: IncidentDetailPageProps) 
       default: return <Badge variant="outline">{severity}</Badge>;
     }
   };
+
+  const getStatusBadge = (status: string) => {
+    const map: Record<string, string> = {
+      reported: 'bg-blue-100 text-blue-800',
+      under_investigation: 'bg-purple-100 text-purple-800',
+      action_taken: 'bg-amber-100 text-amber-800',
+      closed: 'bg-green-100 text-green-800',
+      reopened: 'bg-red-100 text-red-800',
+    };
+    const cls = map[status] ?? 'bg-gray-100 text-gray-800';
+    return <Badge className={`${cls} hover:${cls}`}>{status?.replaceAll('_', ' ') ?? 'unknown'}</Badge>;
+  };
+
+  const handleSubmitUpdate = () => {
+    if (!actionNote.trim()) {
+      toast.error('Please describe the update before submitting');
+      return;
+    }
+    const previousActions = Array.isArray(incident.actions_taken)
+      ? incident.actions_taken
+      : [];
+    const newAction = {
+      action: actionNote.trim(),
+      by: 'Current User',
+      date: new Date().toISOString(),
+    };
+    updateIncident.mutate(
+      {
+        id,
+        payload: {
+          actions_taken: [...previousActions, newAction] as any,
+          status: 'action_taken' as any,
+        },
+      },
+      {
+        onSuccess: () => setActionNote(''),
+      }
+    );
+  };
+
+  const handleStatusChange = (status: string, label: string) => {
+    updateIncident.mutate({
+      id,
+      payload: { status: status as any },
+    }, {
+      onSuccess: () => toast.success(`Marked as ${label}`),
+    });
+  };
+
+  const actions: Array<{ action: string; by?: string; date?: string }> =
+    Array.isArray(incident.actions_taken) ? incident.actions_taken : [];
+  const isMutating = updateIncident.isPending;
 
   return (
     <ContentLayout title="Incident Detail">
@@ -74,13 +149,12 @@ export default function IncidentDetailPage({ params }: IncidentDetailPageProps) 
           </div>
           <div className="flex gap-2">
             {getSeverityBadge(incident.severity)}
-            <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100">Investigating</Badge>
+            {getStatusBadge(incident.status)}
           </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
-            {/* Details */}
             <Card>
               <CardHeader>
                 <CardTitle>Incident Details</CardTitle>
@@ -88,60 +162,71 @@ export default function IncidentDetailPage({ params }: IncidentDetailPageProps) 
               <CardContent className="space-y-4">
                 <div>
                   <p className="text-sm text-muted-foreground mb-1">Description</p>
-                  <p>{incident.description}</p>
+                  <p>{incident.description ?? '—'}</p>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm text-muted-foreground">Type</p>
-                      <p className="font-medium capitalize">{incident.type}</p>
+                      <p className="font-medium capitalize">{incident.type ?? '—'}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm text-muted-foreground">Location</p>
-                      <p className="font-medium">{incident.location}</p>
+                      <p className="font-medium">{incident.location ?? '—'}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <p className="text-sm text-muted-foreground">Date & Time</p>
-                      <p className="font-medium">{incident.date}</p>
+                      <p className="text-sm text-muted-foreground">Date &amp; Time</p>
+                      <p className="font-medium">
+                        {incident.incident_at
+                          ? new Date(incident.incident_at).toLocaleString('en-IN')
+                          : incident.date ?? '—'}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm text-muted-foreground">Reported By</p>
-                      <p className="font-medium">{incident.reported_by} ({incident.reporter_role})</p>
+                      <p className="font-medium">
+                        {incident.reported_by ?? 'Anonymous'}
+                        {incident.reporter_role ? ` (${incident.reporter_role})` : ''}
+                      </p>
                     </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Parties */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Parties Involved</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>{incident.involved_parties}</p>
-              </CardContent>
-            </Card>
+            {incident.involved_parties && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Parties Involved</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>{typeof incident.involved_parties === 'string'
+                      ? incident.involved_parties
+                      : JSON.stringify(incident.involved_parties)}</p>
+                </CardContent>
+              </Card>
+            )}
 
-            {/* Immediate Action */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Immediate Action Taken</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p>{incident.immediate_action}</p>
-              </CardContent>
-            </Card>
+            {incident.immediate_action && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Immediate Action Taken</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>{incident.immediate_action}</p>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Evidence */}
             <Card>
@@ -152,20 +237,27 @@ export default function IncidentDetailPage({ params }: IncidentDetailPageProps) 
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="border-2 border-dashed rounded-lg aspect-video flex items-center justify-center bg-muted/50">
-                    <div className="text-center">
-                      <Camera className="h-6 w-6 text-muted-foreground mx-auto mb-1" />
-                      <p className="text-xs text-muted-foreground">CCTV Screenshot</p>
-                    </div>
+                {Array.isArray(incident.evidence) && incident.evidence.length > 0 ? (
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    {incident.evidence.map((ev: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className="border rounded-lg aspect-video flex items-center justify-center bg-muted/50"
+                      >
+                        <div className="text-center px-2">
+                          <FileText className="h-6 w-6 text-muted-foreground mx-auto mb-1" />
+                          <p className="text-xs text-muted-foreground truncate">
+                            {ev.type ?? ev.name ?? `Evidence ${idx + 1}`}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="border-2 border-dashed rounded-lg aspect-video flex items-center justify-center bg-muted/50">
-                    <div className="text-center">
-                      <FileText className="h-6 w-6 text-muted-foreground mx-auto mb-1" />
-                      <p className="text-xs text-muted-foreground">Witness Statement</p>
-                    </div>
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    No evidence attached to this incident.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -175,8 +267,17 @@ export default function IncidentDetailPage({ params }: IncidentDetailPageProps) 
                 <CardTitle>Add Action / Update</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Textarea placeholder="Document an action taken or status update..." rows={3} />
-                <Button>Submit Update</Button>
+                <Textarea
+                  placeholder="Document an action taken or status update..."
+                  rows={3}
+                  value={actionNote}
+                  onChange={(e) => setActionNote(e.target.value)}
+                  disabled={isMutating}
+                />
+                <Button onClick={handleSubmitUpdate} disabled={isMutating}>
+                  {isMutating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Submit Update
+                </Button>
               </CardContent>
             </Card>
           </div>
@@ -188,24 +289,31 @@ export default function IncidentDetailPage({ params }: IncidentDetailPageProps) 
                 <CardTitle className="text-sm">Status Timeline</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {incident.actions_taken.map((action, idx) => (
-                    <div key={idx} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5" />
-                        {idx < incident.actions_taken.length - 1 && (
-                          <div className="w-px flex-1 bg-gray-200 mt-1" />
-                        )}
+                {actions.length > 0 ? (
+                  <div className="space-y-4">
+                    {actions.map((action, idx) => (
+                      <div key={idx} className="flex gap-3">
+                        <div className="flex flex-col items-center">
+                          <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5" />
+                          {idx < actions.length - 1 && (
+                            <div className="w-px flex-1 bg-gray-200 mt-1" />
+                          )}
+                        </div>
+                        <div className="pb-4">
+                          <p className="text-sm font-medium">{action.action}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {action.by ?? 'System'}
+                            {action.date ? ` — ${new Date(action.date).toLocaleString('en-IN')}` : ''}
+                          </p>
+                        </div>
                       </div>
-                      <div className="pb-4">
-                        <p className="text-sm font-medium">{action.action}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {action.by} - {action.date}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No actions recorded yet.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
@@ -214,9 +322,37 @@ export default function IncidentDetailPage({ params }: IncidentDetailPageProps) 
                 <CardTitle className="text-sm">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-start" size="sm">Escalate to Administration</Button>
-                <Button variant="outline" className="w-full justify-start" size="sm">Mark as Resolved</Button>
-                <Button variant="outline" className="w-full justify-start" size="sm">Generate Report</Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  size="sm"
+                  onClick={() => handleStatusChange('under_investigation', 'Under Investigation')}
+                  disabled={isMutating}
+                >
+                  Escalate to Administration
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  size="sm"
+                  onClick={() => handleStatusChange('closed', 'Resolved')}
+                  disabled={isMutating}
+                >
+                  Mark as Resolved
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  size="sm"
+                  onClick={() =>
+                    toast.info('Report generation ships in a follow-up PR.', {
+                      description: 'A PDF/CSV export of this incident will be available once the report endpoint is live.',
+                    })
+                  }
+                  disabled={isMutating}
+                >
+                  Generate Report
+                </Button>
               </CardContent>
             </Card>
           </div>

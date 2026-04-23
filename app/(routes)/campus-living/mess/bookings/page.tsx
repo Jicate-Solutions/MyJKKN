@@ -1,10 +1,12 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { PreviewBanner } from '../../_components/preview-banner';
 import {
   Select,
   SelectContent,
@@ -88,9 +90,13 @@ export default function MealBookingsPage() {
   return (
     <ContentLayout title="Meal Bookings">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="meal bookings approval"
+          note="The 4 summary cards below show illustrative numbers, not live counts. The Approve/Reject buttons in the table are placeholders — they have no effect yet (booking-approval workflow ships in a follow-up PR). The bookings table itself is real data from useMessMeals."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-2xl font-bold">Meal Bookings & Opt-out</h1>
+            <h1 className="text-2xl font-bold">Meal Bookings &amp; Opt-out</h1>
             <p className="text-muted-foreground">
               Manage student meal opt-in/opt-out requests and guest meals
             </p>
@@ -195,10 +201,28 @@ export default function MealBookingsPage() {
                     <TableCell className="text-right">
                       {booking.status === 'pending' && (
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="sm" className="text-green-600 hover:text-green-700">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-green-600 hover:text-green-700"
+                            onClick={() =>
+                              toast.info('Booking approval ships next.', {
+                                description: `Would approve "${booking.student}" booking once wired to the approval workflow.`,
+                              })
+                            }
+                          >
                             Approve
                           </Button>
-                          <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() =>
+                              toast.info('Booking rejection ships next.', {
+                                description: `Would reject "${booking.student}" booking once wired to the approval workflow.`,
+                              })
+                            }
+                          >
                             Reject
                           </Button>
                         </div>

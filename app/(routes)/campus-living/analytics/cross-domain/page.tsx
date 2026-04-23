@@ -4,8 +4,10 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Activity, AlertTriangle, TrendingUp, Lightbulb } from 'lucide-react';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function CrossDomainAnalyticsPage() {
+  // SAMPLE DATA — cross-domain correlation engine is illustrative only (PreviewBanner shown)
   const correlations = [
     { title: 'Low Attendance + High Mess Opt-outs', risk: 'medium', description: 'Block B shows 15% lower attendance on weekends combined with 30% higher mess opt-outs, suggesting students leaving campus without proper leave.', action: 'Review Block B weekend leave policies' },
     { title: 'Maintenance Delays + Complaints', risk: 'high', description: 'Blocks with SLA breaches in plumbing show 40% more student complaints in feedback. Block D has 3 overdue plumbing requests.', action: 'Prioritize Block D plumbing backlog' },
@@ -16,6 +18,7 @@ export default function CrossDomainAnalyticsPage() {
   return (
     <ContentLayout title="Cross-Domain Analytics">
       <div className="space-y-6">
+        <PreviewBanner feature="cross-domain risk correlation" />
         <div>
           <h1 className="text-2xl font-bold">Cross-Domain Risk Correlation</h1>
           <p className="text-muted-foreground">

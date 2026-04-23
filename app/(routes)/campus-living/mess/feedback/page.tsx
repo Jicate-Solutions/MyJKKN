@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -251,7 +252,17 @@ export default function MessFeedbackPage() {
                           <span className="text-xs text-muted-foreground">{fb.date}</span>
                         </div>
                       </div>
-                      <Button variant="outline" size="sm">Respond</Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          toast.info('Reply-to-feedback dialog ships next.', {
+                            description: `Would open the reply form for ${fb.student}'s complaint once wired.`,
+                          })
+                        }
+                      >
+                        Respond
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

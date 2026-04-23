@@ -1,12 +1,16 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Phone, AlertTriangle, Shield, Ambulance, Flame, Building2, Edit } from 'lucide-react';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function EmergencyContactsPage() {
+  // SAMPLE CONTACTS — these are placeholder numbers shipped with the module template.
+  // Each institution should override them via the Edit Contacts dialog (ships next).
   const emergencyContacts = [
     { category: 'Medical Emergency', contacts: [
       { name: 'Hostel Medical Room', phone: '+91 98765 00001', available: '24/7', primary: true },
@@ -49,14 +53,25 @@ export default function EmergencyContactsPage() {
   return (
     <ContentLayout title="Emergency Contacts">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="emergency contacts"
+          note="The phone numbers below are template placeholders shipped with the module. Edit Contacts will let each institution override them — that dialog ships in a follow-up PR."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-2xl font-bold">Emergency Protocol & Contacts</h1>
+            <h1 className="text-2xl font-bold">Emergency Protocol &amp; Contacts</h1>
             <p className="text-muted-foreground">
               Emergency contact numbers and response protocols
             </p>
           </div>
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() =>
+              toast.info('Emergency-contacts editor ships next.', {
+                description: 'Will let chief warden override per-block contacts.',
+              })
+            }
+          >
             <Edit className="mr-2 h-4 w-4" />
             Edit Contacts
           </Button>

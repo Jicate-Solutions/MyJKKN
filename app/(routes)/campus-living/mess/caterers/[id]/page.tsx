@@ -2,6 +2,7 @@
 
 import { use } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -98,7 +99,15 @@ export default function CatererDetailPage({ params }: CatererDetailPageProps) {
             <Badge className={caterer.status === 'active' ? 'bg-green-100 text-green-800 hover:bg-green-100' : ''}>
               {caterer.status === 'active' ? 'Active' : caterer.status}
             </Badge>
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                toast.info('Inline caterer edit ships next.', {
+                  description: 'Edit-caterer dialog is being wired in a follow-up PR.',
+                })
+              }
+            >
               <Edit className="mr-2 h-4 w-4" />
               Edit
             </Button>

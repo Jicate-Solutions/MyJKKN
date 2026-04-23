@@ -2,6 +2,7 @@
 
 import { use, useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -83,7 +84,13 @@ export default function BlockWardensPage({ params }: { params: Promise<{ id: str
               </p>
             </div>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('Warden-assignment dialog ships next.', {
+                description: 'Inline assign-warden form is being wired in a follow-up PR.',
+              })
+            }
+          >
             <Plus className="mr-2 h-4 w-4" />
             Assign Warden
           </Button>
@@ -106,7 +113,15 @@ export default function BlockWardensPage({ params }: { params: Promise<{ id: str
                         <Badge className={`${dCfg.color} text-xs`}>{dCfg.label}</Badge>
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() =>
+                        toast.info('Warden-edit dialog ships next.', {
+                          description: `Edit ${warden.name} is being wired in a follow-up PR.`,
+                        })
+                      }
+                    >
                       <UserCog className="h-4 w-4" />
                     </Button>
                   </div>

@@ -15,10 +15,13 @@ import {
 import { Download, Printer, Shield, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function SafetyAuditReportPage() {
   const { profile } = useAuth();
   const exportReport = useExportReport();
+  // SAMPLE DATA — inspections and incidents tables are illustrative.
+  // Use Export to pull the real safety-audit report. Print is a placeholder.
   const inspections = [
     { name: 'Fire Safety Audit', date: '2026-01-10', agency: 'District Fire Dept', score: 95, findings: 2, critical: 0, resolved: 2 },
     { name: 'Electrical Safety', date: '2025-11-20', agency: 'Internal Audit', score: 88, findings: 4, critical: 1, resolved: 4 },
@@ -40,13 +43,22 @@ export default function SafetyAuditReportPage() {
   return (
     <ContentLayout title="Safety Audit Report">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="safety audit report"
+          note="The inspection results and incident summaries shown are illustrative samples. Use Export to pull the real annual safety audit data."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Annual Safety Audit Report</h1>
             <p className="text-muted-foreground">Comprehensive safety audit for academic year 2025-26</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline"><Printer className="mr-2 h-4 w-4" />Print</Button>
+            <Button
+              variant="outline"
+              onClick={() => window.print()}
+            >
+              <Printer className="mr-2 h-4 w-4" />Print
+            </Button>
             <Button
               variant="outline"
               disabled={exportReport.isPending}

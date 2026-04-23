@@ -23,8 +23,14 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useHostelVisitors } from '@/hooks/campus-living/use-hostel-visitors';
+
+const previewToast = (action: string) =>
+  toast.info('Pre-approved visitor manager ships next.', {
+    description: `${action} would call the visitor-management mutation hook once the dialog is wired.`,
+  });
 
 export default function KnownVisitorsPage() {
   const { profile } = useAuth();
@@ -72,7 +78,7 @@ export default function KnownVisitorsPage() {
               Manage pre-approved visitors for faster check-in
             </p>
           </div>
-          <Button>
+          <Button onClick={() => previewToast('Add Known Visitor')}>
             <Plus className="mr-2 h-4 w-4" />
             Add Known Visitor
           </Button>
@@ -119,7 +125,11 @@ export default function KnownVisitorsPage() {
                     <TableCell>{entry.count}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => previewToast(`Edit "${entry.visitor.visitor_name}"`)}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
                       </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -94,7 +95,13 @@ export default function HousekeepingPage() {
               Recurring cleaning plans across blocks and common areas.
             </p>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('New-schedule dialog ships next.', {
+                description: 'Use the schedules sub-page to create one until the inline form is wired.',
+              })
+            }
+          >
             <Plus className="mr-2 h-4 w-4" />
             New Schedule
           </Button>

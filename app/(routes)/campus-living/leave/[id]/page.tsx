@@ -1,7 +1,8 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
-import { useHostelLeaveRequest } from '@/hooks/campus-living/use-hostel-leave';
+import { useHostelLeaveRequest, useApproveLeave, useRejectLeave } from '@/hooks/campus-living/use-hostel-leave';
 import {
   ArrowLeft,
   User,
@@ -50,7 +51,38 @@ export default function LeaveDetailPage({ params }: { params: Promise<{ id: stri
   const { id } = use(params);
   const { profile } = useAuth();
   const { data: leaveData, isLoading } = useHostelLeaveRequest(id);
+  const approveLeave = useApproveLeave();
+  const rejectLeave = useRejectLeave();
+  const [remarks, setRemarks] = useState('');
   const leave = leaveData as any;
+
+  const handleApprove = () => {
+    if (!profile?.id) {
+      toast.error('Unable to identify warden — please sign in again');
+      return;
+    }
+    approveLeave.mutate({
+      id,
+      payload: { warden_id: profile.id, warden_remarks: remarks || undefined },
+    });
+  };
+
+  const handleReject = () => {
+    if (!profile?.id) {
+      toast.error('Unable to identify warden — please sign in again');
+      return;
+    }
+    if (!remarks.trim()) {
+      toast.error('Please enter a reason for rejection in the remarks field');
+      return;
+    }
+    rejectLeave.mutate({
+      id,
+      payload: { warden_id: profile.id, warden_remarks: remarks },
+    });
+  };
+
+  const isMutating = approveLeave.isPending || rejectLeave.isPending;
 
   if (isLoading || !leave) {
     return (
@@ -96,14 +128,27 @@ export default function LeaveDetailPage({ params }: { params: Promise<{ id: stri
             </div>
           </div>
 
-          {/* Warden Actions */}
+          {/* Warden Actions — scroll to remarks form below to take action */}
           {leave.status === 'pending_warden' && (
             <div className="flex gap-2">
-              <Button variant="destructive">
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  const el = document.getElementById('warden-remarks');
+                  el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  el?.focus();
+                }}
+              >
                 <XCircle className="mr-2 h-4 w-4" />
                 Reject
               </Button>
-              <Button>
+              <Button
+                onClick={() => {
+                  const el = document.getElementById('warden-remarks');
+                  el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  el?.focus();
+                }}
+              >
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Approve
               </Button>
@@ -233,20 +278,36 @@ export default function LeaveDetailPage({ params }: { params: Promise<{ id: stri
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Warden Remarks</CardTitle>
-                  <CardDescription>Add remarks before approving or rejecting</CardDescription>
+                  <CardDescription>Add remarks before approving or rejecting. A reason is required when rejecting.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <Textarea
-                    placeholder="Add your remarks (optional)..."
+                    id="warden-remarks"
+                    placeholder="Add your remarks (required for rejection)..."
                     rows={3}
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    disabled={isMutating}
                   />
                   <div className="flex gap-2 justify-end">
-                    <Button variant="destructive">
-                      <XCircle className="mr-2 h-4 w-4" />
+                    <Button
+                      variant="destructive"
+                      onClick={handleReject}
+                      disabled={isMutating}
+                    >
+                      {rejectLeave.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <XCircle className="mr-2 h-4 w-4" />
+                      )}
                       Reject
                     </Button>
-                    <Button>
-                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                    <Button onClick={handleApprove} disabled={isMutating}>
+                      {approveLeave.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                      )}
                       Approve
                     </Button>
                   </div>

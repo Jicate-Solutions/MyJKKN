@@ -1,13 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Bell, AlertTriangle, CheckCircle2, Clock, Settings } from 'lucide-react';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function AlertsPage() {
+  // SAMPLE DATA — useHostelRiskAlerts hook exists but page is not wired yet.
+  // Acknowledge / Take Action buttons below are placeholders.
   const alerts = [
     { id: '1', title: 'Block D plumbing SLA breach', severity: 'critical', domain: 'Maintenance', triggered: '2026-02-21 09:00 AM', status: 'active', detail: '3 plumbing requests exceeded 24-hour SLA in Block D' },
     { id: '2', title: 'Low mess rating alert', severity: 'warning', domain: 'Mess', triggered: '2026-02-20 08:00 PM', status: 'active', detail: 'Dinner rating dropped below 3.0 for 3 consecutive days' },
@@ -37,6 +41,10 @@ export default function AlertsPage() {
   return (
     <ContentLayout title="Risk Alerts">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="risk alerts"
+          note="This Risk Alerts page shows sample data. The Acknowledge and Take Action buttons are placeholders — they have no effect yet. The underlying hooks (useHostelRiskAlerts, useAcknowledgeRiskAlert, useResolveRiskAlert) exist; the page wiring ships next."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Active Risk Alerts</h1>
@@ -88,8 +96,27 @@ export default function AlertsPage() {
                   </div>
                   {alert.status === 'active' && (
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm">Acknowledge</Button>
-                      <Button size="sm">Take Action</Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          toast.info('Preview only — alert wiring ships next.', {
+                            description: `Would acknowledge alert "${alert.title}" once wired to useAcknowledgeRiskAlert.`,
+                          })
+                        }
+                      >
+                        Acknowledge
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          toast.info('Preview only — alert wiring ships next.', {
+                            description: `Would open the action workflow for "${alert.title}" once wired.`,
+                          })
+                        }
+                      >
+                        Take Action
+                      </Button>
                     </div>
                   )}
                 </div>

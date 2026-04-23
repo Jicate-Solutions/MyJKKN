@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,17 +15,28 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Save } from 'lucide-react';
+import { PreviewBanner } from '../../_components/preview-banner';
+
+const previewSave = () =>
+  toast.warning('Settings persistence not yet wired.', {
+    description:
+      'These controls do NOT save anywhere yet. Curfew/visitor/mess defaults remain whatever the database holds. Wiring ships in a follow-up PR.',
+  });
 
 export default function GeneralSettingsPage() {
   return (
     <ContentLayout title="General Settings">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="general settings"
+          note="None of the controls on this page save anywhere yet. Curfew, visitor, and mess defaults stay at their current database values regardless of what you change here. Save Changes shows a warning toast instead of pretending to succeed."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">General Settings</h1>
             <p className="text-muted-foreground">Basic campus living configuration</p>
           </div>
-          <Button><Save className="mr-2 h-4 w-4" />Save Changes</Button>
+          <Button onClick={previewSave}><Save className="mr-2 h-4 w-4" />Save Changes</Button>
         </div>
 
         <Card>

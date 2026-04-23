@@ -2,6 +2,7 @@
 
 import { use } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -102,11 +103,27 @@ export default function BillingDetailPage({ params }: BillingDetailPageProps) {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                toast.info('Defaulter reminder ships next.', {
+                  description: 'Will send SMS / WhatsApp / email reminders to defaulters once notification engine is wired.',
+                })
+              }
+            >
               <Send className="mr-2 h-4 w-4" />
               Send Reminders
             </Button>
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                toast.info('Period export ships next.', {
+                  description: 'CSV / PDF export of this period will be available once the export endpoint is live.',
+                })
+              }
+            >
               <Download className="mr-2 h-4 w-4" />
               Export
             </Button>
