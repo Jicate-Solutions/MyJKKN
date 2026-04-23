@@ -56,12 +56,9 @@ export class HostelVacateRequestService {
           { count: 'exact' }
         );
 
-<<<<<<< HEAD
       // Guard: empty/undefined institutionId means super_admin view (no filter).
       // Without this guard, Postgres rejects .eq('institution_id', '') with
       // "invalid input syntax for type uuid". Caught on prod 2026-04-23.
-=======
->>>>>>> fc76e8ae5 (fix(campus-living): widen service signatures to accept institutionId: string | undefined + guard list queries in my 3 services)
       if (institutionId) query = query.eq('institution_id', institutionId);
 
       if (filters?.status) query = query.eq('status', filters.status);
