@@ -9,6 +9,15 @@ export const metadata: Metadata = {
   description: 'Department rankings for the Research Paradigm Shift',
 };
 
+/**
+ * navMeta — invoked from the Paradigm Shift dashboard via a "Leaderboard"
+ * CTA. Nav-coverage detector (`scripts/assert-nav-coverage.mjs`) reads this
+ * to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/paradigm-shift',
+} as const;
+
 export default function LeaderboardPage() {
   return (
     <ContentLayout title="Paradigm Shift Leaderboard">

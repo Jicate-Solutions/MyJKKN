@@ -8,6 +8,15 @@ export const metadata: Metadata = {
   description: 'Manage solution type categories',
 };
 
+/**
+ * navMeta — invoked from the Solutions Settings landing via a "Manage Types"
+ * CTA. Nav-coverage detector (`scripts/assert-nav-coverage.mjs`) reads this
+ * to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/settings',
+} as const;
+
 export default function SolutionTypesPage() {
   return (
     <ContentLayout title="Solution Types">

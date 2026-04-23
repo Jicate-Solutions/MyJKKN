@@ -130,6 +130,16 @@ function ElectiveOKRCard({ okr }: { okr: LearnerElectiveOKR }) {
   );
 }
 
+/**
+ * navMeta — invoked from the My OKRs view via an "Elective OKRs" filter /
+ * CTA. Elective is a distinct OKR subtype listed alongside regular
+ * objectives. Nav-coverage detector (`scripts/assert-nav-coverage.mjs`)
+ * reads this to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/okr/objectives',
+} as const;
+
 export default function ElectiveOKRPage() {
   const { data: electives, isLoading, error } = useMyElectiveOKRs();
   const [searchQuery, setSearchQuery] = useState('');
