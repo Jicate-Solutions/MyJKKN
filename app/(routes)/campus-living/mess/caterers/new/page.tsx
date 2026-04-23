@@ -20,6 +20,16 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useCreateMessCaterer } from '@/hooks/campus-living/use-mess-caterers';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/campus-living/mess/caterers',
+} as const;
+
+
 export default function NewCatererPage() {
   const router = useRouter();
   const { profile } = useAuth();

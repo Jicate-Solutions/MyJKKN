@@ -14,6 +14,16 @@ import { SubCategoryForm } from '../_components/sub-category-form';
 import { usePermissions } from '@/hooks/use-permissions';
 import Loading from '@/components/Loading/Loading';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/resource-management/categories/sub-categories',
+} as const;
+
+
 export default function NewSubCategoryPage() {
   const { canAccess, isSuperAdmin } = usePermissions();
 

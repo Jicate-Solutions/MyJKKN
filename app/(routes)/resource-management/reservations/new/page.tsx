@@ -22,6 +22,16 @@ import { BookingForm } from '../_components/booking-form';
 import { useAuth } from '@/hooks/use-auth';
 import type { Resource } from '@/types/resource-management';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/resource-management/reservations',
+} as const;
+
+
 export default function NewReservationPage() {
   const { profile: user } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);

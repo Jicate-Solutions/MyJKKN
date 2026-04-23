@@ -17,6 +17,16 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import { BeatLoader } from 'react-spinners';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/staff/category',
+} as const;
+
+
 export default function NewCategoryPage() {
   const router = useRouter();
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);

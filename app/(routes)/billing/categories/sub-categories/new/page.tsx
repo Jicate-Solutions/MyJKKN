@@ -6,6 +6,16 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { BillingSubCategoryForm } from '@/app/(routes)/billing/categories/sub-categories/_components/billing-sub-category-form';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/billing/categories/sub-categories',
+} as const;
+
+
 export default function NewBillingSubCategoryPage() {
   const router = useRouter();
 

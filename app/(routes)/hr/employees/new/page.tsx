@@ -27,6 +27,16 @@ import { useCreateHREmployee } from '@/hooks/hr/use-employees';
 import type { HRNonStaffEmploymentType } from '@/types/hr';
 import { EMPLOYMENT_TYPE_LABELS } from '@/types/hr';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/hr/employees',
+} as const;
+
+
 export default function NewHREmployeePage() {
   const router = useRouter();
   const create = useCreateHREmployee();

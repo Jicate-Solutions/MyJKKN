@@ -15,6 +15,16 @@ import { ServiceTypeForm } from '../../_components/service-type-form';
 import { useCreateServiceType } from '@/hooks/service-requests/use-service-types';
 import type { CreateServiceTypeDto } from '@/types/service-request';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/service-requests/types',
+} as const;
+
+
 export default function NewServiceTypePage() {
   const router = useRouter();
   const createServiceType = useCreateServiceType();

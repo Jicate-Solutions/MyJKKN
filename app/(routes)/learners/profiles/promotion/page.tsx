@@ -23,6 +23,15 @@ import { SemesterPromotionForm } from '../_components/semester-promotion-form';
 import { StatusPromotionForm } from '../_components/status-promotion-form';
 
 /**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/learners/profiles',
+} as const;
+
+
+/**
  * LearnerPromotionPage Component
  *
  * Handles two types of promotions:

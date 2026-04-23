@@ -61,6 +61,16 @@ import Link from 'next/link';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { indianStates, getDistrictsByState } from '@/lib/data/locations';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/admission/leads',
+} as const;
+
+
 // Must match LeadSource type from types/admission.ts
 const LEAD_SOURCES = [
   { value: 'website', label: 'Website' },

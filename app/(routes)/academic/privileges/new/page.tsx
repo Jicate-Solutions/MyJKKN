@@ -41,6 +41,16 @@ import { useYuvaVerticals } from '@/hooks/academic/use-yuva-verticals';
 import toast from 'react-hot-toast';
 import type { PrivilegeSourceType, PrivilegeSourceTypeField, PrivilegeType } from '@/types/privileges';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/academic/privileges',
+} as const;
+
+
 // ---------------------------------------------------------------------------
 // Helper: resolve a lucide icon name from the registry to a React component.
 // Falls back to HelpCircle for unknown names.

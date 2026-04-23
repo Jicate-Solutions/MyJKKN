@@ -8,6 +8,16 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useStudentForBilling } from '@/hooks/billing/use-student-search';
 import { BeatLoader } from 'react-spinners';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/billing/schedule',
+} as const;
+
+
 export default function NewStudentBillPage() {
   const searchParams = useSearchParams();
   const studentId = searchParams.get('student_id');

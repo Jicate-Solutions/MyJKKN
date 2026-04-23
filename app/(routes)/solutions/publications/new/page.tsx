@@ -35,6 +35,16 @@ import { useSolutions } from '@/hooks/solutions/use-solutions';
 import { useAuth } from '@/hooks/use-auth';
 import type { PaperType, JournalType, PublicationStatus } from '@/lib/services/solutions/types';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/publications',
+} as const;
+
+
 interface FormState {
   solution_id: string;
   title: string;

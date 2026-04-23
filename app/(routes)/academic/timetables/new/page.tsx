@@ -60,6 +60,16 @@ import { useTemplates, useCreateFromTemplate } from '@/hooks/use-templates';
 import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/academic/timetables',
+} as const;
+
+
 // Define the schema for timetable creation
 // Updated: 2025-10-08 - Added timetable_type and made section_id optional
 const timetableFormSchema = z

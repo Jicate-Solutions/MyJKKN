@@ -44,6 +44,16 @@ import {
 } from '@/components/ui/form';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/admission/consultants',
+} as const;
+
+
 const CONSULTANT_TYPES: { value: ConsultantType; label: string }[] = [
   { value: 'external', label: 'External Consultant' },
   { value: 'internal', label: 'Internal Staff' },
