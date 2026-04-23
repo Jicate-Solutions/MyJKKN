@@ -23,9 +23,9 @@ export class RoommateMatchingService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_roommate_preferences')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (academicYearId) query = query.eq('academic_year_id', academicYearId);
 
       const from = (page - 1) * pageSize;
@@ -251,12 +251,13 @@ export class RoommateMatchingService {
 
       // Get all other preferences for the same academic year
       const supabase = createClientSupabaseClient();
-      const { data: allPrefs, error } = await supabase
+      let prefQ = supabase
         .from('hostel_roommate_preferences')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('academic_year_id', academicYearId)
         .neq('learner_id', learnerId);
+      if (institutionId) prefQ = prefQ.eq('institution_id', institutionId);
+      const { data: allPrefs, error } = await prefQ;
 
       if (error) {
         logger.error('campus-living/roommate', 'Failed to fetch preferences for matching', error);

@@ -22,9 +22,9 @@ export class AntiRaggingService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('anti_ragging_affidavits')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
@@ -297,11 +297,12 @@ export class AntiRaggingService {
   static async getComplianceStatus(institutionId: string, academicYearId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('anti_ragging_affidavits')
         .select('status, student_affidavit_submitted, parent_affidavit_submitted')
-        .eq('institution_id', institutionId)
         .eq('academic_year_id', academicYearId);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/anti-ragging', 'Failed to fetch compliance status', error);

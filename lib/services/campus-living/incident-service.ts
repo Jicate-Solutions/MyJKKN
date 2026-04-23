@@ -21,9 +21,9 @@ export class IncidentService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_incidents')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.incident_type) query = query.eq('incident_type', filters.incident_type);
       if (filters?.severity) query = query.eq('severity', filters.severity);

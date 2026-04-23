@@ -19,9 +19,9 @@ export class MessBillingService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_billing_periods')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.caterer_id) query = query.eq('caterer_id', filters.caterer_id);
       if (filters?.status) query = query.eq('status', filters.status);
 

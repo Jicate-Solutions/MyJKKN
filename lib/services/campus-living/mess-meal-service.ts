@@ -21,9 +21,9 @@ export class MessMealService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_meal_records')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.date) query = query.eq('date', filters.date);
       if (filters?.meal_type) query = query.eq('meal_type', filters.meal_type);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
@@ -189,10 +189,10 @@ export class MessMealService {
       let query = supabase
         .from('mess_meal_records')
         .select('*', { count: 'exact', head: true })
-        .eq('institution_id', institutionId)
         .eq('date', date)
         .eq('consumed', true);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (mealType) query = query.eq('meal_type', mealType);
 
       const { count, error } = await query;
@@ -216,9 +216,9 @@ export class MessMealService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_meal_bookings')
-        .select('*')
-        .eq('institution_id', institutionId);
+        .select('*');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
       if (filters?.date) query = query.eq('date', filters.date);
       if (filters?.meal_type) query = query.eq('meal_type', filters.meal_type);

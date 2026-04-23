@@ -18,9 +18,9 @@ export class GatePassService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_gate_passes')
-        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.status) query = query.eq('status', filters.status as any);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
       if (filters?.date) {
@@ -235,12 +235,13 @@ export class GatePassService {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
 
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_gate_passes')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('status', 'active')
         .lt('expected_return', now);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch overdue passes', error);
@@ -607,12 +608,13 @@ export class GatePassService {
   static async getPendingRequests(institutionId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_gate_passes')
         .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)')
-        .eq('institution_id', institutionId)
         .eq('status', 'requested' as any)
         .order('created_at', { ascending: true });
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch pending requests', error);

@@ -25,9 +25,9 @@ export class MessWasteService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_waste_log')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.caterer_id) query = query.eq('caterer_id', filters.caterer_id);
       if (filters?.date_from) query = query.gte('date', filters.date_from);
       if (filters?.date_to) query = query.lte('date', filters.date_to);
@@ -235,12 +235,13 @@ export class MessWasteService {
   static async getWasteCost(institutionId: string, dateFrom: string, dateTo: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('mess_waste_log')
         .select('cost_of_waste, waste_quantity_kg')
-        .eq('institution_id', institutionId)
         .gte('date', dateFrom)
         .lte('date', dateTo);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/waste', 'Failed to fetch waste cost', error);

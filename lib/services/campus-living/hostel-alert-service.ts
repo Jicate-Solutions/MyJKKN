@@ -22,9 +22,9 @@ export class HostelAlertService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_alert_rules')
-        .select('*')
-        .eq('institution_id', institutionId);
+        .select('*');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.alert_type) query = query.eq('alert_type', filters.alert_type);
       if (filters?.is_active !== undefined) query = query.eq('is_active', filters.is_active);
 
@@ -156,9 +156,9 @@ export class HostelAlertService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_risk_alerts')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.alert_type) query = query.eq('alert_type', filters.alert_type);
       if (filters?.severity) query = query.eq('severity', filters.severity);
       if (filters?.status) query = query.eq('status', filters.status);
@@ -184,13 +184,14 @@ export class HostelAlertService {
   static async getActiveAlerts(institutionId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_risk_alerts')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('status', 'active')
         .order('severity')
         .order('created_at', { ascending: false });
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/alerts', 'Failed to fetch active alerts', error);
@@ -405,11 +406,12 @@ export class HostelAlertService {
   static async getAlertSummary(institutionId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let sumQ = supabase
         .from('hostel_risk_alerts')
         .select('alert_type, severity, status')
-        .eq('institution_id', institutionId)
         .in('status', ['active', 'acknowledged']);
+      if (institutionId) sumQ = sumQ.eq('institution_id', institutionId);
+      const { data, error } = await sumQ;
 
       if (error) {
         logger.error('campus-living/alerts', 'Failed to fetch alert summary', error);

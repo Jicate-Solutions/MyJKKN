@@ -19,9 +19,9 @@ export class HostelAttendanceService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_attendance')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.date) query = query.eq('date', filters.date);
       if (filters?.status) query = query.eq('evening_status', filters.status);
@@ -48,9 +48,9 @@ export class HostelAttendanceService {
       let query = supabase
         .from('hostel_attendance')
         .select('*, learner:profiles!hostel_attendance_learner_id_fkey(id, full_name, email)')
-        .eq('institution_id', institutionId)
         .eq('date', date);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('learner_id');
 
@@ -187,10 +187,10 @@ export class HostelAttendanceService {
       let query = supabase
         .from('hostel_attendance')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('date', date)
         .in('evening_status', ['absent']);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
 
       const { data, error } = await query;
@@ -235,14 +235,15 @@ export class HostelAttendanceService {
   ) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_attendance')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('learner_id', learnerId)
         .eq('evening_status', 'absent')
         .order('date', { ascending: false })
         .limit(days);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/attendance', 'Failed to check consecutive absences', error);
