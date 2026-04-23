@@ -408,6 +408,14 @@ export class InboundCallSyncService {
 
   /**
    * Chunk a date range into windows of maxDays each (Exotel max is 31 days).
+   *
+   * The range is INCLUSIVE of toStr. Previously used `cursor < to`, which silently
+   * yielded zero chunks when fromStr === toStr — a same-UTC-calendar-day cursor
+   * would cause the cron to report records_synced=0, status=success while Exotel
+   * had unpulled calls. Detected 2026-04-23 after cursor caught up within a single
+   * day (~6h silent run, 43 Apr-23 calls missing). Using `<=` ensures the loop
+   * body runs at least once; Exotel's CDR filter is already inclusive of the
+   * end day (gte:X 00:00:00 ; lte:X 23:59:59 in exotel-client.ts).
    */
   private static *dateChunks(
     fromStr: string,
@@ -417,7 +425,7 @@ export class InboundCallSyncService {
     let cursor = new Date(fromStr);
     const to = new Date(toStr);
 
-    while (cursor < to) {
+    while (cursor <= to) {
       const chunkEnd = new Date(
         Math.min(cursor.getTime() + maxDays * 86400000, to.getTime())
       );
