@@ -68,9 +68,18 @@ export default function NewGrievancePage() {
     if (description.trim().length < 10) { toast.error('Description must be at least 10 characters.'); return; }
 
     const slaHours = selectedCategory?.default_sla_hours ?? 72;
-    const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
 
     setSubmitting(true);
+    // Business-hour SLA deadline via RPC — skips weekends + institution
+    // holidays (hr_public_holidays). Fallback to wall-clock if RPC fails.
+    let slaDeadline: string;
+    try {
+      slaDeadline = await GrievanceService.calculateSlaDeadline(institutionId, slaHours);
+    } catch (err) {
+      console.warn('[grievance/new] Business-hour SLA RPC failed, falling back to wall-clock:', err);
+      slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
+    }
+
     try {
       const created = await GrievanceService.createTicket({
         institution_id: institutionId,

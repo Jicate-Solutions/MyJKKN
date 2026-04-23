@@ -94,8 +94,11 @@ export class GrievanceService {
    * trigger set_grievance_ticket_number (format: GRV-YYYYMMDD-NNNN).
    *
    * sla_deadline is required by the schema — caller must compute it from the
-   * selected category's default_sla_hours. In A6a we use wall-clock hours;
-   * A6b will swap in business-day calculation from institution_leaves.
+   * selected category's default_sla_hours. PR-A6b swapped the wall-clock
+   * calculation for business-hour calculation via the
+   * calculate_grievance_sla_deadline RPC (9am-6pm IST, Mon-Fri, holidays from
+   * hr_public_holidays). Use GrievanceService.calculateSlaDeadline() if the
+   * caller wants the business-hour deadline; otherwise pass any timestamptz.
    */
   static async createTicket(input: CreateGrievanceInput): Promise<GrievanceTicket> {
     const { data, error } = await (this.supabase as any)
@@ -186,6 +189,32 @@ export class GrievanceService {
 
     if (error) throw error;
     return data as GrievanceComment;
+  }
+
+  /**
+   * Business-hour SLA deadline via DB RPC.
+   *
+   * Calls calculate_grievance_sla_deadline(institution_id, sla_hours) which
+   * wraps add_business_hours() — skips weekends + hr_public_holidays entries
+   * for the institution's shadow-tenant hr_organization. Work calendar is
+   * 9am-6pm IST Mon-Fri. Fallback (no hr_organization mapping) is weekends
+   * only. See migration 20260423_grievance_business_day_sla_functions.sql.
+   */
+  static async calculateSlaDeadline(
+    institutionId: string,
+    slaHours: number,
+    startAt?: string
+  ): Promise<string> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'calculate_grievance_sla_deadline',
+      {
+        p_institution_id: institutionId,
+        p_sla_hours: slaHours,
+        p_start_ts: startAt ?? null,
+      }
+    );
+    if (error) throw error;
+    return data as string;
   }
 
   /**
