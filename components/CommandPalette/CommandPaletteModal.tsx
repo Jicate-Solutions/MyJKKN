@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { usePageSearch } from '@/hooks/use-page-search';
 import { usePermissions } from '@/hooks/use-permissions';
+import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { KEYBOARD_SHORTCUTS } from '@/lib/navigation/keyboard-shortcuts';
 import { trackSearch } from '@/lib/navigation/search-history';
@@ -29,6 +30,7 @@ interface CommandPaletteModalProps {
 export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissionsLoaded }: CommandPaletteModalProps) {
   const [query, setQuery] = useState('');
   const { search, searchablePages, recentPages, frequentPages, isLoading } = usePageSearch();
+  const { isFavorite } = usePageFavorites();
   const isMobile = useIsMobile();
   const pathname = usePathname();
   const { profile } = useAuth();
@@ -192,6 +194,7 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                         result={{ page, score: 0 }}
                         shortcut={getShortcut(page.path)}
                         onSelect={handleSelect}
+                        favorited={isFavorite(page.path)}
                       />
                     ))}
                   </Command.Group>
@@ -224,6 +227,7 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                         result={result}
                         shortcut={getShortcut(result.page.path)}
                         onSelect={handleSelect}
+                        favorited={isFavorite(result.page.path)}
                       />
                     ))}
                   </Command.Group>
@@ -242,6 +246,7 @@ export function CommandPaletteModal({ isOpen, onClose, onNavigate, onPermissions
                         result={result}
                         shortcut={getShortcut(result.page.path)}
                         onSelect={handleSelect}
+                        favorited={isFavorite(result.page.path)}
                       />
                     ))}
                   </Command.Group>
@@ -307,10 +312,12 @@ function SearchResultItem({
   result,
   shortcut,
   onSelect,
+  favorited,
 }: {
   result: SearchResult;
   shortcut?: string;
   onSelect: (path: string) => void;
+  favorited?: boolean;
 }) {
   const { page } = result;
   const IconComponent = ICON_MAP[page.iconName] || FileText;
@@ -332,11 +339,21 @@ function SearchResultItem({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium truncate">{page.title}</span>
+          {favorited && (
+            <Star
+              className="h-3 w-3 fill-yellow-400 text-yellow-400 shrink-0"
+              aria-label="Favorited"
+            />
+          )}
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
             {page.module}
           </span>
         </div>
         <p className="text-xs text-muted-foreground truncate mt-0.5">
+          <span className="font-mono opacity-70">{page.path}</span>
+          {page.description ? (
+            <span className="mx-1.5 opacity-40">·</span>
+          ) : null}
           {page.description}
         </p>
       </div>
