@@ -54,8 +54,8 @@ const REASON_OPTIONS: { value: VacateReason; label: string; needsMedical?: boole
 
 export default function VacateRequestFormPage() {
   const router = useRouter();
-  const { user, profile } = useAuth();
-  const userId = user?.id ?? '';
+  const { profile } = useAuth();
+  const userId = profile?.id ?? '';
   const institutionId = profile?.institution_id ?? '';
 
   // Active allocation lookup
@@ -100,7 +100,7 @@ export default function VacateRequestFormPage() {
   );
 
   async function handleStep1Next() {
-    if (!step1Valid || !allocation || !user) return;
+    if (!step1Valid || !allocation || !profile) return;
     if (!draftId) {
       const created = await createMut.mutateAsync({
         payload: {
@@ -117,7 +117,7 @@ export default function VacateRequestFormPage() {
           has_medical_grounds: isMedical,
           medical_notes: isMedical ? medicalNotes || null : null,
         },
-        submittedById: user.id,
+        submittedById: profile.id,
       });
       setDraftId(created.id);
     }
@@ -125,8 +125,8 @@ export default function VacateRequestFormPage() {
   }
 
   async function handleSubmit() {
-    if (!draftId || !user) return;
-    await submitMut.mutateAsync({ requestId: draftId, submitterId: user.id });
+    if (!draftId || !profile) return;
+    await submitMut.mutateAsync({ requestId: draftId, submitterId: profile.id });
     router.push(`/campus-living/vacate-requests/${draftId}`);
   }
 

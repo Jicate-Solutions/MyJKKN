@@ -47,7 +47,7 @@ export function DocumentUploader({
   readOnly = false,
   requireMedicalCert = false,
 }: DocumentUploaderProps) {
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const [docType, setDocType] = useState<VacateDocumentType>('medical_certificate');
   const [uploading, setUploading] = useState(false);
   const createMut = useCreateVacateDocument();
@@ -57,7 +57,7 @@ export function DocumentUploader({
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file || !profile) return;
 
     if (!ALLOWED_MIME.includes(file.type as (typeof ALLOWED_MIME)[number])) {
       toast.error('Only PDF, JPG, or PNG files are allowed.');
@@ -96,7 +96,7 @@ export function DocumentUploader({
         file_name: safeName,
         file_size_bytes: file.size,
         mime_type: file.type as HostelVacateDocument['mime_type'],
-        uploaded_by: user.id,
+        uploaded_by: profile.id,
       });
     } catch (err) {
       toast.error(
