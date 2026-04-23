@@ -106,6 +106,7 @@ import admissionNav from '@/app/(routes)/admission/nav-config';
 import learnersCouncilNav from '@/app/(routes)/learners-council/nav-config';
 import okrNav from '@/app/(routes)/okr/nav-config';
 import startupStudioNav from '@/app/(routes)/startup-studio/nav-config';
+import academicNav from '@/app/(routes)/academic/nav-config';
 
 const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   campusLivingNav,
@@ -113,6 +114,7 @@ const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   learnersCouncilNav,
   okrNav,
   startupStudioNav,
+  academicNav,
 ];
 
 const BY_MODULE = new Map(
