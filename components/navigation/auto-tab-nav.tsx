@@ -36,8 +36,13 @@ interface AutoTabNavProps {
    */
   maxDepth?: number;
   /**
-   * Minimum depth at which to start rendering. Default: 1
-   * (skip tier 0 — sidebar already covers module-root navigation).
+   * Minimum depth at which to start rendering. Default: 2.
+   *
+   * Why 2 and not 1: tier-1 is the list of ALL top-level modules
+   * (Academic, Accreditation, Admin, Admission, …, Campus Living, …, Work Pulse —
+   * ~34 chips). The sidebar already shows that list; repeating it in-page is
+   * pure clutter. Tier 2+ is where in-page value lives (siblings inside the
+   * current module, then deeper sub-sections).
    */
   minDepth?: number;
   className?: string;
@@ -130,7 +135,7 @@ function TabBar({ tier }: { tier: Tier }) {
 
 export function AutoTabNav({
   maxDepth = 4,
-  minDepth = 1,
+  minDepth = 2,
   className,
 }: AutoTabNavProps) {
   const pathname = usePathname();
