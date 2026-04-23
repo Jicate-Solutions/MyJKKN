@@ -1611,11 +1611,11 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Solution Hub',
       menus: [
         // Single sidebar entry — all Solution Hub navigation lives in the
-        // module's in-page tab bar (SolutionsNav, see app/(routes)/solutions/
-        // _components/solutions-nav.tsx). Mirrors Campus Living + Learners
-        // Council + Admission CRM. Section sub-tabs (Pipeline, Training,
-        // Content, Software, Payments+Earnings, Discovery+Publications)
-        // render via per-section SectionSubNav.
+        // module's in-page tab bar, rendered by AutoTabNav reading
+        // app/(routes)/solutions/nav-config.ts. Mirrors Campus Living +
+        // Learners Council + Admission CRM. Pipeline / Training / Content
+        // / Products sub-tabs are nested as tier-3 `children` in the
+        // nav-config — no per-section layout.tsx needed.
         //
         // Why: flat sidebar (1 entry per module) + in-page tabs keeps nav
         // adjacent to content. URLs are UNCHANGED — no bookmarks break.
