@@ -13,7 +13,7 @@ export class CampusLivingSettings {
   // Leave Type Configuration
   // ══════════════════════════════════════════════════════════════════
 
-  static async getLeaveTypeConfigs(institutionId: string) {
+  static async getLeaveTypeConfigs(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase
@@ -117,7 +117,7 @@ export class CampusLivingSettings {
   // Maintenance SLA Configuration
   // ══════════════════════════════════════════════════════════════════
 
-  static async getSlaConfigs(institutionId: string) {
+  static async getSlaConfigs(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase
@@ -223,7 +223,7 @@ export class CampusLivingSettings {
   // Fee Configuration
   // ══════════════════════════════════════════════════════════════════
 
-  static async getFeeConfigs(institutionId: string, academicYearId?: string) {
+  static async getFeeConfigs(institutionId: string | undefined, academicYearId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -330,7 +330,7 @@ export class CampusLivingSettings {
   // Curfew Exceptions
   // ══════════════════════════════════════════════════════════════════
 
-  static async getCurfewExceptions(institutionId: string, activeOnly = true) {
+  static async getCurfewExceptions(institutionId: string | undefined, activeOnly = true) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -436,7 +436,7 @@ export class CampusLivingSettings {
   // Deposits
   // ══════════════════════════════════════════════════════════════════
 
-  static async getDeposits(institutionId: string, learnerId?: string) {
+  static async getDeposits(institutionId: string | undefined, learnerId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase

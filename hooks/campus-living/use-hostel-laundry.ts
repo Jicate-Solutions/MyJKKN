@@ -26,7 +26,7 @@ export function useLaundryOrders(
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelLaundryKeys.list({ institutionId, ...filters }),
-    queryFn: () => LaundryService.getOrders(institutionId as string, filters),
+    queryFn: () => LaundryService.getOrders(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

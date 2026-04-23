@@ -10,7 +10,7 @@ import type {
 export class HostelWardenService {
   // ── List wardens ──────────────────────────────────────────────────
   static async getWardens(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { block_id?: string; designation?: WardenDesignation; is_active?: boolean }
   ) {
     try {

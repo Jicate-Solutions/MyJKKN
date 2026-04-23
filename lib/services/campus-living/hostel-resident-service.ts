@@ -11,7 +11,7 @@ import type {
 export class HostelResidentService {
   // ── List residents with filters ───────────────────────────────────
   static async getResidents(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: ResidentFilters,
     page = 1,
     pageSize = 50
@@ -79,7 +79,7 @@ export class HostelResidentService {
 
   // ── Find resident by profile within institution ──────────────────
   // Used by allocation flow: "does this person already have a resident record here?"
-  static async findByProfile(institutionId: string, profileId: string) {
+  static async findByProfile(institutionId: string | undefined, profileId: string) {
     try {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase

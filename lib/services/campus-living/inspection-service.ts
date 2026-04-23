@@ -9,7 +9,7 @@ import type {
 export class InspectionService {
   // ── List inspections with filters ─────────────────────────────────
   static async getInspections(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       block_id?: string;
       inspection_type?: InspectionType;
@@ -155,7 +155,7 @@ export class InspectionService {
   }
 
   // ── Pending follow-ups ────────────────────────────────────────────
-  static async getPendingFollowUps(institutionId: string) {
+  static async getPendingFollowUps(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase
@@ -179,7 +179,7 @@ export class InspectionService {
   }
 
   // ── Overdue follow-ups ────────────────────────────────────────────
-  static async getOverdueFollowUps(institutionId: string) {
+  static async getOverdueFollowUps(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const today = new Date().toISOString().split('T')[0];
@@ -228,7 +228,7 @@ export class InspectionService {
   }
 
   // ── Average scores by block ───────────────────────────────────────
-  static async getAverageScoresByBlock(institutionId: string, dateFrom?: string, dateTo?: string) {
+  static async getAverageScoresByBlock(institutionId: string | undefined, dateFrom?: string, dateTo?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase

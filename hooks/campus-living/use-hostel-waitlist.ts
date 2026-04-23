@@ -17,11 +17,11 @@ export const hostelWaitlistKeys = {
 
 // --- Query hooks ---
 
-export function useHostelWaitlist(institutionId: string, filters?: Record<string, unknown>) {
+export function useHostelWaitlist(institutionId: string | undefined, filters?: Record<string, unknown>) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelWaitlistKeys.list({ institutionId, ...filters }),
-    queryFn: () => HostelWaitlistService.getWaitlist(institutionId, filters),
+    queryFn: () => HostelWaitlistService.getWaitlist(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

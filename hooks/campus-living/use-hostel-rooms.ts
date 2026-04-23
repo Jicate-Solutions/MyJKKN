@@ -21,11 +21,11 @@ export const hostelRoomKeys = {
 
 // --- Query hooks ---
 
-export function useHostelRooms(institutionId: string, filters?: RoomFilters) {
+export function useHostelRooms(institutionId: string | undefined, filters?: RoomFilters) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelRoomKeys.list({ institutionId, ...filters }),
-    queryFn: () => HostelRoomService.getRooms(institutionId, filters),
+    queryFn: () => HostelRoomService.getRooms(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

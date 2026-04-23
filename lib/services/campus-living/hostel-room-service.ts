@@ -10,7 +10,7 @@ import type {
 export class HostelRoomService {
   // ── List rooms with filters ───────────────────────────────────────
   static async getRooms(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: RoomFilters,
     page = 1,
     pageSize = 50

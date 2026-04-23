@@ -22,7 +22,7 @@ export function useMessFeedback(institutionId: string | undefined, filters?: Rec
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: messFeedbackKeys.list({ institutionId, ...filters }),
-    queryFn: () => MessFeedbackService.getFeedback(institutionId as string, filters),
+    queryFn: () => MessFeedbackService.getFeedback(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

@@ -24,7 +24,7 @@ export function useMessBillingPeriods(institutionId: string | undefined, filters
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: messBillingKeys.periods({ institutionId, ...filters }),
-    queryFn: () => MessBillingService.getBillingPeriods(institutionId as string, filters),
+    queryFn: () => MessBillingService.getBillingPeriods(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

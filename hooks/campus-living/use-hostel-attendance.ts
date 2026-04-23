@@ -14,26 +14,26 @@ import type {
 export const hostelAttendanceKeys = {
   all: ['hostel-attendance'] as const,
   list: (filters: Record<string, unknown>) => ['hostel-attendance', 'list', filters] as const,
-  byDate: (institutionId: string, date: string) => ['hostel-attendance', 'by-date', institutionId, date] as const,
+  byDate: (institutionId: string | undefined, date: string) => ['hostel-attendance', 'by-date', institutionId, date] as const,
   detail: (id: string) => ['hostel-attendance', 'detail', id] as const,
 };
 
 // --- Query hooks ---
 
-export function useHostelAttendance(institutionId: string, filters?: AttendanceFilters) {
+export function useHostelAttendance(institutionId: string | undefined, filters?: AttendanceFilters) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelAttendanceKeys.list({ institutionId, ...filters }),
-    queryFn: () => HostelAttendanceService.getAttendance(institutionId, filters),
+    queryFn: () => HostelAttendanceService.getAttendance(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
 
-export function useAttendanceByDate(institutionId: string, date: string) {
+export function useAttendanceByDate(institutionId: string | undefined, date: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelAttendanceKeys.byDate(institutionId, date),
-    queryFn: () => HostelAttendanceService.getAttendanceByDate(institutionId, date),
+    queryFn: () => HostelAttendanceService.getAttendanceByDate(isSuperAdmin ? undefined : institutionId, date),
     enabled: (isSuperAdmin || !!institutionId) && !!date,
   });
 }

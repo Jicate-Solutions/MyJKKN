@@ -11,7 +11,7 @@ import type {
 export class HostelLeaveService {
   // ── List leave requests with filters ──────────────────────────────
   static async getLeaveRequests(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: LeaveFilters,
     page = 1,
     pageSize = 50
@@ -335,7 +335,7 @@ export class HostelLeaveService {
   }
 
   // ── Mark overdue leaves ───────────────────────────────────────────
-  static async getOverdueLeaves(institutionId: string) {
+  static async getOverdueLeaves(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();

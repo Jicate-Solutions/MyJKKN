@@ -39,7 +39,7 @@ export class HostelVacateRequestService {
   // ════════════════════════════════════════════════════════════════════
 
   static async getRequests(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: VacateRequestFilters,
     page = 1,
     pageSize = 50

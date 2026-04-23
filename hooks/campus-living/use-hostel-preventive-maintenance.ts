@@ -21,7 +21,7 @@ export function usePreventiveMaintenance(institutionId: string | undefined) {
     queryKey: hostelPreventiveMaintenanceKeys.list({ institutionId }),
     queryFn: () =>
       PreventiveMaintenanceService.getSchedules(
-        isSuperAdmin ? undefined : (institutionId as string),
+        isSuperAdmin ? undefined : institutionId,
       ),
     enabled: isSuperAdmin || !!institutionId,
   });

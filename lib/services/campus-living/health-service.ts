@@ -37,7 +37,7 @@ export type CreateHealthCaseDTO = Omit<
 
 export class HealthService {
   static async getCases(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: HealthFilters,
     page = 1,
     pageSize = 50

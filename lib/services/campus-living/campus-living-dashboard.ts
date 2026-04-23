@@ -3,7 +3,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 export class CampusLivingDashboard {
   // ── Main dashboard aggregation ────────────────────────────────────
-  static async getDashboardData(institutionId: string) {
+  static async getDashboardData(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const today = new Date().toISOString().split('T')[0];
@@ -239,7 +239,7 @@ export class CampusLivingDashboard {
   }
 
   // ── Quick stats (lightweight, for sidebar/header) ─────────────────
-  static async getQuickStats(institutionId: string) {
+  static async getQuickStats(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
 

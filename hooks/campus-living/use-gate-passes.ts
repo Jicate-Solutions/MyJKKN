@@ -23,18 +23,18 @@ export const gatePassKeys = {
   detail: (id: string) => ['gate-passes', 'detail', id] as const,
   myPasses: (learnerId: string) => ['gate-passes', 'my-passes', learnerId] as const,
   activePasses: (learnerId: string) => ['gate-passes', 'active', learnerId] as const,
-  pending: (institutionId: string) => ['gate-passes', 'pending', institutionId] as const,
-  overdue: (institutionId: string) => ['gate-passes', 'overdue', institutionId] as const,
+  pending: (institutionId: string | undefined) => ['gate-passes', 'pending', institutionId] as const,
+  overdue: (institutionId: string | undefined) => ['gate-passes', 'overdue', institutionId] as const,
   childPasses: (parentUserId: string) => ['gate-passes', 'child-passes', parentUserId] as const,
 };
 
 // --- Query hooks ---
 
-export function useGatePasses(institutionId: string, filters?: GatePassFilters) {
+export function useGatePasses(institutionId: string | undefined, filters?: GatePassFilters) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: gatePassKeys.list({ institutionId, ...filters }),
-    queryFn: () => GatePassService.getGatePasses(institutionId, filters),
+    queryFn: () => GatePassService.getGatePasses(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
@@ -127,11 +127,11 @@ export function useDeleteGatePass() {
 
 // --- Overdue & active hooks ---
 
-export function useOverduePasses(institutionId: string) {
+export function useOverduePasses(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: gatePassKeys.overdue(institutionId),
-    queryFn: () => GatePassService.getOverduePasses(institutionId),
+    queryFn: () => GatePassService.getOverduePasses(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
@@ -168,11 +168,11 @@ export function useMyGatePasses(learnerId: string) {
   });
 }
 
-export function usePendingGatePassRequests(institutionId: string) {
+export function usePendingGatePassRequests(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: gatePassKeys.pending(institutionId),
-    queryFn: () => GatePassService.getPendingRequests(institutionId),
+    queryFn: () => GatePassService.getPendingRequests(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

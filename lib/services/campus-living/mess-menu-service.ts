@@ -10,7 +10,7 @@ import type {
 export class MessMenuService {
   // ── List menus with filters ───────────────────────────────────────
   static async getMenus(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       caterer_id?: string;
       block_id?: string;
@@ -75,7 +75,7 @@ export class MessMenuService {
   }
 
   // ── Weekly menu for a block ───────────────────────────────────────
-  static async getWeeklyMenu(institutionId: string, weekStartDate: string, blockId?: string) {
+  static async getWeeklyMenu(institutionId: string | undefined, weekStartDate: string, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -190,7 +190,7 @@ export class MessMenuService {
   }
 
   // ── Delete entire weekly plan ─────────────────────────────────────
-  static async deleteWeeklyPlan(institutionId: string, weekStartDate: string, catererId: string) {
+  static async deleteWeeklyPlan(institutionId: string | undefined, weekStartDate: string, catererId: string) {
     try {
       const supabase = createClientSupabaseClient();
       const { error } = await supabase
@@ -233,7 +233,7 @@ export class MessMenuService {
   }
 
   // ── Get today's menu for a block ──────────────────────────────────
-  static async getTodaysMenu(institutionId: string, blockId?: string) {
+  static async getTodaysMenu(institutionId: string | undefined, blockId?: string) {
     try {
       const today = new Date();
       const dayOfWeek = today.getDay(); // 0 = Sunday

@@ -14,10 +14,10 @@ import type {
 // Query key factory
 export const campusLivingSettingsKeys = {
   all: ['campus-living-settings'] as const,
-  feeConfig: (institutionId: string, academicYearId?: string) => ['campus-living-settings', 'fee-config', institutionId, academicYearId] as const,
-  leaveConfig: (institutionId: string) => ['campus-living-settings', 'leave-config', institutionId] as const,
-  slaConfig: (institutionId: string) => ['campus-living-settings', 'sla-config', institutionId] as const,
-  curfewExceptions: (institutionId: string, activeOnly?: boolean) => ['campus-living-settings', 'curfew-exceptions', institutionId, activeOnly] as const,
+  feeConfig: (institutionId: string | undefined, academicYearId?: string) => ['campus-living-settings', 'fee-config', institutionId, academicYearId] as const,
+  leaveConfig: (institutionId: string | undefined) => ['campus-living-settings', 'leave-config', institutionId] as const,
+  slaConfig: (institutionId: string | undefined) => ['campus-living-settings', 'sla-config', institutionId] as const,
+  curfewExceptions: (institutionId: string | undefined, activeOnly?: boolean) => ['campus-living-settings', 'curfew-exceptions', institutionId, activeOnly] as const,
   feeConfigDetail: (id: string) => ['campus-living-settings', 'fee-config', 'detail', id] as const,
   leaveConfigDetail: (id: string) => ['campus-living-settings', 'leave-config', 'detail', id] as const,
   slaConfigDetail: (id: string) => ['campus-living-settings', 'sla-config', 'detail', id] as const,
@@ -26,11 +26,11 @@ export const campusLivingSettingsKeys = {
 
 // --- Fee Config hooks ---
 
-export function useHostelFeeConfigs(institutionId: string, academicYearId?: string) {
+export function useHostelFeeConfigs(institutionId: string | undefined, academicYearId?: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingSettingsKeys.feeConfig(institutionId, academicYearId),
-    queryFn: () => CampusLivingSettings.getFeeConfigs(institutionId, academicYearId),
+    queryFn: () => CampusLivingSettings.getFeeConfigs(isSuperAdmin ? undefined : institutionId, academicYearId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
@@ -90,11 +90,11 @@ export function useDeleteHostelFeeConfig() {
 
 // --- Leave Config hooks ---
 
-export function useHostelLeaveConfigs(institutionId: string) {
+export function useHostelLeaveConfigs(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingSettingsKeys.leaveConfig(institutionId),
-    queryFn: () => CampusLivingSettings.getLeaveTypeConfigs(institutionId),
+    queryFn: () => CampusLivingSettings.getLeaveTypeConfigs(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
@@ -154,11 +154,11 @@ export function useDeleteHostelLeaveConfig() {
 
 // --- SLA Config hooks ---
 
-export function useHostelSlaConfigs(institutionId: string) {
+export function useHostelSlaConfigs(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingSettingsKeys.slaConfig(institutionId),
-    queryFn: () => CampusLivingSettings.getSlaConfigs(institutionId),
+    queryFn: () => CampusLivingSettings.getSlaConfigs(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
@@ -218,11 +218,11 @@ export function useDeleteHostelSlaConfig() {
 
 // --- Curfew Exception hooks ---
 
-export function useHostelCurfewExceptions(institutionId: string, activeOnly?: boolean) {
+export function useHostelCurfewExceptions(institutionId: string | undefined, activeOnly?: boolean) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingSettingsKeys.curfewExceptions(institutionId, activeOnly),
-    queryFn: () => CampusLivingSettings.getCurfewExceptions(institutionId, activeOnly),
+    queryFn: () => CampusLivingSettings.getCurfewExceptions(isSuperAdmin ? undefined : institutionId, activeOnly),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

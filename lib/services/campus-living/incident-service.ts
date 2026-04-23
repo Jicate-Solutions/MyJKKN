@@ -12,7 +12,7 @@ import type {
 export class IncidentService {
   // ── List incidents with filters ───────────────────────────────────
   static async getIncidents(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: IncidentFilters,
     page = 1,
     pageSize = 50
@@ -96,7 +96,7 @@ export class IncidentService {
 
   // ── Create anonymous report ───────────────────────────────────────
   static async createAnonymousReport(
-    institutionId: string,
+    institutionId: string | undefined,
     blockId: string,
     incidentType: string,
     severity: string,

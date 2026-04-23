@@ -3,7 +3,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 export class CampusLivingAnalytics {
   // ── Overall occupancy analytics ───────────────────────────────────
-  static async getOccupancyAnalytics(institutionId: string) {
+  static async getOccupancyAnalytics(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       let blockQuery = supabase
@@ -61,7 +61,7 @@ export class CampusLivingAnalytics {
 
   // ── Attendance trend analytics ────────────────────────────────────
   static async getAttendanceTrend(
-    institutionId: string,
+    institutionId: string | undefined,
     dateFrom: string,
     dateTo: string,
     blockId?: string
@@ -119,7 +119,7 @@ export class CampusLivingAnalytics {
   }
 
   // ── Maintenance analytics ─────────────────────────────────────────
-  static async getMaintenanceAnalytics(institutionId: string, dateFrom?: string, dateTo?: string) {
+  static async getMaintenanceAnalytics(institutionId: string | undefined, dateFrom?: string, dateTo?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -193,7 +193,7 @@ export class CampusLivingAnalytics {
   }
 
   // ── Safety/Incident analytics ─────────────────────────────────────
-  static async getIncidentAnalytics(institutionId: string, dateFrom?: string, dateTo?: string) {
+  static async getIncidentAnalytics(institutionId: string | undefined, dateFrom?: string, dateTo?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -237,7 +237,7 @@ export class CampusLivingAnalytics {
   }
 
   // ── Mess analytics ────────────────────────────────────────────────
-  static async getMessAnalytics(institutionId: string, dateFrom: string, dateTo: string) {
+  static async getMessAnalytics(institutionId: string | undefined, dateFrom: string, dateTo: string) {
     try {
       const supabase = createClientSupabaseClient();
 
@@ -310,7 +310,7 @@ export class CampusLivingAnalytics {
   }
 
   // ── Risk alert generation ─────────────────────────────────────────
-  static async generateRiskAlerts(institutionId: string) {
+  static async generateRiskAlerts(institutionId: string | undefined) {
     try {
       const alerts: {
         type: string;

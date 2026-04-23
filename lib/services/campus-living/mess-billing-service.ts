@@ -10,7 +10,7 @@ import type {
 export class MessBillingService {
   // ── List billing periods ──────────────────────────────────────────
   static async getBillingPeriods(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { caterer_id?: string; status?: MessBillingStatus },
     page = 1,
     pageSize = 20

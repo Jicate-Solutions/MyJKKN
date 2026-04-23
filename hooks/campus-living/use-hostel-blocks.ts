@@ -20,11 +20,11 @@ export const hostelBlockKeys = {
 
 // --- Query hooks ---
 
-export function useHostelBlocks(institutionId: string, filters?: BlockFilters) {
+export function useHostelBlocks(institutionId: string | undefined, filters?: BlockFilters) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelBlockKeys.list({ institutionId, ...filters }),
-    queryFn: () => HostelBlockService.getBlocks(institutionId, filters),
+    queryFn: () => HostelBlockService.getBlocks(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

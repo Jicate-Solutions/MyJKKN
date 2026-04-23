@@ -11,7 +11,7 @@ import type {
 export class HostelAllocationService {
   // ── List allocations with filters ─────────────────────────────────
   static async getAllocations(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: AllocationFilters,
     page = 1,
     pageSize = 50
@@ -47,7 +47,7 @@ export class HostelAllocationService {
   }
 
   // ── Active allocations ────────────────────────────────────────────
-  static async getActiveAllocations(institutionId: string, blockId?: string) {
+  static async getActiveAllocations(institutionId: string | undefined, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase

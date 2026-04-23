@@ -23,7 +23,7 @@ export function useMessCaterers(institutionId: string | undefined, filters?: Rec
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: messCatererKeys.list({ institutionId, ...filters }),
-    queryFn: () => MessCatererService.getCaterers(institutionId as string, filters),
+    queryFn: () => MessCatererService.getCaterers(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

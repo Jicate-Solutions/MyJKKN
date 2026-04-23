@@ -22,7 +22,7 @@ export function useHostelInspections(institutionId: string | undefined, filters?
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelInspectionKeys.list({ institutionId, ...filters }),
-    queryFn: () => InspectionService.getInspections(institutionId as string, filters),
+    queryFn: () => InspectionService.getInspections(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
