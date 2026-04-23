@@ -9,7 +9,7 @@ import type {
 export class MessFeedbackService {
   // ── List feedback ─────────────────────────────────────────────────
   static async getFeedback(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       caterer_id?: string;
       date?: string;
@@ -199,7 +199,7 @@ export class MessFeedbackService {
 
   // ── Complaints list ───────────────────────────────────────────────
   static async getComplaints(
-    institutionId: string,
+    institutionId: string | undefined,
     page = 1,
     pageSize = 20
   ) {

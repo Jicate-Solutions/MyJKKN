@@ -10,7 +10,7 @@ import type {
 export class CampusLivingAccessLog {
   // ── List access logs ──────────────────────────────────────────────
   static async getAccessLogs(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       block_id?: string;
       person_type?: AccessLogPersonType;
@@ -207,7 +207,7 @@ export class CampusLivingAccessLog {
   }
 
   // ── Flagged entries ───────────────────────────────────────────────
-  static async getFlaggedEntries(institutionId: string, page = 1, pageSize = 50) {
+  static async getFlaggedEntries(institutionId: string | undefined, page = 1, pageSize = 50) {
     try {
       const supabase = createClientSupabaseClient();
       const from = (page - 1) * pageSize;
@@ -262,7 +262,7 @@ export class CampusLivingAccessLog {
   }
 
   // ── Daily access summary ──────────────────────────────────────────
-  static async getDailyAccessSummary(institutionId: string, date: string, blockId?: string) {
+  static async getDailyAccessSummary(institutionId: string | undefined, date: string, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase

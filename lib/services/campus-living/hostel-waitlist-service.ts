@@ -10,7 +10,7 @@ import type {
 export class HostelWaitlistService {
   // ── List waitlist entries ──────────────────────────────────────────
   static async getWaitlist(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       academic_year_id?: string;
       status?: WaitlistStatus;
@@ -234,7 +234,7 @@ export class HostelWaitlistService {
   }
 
   // ── Mark expired offers ───────────────────────────────────────────
-  static async markExpiredOffers(institutionId: string) {
+  static async markExpiredOffers(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
@@ -285,7 +285,7 @@ export class HostelWaitlistService {
 
   // ── Get next in line (highest priority waiting) ───────────────────
   static async getNextInLine(
-    institutionId: string,
+    institutionId: string | undefined,
     academicYearId: string,
     preferredBlockId?: string,
     preferredRoomType?: RoomType
@@ -317,7 +317,7 @@ export class HostelWaitlistService {
   }
 
   // ── Waitlist summary ──────────────────────────────────────────────
-  static async getWaitlistSummary(institutionId: string, academicYearId: string) {
+  static async getWaitlistSummary(institutionId: string | undefined, academicYearId: string) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase

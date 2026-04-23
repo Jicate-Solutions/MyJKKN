@@ -11,7 +11,7 @@ import type {
 export class VisitorService {
   // ── List visitors with filters ────────────────────────────────────
   static async getVisitors(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: VisitorFilters,
     page = 1,
     pageSize = 50
@@ -183,7 +183,7 @@ export class VisitorService {
   }
 
   // ── Currently checked-in visitors ─────────────────────────────────
-  static async getCurrentVisitors(institutionId: string, blockId?: string) {
+  static async getCurrentVisitors(institutionId: string | undefined, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase

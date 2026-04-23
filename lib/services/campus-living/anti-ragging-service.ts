@@ -9,7 +9,7 @@ import type {
 export class AntiRaggingService {
   // ── List affidavits ───────────────────────────────────────────────
   static async getAffidavits(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       academic_year_id?: string;
       status?: AffidavitStatus;
@@ -294,7 +294,7 @@ export class AntiRaggingService {
   }
 
   // ── Compliance status summary ─────────────────────────────────────
-  static async getComplianceStatus(institutionId: string, academicYearId: string) {
+  static async getComplianceStatus(institutionId: string | undefined, academicYearId: string) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase

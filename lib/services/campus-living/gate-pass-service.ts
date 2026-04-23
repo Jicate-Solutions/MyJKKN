@@ -9,7 +9,7 @@ import type {
 export class GatePassService {
   // ── List gate passes ──────────────────────────────────────────────
   static async getGatePasses(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { status?: GatePassStatus; learner_id?: string; date?: string },
     page = 1,
     pageSize = 50
@@ -230,7 +230,7 @@ export class GatePassService {
   }
 
   // ── Get overdue passes ────────────────────────────────────────────
-  static async getOverduePasses(institutionId: string) {
+  static async getOverduePasses(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
@@ -255,7 +255,7 @@ export class GatePassService {
   }
 
   // ── Mark overdue (batch update) ───────────────────────────────────
-  static async markOverdue(institutionId: string) {
+  static async markOverdue(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
@@ -605,7 +605,7 @@ export class GatePassService {
   }
 
   // ── Staff views pending requests ────────────────────────────────
-  static async getPendingRequests(institutionId: string) {
+  static async getPendingRequests(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase

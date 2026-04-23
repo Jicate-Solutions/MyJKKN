@@ -10,7 +10,7 @@ import type {
 export class HostelBlockService {
   // ── List blocks with filters ──────────────────────────────────────
   static async getBlocks(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: BlockFilters,
     page = 1,
     pageSize = 50
@@ -127,7 +127,7 @@ export class HostelBlockService {
   }
 
   // ── Occupancy summary for all blocks ──────────────────────────────
-  static async getOccupancySummary(institutionId: string) {
+  static async getOccupancySummary(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase
@@ -160,7 +160,7 @@ export class HostelBlockService {
   }
 
   // ── Blocks by hostel type ─────────────────────────────────────────
-  static async getBlocksByType(institutionId: string, hostelType: string) {
+  static async getBlocksByType(institutionId: string | undefined, hostelType: string) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase

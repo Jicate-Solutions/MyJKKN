@@ -43,7 +43,7 @@ export type CreateLaundryOrderDTO = Omit<
 
 export class LaundryService {
   static async getOrders(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: LaundryFilters,
     page = 1,
     pageSize = 50

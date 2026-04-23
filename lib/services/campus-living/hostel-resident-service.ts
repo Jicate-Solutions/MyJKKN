@@ -11,7 +11,7 @@ import type {
 export class HostelResidentService {
   // ── List residents with filters ───────────────────────────────────
   static async getResidents(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: ResidentFilters,
     page = 1,
     pageSize = 50
@@ -25,9 +25,12 @@ export class HostelResidentService {
           { count: 'exact' }
         );
 
+<<<<<<< HEAD
       // Guard: empty/undefined institutionId means super_admin view (no filter).
       // Without this guard, Postgres rejects .eq('institution_id', '') with
       // "invalid input syntax for type uuid". Caught on prod 2026-04-23.
+=======
+>>>>>>> fc76e8ae5 (fix(campus-living): widen service signatures to accept institutionId: string | undefined + guard list queries in my 3 services)
       if (institutionId) query = query.eq('institution_id', institutionId);
 
       if (filters?.resident_type) query = query.eq('resident_type', filters.resident_type);
@@ -79,7 +82,7 @@ export class HostelResidentService {
 
   // ── Find resident by profile within institution ──────────────────
   // Used by allocation flow: "does this person already have a resident record here?"
-  static async findByProfile(institutionId: string, profileId: string) {
+  static async findByProfile(institutionId: string | undefined, profileId: string) {
     try {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase

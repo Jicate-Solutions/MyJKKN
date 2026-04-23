@@ -94,7 +94,7 @@ export class HostelLeaveTypeService {
    * type (e.g. the leave-request form). Not used by the settings CRUD page.
    */
   static async getActiveHostelLeaveTypes(
-    institutionId: string
+    institutionId: string | undefined
   ): Promise<HostelLeaveType[]> {
     let q = this.supabase
       .from('hostel_leave_types')
@@ -202,7 +202,7 @@ export class HostelLeaveTypeService {
   }
 
   static async isHostelLeaveTypeCodeExists(
-    institutionId: string,
+    institutionId: string | undefined,
     code: string,
     excludeId?: string
   ): Promise<boolean> {
