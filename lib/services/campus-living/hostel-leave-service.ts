@@ -20,9 +20,9 @@ export class HostelLeaveService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_leave_requests')
-        .select('*, learner:profiles!hostel_leave_requests_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*, learner:profiles!hostel_leave_requests_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.leave_type) query = query.eq('leave_type', filters.leave_type);
@@ -339,13 +339,14 @@ export class HostelLeaveService {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_leave_requests')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('status', 'approved')
         .is('actual_return_time', null)
         .lt('to_date', now.split('T')[0]);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/leave', 'Failed to fetch overdue leaves', error);

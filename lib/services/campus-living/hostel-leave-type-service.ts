@@ -96,13 +96,14 @@ export class HostelLeaveTypeService {
   static async getActiveHostelLeaveTypes(
     institutionId: string
   ): Promise<HostelLeaveType[]> {
-    const { data, error } = await this.supabase
+    let q = this.supabase
       .from('hostel_leave_types')
       .select('*')
-      .eq('institution_id', institutionId)
       .eq('is_active', true)
       .order('sort_order', { ascending: true })
       .order('leave_type_name', { ascending: true });
+    if (institutionId) q = q.eq('institution_id', institutionId);
+    const { data, error } = await q;
 
     if (error) {
       logger.error('campus-living/leave-types', 'Database error listing active', error);

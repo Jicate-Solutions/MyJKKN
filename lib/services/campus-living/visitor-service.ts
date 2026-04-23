@@ -20,9 +20,9 @@ export class VisitorService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_visitors')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.date) {
@@ -189,9 +189,9 @@ export class VisitorService {
       let query = supabase
         .from('hostel_visitors')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('status', 'checked_in');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('check_in_time', { ascending: false });
 

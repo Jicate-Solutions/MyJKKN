@@ -19,9 +19,9 @@ export class HostelRoomService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_rooms')
-        .select('*, hostel_beds(*)', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*, hostel_beds(*)', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.room_type) query = query.eq('room_type', filters.room_type);
       if (filters?.ac_status) query = query.eq('ac_status', filters.ac_status);

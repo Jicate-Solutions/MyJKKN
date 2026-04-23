@@ -25,9 +25,9 @@ export class MessMenuService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_menus')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.caterer_id) query = query.eq('caterer_id', filters.caterer_id);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.week_start_date) query = query.eq('week_start_date', filters.week_start_date);
@@ -81,9 +81,9 @@ export class MessMenuService {
       let query = supabase
         .from('mess_menus')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('week_start_date', weekStartDate);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('day_of_week').order('meal_type');
 
@@ -247,10 +247,10 @@ export class MessMenuService {
       let query = supabase
         .from('mess_menus')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('week_start_date', weekStartDate)
         .eq('day_of_week', dayOfWeek);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('meal_type');
 

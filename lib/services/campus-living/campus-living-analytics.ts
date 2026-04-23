@@ -6,11 +6,12 @@ export class CampusLivingAnalytics {
   static async getOccupancyAnalytics(institutionId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data: blocks, error } = await supabase
+      let blockQuery = supabase
         .from('hostel_blocks')
         .select('id, name, code, hostel_type, total_rooms, total_capacity, current_occupancy, status')
-        .eq('institution_id', institutionId)
         .eq('status', 'active');
+      if (institutionId) blockQuery = blockQuery.eq('institution_id', institutionId);
+      const { data: blocks, error } = await blockQuery;
 
       if (error) {
         logger.error('campus-living/analytics', 'Failed to fetch occupancy analytics', error);
@@ -70,10 +71,10 @@ export class CampusLivingAnalytics {
       let query = supabase
         .from('hostel_attendance')
         .select('date, evening_status, is_curfew_violation')
-        .eq('institution_id', institutionId)
         .gte('date', dateFrom)
         .lte('date', dateTo);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
 
       const { data, error } = await query;
@@ -123,9 +124,9 @@ export class CampusLivingAnalytics {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_maintenance_requests')
-        .select('category, priority, status, sla_status, created_at, resolved_at')
-        .eq('institution_id', institutionId);
+        .select('category, priority, status, sla_status, created_at, resolved_at');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (dateFrom) query = query.gte('created_at', dateFrom);
       if (dateTo) query = query.lte('created_at', dateTo);
 
@@ -197,9 +198,9 @@ export class CampusLivingAnalytics {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_incidents')
-        .select('incident_type, severity, status, incident_date, block_id')
-        .eq('institution_id', institutionId);
+        .select('incident_type, severity, status, incident_date, block_id');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (dateFrom) query = query.gte('incident_date', dateFrom);
       if (dateTo) query = query.lte('incident_date', dateTo);
 
@@ -241,32 +242,35 @@ export class CampusLivingAnalytics {
       const supabase = createClientSupabaseClient();
 
       // Meal consumption
-      const { data: meals, error: mealError } = await supabase
+      let mealQ = supabase
         .from('mess_meal_records')
         .select('meal_type, consumed, is_guest_meal, date')
-        .eq('institution_id', institutionId)
         .gte('date', dateFrom)
         .lte('date', dateTo);
+      if (institutionId) mealQ = mealQ.eq('institution_id', institutionId);
+      const { data: meals, error: mealError } = await mealQ;
 
       if (mealError) throw mealError;
 
       // Feedback
-      const { data: feedback, error: fbError } = await supabase
+      let fbQ = supabase
         .from('mess_feedback')
         .select('overall_rating, is_complaint')
-        .eq('institution_id', institutionId)
         .gte('date', dateFrom)
         .lte('date', dateTo);
+      if (institutionId) fbQ = fbQ.eq('institution_id', institutionId);
+      const { data: feedback, error: fbError } = await fbQ;
 
       if (fbError) throw fbError;
 
       // Waste
-      const { data: waste, error: wasteError } = await supabase
+      let wasteQ = supabase
         .from('mess_waste_log')
         .select('waste_quantity_kg, cost_of_waste')
-        .eq('institution_id', institutionId)
         .gte('date', dateFrom)
         .lte('date', dateTo);
+      if (institutionId) wasteQ = wasteQ.eq('institution_id', institutionId);
+      const { data: waste, error: wasteError } = await wasteQ;
 
       if (wasteError) throw wasteError;
 
@@ -320,11 +324,12 @@ export class CampusLivingAnalytics {
 
       // 1. Low attendance blocks
       const today = new Date().toISOString().split('T')[0];
-      const { data: attendance } = await supabase
+      let attQ = supabase
         .from('hostel_attendance')
         .select('block_id, evening_status')
-        .eq('institution_id', institutionId)
         .eq('date', today);
+      if (institutionId) attQ = attQ.eq('institution_id', institutionId);
+      const { data: attendance } = await attQ;
 
       if (attendance && attendance.length > 0) {
         const blockAttendance: Record<string, { total: number; present: number }> = {};
@@ -348,12 +353,13 @@ export class CampusLivingAnalytics {
       }
 
       // 2. SLA breaches
-      const { data: breached } = await supabase
+      let breachQ = supabase
         .from('hostel_maintenance_requests')
         .select('id', { count: 'exact', head: true })
-        .eq('institution_id', institutionId)
         .eq('sla_status', 'breached')
         .in('status', ['open', 'assigned', 'in_progress']);
+      if (institutionId) breachQ = breachQ.eq('institution_id', institutionId);
+      const { data: breached } = await breachQ;
 
       if (breached !== null) {
         // count returned in header
@@ -361,12 +367,13 @@ export class CampusLivingAnalytics {
 
       // 3. Overdue gate passes
       const now = new Date().toISOString();
-      const { data: overdue } = await supabase
+      let overdueQ = supabase
         .from('hostel_gate_passes')
         .select('id')
-        .eq('institution_id', institutionId)
         .eq('status', 'active')
         .lt('expected_return', now);
+      if (institutionId) overdueQ = overdueQ.eq('institution_id', institutionId);
+      const { data: overdue } = await overdueQ;
 
       if (overdue && overdue.length > 0) {
         alerts.push({

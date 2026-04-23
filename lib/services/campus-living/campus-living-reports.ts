@@ -7,20 +7,22 @@ export class CampusLivingReports {
     try {
       const supabase = createClientSupabaseClient();
 
-      const { data: blocks, error: blockError } = await supabase
+      let blockQ = supabase
         .from('hostel_blocks')
         .select('id, name, code, hostel_type, total_rooms, total_capacity, current_occupancy, status')
-        .eq('institution_id', institutionId)
         .order('name');
+      if (institutionId) blockQ = blockQ.eq('institution_id', institutionId);
+      const { data: blocks, error: blockError } = await blockQ;
 
       if (blockError) throw blockError;
 
-      const { data: rooms, error: roomError } = await supabase
+      let roomQ = supabase
         .from('hostel_rooms')
         .select('id, block_id, room_number, floor, room_type, ac_status, capacity, current_occupancy, status')
-        .eq('institution_id', institutionId)
         .order('block_id')
         .order('room_number');
+      if (institutionId) roomQ = roomQ.eq('institution_id', institutionId);
+      const { data: rooms, error: roomError } = await roomQ;
 
       if (roomError) throw roomError;
 
@@ -75,10 +77,10 @@ export class CampusLivingReports {
       let query = supabase
         .from('hostel_attendance')
         .select('*')
-        .eq('institution_id', institutionId)
         .gte('date', dateFrom)
         .lte('date', dateTo);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('date').order('learner_id');
 
@@ -151,10 +153,10 @@ export class CampusLivingReports {
       let query = supabase
         .from('hostel_visitors')
         .select('*')
-        .eq('institution_id', institutionId)
         .gte('check_in_time', `${dateFrom}T00:00:00`)
         .lte('check_in_time', `${dateTo}T23:59:59`);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('check_in_time', { ascending: false });
 
@@ -188,11 +190,12 @@ export class CampusLivingReports {
   static async generateAntiRaggingComplianceReport(institutionId: string, academicYearId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('anti_ragging_affidavits')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('academic_year_id', academicYearId);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) throw error;
 
@@ -237,28 +240,32 @@ export class CampusLivingReports {
     try {
       const supabase = createClientSupabaseClient();
 
+      let incidentsQ = supabase
+        .from('hostel_incidents')
+        .select('*')
+        .gte('incident_date', dateFrom)
+        .lte('incident_date', dateTo);
+      if (institutionId) incidentsQ = incidentsQ.eq('institution_id', institutionId);
+
+      let inspectionsQ = supabase
+        .from('hostel_inspections')
+        .select('*')
+        .gte('inspection_date', dateFrom)
+        .lte('inspection_date', dateTo);
+      if (institutionId) inspectionsQ = inspectionsQ.eq('institution_id', institutionId);
+
+      let maintenanceQ = supabase
+        .from('hostel_maintenance_requests')
+        .select('*')
+        .eq('category', 'safety')
+        .gte('created_at', dateFrom)
+        .lte('created_at', `${dateTo}T23:59:59`);
+      if (institutionId) maintenanceQ = maintenanceQ.eq('institution_id', institutionId);
+
       const [incidentsResult, inspectionsResult, maintenanceResult] = await Promise.all([
-        supabase
-          .from('hostel_incidents')
-          .select('*')
-          .eq('institution_id', institutionId)
-          .gte('incident_date', dateFrom)
-          .lte('incident_date', dateTo),
-
-        supabase
-          .from('hostel_inspections')
-          .select('*')
-          .eq('institution_id', institutionId)
-          .gte('inspection_date', dateFrom)
-          .lte('inspection_date', dateTo),
-
-        supabase
-          .from('hostel_maintenance_requests')
-          .select('*')
-          .eq('institution_id', institutionId)
-          .eq('category', 'safety')
-          .gte('created_at', dateFrom)
-          .lte('created_at', `${dateTo}T23:59:59`),
+        incidentsQ,
+        inspectionsQ,
+        maintenanceQ,
       ]);
 
       const incidents = incidentsResult.data ?? [];
@@ -321,25 +328,27 @@ export class CampusLivingReports {
       let allocQuery = supabase
         .from('hostel_allocations')
         .select('id, fee_status, deposit_paid, block_id, hostel_blocks(name)')
-        .eq('institution_id', institutionId)
         .eq('status', 'active');
+      if (institutionId) allocQuery = allocQuery.eq('institution_id', institutionId);
 
       const { data: allocations, error: allocError } = await allocQuery;
       if (allocError) throw allocError;
 
       // Deposits
-      const { data: deposits, error: depError } = await supabase
+      let depQ = supabase
         .from('hostel_deposits')
-        .select('deposit_type, amount, status')
-        .eq('institution_id', institutionId);
+        .select('deposit_type, amount, status');
+      if (institutionId) depQ = depQ.eq('institution_id', institutionId);
+      const { data: deposits, error: depError } = await depQ;
 
       if (depError) throw depError;
 
       // Mess billing
-      const { data: messBilling, error: messError } = await supabase
+      let messQ = supabase
         .from('mess_student_billing')
-        .select('net_amount, payment_status')
-        .eq('institution_id', institutionId);
+        .select('net_amount, payment_status');
+      if (institutionId) messQ = messQ.eq('institution_id', institutionId);
+      const { data: messBilling, error: messError } = await messQ;
 
       if (messError) throw messError;
 

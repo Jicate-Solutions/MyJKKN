@@ -19,9 +19,9 @@ export class HostelBlockService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_blocks')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.hostel_type) query = query.eq('hostel_type', filters.hostel_type);
       if (filters?.search) {
@@ -130,12 +130,13 @@ export class HostelBlockService {
   static async getOccupancySummary(institutionId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_blocks')
         .select('id, name, code, hostel_type, total_rooms, total_capacity, current_occupancy, status')
-        .eq('institution_id', institutionId)
         .eq('status', 'active')
         .order('name');
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/blocks', 'Failed to fetch occupancy summary', error);
@@ -162,13 +163,14 @@ export class HostelBlockService {
   static async getBlocksByType(institutionId: string, hostelType: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_blocks')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('hostel_type', hostelType as any)
         .eq('status', 'active')
         .order('name');
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/blocks', 'Failed to fetch blocks by type', error);
