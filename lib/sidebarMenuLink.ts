@@ -1077,11 +1077,22 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          href: '/learners/leave-onduty/my-applications',
+          href: '/learners/leave-onduty',
           label: 'Leave/OnDuty',
           active: pathname.startsWith('/learners/leave-onduty'),
           icon: Briefcase,
-          submenus: []
+          submenus: [
+            {
+              href: '/learners/leave-onduty/my-applications',
+              label: 'My Applications',
+              active: pathname === '/learners/leave-onduty/my-applications'
+            },
+            {
+              href: '/learners/leave-onduty/apply',
+              label: 'Apply',
+              active: pathname === '/learners/leave-onduty/apply'
+            }
+          ]
         },
         {
           href: '/academic/privileges/my',
@@ -1442,6 +1453,50 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          href: '/admin/pde',
+          label: 'PDE (Admin)',
+          active: pathname.startsWith('/admin/pde'),
+          icon: Brain,
+          submenus: [
+            {
+              href: '/admin/pde/assessments',
+              label: 'Assessments',
+              active: pathname === '/admin/pde/assessments' || pathname === '/admin/pde/assessments/create',
+              icon: CheckSquare
+            },
+            {
+              href: '/admin/pde/quests',
+              label: 'Quests',
+              active: pathname === '/admin/pde/quests' || pathname === '/admin/pde/quests/create',
+              icon: Target
+            },
+            {
+              href: '/admin/pde/capabilities',
+              label: 'Capabilities',
+              active: pathname === '/admin/pde/capabilities',
+              icon: Award
+            },
+            {
+              href: '/admin/pde/engagement',
+              label: 'Engagement',
+              active: pathname === '/admin/pde/engagement',
+              icon: Activity
+            },
+            {
+              href: '/admin/pde/at-risk',
+              label: 'At-Risk Learners',
+              active: pathname === '/admin/pde/at-risk',
+              icon: TrendingUp
+            },
+            {
+              href: '/admin/pde/lti',
+              label: 'LTI Config',
+              active: pathname === '/admin/pde/lti',
+              icon: Link2
+            }
+          ]
+        },
+        {
           href: '/audit-trail',
           label: 'Audit Trail',
           active: pathname.startsWith('/audit-trail'),
@@ -1581,6 +1636,43 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/health/achievements',
           icon: TrophyIcon,
           submenus: []
+        },
+        {
+          href: '/health/assessments',
+          label: 'Mental Health Check-In',
+          active: pathname === '/health/assessments',
+          icon: HeartPulse,
+          submenus: []
+        },
+        {
+          href: '/health/counselor',
+          label: 'Counselor Dashboard',
+          active: pathname === '/health/counselor',
+          icon: Stethoscope,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Events',
+      menus: [
+        {
+          href: '/events/marathon',
+          label: 'Marathon Events',
+          active: pathname === '/events/marathon' || pathname.startsWith('/events/marathon/'),
+          icon: Flame,
+          submenus: [
+            {
+              href: '/events/marathon',
+              label: 'All Events',
+              active: pathname === '/events/marathon'
+            },
+            {
+              href: '/events/marathon/new',
+              label: 'New Event',
+              active: pathname === '/events/marathon/new'
+            }
+          ]
         }
       ]
     },
@@ -1812,7 +1904,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'Faculty Innovation',
+      groupLabel: 'Faculty',
       menus: [
         {
           href: '/faculty/innovation',
@@ -1839,6 +1931,44 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/faculty/innovation/collab-request',
               label: 'Request Collab',
               active: pathname === '/faculty/innovation/collab-request'
+            }
+          ]
+        },
+        {
+          href: '/faculty/pde',
+          label: 'PDE (Faculty)',
+          active: pathname.startsWith('/faculty/pde'),
+          icon: Brain,
+          submenus: [
+            {
+              href: '/faculty/pde/dashboard',
+              label: 'Dashboard',
+              active: pathname === '/faculty/pde/dashboard',
+              icon: Gauge
+            },
+            {
+              href: '/faculty/pde/assessments',
+              label: 'Assessments',
+              active: pathname === '/faculty/pde/assessments',
+              icon: CheckSquare
+            },
+            {
+              href: '/faculty/pde/quests',
+              label: 'Quests',
+              active: pathname === '/faculty/pde/quests',
+              icon: Target
+            },
+            {
+              href: '/faculty/pde/demonstrations',
+              label: 'Demonstrations',
+              active: pathname === '/faculty/pde/demonstrations',
+              icon: Sparkles
+            },
+            {
+              href: '/faculty/pde/analytics',
+              label: 'Analytics',
+              active: pathname === '/faculty/pde/analytics',
+              icon: PieChart
             }
           ]
         }
