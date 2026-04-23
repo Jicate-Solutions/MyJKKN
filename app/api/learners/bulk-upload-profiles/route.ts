@@ -501,6 +501,26 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // 2026-04-23: resolve admission_year_id FK from (year, institution, program)
+      // triple now that institution_id and program_id are resolved. Row is
+      // allowed to proceed with admission_year_id=null if no matching cohort
+      // exists (will be surfaced by the audit script).
+      if (
+        sanitizedData.admission_year != null &&
+        sanitizedData.institution_id &&
+        sanitizedData.program_id
+      ) {
+        const { resolveAdmissionYearId } = await import('@/lib/services/admission/resolve-admission-year');
+        (sanitizedData as any).admission_year_id = await resolveAdmissionYearId(
+          supabase as any,
+          {
+            year: sanitizedData.admission_year as any,
+            institutionId: sanitizedData.institution_id,
+            programId: sanitizedData.program_id,
+          }
+        );
+      }
+
       // Remove temporary name fields before validation
       delete (sanitizedData as any)._institution_name;
       delete (sanitizedData as any)._degree_name;

@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { DataTableRowActions } from './row-actions';
+import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 
 /**
  * Check if email is using personal domain (gmail, yahoo, etc.) instead of institutional
@@ -218,6 +219,23 @@ export const profileColumns: ColumnDef<LearnerProfile>[] = [
     size: 100,
     minSize: 80,
     maxSize: 120,
+  },
+  // 6b. Admission Year (added 2026-04-23) — cohort via FK, rich label.
+  {
+    id: 'admission_year',
+    accessorFn: (row) => row.admission_year_id ?? row.admission_year ?? null,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Admission Year" />
+    ),
+    cell: ({ row }) => (
+      <div className="text-sm">{formatAdmissionYear(row.original as any)}</div>
+    ),
+    size: 180,
+    filterFn: (row, _id, value: string[]) => {
+      if (!Array.isArray(value) || value.length === 0) return true;
+      const fk = (row.original as any).admission_year_id;
+      return fk ? value.includes(fk) : false;
+    },
   },
   // 7. Semester
   {

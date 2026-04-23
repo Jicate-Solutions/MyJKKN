@@ -32,6 +32,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { usePermissions } from '@/hooks/use-permissions';
 import { cn } from '@/lib/utils';
+import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 // Fee structure constants removed 2026-04-15 — replaced by dynamic fee_items flow.
@@ -870,7 +871,8 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       <h4 className="text-sm font-medium text-muted-foreground">
                         Admission Year
                       </h4>
-                      <p className="text-sm">{learner.admission_year || 'Not specified'}</p>
+                      {/* 2026-04-23: rich label via shared formatter (FK -> name + year range). */}
+                      <p className="text-sm">{formatAdmissionYear(learner as any)}</p>
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">

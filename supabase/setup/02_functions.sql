@@ -9189,3 +9189,39 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) TO authenticated;
+
+-- =====================================================
+-- validate_learner_admission_year_scope() — Added 2026-04-23
+-- Trigger function for learners_profiles.admission_year_id (shadow FK).
+-- Rejects an FK that references an admission_years row whose
+-- institution_id or program_id does not match the learner.
+-- Closes the cross-institution attach vector that PG FK alone cannot enforce.
+-- Wired by trg_validate_learner_admission_year_scope in 04_triggers.sql.
+-- =====================================================
+CREATE OR REPLACE FUNCTION public.validate_learner_admission_year_scope()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.admission_year_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.admission_years ay
+    WHERE ay.id = NEW.admission_year_id
+      AND ay.institution_id = NEW.institution_id
+      AND (NEW.program_id IS NULL OR ay.program_id = NEW.program_id)
+  ) THEN
+    RAISE EXCEPTION
+      'admission_year_id % does not match learner institution_id % / program_id %',
+      NEW.admission_year_id, NEW.institution_id, NEW.program_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;

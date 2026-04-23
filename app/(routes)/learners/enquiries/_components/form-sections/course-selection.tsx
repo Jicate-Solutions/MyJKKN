@@ -49,6 +49,7 @@ import { useBatches } from '@/hooks/academic/use-batches';
 import type { Degree, Department, Program, Semester, Section } from '@/types/organizations';
 import type { AcademicYear, Regulation, Batch } from '@/types/academics';
 import { ENTRY_TYPE_OPTIONS, QUOTA_OPTIONS } from '@/lib/constants/learner-dropdown-values';
+import { AdmissionYearSelect } from '@/components/admission/admission-year-select';
 
 interface CourseSelectionProps {
   form: UseFormReturn<any>;
@@ -526,6 +527,11 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                   if (oldValue && oldValue !== value) {
                     form.setValue('semester_id', '');
                     form.setValue('section_id', '');
+                    // 2026-04-23: clear admission_year selection too — old
+                    // cohort row is scoped to the previous program and would
+                    // be rejected by the DB scope-validator trigger on save.
+                    form.setValue('admission_year_id', '');
+                    form.setValue('admission_year', undefined);
                   }
                 }}
                 value={field.value || ''}
@@ -557,6 +563,34 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
               <FormDescription>
                 The specific program (required)
               </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Admission Year — cohort window for this learner's (institution, program).
+            Added here 2026-04-23 to sit next to Institution/Program where it
+            belongs semantically. Replaces the disconnected hardcoded year
+            dropdown that lived in Basic Details. The picker also writes the
+            legacy `admission_year` integer (= program_start_year) on the form
+            so the 6 B2A endpoints that still expose it keep working. */}
+        <FormField
+          control={form.control}
+          name="admission_year_id"
+          render={({ field }) => (
+            <FormItem>
+              <AdmissionYearSelect
+                institutionId={watchedInstitutionId}
+                programId={watchedProgramId}
+                value={field.value || ''}
+                onChange={(id, row) => {
+                  field.onChange(id);
+                  // Sync the legacy integer column for B2A back-compat.
+                  form.setValue('admission_year', row?.program_start_year ?? null);
+                }}
+                label="Admission Year"
+                placeholderNoProgram="Select program first"
+              />
               <FormMessage />
             </FormItem>
           )}

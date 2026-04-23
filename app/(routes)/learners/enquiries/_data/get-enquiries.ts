@@ -88,7 +88,8 @@ async function getEnquiriesInner(
       department:departments(id, department_name),
       program:programs(id, program_name),
       semester:semesters(id, semester_name, semester_code),
-      section:sections(id, section_name)
+      section:sections(id, section_name),
+      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, program_start_year, program_end_year)
     `,
       { count: 'exact' }
     );

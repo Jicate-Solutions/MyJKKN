@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { InfoField } from './info-field';
 import { formatDate } from '@/lib/utils';
+import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import {
   Pencil,
   User,
@@ -237,7 +238,8 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
               />
               <InfoField
                 label="Admission Year"
-                value={learner.admission_year}
+                /* 2026-04-23: rich label via shared formatter (matches lead detail). */
+                value={formatAdmissionYear(learner as any)}
                 icon={Calendar}
               />
               <Separator />

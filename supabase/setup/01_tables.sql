@@ -434,6 +434,19 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     regulation_id UUID,
     batch_id UUID,
 
+    -- Admission Year (Reconciled: 2026-04-23 — column was added directly via
+    -- Supabase MCP earlier without an explicit migration. Backfilled here for
+    -- canonical-source truth per CLAUDE.md SQL File Management Rules.)
+    -- Legacy integer kept for B2A endpoint back-compat (6 endpoints expose it).
+    admission_year INTEGER,
+    -- Added: 2026-04-23 — shadow FK to admission_years (institution + program scoped cohorts).
+    -- Migration: supabase/migrations/learners_profiles_admission_year_id_shadow_fk.sql
+    -- Backfill: only lifecycle_status='admitted' rows get latest active cohort;
+    --          'active'/'graduated'/etc. left NULL for manual director cleanup.
+    -- Scope: validated by trg_validate_learner_admission_year_scope (04_triggers.sql)
+    --        — rejects FK row whose institution/program does not match the learner.
+    admission_year_id UUID REFERENCES public.admission_years(id) ON DELETE SET NULL,
+
     -- Student-specific fields (unlocked after enrollment)
     roll_number TEXT,
     register_number TEXT,

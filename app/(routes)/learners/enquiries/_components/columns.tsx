@@ -9,6 +9,7 @@ import { format } from 'date-fns';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { DataTableRowActions } from './row-actions';
+import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 
 export const enquiryColumns: ColumnDef<LearnerProfile>[] = [
   {
@@ -126,6 +127,25 @@ export const enquiryColumns: ColumnDef<LearnerProfile>[] = [
       );
     },
     size: 180,
+  },
+  {
+    // Added 2026-04-23 — admission cohort column. Renders rich label via
+    // formatAdmissionYear helper (FK→name+year range) with fallback to the
+    // legacy integer. Sortable on admission_year integer; filterable by FK id.
+    id: 'admission_year',
+    accessorFn: (row) => row.admission_year_id ?? row.admission_year ?? null,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Admission Year" />
+    ),
+    cell: ({ row }) => (
+      <div className="text-sm">{formatAdmissionYear(row.original as any)}</div>
+    ),
+    size: 180,
+    filterFn: (row, _id, value: string[]) => {
+      if (!Array.isArray(value) || value.length === 0) return true;
+      const fk = (row.original as any).admission_year_id;
+      return fk ? value.includes(fk) : false;
+    },
   },
   {
     accessorKey: 'lifecycle_status',

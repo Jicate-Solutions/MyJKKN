@@ -91,7 +91,20 @@ export interface LearnerProfile {
   caste?: string;
   aadhar_number?: string;
   blood_group?: string;
+  // Legacy integer year (e.g. 2026). Kept for B2A endpoint back-compat —
+  // 6 endpoints still expose `?admission_year=` and read this column.
   admission_year?: number;
+  // Added 2026-04-23 — shadow FK to admission_years. Source of truth going
+  // forward; integer above is auto-derived from this on the converter path.
+  // Validated by DB trigger to match learner's institution + program.
+  admission_year_id?: string | null;
+  // Optional joined cohort row (set when query selects admission_years(...)).
+  admission_year_obj?: {
+    id: string;
+    admission_year_name: string;
+    program_start_year: number;
+    program_end_year: number;
+  } | null;
   learner_type?: 'regular' | 'irregular' | 'intern';
 
   // Parent/Guardian Information

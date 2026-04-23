@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { AdmissionYearSelect } from '@/components/admission/admission-year-select';
 import {
   Popover,
   PopoverContent,
@@ -221,17 +222,11 @@ function NewLeadPageContent() {
   const [facultyPickerOpen, setFacultyPickerOpen] = useState(false);
   const [consultantPickerOpen, setConsultantPickerOpen] = useState(false);
 
-  // Admission years (per-program cohort) loaded based on selected institution
-  const [admissionYears, setAdmissionYears] = useState<
-    {
-      id: string;
-      admission_year_name: string;
-      program_start_year: number;
-      program_end_year: number;
-      is_active: boolean;
-    }[]
-  >([]);
-  const [admissionYearsLoading, setAdmissionYearsLoading] = useState(false);
+  // Admission years cascade extracted to <AdmissionYearSelect/> (2026-04-23) —
+  // one shared component now serves leads/new, leads/[id] edit, and the
+  // learner enquiry form (PR-3). The per-page useState/useEffect duplication
+  // is gone; the shared <AdmissionYearSelect> owns fetch + placeholder copy +
+  // rich-label rendering.
 
   // Entry date — auto-populated to today (local timezone, not UTC)
   const [entryDate] = useState<string>(() => {
@@ -287,33 +282,7 @@ function NewLeadPageContent() {
       });
   }, [institutionId]);
 
-  // Fetch admission years filtered by BOTH institution AND primary program.
-  // Each admission_year row is tied to one program; filtering by program shows
-  // only cohorts relevant to the lead's chosen primary program.
-  useEffect(() => {
-    if (!institutionId || !selectedProgramId) {
-      setAdmissionYears([]);
-      return;
-    }
-    setAdmissionYearsLoading(true);
-    const supabase = createClientSupabaseClient();
-    (supabase as any)
-      .from('admission_years')
-      .select('id, admission_year_name, program_start_year, program_end_year, is_active')
-      .eq('institution_id', institutionId)
-      .eq('program_id', selectedProgramId)
-      .eq('is_active', true)
-      .order('program_start_year', { ascending: false })
-      .then(({ data, error }: { data: any; error: any }) => {
-        if (error) {
-          console.error('[admission/leads] Failed to fetch admission years:', error.message);
-          setAdmissionYears([]);
-        } else {
-          setAdmissionYears(data ?? []);
-        }
-        setAdmissionYearsLoading(false);
-      });
-  }, [institutionId, selectedProgramId]);
+  // (Admission-years fetch effect removed; lives inside <AdmissionYearSelect/>.)
 
   // Clear admission_year_id when the primary program changes (old value no longer applies).
   useEffect(() => {
@@ -935,39 +904,14 @@ function NewLeadPageContent() {
                       )}
                     </div>
 
-                    {/* Admission Year (replaces Academic Year 2026-04-21) — filtered by primary program */}
-                    <div className="space-y-2">
-                      <Label htmlFor="admission_year_id">Admission Year</Label>
-                      <Select
-                        value={formData.admission_year_id}
-                        onValueChange={(value) => handleChange('admission_year_id', value)}
-                        disabled={admissionYearsLoading || !institutionId || !selectedProgramId}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={
-                            !institutionId
-                              ? 'Select institution first'
-                              : !selectedProgramId
-                              ? 'Select the Interested Program first'
-                              : admissionYearsLoading
-                              ? 'Loading...'
-                              : admissionYears.length === 0
-                              ? 'No admission years for this program'
-                              : 'Select admission year'
-                          } />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {admissionYears.map((year) => (
-                            <SelectItem key={year.id} value={year.id}>
-                              {year.admission_year_name}
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                ({year.program_start_year}–{year.program_end_year})
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {/* Admission Year — shared cascading picker (2026-04-23) */}
+                    <AdmissionYearSelect
+                      institutionId={institutionId}
+                      programId={selectedProgramId}
+                      value={formData.admission_year_id}
+                      onChange={(value) => handleChange('admission_year_id', value)}
+                      placeholderNoProgram="Select the Interested Program first"
+                    />
                   </CardContent>
                 </Card>
 

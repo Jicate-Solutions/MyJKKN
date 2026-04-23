@@ -200,6 +200,9 @@ export async function GET(
         'X-RateLimit-Remaining': String(rateLimitResult.remaining),
         'X-RateLimit-Reset': rateLimitResult.resetAt.toISOString(),
         'Cache-Control': 'no-store',
+        // 2026-04-23: integer admission_year field in response is deprecated;
+        // admission_year_id (UUID FK) will be the source of truth going forward.
+        'X-Deprecation-Notice': 'Response field admission_year (int) is deprecated; migrate to admission_year_id (uuid) when it ships.',
       },
     }
   );

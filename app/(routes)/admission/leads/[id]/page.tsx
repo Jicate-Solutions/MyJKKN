@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { AdmissionYearSelect } from '@/components/admission/admission-year-select';
 import { Textarea } from '@/components/ui/textarea';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
@@ -869,16 +870,8 @@ function LeadDetailPageContent() {
   const [editAlternativeProgramIds, setEditAlternativeProgramIds] = useState<
     string[]
   >([]);
-  // Edit form: admission years (per-program cohort) for the lead's institution
-  const [editAdmissionYears, setEditAdmissionYears] = useState<
-    {
-      id: string;
-      admission_year_name: string;
-      program_start_year: number;
-      program_end_year: number;
-      is_active: boolean;
-    }[]
-  >([]);
+  // Edit form: admission years cascade is now handled by <AdmissionYearSelect/>
+  // (extracted 2026-04-23). State + fetch + JSX live inside the shared component.
 
   // Fetch institution name for details display
   const [institutionName, setInstitutionName] = useState<string>('');
@@ -976,29 +969,7 @@ function LeadDetailPageContent() {
   });
   const editPrograms = editProgramsData?.data || [];
 
-  // Edit form: fetch admission years scoped to institution + primary program.
-  useEffect(() => {
-    if (!editProgramsInstitutionId || !editPrimaryProgramId) {
-      setEditAdmissionYears([]);
-      return;
-    }
-    const supabase = createClientSupabaseClient();
-    (supabase as any)
-      .from('admission_years')
-      .select('id, admission_year_name, program_start_year, program_end_year, is_active')
-      .eq('institution_id', editProgramsInstitutionId)
-      .eq('program_id', editPrimaryProgramId)
-      .eq('is_active', true)
-      .order('program_start_year', { ascending: false })
-      .then(({ data, error }: { data: any; error: any }) => {
-        if (error) {
-          console.error('[admission/leads] Failed to fetch admission years (edit):', error.message);
-          setEditAdmissionYears([]);
-        } else {
-          setEditAdmissionYears(data ?? []);
-        }
-      });
-  }, [editProgramsInstitutionId, editPrimaryProgramId]);
+  // (Edit-form admission-years fetch effect removed; lives inside <AdmissionYearSelect/>.)
 
   // Clear admission_year_id when primary program changes (old value stale)
   useEffect(() => {
@@ -2975,36 +2946,14 @@ function LeadDetailPageContent() {
                   <h4 className="text-sm font-semibold text-muted-foreground">Academic & Interest</h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="edit-admission_year">Admission Year</Label>
-                      <Select
+                      <AdmissionYearSelect
+                        institutionId={editProgramsInstitutionId}
+                        programId={editPrimaryProgramId}
                         value={editForm.admission_year_id}
-                        onValueChange={(v) => handleEditChange('admission_year_id', v)}
-                        disabled={!editPrimaryProgramId}
-                      >
-                        <SelectTrigger className="mt-1">
-                          <SelectValue placeholder={
-                            !editPrimaryProgramId
-                              ? 'Select the Interested Program first'
-                              : 'Select admission year'
-                          } />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {editAdmissionYears.length === 0 ? (
-                            <SelectItem value="_none" disabled>
-                              No admission years for this program
-                            </SelectItem>
-                          ) : (
-                            editAdmissionYears.map((y) => (
-                              <SelectItem key={y.id} value={y.id}>
-                                {y.admission_year_name}
-                                <span className="ml-2 text-xs text-muted-foreground">
-                                  ({y.program_start_year}–{y.program_end_year})
-                                </span>
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
+                        onChange={(v) => handleEditChange('admission_year_id', v)}
+                        id="edit-admission_year"
+                        placeholderNoProgram="Select the Interested Program first"
+                      />
                     </div>
                     <div>
                       <Label htmlFor="edit-interest_level">Student Interest Level</Label>

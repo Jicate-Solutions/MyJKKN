@@ -7,16 +7,6 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { AdmissionYearForm } from '../_components/admission-year-form';
 import { Card, CardContent } from '@/components/ui/card';
 import {
-
-/**
- * navMeta — documents that this page is invoked via a button click on the
- * parent listing page, not via a nav chip. Required by
- * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
- */
-export const navMeta = {
-  invokedFrom: '/admission/settings/years',
-} as const;
-
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,
@@ -24,6 +14,16 @@ export const navMeta = {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from '@/components/ui/breadcrumb';
+
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ * Relocated out of the import block (PR #396 bug sweep — fix missed this file).
+ */
+export const navMeta = {
+  invokedFrom: '/admission/settings/years',
+} as const;
 
 export default function NewAdmissionYearPage() {
   return (

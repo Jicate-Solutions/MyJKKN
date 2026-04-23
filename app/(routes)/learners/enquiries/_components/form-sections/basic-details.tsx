@@ -6,7 +6,6 @@
 // ============================================
 
 import { UseFormReturn } from 'react-hook-form';
-import { useMemo } from 'react';
 import {
   FormControl,
   FormField,
@@ -31,15 +30,12 @@ interface BasicDetailsProps {
 }
 
 export function BasicDetailsSection({ form, onImageFileChange, isStudentView = false }: BasicDetailsProps) {
-  // Generate year options (current year - 10 to current year + 5)
-  const yearOptions = useMemo(() => {
-    const currentYear = new Date().getFullYear();
-    const years: number[] = [];
-    for (let i = currentYear - 10; i <= currentYear + 5; i++) {
-      years.push(i);
-    }
-    return years.reverse(); // Most recent years first
-  }, []);
+  // 2026-04-23: yearOptions removed. Admission Year moved to the Course
+  // Selection tab and is now a cascading FK picker (institution + program ->
+  // admission_years rows) via <AdmissionYearSelect/>. The hardcoded year
+  // dropdown was disconnected from the admission_years table, lived in the
+  // wrong section (next to blood group), and produced inconsistent labels
+  // vs. how the lead form rendered the same concept.
 
   // Religion options (values match database format - uppercase)
   const religionOptions = [
@@ -124,7 +120,9 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
         </div>
       )}
 
-      {/* Admitted Date and Admission Year - Hidden in Student View */}
+      {/* Admitted Date - Hidden in Student View */}
+      {/* (Admission Year was removed from this section 2026-04-23 — now lives
+          in the Course Selection tab as a cascading FK picker.) */}
       {!isStudentView && (
         <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
           <FormField
@@ -136,34 +134,6 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
                 <FormControl>
                   <Input type="date" {...field} value={field.value || ''} />
                 </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="admission_year"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Admission Year</FormLabel>
-                <Select
-                  onValueChange={(value) => field.onChange(parseInt(value))}
-                  value={field.value?.toString() || ''}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select admission year" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {yearOptions.map((year) => (
-                      <SelectItem key={year} value={year.toString()}>
-                        {year}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
                 <FormMessage />
               </FormItem>
             )}

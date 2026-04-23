@@ -68,7 +68,13 @@ export const enquiryFormSchema = z.object({
   aadhar_number: z.string().nullable().optional(),
   blood_group: z.string().nullable().optional(),
   student_photo_url: z.string().nullable().optional(),
+  // 2026-04-23: legacy integer year — kept for B2A back-compat (6 endpoints
+  // still expose it). Auto-derived from admission_year_id on submit.
   admission_year: z.number().nullable().optional(),
+  // 2026-04-23: new source of truth — FK to admission_years (cascading
+  // institution + program scoped). Picked via <AdmissionYearSelect/> in
+  // the Course Selection tab.
+  admission_year_id: z.string().uuid().nullable().optional().or(z.literal('')),
   learner_type: z.enum(['regular', 'irregular', 'intern']).nullable().optional(),
 
   // Family Information
@@ -372,8 +378,11 @@ const fieldToTabMap: Record<string, string> = {
   aadhar_number: 'basic-details',
   blood_group: 'basic-details',
   student_photo_url: 'basic-details',
-  admission_year: 'basic-details',
-  
+  // 2026-04-23: admission_year + admission_year_id moved to course-selection
+  // tab (sits next to Institution + Program where it belongs semantically).
+  admission_year: 'course-selection',
+  admission_year_id: 'course-selection',
+
   // Family (Basic Details)
   father_name: 'basic-details',
   father_occupation: 'basic-details',
@@ -527,6 +536,7 @@ export function EnquiryForm({
           blood_group: learner.blood_group || '',
           student_photo_url: learner.student_photo_url || '',
           admission_year: learner.admission_year || undefined,
+          admission_year_id: learner.admission_year_id || '',
 
           // Family
           father_name: learner.father_name || '',
@@ -680,6 +690,7 @@ export function EnquiryForm({
           blood_group: '',
           student_photo_url: '',
           admission_year: undefined,
+          admission_year_id: '',
 
           // Family
           father_name: '',
@@ -859,6 +870,12 @@ export function EnquiryForm({
       aadhar_number: values.aadhar_number || undefined,
       blood_group: values.blood_group || undefined,
       student_photo_url: values.student_photo_url || undefined,
+      // 2026-04-23: write BOTH admission_year_id (FK source-of-truth) and
+      // admission_year (legacy integer for B2A back-compat). The integer is
+      // not derived here — caller (course-selection.tsx) syncs it via setValue
+      // when the user picks an admission_year row, so values.admission_year
+      // is already the matching program_start_year.
+      admission_year_id: formatUUID(values.admission_year_id),
       admission_year: values.admission_year || undefined,
       enquiry_date: values.enquiry_date || undefined,
 

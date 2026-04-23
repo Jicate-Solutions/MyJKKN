@@ -505,6 +505,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
   '/admission/settings/sources': 'admission.settings.sources.view',
   '/admission/settings/seat-config': 'admission.settings.seats.view',
+  // Added 2026-04-23 — admission_years module was created 2026-04-21 but its
+  // route→permission mapping and sidebar entry were never wired. Super admins
+  // bypass permission checks but still need the link rendered here to navigate.
+  '/admission/settings/years': 'admission.settings.years.view',
+  '/admission/settings/years/new': 'admission.settings.years.create',
+  '/admission/settings/years/[id]': 'admission.settings.years.view',
+  '/admission/settings/years/[id]/edit': 'admission.settings.years.edit',
 
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',

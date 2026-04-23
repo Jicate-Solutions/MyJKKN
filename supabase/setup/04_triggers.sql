@@ -921,3 +921,18 @@ CREATE TRIGGER trg_expo_event_stalls_touch
   EXECUTE FUNCTION touch_expo_event_stalls_updated_at();
 
 -- END BUG-003146 expo_event_stalls trigger
+
+-- =====================================================
+-- learners_profiles admission_year_id scope validator — Added 2026-04-23
+-- Fires BEFORE INSERT/UPDATE OF admission_year_id, institution_id, program_id.
+-- Calls validate_learner_admission_year_scope() (02_functions.sql) which
+-- rejects cross-institution / cross-program FK attachment.
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_validate_learner_admission_year_scope
+  ON public.learners_profiles;
+
+CREATE TRIGGER trg_validate_learner_admission_year_scope
+  BEFORE INSERT OR UPDATE OF admission_year_id, institution_id, program_id
+  ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.validate_learner_admission_year_scope();

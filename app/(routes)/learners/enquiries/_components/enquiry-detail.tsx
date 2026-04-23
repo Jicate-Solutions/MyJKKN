@@ -30,6 +30,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { LearnerProfile } from '@/types/learner-profile';
 import { cn } from '@/lib/utils';
+import { formatAdmissionYear } from '@/lib/utils/admission-year-format';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { UserIcon } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -394,7 +395,9 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                         Admission Year
                       </h4>
                       <p className='text-sm'>
-                        {enquiry.admission_year || 'Not specified'}
+                        {/* 2026-04-23: rich label via shared formatter — falls
+                            back to legacy integer if FK row not joined in. */}
+                        {formatAdmissionYear(enquiry as any)}
                       </p>
                     </div>
                     <div className='space-y-1'>

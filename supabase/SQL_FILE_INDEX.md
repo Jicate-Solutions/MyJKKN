@@ -6,6 +6,17 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-23** — `learners_profiles.admission_year_id` shadow FK (PR-1 of 4-PR plan to wire admission_years into learners profiles)
+  - New migration `supabase/migrations/learners_profiles_admission_year_id_shadow_fk.sql`
+  - `01_tables.sql`: reconciled phantom `admission_year INTEGER` (column existed in prod but not in canonical source — was added directly via Supabase MCP earlier without explicit migration). Added new `admission_year_id UUID REFERENCES admission_years(id) ON DELETE SET NULL` shadow column.
+  - `02_functions.sql`: new `validate_learner_admission_year_scope()` SECURITY DEFINER trigger function — rejects FK rows whose `institution_id` or `program_id` does not match the learner. Closes the cross-institution attach vector PG FK alone cannot enforce.
+  - `04_triggers.sql`: new `trg_validate_learner_admission_year_scope` BEFORE INSERT/UPDATE OF (admission_year_id, institution_id, program_id).
+  - **Scoped backfill**: 133 `lifecycle_status='admitted'` rows auto-filled with the latest active cohort for their (institution, program). 4,054 `active` rows + 440 `graduated` + others left NULL — director will edit manually via admitted-status UI on their schedule. Backfill is idempotent (`WHERE admission_year_id IS NULL`).
+  - **Strategy**: shadow-column, not destructive replace. Legacy `admission_year INTEGER` kept in place for ≥1 release because 6 B2A endpoints (`/api/api-management/learners/*`, `/api/b2a/learners/*`, MCP tool) expose it as integer; breaking those mid-release would page external consumers. Both columns stay in sync — converter (PR-2) writes both.
+  - `lib/types/database.ts`: targeted edit (3 occurrences in learners_profiles Row/Insert/Update) instead of full regenerate.
+  - `types/learner-profile.ts`: added `admission_year_id?: string | null` and optional joined `admission_year_obj`.
+  - Reversibility: column is nullable; trigger DROP recovers prior insert semantics; backfill skips already-filled rows.
+
 - **2026-04-22** — Staff role mirror RPC (HOD still hit `user_roles` RLS even after PR #326)
   - New migration `supabase/migrations/20260422000004_mirror_staff_role_to_user_roles_rpc.sql`
   - New function `public.mirror_staff_role_to_user_roles(p_profile_id uuid, p_role_key text)` — SECURITY DEFINER, pinned search_path. Verifies caller has `staff.create` AND target is a real `staff.profile_id` row with matching `role_key` before upserting `user_roles`. `GRANT EXECUTE` to `authenticated`.
