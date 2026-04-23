@@ -48,14 +48,16 @@ export default function VacateRequestDetailPage({
 }) {
   const { id } = use(params);
   const { user } = useAuth();
-  const { permissions } = usePermissions();
+  const { permissions, isSuperAdmin } = usePermissions();
   // usePermissions returns permissions as Record<string, boolean>, not a string[] —
-  // use bracket lookup, not .includes(). (Caught 2026-04-23 when the detail page
-  // crashed with "l?.includes is not a function" on the first real request.)
-  const canActWarden = !!permissions?.['campus_living.vacate_requests.approve_warden'];
-  const canActChief = !!permissions?.['campus_living.vacate_requests.approve_chief'];
-  const canMarkClearance = !!permissions?.['campus_living.vacate_requests.mark_clearance'];
-  const canFinalize = !!permissions?.['campus_living.vacate_requests.finalize'];
+  // use bracket lookup, not .includes(). Super admins get an empty permissions
+  // object (isSuperAdmin flag is the bypass), so each gate must OR against it
+  // or action buttons never render for super_admin. Both bugs surfaced 2026-04-23
+  // on the first real request.
+  const canActWarden = isSuperAdmin || !!permissions?.['campus_living.vacate_requests.approve_warden'];
+  const canActChief = isSuperAdmin || !!permissions?.['campus_living.vacate_requests.approve_chief'];
+  const canMarkClearance = isSuperAdmin || !!permissions?.['campus_living.vacate_requests.mark_clearance'];
+  const canFinalize = isSuperAdmin || !!permissions?.['campus_living.vacate_requests.finalize'];
 
   const { data: request, isLoading, refetch } = useVacateRequest(id);
 
