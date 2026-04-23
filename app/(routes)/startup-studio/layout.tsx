@@ -1,6 +1,20 @@
+/**
+ * Startup Studio Module Layout
+ *
+ * Navigation: handled globally by AutoTabNav (components/navigation/
+ * auto-tab-nav.tsx), which reads app/(routes)/startup-studio/nav-config.ts
+ * and renders 9 grouped module tabs + Solve-for-100's 5 nested sub-tabs.
+ * No per-module StartupStudioNav needed.
+ *
+ * Event-level 15-tab subnav still renders dynamically per eventId via
+ * events/[id]/layout.tsx (useParams-driven) — AutoTabNav cannot replicate
+ * dynamic-URL-parameterized tabs.
+ *
+ * Auth is NOT checked here — each page.tsx handles its own auth.
+ */
+
 import { Metadata } from 'next';
 import { Suspense } from 'react';
-import { StartupStudioNav } from './_components/startup-studio-nav';
 
 /**
  * Startup Studio module metadata.
@@ -25,9 +39,6 @@ interface StartupStudioLayoutProps {
 export default function StartupStudioLayout({ children }: StartupStudioLayoutProps) {
   return (
     <div className='startup-studio-module'>
-      <div className='px-4 md:px-8 pt-2'>
-        <StartupStudioNav />
-      </div>
       <Suspense
         fallback={
           <div className='flex items-center justify-center py-8'>

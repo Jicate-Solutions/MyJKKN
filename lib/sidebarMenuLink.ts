@@ -1588,10 +1588,11 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Startup Studio',
       menus: [
         // Single sidebar entry — all Startup Studio navigation lives in the
-        // module's in-page tab bar (StartupStudioNav, see app/(routes)/
-        // startup-studio/_components/startup-studio-nav.tsx). Event-specific
-        // 15-tab SectionSubNav renders dynamically on /events/[id] pages
-        // via layout.tsx (useParams-driven). Mirrors Campus Living +
+        // module's in-page tab bar rendered by AutoTabNav (driven by
+        // app/(routes)/startup-studio/nav-config.ts — 9 groups incl.
+        // Solve-for-100's nested sub-tabs). Event-specific 15-tab
+        // SectionSubNav renders dynamically on /events/[id] pages via
+        // layout.tsx (useParams-driven). Mirrors Campus Living +
         // Learners Council + Admission CRM.
         //
         // Why: flat sidebar (1 entry per module) + dynamic in-page subnav
