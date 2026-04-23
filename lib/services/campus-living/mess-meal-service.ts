@@ -12,7 +12,7 @@ import type {
 export class MessMealService {
   // ── List meal records with filters ────────────────────────────────
   static async getMealRecords(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: MealRecordFilters,
     page = 1,
     pageSize = 100
@@ -183,7 +183,7 @@ export class MessMealService {
   }
 
   // ── Meal count for a date and meal type ───────────────────────────
-  static async getMealCount(institutionId: string, date: string, mealType?: MealType) {
+  static async getMealCount(institutionId: string | undefined, date: string, mealType?: MealType) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -209,7 +209,7 @@ export class MessMealService {
 
   // ── Meal bookings ─────────────────────────────────────────────────
   static async getBookings(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { learner_id?: string; date?: string; meal_type?: MealType; status?: BookingStatus }
   ) {
     try {

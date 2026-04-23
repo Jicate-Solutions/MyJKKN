@@ -10,7 +10,7 @@ import type {
 export class HostelBedService {
   // ── List beds with optional filters ───────────────────────────────
   static async getBeds(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { room_id?: string; status?: BedStatus },
     page = 1,
     pageSize = 100

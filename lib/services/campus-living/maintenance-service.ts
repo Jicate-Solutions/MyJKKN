@@ -20,7 +20,7 @@ import type {
 export class MaintenanceService {
   // ── List maintenance requests with filters ────────────────────────
   static async getRequests(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: MaintenanceFilters,
     page = 1,
     pageSize = 50
@@ -319,7 +319,7 @@ export class MaintenanceService {
   }
 
   // ── SLA breach check (batch) ──────────────────────────────────────
-  static async checkSlaBreaches(institutionId: string) {
+  static async checkSlaBreaches(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
@@ -379,7 +379,7 @@ export class MaintenanceService {
   }
 
   // ── Get SLA config ────────────────────────────────────────────────
-  static async getSlaConfig(institutionId: string) {
+  static async getSlaConfig(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       let slaQ = supabase

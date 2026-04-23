@@ -20,11 +20,11 @@ export const hostelVisitorKeys = {
 
 // --- Query hooks ---
 
-export function useHostelVisitors(institutionId: string, filters?: VisitorFilters) {
+export function useHostelVisitors(institutionId: string | undefined, filters?: VisitorFilters) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelVisitorKeys.list({ institutionId, ...filters }),
-    queryFn: () => VisitorService.getVisitors(institutionId, filters),
+    queryFn: () => VisitorService.getVisitors(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

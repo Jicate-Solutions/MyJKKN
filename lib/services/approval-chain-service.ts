@@ -25,7 +25,7 @@ import type {
  */
 export class ApprovalChainService {
   // ── List rules for settings UI ────────────────────────────────────
-  static async getRules(institutionId: string, workflowType?: ApprovalChainWorkflowType) {
+  static async getRules(institutionId: string | undefined, workflowType?: ApprovalChainWorkflowType) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -136,7 +136,7 @@ export class ApprovalChainService {
   // ── Select matching rule for a new workflow run ───────────────────
   // Applies criteria matcher; lowest priority wins when multiple match.
   static async selectRule(
-    institutionId: string,
+    institutionId: string | undefined,
     workflowType: ApprovalChainWorkflowType,
     context: Record<string, unknown>
   ): Promise<ApprovalChainRule | null> {

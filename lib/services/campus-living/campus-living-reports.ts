@@ -3,7 +3,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 export class CampusLivingReports {
   // ── Occupancy Report ──────────────────────────────────────────────
-  static async generateOccupancyReport(institutionId: string) {
+  static async generateOccupancyReport(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
 
@@ -67,7 +67,7 @@ export class CampusLivingReports {
 
   // ── Attendance Register Report ────────────────────────────────────
   static async generateAttendanceRegister(
-    institutionId: string,
+    institutionId: string | undefined,
     dateFrom: string,
     dateTo: string,
     blockId?: string
@@ -143,7 +143,7 @@ export class CampusLivingReports {
 
   // ── Visitor Register Report ───────────────────────────────────────
   static async generateVisitorRegister(
-    institutionId: string,
+    institutionId: string | undefined,
     dateFrom: string,
     dateTo: string,
     blockId?: string
@@ -187,7 +187,7 @@ export class CampusLivingReports {
   }
 
   // ── Anti-Ragging Compliance Report ────────────────────────────────
-  static async generateAntiRaggingComplianceReport(institutionId: string, academicYearId: string) {
+  static async generateAntiRaggingComplianceReport(institutionId: string | undefined, academicYearId: string) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase
@@ -233,7 +233,7 @@ export class CampusLivingReports {
 
   // ── Safety Audit Report ───────────────────────────────────────────
   static async generateSafetyAuditReport(
-    institutionId: string,
+    institutionId: string | undefined,
     dateFrom: string,
     dateTo: string
   ) {
@@ -320,7 +320,7 @@ export class CampusLivingReports {
   }
 
   // ── Fee Collection Report ─────────────────────────────────────────
-  static async generateFeeCollectionReport(institutionId: string, academicYearId?: string) {
+  static async generateFeeCollectionReport(institutionId: string | undefined, academicYearId?: string) {
     try {
       const supabase = createClientSupabaseClient();
 

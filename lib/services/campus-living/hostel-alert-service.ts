@@ -15,7 +15,7 @@ export class HostelAlertService {
 
   // ── List alert rules ──────────────────────────────────────────────
   static async getAlertRules(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { alert_type?: AlertType; is_active?: boolean }
   ) {
     try {
@@ -141,7 +141,7 @@ export class HostelAlertService {
 
   // ── List risk alerts ──────────────────────────────────────────────
   static async getRiskAlerts(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       alert_type?: AlertType;
       severity?: AlertSeverity;
@@ -181,7 +181,7 @@ export class HostelAlertService {
   }
 
   // ── Active risk alerts ────────────────────────────────────────────
-  static async getActiveAlerts(institutionId: string) {
+  static async getActiveAlerts(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase
@@ -403,7 +403,7 @@ export class HostelAlertService {
   }
 
   // ── Alert summary ─────────────────────────────────────────────────
-  static async getAlertSummary(institutionId: string) {
+  static async getAlertSummary(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       let sumQ = supabase

@@ -20,7 +20,7 @@ export function useAmcContracts(institutionId: string | undefined) {
     queryKey: hostelAmcContractKeys.list({ institutionId }),
     queryFn: () =>
       AmcContractService.getContracts(
-        isSuperAdmin ? undefined : (institutionId as string),
+        isSuperAdmin ? undefined : institutionId,
       ),
     enabled: isSuperAdmin || !!institutionId,
   });

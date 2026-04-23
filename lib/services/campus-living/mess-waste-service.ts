@@ -10,7 +10,7 @@ import type {
 export class MessWasteService {
   // ── List waste logs ───────────────────────────────────────────────
   static async getWasteLogs(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       caterer_id?: string;
       date_from?: string;
@@ -232,7 +232,7 @@ export class MessWasteService {
   }
 
   // ── Cost calculation for a period ─────────────────────────────────
-  static async getWasteCost(institutionId: string, dateFrom: string, dateTo: string) {
+  static async getWasteCost(institutionId: string | undefined, dateFrom: string, dateTo: string) {
     try {
       const supabase = createClientSupabaseClient();
       let q = supabase

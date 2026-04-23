@@ -14,7 +14,7 @@ interface CompatibilityScore {
 export class RoommateMatchingService {
   // ── List all preferences ──────────────────────────────────────────
   static async getPreferences(
-    institutionId: string,
+    institutionId: string | undefined,
     academicYearId?: string,
     page = 1,
     pageSize = 50
@@ -237,7 +237,7 @@ export class RoommateMatchingService {
   // ── Find compatible roommates for a learner ───────────────────────
   static async findCompatibleRoommates(
     learnerId: string,
-    institutionId: string,
+    institutionId: string | undefined,
     academicYearId: string,
     limit = 10
   ): Promise<CompatibilityScore[]> {

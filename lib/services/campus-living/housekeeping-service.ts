@@ -58,7 +58,7 @@ export type CreateTaskDTO = Omit<
 export class HousekeepingService {
   // ── Schedules ──────────────────────────────────────────────────────
   static async getSchedules(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: ScheduleFilters,
     page = 1,
     pageSize = 50
@@ -147,7 +147,7 @@ export class HousekeepingService {
 
   // ── Tasks ──────────────────────────────────────────────────────────
   static async getTasks(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: TaskFilters,
     page = 1,
     pageSize = 50

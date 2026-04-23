@@ -11,7 +11,7 @@ import type {
 export class MessCatererService {
   // ── List caterers ─────────────────────────────────────────────────
   static async getCaterers(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { status?: CatererStatus; search?: string },
     page = 1,
     pageSize = 50
@@ -127,7 +127,7 @@ export class MessCatererService {
   }
 
   // ── Contract tracking ─────────────────────────────────────────────
-  static async getExpiringContracts(institutionId: string, withinDays = 30) {
+  static async getExpiringContracts(institutionId: string | undefined, withinDays = 30) {
     try {
       const supabase = createClientSupabaseClient();
       const futureDate = new Date();
@@ -178,7 +178,7 @@ export class MessCatererService {
 
   // ── Assign caterer to block ───────────────────────────────────────
   static async assignToBlock(
-    institutionId: string,
+    institutionId: string | undefined,
     catererId: string,
     blockId: string,
     startDate: string,

@@ -10,7 +10,7 @@ import type {
 export class HostelAttendanceService {
   // ── List attendance with filters ──────────────────────────────────
   static async getAttendance(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: AttendanceFilters,
     page = 1,
     pageSize = 100
@@ -42,7 +42,7 @@ export class HostelAttendanceService {
   }
 
   // ── Attendance for a specific date and block ──────────────────────
-  static async getAttendanceByDate(institutionId: string, date: string, blockId?: string) {
+  static async getAttendanceByDate(institutionId: string | undefined, date: string, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -181,7 +181,7 @@ export class HostelAttendanceService {
   }
 
   // ── Absent learners for a date (absence alerts) ───────────────────
-  static async getAbsentLearners(institutionId: string, date: string, blockId?: string) {
+  static async getAbsentLearners(institutionId: string | undefined, date: string, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
@@ -206,7 +206,7 @@ export class HostelAttendanceService {
   }
 
   // ── Attendance summary for a date ─────────────────────────────────
-  static async getAttendanceSummary(institutionId: string, date: string, blockId?: string) {
+  static async getAttendanceSummary(institutionId: string | undefined, date: string, blockId?: string) {
     try {
       const records = await this.getAttendanceByDate(institutionId, date, blockId);
 
@@ -229,7 +229,7 @@ export class HostelAttendanceService {
 
   // ── Consecutive absence check (for alerts) ────────────────────────
   static async getConsecutiveAbsences(
-    institutionId: string,
+    institutionId: string | undefined,
     learnerId: string,
     days = 3
   ) {
