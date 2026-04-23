@@ -33,6 +33,15 @@ import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
 import type { VacateReason } from '@/types/hostel-vacate';
 import type { HostelResidentType } from '@/types/hostel-residents';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/campus-living/my-hostel',
+} as const;
+
 const REASON_OPTIONS: { value: VacateReason; label: string; needsMedical?: boolean }[] = [
   { value: 'medical', label: 'Medical grounds', needsMedical: true },
   { value: 'graduation', label: 'Graduation / course completion' },
