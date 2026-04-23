@@ -2,10 +2,18 @@ import { Metadata } from 'next';
 import { Suspense } from 'react';
 import { SolutionsNav } from './_components/solutions-nav';
 
+/**
+ * Solutions Hub module metadata.
+ *
+ * Title template is `'%s · Solutions Hub'` — NOT `'%s · Solutions Hub · MyJKKN'`.
+ * The root layout at app/layout.tsx adds the `· MyJKKN` suffix via its own
+ * template, so including it here produced `'Page · Solutions Hub · MyJKKN · MyJKKN'`
+ * (triple suffix). See #371 for the admission equivalent fix.
+ */
 export const metadata: Metadata = {
   title: {
-    template: '%s · Solutions Hub · MyJKKN',
-    default: 'Solutions Hub · MyJKKN',
+    template: '%s · Solutions Hub',
+    default: 'Solutions Hub',
   },
   description: 'JKKN Solutions Hub - Managing software, training, and content solutions',
 };
