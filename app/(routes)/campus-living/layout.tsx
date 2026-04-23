@@ -1,19 +1,15 @@
 /**
  * Campus Living Module Layout
  *
- * Renders top-level tab bar (CLNav) above every Campus Living page.
- * Mirrors the Learners Council pattern (see ../learners-council/layout.tsx).
+ * Navigation: handled globally by AutoTabNav (components/navigation/
+ * auto-tab-nav.tsx), which reads app/(routes)/campus-living/nav-config.ts
+ * and renders 8 grouped module tabs. No per-module CLNav needed.
  *
  * Auth is NOT checked here — each page.tsx handles its own auth. This avoids
  * double getEnhancedUserProfile() calls which fail in Next.js 16 Turbopack.
- *
- * NOTE: Most CL child routes currently have their OWN ContentLayout wrapper
- * in each page.tsx. Leaving those in place — this layout adds the CLNav
- * between the page title and the main content without duplicating ContentLayout.
  */
 
 import { Suspense } from 'react';
-import { CLNav } from './_components/cl-nav';
 
 interface CLLayoutProps {
   children: React.ReactNode;
@@ -22,9 +18,6 @@ interface CLLayoutProps {
 export default function CampusLivingLayout({ children }: CLLayoutProps) {
   return (
     <div className='campus-living-module'>
-      <div className='px-4 md:px-8 pt-2'>
-        <CLNav />
-      </div>
       <Suspense
         fallback={
           <div className='flex items-center justify-center py-8'>

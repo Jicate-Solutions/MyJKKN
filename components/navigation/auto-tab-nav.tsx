@@ -154,13 +154,14 @@ function groupedTier2(
 }
 
 /**
- * For config-grouped modules, compute tier-3+ by walking the manifest
- * starting from the deepest segment that has ≥2 children.
+ * For config-grouped modules, compute deeper tiers by walking the manifest.
+ * `startDepth` controls where we start — tier-3 when no explicit children
+ * were rendered, tier-4 when the config's group already contributed tier-3.
  */
-function deeperTiersFromManifest(pathname: string): Chip[][] {
+function deeperTiersFromManifest(pathname: string, startDepth = 3): Chip[][] {
   const out: Chip[][] = [];
   const segments = pathname.split('/').filter(Boolean);
-  for (let d = 3; d <= segments.length + 1; d++) {
+  for (let d = startDepth; d <= segments.length + 1; d++) {
     const tier = flatTierChips(pathname, d);
     if (!tier) continue;
     if (tier.chips.length < 2) continue;
@@ -180,16 +181,26 @@ function resolveTiers(pathname: string): Chip[][] {
     const tiers: Chip[][] = [groupedTier2(config, activeGroup)];
 
     if (activeGroup?.children && activeGroup.children.length > 0) {
+      // Tier 3 from explicit children (e.g. Marketing's Campaigns/Messaging/…).
       tiers.push(
-        activeGroup.children.map((c) => ({
-          href: c.href,
-          label: c.label,
-          iconName: c.icon,
-          isActive: c.exact
-            ? pathname === c.href
-            : pathname === c.href || pathname.startsWith(c.href + '/'),
-        }))
+        activeGroup.children.map((c) => {
+          // Active if pathname matches href OR any of the extra matchPaths.
+          const pathsToCheck = [c.href, ...(c.matchPaths ?? [])];
+          const isActive = pathsToCheck.some((p) =>
+            c.exact ? pathname === p : pathname === p || pathname.startsWith(p + '/')
+          );
+          return {
+            href: c.href,
+            label: c.label,
+            iconName: c.icon,
+            isActive,
+          };
+        })
       );
+      // Tier 4+ continues to drill from the manifest so users can still
+      // navigate the leaves under the explicit tier-3 group (e.g. Monitor
+      // / ROI / Segments under Marketing's Campaigns).
+      tiers.push(...deeperTiersFromManifest(pathname, 4));
     } else if (activeGroup) {
       tiers.push(...deeperTiersFromManifest(pathname));
     }

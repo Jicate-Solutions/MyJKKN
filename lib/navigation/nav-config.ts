@@ -62,10 +62,20 @@ export interface ModuleNavGroup {
   matchPaths: string[];
   /**
    * Optional explicit children to show as tier-3 when this group is active.
+   * Each child can have matchPaths so a single group chip activates across
+   * multiple sibling pages (e.g. Messaging group covers chat + chatbot +
+   * parent-communication + re-engagement + remarketing + whatsapp-broadcast).
    * If omitted, tier-3 falls back to the auto-discovered children of the
    * current pathname from the route manifest.
    */
-  children?: Array<{ label: string; icon: string; href: string; exact?: boolean }>;
+  children?: Array<{
+    label: string;
+    icon: string;
+    href: string;
+    /** Extra paths that also mark this child active (e.g. sibling leaves) */
+    matchPaths?: string[];
+    exact?: boolean;
+  }>;
 }
 
 export interface ModuleNavConfig {
