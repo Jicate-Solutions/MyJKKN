@@ -28,6 +28,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/dashboard/cron/super-admin-digest",
+      "schedule": "3 3 * * *"
+    },
+    {
       "path": "/api/cron/sunday-wrap?secret=${CRON_SECRET}",
       "schedule": "30 15 * * 0"
     },
