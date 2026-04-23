@@ -110,29 +110,32 @@ export async function getEnhancedUserProfile(): Promise<{
     }
 
     // Get user profile
+    // Note: fetched WITHOUT the nested `institutions (...)` embed — that embed
+    // was failing silently under Next.js 16 RSC for some sessions (identified
+    // 2026-04-23 while debugging /work-pulse showing "Please log in" for
+    // authenticated super_admin). Two-step fetch is reliable; same shape.
     const { data: profileData, error: profileError } = await supabase
       .from('profiles')
-      .select(
-        `
-        *,
-        institutions (
-          id,
-          name,
-          category,
-          institution_type,
-          website,
-          email,
-          phone,
-          city,
-          state,
-          country
-        )
-      `
-      )
+      .select('*')
       .eq('id', userData.user.id)
       .single();
 
     if (profileError) throw profileError;
+
+    // Attach institution details in a separate query to match the prior shape
+    // consumers depend on (`profile.institutions.*`).
+    if (profileData?.institution_id) {
+      const { data: institutionData } = await supabase
+        .from('institutions')
+        .select(
+          'id, name, category, institution_type, website, email, phone, city, state, country'
+        )
+        .eq('id', profileData.institution_id)
+        .maybeSingle();
+      profileData.institutions = institutionData ?? null;
+    } else {
+      profileData.institutions = null;
+    }
 
     // If user is a student, fetch their student record and status
     if (profileData && profileData.role === 'student') {
