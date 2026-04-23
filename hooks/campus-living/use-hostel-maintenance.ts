@@ -24,7 +24,7 @@ export function useHostelMaintenanceRequests(institutionId: string | undefined, 
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelMaintenanceKeys.list({ institutionId, ...filters }),
-    queryFn: () => MaintenanceService.getRequests(institutionId as string, filters),
+    queryFn: () => MaintenanceService.getRequests(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

@@ -17,21 +17,21 @@ export const campusLivingDashboardKeys = {
 
 // --- Query hooks ---
 
-export function useCampusLivingOverview(institutionId: string) {
+export function useCampusLivingOverview(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: campusLivingDashboardKeys.overview(institutionId),
-    queryFn: () => CampusLivingDashboard.getDashboardData(institutionId),
+    queryKey: campusLivingDashboardKeys.overview(institutionId ?? 'all'),
+    queryFn: () => CampusLivingDashboard.getDashboardData(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
     staleTime: 2 * 60 * 1000, // 2 minutes — dashboard data refreshes less often
   });
 }
 
-export function useQuickStats(institutionId: string) {
+export function useQuickStats(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: campusLivingDashboardKeys.hostelSummary(institutionId),
-    queryFn: () => CampusLivingDashboard.getQuickStats(institutionId),
+    queryKey: campusLivingDashboardKeys.hostelSummary(institutionId ?? 'all'),
+    queryFn: () => CampusLivingDashboard.getQuickStats(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
     staleTime: 2 * 60 * 1000,
   });

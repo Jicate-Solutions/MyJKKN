@@ -17,56 +17,56 @@ export const campusLivingAnalyticsKeys = {
 
 // --- Query hooks ---
 
-export function useOccupancyAnalytics(institutionId: string) {
+export function useOccupancyAnalytics(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingAnalyticsKeys.occupancy({ institutionId }),
-    queryFn: () => CampusLivingAnalytics.getOccupancyAnalytics(institutionId),
+    queryFn: () => CampusLivingAnalytics.getOccupancyAnalytics(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
 
-export function useAttendanceTrend(institutionId: string, dateFrom: string, dateTo: string, blockId?: string) {
+export function useAttendanceTrend(institutionId: string | undefined, dateFrom: string, dateTo: string, blockId?: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingAnalyticsKeys.attendance({ institutionId, dateFrom, dateTo, blockId }),
-    queryFn: () => CampusLivingAnalytics.getAttendanceTrend(institutionId, dateFrom, dateTo, blockId),
+    queryFn: () => CampusLivingAnalytics.getAttendanceTrend(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo, blockId),
     enabled: (isSuperAdmin || !!institutionId) && !!dateFrom && !!dateTo,
   });
 }
 
-export function useMaintenanceAnalytics(institutionId: string, dateFrom?: string, dateTo?: string) {
+export function useMaintenanceAnalytics(institutionId: string | undefined, dateFrom?: string, dateTo?: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingAnalyticsKeys.maintenance({ institutionId, dateFrom, dateTo }),
-    queryFn: () => CampusLivingAnalytics.getMaintenanceAnalytics(institutionId, dateFrom, dateTo),
+    queryFn: () => CampusLivingAnalytics.getMaintenanceAnalytics(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
 
-export function useMessAnalytics(institutionId: string, dateFrom: string, dateTo: string) {
+export function useMessAnalytics(institutionId: string | undefined, dateFrom: string, dateTo: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingAnalyticsKeys.mess({ institutionId, dateFrom, dateTo }),
-    queryFn: () => CampusLivingAnalytics.getMessAnalytics(institutionId, dateFrom, dateTo),
+    queryFn: () => CampusLivingAnalytics.getMessAnalytics(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo),
     enabled: (isSuperAdmin || !!institutionId) && !!dateFrom && !!dateTo,
   });
 }
 
-export function useIncidentAnalytics(institutionId: string, dateFrom?: string, dateTo?: string) {
+export function useIncidentAnalytics(institutionId: string | undefined, dateFrom?: string, dateTo?: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingAnalyticsKeys.incidents({ institutionId, dateFrom, dateTo }),
-    queryFn: () => CampusLivingAnalytics.getIncidentAnalytics(institutionId, dateFrom, dateTo),
+    queryFn: () => CampusLivingAnalytics.getIncidentAnalytics(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
 
-export function useRiskAlerts(institutionId: string) {
+export function useRiskAlerts(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingAnalyticsKeys.trends({ institutionId }),
-    queryFn: () => CampusLivingAnalytics.generateRiskAlerts(institutionId),
+    queryFn: () => CampusLivingAnalytics.generateRiskAlerts(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

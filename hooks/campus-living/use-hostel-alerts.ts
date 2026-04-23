@@ -24,7 +24,7 @@ export function useHostelAlertRules(institutionId: string | undefined, filters?:
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelAlertKeys.rules({ institutionId, ...filters }),
-    queryFn: () => HostelAlertService.getAlertRules(institutionId as string, filters),
+    queryFn: () => HostelAlertService.getAlertRules(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
@@ -43,7 +43,7 @@ export function useHostelRiskAlerts(institutionId: string | undefined, filters?:
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelAlertKeys.riskAlerts({ institutionId, ...filters }),
-    queryFn: () => HostelAlertService.getRiskAlerts(institutionId as string, filters),
+    queryFn: () => HostelAlertService.getRiskAlerts(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

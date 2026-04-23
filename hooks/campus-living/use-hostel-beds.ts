@@ -20,11 +20,11 @@ export const hostelBedKeys = {
 
 // --- Query hooks ---
 
-export function useHostelBeds(institutionId: string, filters?: Record<string, unknown>) {
+export function useHostelBeds(institutionId: string | undefined, filters?: Record<string, unknown>) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelBedKeys.list({ institutionId, ...filters }),
-    queryFn: () => HostelBedService.getBeds(institutionId, filters),
+    queryFn: () => HostelBedService.getBeds(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

@@ -20,11 +20,11 @@ export const hostelLeaveKeys = {
 
 // --- Query hooks ---
 
-export function useHostelLeaveRequests(institutionId: string, filters?: LeaveFilters) {
+export function useHostelLeaveRequests(institutionId: string | undefined, filters?: LeaveFilters) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelLeaveKeys.list({ institutionId, ...filters }),
-    queryFn: () => HostelLeaveService.getLeaveRequests(institutionId, filters),
+    queryFn: () => HostelLeaveService.getLeaveRequests(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
