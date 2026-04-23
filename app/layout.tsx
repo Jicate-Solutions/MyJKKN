@@ -8,6 +8,7 @@ import { AuthProvider } from '@/hooks/use-auth-provider';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import Script from 'next/script';
 import { PreviewBanner } from '@/components/layout/preview-banner';
+import { ProdConnectionBanner } from '@/components/layout/prod-connection-banner';
 
 const poppins = Poppins({
   weight: ['100', '200', '300', '400', '500', '600', '700', '800', '900'],
@@ -192,6 +193,10 @@ export default function RootLayout({
         >
           <AuthProvider>
             <PWAProvider>
+              {/* Sticky red banner when env points at prod Supabase outside the
+                  actual production deployment. Prevents accidental prod writes
+                  during local dev. Non-dismissible by design. */}
+              <ProdConnectionBanner />
               {/* Sticky preview banner — renders only when a preview session
                   cookie is active. Non-dismissible by design. */}
               <PreviewBanner />
