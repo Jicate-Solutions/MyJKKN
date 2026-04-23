@@ -176,15 +176,19 @@ export function NotificationCard({
         </div>
       </Link>
 
-      {/* Action buttons — rendered when action_type + action_config are set.
-          Self-hides for standard/no-action notifications. Lives outside the
-          Link so button clicks don't trigger card navigation. */}
-      {notification.action_type && notification.action_config && (
+      {/* Action buttons — render whenever action_config is present. Handles
+          both admin-form notifications (action_type='tracked'|'urgent') AND
+          dashboard-cron notifications (action_type='open_url'). The component
+          decides what to render based on the action_config shape; self-hides
+          when nothing is actionable. Lives outside the Link so button clicks
+          don't trigger card navigation. */}
+      {(notification as any).action_config && (
         <div className='px-4 pb-3'>
           <NotificationActionButtons
             notificationId={notification.id}
-            actionType={notification.action_type}
-            actionConfig={notification.action_config}
+            actionType={(notification as any).action_type}
+            actionConfig={(notification as any).action_config}
+            category={notification.category}
           />
         </div>
       )}
