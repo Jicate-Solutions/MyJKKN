@@ -2,6 +2,7 @@
 
 import { useMemo, useCallback, useState, useEffect } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
+import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { getPageRegistry } from '@/lib/navigation/page-registry';
 import { searchPages, groupSearchResults } from '@/lib/navigation/search-engine';
 import { filterByPermissions } from '@/lib/navigation/permission-filter';
@@ -38,6 +39,13 @@ export function usePageSearch(): UsePageSearchReturn {
     isLoading: permissionsLoading,
   } = usePermissions();
 
+  // Favorites feed the search-engine boost so starred pages climb the results.
+  const { favorites } = usePageFavorites();
+  const favoritePaths = useMemo(
+    () => new Set(favorites.map((f) => f.path)),
+    [favorites]
+  );
+
   // Memoize the permission-filtered registry so fuse.js index isn't rebuilt on every render
   const searchablePages = useMemo(() => {
     const registry = getPageRegistry();
@@ -52,10 +60,10 @@ export function usePageSearch(): UsePageSearchReturn {
   // Memoized search function
   const search = useCallback(
     (query: string) => {
-      const results = searchPages(query, searchablePages);
+      const results = searchPages(query, searchablePages, 15, favoritePaths);
       return groupSearchResults(results);
     },
-    [searchablePages]
+    [searchablePages, favoritePaths]
   );
 
   // Recent and frequent pages — refresh on mount and route changes

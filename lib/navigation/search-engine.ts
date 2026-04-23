@@ -40,22 +40,50 @@ function getFuseInstance(pages: PageEntry[]): Fuse<PageEntry> {
  * @param query - User's search input
  * @param pages - Permission-filtered page entries
  * @param limit - Max results to return (default 15)
+ * @param favorites - Optional set of paths to boost (favorited pages). Each
+ *                    match gets its fuse score lowered by 0.15 (capped at 0)
+ *                    so it sorts above equivalent non-favorited matches.
  * @returns Sorted SearchResult array
  */
 export function searchPages(
   query: string,
   pages: PageEntry[],
-  limit: number = 15
+  limit: number = 15,
+  favorites?: ReadonlySet<string>
 ): SearchResult[] {
   if (!query.trim()) return [];
 
   const fuse = getFuseInstance(pages);
-  const results = fuse.search(query, { limit });
+  // Fetch a wider window when we're going to re-sort for favorites, so a
+  // boosted-but-lower-ranked favorite can climb into the top `limit`.
+  const fetchLimit = favorites && favorites.size > 0 ? Math.max(limit * 2, limit + 10) : limit;
+  const results = fuse.search(query, { limit: fetchLimit });
 
-  return results.map(result => ({
-    page: result.item,
-    score: result.score ?? 1,
-  }));
+  const normalizedQuery = query.trim().toLowerCase();
+
+  const mapped: SearchResult[] = results.map((result) => {
+    let score = result.score ?? 1;
+    const title = result.item.title.toLowerCase();
+
+    // Label-match boosts layered on top of fuse's fuzzy score so "Leads"
+    // typed by a user always ranks exact-title matches above substring-only
+    // matches. Each rung is additive toward 0 (best possible score).
+    if (title === normalizedQuery) score = Math.max(0, score - 0.35);
+    else if (title.startsWith(normalizedQuery)) score = Math.max(0, score - 0.2);
+    else if (title.includes(normalizedQuery)) score = Math.max(0, score - 0.1);
+
+    // Favorites nudge — small enough to not override a clearly-better match
+    // (a title-exact non-favorite beats a favorite with only a keyword hit).
+    if (favorites && favorites.has(result.item.path)) {
+      score = Math.max(0, score - 0.15);
+    }
+
+    return { page: result.item, score };
+  });
+
+  // Re-sort by the adjusted score and trim to the requested limit.
+  mapped.sort((a, b) => a.score - b.score);
+  return mapped.slice(0, limit);
 }
 
 /**
