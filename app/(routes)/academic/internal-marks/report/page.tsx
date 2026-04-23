@@ -45,6 +45,15 @@ import { MultiSemesterPicker } from './_components/multi-semester-picker';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent internal-marks listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/academic/internal-marks',
+} as const;
+
 interface ReportFilterState {
   exam_session_id: string;
   setting_id: string;
