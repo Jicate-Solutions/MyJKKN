@@ -49,10 +49,13 @@ export default function VacateRequestDetailPage({
   const { id } = use(params);
   const { user } = useAuth();
   const { permissions } = usePermissions();
-  const canActWarden = permissions?.includes('campus_living.vacate_requests.approve_warden');
-  const canActChief = permissions?.includes('campus_living.vacate_requests.approve_chief');
-  const canMarkClearance = permissions?.includes('campus_living.vacate_requests.mark_clearance');
-  const canFinalize = permissions?.includes('campus_living.vacate_requests.finalize');
+  // usePermissions returns permissions as Record<string, boolean>, not a string[] —
+  // use bracket lookup, not .includes(). (Caught 2026-04-23 when the detail page
+  // crashed with "l?.includes is not a function" on the first real request.)
+  const canActWarden = !!permissions?.['campus_living.vacate_requests.approve_warden'];
+  const canActChief = !!permissions?.['campus_living.vacate_requests.approve_chief'];
+  const canMarkClearance = !!permissions?.['campus_living.vacate_requests.mark_clearance'];
+  const canFinalize = !!permissions?.['campus_living.vacate_requests.finalize'];
 
   const { data: request, isLoading, refetch } = useVacateRequest(id);
 
