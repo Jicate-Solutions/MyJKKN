@@ -23,8 +23,12 @@ export class HostelResidentService {
         .select(
           '*, profile:profiles!hostel_residents_profile_id_fkey(id, full_name, email)',
           { count: 'exact' }
-        )
-        .eq('institution_id', institutionId);
+        );
+
+      // Guard: empty/undefined institutionId means super_admin view (no filter).
+      // Without this guard, Postgres rejects .eq('institution_id', '') with
+      // "invalid input syntax for type uuid". Caught on prod 2026-04-23.
+      if (institutionId) query = query.eq('institution_id', institutionId);
 
       if (filters?.resident_type) query = query.eq('resident_type', filters.resident_type);
       if (typeof filters?.is_active === 'boolean') query = query.eq('is_active', filters.is_active);

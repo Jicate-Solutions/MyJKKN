@@ -30,8 +30,12 @@ export class ApprovalChainService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('approval_chain_rules')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
+
+      // Guard: empty/undefined institutionId means super_admin view (no filter).
+      // Without this guard, Postgres rejects .eq('institution_id', '') with
+      // "invalid input syntax for type uuid". Caught on prod 2026-04-23.
+      if (institutionId) query = query.eq('institution_id', institutionId);
 
       if (workflowType) query = query.eq('workflow_type', workflowType);
       query = query
