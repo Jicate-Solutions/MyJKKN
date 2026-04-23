@@ -24,6 +24,15 @@ import {
 import { useSF100Programs, useSF100Exercises } from '@/hooks/startup-studio';
 import type { SF100Exercise } from '@/types/startup-studio/sf100';
 
+/**
+ * navMeta — invoked from the Solve-for-100 Programs page (or a team's
+ * dashboard) via an "Exercises" CTA card. Nav-coverage detector
+ * (`scripts/assert-nav-coverage.mjs`) reads this to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/startup-studio/solve-for-100/programs',
+} as const;
+
 export default function ExercisesPage() {
   // Get the active program
   const { data: programsData, isLoading: loadingPrograms } = useSF100Programs({

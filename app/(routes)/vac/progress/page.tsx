@@ -121,6 +121,16 @@ function CourseProgressCard({
 
 // ── Main Page ──────────────────────────────────────────────────────────────
 
+/**
+ * navMeta — invoked from the VAC landing / My Courses via a "Progress" CTA
+ * or learner-progress KPI card. VAC has no nav-config yet; this is the
+ * canonical per-page discoverability marker for the nav-coverage detector
+ * (`scripts/assert-nav-coverage.mjs`).
+ */
+export const navMeta = {
+  invokedFrom: '/vac',
+} as const;
+
 export default function ProgressOverviewPage() {
   const { profile } = useAuth();
   const userId = profile?.id || '';

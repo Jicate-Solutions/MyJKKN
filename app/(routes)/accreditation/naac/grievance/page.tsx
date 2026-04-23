@@ -66,6 +66,15 @@ function slaVariant(sla: string | null): 'default' | 'secondary' | 'outline' | '
   return 'default';
 }
 
+/**
+ * navMeta — invoked from the NAAC dashboard (tier-2 chip) via a "Grievance
+ * Register" CTA (NAAC attribute 7.7.1). Nav-coverage detector
+ * (`scripts/assert-nav-coverage.mjs`) reads this to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/accreditation/naac',
+} as const;
+
 export default function GrievanceListPage() {
   const { isSuperAdmin } = usePermissions();
   const { profile } = useAuth();

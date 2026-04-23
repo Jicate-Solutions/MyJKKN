@@ -161,6 +161,15 @@ function MetricFormDialog({
   );
 }
 
+/**
+ * navMeta — invoked from the Accreditation Hub (admin/manage area) via a
+ * "Manage Metrics" admin CTA. Nav-coverage detector
+ * (`scripts/assert-nav-coverage.mjs`) reads this to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/accreditation',
+} as const;
+
 export default function MetricsPage() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);

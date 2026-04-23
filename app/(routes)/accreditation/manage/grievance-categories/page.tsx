@@ -160,6 +160,15 @@ function CategoryFormDialog({
   );
 }
 
+/**
+ * navMeta — invoked from the Accreditation Hub (admin/manage area) via a
+ * "Manage Grievance Categories" admin CTA. Nav-coverage detector
+ * (`scripts/assert-nav-coverage.mjs`) reads this to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/accreditation',
+} as const;
+
 export default function GrievanceCategoriesPage() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id ?? '';
