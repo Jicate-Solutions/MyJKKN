@@ -192,6 +192,32 @@ export class GrievanceService {
   }
 
   /**
+   * Business-hour SLA deadline via DB RPC.
+   *
+   * Calls calculate_grievance_sla_deadline(institution_id, sla_hours) which
+   * wraps add_business_hours() — skips weekends + hr_public_holidays entries
+   * for the institution's shadow-tenant hr_organization. Work calendar is
+   * 9am-6pm IST Mon-Fri. Fallback (no hr_organization mapping) is weekends
+   * only. See migration 20260423_grievance_business_day_sla_functions.sql.
+   */
+  static async calculateSlaDeadline(
+    institutionId: string,
+    slaHours: number,
+    startAt?: string
+  ): Promise<string> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'calculate_grievance_sla_deadline',
+      {
+        p_institution_id: institutionId,
+        p_sla_hours: slaHours,
+        p_start_ts: startAt ?? null,
+      }
+    );
+    if (error) throw error;
+    return data as string;
+  }
+
+  /**
    * Dashboard stats — calls the production function get_grievance_sla_stats.
    * Already exists on prod; returns JSON with breakdowns by status + SLA.
    */
