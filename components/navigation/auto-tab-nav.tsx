@@ -148,12 +148,16 @@ function flatTierChips(
   depth: number
 ): { chips: Chip[]; rawSiblings: number; parentPrefix: string } | null {
   const segments = pathname.split('/').filter(Boolean);
-  if (depth < 1 || depth > segments.length) return null;
+  // Allow depth === segments.length + 1 so AutoTabNav renders CHILDREN of the
+  // current leaf as chips (e.g. on /admission/marketing/expos, show Analytics
+  // + Masters as tier-4 chips). Users can't discover children of the current
+  // page otherwise — matchPaths only handles active-state, not chip rendering.
+  if (depth < 1 || depth > segments.length + 1) return null;
 
   const parentPrefix =
     depth === 1 ? '' : '/' + segments.slice(0, depth - 1).join('/');
-  const activeSeg = segments[depth - 1]!;
-  const activeHref = parentPrefix + '/' + activeSeg;
+  const activeSeg = segments[depth - 1]; // may be undefined when rendering children-of-leaf
+  const activeHref = activeSeg ? parentPrefix + '/' + activeSeg : null;
 
   const siblings: RouteNode[] =
     depth === 1
@@ -167,7 +171,7 @@ function flatTierChips(
       href: n.path,
       label: n.label,
       iconName: n.iconName,
-      isActive: n.path === activeHref,
+      isActive: activeHref !== null && n.path === activeHref,
     })),
     rawSiblings: siblings.length,
     parentPrefix: parentPrefix || '/',
