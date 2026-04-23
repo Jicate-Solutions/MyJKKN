@@ -2,10 +2,18 @@ import { Metadata } from 'next';
 import { Suspense } from 'react';
 import { StartupStudioNav } from './_components/startup-studio-nav';
 
+/**
+ * Startup Studio module metadata.
+ *
+ * Title template is `'%s · Startup Studio'` — NOT `'%s · Startup Studio · MyJKKN'`.
+ * Root layout adds the `· MyJKKN` suffix; embedding it here caused the
+ * `'Page · Startup Studio · MyJKKN · MyJKKN'` triple-suffix bug.
+ * See #371 for the admission equivalent fix.
+ */
 export const metadata: Metadata = {
   title: {
-    template: '%s · Startup Studio · MyJKKN',
-    default: 'Startup Studio · MyJKKN',
+    template: '%s · Startup Studio',
+    default: 'Startup Studio',
   },
   description: 'JKKN Startup Studio - Innovation cycles, mentorship, and portfolio',
 };
