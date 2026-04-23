@@ -6176,7 +6176,7 @@ BEGIN
   JOIN notifications n ON n.id = un.notification_id
   WHERE un.user_id = v_user
     AND un.acknowledged_at IS NULL
-    AND n.requires_acknowledgment = TRUE
+    -- 2026-04-23: dropped requires_acknowledgment filter — work items are modal-exempt.
     AND n.category LIKE 'dashboard:%'
     AND (n.expires_at IS NULL OR n.expires_at > NOW())
     AND n.superseded_by IS NULL;
@@ -6202,7 +6202,7 @@ BEGIN
     JOIN notifications n ON n.id = un.notification_id
     WHERE un.user_id = v_user
       AND un.acknowledged_at IS NULL
-      AND n.requires_acknowledgment = TRUE
+      -- 2026-04-23: dropped requires_acknowledgment filter — work items are modal-exempt.
       AND n.category LIKE 'dashboard:%'
       AND (n.expires_at IS NULL OR n.expires_at > NOW())
       AND n.superseded_by IS NULL
@@ -8792,7 +8792,9 @@ BEGIN
     acknowledgment_deadline_hours, action_type, action_config, idempotency_key,
     created_by, targeting, created_at, updated_at
   ) VALUES (
-    gen_random_uuid(), p_title, p_body, p_category, p_priority, TRUE,
+    -- 2026-04-23 decoupling: FALSE so work items don't trigger the Mandatory
+    -- Acknowledgment blocking modal. Queue filter uses category only.
+    gen_random_uuid(), p_title, p_body, p_category, p_priority, FALSE,
     p_deadline_hours, 'open_url', p_action_config, p_idempotency_key,
     p_target_user, jsonb_build_object('type','user','user_id', p_target_user),
     NOW(), NOW()
@@ -8928,8 +8930,7 @@ DECLARE v_created INT := 0; v_tt RECORD; v_target RECORD; v_key TEXT;
 BEGIN
   IF EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Kolkata')) < 11 THEN RETURN 0; END IF;
   FOR v_tt IN
-    SELECT t.id, t.institution_id, t.section_id, t.timetable_name,
-           t.department_id, t.semester_id
+    SELECT t.id, t.institution_id, t.section_id, t.timetable_name
     FROM timetables t
     WHERE t.is_active = TRUE AND t.start_date <= CURRENT_DATE
       AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
@@ -8941,11 +8942,20 @@ BEGIN
     LIMIT 100
   LOOP
     v_key := 'unmarked_attendance:' || v_tt.id::text || ':' || CURRENT_DATE::text;
+    -- 2026-04-23 targeting fix: (a) LIMIT 50 was LIMIT 5 — cut director off;
+    -- (b) no DISTINCT so ORDER BY by email works; (c) prioritize by email
+    -- because director's profile.role='super_admin', NOT 'director'.
     FOR v_target IN
-      SELECT DISTINCT p.id AS uid FROM profiles p
+      SELECT p.id AS uid, p.email, p.institution_id AS p_inst
+      FROM profiles p
       WHERE (p.institution_id = v_tt.institution_id OR p.is_super_admin = TRUE)
         AND (p.role IN ('director','principal','hod','super_admin','admin') OR p.is_super_admin = TRUE)
-      LIMIT 5
+      ORDER BY
+        CASE WHEN p.email = 'director@jkkn.ac.in' THEN 0
+             WHEN p.institution_id = v_tt.institution_id THEN 1
+             ELSE 2 END,
+        p.id
+      LIMIT 50
     LOOP
       v_created := v_created + fn_create_dashboard_work_item(
         'dashboard:anomaly', 'normal',
