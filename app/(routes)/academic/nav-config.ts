@@ -1,12 +1,14 @@
 import type { ModuleNavConfig } from '@/lib/navigation/nav-config';
 
 /**
- * Academic Management — 9 logical module tabs.
+ * Academic Management — 10 logical module tabs.
  *
  * Mirrors the previous hand-coded AcademicNav but as data.
  * `matchPaths` preserves the original groupPaths — notably
  * Leaves spans /academic/leaves + /academic/leave-calendar +
- * /academic/leave-onduty so all three routes highlight one tab.
+ * /academic/leave-onduty so all three routes highlight one tab, and
+ * Assessment spans /academic/course-grades + /academic/internal-marks
+ * so both marks/grades faculty surfaces live under one tab.
  *
  * URLs are unchanged — this is a pure navigation-chrome migration for
  * a HIGH-TRAFFIC module (timetables / attendance / periods are used
@@ -50,6 +52,15 @@ const config: ModuleNavConfig = {
       icon: 'ClipboardCheck',
       href: '/academic/attendance',
       matchPaths: ['/academic/attendance'],
+    },
+    {
+      label: 'Assessment',
+      icon: 'GraduationCap',
+      href: '/academic/internal-marks',
+      matchPaths: [
+        '/academic/internal-marks',
+        '/academic/course-grades',
+      ],
     },
     {
       label: 'Leaves',
