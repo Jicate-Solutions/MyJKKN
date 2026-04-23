@@ -67,7 +67,11 @@ export async function GET(request: NextRequest) {
 
     const isSuperAdmin = !!profile?.is_super_admin;
     const role = (profile?.role as string | undefined) ?? '';
-    const isHROfficer = role === 'hr_officer' || role === 'hr_admin' || role === 'hr_manager';
+    const isHROfficer =
+      role === 'hr_officer' ||
+      role === 'hr_admin' ||
+      role === 'hr_manager' ||
+      role === 'hr_head';
     const isDirector = role === 'director' || role === 'admin';
 
     if (!isSuperAdmin && !isHROfficer && !isDirector) {
