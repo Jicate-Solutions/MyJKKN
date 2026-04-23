@@ -17,7 +17,8 @@
     "clear-cache": "node scripts/clear-cache.bat",
     "check:permissions": "node scripts/check-permissions-catalog.mjs",
     "check:menu-coverage": "node scripts/check-menu-permissions-coverage.mjs",
-    "check:menus": "npm run check:permissions && npm run check:menu-coverage"
+    "check:menus": "npm run check:permissions && npm run check:menu-coverage",
+    "check:nav": "node scripts/assert-nav-coverage.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
