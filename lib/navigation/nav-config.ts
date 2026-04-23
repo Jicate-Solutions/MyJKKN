@@ -104,11 +104,13 @@ export interface ModuleNavConfig {
 import campusLivingNav from '@/app/(routes)/campus-living/nav-config';
 import admissionNav from '@/app/(routes)/admission/nav-config';
 import learnersCouncilNav from '@/app/(routes)/learners-council/nav-config';
+import okrNav from '@/app/(routes)/okr/nav-config';
 
 const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   campusLivingNav,
   admissionNav,
   learnersCouncilNav,
+  okrNav,
 ];
 
 const BY_MODULE = new Map(
