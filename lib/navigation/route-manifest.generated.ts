@@ -322,6 +322,25 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/accreditation/manage",
+        "label": "Manage",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/accreditation/manage/grievance-categories",
+            "label": "Grievance Categories",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/accreditation/manage/metrics",
+            "label": "Metrics",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/accreditation/naac",
         "label": "Naac",
         "iconName": "FileText",
