@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "NODE_OPTIONS='--max-old-space-size=49152 --max-semi-space-size=128' next build --webpack",
+    "build": "npm run check:sidebar && NODE_OPTIONS='--max-old-space-size=49152 --max-semi-space-size=128' next build --webpack",
     "start": "next start",
     "lint": "next lint",
     "check:sidebar": "tsx scripts/check-sidebar-health.ts",
