@@ -1,55 +1,54 @@
 'use client';
 
 /**
- * AutoTabNav — self-discovering in-page tab bar.
+ * AutoTabNav — adaptive self-discovering in-page tab bar.
  *
- * Renders 0..N tiers of horizontal tab navigation derived from
- * lib/navigation/route-manifest.generated.ts (regenerated at build by
- * scripts/generate-route-manifest.ts). Each tier shows the siblings at
- * that depth of the current pathname.
+ * TIER COUNT IS DYNAMIC — driven by the module's structure, not URL depth:
+ *   - A module with a nav-config.ts (lib/navigation/nav-config.ts + per-module
+ *     file) renders its grouped tabs at tier 2, then drills deeper based on
+ *     the active group's children (explicit or manifest-discovered).
+ *   - A module without a config renders flat from the route manifest: one
+ *     tier per URL segment, all siblings shown as chips.
+ *   - Tiers with <2 siblings are skipped (no 1-chip bars).
  *
- * Example: on /admission/marketing/campaigns/monitoring, this renders:
- *   Tier 2: Admission siblings (Dashboard, Leads, ..., Marketing*)
- *   Tier 3: Marketing siblings (Campaigns*, Messaging, Voice, Media, Expos)
- *   Tier 4: Campaigns siblings (Monitor*, ROI, Segments)
+ * Result: simple modules render as 2-tier (sidebar + one in-page bar);
+ * complex modules render as 3-tier (module groups + sub-section); deeply
+ * nested (e.g. Marketing) render as 4-tier. Never more tiers than useful.
  *
- * No per-module layout.tsx required. Drop a page.tsx anywhere → it auto-
- * appears in the right tier on its peers. Override label/icon with:
- *   export const navMeta = { label: 'My Page', icon: 'Users' }
+ * Tier 1 (list of all top-level modules) is always skipped — that's the
+ * sidebar's job. In-page starts at tier 2.
  *
- * The component is a Client Component because it uses usePathname and
- * passes lucide icon refs (Server→Client serialization safety — same
- * pattern as LC's structure/layout.tsx).
+ * Client Component (usePathname + passes lucide icon refs).
  */
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { ROUTE_MANIFEST, type RouteNode } from '@/lib/navigation/route-manifest.generated';
+import {
+  ROUTE_MANIFEST,
+  type RouteNode,
+} from '@/lib/navigation/route-manifest.generated';
+import {
+  getNavConfigForPath,
+  findActiveGroup,
+  warnOnCrowdedTier,
+  type ModuleNavConfig,
+  type ModuleNavGroup,
+} from '@/lib/navigation/nav-config';
 import { cn } from '@/lib/utils';
 
 interface AutoTabNavProps {
-  /**
-   * Maximum depth (counting from URL root) to render tabs for. Default: 4.
-   * Set lower if a module wants to skip the deeper tiers.
-   */
   maxDepth?: number;
-  /**
-   * Minimum depth at which to start rendering. Default: 1
-   * (skip tier 0 — sidebar already covers module-root navigation).
-   */
   minDepth?: number;
   className?: string;
 }
 
-interface Tier {
-  /** Depth of this tier (1 = first URL segment, 2 = second, ...) */
-  depth: number;
-  /** All sibling routes at this tier */
-  siblings: RouteNode[];
-  /** The currently-active sibling, if any */
-  active: RouteNode | null;
+interface Chip {
+  href: string;
+  label: string;
+  iconName: string;
+  isActive: boolean;
 }
 
 function getIcon(iconName: string): LucideIcon {
@@ -57,70 +56,25 @@ function getIcon(iconName: string): LucideIcon {
   return icon ?? Icons.FileText;
 }
 
-/**
- * Walk the manifest along pathname segments, collecting tiers as we go.
- * For each segment of the URL, find the matching node + capture its siblings.
- */
-function buildTiers(pathname: string, manifest: RouteNode[]): Tier[] {
-  const segments = pathname.split('/').filter(Boolean);
-  const tiers: Tier[] = [];
-
-  let currentLevel: RouteNode[] = manifest;
-  let urlPrefix = '';
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]!;
-    urlPrefix += `/${seg}`;
-
-    if (currentLevel.length === 0) break;
-
-    const active = currentLevel.find((n) => n.path === urlPrefix) ?? null;
-
-    tiers.push({
-      depth: i + 1,
-      siblings: currentLevel,
-      active,
-    });
-
-    if (!active) break;
-    currentLevel = active.children;
-  }
-
-  // If pathname has trailing depth (e.g. landed on a parent that has children),
-  // include the children as the next tier so users see their drill-down options.
-  const last = tiers[tiers.length - 1];
-  if (last?.active && last.active.children.length > 0) {
-    tiers.push({
-      depth: last.depth + 1,
-      siblings: last.active.children,
-      active: null,
-    });
-  }
-
-  return tiers;
-}
-
-function TabBar({ tier }: { tier: Tier }) {
-  if (tier.siblings.length < 2) return null; // no point in 1-tab nav
-
+function TabBar({ chips }: { chips: Chip[] }) {
+  if (chips.length < 2) return null;
   return (
     <div className='flex flex-wrap gap-1 p-1 rounded-lg bg-muted/50 border max-w-full'>
-      {tier.siblings.map((node) => {
-        const Icon = getIcon(node.iconName);
-        const isActive = tier.active?.path === node.path;
+      {chips.map((c) => {
+        const Icon = getIcon(c.iconName);
         return (
           <Link
-            key={node.path}
-            href={node.path}
+            key={c.href}
+            href={c.href}
             className={cn(
               'flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors whitespace-nowrap',
-              isActive
+              c.isActive
                 ? 'bg-background text-foreground shadow-sm font-medium'
                 : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
             )}
           >
             <Icon className='h-3.5 w-3.5' />
-            {node.label}
+            {c.label}
           </Link>
         );
       })}
@@ -128,24 +82,162 @@ function TabBar({ tier }: { tier: Tier }) {
   );
 }
 
+/**
+ * Walk the manifest to a URL prefix and return the node plus its children.
+ *   walkManifestAt('/work-pulse')
+ *     → { node: <work-pulse>, children: [<my-pulse>, <agents>, <all>, <impact>] }
+ *
+ * Use `children` to answer "what are the children of this path?" — which is
+ * what callers building a tier-2+ sibling chips need (tier-N siblings =
+ * tier-(N-1) parent's children).
+ */
+function walkManifestAt(
+  urlPrefix: string
+): { node: RouteNode | null; children: RouteNode[] } {
+  const segments = urlPrefix.split('/').filter(Boolean);
+  if (segments.length === 0) return { node: null, children: ROUTE_MANIFEST };
+  let level: RouteNode[] = ROUTE_MANIFEST;
+  let node: RouteNode | null = null;
+  let accum = '';
+  for (const seg of segments) {
+    accum += `/${seg}`;
+    const found = level.find((n) => n.path === accum);
+    if (!found) return { node: null, children: [] };
+    node = found;
+    level = found.children;
+  }
+  return { node, children: node?.children ?? [] };
+}
+
+/** Flat manifest-derived chips at the given URL depth. */
+function flatTierChips(
+  pathname: string,
+  depth: number
+): { chips: Chip[]; rawSiblings: number; parentPrefix: string } | null {
+  const segments = pathname.split('/').filter(Boolean);
+  if (depth < 1 || depth > segments.length) return null;
+
+  const parentPrefix =
+    depth === 1 ? '' : '/' + segments.slice(0, depth - 1).join('/');
+  const activeSeg = segments[depth - 1]!;
+  const activeHref = parentPrefix + '/' + activeSeg;
+
+  const siblings: RouteNode[] =
+    depth === 1
+      ? ROUTE_MANIFEST
+      : walkManifestAt(parentPrefix).children;
+
+  if (siblings.length === 0) return null;
+
+  return {
+    chips: siblings.map((n) => ({
+      href: n.path,
+      label: n.label,
+      iconName: n.iconName,
+      isActive: n.path === activeHref,
+    })),
+    rawSiblings: siblings.length,
+    parentPrefix: parentPrefix || '/',
+  };
+}
+
+function groupedTier2(
+  config: ModuleNavConfig,
+  activeGroup: ModuleNavGroup | null
+): Chip[] {
+  return config.groups.map((g) => ({
+    href: g.href,
+    label: g.label,
+    iconName: g.icon,
+    isActive: activeGroup?.href === g.href,
+  }));
+}
+
+/**
+ * For config-grouped modules, compute tier-3+ by walking the manifest
+ * starting from the deepest segment that has ≥2 children.
+ */
+function deeperTiersFromManifest(pathname: string): Chip[][] {
+  const out: Chip[][] = [];
+  const segments = pathname.split('/').filter(Boolean);
+  for (let d = 3; d <= segments.length + 1; d++) {
+    const tier = flatTierChips(pathname, d);
+    if (!tier) continue;
+    if (tier.chips.length < 2) continue;
+    out.push(tier.chips);
+    if (tier.rawSiblings > 12) {
+      warnOnCrowdedTier(tier.parentPrefix, tier.rawSiblings);
+    }
+  }
+  return out;
+}
+
+function resolveTiers(pathname: string): Chip[][] {
+  const config = getNavConfigForPath(pathname);
+
+  if (config) {
+    const activeGroup = findActiveGroup(pathname, config);
+    const tiers: Chip[][] = [groupedTier2(config, activeGroup)];
+
+    if (activeGroup?.children && activeGroup.children.length > 0) {
+      tiers.push(
+        activeGroup.children.map((c) => ({
+          href: c.href,
+          label: c.label,
+          iconName: c.icon,
+          isActive: c.exact
+            ? pathname === c.href
+            : pathname === c.href || pathname.startsWith(c.href + '/'),
+        }))
+      );
+    } else if (activeGroup) {
+      tiers.push(...deeperTiersFromManifest(pathname));
+    }
+    return tiers.filter((t) => t.length >= 2);
+  }
+
+  // Flat fallback
+  const out: Chip[][] = [];
+  const depth = pathname.split('/').filter(Boolean).length;
+  for (let d = 2; d <= Math.max(depth + 1, 2); d++) {
+    const tier = flatTierChips(pathname, d);
+    if (!tier) continue;
+    if (tier.chips.length < 2) continue;
+    out.push(tier.chips);
+    if (tier.rawSiblings > 12) {
+      warnOnCrowdedTier(tier.parentPrefix, tier.rawSiblings);
+    }
+  }
+  return out;
+}
+
 export function AutoTabNav({
   maxDepth = 4,
-  minDepth = 1,
+  minDepth = 2,
   className,
 }: AutoTabNavProps) {
   const pathname = usePathname();
-  const tiers = buildTiers(pathname, ROUTE_MANIFEST).filter(
-    (t) => t.depth >= minDepth && t.depth <= maxDepth
-  );
+  if (!pathname) return null;
+  if (
+    pathname === '/' ||
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/api')
+  ) {
+    return null;
+  }
 
-  // Skip if no nav-worthy tiers (root path, or all tiers have <2 siblings)
-  const visible = tiers.filter((t) => t.siblings.length >= 2);
+  const allTiers = resolveTiers(pathname);
+  // tiers[0] = tier 2, tiers[1] = tier 3, tiers[2] = tier 4
+  const sliceStart = Math.max(0, minDepth - 2);
+  const sliceEnd = Math.max(0, maxDepth - 1);
+  const visible = allTiers.slice(sliceStart, sliceEnd);
+
   if (visible.length === 0) return null;
 
   return (
     <div className={cn('flex flex-col gap-2', className)}>
-      {visible.map((tier) => (
-        <TabBar key={tier.depth} tier={tier} />
+      {visible.map((chips, i) => (
+        <TabBar key={i} chips={chips} />
       ))}
     </div>
   );
