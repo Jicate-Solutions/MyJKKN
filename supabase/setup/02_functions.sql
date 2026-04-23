@@ -8996,6 +8996,144 @@ REVOKE ALL ON FUNCTION fn_generate_unmarked_attendance_items() FROM PUBLIC, anon
 REVOKE ALL ON FUNCTION fn_generate_all_dashboard_work_items() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION fn_generate_all_dashboard_work_items() TO service_role;
 
+-- Updated: 2026-04-23 - Add super-admin daily digest aggregator
+-- Rolls up 4 dashboard categories into 1 digest notification per category per super_admin per day.
+-- Idempotency key: digest:<user_id>:<category>:<YYYY-MM-DD>. Re-running cron same day is safe.
+-- Skips categories with 0 qualifying items (no empty-state clutter).
+-- action_type='open_url' via fn_create_dashboard_work_item + action_config.url points at
+-- /admin/notifications?category=... so PR #356's UI renders an "Open Dashboard" button.
+CREATE OR REPLACE FUNCTION fn_generate_super_admin_daily_digest()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_digest$
+DECLARE
+  v_created INT := 0;
+  v_user RECORD;
+  v_today TEXT := TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD');
+  v_key TEXT;
+  v_total INT;
+  v_breakdown TEXT;
+  v_body TEXT;
+BEGIN
+  FOR v_user IN SELECT id FROM profiles WHERE is_super_admin = TRUE LOOP
+
+    -- Category 1: dashboard:escalation (overdue invoices >30 days, unpaid)
+    WITH counts AS (
+      SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+      FROM billing_invoices bi
+      JOIN institutions i ON bi.institution_id = i.id
+      WHERE bi.due_date < CURRENT_DATE - INTERVAL '30 days' AND bi.grand_total > 0
+        AND COALESCE((SELECT SUM(br.payment_amount) FROM billing_receipts br
+                      WHERE br.student_id = bi.student_id
+                        AND br.receipt_date >= bi.billing_period_from), 0) < bi.grand_total
+      GROUP BY i.id, i.name
+    )
+    SELECT COALESCE(SUM(cnt), 0),
+           STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+    INTO v_total, v_breakdown FROM counts;
+    IF v_total > 0 THEN
+      v_key := 'digest:' || v_user.id::text || ':dashboard:escalation:' || v_today;
+      v_body := v_total || ' overdue invoice(s). ' || COALESCE(v_breakdown, '') || '.';
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:escalation', 'high',
+        'Daily digest — ' || v_total || ' overdue invoice(s)',
+        v_body,
+        jsonb_build_object(
+          'url', '/admin/notifications?category=dashboard%3Aescalation',
+          'digest', true, 'total', v_total),
+        v_user.id, v_key, 24);
+    END IF;
+
+    -- Category 2: dashboard:rescue (stale admission leads untouched >24h)
+    WITH counts AS (
+      SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+      FROM admission_leads al
+      JOIN institutions i ON al.institution_id = i.id
+      WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - INTERVAL '24 hours'
+        AND COALESCE(al.last_activity_at, al.created_at) > NOW() - INTERVAL '30 days'
+      GROUP BY i.id, i.name
+    )
+    SELECT COALESCE(SUM(cnt), 0),
+           STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+    INTO v_total, v_breakdown FROM counts;
+    IF v_total > 0 THEN
+      v_key := 'digest:' || v_user.id::text || ':dashboard:rescue:' || v_today;
+      v_body := v_total || ' stale lead(s). ' || COALESCE(v_breakdown, '') || '.';
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:rescue', 'normal',
+        'Daily digest — ' || v_total || ' stale lead(s)',
+        v_body,
+        jsonb_build_object(
+          'url', '/admin/notifications?category=dashboard%3Arescue',
+          'digest', true, 'total', v_total),
+        v_user.id, v_key, 24);
+    END IF;
+
+    -- Category 3: dashboard:approval (pending leave applications >48h)
+    WITH counts AS (
+      SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+      FROM hr_leave_applications la
+      JOIN hr_employees e ON la.employee_id = e.id
+      JOIN hr_organizations o ON e.hr_organization_id = o.id
+      JOIN institutions i ON o.institution_id = i.id
+      WHERE la.status = 'pending'
+        AND la.created_at < NOW() - INTERVAL '48 hours'
+        AND la.created_at > NOW() - INTERVAL '30 days'
+        AND la.superseded_by IS NULL
+      GROUP BY i.id, i.name
+    )
+    SELECT COALESCE(SUM(cnt), 0),
+           STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+    INTO v_total, v_breakdown FROM counts;
+    IF v_total > 0 THEN
+      v_key := 'digest:' || v_user.id::text || ':dashboard:approval:' || v_today;
+      v_body := v_total || ' pending leave(s). ' || COALESCE(v_breakdown, '') || '.';
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:approval', 'normal',
+        'Daily digest — ' || v_total || ' pending leave approval(s)',
+        v_body,
+        jsonb_build_object(
+          'url', '/admin/notifications?category=dashboard%3Aapproval',
+          'digest', true, 'total', v_total),
+        v_user.id, v_key, 24);
+    END IF;
+
+    -- Category 4: dashboard:anomaly (timetables with no attendance today)
+    WITH counts AS (
+      SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+      FROM timetables t
+      JOIN institutions i ON t.institution_id = i.id
+      WHERE t.is_active = TRUE
+        AND t.start_date <= CURRENT_DATE
+        AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
+        AND NOT EXISTS (SELECT 1 FROM student_attendance sa
+          WHERE sa.timetable_id = t.id AND sa.attendance_date = CURRENT_DATE)
+        AND EXISTS (SELECT 1 FROM student_attendance sa2
+          WHERE sa2.timetable_id = t.id
+            AND sa2.attendance_date BETWEEN CURRENT_DATE - INTERVAL '14 days' AND CURRENT_DATE - INTERVAL '1 day')
+      GROUP BY i.id, i.name
+    )
+    SELECT COALESCE(SUM(cnt), 0),
+           STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+    INTO v_total, v_breakdown FROM counts;
+    IF v_total > 0 THEN
+      v_key := 'digest:' || v_user.id::text || ':dashboard:anomaly:' || v_today;
+      v_body := v_total || ' timetable(s) missing attendance today. ' || COALESCE(v_breakdown, '') || '.';
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:anomaly', 'normal',
+        'Daily digest — ' || v_total || ' timetable(s) missing attendance',
+        v_body,
+        jsonb_build_object(
+          'url', '/admin/notifications?category=dashboard%3Aanomaly',
+          'digest', true, 'total', v_total),
+        v_user.id, v_key, 24);
+    END IF;
+
+  END LOOP;
+  RETURN v_created;
+END $fn_digest$;
+
+REVOKE ALL ON FUNCTION fn_generate_super_admin_daily_digest() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_generate_super_admin_daily_digest() TO service_role;
+
 -- END Dashboard Work Item Generators
 
 -- ================================================================================
