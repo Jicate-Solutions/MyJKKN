@@ -28,6 +28,14 @@ import type {
   CreateDiscountDto
 } from '@/types/billing-schedule';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -37,14 +45,6 @@ import {
 export const navMeta = {
   invokedFrom: '/billing/discounts',
 } as const;
-
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
 
 export default function NewDiscountPage() {
   const router = useRouter();

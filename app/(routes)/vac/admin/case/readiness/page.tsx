@@ -27,6 +27,14 @@ import { useAuth } from '@/hooks/use-auth';
 import { useGraduationReadiness } from '@/hooks/vac/use-case';
 import type { CASEGraduationReadiness } from '@/types/case';
 import {
+  ArrowLeft,
+  ShieldCheck,
+  AlertTriangle,
+  AlertCircle,
+  Users,
+  GraduationCap,
+} from 'lucide-react';
+
 
 /**
  * navMeta — documents that this page is invoked via a button/link on the
@@ -35,14 +43,6 @@ import {
 export const navMeta = {
   invokedFrom: '/vac/admin/case',
 } as const;
-
-  ArrowLeft,
-  ShieldCheck,
-  AlertTriangle,
-  AlertCircle,
-  Users,
-  GraduationCap,
-} from 'lucide-react';
 
 // ── Readiness Bar Chart (dependency-free) ─────────────────────────────────────
 

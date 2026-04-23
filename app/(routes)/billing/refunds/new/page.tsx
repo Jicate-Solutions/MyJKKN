@@ -36,6 +36,14 @@ import type {
   CreateRefundDto
 } from '@/types/billing-schedule';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
+} from '@/components/ui/table';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -45,14 +53,6 @@ import {
 export const navMeta = {
   invokedFrom: '/billing/refunds',
 } as const;
-
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from '@/components/ui/table';
 
 export default function NewRefundPage() {
   const router = useRouter();

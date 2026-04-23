@@ -36,6 +36,10 @@ import { useCreateObjective, useAvailableParentObjectives } from '@/hooks/okr/us
 import { useCreateKeyResult } from '@/hooks/okr/use-key-results';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import type {
+  CreateOKRObjectiveDTO,
+  CreateOKRKeyResultDTO
+} from '@/types/okr';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -45,10 +49,6 @@ import type {
 export const navMeta = {
   invokedFrom: '/okr/objectives/create/tier2',
 } as const;
-
-  CreateOKRObjectiveDTO,
-  CreateOKRKeyResultDTO
-} from '@/types/okr';
 
 // ============================================================================
 // TYPE DEFINITIONS

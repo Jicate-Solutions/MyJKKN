@@ -27,6 +27,9 @@ import {
 import { GrievanceService } from '@/lib/services/grievance/grievance-service';
 import { useAuth } from '@/hooks/use-auth';
 import type {
+  GrievancePriority, RaisedByType, GrievanceCategory,
+} from '@/lib/types/grievance';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -36,9 +39,6 @@ import type {
 export const navMeta = {
   invokedFrom: '/accreditation/naac/grievance',
 } as const;
-
-  GrievancePriority, RaisedByType, GrievanceCategory,
-} from '@/lib/types/grievance';
 
 export default function NewGrievancePage() {
   const router = useRouter();

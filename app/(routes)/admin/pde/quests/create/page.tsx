@@ -28,6 +28,14 @@ import { useAuth } from '@/hooks/use-auth';
 import { BeatLoader } from 'react-spinners';
 import { ArrowLeft, Save, Target } from 'lucide-react';
 import type {
+  CreateQuestInput,
+  QuestType,
+  QuestDifficulty,
+  QuestSourceType,
+  QuestStatus,
+  PDECapability,
+} from '@/types/pde';
+
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -37,14 +45,6 @@ import type {
 export const navMeta = {
   invokedFrom: '/admin/pde/quests',
 } as const;
-
-  CreateQuestInput,
-  QuestType,
-  QuestDifficulty,
-  QuestSourceType,
-  QuestStatus,
-  PDECapability,
-} from '@/types/pde';
 
 // ============================================
 // Constants
