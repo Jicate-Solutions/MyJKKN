@@ -1,6 +1,7 @@
 // app/api/webhooks/telephony/route.ts
 // Exotel Call Status Callback Handler
-// POST /api/webhooks/telephony
+// POST  /api/webhooks/telephony  (StatusCallback, DID-level)
+// GET   /api/webhooks/telephony  (Passthru, in-flow applet — metadata in query)
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
@@ -14,7 +15,7 @@ import {
 // WEBHOOK HANDLER
 // ============================================================================
 
-export async function POST(request: NextRequest) {
+async function handleExotelCallback(request: NextRequest) {
   const startTime = Date.now();
 
   try {
@@ -217,10 +218,45 @@ function verifyWebhookAuth(request: NextRequest): boolean {
 }
 
 // ============================================================================
-// HEALTH CHECK
+// HTTP METHOD WIRING
 // ============================================================================
+//
+// Exotel fires callbacks via two methods depending on which applet delivered:
+//
+//   POST — StatusCallback (DID-level, configured on the ExoPhone). Metadata
+//          in form-encoded body, field names `From`/`To`/`Status`.
+//   GET  — Passthru (in-flow applet). Body EMPTY, metadata auto-appended to
+//          the URL as query params, field names `CallFrom`/`CallTo`/`CallStatus`.
+//          Confirmed via webhook.site capture 2026-04-23 21:13 IST — Exotel
+//          sends User-Agent "Exotel Servers", no body, no content-type,
+//          ~19 query params including CallSid, CallFrom, CallTo, Direction,
+//          DialCallStatus, flow_id, tenant_id, CallType, etc.
+//
+// Before this fix, GET hit a pure health-check handler that returned 200 +
+// status JSON and did NO payload processing — every in-flow Passthru was
+// silently ACK'd and dropped. PR #347 added URL-query-param parsing and
+// CallX→X field-name normalisation to handleExotelCallback, but that was
+// only reachable via POST. Routing GET into the same function closes the
+// loop.
+//
+// Health-check semantics preserved: if GET arrives without any Exotel
+// identifiers (no CallSid/CallFrom/From), we fall through to the status
+// response so external uptime monitors still work.
 
-export async function GET() {
+export async function POST(request: NextRequest) {
+  return handleExotelCallback(request);
+}
+
+export async function GET(request: NextRequest) {
+  // Distinguish real Exotel Passthru (has call metadata) from manual
+  // health-check probes (no metadata).
+  const q = request.nextUrl.searchParams;
+  const looksLikePassthru = q.has('CallSid') || q.has('CallFrom') || q.has('From');
+
+  if (looksLikePassthru) {
+    return handleExotelCallback(request);
+  }
+
   const configured = TelephonyService.isConfigured();
 
   return NextResponse.json(
@@ -228,7 +264,7 @@ export async function GET() {
       service: 'Exotel Telephony Webhook',
       status: configured ? 'active' : 'not_configured',
       endpoint: '/api/webhooks/telephony',
-      methods: ['POST'],
+      methods: ['GET', 'POST'],
       provider: 'exotel',
       webhookUrl: `${process.env.NEXT_PUBLIC_APP_URL || ''}/api/webhooks/telephony`,
     },
