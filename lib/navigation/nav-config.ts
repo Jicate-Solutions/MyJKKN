@@ -108,6 +108,7 @@ import okrNav from '@/app/(routes)/okr/nav-config';
 import startupStudioNav from '@/app/(routes)/startup-studio/nav-config';
 import academicNav from '@/app/(routes)/academic/nav-config';
 import solutionsNav from '@/app/(routes)/solutions/nav-config';
+import accreditationNav from '@/app/(routes)/accreditation/nav-config';
 
 const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   campusLivingNav,
@@ -117,6 +118,7 @@ const NAV_CONFIG_REGISTRY: ModuleNavConfig[] = [
   startupStudioNav,
   academicNav,
   solutionsNav,
+  accreditationNav,
 ];
 
 const BY_MODULE = new Map(
