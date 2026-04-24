@@ -82,6 +82,7 @@ const NAV_EXCLUDE = new Set([
   // Module root landings — redirect-to-first-child pages
   '/academic',
   '/admin',
+  '/admission', // redirects to /admission/dashboard
   '/audit',
   '/billing',
   '/events',
@@ -93,6 +94,9 @@ const NAV_EXCLUDE = new Set([
   '/resource-management',
   '/staff',
   '/startup-studio',
+
+  // Admin sub-roots — redirect-to-first-child pages
+  '/okr/admin', // redirects to /okr/admin/compliance
 ]);
 
 /** Walk app/(routes)/ collecting {url, filePath} for every static page.tsx. */

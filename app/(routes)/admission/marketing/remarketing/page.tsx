@@ -27,6 +27,17 @@ import {
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 
+
+/**
+ * navMeta — documents that this page is invoked via a button/row-click on
+ * the parent page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ * Added 2026-04-24 in the matchPaths-only sweep (PR follow-up to #408).
+ */
+export const navMeta = {
+  invokedFrom: '/admission/marketing/chat',
+} as const;
+
 const PLATFORM_STYLES: Record<string, { color: string; label: string }> = {
   google_ads: { color: 'bg-blue-100 text-blue-800', label: 'Google Ads' },
   facebook_ads: { color: 'bg-indigo-100 text-indigo-800', label: 'Facebook Ads' },
