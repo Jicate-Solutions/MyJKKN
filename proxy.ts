@@ -15,6 +15,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/complete-profile',
   '/auth/test-login', // Dev-only test login page for role permission testing
   '/auth/lti-login', // Feature-flagged email+password login for MathWorks LTI integration testing
+  '/auth/dev-login', // Dev-only magic-link exchange (gated by NEXT_PUBLIC_ENABLE_DEV_LOGIN)
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
   '/billing/payment/success', // HDFC payment success callback
@@ -410,6 +411,6 @@ export const config = {
     '/guest/:path*',
     '/driver/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/dev-login|icons|pwa-test.html).*)'
   ]
 };
