@@ -29,7 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Loader2, Search, Trash2, UserPlus } from 'lucide-react';
+import { Loader2, Pencil, Search, Trash2, UserPlus } from 'lucide-react';
 import type {
   LearnerHostelite,
   LearnerHostelitesFilters,
@@ -37,6 +37,7 @@ import type {
 } from '@/types/campus-living';
 import { RemoveHosteliteDialog } from './remove-hostelite-dialog';
 import { AddLearnerToHostelDialog } from './add-learner-to-hostel-dialog';
+import { EditHosteliteDrawer } from './edit-hostelite-drawer';
 
 const HOSTEL_TYPE_OPTIONS: { value: LearnerHostelType | 'all'; label: string }[] = [
   { value: 'all', label: 'All types' },
@@ -58,7 +59,7 @@ function hostelTypeBadge(type: LearnerHostelite['hostel_type']) {
 
 export function LearnersTab() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, permissions } = usePermissions();
   const { institutions } = useInstitutionsWithAccess();
 
   const institutionId: string | undefined = isSuperAdmin
@@ -68,7 +69,12 @@ export function LearnersTab() {
   const [search, setSearch] = useState('');
   const [hostelTypeFilter, setHostelTypeFilter] = useState<LearnerHostelType | 'all'>('all');
   const [removeTarget, setRemoveTarget] = useState<LearnerHostelite | null>(null);
+  const [editTarget, setEditTarget] = useState<LearnerHostelite | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+
+  // Gate the Edit pencil — wardens + super_admins only. Matches the
+  // canActWarden pattern from PR #395.
+  const canEdit = isSuperAdmin || !!permissions?.['campus_living.residents.edit'];
 
   const filters: LearnerHostelitesFilters = useMemo(() => {
     const f: LearnerHostelitesFilters = {};
@@ -190,6 +196,16 @@ export function LearnersTab() {
                     {r.gender?.toLowerCase() ?? '—'}
                   </TableCell>
                   <TableCell className='text-right'>
+                    {canEdit && (
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => setEditTarget(r)}
+                        title='Edit hostel details'
+                      >
+                        <Pencil className='h-4 w-4' />
+                      </Button>
+                    )}
                     <Button
                       variant='ghost'
                       size='sm'
@@ -209,6 +225,10 @@ export function LearnersTab() {
       <RemoveHosteliteDialog
         learner={removeTarget}
         onClose={() => setRemoveTarget(null)}
+      />
+      <EditHosteliteDrawer
+        learner={editTarget}
+        onClose={() => setEditTarget(null)}
       />
       <AddLearnerToHostelDialog
         open={addOpen}
