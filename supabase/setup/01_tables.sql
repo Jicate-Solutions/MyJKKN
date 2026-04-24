@@ -4201,6 +4201,43 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_idempotency
   ON notifications(idempotency_key) WHERE idempotency_key IS NOT NULL;
 
+-- Updated: 2026-04-24 - Split notifications into announcement vs work_item
+-- Context: /admin/notifications page was being buried under operational cron-
+-- generated work items (1,595 dashboard:* rows / 30d vs 11 real announcements).
+-- 'announcement' = user-composed, meant to be READ (General/Alert/Announcement/
+-- Action Required). 'work_item' = cron-generated operational task, meant to be
+-- ACTED on (dashboard:escalation/rescue/approval/anomaly). Admin notifications
+-- page filters to kind='announcement'; work items surface via dashboard widgets.
+ALTER TABLE notifications
+  ADD COLUMN IF NOT EXISTS kind TEXT;
+
+-- Backfill existing rows based on category prefix (dashboard:* => work_item).
+-- Runs once on deploy; subsequent inserts set kind explicitly.
+UPDATE notifications
+  SET kind = CASE
+    WHEN category LIKE 'dashboard:%' THEN 'work_item'
+    ELSE 'announcement'
+  END
+  WHERE kind IS NULL;
+
+-- Lock the domain after backfill (NOT NULL + CHECK).
+ALTER TABLE notifications
+  ALTER COLUMN kind SET DEFAULT 'announcement',
+  ALTER COLUMN kind SET NOT NULL;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints
+                 WHERE constraint_name = 'notifications_kind_check' AND table_name = 'notifications') THEN
+    ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check
+      CHECK (kind IN ('announcement', 'work_item'));
+  END IF;
+END $$;
+
+-- Covering index so the common admin-page query
+-- (WHERE kind='announcement' ORDER BY sent_at DESC) doesn't full-scan.
+CREATE INDEX IF NOT EXISTS idx_notifications_kind_sent_at
+  ON notifications(kind, sent_at DESC);
+
 -- =====================================================
 -- New table: rescue_broadcasts (Broadcast Rescue claim mutex)
 -- Decisions: Round 2.6 (SELECT FOR UPDATE), Round 3.10 (is_emergency), Round 2.7 (ghost claim)
