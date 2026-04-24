@@ -66,7 +66,7 @@ export class HostelLeaveService {
         logger.error('campus-living/leave', 'Failed to fetch leave requests', error);
         throw error;
       }
-      return { data: data as HostelLeaveRequest[], count: count ?? 0 };
+      return { data: data as unknown as HostelLeaveRequest[], count: count ?? 0 };
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in getLeaveRequests', error);
       throw error;
@@ -119,7 +119,7 @@ export class HostelLeaveService {
         throw error;
       }
 
-      const row = data as HostelLeaveRequest;
+      const row = data as unknown as HostelLeaveRequest;
 
       // If caller created a non-draft request (legacy expectation), auto-submit
       // to start the engine run so the request is routable to parent/warden.
@@ -159,7 +159,7 @@ export class HostelLeaveService {
         logger.error('campus-living/leave', 'Failed to update leave request', error);
         throw error;
       }
-      return data as HostelLeaveRequest;
+      return data as unknown as HostelLeaveRequest;
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in updateLeaveRequest', error);
       throw error;
@@ -196,15 +196,27 @@ export class HostelLeaveService {
   static async submitRequest(requestId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data: req, error: reqErr } = await supabase
+      // Select includes approval_chain_run_id which was added via migration
+      // 20260424; generated supabase.ts types do not yet reflect it, so we
+      // cast the select-string + row through unknown. Same pattern as other
+      // post-migration services (e.g. hostel_vacate).
+      const { data: reqRaw, error: reqErr } = await supabase
         .from('hostel_leave_requests')
-        .select('id, institution_id, chief_warden_required, approval_chain_run_id, status')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .select('id, institution_id, chief_warden_required, approval_chain_run_id, status' as any)
         .eq('id', requestId)
         .maybeSingle();
       if (reqErr) throw reqErr;
-      if (!req) {
+      if (!reqRaw) {
         throw new Error(`Leave request ${requestId} not found.`);
       }
+      const req = reqRaw as unknown as {
+        id: string;
+        institution_id: string;
+        chief_warden_required: boolean | null;
+        approval_chain_run_id: string | null;
+        status: LeaveStatus;
+      };
       if (req.approval_chain_run_id) {
         logger.warn?.(
           'campus-living/leave',
@@ -217,7 +229,7 @@ export class HostelLeaveService {
           .eq('id', requestId)
           .single();
         if (fullErr) throw fullErr;
-        return full as HostelLeaveRequest;
+        return full as unknown as HostelLeaveRequest;
       }
 
       const run = await ApprovalChainService.startRun({
@@ -230,10 +242,8 @@ export class HostelLeaveService {
       const mirrorStatus = await this.deriveStatusFromEngine(run.id);
       const { data, error } = await supabase
         .from('hostel_leave_requests')
-        .update({
-          approval_chain_run_id: run.id,
-          status: mirrorStatus,
-        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update({ approval_chain_run_id: run.id, status: mirrorStatus } as any)
         .eq('id', requestId)
         .select()
         .single();
@@ -241,7 +251,7 @@ export class HostelLeaveService {
         logger.error('campus-living/leave', 'Failed to mirror engine state on submit', error);
         throw error;
       }
-      return data as HostelLeaveRequest;
+      return data as unknown as HostelLeaveRequest;
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in submitRequest', error);
       throw error;
@@ -260,15 +270,21 @@ export class HostelLeaveService {
   ) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data: req, error: reqErr } = await supabase
+      const { data: reqRaw, error: reqErr } = await supabase
         .from('hostel_leave_requests')
-        .select('id, approval_chain_run_id, status')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .select('id, approval_chain_run_id, status' as any)
         .eq('id', requestId)
         .maybeSingle();
       if (reqErr) throw reqErr;
-      if (!req) {
+      if (!reqRaw) {
         throw new Error(`Leave request ${requestId} not found.`);
       }
+      const req = reqRaw as unknown as {
+        id: string;
+        approval_chain_run_id: string | null;
+        status: LeaveStatus;
+      };
       if (!req.approval_chain_run_id) {
         throw new Error(`Request ${requestId} has no engine run; cannot advance.`);
       }
@@ -291,7 +307,7 @@ export class HostelLeaveService {
         logger.error('campus-living/leave', 'Failed to mirror engine state after advance', error);
         throw error;
       }
-      return data as HostelLeaveRequest;
+      return data as unknown as HostelLeaveRequest;
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in advance', error);
       throw error;
@@ -301,15 +317,20 @@ export class HostelLeaveService {
   static async cancel(requestId: string, actorId: string, reason: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data: req, error: reqErr } = await supabase
+      const { data: reqRaw, error: reqErr } = await supabase
         .from('hostel_leave_requests')
-        .select('approval_chain_run_id, status')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .select('approval_chain_run_id, status' as any)
         .eq('id', requestId)
         .maybeSingle();
       if (reqErr) throw reqErr;
-      if (!req) {
+      if (!reqRaw) {
         throw new Error(`Leave request ${requestId} not found.`);
       }
+      const req = reqRaw as unknown as {
+        approval_chain_run_id: string | null;
+        status: LeaveStatus;
+      };
 
       if (!['draft', 'pending_parent', 'pending_warden', 'pending_chief'].includes(req.status)) {
         throw new Error(`Cannot cancel request in status=${req.status}.`);
@@ -326,7 +347,7 @@ export class HostelLeaveService {
         .select()
         .single();
       if (error) throw error;
-      return data as HostelLeaveRequest;
+      return data as unknown as HostelLeaveRequest;
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in cancel', error);
       throw error;
@@ -486,7 +507,7 @@ export class HostelLeaveService {
         logger.error('campus-living/leave', 'Failed to generate parent OTP', error);
         throw error;
       }
-      return { otp, expiresAt, leave: data as HostelLeaveRequest };
+      return { otp, expiresAt, leave: data as unknown as HostelLeaveRequest };
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in generateParentOTP', error);
       throw error;
@@ -553,7 +574,7 @@ export class HostelLeaveService {
         logger.error('campus-living/leave', 'Failed to fetch overdue leaves', error);
         throw error;
       }
-      return data as HostelLeaveRequest[];
+      return data as unknown as HostelLeaveRequest[];
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in getOverdueLeaves', error);
       throw error;
@@ -577,7 +598,7 @@ export class HostelLeaveService {
         logger.error('campus-living/leave', 'Failed to record return', error);
         throw error;
       }
-      return data as HostelLeaveRequest;
+      return data as unknown as HostelLeaveRequest;
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in recordReturn', error);
       throw error;
@@ -594,13 +615,15 @@ export class HostelLeaveService {
    */
   private static async ensureEngineRun(leaveId: string) {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await supabase
+    const { data: raw, error } = await supabase
       .from('hostel_leave_requests')
-      .select('id, approval_chain_run_id')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .select('id, approval_chain_run_id' as any)
       .eq('id', leaveId)
       .maybeSingle();
     if (error) throw error;
-    if (!data) throw new Error(`Leave request ${leaveId} not found.`);
+    if (!raw) throw new Error(`Leave request ${leaveId} not found.`);
+    const data = raw as unknown as { id: string; approval_chain_run_id: string | null };
     if (data.approval_chain_run_id) return;
     await this.submitRequest(leaveId);
   }
