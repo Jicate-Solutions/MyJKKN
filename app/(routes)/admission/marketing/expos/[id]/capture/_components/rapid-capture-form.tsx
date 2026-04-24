@@ -58,6 +58,7 @@ interface FormData {
   // BUG-003146: which stall this lead was captured at (optional). Persists
   // across captures via useFormDraftObject so a counselor sets it once.
   stallId: string;
+  visitType: '' | 'expo_visit' | 'stall_visit';
 }
 
 const INITIAL_FORM: FormData = {
@@ -75,6 +76,7 @@ const INITIAL_FORM: FormData = {
   notes: '',
   waOptIn: true,
   stallId: '',
+  visitType: '',
 };
 
 export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannelPreference = 'meta_waba' }: RapidCaptureFormProps) {
@@ -218,6 +220,7 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
         ...(form.email && { email: form.email.trim() }),
         ...(form.district && { district: form.district.trim() }),
         ...(form.twelfthGroup && { twelfth_group: form.twelfthGroup.trim() }),
+        ...(form.visitType && { visit_type: form.visitType }),
         ...(form.notes && { notes: form.notes.trim() }),
       };
 
@@ -534,6 +537,23 @@ export function RapidCaptureForm({ eventId, institutionId, capturedBy, waChannel
                 className="mt-1"
                 disabled={isSubmitting}
               />
+            </div>
+            <div>
+              <Label htmlFor="visitType">Remarks / Visit Type</Label>
+              <Select
+                value={form.visitType || '_none'}
+                onValueChange={(v) => updateField('visitType', v === '_none' ? '' : v as 'expo_visit' | 'stall_visit')}
+                disabled={isSubmitting}
+              >
+                <SelectTrigger id="visitType" className="mt-1">
+                  <SelectValue placeholder="Select visit type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">— Not specified —</SelectItem>
+                  <SelectItem value="expo_visit">Expo Visit</SelectItem>
+                  <SelectItem value="stall_visit">Stall Visit</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Capture Zone</Label>

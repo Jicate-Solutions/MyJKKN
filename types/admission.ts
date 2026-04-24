@@ -261,6 +261,8 @@ export interface CreateLeadInput {
   captured_by?: string | null;
   // BUG-003146: stall attribution — set when lead is captured at a specific stall
   stall_id?: string | null;
+  // Expo visit classification — 'expo_visit' (main floor) | 'stall_visit' (at our stall)
+  visit_type?: 'expo_visit' | 'stall_visit' | null;
   // WhatsApp consent — set during lead capture when visitor opts in
   wa_opt_in?: boolean;
   wa_opt_in_source?: string | null;
