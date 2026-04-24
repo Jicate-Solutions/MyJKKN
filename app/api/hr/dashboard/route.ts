@@ -67,8 +67,10 @@ export async function GET(request: NextRequest) {
 
     const isSuperAdmin = !!profile?.is_super_admin;
     const role = (profile?.role as string | undefined) ?? '';
+    // Real HR role_keys on production: hr_admin, hr_manager, hr_head.
+    // 'hr_officer' is NOT a custom_roles row — it only exists as the internal
+    // `viewer_role` normalisation below (HR-operator role bucket).
     const isHROfficer =
-      role === 'hr_officer' ||
       role === 'hr_admin' ||
       role === 'hr_manager' ||
       role === 'hr_head';
@@ -86,12 +88,13 @@ export async function GET(request: NextRequest) {
 
     // display_role gives the UI a human label matching the exact role_key,
     // since viewer_role normalises hr_head/hr_admin/hr_manager → 'hr_officer'.
+    // Note: 'hr_officer' is not a real custom_roles.role_key, so it is not
+    // included here — the viewer_role fallback below covers that label.
     const ROLE_DISPLAY_LABELS: Record<string, string> = {
       super_admin: 'Super Admin',
       hr_head: 'HR Head',
       hr_admin: 'HR Admin',
       hr_manager: 'HR Manager',
-      hr_officer: 'HR Officer',
       director: 'Director',
       admin: 'Admin',
     };
