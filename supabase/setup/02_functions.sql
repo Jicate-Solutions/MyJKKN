@@ -9236,3 +9236,112 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+-- =====================================================================
+-- Updated: 2026-04-24 - Admission lead auto-assignment to counselors
+-- Context: Pre-2026-04-24 no trigger existed to route new leads to an
+-- admission_counselor. Result: 492 real prospects (inbound_call/walk_in/
+-- referral/website) sat with counselor_id=NULL for up to 50 days across
+-- 8 colleges, plus 6,537 education_fair bulk-import leads. This trigger
+-- closes the gap for all FUTURE leads. See also
+-- fn_backfill_unassigned_admission_leads() for the one-time 492 catch-up.
+-- =====================================================================
+CREATE OR REPLACE FUNCTION fn_auto_assign_counselor()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $fn_aac$
+DECLARE
+  v_counselor_id UUID;
+BEGIN
+  -- Respect explicit assignments (e.g. CRM import with counselor already chosen)
+  IF NEW.counselor_id IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Can't route without institution
+  IF NEW.institution_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Pick least-loaded active counselor in the institution.
+  -- Tie-break randomly so equal-load counselors distribute evenly.
+  -- Wrapped in EXCEPTION so an assignment failure NEVER blocks lead creation.
+  BEGIN
+    SELECT c.id INTO v_counselor_id
+    FROM admission_counselors c
+    LEFT JOIN admission_leads al
+      ON al.counselor_id = c.id
+      AND al.funnel_stage NOT IN ('enrolled','confirmed','declined','withdrew','expired','lost','dormant')
+    WHERE c.institution_id = NEW.institution_id
+      AND c.is_active = TRUE
+    GROUP BY c.id
+    ORDER BY COUNT(al.id) ASC, RANDOM()
+    LIMIT 1;
+  EXCEPTION WHEN OTHERS THEN
+    v_counselor_id := NULL;
+  END;
+
+  IF v_counselor_id IS NOT NULL THEN
+    NEW.counselor_id := v_counselor_id;
+  END IF;
+  -- If still NULL: lead lands with counselor_id=NULL, funnel_stage='new'.
+  -- Those rows surface in v_institutions_needing_admission_counselors (05_views.sql)
+  -- so Director can see which colleges need staffing.
+
+  RETURN NEW;
+END $fn_aac$;
+
+REVOKE ALL ON FUNCTION fn_auto_assign_counselor() FROM PUBLIC, anon, authenticated;
+-- Trigger fires via table OWNER permissions; service_role grant for completeness.
+GRANT EXECUTE ON FUNCTION fn_auto_assign_counselor() TO service_role;
+
+-- One-shot backfill for the 492 real prospects (inbound_call/walk_in/referral/website/other).
+-- DELIBERATELY EXCLUDES source='education_fair' (6,537 one-day expo dump — needs
+-- separate audit by Director before bulk-assigning).
+CREATE OR REPLACE FUNCTION fn_backfill_unassigned_admission_leads()
+RETURNS TABLE (
+  lead_id UUID,
+  institution_id UUID,
+  source TEXT,
+  assigned_to UUID,
+  status TEXT
+) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $fn_bfa$
+DECLARE
+  v_lead RECORD;
+  v_counselor_id UUID;
+BEGIN
+  -- Access-controlled via REVOKE PUBLIC/anon/authenticated + GRANT service_role.
+  -- No auth.uid() check because Management API callers are already service_role.
+  FOR v_lead IN
+    SELECT al.id, al.institution_id, al.source
+    FROM admission_leads al
+    WHERE al.counselor_id IS NULL
+      AND al.funnel_stage = 'new'
+      AND al.source IN ('inbound_call','walk_in','referral','website','other')
+    ORDER BY al.created_at ASC
+  LOOP
+    -- Same assignment logic as the trigger
+    SELECT c.id INTO v_counselor_id
+    FROM admission_counselors c
+    LEFT JOIN admission_leads al2
+      ON al2.counselor_id = c.id
+      AND al2.funnel_stage NOT IN ('enrolled','confirmed','declined','withdrew','expired','lost','dormant')
+    WHERE c.institution_id = v_lead.institution_id
+      AND c.is_active = TRUE
+    GROUP BY c.id
+    ORDER BY COUNT(al2.id) ASC, RANDOM()
+    LIMIT 1;
+
+    IF v_counselor_id IS NOT NULL THEN
+      UPDATE admission_leads
+      SET counselor_id = v_counselor_id
+      WHERE id = v_lead.id;
+      RETURN QUERY SELECT v_lead.id, v_lead.institution_id, v_lead.source::TEXT, v_counselor_id, 'assigned'::TEXT;
+    ELSE
+      -- No UPDATE needed: the row stays counselor_id=NULL, already surfaces
+      -- in v_institutions_needing_admission_counselors.
+      RETURN QUERY SELECT v_lead.id, v_lead.institution_id, v_lead.source::TEXT, NULL::UUID, 'no_counselor_in_institution'::TEXT;
+    END IF;
+  END LOOP;
+END $fn_bfa$;
+
+REVOKE ALL ON FUNCTION fn_backfill_unassigned_admission_leads() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_backfill_unassigned_admission_leads() TO service_role;

@@ -936,3 +936,14 @@ CREATE TRIGGER trg_validate_learner_admission_year_scope
   ON public.learners_profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.validate_learner_admission_year_scope();
+
+-- =====================================================================
+-- Updated: 2026-04-24 - Auto-assign counselor on admission_leads INSERT
+-- Pairs with fn_auto_assign_counselor() in 02_functions.sql.
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_admission_leads_auto_assign_counselor ON admission_leads;
+
+CREATE TRIGGER trg_admission_leads_auto_assign_counselor
+  BEFORE INSERT ON admission_leads
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_auto_assign_counselor();
