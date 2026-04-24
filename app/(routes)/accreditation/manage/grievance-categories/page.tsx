@@ -8,9 +8,10 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
@@ -37,6 +38,7 @@ import {
   type GrievanceCategoryInput,
 } from '@/lib/services/grievance/grievance-category-service';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 
 const ASSIGNEE_ROLES = ['admin', 'principal', 'hod', 'staff'] as const;
 
@@ -169,16 +171,64 @@ export const navMeta = {
   invokedFrom: '/accreditation',
 } as const;
 
+// Institution row shape for the super-admin picker — only iqac-coded, active
+// JKKN colleges are pickable (the 8 institutions that have seeded categories).
+// Admin / shared / testing institutions are excluded because they have no
+// accreditation footprint.
+interface IqacInstitution {
+  id: string;
+  name: string;
+  iqac_code: string;
+}
+
+async function fetchIqacInstitutions(): Promise<IqacInstitution[]> {
+  const supabase = createClientSupabaseClient();
+  const { data, error } = await (supabase as any)
+    .from('institutions')
+    .select('id, name, iqac_code')
+    .not('iqac_code', 'is', null)
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as IqacInstitution[];
+}
+
 export default function GrievanceCategoriesPage() {
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id ?? '';
+  const { isSuperAdmin } = usePermissions();
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
 
+  // Super-admin institution picker. Non-super users always see their own
+  // institution's categories (profile.institution_id). Super admins see a
+  // dropdown of the 8 iqac-coded colleges and can switch between them, since
+  // their profile's institution_id (Main Office / Testing) has no seeded
+  // categories and would otherwise show an empty state.
+  const { data: pickableInstitutions = [] } = useQuery({
+    queryKey: ['grievance-categories', 'iqac-institutions'],
+    queryFn: fetchIqacInstitutions,
+    enabled: isSuperAdmin,
+  });
+
+  const [pickedInstId, setPickedInstId] = useState<string>('');
+
+  // Default super-admin's selection to the first iqac-coded institution once
+  // the list loads. Runs once per mount (pickableInstitutions stable by id).
+  useEffect(() => {
+    if (isSuperAdmin && !pickedInstId && pickableInstitutions.length > 0) {
+      setPickedInstId(pickableInstitutions[0].id);
+    }
+  }, [isSuperAdmin, pickedInstId, pickableInstitutions]);
+
+  const effectiveInstitutionId = useMemo(
+    () => (isSuperAdmin ? pickedInstId : profile?.institution_id ?? ''),
+    [isSuperAdmin, pickedInstId, profile?.institution_id]
+  );
+
   const { data: items = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['grievance-categories', institutionId],
-    queryFn: () => GrievanceCategoryService.list(institutionId),
-    enabled: !!institutionId,
+    queryKey: ['grievance-categories', effectiveInstitutionId],
+    queryFn: () => GrievanceCategoryService.list(effectiveInstitutionId),
+    enabled: !!effectiveInstitutionId,
   });
 
   const columns: ColumnDef<GrievanceCategoryRow>[] = [
@@ -210,7 +260,7 @@ export default function GrievanceCategoriesPage() {
           entityDisplayName={(e) => e.name}
           onDelete={async (id) => {
             await GrievanceCategoryService.delete(id);
-            qc.invalidateQueries({ queryKey: ['grievance-categories', institutionId] });
+            qc.invalidateQueries({ queryKey: ['grievance-categories', effectiveInstitutionId] });
           }}
           EditDialog={({ open, onOpenChange, entity }) => (
             <CategoryFormDialog
@@ -218,7 +268,7 @@ export default function GrievanceCategoriesPage() {
               onOpenChange={onOpenChange}
               mode="edit"
               entity={entity}
-              institutionId={institutionId}
+              institutionId={effectiveInstitutionId}
             />
           )}
         />
@@ -238,7 +288,7 @@ export default function GrievanceCategoriesPage() {
         />
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div>
                 <CardTitle className="text-lg">Grievance Categories</CardTitle>
                 <p className="text-sm text-muted-foreground">
@@ -246,11 +296,35 @@ export default function GrievanceCategoriesPage() {
                   are protected from deletion but can be relabeled or reconfigured.
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-end gap-2">
+                {isSuperAdmin && (
+                  <div className="w-64">
+                    <Label className="text-xs">Institution</Label>
+                    <Select
+                      value={pickedInstId}
+                      onValueChange={setPickedInstId}
+                      disabled={pickableInstitutions.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Pick an institution…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pickableInstitutions.map((inst) => (
+                          <SelectItem key={inst.id} value={inst.id}>
+                            {inst.name} ({inst.iqac_code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <Button variant="outline" asChild>
                   <Link href="/accreditation/naac/grievance">View Tickets</Link>
                 </Button>
-                <Button onClick={() => setShowCreate(true)}>
+                <Button
+                  onClick={() => setShowCreate(true)}
+                  disabled={!effectiveInstitutionId}
+                >
                   <Plus className="mr-2 h-4 w-4" /> New Category
                 </Button>
               </div>
@@ -274,7 +348,7 @@ export default function GrievanceCategoriesPage() {
           open={showCreate}
           onOpenChange={setShowCreate}
           mode="create"
-          institutionId={institutionId}
+          institutionId={effectiveInstitutionId}
         />
       </ContentLayout>
     </PermissionGuard>
