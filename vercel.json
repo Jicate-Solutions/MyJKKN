@@ -54,6 +54,10 @@
     {
       "path": "/api/cron/grievance-sla-breach-check?secret=${CRON_SECRET}",
       "schedule": "23 * * * *"
+    },
+    {
+      "path": "/api/cron/generate-daily-briefings",
+      "schedule": "30 0 * * *"
     }
   ]
 }
