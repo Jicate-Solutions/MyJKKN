@@ -482,7 +482,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <CardDescription>
                 {viewMode === 'all'
                   ? `${total} incoming call${total !== 1 ? 's' : ''}`
-                  : `${callerSummary.unique_callers} unique callers from ${callerSummary.total_calls} calls`
+                  : `${callerSummary.unique_callers} unconverted callers from ${callerSummary.total_calls} calls`
                 }
               </CardDescription>
             </div>
@@ -565,9 +565,12 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <>
                 {/* Summary Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                  <div
+                    className="p-3 rounded-lg bg-muted/50 text-center"
+                    title="Unique phone numbers (E.164-normalized) whose calls are not yet linked to an admission lead. Converted callers appear in the Leads list instead."
+                  >
                     <p className="text-2xl font-bold">{callerSummary.unique_callers}</p>
-                    <p className="text-xs text-muted-foreground">Unique Callers</p>
+                    <p className="text-xs text-muted-foreground">Unconverted Callers</p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/50 text-center">
                     <p className="text-2xl font-bold">{callerSummary.avg_attempts_per_caller}</p>
@@ -676,11 +679,12 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           </TableCell>
                           <TableCell>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(caller.last_call_at).toLocaleDateString(undefined, {
+                              {new Date(caller.last_call_at).toLocaleDateString('en-IN', {
                                 month: 'short',
                                 day: 'numeric',
                                 hour: '2-digit',
                                 minute: '2-digit',
+                                timeZone: 'Asia/Kolkata',
                               })}
                             </span>
                           </TableCell>
