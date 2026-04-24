@@ -26,30 +26,13 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import {
-  ROUTE_MANIFEST,
-  type RouteNode,
-} from '@/lib/navigation/route-manifest.generated';
-import {
-  getNavConfigForPath,
-  findActiveGroup,
-  warnOnCrowdedTier,
-  type ModuleNavConfig,
-  type ModuleNavGroup,
-} from '@/lib/navigation/nav-config';
+import { resolveTiers, type Chip } from '@/lib/navigation/tier-rendering';
 import { cn } from '@/lib/utils';
 
 interface AutoTabNavProps {
   maxDepth?: number;
   minDepth?: number;
   className?: string;
-}
-
-interface Chip {
-  href: string;
-  label: string;
-  iconName: string;
-  isActive: boolean;
 }
 
 function getIcon(iconName: string): LucideIcon {
@@ -115,149 +98,6 @@ function TabBar({ chips }: { chips: Chip[] }) {
   );
 }
 
-/**
- * Walk the manifest to a URL prefix and return the node plus its children.
- *   walkManifestAt('/work-pulse')
- *     → { node: <work-pulse>, children: [<my-pulse>, <agents>, <all>, <impact>] }
- *
- * Use `children` to answer "what are the children of this path?" — which is
- * what callers building a tier-2+ sibling chips need (tier-N siblings =
- * tier-(N-1) parent's children).
- */
-function walkManifestAt(
-  urlPrefix: string
-): { node: RouteNode | null; children: RouteNode[] } {
-  const segments = urlPrefix.split('/').filter(Boolean);
-  if (segments.length === 0) return { node: null, children: ROUTE_MANIFEST };
-  let level: RouteNode[] = ROUTE_MANIFEST;
-  let node: RouteNode | null = null;
-  let accum = '';
-  for (const seg of segments) {
-    accum += `/${seg}`;
-    const found = level.find((n) => n.path === accum);
-    if (!found) return { node: null, children: [] };
-    node = found;
-    level = found.children;
-  }
-  return { node, children: node?.children ?? [] };
-}
-
-/** Flat manifest-derived chips at the given URL depth. */
-function flatTierChips(
-  pathname: string,
-  depth: number
-): { chips: Chip[]; rawSiblings: number; parentPrefix: string } | null {
-  const segments = pathname.split('/').filter(Boolean);
-  // Allow depth === segments.length + 1 so AutoTabNav renders CHILDREN of the
-  // current leaf as chips (e.g. on /admission/marketing/expos, show Analytics
-  // + Masters as tier-4 chips). Users can't discover children of the current
-  // page otherwise — matchPaths only handles active-state, not chip rendering.
-  if (depth < 1 || depth > segments.length + 1) return null;
-
-  const parentPrefix =
-    depth === 1 ? '' : '/' + segments.slice(0, depth - 1).join('/');
-  const activeSeg = segments[depth - 1]; // may be undefined when rendering children-of-leaf
-  const activeHref = activeSeg ? parentPrefix + '/' + activeSeg : null;
-
-  const siblings: RouteNode[] =
-    depth === 1
-      ? ROUTE_MANIFEST
-      : walkManifestAt(parentPrefix).children;
-
-  if (siblings.length === 0) return null;
-
-  return {
-    chips: siblings.map((n) => ({
-      href: n.path,
-      label: n.label,
-      iconName: n.iconName,
-      isActive: activeHref !== null && n.path === activeHref,
-    })),
-    rawSiblings: siblings.length,
-    parentPrefix: parentPrefix || '/',
-  };
-}
-
-function groupedTier2(
-  config: ModuleNavConfig,
-  activeGroup: ModuleNavGroup | null
-): Chip[] {
-  return config.groups.map((g) => ({
-    href: g.href,
-    label: g.label,
-    iconName: g.icon,
-    isActive: activeGroup?.href === g.href,
-  }));
-}
-
-/**
- * For config-grouped modules, compute deeper tiers by walking the manifest.
- * `startDepth` controls where we start — tier-3 when no explicit children
- * were rendered, tier-4 when the config's group already contributed tier-3.
- */
-function deeperTiersFromManifest(pathname: string, startDepth = 3): Chip[][] {
-  const out: Chip[][] = [];
-  const segments = pathname.split('/').filter(Boolean);
-  for (let d = startDepth; d <= segments.length + 1; d++) {
-    const tier = flatTierChips(pathname, d);
-    if (!tier) continue;
-    if (tier.chips.length < 2) continue;
-    out.push(tier.chips);
-    if (tier.rawSiblings > 12) {
-      warnOnCrowdedTier(tier.parentPrefix, tier.rawSiblings);
-    }
-  }
-  return out;
-}
-
-function resolveTiers(pathname: string): Chip[][] {
-  const config = getNavConfigForPath(pathname);
-
-  if (config) {
-    const activeGroup = findActiveGroup(pathname, config);
-    const tiers: Chip[][] = [groupedTier2(config, activeGroup)];
-
-    if (activeGroup?.children && activeGroup.children.length > 0) {
-      // Tier 3 from explicit children (e.g. Marketing's Campaigns/Messaging/…).
-      tiers.push(
-        activeGroup.children.map((c) => {
-          // Active if pathname matches href OR any of the extra matchPaths.
-          const pathsToCheck = [c.href, ...(c.matchPaths ?? [])];
-          const isActive = pathsToCheck.some((p) =>
-            c.exact ? pathname === p : pathname === p || pathname.startsWith(p + '/')
-          );
-          return {
-            href: c.href,
-            label: c.label,
-            iconName: c.icon,
-            isActive,
-          };
-        })
-      );
-      // Tier 4+ continues to drill from the manifest so users can still
-      // navigate the leaves under the explicit tier-3 group (e.g. Monitor
-      // / ROI / Segments under Marketing's Campaigns).
-      tiers.push(...deeperTiersFromManifest(pathname, 4));
-    } else if (activeGroup) {
-      tiers.push(...deeperTiersFromManifest(pathname));
-    }
-    return tiers.filter((t) => t.length >= 2);
-  }
-
-  // Flat fallback
-  const out: Chip[][] = [];
-  const depth = pathname.split('/').filter(Boolean).length;
-  for (let d = 2; d <= Math.max(depth + 1, 2); d++) {
-    const tier = flatTierChips(pathname, d);
-    if (!tier) continue;
-    if (tier.chips.length < 2) continue;
-    out.push(tier.chips);
-    if (tier.rawSiblings > 12) {
-      warnOnCrowdedTier(tier.parentPrefix, tier.rawSiblings);
-    }
-  }
-  return out;
-}
 
 export function AutoTabNav({
   maxDepth = 4,

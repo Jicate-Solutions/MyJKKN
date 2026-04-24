@@ -18,7 +18,8 @@
     "check:permissions": "node scripts/check-permissions-catalog.mjs",
     "check:menu-coverage": "node scripts/check-menu-permissions-coverage.mjs",
     "check:menus": "npm run check:permissions && npm run check:menu-coverage",
-    "check:nav": "node scripts/assert-nav-coverage.mjs --max-unverified 5"
+    "check:nav": "node scripts/assert-nav-coverage.mjs --max-unverified 5",
+    "check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 101"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
