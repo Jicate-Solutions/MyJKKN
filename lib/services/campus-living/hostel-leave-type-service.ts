@@ -201,6 +201,21 @@ export class HostelLeaveTypeService {
     return { success, failed };
   }
 
+  /**
+   * Checks whether a leave_type_code is already used within an institution
+   * (or across all institutions when called by super_admin with
+   * institutionId=undefined).
+   *
+   * Conventions:
+   * - `institutionId: string | undefined` + truthy-guard on `.eq()` matches the
+   *   campus-living service convention locked 2026-04-23 (empty-UUID blitz,
+   *   PRs #358/#362/#363/#366). Prevents `invalid input syntax for type uuid`
+   *   crash when a super_admin session (institution_id=null) hits this path.
+   *   See memory: feedback_service_institution_id_signature_convention.md.
+   * - `.maybeSingle()` matches PR #446 convention: read paths that may return
+   *   0 rows must not throw PGRST116. A "code exists" check CAN return 0 rows
+   *   — that's the whole point.
+   */
   static async isHostelLeaveTypeCodeExists(
     institutionId: string | undefined,
     code: string,
@@ -209,14 +224,15 @@ export class HostelLeaveTypeService {
     let q = this.supabase
       .from('hostel_leave_types')
       .select('id')
-      .eq('institution_id', institutionId)
       .eq('leave_type_code', code);
+    if (institutionId) q = q.eq('institution_id', institutionId);
     if (excludeId) q = q.neq('id', excludeId);
-    const { data, error } = await q;
+    q = q.limit(1);
+    const { data, error } = await q.maybeSingle();
     if (error) {
       logger.error('campus-living/leave-types', 'Error checking code exists', error);
       return false;
     }
-    return (data?.length ?? 0) > 0;
+    return data !== null;
   }
 }
