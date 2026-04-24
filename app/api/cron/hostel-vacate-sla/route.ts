@@ -17,13 +17,20 @@ import type { StageDefinition } from '@/types/approval-chain';
  * service role + bypasses RLS.
  *
  * Schedule in vercel.json: every 6 hours (72h SLA tolerates this resolution).
- * Auth: CRON_SECRET query parameter.
+ * Auth: CRON_SECRET via `Authorization: Bearer <secret>` header (Vercel cron)
+ * OR `?secret=` query param (manual runs).
  */
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    console.warn('[cron/hostel-vacate-sla] CRON_SECRET not configured');
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const authHeader = request.headers.get('authorization');
+  const querySecret = request.nextUrl.searchParams.get('secret');
+  if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
     console.warn('[cron/hostel-vacate-sla] Unauthorized attempt');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
