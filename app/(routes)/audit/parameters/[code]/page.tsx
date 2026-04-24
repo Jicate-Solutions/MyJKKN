@@ -4,14 +4,16 @@
 // Sections:
 //   - Overview (name, description, group, status)
 //   - Framework Mapping (per-body criterion codes, block layout)
-//   - Discovery Query (readonly code block + "Run Query" button)
+//   - Discovery Query (readonly code block + cycle/institution picker + Run Query +
+//                     paginated results table + client-side CSV export)
 //   - Evidence Required checklist
 //   - Owner Routing (default + escalation + SLA)
 //   - Institution Overrides list (parameters with this code but institution_id set)
 //
-// The "Run Query" POSTs to /api/audit/parameters/[code]/run-query if the route
-// exists. Sprint 01 ships the catalog + this detail view; the run-query route
-// is a later deliverable — we display a "Coming soon" toast when 404.
+// "Run Query" POSTs to /api/audit/parameters/[code]/run-query with
+// {cycle_id, institution_id, page, page_size}. Results render in a 100-row
+// paginated table (Thrash T4). Export CSV is client-side from the fetched
+// page — Agent D's /export-query streams full-dataset CSV in a sibling PR.
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -31,18 +33,22 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
   ArrowLeft,
-  PlayCircle,
   Clock,
   UserCircle,
-  Building2,
-  Loader2
+  Building2
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { FrameworkMappingDisplay } from '../../_components/parameters/framework-mapping-display';
 import { EvidenceRequiredList } from '../../_components/parameters/evidence-required-list';
-import type { AuditParameterCatalogRow } from '@/lib/types/audit';
+import { RunQueryControls } from '../../_components/parameters/run-query-controls';
+import { RunQueryResultsTable } from '../../_components/parameters/run-query-results-table';
+import { useRunDiscoveryQuery } from '@/hooks/audit/use-audit-discovery';
+import type {
+  AuditParameterCatalogRow
+} from '@/lib/types/audit';
+import type { DiscoveryQueryResult } from '@/lib/services/audit';
 
 const GROUP_LABELS: Record<number, string> = {
   1: 'Academic / Curricular',
@@ -77,42 +83,57 @@ export default function AuditParameterDetailPage() {
   const systemRow = rows.find((r) => r.institution_id === null);
   const overrides = rows.filter((r) => r.institution_id !== null);
 
-  const [isRunning, setIsRunning] = useState(false);
+  // Run-query state. `result` holds the latest DiscoveryQueryResult from the
+  // API; `page` drives both the pagination component AND the next mutation.
+  const [cycleId, setCycleId] = useState<string | undefined>(undefined);
+  const [institutionId, setInstitutionId] = useState<string | undefined>(
+    undefined
+  );
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState<DiscoveryQueryResult | null>(null);
 
-  const handleRunQuery = async () => {
+  const runQuery = useRunDiscoveryQuery();
+
+  const executeQuery = (nextPage: number) => {
     if (!systemRow?.discovery_query_sql && !systemRow?.discovery_query_ai) {
       toast.error('This parameter has no discovery query defined.');
       return;
     }
-    setIsRunning(true);
-    try {
-      const res = await fetch(
-        `/api/audit/parameters/${encodeURIComponent(code)}/run-query`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
-        }
-      );
-      if (res.status === 404) {
-        toast('Run-Query endpoint coming soon in a later sprint.', {
-          icon: 'ℹ️'
-        });
-        return;
-      }
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(body || `HTTP ${res.status}`);
-      }
-      toast.success('Discovery query executed.');
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : 'Failed to run discovery query'
-      );
-    } finally {
-      setIsRunning(false);
+    if (!cycleId || !institutionId) {
+      toast.error('Select a cycle and institution before running the query.');
+      return;
     }
+    runQuery.mutate(
+      {
+        parameter_code: code,
+        cycle_id: cycleId,
+        institution_id: institutionId,
+        page: nextPage,
+        page_size: 100
+      },
+      {
+        onSuccess: (data) => {
+          setResult(data);
+          setPage(nextPage);
+          toast.success(
+            `Discovery query returned ${data.total_count.toLocaleString()} row${
+              data.total_count === 1 ? '' : 's'
+            }.`
+          );
+        },
+        onError: (err) => {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : 'Failed to run discovery query'
+          );
+        }
+      }
+    );
   };
+
+  const handleRunQuery = () => executeQuery(1);
+  const handlePageChange = (nextPage: number) => executeQuery(nextPage);
 
   return (
     <PermissionGuard module='audit' action='parameter.view'>
@@ -167,8 +188,16 @@ export default function AuditParameterDetailPage() {
               <FrameworkMappingCard row={systemRow} />
               <DiscoveryQueryCard
                 row={systemRow}
-                isRunning={isRunning}
+                cycleId={cycleId}
+                institutionId={institutionId}
+                onCycleChange={setCycleId}
+                onInstitutionChange={setInstitutionId}
                 onRun={handleRunQuery}
+                isRunning={runQuery.isPending}
+                result={result}
+                page={page}
+                onPageChange={handlePageChange}
+                parameterCode={code}
               />
               <EvidenceCard row={systemRow} />
               <OwnerRoutingCard row={systemRow} />
@@ -243,36 +272,37 @@ function FrameworkMappingCard({ row }: { row: AuditParameterCatalogRow }) {
 
 function DiscoveryQueryCard({
   row,
+  cycleId,
+  institutionId,
+  onCycleChange,
+  onInstitutionChange,
+  onRun,
   isRunning,
-  onRun
+  result,
+  page,
+  onPageChange,
+  parameterCode
 }: {
   row: AuditParameterCatalogRow;
-  isRunning: boolean;
+  cycleId: string | undefined;
+  institutionId: string | undefined;
+  onCycleChange: (value: string) => void;
+  onInstitutionChange: (value: string) => void;
   onRun: () => void;
+  isRunning: boolean;
+  result: DiscoveryQueryResult | null;
+  page: number;
+  onPageChange: (page: number) => void;
+  parameterCode: string;
 }) {
   const hasSql = !!row.discovery_query_sql;
   const hasAi = !!row.discovery_query_ai;
   return (
     <Card>
       <CardHeader>
-        <div className='flex items-center justify-between gap-2 flex-wrap'>
-          <CardTitle className='text-base'>Discovery Query</CardTitle>
-          <Button
-            type='button'
-            size='sm'
-            onClick={onRun}
-            disabled={isRunning || (!hasSql && !hasAi)}
-          >
-            {isRunning ? (
-              <Loader2 className='h-4 w-4 mr-2 animate-spin' />
-            ) : (
-              <PlayCircle className='h-4 w-4 mr-2' />
-            )}
-            Run Query
-          </Button>
-        </div>
+        <CardTitle className='text-base'>Discovery Query</CardTitle>
       </CardHeader>
-      <CardContent className='space-y-3'>
+      <CardContent className='space-y-4'>
         {hasAi && (
           <div>
             <div className='text-xs text-muted-foreground mb-1'>AI prompt</div>
@@ -291,6 +321,34 @@ function DiscoveryQueryCard({
           <p className='text-sm text-muted-foreground'>
             No discovery query defined for this parameter.
           </p>
+        )}
+
+        {(hasSql || hasAi) && (
+          <>
+            <div className='border-t pt-4'>
+              <RunQueryControls
+                cycleId={cycleId}
+                institutionId={institutionId}
+                onCycleChange={onCycleChange}
+                onInstitutionChange={onInstitutionChange}
+                onRun={onRun}
+                isRunning={isRunning}
+                disabled={!hasSql && !hasAi}
+              />
+            </div>
+            {result && (
+              <RunQueryResultsTable
+                rows={result.rows}
+                totalCount={result.total_count}
+                page={page}
+                pageSize={result.page_size}
+                onPageChange={onPageChange}
+                isLoading={isRunning}
+                parameterCode={parameterCode}
+                warning={result.warning}
+              />
+            )}
+          </>
         )}
       </CardContent>
     </Card>
