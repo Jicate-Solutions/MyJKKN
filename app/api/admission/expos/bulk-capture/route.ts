@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 // Uses service role client to bypass RLS and avoid the 8-second PostgREST timeout.
 // Processes inserts in small batches (100 rows) for reliability.
 // Checks team membership before allowing capture.
+// Updated: 2026-04-24 — Added institution/program name resolution, twelfth_group, visit_type.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
@@ -14,21 +15,23 @@ export const maxDuration = 60;
 
 const BATCH_SIZE = 100;
 
-/** Clean a phone string down to digits, stripping +91 / 0 prefix */
 function cleanPhone(raw: string): string {
   return raw.replace(/[\s\-()]/g, '').replace(/^(\+91|0)/, '');
 }
 
-/** Validate Indian mobile number: 10 digits starting with 6-9 */
 function isValidIndianPhone(phone: string): boolean {
   const clean = phone.replace(/[\s\-()]/g, '');
   return /^(\+91|0)?[6-9]\d{9}$/.test(clean);
 }
 
+/** Strip "Institution — " prefix that the Excel dropdown injects into program names */
+function stripInstPrefix(raw: string): string {
+  return raw.includes(' — ') ? raw.split(' — ').slice(1).join(' — ').trim() : raw.trim();
+}
+
 export async function POST(request: NextRequest) {
   await connection();
 
-  // Verify auth
   const { user, error: authError } = await getAuthUser();
   if (authError || !user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -53,7 +56,6 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceRoleClient();
 
     // ── Verify team membership ──────────────────────────────────────────
-    // Since we're using service role, we do a direct check on the expo_event_team_members table.
     const { data: teamCheck, error: teamError } = await (supabase as any)
       .from('expo_event_team_members')
       .select('id')
@@ -70,22 +72,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (!teamCheck || teamCheck.length === 0) {
-      // Also allow admins and admission role users
       const { data: profileCheck } = await (supabase as any)
         .from('profiles')
         .select('role, is_super_admin')
         .eq('id', capturedBy)
         .single();
 
-      // Check custom roles for admission permission
       const { data: userRoles } = await (supabase as any)
         .from('user_roles')
         .select('role_id, custom_roles!inner(role_key, permissions)')
         .eq('user_id', capturedBy);
 
-      const isAdmin = profileCheck?.is_super_admin === true || profileCheck?.role === 'super_admin' || profileCheck?.role === 'admin';
+      const isAdmin = profileCheck?.is_super_admin === true
+        || profileCheck?.role === 'super_admin'
+        || profileCheck?.role === 'admin';
 
-      // Check custom roles for admission permission dynamically
       const isAdmissionRole = isAdmin || (userRoles || []).some(
         (ur: any) => ur.custom_roles?.permissions?.['admission.leads.create'] === true
           || ur.custom_roles?.role_key === 'admission'
@@ -99,16 +100,49 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Fetch existing phones for duplicate detection ───────────────────
-    // Pull all phones for this institution to detect duplicates efficiently
-    const { data: existingLeads, error: existingError } = await (supabase as any)
-      .from('admission_leads')
-      .select('phone')
-      .eq('institution_id', institutionId);
+    // ── Pre-fetch lookup tables for name resolution ─────────────────────
+    const [
+      { data: allInstitutions },
+      { data: allPrograms },
+      { data: existingLeads },
+    ] = await Promise.all([
+      (supabase as any).from('institutions').select('id, name').eq('is_active', true),
+      (supabase as any).from('programs').select('id, program_name, display_name, institution_id').eq('is_active', true),
+      (supabase as any).from('admission_leads').select('phone').eq('institution_id', institutionId),
+    ]);
 
-    if (existingError) {
-      console.error('[admission/expos] Failed to fetch existing leads for dedup:', existingError);
-    }
+    // Build case-insensitive lookup maps
+    const institutionByName = new Map<string, string>(
+      (allInstitutions || []).map((i: { id: string; name: string }) => [
+        i.name.toLowerCase().trim(),
+        i.id,
+      ])
+    );
+
+    // Programs indexed by name (display_name preferred) — value is { id, institution_id }
+    const programByName = new Map<string, { id: string; institution_id: string }>(
+      (allPrograms || []).map((p: {
+        id: string;
+        program_name: string;
+        display_name: string | null;
+        institution_id: string;
+      }) => [
+        (p.display_name || p.program_name).toLowerCase().trim(),
+        { id: p.id, institution_id: p.institution_id },
+      ])
+    );
+    // Also index by program_name as fallback
+    (allPrograms || []).forEach((p: {
+      id: string;
+      program_name: string;
+      display_name: string | null;
+      institution_id: string;
+    }) => {
+      const key = p.program_name.toLowerCase().trim();
+      if (!programByName.has(key)) {
+        programByName.set(key, { id: p.id, institution_id: p.institution_id });
+      }
+    });
 
     const existingPhones = new Set<string>(
       (existingLeads || []).map((l: { phone: string }) => cleanPhone(l.phone))
@@ -122,14 +156,13 @@ export async function POST(request: NextRequest) {
 
     for (let i = 0; i < leads.length; i++) {
       const lead = leads[i];
-      const rowNum = i + 2; // +2 for 1-indexed + header row
+      const rowNum = i + 2;
 
       const name = (lead.name || '').trim();
       const phone = (lead.phone || '').trim();
       const parentName = (lead.parent_name || '').trim();
       const parentPhone = (lead.parent_phone || '').trim();
 
-      // Required field validation
       if (!name) {
         errors.push({ row: rowNum, message: 'Name is required' });
         continue;
@@ -147,34 +180,76 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Duplicate check
       const cleanedPhone = cleanPhone(phone);
       if (existingPhones.has(cleanedPhone)) {
         duplicates++;
         continue;
       }
-
-      // Mark as seen for intra-batch dedup
       existingPhones.add(cleanedPhone);
 
-      // Split name into first/last
+      // ── Resolve institution ───────────────────────────────────────────
+      let resolvedInstitutionId = institutionId; // fallback: expo's institution
+      const institutionNameRaw = (lead.institution_name || '').trim();
+      if (institutionNameRaw) {
+        const found = institutionByName.get(institutionNameRaw.toLowerCase());
+        if (found) resolvedInstitutionId = found;
+      }
+
+      // ── Resolve programs ──────────────────────────────────────────────
+      const programIds: string[] = [];
+      for (const key of ['program_1', 'program_2', 'program_3'] as const) {
+        const raw = (lead[key] || '').trim();
+        if (!raw) continue;
+
+        // Strip the "Institution — " prefix that the Excel dropdown adds
+        const cleanName = stripInstPrefix(raw).toLowerCase();
+
+        let match = programByName.get(cleanName);
+
+        // If no exact match, try substring match within the resolved institution
+        if (!match) {
+          for (const [name, prog] of programByName.entries()) {
+            if (name.includes(cleanName) || cleanName.includes(name)) {
+              if (!resolvedInstitutionId || prog.institution_id === resolvedInstitutionId) {
+                match = prog;
+                break;
+              }
+            }
+          }
+        }
+
+        if (match && !programIds.includes(match.id)) {
+          programIds.push(match.id);
+        }
+      }
+
+      // ── Parse visit_type ──────────────────────────────────────────────
+      const visitRaw = (lead.visit_type || '').toLowerCase().trim();
+      let visitType: string | null = null;
+      if (visitRaw === 'expo_visit' || visitRaw === 'expo visit') visitType = 'expo_visit';
+      else if (visitRaw === 'stall_visit' || visitRaw === 'stall visit') visitType = 'stall_visit';
+
+      // ── Build insert row ──────────────────────────────────────────────
       const nameParts = name.split(/\s+/);
       const firstName = nameParts[0];
       const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
 
-      // Parse wa_opt_in from uploaded data (default true if not specified)
       const waRaw = (lead.wa_opt_in ?? '').toString().toLowerCase().trim();
       const waOptIn = waRaw === '' || ['yes', 'true', '1', 'y'].includes(waRaw);
 
       validRows.push({
-        institution_id: institutionId,
+        institution_id: resolvedInstitutionId,
         first_name: firstName,
         last_name: lastName,
+        full_name: name,
         phone: cleanedPhone,
-        parent_name: parentName ? parentName.trim() : null,
+        parent_name: parentName || null,
         parent_phone: parentPhone ? cleanPhone(parentPhone) : null,
         email: (lead.email || '').trim() || null,
         district: (lead.district || '').trim() || null,
+        twelfth_group: (lead.twelfth_group || '').trim() || null,
+        interested_programs: programIds.length > 0 ? programIds : null,
+        visit_type: visitType,
         notes: (lead.notes || '').trim() || null,
         source: 'education_fair',
         expo_event_id: eventId,
@@ -214,17 +289,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Queue WhatsApp welcome messages for opted-in leads (best-effort) ──
+    // ── Queue WhatsApp welcome messages (best-effort) ───────────────────
     if (inserted > 0) {
       try {
-        // Fetch event name for template params
         const { data: expoEvent } = await (supabase as any)
           .from('expo_events')
           .select('event_name')
           .eq('id', eventId)
           .single();
 
-        // Fetch recently inserted leads with WA consent
         const { data: waLeads } = await (supabase as any)
           .from('admission_leads')
           .select('id, first_name, last_name, phone, parent_phone, parent_name')
@@ -235,7 +308,6 @@ export async function POST(request: NextRequest) {
           .limit(inserted);
 
         if (waLeads && waLeads.length > 0) {
-          // Fire WA welcomes concurrently (non-blocking, capped at 10 parallel)
           const batchSize = 10;
           for (let i = 0; i < waLeads.length; i += batchSize) {
             const waBatch = waLeads.slice(i, i + batchSize);

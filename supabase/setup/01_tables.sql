@@ -4637,3 +4637,9 @@ CREATE INDEX IF NOT EXISTS idx_admission_leads_stall_id
   WHERE stall_id IS NOT NULL;
 
 -- END BUG-003146 per-stall accountability
+
+-- Added: 2026-04-24 — Expo bulk upload visit type (Expo Visit / Stall Visit).
+-- Populated by the bulk capture template Remarks dropdown.
+ALTER TABLE admission_leads
+  ADD COLUMN IF NOT EXISTS visit_type TEXT
+  CHECK (visit_type IN ('expo_visit', 'stall_visit'));
