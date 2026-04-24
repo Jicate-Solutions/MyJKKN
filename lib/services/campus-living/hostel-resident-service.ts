@@ -64,13 +64,13 @@ export class HostelResidentService {
           '*, profile:profiles!hostel_residents_profile_id_fkey(id, full_name, email)'
         )
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/residents', 'Failed to fetch resident', error);
         throw error;
       }
-      return data as HostelResidentWithProfile;
+      return data as HostelResidentWithProfile | null;
     } catch (error) {
       logger.error('campus-living/residents', 'Unexpected error in getResident', error);
       throw error;

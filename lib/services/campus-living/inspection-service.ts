@@ -56,13 +56,13 @@ export class InspectionService {
         .from('hostel_inspections')
         .select('*, hostel_blocks(name, code)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/inspections', 'Failed to fetch inspection', error);
         throw error;
       }
-      return data as HostelInspection & { hostel_blocks: unknown };
+      return data as (HostelInspection & { hostel_blocks: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/inspections', 'Unexpected error in getInspection', error);
       throw error;

@@ -51,13 +51,13 @@ export class HostelLeaveService {
         .from('hostel_leave_requests')
         .select('*, hostel_gate_passes(*)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/leave', 'Failed to fetch leave request', error);
         throw error;
       }
-      return data as HostelLeaveRequest & { hostel_gate_passes: unknown[] };
+      return data as (HostelLeaveRequest & { hostel_gate_passes: unknown[] }) | null;
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in getLeaveRequest', error);
       throw error;
@@ -192,7 +192,7 @@ export class HostelLeaveService {
         .from('hostel_leave_requests')
         .select('chief_warden_required')
         .eq('id', leaveId)
-        .single();
+        .maybeSingle();
 
       const nextStatus = leave?.chief_warden_required ? 'pending_chief' : 'approved';
 
@@ -310,7 +310,7 @@ export class HostelLeaveService {
         .from('hostel_leave_requests')
         .select('parent_consent_otp, parent_consent_otp_expires_at')
         .eq('id', leaveId)
-        .single();
+        .maybeSingle();
 
       if (fetchError) {
         logger.error('campus-living/leave', 'Failed to fetch leave for OTP verification', fetchError);

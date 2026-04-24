@@ -52,13 +52,13 @@ export class IncidentService {
         .from('hostel_incidents')
         .select('*, hostel_incident_parties(*), hostel_blocks(name, code)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/incidents', 'Failed to fetch incident', error);
         throw error;
       }
-      return data as HostelIncident & { hostel_incident_parties: HostelIncidentParty[]; hostel_blocks: unknown };
+      return data as (HostelIncident & { hostel_incident_parties: HostelIncidentParty[]; hostel_blocks: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/incidents', 'Unexpected error in getIncident', error);
       throw error;

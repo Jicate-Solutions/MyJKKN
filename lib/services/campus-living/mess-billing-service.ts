@@ -48,13 +48,13 @@ export class MessBillingService {
         .from('mess_billing_periods')
         .select('*, mess_student_billing(*)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/mess-billing', 'Failed to fetch billing period', error);
         throw error;
       }
-      return data as MessBillingPeriod & { mess_student_billing: MessStudentBilling[] };
+      return data as (MessBillingPeriod & { mess_student_billing: MessStudentBilling[] }) | null;
     } catch (error) {
       logger.error('campus-living/mess-billing', 'Unexpected error in getBillingPeriod', error);
       throw error;
@@ -261,9 +261,12 @@ export class MessBillingService {
         .from('mess_billing_periods')
         .select('start_date, end_date, total_days')
         .eq('id', billingPeriodId)
-        .single();
+        .maybeSingle();
 
       if (periodError) throw periodError;
+      if (!period) {
+        throw new Error(`Billing period ${billingPeriodId} not found.`);
+      }
 
       // Count meal records for the learner in the period
       const { count: mealCount, error: mealError } = await supabase

@@ -79,12 +79,12 @@ export class HealthService {
         .from('hostel_health_cases')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
       if (error) {
         logger.error('campus-living/health', 'Failed to fetch case', error);
         throw error;
       }
-      return data as HostelHealthCase;
+      return data as HostelHealthCase | null;
     } catch (error) {
       logger.error('campus-living/health', 'Unexpected error in getCase', error);
       throw error;

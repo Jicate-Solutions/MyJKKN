@@ -55,13 +55,13 @@ export class HostelWaitlistService {
         .from('hostel_waitlist')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/waitlist', 'Failed to fetch waitlist entry', error);
         throw error;
       }
-      return data as HostelWaitlist;
+      return data as HostelWaitlist | null;
     } catch (error) {
       logger.error('campus-living/waitlist', 'Unexpected error in getWaitlistEntry', error);
       throw error;

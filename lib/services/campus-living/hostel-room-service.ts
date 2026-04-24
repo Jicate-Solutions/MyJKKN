@@ -73,13 +73,13 @@ export class HostelRoomService {
         .from('hostel_rooms')
         .select('*, hostel_beds(*), hostel_blocks(name, code)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/rooms', 'Failed to fetch room', error);
         throw error;
       }
-      return data as HostelRoom & { hostel_beds: unknown[]; hostel_blocks: unknown };
+      return data as (HostelRoom & { hostel_beds: unknown[]; hostel_blocks: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/rooms', 'Unexpected error in getRoom', error);
       throw error;
@@ -156,11 +156,14 @@ export class HostelRoomService {
         .from('hostel_rooms')
         .select('id, room_number, capacity, current_occupancy, status')
         .eq('id', roomId)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/rooms', 'Failed to check availability', error);
         throw error;
+      }
+      if (!data) {
+        throw new Error(`Room ${roomId} not found.`);
       }
 
       return {

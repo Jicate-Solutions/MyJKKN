@@ -59,13 +59,13 @@ export class CampusLivingAccessLog {
         .from('hostel_access_log')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/access-log', 'Failed to fetch access log entry', error);
         throw error;
       }
-      return data as HostelAccessLog;
+      return data as HostelAccessLog | null;
     } catch (error) {
       logger.error('campus-living/access-log', 'Unexpected error in getAccessLog', error);
       throw error;

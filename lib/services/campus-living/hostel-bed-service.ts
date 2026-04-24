@@ -69,13 +69,13 @@ export class HostelBedService {
         .from('hostel_beds')
         .select('*, hostel_rooms(room_number, block_id)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/beds', 'Failed to fetch bed', error);
         throw error;
       }
-      return data as HostelBed & { hostel_rooms: unknown };
+      return data as (HostelBed & { hostel_rooms: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/beds', 'Unexpected error in getBed', error);
       throw error;

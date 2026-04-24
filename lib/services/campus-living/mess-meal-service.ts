@@ -51,13 +51,13 @@ export class MessMealService {
         .from('mess_meal_records')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/meals', 'Failed to fetch meal record', error);
         throw error;
       }
-      return data as MessMealRecord;
+      return data as MessMealRecord | null;
     } catch (error) {
       logger.error('campus-living/meals', 'Unexpected error in getMealRecord', error);
       throw error;

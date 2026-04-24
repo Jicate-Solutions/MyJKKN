@@ -61,13 +61,13 @@ export class MessMenuService {
         .from('mess_menus')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/menu', 'Failed to fetch menu', error);
         throw error;
       }
-      return data as MessMenu;
+      return data as MessMenu | null;
     } catch (error) {
       logger.error('campus-living/menu', 'Unexpected error in getMenu', error);
       throw error;

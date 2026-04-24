@@ -99,11 +99,14 @@ export class HostelVacateRequestService {
            clearance_items:hostel_clearance_items(*)`
         )
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/vacate', 'Failed to fetch vacate request', error);
         throw error;
+      }
+      if (!data) {
+        throw new Error(`Vacate request ${id} not found.`);
       }
       return data as HostelVacateRequestWithContext;
     } catch (error) {
@@ -265,8 +268,11 @@ export class HostelVacateRequestService {
         .from('hostel_vacate_requests')
         .select('id, approval_chain_run_id, status')
         .eq('id', requestId)
-        .single();
+        .maybeSingle();
       if (reqErr) throw reqErr;
+      if (!req) {
+        throw new Error(`Vacate request ${requestId} not found.`);
+      }
       if (!req.approval_chain_run_id) {
         throw new Error(`Request ${requestId} has no engine run; cannot advance.`);
       }
@@ -324,7 +330,7 @@ export class HostelVacateRequestService {
         .from('hostel_vacate_requests')
         .select('allocation_id')
         .eq('id', requestId)
-        .single();
+        .maybeSingle();
       if (req) {
         await HostelAllocationService.updateAllocation(req.allocation_id, {
           status: 'active',
@@ -344,8 +350,11 @@ export class HostelVacateRequestService {
         .from('hostel_vacate_requests')
         .select('approval_chain_run_id, allocation_id, status')
         .eq('id', requestId)
-        .single();
+        .maybeSingle();
       if (reqErr) throw reqErr;
+      if (!req) {
+        throw new Error(`Vacate request ${requestId} not found.`);
+      }
 
       if (!['draft', 'pending_parent', 'pending_warden'].includes(req.status)) {
         throw new Error(`Cannot cancel request in status=${req.status} (allowed: draft / pending_parent / pending_warden).`);
@@ -494,8 +503,11 @@ export class HostelVacateRequestService {
         .from('hostel_vacate_requests')
         .select('parent_consent_otp, parent_consent_otp_expires_at, status')
         .eq('id', requestId)
-        .single();
+        .maybeSingle();
       if (error) throw error;
+      if (!row) {
+        return { valid: false, reason: `Vacate request ${requestId} not found.` };
+      }
 
       if (row.status !== 'pending_parent') {
         return { valid: false, reason: `Request is not at parent consent stage (status=${row.status}).` };
@@ -562,8 +574,11 @@ export class HostelVacateRequestService {
         .from('hostel_vacate_requests')
         .select('id, allocation_id, reason_type, approval_chain_run_id')
         .eq('id', requestId)
-        .single();
+        .maybeSingle();
       if (reqErr) throw reqErr;
+      if (!req) {
+        throw new Error(`Vacate request ${requestId} not found.`);
+      }
 
       const allCleared = await this.allRequiredCleared(requestId);
       if (!allCleared) {
@@ -669,8 +684,11 @@ export class HostelVacateRequestService {
       .from('approval_chain_runs')
       .select('status, current_stage_idx, rule:approval_chain_rules(stages)')
       .eq('id', runId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
+    if (!data) {
+      throw new Error(`Approval chain run ${runId} not found.`);
+    }
 
     const row = data as {
       status: 'in_progress' | 'completed' | 'rejected' | 'cancelled';
