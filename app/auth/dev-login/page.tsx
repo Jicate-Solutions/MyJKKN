@@ -18,9 +18,15 @@
 // insider access — but defense-in-depth: disable in prod.
 //
 // USED BY: scripts/local-auth.sh (the one-command local-preview tool)
+//
+// STRUCTURE: Next.js 16 strict mode requires any client component that calls
+// useSearchParams() to be inside a <Suspense> boundary at the page level;
+// without it, the CSR-bailout prerender check fails the build. The page
+// splits into an outer Suspense shell + inner DevLoginWorker component —
+// same pattern /auth/callback uses.
 // ---------------------------------------------------------------------------
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
@@ -37,7 +43,7 @@ function safeNext(raw: string | null): string {
   return raw;
 }
 
-export default function DevLoginPage() {
+function DevLoginWorker() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<Status>({ state: 'loading' });
@@ -136,5 +142,20 @@ export default function DevLoginPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function DevLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ maxWidth: 480, margin: '80px auto', padding: 24, fontFamily: 'system-ui' }}>
+          <h1 style={{ fontSize: 20, marginBottom: 12 }}>MyJKKN — Dev Login</h1>
+          <p>Loading…</p>
+        </div>
+      }
+    >
+      <DevLoginWorker />
+    </Suspense>
   );
 }
