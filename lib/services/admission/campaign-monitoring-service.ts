@@ -124,10 +124,13 @@ export interface RealtimeUpdate {
 const getSupabase = (): any => createClientSupabaseClient();
 
 // Map drip-sequence DB statuses to our public ActiveSequence status union.
+// DB enum `drip_sequence_status` on prod has only: active | paused | completed | cancelled | failed.
+// (verified against pg_enum 2026-04-24). No 'running' — it was removed from the catalog but the
+// original PR left dead switch arms that looked plausible. The previous version also passed
+// 'running' to `.in(...)` in getActiveSequences, which made Postgres throw 22P02 at runtime.
 function mapSequenceStatus(status: string | null | undefined): ActiveSequence['status'] {
   switch (status) {
     case 'active':
-    case 'running':
       return 'in_progress';
     case 'paused':
       return 'paused';
@@ -208,7 +211,6 @@ export class CampaignMonitoringService {
 
       switch (seq.status) {
         case 'active':
-        case 'running':
           stats.activeCampaigns++;
           break;
         case 'completed':
@@ -366,7 +368,7 @@ export class CampaignMonitoringService {
         institution_id
       `
       )
-      .in('status', ['active', 'running', 'paused'])
+      .in('status', ['active', 'paused'])
       .order('started_at', { ascending: false })
       .limit(50);
 
