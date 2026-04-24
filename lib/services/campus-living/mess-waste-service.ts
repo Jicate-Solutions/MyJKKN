@@ -57,13 +57,13 @@ export class MessWasteService {
         .from('mess_waste_log')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/waste', 'Failed to fetch waste log', error);
         throw error;
       }
-      return data as MessWasteLog;
+      return data as MessWasteLog | null;
     } catch (error) {
       logger.error('campus-living/waste', 'Unexpected error in getWasteLog', error);
       throw error;

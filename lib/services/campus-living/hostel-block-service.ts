@@ -51,13 +51,13 @@ export class HostelBlockService {
         .from('hostel_blocks')
         .select('*, hostel_rooms(*), hostel_wardens(*)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/blocks', 'Failed to fetch block', error);
         throw error;
       }
-      return data as HostelBlock & { hostel_rooms: unknown[]; hostel_wardens: unknown[] };
+      return data as (HostelBlock & { hostel_rooms: unknown[]; hostel_wardens: unknown[] }) | null;
     } catch (error) {
       logger.error('campus-living/blocks', 'Unexpected error in getBlock', error);
       throw error;

@@ -50,13 +50,13 @@ export class HostelAlertService {
         .from('hostel_alert_rules')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/alerts', 'Failed to fetch alert rule', error);
         throw error;
       }
-      return data as HostelAlertRule;
+      return data as HostelAlertRule | null;
     } catch (error) {
       logger.error('campus-living/alerts', 'Unexpected error in getAlertRule', error);
       throw error;
@@ -212,13 +212,13 @@ export class HostelAlertService {
         .from('hostel_risk_alerts')
         .select('*, hostel_alert_rules(*)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/alerts', 'Failed to fetch risk alert', error);
         throw error;
       }
-      return data as HostelRiskAlert & { hostel_alert_rules: HostelAlertRule | null };
+      return data as (HostelRiskAlert & { hostel_alert_rules: HostelAlertRule | null }) | null;
     } catch (error) {
       logger.error('campus-living/alerts', 'Unexpected error in getRiskAlert', error);
       throw error;
@@ -236,7 +236,7 @@ export class HostelAlertService {
           .from('hostel_alert_rules')
           .select('cooldown_hours')
           .eq('id', payload.alert_rule_id)
-          .single();
+          .maybeSingle();
 
         if (rule) {
           const cooldownTime = new Date(Date.now() - rule.cooldown_hours * 60 * 60 * 1000).toISOString();

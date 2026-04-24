@@ -85,12 +85,12 @@ export class LaundryService {
         .from('hostel_laundry_orders')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
       if (error) {
         logger.error('campus-living/laundry', 'Failed to fetch laundry order', error);
         throw error;
       }
-      return data as HostelLaundryOrder;
+      return data as HostelLaundryOrder | null;
     } catch (error) {
       logger.error('campus-living/laundry', 'Unexpected error in getOrder', error);
       throw error;

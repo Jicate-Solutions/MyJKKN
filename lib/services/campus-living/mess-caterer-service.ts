@@ -51,13 +51,13 @@ export class MessCatererService {
         .from('mess_caterers')
         .select('*, mess_caterer_blocks(*, hostel_blocks(name, code))')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/caterer', 'Failed to fetch caterer', error);
         throw error;
       }
-      return data as MessCaterer & { mess_caterer_blocks: unknown[] };
+      return data as (MessCaterer & { mess_caterer_blocks: unknown[] }) | null;
     } catch (error) {
       logger.error('campus-living/caterer', 'Unexpected error in getCaterer', error);
       throw error;

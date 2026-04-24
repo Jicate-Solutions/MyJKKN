@@ -46,13 +46,13 @@ export class HostelWardenService {
         .from('hostel_wardens')
         .select('*, hostel_blocks(name, code, hostel_type)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/wardens', 'Failed to fetch warden', error);
         throw error;
       }
-      return data as HostelWarden & { hostel_blocks: unknown };
+      return data as (HostelWarden & { hostel_blocks: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/wardens', 'Unexpected error in getWarden', error);
       throw error;

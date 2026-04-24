@@ -52,13 +52,13 @@ export class AntiRaggingService {
         .from('anti_ragging_affidavits')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/anti-ragging', 'Failed to fetch affidavit', error);
         throw error;
       }
-      return data as AntiRaggingAffidavit;
+      return data as AntiRaggingAffidavit | null;
     } catch (error) {
       logger.error('campus-living/anti-ragging', 'Unexpected error in getAffidavit', error);
       throw error;
@@ -179,7 +179,7 @@ export class AntiRaggingService {
         .from('anti_ragging_affidavits')
         .select('parent_affidavit_submitted')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       const newStatus: AffidavitStatus = current?.parent_affidavit_submitted ? 'complete' : 'partial';
 
@@ -215,7 +215,7 @@ export class AntiRaggingService {
         .from('anti_ragging_affidavits')
         .select('student_affidavit_submitted')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       const newStatus: AffidavitStatus = current?.student_affidavit_submitted ? 'complete' : 'partial';
 

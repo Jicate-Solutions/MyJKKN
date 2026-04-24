@@ -51,13 +51,13 @@ export class GatePassService {
         .from('hostel_gate_passes')
         .select('*, hostel_leave_requests(*)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch gate pass', error);
         throw error;
       }
-      return data as HostelGatePass & { hostel_leave_requests: unknown };
+      return data as (HostelGatePass & { hostel_leave_requests: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/gate-pass', 'Unexpected error in getGatePass', error);
       throw error;
@@ -72,13 +72,13 @@ export class GatePassService {
         .from('hostel_gate_passes')
         .select('*')
         .eq('qr_code', qrCode)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch gate pass by QR', error);
         throw error;
       }
-      return data as HostelGatePass;
+      return data as HostelGatePass | null;
     } catch (error) {
       logger.error('campus-living/gate-pass', 'Unexpected error in getGatePassByQR', error);
       throw error;
@@ -93,13 +93,13 @@ export class GatePassService {
         .from('hostel_gate_passes')
         .select('*')
         .eq('pass_number', passNumber)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch gate pass by number', error);
         throw error;
       }
-      return data as HostelGatePass;
+      return data as HostelGatePass | null;
     } catch (error) {
       logger.error('campus-living/gate-pass', 'Unexpected error in getGatePassByNumber', error);
       throw error;
@@ -436,7 +436,7 @@ export class GatePassService {
       .from('hostel_gate_passes')
       .select('learner_id')
       .eq('id', gatePassId)
-      .single();
+      .maybeSingle();
 
     if (passError || !pass) {
       throw new Error('Gate pass not found');

@@ -73,13 +73,13 @@ export class RoommateMatchingService {
         .from('hostel_roommate_preferences')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/roommate', 'Failed to fetch preference by id', error);
         throw error;
       }
-      return data as HostelRoommatePreference;
+      return data as HostelRoommatePreference | null;
     } catch (error) {
       logger.error('campus-living/roommate', 'Unexpected error in getPreferenceById', error);
       throw error;

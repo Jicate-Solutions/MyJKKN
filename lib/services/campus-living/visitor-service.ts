@@ -53,13 +53,13 @@ export class VisitorService {
         .from('hostel_visitors')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/visitors', 'Failed to fetch visitor', error);
         throw error;
       }
-      return data as HostelVisitor;
+      return data as HostelVisitor | null;
     } catch (error) {
       logger.error('campus-living/visitors', 'Unexpected error in getVisitor', error);
       throw error;
@@ -312,7 +312,7 @@ export class VisitorService {
         .from('hostel_known_visitors')
         .select('visit_count')
         .eq('id', knownVisitorId)
-        .single();
+        .maybeSingle();
 
       if (fetchError) throw fetchError;
 

@@ -61,13 +61,13 @@ export class MaintenanceService {
         .from('hostel_maintenance_requests')
         .select('*, hostel_blocks(name, code), hostel_rooms(room_number)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/maintenance', 'Failed to fetch request', error);
         throw error;
       }
-      return data as HostelMaintenanceRequest & Record<string, unknown>;
+      return data as (HostelMaintenanceRequest & Record<string, unknown>) | null;
     } catch (error) {
       logger.error('campus-living/maintenance', 'Unexpected error in getRequest', error);
       throw error;
@@ -293,7 +293,7 @@ export class MaintenanceService {
         .from('hostel_maintenance_requests')
         .select('escalation_level')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (fetchError) throw fetchError;
 

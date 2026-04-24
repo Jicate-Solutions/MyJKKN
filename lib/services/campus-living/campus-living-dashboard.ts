@@ -176,7 +176,7 @@ export class CampusLivingDashboard {
           .from('hostel_blocks')
           .select('*')
           .eq('id', blockId)
-          .single(),
+          .maybeSingle(),
 
         supabase
           .from('hostel_rooms')

@@ -56,13 +56,13 @@ export class MessFeedbackService {
         .from('mess_feedback')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/feedback', 'Failed to fetch feedback', error);
         throw error;
       }
-      return data as MessFeedback;
+      return data as MessFeedback | null;
     } catch (error) {
       logger.error('campus-living/feedback', 'Unexpected error in getFeedbackById', error);
       throw error;
