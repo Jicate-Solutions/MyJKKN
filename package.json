@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run gen:routes && npm run check:sidebar && npm run check:nav && NODE_OPTIONS='--max-old-space-size=49152 --max-semi-space-size=128' next build --webpack",
+    "build": "npm run gen:routes && npm run check:sidebar && npm run check:nav && cross-env NODE_OPTIONS='--max-old-space-size=49152 --max-semi-space-size=128' next build --webpack",
     "start": "next start",
     "lint": "next lint",
     "check:sidebar": "tsx scripts/check-sidebar-health.ts",
@@ -161,6 +161,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/recharts": "^1.8.29",
     "@vercel/functions": "^3.4.3",
+    "cross-env": "^10.1.0",
     "eslint": "^8",
     "eslint-config-next": "^16.2.0",
     "postcss": "^8",
