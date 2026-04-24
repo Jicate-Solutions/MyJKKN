@@ -67,20 +67,33 @@ export async function GET(request: NextRequest) {
 
     const isSuperAdmin = !!profile?.is_super_admin;
     const role = (profile?.role as string | undefined) ?? '';
-    const isHROfficer =
-      role === 'hr_officer' ||
-      role === 'hr_admin' ||
-      role === 'hr_manager' ||
-      role === 'hr_head';
-    const isDirector = role === 'director' || role === 'admin';
 
-    if (!isSuperAdmin && !isHROfficer && !isDirector) {
-      return NextResponse.json({ error: 'Forbidden — not an HR role' }, { status: 403 });
+    // Gate: use canonical MyJKKN permission helper instead of hardcoding role_keys.
+    // `user_has_permission` includes super-admin bypass + multi-role OR-merge + legacy
+    // profiles.role fallback — matches the standardized RLS policy pattern used across
+    // all MyJKKN modules. Adding a new role to the dashboard is now a 1-row DB grant
+    // (`custom_roles.permissions.hr.dashboard.view = true`), not a code change.
+    const { data: canViewDashboard, error: permError } = await supabase.rpc(
+      'user_has_permission',
+      { permission_name: 'hr.dashboard.view' }
+    );
+    if (permError) {
+      console.error('[hr/dashboard] permission-check RPC failed', permError);
+      return NextResponse.json({ error: 'Permission check failed' }, { status: 500 });
+    }
+    if (!canViewDashboard) {
+      return NextResponse.json({ error: 'Forbidden — hr.dashboard.view required' }, { status: 403 });
     }
 
+    // Layout branching (NOT a gate): which dashboard layout does this role see?
+    // Role-keys that map to the operational HR Officer layout (4 daily quadrants).
+    // Everyone else with the permission sees the strategic Director layout.
+    // `hr_officer` is intentionally absent — no custom_roles row exists on prod; it
+    // only survives here as the internal `ViewerRole` bucket label.
+    const HR_OPERATOR_ROLES = new Set(['hr_admin', 'hr_manager', 'hr_head']);
     const viewer_role: ViewerRole = isSuperAdmin
       ? 'super_admin'
-      : isHROfficer
+      : HR_OPERATOR_ROLES.has(role)
       ? 'hr_officer'
       : 'director';
 
