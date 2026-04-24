@@ -169,6 +169,12 @@ export interface FiscalYear {
 
 export interface HRDashboardPayload {
   viewer_role: ViewerRole;
+  /**
+   * Human-readable label for the viewer's exact role (e.g. "HR Head" vs "HR Officer").
+   * viewer_role normalises several raw role_keys to 'hr_officer'; display_role lets the
+   * UI show a more accurate badge without changing the payload shape downstream.
+   */
+  display_role: string;
   scope: DashboardScope;
   hr_organization_id: string | null;
   institution_id: string | null;
