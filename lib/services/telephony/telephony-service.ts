@@ -10,6 +10,7 @@ import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
 import { CallPipelineService } from './call-pipeline-service';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
 import { getCallContext, lookupAgent, isAdmissionCall, getCounselorExoPhone } from './exotel-agent-map';
+import { exotelTimeToIso } from './exotel-time';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
@@ -744,13 +745,15 @@ export class TelephonyService {
 
       // Timestamps
       if (StartTime && (mappedStatus === 'ringing' || mappedStatus === 'in-progress')) {
-        updateData.started_at = StartTime;
+        const startedAtIso = exotelTimeToIso(StartTime);
+        if (startedAtIso) updateData.started_at = startedAtIso;
       }
       if (mappedStatus === 'in-progress') {
         updateData.answered_at = new Date().toISOString();
       }
       if (EndTime && TERMINAL_STATUSES.includes(mappedStatus)) {
-        updateData.ended_at = EndTime;
+        const endedAtIso = exotelTimeToIso(EndTime);
+        if (endedAtIso) updateData.ended_at = endedAtIso;
       }
 
       const { error } = await supabase
@@ -901,9 +904,9 @@ export class TelephonyService {
           recording_url: payload.RecordingUrl || null,
           call_notes: autoNotes,
           cost_amount: payload.Price ? parseFloat(payload.Price) : null,
-          started_at: payload.StartTime || null,
-          ended_at: payload.EndTime || null,
-          answered_at: durationSec > 0 ? payload.StartTime || new Date().toISOString() : null,
+          started_at: exotelTimeToIso(payload.StartTime),
+          ended_at: exotelTimeToIso(payload.EndTime),
+          answered_at: durationSec > 0 ? (exotelTimeToIso(payload.StartTime) || new Date().toISOString()) : null,
           is_admission_call: isAdmissionCall(agentPhone || exoPhone, exoPhone),
         })
         .select('id, status, institution_id, call_sid')

@@ -4,6 +4,7 @@
 import { getExotelClient, isExotelConfigured, type ExotelCallRecord } from './exotel-client';
 import { TelephonyService } from './telephony-service';
 import { isAdmissionCall } from './exotel-agent-map';
+import { exotelTimeToIso } from './exotel-time';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const MODULE = 'telephony/inbound-sync';
@@ -293,7 +294,7 @@ export class InboundCallSyncService {
           duration_seconds: record.Duration ? parseInt(record.Duration, 10) || 0 : null,
           recording_url: record.RecordingUrl || record.PreSignedRecordingUrl || null,
           cost_amount: record.Price ? parseFloat(record.Price) || 0 : null,
-          ended_at: record.EndTime || null,
+          ended_at: exotelTimeToIso(record.EndTime),
           updated_at: new Date().toISOString(),
         })
         .eq('id', existing.id);
@@ -329,10 +330,10 @@ export class InboundCallSyncService {
         recording_url: record.RecordingUrl || record.PreSignedRecordingUrl || null,
         cost_amount: record.Price ? parseFloat(record.Price) || 0 : null,
         cost_currency: 'INR',
-        started_at: record.StartTime || null,
+        started_at: exotelTimeToIso(record.StartTime),
         answered_at: null,
-        ended_at: record.EndTime || null,
-        created_at: record.StartTime || new Date().toISOString(),
+        ended_at: exotelTimeToIso(record.EndTime),
+        created_at: exotelTimeToIso(record.StartTime) || new Date().toISOString(),
         lead_id: leadId,
         counselor_id: null,
         is_admission_call: isAdm,
