@@ -733,7 +733,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-xs font-medium text-muted-foreground">{relTime}</p>
-                            <p className="text-[10px] text-muted-foreground/70">{callTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'UTC' })}</p>
+                            <p className="text-[10px] text-muted-foreground/70">{callTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}</p>
                           </div>
                         </div>
                         <div className="flex items-center justify-between mt-2.5 gap-2">
@@ -849,7 +849,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                         <TableCell onClick={(e) => e.stopPropagation()}><RecordingPlayer url={log.recording_url} /></TableCell>
                         <TableCell>
                           <span className="text-xs text-muted-foreground">
-                            {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
+                            {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                           </span>
                         </TableCell>
                         <TableCell>{getNotesIndicator(log)}</TableCell>
