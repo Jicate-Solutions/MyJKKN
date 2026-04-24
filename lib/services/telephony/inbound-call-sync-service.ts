@@ -4,6 +4,7 @@
 import { getExotelClient, isExotelConfigured, type ExotelCallRecord } from './exotel-client';
 import { TelephonyService } from './telephony-service';
 import { isAdmissionCall } from './exotel-agent-map';
+import { resolveCounselorIdForCall } from './call-attribution';
 import { exotelTimeToIso } from './exotel-time';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -316,6 +317,13 @@ export class InboundCallSyncService {
     const exoPhone = record.PhoneNumber || record.PhoneNumberSid || '';
     const isAdm = isAdmissionCall(record.To || '', exoPhone);
 
+    // Attribution: resolve counselor_id via lead.assigned_counselor_id first,
+    // then agent-phone → AGENT_MAP → profiles.email. Used to be hardcoded null.
+    const counselorId = await resolveCounselorIdForCall(
+      { leadId, dialWhomNumber: record.To || '' },
+      supabase
+    );
+
     // Insert new record
     const { error } = await supabase
       .from('admission_call_logs')
@@ -335,7 +343,7 @@ export class InboundCallSyncService {
         ended_at: exotelTimeToIso(record.EndTime),
         created_at: exotelTimeToIso(record.StartTime) || new Date().toISOString(),
         lead_id: leadId,
-        counselor_id: null,
+        counselor_id: counselorId,
         is_admission_call: isAdm,
       });
 
