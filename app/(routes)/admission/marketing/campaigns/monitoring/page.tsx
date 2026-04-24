@@ -10,6 +10,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { useCampaignMonitoringDashboard } from '@/hooks/admission/use-campaign-monitoring';
@@ -19,7 +20,7 @@ import {
   DripProgressTable,
   ExecutionLogFeed,
 } from '@/components/admission/campaign-monitoring';
-import { RefreshCw, Loader2, Settings, Plus, Activity } from 'lucide-react';
+import { RefreshCw, Loader2, Settings, Plus, Activity, Send } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -27,7 +28,10 @@ import { AdmissionErrorBoundary } from '@/components/admission';
 
 function CampaignMonitoringDashboardContent() {
   const { profile, isLoading: authLoading } = useAuth();
-  const institutionId = profile?.institution_id;
+  // super_admin sees all institutions (undefined = no .eq filter in the service);
+  // every other role is scoped to their own institution. RLS still has the final
+  // word, but this gives super_admin the cross-institution view they expect.
+  const institutionId = profile?.is_super_admin ? undefined : profile?.institution_id ?? undefined;
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const {
@@ -53,6 +57,11 @@ function CampaignMonitoringDashboardContent() {
   };
 
   const loading = authLoading || isLoading;
+
+  // Honest empty-state: distinguishes "no data yet" from "broken".
+  // Triggered when stats are loaded but show zero campaigns ever launched.
+  const showEmptyState =
+    !loading && stats !== null && (stats?.totalCampaigns ?? 0) === 0;
 
   return (
     <PermissionGuard module="admission" action="view">
@@ -133,6 +142,34 @@ function CampaignMonitoringDashboardContent() {
               </p>
             </div>
           </div>
+
+          {/* Empty-state CTA — shown when zero campaigns have been launched.
+              The dashboard would otherwise render rows of zeros that look
+              indistinguishable from a broken dashboard. */}
+          {showEmptyState && (
+            <Card className="border-dashed">
+              <CardContent className="flex flex-col items-center justify-center text-center py-12 px-6 gap-4">
+                <div className="p-3 rounded-full bg-primary/10">
+                  <Send className="h-7 w-7 text-primary" />
+                </div>
+                <div className="space-y-1 max-w-md">
+                  <h2 className="text-lg font-semibold">No campaigns launched yet</h2>
+                  <p className="text-sm text-muted-foreground">
+                    {profile?.is_super_admin
+                      ? "No institution has started any drip or re-engagement campaigns yet. Once campaigns run, delivery, reads, and conversions will be tracked here."
+                      : "Your institution hasn't started any drip or re-engagement campaigns. Launch one to begin tracking delivery, reads, and conversions here."}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button asChild>
+                    <Link href="/admission/marketing/re-engagement">
+                      Launch a Campaign
+                    </Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Stats Cards */}
           <CampaignStatsCards stats={stats} isLoading={loading} />
