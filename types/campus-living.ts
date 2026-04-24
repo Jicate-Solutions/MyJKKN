@@ -139,3 +139,102 @@ export interface LearnerHostelitesFilters {
   hostel_type?: LearnerHostelType;
   search?: string;  // matches roll_number OR first_name OR last_name OR email
 }
+
+// ─── Hostel leave (mirrors migration 20260222000015 + 20260424 approval-chain rewire) ───
+// Added 2026-04-24 alongside the hostel_leave → approval_chain engine migration.
+// Before this, HostelLeaveRequest/CreateHostelLeaveRequestDTO/LeaveFilters/LeaveStatus/ParentConsentStatus
+// were imported from '@/types/campus-living' but never actually existed here —
+// the code only compiled because `import type` is erased. These are the
+// canonical definitions.
+
+export type LeaveStatus =
+  | 'draft'
+  | 'pending_parent'
+  | 'pending_warden'
+  | 'pending_chief'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
+  | 'expired';
+
+export type ParentConsentStatus = 'pending' | 'approved' | 'rejected' | 'not_required';
+
+export type ParentConsentMethod = 'otp' | 'app_approval' | 'sms_reply' | 'in_person';
+
+export type HostelLeaveType =
+  | 'home_visit'
+  | 'weekend'
+  | 'vacation'
+  | 'emergency'
+  | 'medical'
+  | 'academic'
+  | 'night_out';
+
+export interface HostelLeaveRequest {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  block_id: string;
+  leave_type: HostelLeaveType;
+  from_date: string;
+  to_date: string;
+  from_time: string | null;
+  expected_return_time: string | null;
+  actual_return_time: string | null;
+  reason: string;
+  destination: string;
+  destination_address: string | null;
+  destination_contact: string | null;
+  attachment_url: string | null;
+
+  parent_consent_status: ParentConsentStatus;
+  parent_consent_at: string | null;
+  parent_consent_method: ParentConsentMethod | null;
+  parent_consent_otp: string | null;
+  parent_consent_otp_expires_at: string | null;
+
+  warden_approval_status: ParentConsentStatus;
+  warden_id: string | null;
+  warden_approved_at: string | null;
+  warden_remarks: string | null;
+
+  chief_warden_required: boolean;
+  chief_warden_status: ParentConsentStatus | null;
+  chief_warden_id: string | null;
+
+  status: LeaveStatus;
+  is_overdue: boolean;
+  overdue_notified: boolean;
+
+  // Added 2026-04-24 in migration 20260424_seed_approval_chain_rules_hostel_leave.sql
+  approval_chain_run_id: string | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateHostelLeaveRequestDTO {
+  institution_id: string;
+  learner_id: string;
+  block_id: string;
+  leave_type: HostelLeaveType;
+  from_date: string;
+  to_date: string;
+  from_time?: string | null;
+  expected_return_time?: string | null;
+  reason: string;
+  destination: string;
+  destination_address?: string | null;
+  destination_contact?: string | null;
+  attachment_url?: string | null;
+  chief_warden_required?: boolean;
+  status?: LeaveStatus;
+}
+
+export interface LeaveFilters {
+  block_id?: string;
+  status?: LeaveStatus;
+  leave_type?: HostelLeaveType;
+  learner_id?: string;
+  search?: string;
+}
