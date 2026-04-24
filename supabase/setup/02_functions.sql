@@ -8829,11 +8829,14 @@ BEGIN
            COALESCE(lp.student_mobile, lp.father_mobile, lp.mother_mobile)
     INTO v_name, v_phone FROM learners_profiles lp WHERE lp.id = v_inv.student_id;
     IF v_name IS NULL OR v_name = '' THEN v_name := 'Student ' || v_inv.student_id::text; END IF;
+    -- Updated: 2026-04-24 - Exclude super_admin from per-item fanout.
+    -- Super admins receive rolled-up digests via fn_generate_super_admin_daily_digest()
+    -- instead (one notification per category per day with per-college breakdown).
     FOR v_user IN
       SELECT DISTINCT p.id AS uid FROM profiles p
-      WHERE ((p.institution_id = v_inv.institution_id) OR p.is_super_admin = TRUE)
-        AND (p.role IN ('director','super_admin','admin','accounts','principal')
-             OR p.is_super_admin = TRUE)
+      WHERE p.institution_id = v_inv.institution_id
+        AND p.is_super_admin = FALSE
+        AND p.role IN ('director','admin','accounts','principal')
     LOOP
       v_key := 'overdue_invoice:' || v_inv.id::text || ':' || CURRENT_DATE::text
                || ':' || v_user.uid::text;
@@ -8945,11 +8948,15 @@ BEGIN
     -- 2026-04-23 targeting fix: (a) LIMIT 50 was LIMIT 5 — cut director off;
     -- (b) no DISTINCT so ORDER BY by email works; (c) prioritize by email
     -- because director's profile.role='super_admin', NOT 'director'.
+    -- Updated: 2026-04-24 - Exclude super_admin from per-item fanout.
+    -- Super admins receive rolled-up digests via fn_generate_super_admin_daily_digest()
+    -- instead (one notification per category per day with per-college breakdown).
     FOR v_target IN
       SELECT p.id AS uid, p.email, p.institution_id AS p_inst
       FROM profiles p
-      WHERE (p.institution_id = v_tt.institution_id OR p.is_super_admin = TRUE)
-        AND (p.role IN ('director','principal','hod','super_admin','admin') OR p.is_super_admin = TRUE)
+      WHERE p.institution_id = v_tt.institution_id
+        AND p.is_super_admin = FALSE
+        AND p.role IN ('director','principal','hod','admin')
       ORDER BY
         CASE WHEN p.email = 'director@jkkn.ac.in' THEN 0
              WHEN p.institution_id = v_tt.institution_id THEN 1
