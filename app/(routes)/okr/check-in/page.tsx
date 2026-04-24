@@ -41,6 +41,17 @@ import { useIsUserBlocked } from '@/hooks/okr/use-compliance';
 import { KRStatus, CreateOKRCheckInDTO } from '@/types/okr';
 import { format, startOfWeek, endOfWeek } from 'date-fns';
 
+
+/**
+ * navMeta — documents that this page is invoked via a button/row-click on
+ * the parent page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ * Added 2026-04-24 in the matchPaths-only sweep (PR follow-up to #408).
+ */
+export const navMeta = {
+  invokedFrom: '/okr/objectives',
+} as const;
+
 // ============================================================================
 // ZOD VALIDATION SCHEMA
 // ============================================================================
