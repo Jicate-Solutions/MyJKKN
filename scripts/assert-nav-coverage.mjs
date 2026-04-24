@@ -8,25 +8,40 @@
  *   1. Its URL appears as a LITERAL `href` value in `lib/sidebarMenuLink.ts`
  *      or any `app/(routes)/<module>/nav-config.ts` (groups[].href,
  *      children[].href).
- *   2. Its URL appears as an EXACT entry in a `matchPaths` array in a
- *      nav-config (exact match, NOT prefix). matchPaths-as-prefix is
- *      retained for active-state resolution but NOT for discoverability.
- *   3. The page.tsx exports `navMeta.invokedFrom = '/parent-page'` — a
+ *   2. The page.tsx exports `navMeta.invokedFrom = '/parent-page'` — a
  *      documented button/row-click entry point (for Create/Edit forms,
  *      detail views, KPI-card drill-downs, etc.). The invokedFrom value
  *      must itself be a known page URL.
- *   4. The page URL is in the `NAV_EXCLUDE` allowlist below — for genuine
+ *   3. The page URL is in the `NAV_EXCLUDE` allowlist below — for genuine
  *      system pages (OAuth callbacks, avatar-menu targets, redirect roots).
  *
- * Prefix-coverage ("some nav path is a prefix of this URL") is NOT
- * sufficient. That check produces false negatives — e.g. a user on
- * `/admission/marketing/expos` has no chip for `/admission/marketing/expos/analytics`
- * even though the analytics URL is prefix-covered by the expos nav entry.
+ * `matchPaths` is NOT a valid coverage source. It exists in nav-configs
+ * solely so AutoTabNav can resolve active-state when the user lands on a
+ * sub-URL (e.g. highlight the "Expos" chip when viewing
+ * `/admission/marketing/expos/analytics`). It does NOT render a chip and
+ * does NOT make a page discoverable. Stuffing a sub-page URL into
+ * matchPaths only hides it from the orphan detector — the user still
+ * can't reach it.
+ *
+ * If you need to make a child page discoverable, the canonical fixes are:
+ *   - Add a `children[]` entry in the parent's nav-config (renders a chip), or
+ *   - Add `navMeta.invokedFrom` in the page.tsx (declares button entry), or
+ *   - Rely on AutoTabNav's manifest-driven tier-(N+1) auto-rendering (PR #406)
+ *     — and either expose the page via `children[]` so the detector agrees,
+ *     or add `navMeta.invokedFrom` pointing at the parent leaf.
  *
  * Rationale + history: 2026-04-23 audit found 192 "prefix-covered but
  * undiscoverable" pages that the prior prefix-based detector scored as
- * zero orphans. See `specs/mobile-sidebar-bottomnav-spec.md` + the
- * `noble-laureates` critique thread on that date.
+ * zero orphans. The matchPaths-as-PASS rule was the second iteration of
+ * the same hole — agents satisfied the gate by listing URLs in matchPaths
+ * arrays, but users still couldn't see those pages. PR #406 made the
+ * runtime auto-discover children-of-leaf via the route manifest; this
+ * detector tightening (2026-04-24) finally aligns the static gate with
+ * the runtime contract: matchPaths is for active-state ONLY.
+ *
+ * See: `specs/mobile-sidebar-bottomnav-spec.md`,
+ *      `feedback_matchpaths_dont_render_chips.md`,
+ *      the "noble-laureates" critique thread (2026-04-23).
  *
  * Run: `npm run check:nav` or `node scripts/assert-nav-coverage.mjs`.
  */
@@ -158,7 +173,11 @@ function main() {
 
   // --- Collect literal hrefs from all nav surfaces ---
   const literalHrefs = new Set();
-  const exactMatchPaths = new Set();
+  // Tracked for INFORMATIONAL reporting only — matchPaths NEVER prove
+  // discoverability (see docstring). Used after orphan classification to
+  // partition orphans into "matchPaths-only" (the dangerous pattern) vs
+  // truly unconfigured pages.
+  const matchPathsSeen = new Set();
 
   for (const h of extractHrefs(readFileSync(SIDEBAR, 'utf8'))) {
     literalHrefs.add(h);
@@ -170,15 +189,20 @@ function main() {
     try {
       const content = readFileSync(configPath, 'utf8');
       for (const h of extractHrefs(content)) literalHrefs.add(h);
-      // matchPaths as EXACT entries (not prefix — prefix was the old bug)
-      for (const p of extractMatchPaths(content)) exactMatchPaths.add(p);
+      for (const p of extractMatchPaths(content)) matchPathsSeen.add(p);
     } catch {
       // No nav-config for this module — OK, module relies on sidebar + navMeta.
     }
   }
 
   // --- Classify each page ---
+  // `orphans` = ALL pages not reachable. Reported together for the gate.
+  // `matchPathsOnlyOrphans` = the SUBSET of orphans whose URL appears in
+  // some nav-config's matchPaths array. These are the pages the old
+  // detector considered reachable; today's tightening surfaces them as
+  // the discoverability anti-pattern they always were.
   const orphans = [];
+  const matchPathsOnlyOrphans = [];
   const invokedFromInvalid = []; // invokedFrom value points at a non-existent URL
 
   const allKnownUrls = new Set(staticPages.map((p) => p.url));
@@ -186,7 +210,9 @@ function main() {
   for (const { url, filePath } of staticPages) {
     if (NAV_EXCLUDE.has(url)) continue;
     if (literalHrefs.has(url)) continue;
-    if (exactMatchPaths.has(url)) continue;
+    // NOTE: matchPaths is NOT a PASS check — see docstring. Coverage by
+    // matchPaths only is the discoverability anti-pattern this gate exists
+    // to prevent.
 
     // Fall through — read page.tsx and look for navMeta.invokedFrom
     let invokedFrom = null;
@@ -213,14 +239,20 @@ function main() {
     }
 
     orphans.push(url);
+    if (matchPathsSeen.has(url)) matchPathsOnlyOrphans.push(url);
   }
 
   // --- Report ---
   console.log(`[nav-check] Static pages:           ${staticPages.length}`);
   console.log(`[nav-check] Literal hrefs:          ${literalHrefs.size}`);
-  console.log(`[nav-check] Exact matchPath entries:${exactMatchPaths.size}`);
+  console.log(`[nav-check] matchPath entries seen: ${matchPathsSeen.size} (active-state only — NOT discoverability)`);
   console.log(`[nav-check] NAV_EXCLUDE:            ${NAV_EXCLUDE.size}`);
   console.log(`[nav-check] Orphan count:           ${orphans.length}`);
+  if (matchPathsOnlyOrphans.length > 0) {
+    console.log(
+      `[nav-check]   ↳ matchPaths-only:    ${matchPathsOnlyOrphans.length} (pages hidden behind matchPaths — anti-pattern, see fix #1 below)`
+    );
+  }
   if (invokedFromInvalid.length > 0) {
     console.log(
       `[nav-check] Invalid invokedFrom:    ${invokedFromInvalid.length} (page exports invokedFrom but target doesn't exist)`
@@ -229,15 +261,30 @@ function main() {
 
   if (orphans.length > 0) {
     console.log('');
-    console.log('ORPHAN PAGES — not reachable from any nav surface:');
-    for (const o of orphans) console.log(`  ${o}`);
-    console.log('');
+    if (matchPathsOnlyOrphans.length > 0) {
+      console.log(
+        `MATCHPATHS-ONLY ORPHANS (${matchPathsOnlyOrphans.length}) — listed in matchPaths but no chip renders:`
+      );
+      for (const o of matchPathsOnlyOrphans) console.log(`  ${o}`);
+      console.log('');
+    }
+    const otherOrphans = orphans.filter((o) => !matchPathsSeen.has(o));
+    if (otherOrphans.length > 0) {
+      console.log(
+        `UNCONFIGURED ORPHANS (${otherOrphans.length}) — no nav surface at all:`
+      );
+      for (const o of otherOrphans) console.log(`  ${o}`);
+      console.log('');
+    }
     console.log('Three ways to resolve each orphan:');
     console.log(
-      '  1. Add it as a LITERAL `href` in a nav-config or lib/sidebarMenuLink.ts'
+      '  1. Add it as a LITERAL `href` in a `children[]` array in the parent'
     );
     console.log(
-      "     (matchPaths prefix matches DON'T count for discoverability)"
+      '     module\'s nav-config.ts (this renders an actual chip via AutoTabNav).'
+    );
+    console.log(
+      '     matchPaths is NOT a substitute — it only handles active-state.'
     );
     console.log(
       '  2. In the page.tsx, export `navMeta` documenting the button/row'
