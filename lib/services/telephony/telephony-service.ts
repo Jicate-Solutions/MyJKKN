@@ -10,6 +10,7 @@ import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
 import { CallPipelineService } from './call-pipeline-service';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
 import { getCallContext, lookupAgent, isAdmissionCall, getCounselorExoPhone } from './exotel-agent-map';
+import { resolveCounselorIdForCall } from './call-attribution';
 import { exotelTimeToIso } from './exotel-time';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -824,21 +825,14 @@ export class TelephonyService {
         // Non-blocking — agent detection is best-effort
       }
 
+      // Passthru webhooks include DialWhomNumber in query params (the number
+      // the Connect applet actually dialed). Use it as a stronger agent-phone
+      // signal than the StatusCallback-only `To` field.
+      const dialWhomNumber = payload.DialWhomNumber || '';
+      if (!agentPhone && dialWhomNumber) agentPhone = dialWhomNumber;
+
       // Look up agent context from our mapping
       const callContext = getCallContext(agentPhone, exoPhone);
-      const agent = agentPhone ? lookupAgent(agentPhone) : null;
-
-      // ── Counselor Matching ──
-      // Try to find the answering agent's user ID in MyJKKN profiles
-      let counselorId: string | null = null;
-      if (agent?.email) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id')
-          .ilike('email', agent.email)
-          .maybeSingle();
-        if (profile) counselorId = profile.id;
-      }
 
       // ── Lead Matching (E.164 normalized + last-10-digit fallback) ──
       let leadMatch: { id: string; institution_id: string } | null = null;
@@ -880,6 +874,14 @@ export class TelephonyService {
 
       const mappedStatus = TelephonyService.mapExotelStatus(payload.Status);
       const durationSec = parseInt(payload.ConversationDuration || payload.Duration || '0', 10);
+
+      // ── Counselor Matching ──
+      // Signal 1: lead.assigned_counselor_id (if lead matched above)
+      // Signal 2: dialled agent phone → AGENT_MAP → profiles.email
+      const counselorId = await resolveCounselorIdForCall(
+        { leadId: leadMatch?.id ?? null, dialWhomNumber: agentPhone || dialWhomNumber },
+        supabase
+      );
 
       // ── Build call_notes with context ──
       const contextParts: string[] = [];
