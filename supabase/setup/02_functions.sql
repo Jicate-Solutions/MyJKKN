@@ -8788,13 +8788,17 @@ BEGIN
     RETURN 0;
   END IF;
   INSERT INTO notifications (
-    id, title, body, category, priority, requires_acknowledgment,
+    id, title, body, category, kind, priority, requires_acknowledgment,
     acknowledgment_deadline_hours, action_type, action_config, idempotency_key,
     created_by, targeting, created_at, updated_at
   ) VALUES (
-    -- 2026-04-23 decoupling: FALSE so work items don't trigger the Mandatory
-    -- Acknowledgment blocking modal. Queue filter uses category only.
-    gen_random_uuid(), p_title, p_body, p_category, p_priority, FALSE,
+    -- 2026-04-23 decoupling: requires_acknowledgment=FALSE so work items don't
+    -- trigger the Mandatory Acknowledgment blocking modal. Queue filter uses
+    -- category only.
+    -- 2026-04-24 split: kind='work_item' keeps these out of /admin/notifications
+    -- (which filters to kind='announcement'). Work items surface via dashboard
+    -- widgets + super-admin digest instead.
+    gen_random_uuid(), p_title, p_body, p_category, 'work_item', p_priority, FALSE,
     p_deadline_hours, 'open_url', p_action_config, p_idempotency_key,
     p_target_user, jsonb_build_object('type','user','user_id', p_target_user),
     NOW(), NOW()
