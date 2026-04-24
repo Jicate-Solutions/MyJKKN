@@ -191,12 +191,10 @@ export class GroupDashboardService {
   }
 
   static async getSeatAnalytics(
-    institutionId?: string,
-    academicYearId?: string
+    institutionId?: string
   ): Promise<SeatAnalyticsRow[]> {
     const { data, error } = await (this.supabase as any).rpc('get_seat_analytics', {
       p_institution_id: institutionId ?? null,
-      p_academic_year_id: academicYearId ?? null,
     });
     if (error) {
       console.error('[admission/group] get_seat_analytics failed:', error);
@@ -235,13 +233,11 @@ export class GroupDashboardService {
     return (data ?? []) as GeographyAnalyticsRow[];
   }
 
-  static async getInstitutionComparison(
-    academicYearId?: string
-  ): Promise<InstitutionComparisonRow[]> {
+  static async getInstitutionComparison(): Promise<InstitutionComparisonRow[]> {
     const [seatRows, sourceRows, geoRows] = await Promise.all([
-      this.getSeatAnalytics(undefined, academicYearId),
-      this.getSourceAnalytics(undefined, academicYearId),
-      this.getGeographyAnalytics(undefined, academicYearId),
+      this.getSeatAnalytics(),
+      this.getSourceAnalytics(),
+      this.getGeographyAnalytics(),
     ]);
 
     // Aggregate seat data per institution

@@ -7917,27 +7917,34 @@ GRANT EXECUTE ON FUNCTION public.transfer_learner_enquiry(
 -- SEAT ANALYTICS RPCs (2026-04-17)
 -- ============================================================================
 
--- RPC A: Seat fill stats per institution → degree → department → program
+-- RPC A: Seat fill stats per institution → degree → department → program → admission year
+-- Updated: 2026-04-24 - Switched from academic_years to admission_years (per-institution-per-program
+--   cohort table). Filled count now includes 'admitted', 'active', and 'graduated' statuses.
+--   Dual-join strategy: prefers admission_year_id FK; falls back to integer year match for
+--   learners where admission_year_id is still NULL (pre-backfill rows).
+DROP FUNCTION IF EXISTS public.get_seat_analytics(uuid, uuid);
+
 CREATE OR REPLACE FUNCTION public.get_seat_analytics(
-  p_institution_id uuid DEFAULT NULL,
-  p_academic_year_id uuid DEFAULT NULL
+  p_institution_id uuid DEFAULT NULL
 )
 RETURNS TABLE (
-  institution_id    uuid,
-  institution_name  text,
-  degree_id         uuid,
-  degree_name       text,
-  department_id     uuid,
-  department_name   text,
-  program_id        uuid,
-  program_name      text,
-  academic_year_id  uuid,
-  academic_year_name text,
-  total_seats       integer,
-  filled_seats      bigint,
-  balance_seats     integer,
-  fill_percentage   numeric,
-  last_filled_at    timestamptz
+  institution_id      uuid,
+  institution_name    text,
+  degree_id           uuid,
+  degree_name         text,
+  department_id       uuid,
+  department_name     text,
+  program_id          uuid,
+  program_name        text,
+  admission_year_id   uuid,
+  admission_year_name text,
+  program_start_year  integer,
+  program_end_year    integer,
+  total_seats         integer,
+  filled_seats        bigint,
+  balance_seats       integer,
+  fill_percentage     numeric,
+  last_filled_at      timestamptz
 )
 LANGUAGE sql
 STABLE
@@ -7954,47 +7961,46 @@ AS $$
     p.id,
     p.program_name,
     ay.id,
-    ay.academic_year_name,
-    COALESCE(ih.sanctioned_intake, p.sanctioned_intake, 0)::integer AS total_seats,
-    COUNT(lp.id) AS filled_seats,
-    GREATEST(0,
-      COALESCE(ih.sanctioned_intake, p.sanctioned_intake, 0)
-      - COUNT(lp.id)::integer
-    ) AS balance_seats,
+    ay.admission_year_name,
+    ay.program_start_year,
+    ay.program_end_year,
+    ay.sanctioned_intake::integer                               AS total_seats,
+    COUNT(lp.id)                                                AS filled_seats,
+    GREATEST(0, ay.sanctioned_intake - COUNT(lp.id)::integer)   AS balance_seats,
     CASE
-      WHEN COALESCE(ih.sanctioned_intake, p.sanctioned_intake, 0) > 0
-        THEN ROUND(
-          COUNT(lp.id)::numeric
-          / COALESCE(ih.sanctioned_intake, p.sanctioned_intake, 0) * 100, 1)
+      WHEN ay.sanctioned_intake > 0
+        THEN ROUND(COUNT(lp.id)::numeric / ay.sanctioned_intake * 100, 1)
       ELSE 0
-    END AS fill_percentage,
-    MAX(lp.activated_at) AS last_filled_at
-  FROM programs p
+    END                                                         AS fill_percentage,
+    MAX(lp.activated_at)                                        AS last_filled_at
+  FROM admission_years ay
+  JOIN programs p       ON p.id    = ay.program_id
   JOIN departments dept ON dept.id = p.department_id
-  JOIN degrees d        ON d.id = p.degree_id
-  JOIN institutions i   ON i.id = p.institution_id
-  JOIN academic_years ay
-    ON (p_academic_year_id IS NULL OR ay.id = p_academic_year_id)
-  LEFT JOIN intake_history ih
-    ON ih.program_id = p.id AND ih.academic_year_id = ay.id
+  JOIN degrees d        ON d.id    = p.degree_id
+  JOIN institutions i   ON i.id    = ay.institution_id
   LEFT JOIN learners_profiles lp
-    ON  lp.program_id        = p.id
-    AND lp.academic_year_id  = ay.id
-    AND lp.lifecycle_status  = 'active'
-  WHERE (p_institution_id IS NULL OR i.id = p_institution_id)
-    AND p.is_active = true
-    AND (ih.id IS NOT NULL OR lp.id IS NOT NULL)
+    ON (
+      lp.admission_year_id = ay.id
+      OR (
+        lp.admission_year_id IS NULL
+        AND lp.program_id     = ay.program_id
+        AND lp.institution_id = ay.institution_id
+        AND lp.admission_year = ay.program_start_year
+      )
+    )
+    AND lp.lifecycle_status IN ('admitted', 'active', 'graduated')
+  WHERE ay.is_active = true
+    AND (p_institution_id IS NULL OR ay.institution_id = p_institution_id)
   GROUP BY
     i.id, i.name,
     d.id, d.degree_name,
     dept.id, dept.department_name,
     p.id, p.program_name,
-    ay.id, ay.academic_year_name,
-    ih.sanctioned_intake, p.sanctioned_intake
-  ORDER BY i.name, d.degree_name, dept.department_name, p.program_name, ay.academic_year_name;
+    ay.id, ay.admission_year_name, ay.program_start_year, ay.program_end_year, ay.sanctioned_intake
+  ORDER BY i.name, d.degree_name, dept.department_name, p.program_name, ay.program_start_year DESC;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_seat_analytics(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_seat_analytics(uuid) TO authenticated;
 
 -- RPC B: Source/referral breakdown (consultant/direct/student/faculty) by institution
 CREATE OR REPLACE FUNCTION public.get_source_analytics(

@@ -18,7 +18,6 @@ import type { SeatAnalyticsRow } from '@/types/admission-workflow-config';
 
 interface SeatAnalyticsDashboardProps {
   institutionId?: string;
-  academicYearId?: string;
 }
 
 function fillColor(pct: number) {
@@ -52,8 +51,8 @@ function aggregateByInstitution(rows: SeatAnalyticsRow[]) {
   }));
 }
 
-export function SeatAnalyticsDashboard({ institutionId, academicYearId }: SeatAnalyticsDashboardProps) {
-  const { data: rows = [], isLoading, isError } = useSeatAnalytics(institutionId, academicYearId);
+export function SeatAnalyticsDashboard({ institutionId }: SeatAnalyticsDashboardProps) {
+  const { data: rows = [], isLoading, isError } = useSeatAnalytics(institutionId);
 
   if (isLoading) {
     return (
@@ -68,7 +67,7 @@ export function SeatAnalyticsDashboard({ institutionId, academicYearId }: SeatAn
       <Card>
         <CardContent className="py-8 text-center space-y-3">
           <p className="text-sm text-muted-foreground">
-            {isError ? 'Failed to load seat analytics.' : 'No seat data found for the selected academic year.'}
+            {isError ? 'Failed to load seat analytics.' : 'No admission year data found. Configure admission years and seat intake first.'}
           </p>
           <Link href="/admission/settings/seat-config">
             <Button size="sm" variant="outline">
@@ -157,7 +156,7 @@ export function SeatAnalyticsDashboard({ institutionId, academicYearId }: SeatAn
       {/* Hierarchy table */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Program-Level Seat Details</CardTitle>
+          <CardTitle className="text-sm font-medium">Admission Year — Seat Details</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-auto max-h-[420px]">
@@ -168,7 +167,7 @@ export function SeatAnalyticsDashboard({ institutionId, academicYearId }: SeatAn
                   <TableHead>Degree</TableHead>
                   <TableHead>Department</TableHead>
                   <TableHead>Program</TableHead>
-                  <TableHead>Year</TableHead>
+                  <TableHead>Admission Year</TableHead>
                   <TableHead className="text-right">Seats</TableHead>
                   <TableHead className="text-right">Filled</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
@@ -182,7 +181,7 @@ export function SeatAnalyticsDashboard({ institutionId, academicYearId }: SeatAn
                     <TableCell className="text-xs">{r.degree_name}</TableCell>
                     <TableCell className="text-xs">{r.department_name}</TableCell>
                     <TableCell className="text-xs font-medium">{r.program_name}</TableCell>
-                    <TableCell className="text-xs">{r.academic_year_name}</TableCell>
+                    <TableCell className="text-xs whitespace-nowrap">{r.admission_year_name}</TableCell>
                     <TableCell className="text-right text-xs">{r.total_seats}</TableCell>
                     <TableCell className="text-right text-xs">{Number(r.filled_seats)}</TableCell>
                     <TableCell className="text-right text-xs">{r.balance_seats}</TableCell>

@@ -13,9 +13,6 @@ import {
 import { useInstitutionComparison } from '@/hooks/admission/use-group-dashboard';
 import type { InstitutionComparisonRow } from '@/types/admission-workflow-config';
 
-interface InstitutionComparisonAdvancedProps {
-  academicYearId?: string;
-}
 
 function FillBadge({ pct }: { pct: number }) {
   if (pct >= 90) return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{pct}%</Badge>;
@@ -32,8 +29,8 @@ function scorecard(row: InstitutionComparisonRow) {
   return Math.round(score);
 }
 
-export function InstitutionComparisonAdvanced({ academicYearId }: InstitutionComparisonAdvancedProps) {
-  const { data: rows = [], isLoading, isError } = useInstitutionComparison(academicYearId);
+export function InstitutionComparisonAdvanced() {
+  const { data: rows = [], isLoading, isError } = useInstitutionComparison();
 
   if (isLoading) {
     return (
