@@ -86,7 +86,7 @@ export class HostelLeaveService {
         logger.error('campus-living/leave', 'Failed to fetch leave request', error);
         throw error;
       }
-      return data as (HostelLeaveRequest & { hostel_gate_passes: unknown[] }) | null;
+      return data as unknown as (HostelLeaveRequest & { hostel_gate_passes: unknown[] }) | null;
     } catch (error) {
       logger.error('campus-living/leave', 'Unexpected error in getLeaveRequest', error);
       throw error;
@@ -635,7 +635,13 @@ export class HostelLeaveService {
    */
   private static async deriveStatusFromEngine(runId: string): Promise<LeaveStatus> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await supabase
+    // Cast the chained join through `any` — Supabase generated types hit
+    // TS2589 ("type instantiation is excessively deep") on the nested
+    // rule:approval_chain_rules(stages) shape. hostel_vacate does the same
+    // thing in its baseline (72 of these errors on jicate/main).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const client = supabase as any;
+    const { data, error } = await client
       .from('approval_chain_runs')
       .select('status, current_stage_idx, rule:approval_chain_rules(stages)')
       .eq('id', runId)
