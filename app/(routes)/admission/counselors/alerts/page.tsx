@@ -252,7 +252,7 @@ function AlertsPageContent() {
                               <span className="flex items-center gap-1">
                                 <User className="h-3 w-3" />{entry.lead_name}
                               </span>
-                              <span>{new Date(entry.created_at).toLocaleString()}</span>
+                              <span>{new Date(entry.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
                               <Badge variant="outline" className="text-xs">{entry.event_type.replace(/_/g, ' ')}</Badge>
                             </div>
                           </div>

@@ -191,6 +191,26 @@ export function useCounselorActions(institutionId?: string) {
 }
 
 // ============================================================================
+// CURRENT USER'S COUNSELOR ID HOOK
+// ============================================================================
+
+/**
+ * Resolves the currently authenticated user's admission_counselors.id for a
+ * given institution. Used by counselor-scoped UI (reminders, alerts) to filter
+ * down to the user's own assigned leads. Returns null if the user isn't a
+ * counselor in that institution (e.g., super admins or managers) — the caller
+ * can then fall back to unscoped/manager behavior.
+ */
+export function useMyCounselorId(institutionId: string | null | undefined) {
+  return useQuery({
+    queryKey: [...counselorDailyViewKeys.all, 'my-counselor-id', institutionId ?? ''],
+    queryFn: () => CounselorDailyViewService.getMyCounselorId(institutionId ?? undefined),
+    enabled: !!institutionId,
+    staleTime: 5 * 60 * 1000, // 5-minute cache — counselor mapping is stable
+  });
+}
+
+// ============================================================================
 // COUNSELOR PROFILES HOOK (sourced from user profiles, role='counselor')
 // ============================================================================
 
