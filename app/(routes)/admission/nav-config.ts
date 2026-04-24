@@ -26,6 +26,26 @@ const config: ModuleNavConfig = {
       icon: 'LineChart',
       href: '/admission/analytics',
       matchPaths: ['/admission/analytics', '/admission/group-dashboard'],
+      // Tier-3 chips so `/admission/group-dashboard` becomes a real clickable
+      // chip. Previously it was covered only by matchPaths, which lit up the
+      // Analytics chip as active when at /group-dashboard but gave users no
+      // way to GET there from chip navigation. Flagged as a regression by
+      // Omm 2026-04-24 — "group dashboard in admission CRM which was there
+      // earlier is still missing".
+      children: [
+        {
+          label: 'Overview',
+          icon: 'LineChart',
+          href: '/admission/analytics',
+          exact: true,
+        },
+        {
+          label: 'Group Dashboard',
+          icon: 'LayoutDashboard',
+          href: '/admission/group-dashboard',
+          matchPaths: ['/admission/group-dashboard'],
+        },
+      ],
     },
     {
       label: 'Leads',
