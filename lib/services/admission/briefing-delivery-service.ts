@@ -221,15 +221,28 @@ export async function getBriefing(briefingId: string): Promise<Briefing | null> 
 }
 
 /**
- * Get the latest briefing for an institution
+ * Get the latest briefing.
+ *
+ * Briefings are per-user (each counselor gets a personalised row on demand).
+ * When a `userId` is provided, we scope the read to that user so Counselor B
+ * does not see Counselor A's briefing (BUG-003146 — per-user data leak).
+ *
+ * Back-compat: when `userId` is omitted, the query falls back to the
+ * institution-wide "latest" row. This preserves the super-admin preview
+ * behaviour that mirrors the existing `institutionId === undefined` pattern
+ * used elsewhere in this service.
  */
-export async function getLatestBriefing(institutionId: string | undefined): Promise<Briefing | null> {
+export async function getLatestBriefing(
+  institutionId: string | undefined,
+  userId?: string
+): Promise<Briefing | null> {
   let query = (supabase as any)
     .from('admission_daily_briefings')
     .select('*')
     .order('briefing_date', { ascending: false })
     .limit(1);
   if (institutionId) query = query.eq('institution_id', institutionId);
+  if (userId) query = query.eq('user_id', userId);
   const { data, error } = await query.single();
 
   if (error) {
