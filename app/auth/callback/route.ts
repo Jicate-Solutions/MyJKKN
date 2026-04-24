@@ -26,6 +26,16 @@ export async function GET(request: NextRequest) {
     // the persisted AuthnRequest and emit the SAMLResponse to the SP ACS.
     const samlReqId = requestUrl.searchParams.get('samlReqId');
 
+    // Deep-link-after-auth (2026-04-24). `?next=/some/path` overrides role-based
+    // routing. Used by scripts/local-auth.sh and any flow that needs to land on
+    // a specific page after login. Security: only relative paths — must start
+    // with `/` but not `//` (which browsers treat as protocol-relative).
+    const nextRaw = requestUrl.searchParams.get('next');
+    const nextPath =
+      nextRaw && nextRaw.startsWith('/') && !nextRaw.startsWith('//')
+        ? nextRaw
+        : null;
+
     console.log('[Auth Callback] 🔐 Auth callback initiated');
     console.log('[Auth Callback] Request URL:', requestUrl.toString());
     console.log('[Auth Callback] Origin:', origin);
@@ -502,8 +512,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));
       }
 
-      // If profile exists and is completed, redirect based on role
-      let destination = '/';
+      // If profile exists and is completed, redirect based on role.
+      // `?next=/path` overrides role-based default (validated above).
+      let destination = nextPath ?? '/';
+      if (nextPath) {
+        console.log('[Auth Callback] `next` param honored — redirecting to:', nextPath);
+      }
       console.log('[Auth Callback] Profile role:', actualProfile.role, 'user:', user.id, 'email:', user.email);
 
       if (actualProfile.role === 'guest') {
