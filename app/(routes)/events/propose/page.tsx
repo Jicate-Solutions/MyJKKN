@@ -54,7 +54,7 @@ export default function ProposeEventPage() {
         .eq('is_active', true)
         .order('priority_order');
       if (error) toast.error(`Categories load failed: ${error.message}`);
-      else setCategories((data ?? []) as Category[]);
+      else setCategories(((data ?? []) as unknown) as Category[]);
       setLoadingCats(false);
     })();
   }, [supabase]);
