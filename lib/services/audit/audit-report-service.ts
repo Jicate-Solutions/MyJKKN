@@ -14,21 +14,17 @@
 //
 // PDF: jspdf + jspdf-autotable (already a project dependency).
 // DOCX: docx npm package (added in package.json for this PR).
-
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import {
-  Document,
-  HeadingLevel,
-  Packer,
-  Paragraph,
-  Table,
-  TableCell,
-  TableRow,
-  TextRun,
-  WidthType,
-  AlignmentType,
-} from 'docx';
+//
+// Both `jspdf` and `docx` are lazy-loaded via `await import(...)` inside
+// their respective render methods. Static top-level imports were pulling
+// the full font atlas + PDF rendering engine + docx XML builder into the
+// main build's module graph, which pushed the webpack memory footprint
+// past Vercel's 48 GB heap ceiling and crashed `npm run build` with
+// `FATAL ERROR: heap out of memory`. Dynamic imports let webpack
+// code-split these heavy deps out of the main bundle — they're still
+// bundled, just loaded on demand when `generateReport` is called.
+// See: 2026-04-24 OOM incident (prod deploy `my-jkkn-swa3v92ih` failed
+// with SIGABRT 3m 40s into build).
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { AuditCycleService } from './audit-cycle-service';
@@ -297,15 +293,18 @@ export class AuditReportService {
   static async generateReport(cycleId: string, format: AuditReportFormat): Promise<Buffer> {
     const bundle = await this.loadBundle(cycleId);
     if (format === 'pdf') {
-      return this.renderPdf(bundle);
+      return await this.renderPdf(bundle);
     }
-    return this.renderDocx(bundle);
+    return await this.renderDocx(bundle);
   }
 
   // ==========================================================================
-  // PDF renderer — jspdf + jspdf-autotable
+  // PDF renderer — jspdf + jspdf-autotable (lazy-loaded to avoid build OOM)
   // ==========================================================================
-  private static renderPdf(bundle: AuditReportBundle): Buffer {
+  private static async renderPdf(bundle: AuditReportBundle): Promise<Buffer> {
+    const { jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
     const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
     let y = 15;
@@ -366,7 +365,7 @@ export class AuditReportService {
       styles: { fontSize: 10 },
       margin: { left: 14, right: 14 },
     });
-    const autoTableDoc = doc as jsPDF & { lastAutoTable?: { finalY: number } };
+    const autoTableDoc = doc as typeof doc & { lastAutoTable?: { finalY: number } };
     y = (autoTableDoc.lastAutoTable?.finalY ?? y) + 10;
 
     // --- Per-Parameter Attestation Grid ---
@@ -542,10 +541,57 @@ export class AuditReportService {
   }
 
   // ==========================================================================
-  // DOCX renderer — docx npm package
+  // DOCX renderer — docx npm package (lazy-loaded to avoid build OOM)
   // ==========================================================================
   private static async renderDocx(bundle: AuditReportBundle): Promise<Buffer> {
-    const children: (Paragraph | Table)[] = [];
+    const {
+      Document,
+      HeadingLevel,
+      Packer,
+      Paragraph,
+      Table,
+      TableCell,
+      TableRow,
+      TextRun,
+      WidthType,
+      AlignmentType,
+    } = await import('docx');
+
+    // `docxTable` was a static method; moved in-scope so it can reference
+    // the dynamically-imported classes above without re-importing per call.
+    const docxTable = (headers: string[], rows: string[][]): InstanceType<typeof Table> => {
+      const headerRow = new TableRow({
+        tableHeader: true,
+        children: headers.map(
+          (h) =>
+            new TableCell({
+              width: { size: Math.floor(100 / headers.length), type: WidthType.PERCENTAGE },
+              children: [
+                new Paragraph({
+                  children: [new TextRun({ text: h, bold: true })],
+                }),
+              ],
+            })
+        ),
+      });
+      const bodyRows = rows.map(
+        (row) =>
+          new TableRow({
+            children: row.map(
+              (cell) =>
+                new TableCell({
+                  children: [new Paragraph({ children: [new TextRun(cell)] })],
+                })
+            ),
+          })
+      );
+      return new Table({
+        rows: [headerRow, ...bodyRows],
+        width: { size: 100, type: WidthType.PERCENTAGE },
+      });
+    };
+
+    const children: (InstanceType<typeof Paragraph> | InstanceType<typeof Table>)[] = [];
 
     // --- Cover ---
     children.push(
@@ -587,7 +633,7 @@ export class AuditReportService {
         heading: HeadingLevel.HEADING_1,
         children: [new TextRun({ text: '1. Cycle Summary', bold: true })],
       }),
-      this.docxTable(
+      docxTable(
         ['Metric', 'Count'],
         [
           ['Total parameters attested', String(bundle.rollup.total)],
@@ -625,7 +671,7 @@ export class AuditReportService {
       ];
     });
     children.push(
-      this.docxTable(
+      docxTable(
         ['Code', 'Parameter', 'Attestation', 'Evidence', 'Open Findings', 'Attested At'],
         attestationRows.length
           ? attestationRows
@@ -649,7 +695,7 @@ export class AuditReportService {
         heading: HeadingLevel.HEADING_1,
         children: [new TextRun({ text: '3. Open Findings Summary', bold: true })],
       }),
-      this.docxTable(
+      docxTable(
         ['Ref', 'Parameter', 'Severity', 'Status', 'Priority', 'Opened'],
         findingsRows.length
           ? findingsRows
@@ -717,7 +763,7 @@ export class AuditReportService {
         }
 
         children.push(
-          this.docxTable(
+          docxTable(
             ['Metric', 'Ref', 'Institution', 'Status', 'Rectified'],
             evidenceRows
           ),
@@ -729,37 +775,5 @@ export class AuditReportService {
     const doc = new Document({ sections: [{ children }] });
     const buf = await Packer.toBuffer(doc);
     return Buffer.from(buf);
-  }
-
-  private static docxTable(headers: string[], rows: string[][]): Table {
-    const headerRow = new TableRow({
-      tableHeader: true,
-      children: headers.map(
-        (h) =>
-          new TableCell({
-            width: { size: Math.floor(100 / headers.length), type: WidthType.PERCENTAGE },
-            children: [
-              new Paragraph({
-                children: [new TextRun({ text: h, bold: true })],
-              }),
-            ],
-          })
-      ),
-    });
-    const bodyRows = rows.map(
-      (row) =>
-        new TableRow({
-          children: row.map(
-            (cell) =>
-              new TableCell({
-                children: [new Paragraph({ children: [new TextRun(cell)] })],
-              })
-          ),
-        })
-    );
-    return new Table({
-      rows: [headerRow, ...bodyRows],
-      width: { size: 100, type: WidthType.PERCENTAGE },
-    });
   }
 }
