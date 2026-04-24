@@ -34,7 +34,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { id: userId } = await params;
     const supabase = await createServerSupabaseClient();
     const guard = await requireManagePermission(supabase);
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
+    }
 
     const body = await request.json().catch(() => ({}));
     const extendDays = Math.max(1, Math.min(90, Number(body?.extend_days ?? 7)));
@@ -99,7 +101,9 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     const { id: userId } = await params;
     const supabase = await createServerSupabaseClient();
     const guard = await requireManagePermission(supabase);
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error }, { status: guard.status });
+    }
 
     const nowIso = new Date().toISOString();
     const { error: updErr } = await (supabase as any)

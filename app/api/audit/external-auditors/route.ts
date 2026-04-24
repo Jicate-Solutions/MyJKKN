@@ -44,7 +44,10 @@ export async function GET(_request: Request) {
   try {
     const supabase = await createServerSupabaseClient();
     const guard = await requireManagePermission(supabase);
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+    if (!guard.ok) {
+      const err = guard as { ok: false; status: number; error: string };
+      return NextResponse.json({ error: err.error }, { status: err.status });
+    }
 
     // Find all profiles with the external_auditor_timeboxed role (via user_roles).
     const { data: roleRow, error: roleErr } = await supabase
@@ -126,7 +129,10 @@ export async function POST(request: Request) {
   try {
     const supabase = await createServerSupabaseClient();
     const guard = await requireManagePermission(supabase);
-    if (!guard.ok) return NextResponse.json({ error: guard.error }, { status: guard.status });
+    if (!guard.ok) {
+      const err = guard as { ok: false; status: number; error: string };
+      return NextResponse.json({ error: err.error }, { status: err.status });
+    }
 
     const body = (await request.json()) as CreateExternalAuditorInput;
     if (!body?.email || !body?.expires_at || !Array.isArray(body.institution_ids) || body.institution_ids.length === 0) {
