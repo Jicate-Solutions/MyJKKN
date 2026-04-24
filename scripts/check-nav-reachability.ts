@@ -195,6 +195,11 @@ const NAV_EXCLUDE = new Set<string>([
 
   // VAC /new forms
   '/vac/admin/courses/new',
+
+  // Events — Phase 1A smoke-test page (PR #455). Reached via direct URL for
+  // dev testing (scripts/local-auth.sh director@jkkn.ac.in /events/propose);
+  // sidebar entry will land when the Events module is built out beyond Phase 1A.
+  '/events/propose',
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */
