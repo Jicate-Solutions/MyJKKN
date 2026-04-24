@@ -16,9 +16,17 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
-  // Authenticate via secret query parameter
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  // Auth: CRON_SECRET via `Authorization: Bearer <secret>` header (Vercel cron)
+  // OR `?secret=` query param (manual runs). Vercel does NOT substitute
+  // ${CRON_SECRET} in URL paths, so Bearer header is required for auto-fires.
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    console.warn('[cron/notification-processor] CRON_SECRET not configured');
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const authHeader = request.headers.get('authorization');
+  const querySecret = request.nextUrl.searchParams.get('secret');
+  if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
     console.warn('[cron/notification-processor] Unauthorized attempt');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
