@@ -31,7 +31,7 @@ import type {
  */
 
 export class ParentCategoryService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get all parent categories with filtering and pagination

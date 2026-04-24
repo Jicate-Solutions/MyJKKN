@@ -17,7 +17,7 @@ import type {
 import toast from 'react-hot-toast';
 
 export class TimetableService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // Helper method to check if timetable has attendance marked
   static async hasAttendanceMarked(timetableId: string): Promise<{

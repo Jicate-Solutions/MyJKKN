@@ -78,7 +78,7 @@ export interface AgentTypeInfo {
 
 // Service
 export class VoiceAgentService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async getAgentConfigs(institutionId: string): Promise<VoiceAgentConfig[]> {
     console.warn('[voice-agent-service] getAgentConfigs stub called');

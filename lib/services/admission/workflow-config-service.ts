@@ -5,7 +5,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { AdmissionWorkflowConfig } from '@/types/admission-workflow-config';
 
 export class WorkflowConfigService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get the active workflow config for an institution + academic year

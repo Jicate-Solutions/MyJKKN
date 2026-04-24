@@ -9,7 +9,7 @@ import type {
 } from '@/types/admission-workflow-config';
 
 export class GroupDashboardService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get admission summary across all institutions the user has access to

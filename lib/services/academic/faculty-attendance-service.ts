@@ -12,7 +12,7 @@ import type {
 } from '@/types/academic/timetable-queries';
 
 export class FacultyAttendanceService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Convert 24-hour time format to 12-hour format with AM/PM

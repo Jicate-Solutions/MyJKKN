@@ -16,7 +16,7 @@ import type {
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export class AcademicYearService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async createAcademicYear(
     data: CreateAcademicYearDto

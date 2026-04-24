@@ -69,7 +69,7 @@ const SYSTEM_ROLE_BILLING_PERMISSIONS: Record<string, Record<string, boolean>> =
 };
 
 export class RoleService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Convert database row to CustomRole format

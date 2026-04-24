@@ -16,7 +16,7 @@ import type {
 } from '@/types/leaves';
 
 export class LeaveService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Create a new institution leave

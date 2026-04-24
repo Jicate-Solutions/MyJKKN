@@ -10,7 +10,7 @@ import type {
 } from '@/types/billing-schedule';
 
 export class StudentBillService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async createStudentBill(
     billData: CreateStudentBillDto

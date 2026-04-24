@@ -37,7 +37,7 @@ export interface ConflictSummary {
 }
 
 export class AttendanceConflictMonitorService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get current attendance conflicts

@@ -14,7 +14,7 @@ import type {
 import { sanitizeSearch } from '@/lib/config/pagination';
 
 export class LeadService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Generate a unique lead number

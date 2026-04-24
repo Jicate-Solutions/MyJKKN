@@ -7,7 +7,7 @@ import type {
 } from '@/types/billing-schedule';
 
 export class StudentSearchServiceOptimized {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // Import the regular service methods to avoid code duplication
   static async searchStudentsForBilling(

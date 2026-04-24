@@ -30,7 +30,7 @@ export interface CloneStaffPlanResult {
 }
 
 export class StaffPlanService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // Get courses by institution for filter dropdown - only courses with staff plans
   static async getCoursesByInstitution(institutionId: string): Promise<{

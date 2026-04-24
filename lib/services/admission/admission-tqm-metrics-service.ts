@@ -40,7 +40,7 @@ export interface COPQSummary {
 // ============================================================================
 
 export class AdmissionTQMMetricsService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get TQM metrics for admission quality widget

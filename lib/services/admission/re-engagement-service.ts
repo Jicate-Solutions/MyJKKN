@@ -63,7 +63,7 @@ export interface ColdLeadFilters {
 // ============================================================================
 
 export class ReEngagementService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get cold/dormant leads

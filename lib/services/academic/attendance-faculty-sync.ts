@@ -2,7 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export class AttendanceFacultySync {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Syncs faculty data from timetables to attendance records

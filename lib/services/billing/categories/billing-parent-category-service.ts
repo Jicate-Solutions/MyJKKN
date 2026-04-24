@@ -9,7 +9,7 @@ import type {
 } from '@/types/billing';
 
 export class BillingParentCategoryService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async checkCategoryNameExists(
     institutionId: string,

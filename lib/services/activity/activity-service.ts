@@ -14,7 +14,7 @@ import {
 } from '@/types/activity';
 
 export class ActivityService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Create a new activity log entry

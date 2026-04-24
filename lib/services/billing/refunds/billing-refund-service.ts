@@ -10,7 +10,7 @@ import type {
 } from '@/types/billing-schedule';
 
 export class BillingRefundService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async createBillingRefund(
     refundData: CreateRefundDto

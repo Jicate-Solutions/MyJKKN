@@ -165,7 +165,7 @@ const CRM_SCHEMA = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class AgenticQueryService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
   private static anthropic: Anthropic | null = null;
 
   /**

@@ -2,7 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { UserDashboardStats, UserDashboardFilters } from '@/types/users';
 
 export class UserDashboardService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get comprehensive user dashboard statistics

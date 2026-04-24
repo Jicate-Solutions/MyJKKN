@@ -65,7 +65,7 @@ export interface SyncHistoryEntry {
 
 // Service
 export class RemarketingService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async getAudienceRules(filters: AudienceRuleFilters): Promise<AudienceRule[]> {
     // TODO: Implement actual Supabase query

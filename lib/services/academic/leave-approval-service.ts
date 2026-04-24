@@ -18,7 +18,7 @@ import type {
 } from '@/types/leaves';
 
 export class LeaveApprovalService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // =====================================================
   // APPROVAL CHAIN MANAGEMENT

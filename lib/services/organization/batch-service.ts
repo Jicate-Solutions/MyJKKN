@@ -20,7 +20,7 @@ export interface BatchFilters {
 }
 
 export class BatchService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get all batches for an institution

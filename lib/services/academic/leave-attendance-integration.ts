@@ -14,7 +14,7 @@ import type {
 } from '@/types/leaves';
 
 export class LeaveAttendanceIntegration {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Check if attendance can be marked for a given date and scope

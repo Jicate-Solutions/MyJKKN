@@ -57,7 +57,7 @@ export interface ParentCommFilters {
 // ============================================================================
 
 export class ParentCommunicationService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get leads with parent information

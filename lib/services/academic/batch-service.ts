@@ -10,7 +10,7 @@ import type {
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export class BatchService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async createBatch(data: CreateBatchDto): Promise<Batch> {
     try {

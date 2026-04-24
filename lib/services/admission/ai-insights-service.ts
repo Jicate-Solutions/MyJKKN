@@ -98,7 +98,7 @@ export interface Anomaly {
 // ============================================================================
 
 export class AIInsightsService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // ==========================================================================
   // INSIGHTS CRUD

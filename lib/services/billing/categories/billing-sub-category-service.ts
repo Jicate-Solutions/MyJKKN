@@ -8,7 +8,7 @@ import type {
 } from '@/types/billing';
 
 export class BillingSubCategoryService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async checkSubCategoryNameExists(
     parentCategoryId: string,

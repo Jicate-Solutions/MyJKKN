@@ -117,7 +117,7 @@ const EVENT_TEMPLATES: Record<AlertEventType, {
 // ============================================================================
 
 export class ActivityAlertService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // ============================================================================
   // ALERT RULES CRUD

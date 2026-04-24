@@ -21,7 +21,7 @@ interface BulkCreateResult {
 }
 
 export class CourseMappingService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Helper method to get accessible institution IDs for a user

@@ -15,7 +15,7 @@ import type {
 } from '@/types/leaves';
 
 export class LeaveTypeService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Create a new leave type

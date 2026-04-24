@@ -28,7 +28,7 @@ export interface UserInstitutionFilters {
 }
 
 export class UserInstitutionAccessService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get all accessible institutions for a user

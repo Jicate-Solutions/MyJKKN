@@ -9,7 +9,7 @@ import type {
 } from '@/types/organizations';
 
 export class ProgramService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Helper method to get accessible institution IDs for a user

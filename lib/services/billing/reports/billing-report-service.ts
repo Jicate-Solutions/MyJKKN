@@ -12,7 +12,7 @@ import type {
 } from '@/types/billing-schedule';
 
 export class BillingReportService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // Get dashboard metrics
   static async getDashboardMetrics(

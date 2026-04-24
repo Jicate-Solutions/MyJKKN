@@ -14,7 +14,7 @@ import type {
 } from '@/types/academics';
 
 export class PeriodService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async createPeriod(data: CreatePeriodDto): Promise<Period> {
     try {

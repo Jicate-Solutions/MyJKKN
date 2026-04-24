@@ -9,7 +9,7 @@ import type {
 } from '@/types/billing-schedule';
 
 export class BillingDiscountService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async createBillingDiscount(
     discountData: CreateDiscountDto

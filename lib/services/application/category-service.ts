@@ -12,7 +12,7 @@ import type {
 } from '@/types/categories';
 
 export class CategoryService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // Get all categories with subcategories
   static async getCategories(): Promise<Category[]> {

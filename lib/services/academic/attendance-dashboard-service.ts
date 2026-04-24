@@ -10,7 +10,7 @@ import type {
 } from '@/types/attendance-dashboard';
 
 export class AttendanceDashboardService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get today's attendance statistics with hierarchical structure

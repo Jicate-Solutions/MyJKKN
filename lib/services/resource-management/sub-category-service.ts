@@ -14,7 +14,7 @@ import type {
 } from '@/types/resource-management';
 
 export class SubCategoryService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get all sub categories with filtering and pagination

@@ -10,7 +10,7 @@ import type {
 } from '@/types/billing-schedule';
 
 export class BillingInvoiceServiceOptimized {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // Generate invoice number with error handling
   private static async generateInvoiceNumber(): Promise<string> {

@@ -62,7 +62,7 @@ export interface AttendanceStatistics {
 }
 
 export class AttendanceReportService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get attendance reports with role-based filtering

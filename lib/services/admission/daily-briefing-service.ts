@@ -79,7 +79,7 @@ export interface DailyBriefing {
 export type BriefingRole = 'counselor' | 'manager' | 'admin';
 
 export class DailyBriefingService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Generate a personalized daily briefing for a user

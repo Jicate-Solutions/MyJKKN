@@ -17,7 +17,7 @@ export interface RegulationFilters {
 }
 
 export class RegulationService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get all regulations for an institution

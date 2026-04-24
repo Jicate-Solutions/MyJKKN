@@ -20,7 +20,7 @@ export interface NAACReport {
 }
 
 export class NAACReportService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Generate NAAC Criteria 2.1.1 report

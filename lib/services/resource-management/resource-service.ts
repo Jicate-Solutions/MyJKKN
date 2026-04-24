@@ -19,7 +19,7 @@ import type {
  * and image handling for resources.
  */
 export class ResourceService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get all resources with filtering and pagination

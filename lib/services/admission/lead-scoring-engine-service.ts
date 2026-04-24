@@ -105,7 +105,7 @@ export interface BulkScoreResult {
 
 export class LeadScoringEngineService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private static supabase: any = createClientSupabaseClient();
+  private static get supabase(): any { return createClientSupabaseClient(); }
 
   // ============================================================================
   // SCORE CALCULATION

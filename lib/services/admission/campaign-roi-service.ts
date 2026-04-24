@@ -95,7 +95,7 @@ const ATTRIBUTION_WINDOW_DAYS = 7;
 // ============================================================================
 
 export class CampaignROIService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // ============================================================================
   // CAMPAIGN ROI DATA

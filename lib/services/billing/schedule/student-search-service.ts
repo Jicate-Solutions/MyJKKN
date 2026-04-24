@@ -35,7 +35,7 @@ type RawStudentData = {
 };
 
 export class StudentSearchService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // Helper function to map raw data to StudentForBilling
   private static mapToStudentForBilling(

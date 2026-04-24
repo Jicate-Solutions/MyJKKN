@@ -111,7 +111,7 @@ export interface UpdateCallNotesInput {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class TelephonyService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Check if Exotel telephony integration is configured via environment variables.

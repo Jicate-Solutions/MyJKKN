@@ -25,7 +25,7 @@ export interface ProfileForSelection {
  * (faculty, hod, admin, student, etc.)
  */
 export class ProfileService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Lightweight profile query for dropdowns/selection components

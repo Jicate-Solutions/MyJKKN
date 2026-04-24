@@ -12,7 +12,7 @@ import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
 
 export class BillingReceiptService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // Get the appropriate Supabase client (passed or default)
   private static getClient(providedClient?: SupabaseClient): any {

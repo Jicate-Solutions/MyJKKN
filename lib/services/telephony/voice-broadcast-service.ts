@@ -91,7 +91,7 @@ export interface BroadcastStats {
 
 // Service
 export class VoiceBroadcastService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async getCampaigns(filters: BroadcastFilters): Promise<BroadcastCampaignsResult> {
     console.warn('[voice-broadcast-service] getCampaigns stub called');

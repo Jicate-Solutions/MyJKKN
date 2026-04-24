@@ -41,7 +41,7 @@ import type { DayOfWeek } from '@/types/academics';
  * - And many others that query timetable_slots table
  */
 export class AttendanceService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // =====================
   // STAFF ASSIGNMENT VALIDATION METHODS

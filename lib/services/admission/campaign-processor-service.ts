@@ -115,7 +115,7 @@ export interface LogFilters {
 
 export class CampaignProcessorService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private static supabase: any = createClientSupabaseClient();
+  private static get supabase(): any { return createClientSupabaseClient(); }
 
   // ============================================================================
   // QUEUE METHODS

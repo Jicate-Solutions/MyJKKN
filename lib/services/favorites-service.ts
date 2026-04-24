@@ -2,7 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { UserAppFavorite, FavoriteApp } from '@/types/favorites';
 
 export class FavoritesService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Add an application to user's favorites

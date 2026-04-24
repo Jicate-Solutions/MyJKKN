@@ -18,7 +18,7 @@ import type {
 } from '@/types/leaves';
 
 export class LeaveCalendarService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get leaves for a specific month (uses database function)

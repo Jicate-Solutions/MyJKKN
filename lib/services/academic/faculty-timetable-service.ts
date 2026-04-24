@@ -17,7 +17,7 @@ import type {
 } from '@/types/academic/timetable-queries';
 
 export class FacultyTimetableService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get timetable slots assigned to a specific faculty member

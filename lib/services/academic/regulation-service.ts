@@ -10,7 +10,7 @@ import type {
 } from '@/types/academics';
 
 export class RegulationService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async createRegulation(data: CreateRegulationDto): Promise<Regulation> {
     try {

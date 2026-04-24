@@ -83,7 +83,7 @@ const DEFAULT_UNIT_COSTS: Record<CostChannel, Record<CostEventType, number>> = {
 // ============================================================================
 
 export class CommunicationCostService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // ============================================================================
   // COST LOGGING

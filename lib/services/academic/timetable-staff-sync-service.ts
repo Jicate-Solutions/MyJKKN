@@ -32,7 +32,7 @@ export interface TimetableStaffConflict {
 }
 
 export class TimetableStaffSyncService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Check for conflicts when staff planning changes

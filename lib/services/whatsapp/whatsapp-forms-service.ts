@@ -215,7 +215,7 @@ const PREDEFINED_FORMS: Omit<CreateWAFormTemplateInput, 'institution_id'>[] = [
 // ============================================================================
 
 export class WhatsAppFormsService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   // ============================================================================
   // FORM TEMPLATES CRUD

@@ -53,7 +53,7 @@ export interface StatusFilters {
 // ============================================================================
 
 export class StatusTrackingService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get applications with lead info for status tracking

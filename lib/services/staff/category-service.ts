@@ -9,7 +9,7 @@ import type {
 } from '@/types/staff';
 
 export class CategoryService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   static async createCategory(
     data: CreateEmploymentCategoryDto

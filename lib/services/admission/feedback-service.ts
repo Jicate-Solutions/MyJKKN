@@ -48,7 +48,7 @@ export interface FeedbackFilters {
 // ============================================================================
 
 export class FeedbackService {
-  private static supabase = createClientSupabaseClient();
+  private static get supabase() { return createClientSupabaseClient(); }
 
   /**
    * Get candidates eligible for feedback (lost leads, declined, withdrew)

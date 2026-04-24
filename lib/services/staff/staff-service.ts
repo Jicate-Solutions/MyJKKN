@@ -55,8 +55,8 @@ interface UpdateStaffDto extends Partial<CreateStaffDto> {
 }
 
 export class StaffService {
-  private static supabase = createClientSupabaseClient();
-  private static adminClient = createAdminClient();
+  private static get supabase() { return createClientSupabaseClient(); }
+  private static get adminClient() { return createAdminClient(); }
 
   static async createStaff(
     data: CreateStaffDto,

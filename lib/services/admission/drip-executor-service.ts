@@ -137,7 +137,7 @@ export interface PendingDripStep {
 
 export class DripExecutorService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private static supabase: any = createClientSupabaseClient();
+  private static get supabase(): any { return createClientSupabaseClient(); }
 
   // ============================================================================
   // SEQUENCE MANAGEMENT
