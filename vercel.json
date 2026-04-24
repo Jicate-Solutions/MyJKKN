@@ -4,7 +4,9 @@
   "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ':(exclude)supabase' ':(exclude)docs' ':(exclude)specs' ':(exclude).claude' ':(exclude).github' ':(exclude)*.md'",
   "regions": ["bom1"],
   "git": {
-    "deploymentEnabled": false
+    "deploymentEnabled": {
+      "main": false
+    }
   },
   "crons": [
     {
