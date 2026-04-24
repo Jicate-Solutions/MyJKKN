@@ -817,3 +817,33 @@ CREATE UNIQUE INDEX idx_v_dashboard_conversion_monthly_counselor ON v_dashboard_
 CREATE INDEX idx_v_dashboard_conversion_monthly_institution ON v_dashboard_conversion_monthly (institution_id);
 
 -- END Dashboard v2 views
+
+-- Updated: 2026-04-24 - Institutions that need counselor staffing
+-- Surfaces which colleges have no admission_counselors rows, so Director
+-- can see the staffing gap that causes lead auto-assignment to fail.
+-- Uses security_invoker so RLS applies to the caller (super_admin sees all).
+CREATE OR REPLACE VIEW v_institutions_needing_admission_counselors
+WITH (security_invoker = true) AS
+SELECT
+  i.id AS institution_id,
+  i.name AS institution_name,
+  COALESCE(cc.active_counselors, 0) AS active_counselors,
+  COALESCE(pl.pending_leads, 0) AS pending_leads_awaiting_counselor
+FROM institutions i
+LEFT JOIN (
+  SELECT institution_id, COUNT(*) AS active_counselors
+  FROM admission_counselors
+  WHERE is_active = TRUE
+  GROUP BY institution_id
+) cc ON cc.institution_id = i.id
+LEFT JOIN (
+  SELECT institution_id, COUNT(*) AS pending_leads
+  FROM admission_leads
+  WHERE counselor_id IS NULL
+    AND funnel_stage = 'new'
+    AND source IN ('inbound_call','walk_in','referral','website','other')
+  GROUP BY institution_id
+) pl ON pl.institution_id = i.id
+WHERE i.is_active = TRUE
+  AND COALESCE(cc.active_counselors, 0) = 0
+ORDER BY pl.pending_leads DESC NULLS LAST, i.name;
