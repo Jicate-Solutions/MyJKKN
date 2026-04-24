@@ -18,13 +18,29 @@ const nextConfig: NextConfig = {
   // migration to use cache / connection() / Suspense before enabling.
   // cacheComponents: true,
 
-  // Exclude browser-only PDF libraries from server bundle.
-  // jspdf depends on fflate which uses Node.js Worker via a dynamic `new Worker()`
-  // call that Turbopack cannot resolve at build time — even with `await import('jspdf')`
-  // inside a function, Turbopack still statically traces and bundles the module for SSR.
-  // Marking them as external tells Next.js to skip bundling entirely and resolve them
-  // at runtime via require() — which is never called on the server anyway.
-  serverExternalPackages: ['jspdf', 'jspdf-autotable', 'fflate'],
+  // Exclude heavy runtime libraries from the Next.js module-trace graph.
+  //
+  // Original rationale (jspdf + fflate): jspdf depends on fflate which uses
+  // Node.js Worker via a dynamic `new Worker()` call that Turbopack cannot
+  // resolve at build time — even with `await import('jspdf')` inside a
+  // function, Turbopack still statically traces and bundles the module for
+  // SSR. Marking them as external tells Next.js to skip bundling entirely
+  // and resolve them at runtime via require() — which is never called on
+  // the server anyway.
+  //
+  // 2026-04-24 — extended to cover the remaining heavy libs (docx, exceljs,
+  // xlsx). Context: three consecutive prod deploys (`swa3v92ih`, `hw8vezub8`,
+  // `ctuwp7xm2`) failed with `FATAL ERROR: heap out of memory` at ~4m 40s
+  // into webpack compile — container had 60 GB RAM, Node heap cap 48 GB,
+  // still exhausted. The tipping point was PR #420 (adding `docx` on top of
+  // existing `jspdf`) plus a 354-LOC `bulk-capture-dialog.tsx` growth
+  // landed direct-to-main that inflated static ExcelJS usage. Per-file
+  // `await import()` conversions (#437, #438) chipped at the bundle but
+  // weren't the right layer — the webpack module-trace graph still held
+  // these packages during compile regardless of dynamic-import usage. The
+  // existing jspdf pattern in this array was the right answer — extending
+  // it to the other three libs is the systemic fix.
+  serverExternalPackages: ['jspdf', 'jspdf-autotable', 'fflate', 'docx', 'exceljs', 'xlsx'],
 
   // Turbopack is the default bundler in Next.js 16. The @serwist/next plugin
   // injects a webpack config for SW compilation (production only). This empty
