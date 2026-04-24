@@ -48,8 +48,8 @@ export default function BillingParentCategoriesPage() {
 
   const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
 
-  const canViewCategories = isSuperAdmin || canAccess('billing.parent_categories', 'view');
-  const canCreateCategories = isSuperAdmin || canAccess('billing.parent_categories', 'create');
+  const canViewCategories = isSuperAdmin || canAccess('billing.categories', 'view');
+  const canCreateCategories = isSuperAdmin || canAccess('billing.categories', 'create');
 
   const [isUploading, setIsUploading] = useState(false);
   const [errorPopupOpen, setErrorPopupOpen] = useState(false);

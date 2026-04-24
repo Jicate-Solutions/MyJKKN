@@ -73,11 +73,11 @@ export function SubCategoryList({
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewSubCategories =
-    isSuperAdmin || canAccess('billing.sub_categories', 'view');
+    isSuperAdmin || canAccess('billing.categories', 'view');
   const canEditSubCategories =
-    isSuperAdmin || canAccess('billing.sub_categories', 'edit');
+    isSuperAdmin || canAccess('billing.categories', 'edit');
   const canDeleteSubCategories =
-    isSuperAdmin || canAccess('billing.sub_categories', 'delete');
+    isSuperAdmin || canAccess('billing.categories', 'delete');
 
   const handleDelete = async () => {
     if (!subCategoryToDelete) return;

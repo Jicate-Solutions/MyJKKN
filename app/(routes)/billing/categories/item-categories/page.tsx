@@ -50,8 +50,8 @@ export default function BillingItemCategoriesPage() {
 
   const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
 
-  const canViewItemCategories = isSuperAdmin || canAccess('billing.item_categories', 'view');
-  const canCreateItemCategories = isSuperAdmin || canAccess('billing.item_categories', 'create');
+  const canViewItemCategories = isSuperAdmin || canAccess('billing.categories', 'view');
+  const canCreateItemCategories = isSuperAdmin || canAccess('billing.categories', 'create');
 
   const [isUploading, setIsUploading] = useState(false);
   const [errorPopupOpen, setErrorPopupOpen] = useState(false);

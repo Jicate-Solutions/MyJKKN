@@ -49,8 +49,8 @@ export default function BillingSubCategoriesPage() {
 
   const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
 
-  const canViewSubCategories = isSuperAdmin || canAccess('billing.sub_categories', 'view');
-  const canCreateSubCategories = isSuperAdmin || canAccess('billing.sub_categories', 'create');
+  const canViewSubCategories = isSuperAdmin || canAccess('billing.categories', 'view');
+  const canCreateSubCategories = isSuperAdmin || canAccess('billing.categories', 'create');
 
   const [isUploading, setIsUploading] = useState(false);
   const [errorPopupOpen, setErrorPopupOpen] = useState(false);

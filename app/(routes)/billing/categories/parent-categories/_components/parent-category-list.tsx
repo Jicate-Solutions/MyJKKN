@@ -71,11 +71,11 @@ export function ParentCategoryList({
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canViewCategories =
-    isSuperAdmin || canAccess('billing.parent_categories', 'view');
+    isSuperAdmin || canAccess('billing.categories', 'view');
   const canEditCategories =
-    isSuperAdmin || canAccess('billing.parent_categories', 'edit');
+    isSuperAdmin || canAccess('billing.categories', 'edit');
   const canDeleteCategories =
-    isSuperAdmin || canAccess('billing.parent_categories', 'delete');
+    isSuperAdmin || canAccess('billing.categories', 'delete');
 
   const handleDelete = async () => {
     if (!categoryToDelete) return;

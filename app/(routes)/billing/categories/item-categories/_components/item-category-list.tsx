@@ -70,9 +70,9 @@ export function ItemCategoryList({
   const { canAccess, isSuperAdmin } = usePermissions();
 
   const canEditItemCategories =
-    isSuperAdmin || canAccess('billing.item_categories', 'edit');
+    isSuperAdmin || canAccess('billing.categories', 'edit');
   const canDeleteItemCategories =
-    isSuperAdmin || canAccess('billing.item_categories', 'delete');
+    isSuperAdmin || canAccess('billing.categories', 'delete');
 
   const handleDelete = async (id: string, name: string) => {
     // Create a more user-friendly toast confirmation
