@@ -31,8 +31,10 @@ import {
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
-import ExcelJS from 'exceljs';
+// xlsx + exceljs are lazy-loaded inside the handlers that use them so they
+// don't enter the main client bundle's compile graph. Both libs are large
+// enough that static imports contributed to the 2026-04-24 build OOM.
+// See: follow-up to PR #437.
 import { saveAs } from 'file-saver';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
@@ -237,8 +239,9 @@ export function BulkCaptureDialog({
     setFile(selectedFile);
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        const XLSX = await import('xlsx');
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         // Always read from the first sheet (template sheet), not Reference Guide
@@ -467,6 +470,7 @@ export function BulkCaptureDialog({
         return instName ? `${instName} — ${progName}` : progName;
       });
 
+      const ExcelJS = (await import('exceljs')).default;
       const workbook = new ExcelJS.Workbook();
 
       // ── Sheet 1: Main data entry ───────────────────────────────────────
