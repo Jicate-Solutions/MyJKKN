@@ -21,7 +21,20 @@ const config: ModuleNavConfig = {
       label: 'Dashboard',
       icon: 'LayoutGrid',
       href: '/solutions',
-      matchPaths: ['/solutions'],
+      matchPaths: ['/solutions', '/solutions/list'],
+      children: [
+        {
+          label: 'Overview',
+          icon: 'LayoutGrid',
+          href: '/solutions',
+          exact: true,
+        },
+        {
+          label: 'All Solutions',
+          icon: 'List',
+          href: '/solutions/list',
+        },
+      ],
     },
     {
       label: 'Pipeline',
@@ -95,10 +108,15 @@ const config: ModuleNavConfig = {
       matchPaths: ['/solutions/content'],
       children: [
         {
-          label: 'Orders',
-          icon: 'ClipboardList',
+          label: 'Overview',
+          icon: 'FileText',
           href: '/solutions/content',
           exact: true,
+        },
+        {
+          label: 'Orders',
+          icon: 'ClipboardList',
+          href: '/solutions/content/orders',
         },
         {
           label: 'Deliverables',
@@ -169,6 +187,11 @@ const config: ModuleNavConfig = {
           href: '/solutions/products',
         },
         {
+          label: 'RDIF',
+          icon: 'Microscope',
+          href: '/solutions/products/rdif',
+        },
+        {
           label: 'MATLAB',
           icon: 'Cpu',
           href: '/solutions/matlab',
@@ -206,6 +229,11 @@ const config: ModuleNavConfig = {
           href: '/solutions/paradigm-shift',
         },
         {
+          label: 'Paradigm Leaderboard',
+          icon: 'Trophy',
+          href: '/solutions/paradigm-shift/leaderboard',
+        },
+        {
           label: 'AI Compliance',
           icon: 'ShieldCheck',
           href: '/solutions/ai-solution-compliance',
@@ -217,6 +245,19 @@ const config: ModuleNavConfig = {
       icon: 'Settings',
       href: '/solutions/settings',
       matchPaths: ['/solutions/settings'],
+      children: [
+        {
+          label: 'Overview',
+          icon: 'Settings',
+          href: '/solutions/settings',
+          exact: true,
+        },
+        {
+          label: 'Types',
+          icon: 'Tag',
+          href: '/solutions/settings/types',
+        },
+      ],
     },
   ],
 };

@@ -149,6 +149,24 @@ const config: ModuleNavConfig = {
         '/academic/internal-marks',
         '/academic/course-grades',
       ],
+      children: [
+        {
+          label: 'Internal Marks',
+          icon: 'PenLine',
+          href: '/academic/internal-marks',
+          exact: true,
+        },
+        {
+          label: 'Internal Marks Report',
+          icon: 'FileBarChart',
+          href: '/academic/internal-marks/report',
+        },
+        {
+          label: 'Course Grades',
+          icon: 'GraduationCap',
+          href: '/academic/course-grades',
+        },
+      ],
     },
     {
       label: 'Leaves',

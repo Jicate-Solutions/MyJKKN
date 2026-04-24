@@ -69,6 +69,11 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/allocations/onboarding'],
         },
         {
+          label: 'Onboarding Templates',
+          icon: 'FileText',
+          href: '/campus-living/allocations/onboarding/templates',
+        },
+        {
           label: 'Vacate Requests',
           icon: 'LogOut',
           href: '/campus-living/vacate-requests',
@@ -208,6 +213,11 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/mess/waste'],
         },
         {
+          label: 'Laundry',
+          icon: 'WashingMachine',
+          href: '/campus-living/laundry',
+        },
+        {
           label: 'Laundry Orders',
           icon: 'Shirt',
           href: '/campus-living/laundry/orders',
@@ -224,6 +234,11 @@ const config: ModuleNavConfig = {
           icon: 'Settings2',
           href: '/campus-living/laundry/settings',
           matchPaths: ['/campus-living/laundry/settings'],
+        },
+        {
+          label: 'Housekeeping',
+          icon: 'Brush',
+          href: '/campus-living/housekeeping',
         },
         {
           label: 'Housekeeping Tasks',
@@ -261,6 +276,11 @@ const config: ModuleNavConfig = {
           icon: 'ShieldCheck',
           href: '/campus-living/maintenance/preventive',
           matchPaths: ['/campus-living/maintenance/preventive'],
+        },
+        {
+          label: 'Preventive Tasks',
+          icon: 'ListChecks',
+          href: '/campus-living/maintenance/preventive/tasks',
         },
         {
           label: 'Contracts',
@@ -311,10 +331,20 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/safety/emergency-contacts'],
         },
         {
-          label: 'Wellness Surveys',
+          label: 'Wellness',
           icon: 'Heart',
+          href: '/campus-living/wellness',
+        },
+        {
+          label: 'Wellness Surveys',
+          icon: 'HeartPulse',
           href: '/campus-living/wellness/surveys',
           matchPaths: ['/campus-living/wellness/surveys'],
+        },
+        {
+          label: 'Health',
+          icon: 'Stethoscope',
+          href: '/campus-living/health',
         },
       ],
     },
@@ -326,6 +356,29 @@ const config: ModuleNavConfig = {
         '/campus-living/community',
         '/campus-living/activity',
         '/campus-living/calendar',
+      ],
+      children: [
+        {
+          label: 'Community Home',
+          icon: 'Users',
+          href: '/campus-living/community',
+          exact: true,
+        },
+        {
+          label: 'Activity Feed',
+          icon: 'Activity',
+          href: '/campus-living/activity',
+        },
+        {
+          label: 'Calendar',
+          icon: 'CalendarDays',
+          href: '/campus-living/calendar',
+        },
+        {
+          label: 'Settings',
+          icon: 'Settings',
+          href: '/campus-living/community/settings',
+        },
       ],
     },
     {
@@ -393,6 +446,11 @@ const config: ModuleNavConfig = {
           icon: 'BellRing',
           href: '/campus-living/analytics/alert-rules',
           matchPaths: ['/campus-living/analytics/alert-rules'],
+        },
+        {
+          label: 'Reports Home',
+          icon: 'FileText',
+          href: '/campus-living/reports',
         },
         {
           label: 'Occupancy Report',

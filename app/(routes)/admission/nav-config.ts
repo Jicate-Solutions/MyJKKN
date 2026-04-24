@@ -169,68 +169,77 @@ const config: ModuleNavConfig = {
       icon: 'Megaphone',
       href: '/admission/marketing',
       matchPaths: ['/admission/marketing'],
-      // Tier-3 sub-groups (renders when Marketing is active). Replaces the
-      // flat 12-chip manifest rendering with 5 logical buckets. Tier-4 still
-      // drills from the manifest — e.g. on /admission/marketing/campaigns/*
-      // the user sees a Campaigns-active Tier-3 + Monitor/ROI/Segments Tier-4.
+      // Tier-3 chips rendered when Marketing is active. Each chip is a
+      // self-contained feature; tier-4 further drills from the manifest
+      // when the user is ON a specific chip's URL (e.g. Campaigns's
+      // /monitoring, /roi, /segments appear as tier-4 under it).
       //
-      // Each bucket's matchPaths doubles as the orphan-coverage manifest for
-      // the leaves under it (e.g. Expos owns /expos, /expos/analytics,
-      // /expos/masters). This closes the "prefix-covered but undiscoverable"
-      // loophole without needing grandchildren.
+      // resolveTiers() does NOT render children-of-children from config —
+      // tier-4+ comes from manifest walking. So every navigable page here
+      // is its own top-level chip.
       children: [
         {
           label: 'Campaigns',
           icon: 'BarChart3',
-          href: '/admission/marketing/campaigns/monitoring',
-          matchPaths: [
-            '/admission/marketing/campaigns',
-            '/admission/marketing/campaigns/roi',
-            '/admission/marketing/campaigns/segments',
-          ],
+          href: '/admission/marketing/campaigns',
+          matchPaths: ['/admission/marketing/campaigns'],
         },
         {
-          label: 'Messaging',
+          label: 'Chat',
           icon: 'MessageSquare',
           href: '/admission/marketing/chat',
-          matchPaths: [
-            '/admission/marketing/chat',
-            '/admission/marketing/chat/performance',
-            '/admission/marketing/chat/settings',
-            '/admission/marketing/chatbot',
-            '/admission/marketing/chatbot/analytics',
-            '/admission/marketing/chatbot/knowledge',
-            '/admission/marketing/parent-communication',
-            '/admission/marketing/re-engagement',
-            '/admission/marketing/remarketing',
-            '/admission/marketing/whatsapp-broadcast',
-          ],
+          matchPaths: ['/admission/marketing/chat'],
         },
         {
-          label: 'Voice',
+          label: 'Chatbot',
+          icon: 'Sparkles',
+          href: '/admission/marketing/chatbot',
+          matchPaths: ['/admission/marketing/chatbot'],
+        },
+        {
+          label: 'Parent Comms',
+          icon: 'Users',
+          href: '/admission/marketing/parent-communication',
+        },
+        {
+          label: 'Re-engagement',
+          icon: 'Bell',
+          href: '/admission/marketing/re-engagement',
+        },
+        {
+          label: 'Remarketing',
+          icon: 'Share2',
+          href: '/admission/marketing/remarketing',
+        },
+        {
+          label: 'WhatsApp',
+          icon: 'Megaphone',
+          href: '/admission/marketing/whatsapp-broadcast',
+        },
+        {
+          label: 'Voice Agents',
           icon: 'Mic',
           href: '/admission/marketing/voice-agents',
-          matchPaths: [
-            '/admission/marketing/voice-agents',
-            '/admission/marketing/voice-broadcast',
-          ],
         },
         {
-          label: 'Media',
+          label: 'Voice Broadcast',
+          icon: 'Mic',
+          href: '/admission/marketing/voice-broadcast',
+        },
+        {
+          label: 'Database',
           icon: 'Database',
           href: '/admission/marketing/database',
-          matchPaths: [
-            '/admission/marketing/database',
-            '/admission/marketing/publishers',
-          ],
+        },
+        {
+          label: 'Publishers',
+          icon: 'Share2',
+          href: '/admission/marketing/publishers',
         },
         {
           label: 'Expos',
           icon: 'CalendarClock',
           href: '/admission/marketing/expos',
-          // Analytics + Masters are navigate-to CHILDREN of Expos.
-          // Registered here so the orphan check sees them and so the
-          // tier-4 manifest crawl renders them as chips under Expos.
           matchPaths: [
             '/admission/marketing/expos',
             '/admission/marketing/expos/analytics',

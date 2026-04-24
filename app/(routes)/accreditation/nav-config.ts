@@ -28,6 +28,24 @@ const config: ModuleNavConfig = {
       matchPaths: ['/accreditation/coverage'],
     },
     {
+      label: 'Manage',
+      icon: 'Settings',
+      href: '/accreditation/manage/metrics',
+      matchPaths: ['/accreditation/manage'],
+      children: [
+        {
+          label: 'Metrics',
+          icon: 'Activity',
+          href: '/accreditation/manage/metrics',
+        },
+        {
+          label: 'Grievance Categories',
+          icon: 'MessageSquareWarning',
+          href: '/accreditation/manage/grievance-categories',
+        },
+      ],
+    },
+    {
       label: 'NAAC',
       icon: 'ShieldCheck',
       href: '/accreditation/naac',
@@ -51,6 +69,16 @@ const config: ModuleNavConfig = {
           icon: 'FileDown',
           href: '/accreditation/naac/dcf-export',
           matchPaths: ['/accreditation/naac/dcf-export'],
+        },
+        {
+          label: 'Grievance',
+          icon: 'MessageSquareWarning',
+          href: '/accreditation/naac/grievance',
+        },
+        {
+          label: 'Surveys',
+          icon: 'ClipboardList',
+          href: '/accreditation/naac/surveys',
         },
         {
           label: 'Survey Consent (DPDPA)',

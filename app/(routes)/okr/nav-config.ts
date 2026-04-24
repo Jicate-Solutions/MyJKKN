@@ -29,6 +29,25 @@ const config: ModuleNavConfig = {
       icon: 'Target',
       href: '/okr/objectives',
       matchPaths: ['/okr/objectives', '/okr/check-in'],
+      children: [
+        {
+          label: 'Objectives',
+          icon: 'Target',
+          href: '/okr/objectives',
+          exact: true,
+        },
+        {
+          label: 'Check-In',
+          icon: 'CheckCircle2',
+          href: '/okr/check-in',
+        },
+      ],
+    },
+    {
+      label: 'Elective',
+      icon: 'BookOpen',
+      href: '/okr/elective',
+      matchPaths: ['/okr/elective'],
     },
     {
       label: 'Team',

@@ -55,6 +55,19 @@ const config: ModuleNavConfig = {
       icon: 'PieChart',
       href: '/startup-studio/kpi',
       matchPaths: ['/startup-studio/kpi'],
+      children: [
+        {
+          label: 'Overview',
+          icon: 'PieChart',
+          href: '/startup-studio/kpi',
+          exact: true,
+        },
+        {
+          label: 'Reports',
+          icon: 'FileBarChart',
+          href: '/startup-studio/kpi/reports',
+        },
+      ],
     },
     {
       label: 'Marketing',
@@ -87,6 +100,16 @@ const config: ModuleNavConfig = {
           icon: 'Users',
           href: '/startup-studio/solve-for-100/dashboard',
           matchPaths: ['/startup-studio/solve-for-100/dashboard'],
+        },
+        {
+          label: 'Check-In',
+          icon: 'CheckCircle2',
+          href: '/startup-studio/solve-for-100/dashboard/checkin',
+        },
+        {
+          label: 'Exercises',
+          icon: 'BookOpen',
+          href: '/startup-studio/solve-for-100/exercises',
         },
         {
           label: 'Leaderboard',
@@ -123,6 +146,19 @@ const config: ModuleNavConfig = {
       matchPaths: [
         '/startup-studio/problem-bank',
         '/startup-studio/submissions',
+      ],
+      children: [
+        {
+          label: 'Catalog',
+          icon: 'Lightbulb',
+          href: '/startup-studio/problem-bank',
+          exact: true,
+        },
+        {
+          label: 'Submissions',
+          icon: 'Inbox',
+          href: '/startup-studio/submissions',
+        },
       ],
     },
     {
