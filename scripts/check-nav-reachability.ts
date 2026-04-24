@@ -86,6 +86,115 @@ const NAV_EXCLUDE = new Set<string>([
   '/staff',
   '/startup-studio',
   '/okr/admin',
+
+  // ────────────────────────────────────────────────────────────
+  // Form pages invoked from list-page "+ New" / "Add" / "Create"
+  // buttons. Not tier-strip destinations — the user clicks a row
+  // action on the parent list, lands here, submits, returns to list.
+  // Every entry below has a parent list page that IS chip-reachable.
+  // ────────────────────────────────────────────────────────────
+
+  // Academic /new forms
+  '/academic/batches/new',
+  '/academic/leaves/new',
+  '/academic/periods/new',
+  '/academic/privileges/new',
+  '/academic/regulations/new',
+  '/academic/staff-planning/new',
+  '/academic/timetables/new',
+  '/academic/years/new',
+
+  // Accreditation /new forms
+  '/accreditation/naac/grievance/new',
+
+  // Admin /new forms
+  '/admin/notifications/audiences/new',
+  '/admin/pde/assessments/create',
+  '/admin/pde/quests/create',
+
+  // Admission /new forms
+  '/admission/consultants/new',
+  '/admission/gd-pi/new',
+  '/admission/leads/new',
+  '/admission/settings/years/new',
+
+  // Audit /new forms
+  '/audit/cycles/new',
+
+  // Billing /new forms
+  '/billing/categories/item-categories/new',
+  '/billing/categories/parent-categories/new',
+  '/billing/categories/sub-categories/new',
+  '/billing/discounts/new',
+  '/billing/refunds/new',
+
+  // Campus-living /new forms
+  '/campus-living/allocations/new',
+  '/campus-living/blocks/new',
+  '/campus-living/leave/new',
+  '/campus-living/maintenance/new',
+  '/campus-living/mess/caterers/new',
+  '/campus-living/safety/incidents/new',
+  '/campus-living/safety/inspections/new',
+  // Campus-living button-invoked action pages
+  '/campus-living/my-hostel/vacate-request', // "Request Vacate" form from /my-hostel
+  '/campus-living/mess/meals/scan', // QR scan UI launched from /mess/meals page
+
+  // Learner portal button-invoked sub-pages
+  '/learners/my-profile/status', // status check invoked from /my-profile page
+  '/learners/profiles/promotion', // admin promotion action from /profiles page
+
+  // HR /new forms
+  '/hr/employees/new',
+
+  // OKR /new + /create wizard forms
+  '/okr/elective/new',
+  '/okr/objectives/new',
+  '/okr/objectives/create',
+  '/okr/objectives/create/organization',
+  '/okr/objectives/create/tier1',
+  '/okr/objectives/create/tier2',
+
+  // Organizations /new forms
+  '/organizations/courses/mappings/new',
+  '/organizations/degrees/new',
+  '/organizations/departments/new',
+  '/organizations/institutions/new',
+  '/organizations/programs/new',
+  '/organizations/sections/new',
+  '/organizations/semesters/new',
+
+  // Resource Management /new forms
+  '/resource-management/categories/sub-categories/new',
+  '/resource-management/maintenance/new',
+  '/resource-management/resources/new',
+
+  // Service Requests /new forms
+  '/service-requests/types/new',
+
+  // Solutions /new forms
+  '/solutions/builders/new',
+  '/solutions/clients/new',
+  '/solutions/content/production/new',
+  '/solutions/discovery/new',
+  '/solutions/new',
+  '/solutions/payments/new',
+  '/solutions/pipeline/new',
+  '/solutions/products/new',
+  '/solutions/publications/new',
+  '/solutions/software/builders/new',
+  '/solutions/training/cohort/new',
+
+  // Staff /new forms
+  '/staff/category/new',
+  '/staff/list/new',
+
+  // Startup Studio /new forms
+  '/startup-studio/cycles/new',
+  '/startup-studio/solve-for-100/exercises/create',
+
+  // VAC /new forms
+  '/vac/admin/courses/new',
 ]);
 
 /** Walk app/(routes)/ collecting {url} for every static page.tsx. */

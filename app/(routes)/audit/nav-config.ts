@@ -66,6 +66,12 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'External Auditors',
+      icon: 'UserCog',
+      href: '/audit/external-auditors',
+      matchPaths: ['/audit/external-auditors'],
+    },
+    {
       label: 'Parameters',
       icon: 'Gauge',
       href: '/audit/parameters',
