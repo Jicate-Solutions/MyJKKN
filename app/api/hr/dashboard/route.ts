@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
       mode: isSuperAdmin ? mode : 'rolled-up',
     });
 
-    return NextResponse.json(payload, {
+    return NextResponse.json({ ...payload, display_role }, {
       headers: {
         // Live queries, no cache (decision #2). Client shows "Refresh" button
         // with generated_at timestamp per decision #9.
