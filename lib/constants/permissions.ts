@@ -1437,7 +1437,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'audit.parameter.view', label: 'View Audit Parameter Catalog' },
       { key: 'audit.parameter.manage', label: 'Manage Institution-scoped Parameter Overrides' },
       { key: 'audit.finding_type.manage', label: 'Manage Finding-Type Master' },
-      { key: 'audit.leadership.view', label: 'View In-Progress Findings (CAO / CEO / MD)' }
+      { key: 'audit.leadership.view', label: 'View In-Progress Findings (CAO / CEO / MD)' },
+      { key: 'audit.external_auditor.manage', label: 'Manage Time-Boxed External Auditors (Admin)' }
     ]
   }
 ];
