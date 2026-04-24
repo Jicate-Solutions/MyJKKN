@@ -35,7 +35,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const supabase = await createServerSupabaseClient();
     const guard = await requireManagePermission(supabase);
     if (!guard.ok) {
-      return NextResponse.json({ error: guard.error }, { status: guard.status });
+      const err = guard as { ok: false; status: number; error: string };
+      return NextResponse.json({ error: err.error }, { status: err.status });
     }
 
     const body = await request.json().catch(() => ({}));
@@ -102,7 +103,8 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     const supabase = await createServerSupabaseClient();
     const guard = await requireManagePermission(supabase);
     if (!guard.ok) {
-      return NextResponse.json({ error: guard.error }, { status: guard.status });
+      const err = guard as { ok: false; status: number; error: string };
+      return NextResponse.json({ error: err.error }, { status: err.status });
     }
 
     const nowIso = new Date().toISOString();
