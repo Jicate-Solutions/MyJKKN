@@ -1,12 +1,41 @@
 'use client';
 
-import { toast } from 'sonner';
+/**
+ * Notification Rules — /campus-living/settings/notification-rules
+ *
+ * STATUS 2026-04-24 (Agent D — settings real-save): Previous "Save Changes"
+ * only showed a warning toast. Persistence is BLOCKED on a missing
+ * `hostel_notification_rules` table — Agent D did NOT ship a half-wired
+ * save because that would reintroduce the silent-failure bug.
+ *
+ * BLOCKED ON (Agent A / migrations track):
+ *   CREATE TABLE hostel_notification_rules (
+ *     id UUID PK,
+ *     institution_id UUID NOT NULL REFERENCES institutions(id),
+ *     category TEXT NOT NULL,            -- 'leave' | 'maintenance' | 'safety' | 'mess' | 'fees'
+ *     event_key TEXT NOT NULL,           -- stable id per rule (e.g. 'leave_submitted')
+ *     event_label TEXT NOT NULL,         -- display label
+ *     channel_email BOOLEAN NOT NULL DEFAULT true,
+ *     channel_sms BOOLEAN NOT NULL DEFAULT false,
+ *     channel_push BOOLEAN NOT NULL DEFAULT true,
+ *     is_active BOOLEAN NOT NULL DEFAULT true,
+ *     updated_by UUID,
+ *     created_at TIMESTAMPTZ DEFAULT now(),
+ *     updated_at TIMESTAMPTZ DEFAULT now(),
+ *     UNIQUE (institution_id, event_key)
+ *   );
+ *   -- + RLS (is_super_admin() OR is_admin() OR user_has_permission + role_has_institution_access)
+ *   -- + seed 17 rows per institution matching the categories/events shown here
+ *
+ * Until then this page stays in PreviewBanner mode. The toggles are DISPLAY
+ * ONLY. Save is disabled with an explicit "table missing" message.
+ */
+
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Save, Bell, Mail, MessageSquare, Smartphone } from 'lucide-react';
 import { PreviewBanner } from '../../_components/preview-banner';
 
@@ -60,21 +89,21 @@ export default function NotificationRulesPage() {
       <div className="space-y-6">
         <PreviewBanner
           feature="notification rules"
-          note="The toggles below do NOT save anywhere yet. Channel preferences (Email / SMS / Push) revert on every reload. Save Changes shows a warning instead of pretending to succeed."
+          note="Blocked on missing table hostel_notification_rules. The Save button is disabled. Toggles below are display-only and will NOT persist. Agent A will ship the migration; this page will wire through once the table lands."
         />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Notification Preferences</h1>
-            <p className="text-muted-foreground">Configure which events trigger notifications and through which channels</p>
+            <p className="text-muted-foreground">
+              Configure which events trigger notifications and through which channels
+            </p>
           </div>
           <Button
-            onClick={() =>
-              toast.warning('Notification preferences not yet wired.', {
-                description: 'Toggles do not persist. The notification-rules service ships in a follow-up PR.',
-              })
-            }
+            disabled
+            title="Disabled until hostel_notification_rules table ships"
           >
-            <Save className="mr-2 h-4 w-4" />Save Changes
+            <Save className="mr-2 h-4 w-4" />
+            Save Changes
           </Button>
         </div>
 
@@ -98,9 +127,9 @@ export default function NotificationRulesPage() {
                 {cat.rules.map((rule) => (
                   <div key={rule.name} className="grid grid-cols-4 gap-4 items-center">
                     <Label className="text-sm">{rule.name}</Label>
-                    <div className="flex justify-center"><Switch defaultChecked={rule.email} /></div>
-                    <div className="flex justify-center"><Switch defaultChecked={rule.sms} /></div>
-                    <div className="flex justify-center"><Switch defaultChecked={rule.push} /></div>
+                    <div className="flex justify-center"><Switch defaultChecked={rule.email} disabled /></div>
+                    <div className="flex justify-center"><Switch defaultChecked={rule.sms} disabled /></div>
+                    <div className="flex justify-center"><Switch defaultChecked={rule.push} disabled /></div>
                   </div>
                 ))}
               </div>
