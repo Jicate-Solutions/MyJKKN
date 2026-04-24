@@ -42,6 +42,8 @@ import {
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import type { ActionItem } from '@/lib/services/admission/briefing-delivery-service';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { differenceInCalendarDays, format } from 'date-fns';
 
 function BriefingPageSkeleton() {
   return (
@@ -305,10 +307,57 @@ function BriefingPageContent() {
     );
   }
 
+  const stalenessInDays = briefing
+    ? differenceInCalendarDays(new Date(), new Date(briefing.briefing_date))
+    : 0;
+
   return (
     <PermissionGuard module="admission" action="view">
       <ContentLayout title="Daily Briefing">
         <div className="space-y-4 sm:space-y-6 print:space-y-4">
+          {/* Staleness Warning Banner */}
+          {briefing && stalenessInDays > 0 && (
+            <Alert
+              role="alert"
+              className={cn(
+                'print:hidden',
+                stalenessInDays >= 2
+                  ? 'border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200'
+                  : 'border-yellow-400 bg-yellow-50 text-yellow-900 dark:bg-yellow-950/30 dark:text-yellow-200'
+              )}
+            >
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>
+                {stalenessInDays >= 2
+                  ? `This briefing is ${stalenessInDays} days old`
+                  : 'Last generated yesterday'}
+              </AlertTitle>
+              <AlertDescription className="flex flex-wrap items-center gap-3 mt-1">
+                <span>
+                  {stalenessInDays >= 2
+                    ? `Last generated on ${format(new Date(briefing.briefing_date), 'EEE, MMM d')}. Data may be outdated.`
+                    : "You're viewing yesterday's briefing. Regenerate for today's data."}
+                </span>
+                {canGenerate && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-current hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                    onClick={handleGenerate}
+                    disabled={generateBriefing.isPending || !institutionId}
+                  >
+                    {generateBriefing.isPending ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                    )}
+                    Regenerate
+                  </Button>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
