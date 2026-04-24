@@ -7,8 +7,10 @@
 //   2. Cycle Summary (phase + rollup counts)
 //   3. Per-Parameter Attestation Grid
 //   4. Open Findings Summary (count by severity + status)
-//   5. Evidence Index (placeholder — evidence auto-populates via PR-A5/A6 fan-out
-//      into quality_evidence_mappings; full index deferred to Sprint 02)
+//   5. Evidence Index — rectification evidence fanned out to
+//      quality_evidence_mappings, grouped by framework body + metric_code.
+//      Source rows: source_table='service_requests' AND
+//      metadata->>'audit_cycle_id' = <cycle_id>.
 //
 // PDF: jspdf + jspdf-autotable (already a project dependency).
 // DOCX: docx npm package (added in package.json for this PR).
@@ -43,11 +45,41 @@ import type {
 
 export type AuditReportFormat = 'pdf' | 'docx';
 
+/**
+ * One row of the Evidence Index — a single rectification event mapped to a
+ * body+metric via the fan-out trigger (emit_audit_finding_evidence).
+ */
+export interface EvidenceIndexRow {
+  body_code: string;             // 'NAAC' | 'NBA' | ...
+  metric_code: string;           // e.g., '1.1.3'
+  mapped_at: string;             // ISO
+  finding_id: string;            // service_requests.id
+  request_number: string | null; // 'SR-AUDI-ABC123'
+  finding_status: string | null; // 'closed' etc.
+  closed_at: string | null;      // ISO
+  institution_id: string | null;
+  institution_name: string | null;
+}
+
+/**
+ * Grouped evidence: body → metric_code → rows.
+ * Preserves deterministic ordering (bodies alpha, metrics alpha, rows by mapped_at desc).
+ */
+export interface EvidenceIndexGroup {
+  body_code: string;
+  total_rows: number;
+  metrics: Array<{
+    metric_code: string;
+    rows: EvidenceIndexRow[];
+  }>;
+}
+
 export interface AuditReportBundle {
   cycle: AuditCycle;
   attestations: AuditAttestation[];
   findings: AuditFindingView[];
   parameters: AuditParameterCatalogRow[];
+  evidence_index: EvidenceIndexGroup[];
   rollup: {
     total: number;
     compliant: number;
@@ -78,12 +110,13 @@ export class AuditReportService {
     const primaryInstitutionId =
       (cycle.institution_ids && cycle.institution_ids[0]) ?? null;
 
-    const [attestations, findings, parameters] = await Promise.all([
+    const [attestations, findings, parameters, evidenceIndex] = await Promise.all([
       AuditAttestationService.list(cycleId),
       AuditFindingService.listByCycle(cycleId),
       primaryInstitutionId
         ? AuditParameterCatalogService.listForInstitution(primaryInstitutionId)
         : AuditParameterCatalogService.listSystem(),
+      this.fetchEvidenceIndex(cycleId),
     ]);
 
     const rollup = this.computeRollup(attestations, findings);
@@ -93,9 +126,138 @@ export class AuditReportService {
       attestations,
       findings,
       parameters,
+      evidence_index: evidenceIndex,
       rollup,
       generated_at: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Fetch the Evidence Index for this cycle from quality_evidence_mappings.
+   *
+   * Filter: source_table='service_requests' AND metadata->>'audit_cycle_id' = cycleId.
+   * Then hydrate each row with service_requests (request_number, status, closed_at)
+   * and institutions (name). Rows are grouped by body_code, then metric_code.
+   *
+   * Returns [] when no evidence has fanned out for this cycle yet (i.e. no
+   * findings have been closed-as-rectified). Report renderers handle the
+   * empty state with a friendly "no rectification evidence yet" message.
+   *
+   * RLS on quality_evidence_mappings + service_requests scopes results to the
+   * caller's role — super_admin sees everything, others see their institution.
+   */
+  private static async fetchEvidenceIndex(
+    cycleId: string
+  ): Promise<EvidenceIndexGroup[]> {
+    // 1. Fetch raw QEM rows for this cycle. Using the JSONB operator
+    //    metadata->>'audit_cycle_id' matches the shape emitted by
+    //    emit_audit_finding_evidence() (see 20260422_audit_workflow_seeds_and_triggers.sql).
+    const { data: qemRows, error: qemErr } = await (this.supabase as any)
+      .from('quality_evidence_mappings')
+      .select('body_code, metric_code, mapped_at, source_id, institution_id, metadata')
+      .eq('source_table', 'service_requests')
+      .eq('metadata->>audit_cycle_id', cycleId)
+      .order('body_code', { ascending: true })
+      .order('metric_code', { ascending: true })
+      .order('mapped_at', { ascending: false });
+
+    if (qemErr) throw qemErr;
+    const rawRows = (qemRows ?? []) as Array<{
+      body_code: string;
+      metric_code: string;
+      mapped_at: string;
+      source_id: string;
+      institution_id: string | null;
+      metadata: Record<string, unknown> | null;
+    }>;
+
+    if (rawRows.length === 0) return [];
+
+    // 2. Batch-hydrate service_requests (findings) referenced by source_id.
+    const findingIds = Array.from(new Set(rawRows.map((r) => r.source_id)));
+    const institutionIds = Array.from(
+      new Set(rawRows.map((r) => r.institution_id).filter((x): x is string => !!x))
+    );
+
+    const [findingsRes, institutionsRes] = await Promise.all([
+      (this.supabase as any)
+        .from('service_requests')
+        .select('id, request_number, status, closed_at')
+        .in('id', findingIds),
+      institutionIds.length > 0
+        ? (this.supabase as any)
+            .from('institutions')
+            .select('id, name')
+            .in('id', institutionIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (findingsRes.error) throw findingsRes.error;
+    if (institutionsRes.error) throw institutionsRes.error;
+
+    const findingById = new Map<
+      string,
+      { request_number: string | null; status: string | null; closed_at: string | null }
+    >();
+    for (const f of (findingsRes.data ?? []) as Array<{
+      id: string;
+      request_number: string | null;
+      status: string | null;
+      closed_at: string | null;
+    }>) {
+      findingById.set(f.id, {
+        request_number: f.request_number ?? null,
+        status: f.status ?? null,
+        closed_at: f.closed_at ?? null,
+      });
+    }
+
+    const institutionById = new Map<string, string>();
+    for (const inst of (institutionsRes.data ?? []) as Array<{ id: string; name: string }>) {
+      institutionById.set(inst.id, inst.name);
+    }
+
+    // 3. Assemble EvidenceIndexRow[]
+    const hydrated: EvidenceIndexRow[] = rawRows.map((r) => {
+      const f = findingById.get(r.source_id);
+      return {
+        body_code: (r.body_code ?? '').toUpperCase(),
+        metric_code: r.metric_code ?? '—',
+        mapped_at: r.mapped_at,
+        finding_id: r.source_id,
+        request_number: f?.request_number ?? null,
+        finding_status: f?.status ?? null,
+        closed_at: f?.closed_at ?? null,
+        institution_id: r.institution_id,
+        institution_name: r.institution_id ? institutionById.get(r.institution_id) ?? null : null,
+      };
+    });
+
+    // 4. Group by body → metric_code
+    const byBody = new Map<string, Map<string, EvidenceIndexRow[]>>();
+    for (const row of hydrated) {
+      let metricMap = byBody.get(row.body_code);
+      if (!metricMap) {
+        metricMap = new Map();
+        byBody.set(row.body_code, metricMap);
+      }
+      const arr = metricMap.get(row.metric_code) ?? [];
+      arr.push(row);
+      metricMap.set(row.metric_code, arr);
+    }
+
+    const groups: EvidenceIndexGroup[] = [];
+    for (const [bodyCode, metricMap] of Array.from(byBody.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0])
+    )) {
+      const metrics = Array.from(metricMap.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([metric_code, rows]) => ({ metric_code, rows }));
+      const total_rows = metrics.reduce((sum, m) => sum + m.rows.length, 0);
+      groups.push({ body_code: bodyCode, total_rows, metrics });
+    }
+
+    return groups;
   }
 
   private static computeRollup(
@@ -283,8 +445,8 @@ export class AuditReportService {
     });
     y = (autoTableDoc.lastAutoTable?.finalY ?? y) + 10;
 
-    // --- Evidence Index (placeholder) ---
-    if (y > 250) {
+    // --- Evidence Index ---
+    if (y > 240) {
       doc.addPage();
       y = 15;
     }
@@ -294,13 +456,71 @@ export class AuditReportService {
     y += 6;
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
+    doc.setTextColor(90);
     doc.text(
-      'Evidence is auto-populated into quality_evidence_mappings via PR-A5/A6 fan-out triggers.\n' +
-        'A detailed evidence ledger per parameter will be rendered in Sprint 02.',
+      'Rectification evidence mapped to accreditation frameworks',
       14,
       y,
       { maxWidth: pageWidth - 28 }
     );
+    y += 7;
+    doc.setTextColor(0);
+
+    if (bundle.evidence_index.length === 0) {
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(120);
+      doc.text('No rectification evidence yet for this cycle.', 14, y);
+      doc.setTextColor(0);
+      doc.setFont('helvetica', 'normal');
+    } else {
+      for (const group of bundle.evidence_index) {
+        // Body header — page-break if close to bottom
+        if (y > 260) {
+          doc.addPage();
+          y = 15;
+        }
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 60, 120);
+        doc.text(`${group.body_code}  (${group.total_rows} row${group.total_rows === 1 ? '' : 's'})`, 14, y);
+        doc.setTextColor(0);
+        y += 5;
+
+        // One table per body: metric | ref | institution | closed/mapped
+        const rowsFlat: string[][] = [];
+        for (const metric of group.metrics) {
+          for (let i = 0; i < metric.rows.length; i++) {
+            const row = metric.rows[i];
+            const metricCell = i === 0 ? metric.metric_code : '';
+            const refCell = row.request_number ?? row.finding_id.slice(0, 8);
+            const instCell = row.institution_name ?? '—';
+            const dateSource = row.closed_at ?? row.mapped_at;
+            const dateCell = dateSource ? dateSource.slice(0, 10) : '—';
+            const statusCell = row.finding_status ?? '—';
+            rowsFlat.push([metricCell, refCell, instCell, statusCell, dateCell]);
+          }
+        }
+
+        autoTable(doc, {
+          startY: y,
+          head: [['Metric', 'Ref', 'Institution', 'Status', 'Rectified']],
+          body: rowsFlat,
+          theme: 'striped',
+          headStyles: { fillColor: [30, 60, 120] },
+          styles: { fontSize: 8, cellPadding: 1.2 },
+          columnStyles: {
+            0: { cellWidth: 28 },
+            1: { cellWidth: 36 },
+            2: { cellWidth: 60 },
+            3: { cellWidth: 22 },
+            4: { cellWidth: 26 },
+          },
+          margin: { left: 14, right: 14 },
+        });
+        y = (autoTableDoc.lastAutoTable?.finalY ?? y) + 6;
+      }
+    }
 
     // --- Footer on all pages ---
     const pageCount = doc.getNumberOfPages();
@@ -438,7 +658,7 @@ export class AuditReportService {
       new Paragraph({ children: [new TextRun('')] }),
     );
 
-    // --- Evidence Index (placeholder) ---
+    // --- Evidence Index ---
     children.push(
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
@@ -446,12 +666,65 @@ export class AuditReportService {
       }),
       new Paragraph({
         children: [
-          new TextRun(
-            'Evidence is auto-populated into quality_evidence_mappings via PR-A5/A6 fan-out triggers. A detailed evidence ledger per parameter will be rendered in Sprint 02.'
-          ),
+          new TextRun({
+            text: 'Rectification evidence mapped to accreditation frameworks',
+            italics: true,
+            color: '666666',
+          }),
         ],
-      })
+      }),
+      new Paragraph({ children: [new TextRun('')] }),
     );
+
+    if (bundle.evidence_index.length === 0) {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: 'No rectification evidence yet for this cycle.',
+              italics: true,
+              color: '888888',
+            }),
+          ],
+        })
+      );
+    } else {
+      for (const group of bundle.evidence_index) {
+        children.push(
+          new Paragraph({
+            heading: HeadingLevel.HEADING_2,
+            children: [
+              new TextRun({
+                text: `${group.body_code}  (${group.total_rows} row${group.total_rows === 1 ? '' : 's'})`,
+                bold: true,
+              }),
+            ],
+          })
+        );
+
+        const evidenceRows: string[][] = [];
+        for (const metric of group.metrics) {
+          for (let i = 0; i < metric.rows.length; i++) {
+            const row = metric.rows[i];
+            const metricCell = i === 0 ? metric.metric_code : '';
+            const refCell = row.request_number ?? row.finding_id.slice(0, 8);
+            const instCell = row.institution_name ?? '—';
+            const dateSource = row.closed_at ?? row.mapped_at;
+            const dateCell = dateSource ? dateSource.slice(0, 10) : '—';
+            const statusCell = row.finding_status ?? '—';
+            evidenceRows.push([metricCell, refCell, instCell, statusCell, dateCell]);
+          }
+        }
+
+        children.push(
+          this.docxTable(
+            ['Metric', 'Ref', 'Institution', 'Status', 'Rectified'],
+            evidenceRows
+          ),
+          new Paragraph({ children: [new TextRun('')] }),
+        );
+      }
+    }
 
     const doc = new Document({ sections: [{ children }] });
     const buf = await Packer.toBuffer(doc);
