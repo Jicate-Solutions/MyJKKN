@@ -18,7 +18,7 @@ interface ApproveRejectFormProps {
 }
 
 export function ApproveRejectForm({ requestId, stageLabel, disabled }: ApproveRejectFormProps) {
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const advanceMut = useAdvanceVacate();
   const rejectMut = useRejectVacate();
   const [mode, setMode] = useState<'idle' | 'approve' | 'reject'>('idle');
@@ -27,10 +27,10 @@ export function ApproveRejectForm({ requestId, stageLabel, disabled }: ApproveRe
   const isPending = advanceMut.isPending || rejectMut.isPending;
 
   async function handleApprove() {
-    if (!user) return;
+    if (!profile) return;
     await advanceMut.mutateAsync({
       requestId,
-      actorId: user.id,
+      actorId: profile.id,
       action: 'approve',
       remarks: remarks || undefined,
     });
@@ -39,10 +39,10 @@ export function ApproveRejectForm({ requestId, stageLabel, disabled }: ApproveRe
   }
 
   async function handleReject() {
-    if (!user || !remarks.trim()) return;
+    if (!profile || !remarks.trim()) return;
     await rejectMut.mutateAsync({
       requestId,
-      actorId: user.id,
+      actorId: profile.id,
       reason: remarks,
     });
     setMode('idle');

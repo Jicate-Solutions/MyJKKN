@@ -47,7 +47,12 @@ export default function VacateRequestDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { user } = useAuth();
+  // useAuth() returns { profile, isLoading, error } — never `user`. Every
+  // destructure of `user` here was always undefined → every action handler
+  // guarded on `!user` bailed silently, every `user.id` would throw.
+  // Caught 2026-04-23 when the Akash smoke test exposed that no stage
+  // transition ever fired in prod.
+  const { profile } = useAuth();
   const { permissions, isSuperAdmin } = usePermissions();
   // usePermissions returns permissions as Record<string, boolean>, not a string[] —
   // use bracket lookup, not .includes(). Super admins get an empty permissions
@@ -97,7 +102,7 @@ export default function VacateRequestDetailPage({
   const currentStage =
     stages && run ? stages[run.current_stage_idx] : undefined;
 
-  const isSubmitter = request.submitted_by_id === user?.id;
+  const isSubmitter = request.submitted_by_id === profile?.id;
   const canCancel =
     isSubmitter && ['draft', 'pending_parent', 'pending_warden'].includes(request.status);
 
@@ -114,26 +119,26 @@ export default function VacateRequestDetailPage({
     (isWardenStage && canActWarden) || (isChiefStage && canActChief);
 
   async function handleCancel() {
-    if (!user || !cancelReason.trim()) return;
-    await cancelMut.mutateAsync({ requestId: id, actorId: user.id, reason: cancelReason });
+    if (!profile || !cancelReason.trim()) return;
+    await cancelMut.mutateAsync({ requestId: id, actorId: profile.id, reason: cancelReason });
     setCancelOpen(false);
     refetch();
   }
 
   async function handleMarkClearance(itemId: string, cleared: boolean, notes: string) {
-    if (!user) return;
+    if (!profile) return;
     await markClearanceMut.mutateAsync({
       itemId,
       cleared,
       notes: notes || null,
-      clearedBy: user.id,
+      clearedBy: profile.id,
     });
     refetch();
   }
 
   async function handleFinalize() {
-    if (!user) return;
-    await finalizeMut.mutateAsync({ requestId: id, actorId: user.id });
+    if (!profile) return;
+    await finalizeMut.mutateAsync({ requestId: id, actorId: profile.id });
     refetch();
   }
 
@@ -494,7 +499,7 @@ function ParentOtpCard({
   otpExpiresAt: string | null;
   canAct: boolean;
 }) {
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const [enteredOtp, setEnteredOtp] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
   const generateMut = useGenerateParentOtp();
@@ -530,11 +535,11 @@ function ParentOtpCard({
   }
 
   async function handleVerify() {
-    if (!user || enteredOtp.length !== 6) return;
+    if (!profile || enteredOtp.length !== 6) return;
     const res = await verifyMut.mutateAsync({
       requestId,
       otp: enteredOtp,
-      actorId: user.id,
+      actorId: profile.id,
     });
     if (res.valid) {
       setEnteredOtp('');
