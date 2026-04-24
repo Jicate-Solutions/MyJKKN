@@ -36,7 +36,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Inbox, Search } from 'lucide-react';
+import { Plus, Inbox, Search, Download } from 'lucide-react';
 import { useAuditCycles } from '@/hooks/audit/use-audit-cycles';
 import { useFindingsByCycle } from '@/hooks/audit/use-audit-findings';
 import { SeverityBadge } from '../_components/findings/severity-badge';
@@ -78,6 +78,7 @@ export default function AuditFindingsPage() {
   const [status, setStatus] = useState<string>('all');
   const [ownerSearch, setOwnerSearch] = useState<string>('');
   const [logDialogOpen, setLogDialogOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Default cycle: first non-closed cycle, or first cycle overall
   const effectiveCycleId = useMemo(() => {
@@ -105,6 +106,57 @@ export default function AuditFindingsPage() {
   }, [findings, ownerSearch]);
 
   const activeCycle = cycles.find((c) => c.id === effectiveCycleId);
+
+  // Export current-filter view to CSV via the server endpoint. We pass
+  // filters through as query params (not the free-text owner search — that
+  // is a client-only filter on uuid/email substrings and isn't a server
+  // filter today) so the server returns the same rows the user sees.
+  const handleExportCsv = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (effectiveCycleId) params.set('cycle_id', effectiveCycleId);
+      if (severity !== 'all') params.set('severity', severity);
+      if (status !== 'all') params.set('status', status);
+      // ownerSearch is a free-text substring (client-side filter). Only forward
+      // it as owner_id when it looks like a UUID; otherwise the server filter
+      // would reject the value. A separate `q` param covers the fuzzy case.
+      const trimmedOwner = ownerSearch.trim();
+      if (trimmedOwner) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          trimmedOwner
+        );
+        if (isUuid) {
+          params.set('owner_id', trimmedOwner);
+        } else {
+          params.set('q', trimmedOwner);
+        }
+      }
+
+      const res = await fetch(`/api/audit/findings/export?${params.toString()}`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => 'Export failed');
+        throw new Error(msg || `Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `audit-findings-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      console.error('[audit/findings] export error:', err);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <ContentLayout title="Audit Findings">
@@ -137,10 +189,25 @@ export default function AuditFindingsPage() {
               All findings across audit cycles. Click a row to open the detail.
             </p>
           </div>
-          <Button onClick={() => setLogDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Log finding
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleExportCsv}
+              disabled={exporting || !effectiveCycleId}
+              title={
+                !effectiveCycleId
+                  ? 'Select a cycle to enable export'
+                  : 'Export the current filtered findings to CSV'
+              }
+            >
+              <Download className="h-4 w-4 mr-2" />
+              {exporting ? 'Exporting…' : 'Export CSV'}
+            </Button>
+            <Button onClick={() => setLogDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Log finding
+            </Button>
+          </div>
         </div>
 
         {/* Filters */}
