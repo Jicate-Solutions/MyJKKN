@@ -1,35 +1,46 @@
 #!/usr/bin/env bash
 # scripts/local-auth.sh
 # -------------------------------------------------------------------
-# PURPOSE: Log a real MyJKKN user into http://localhost:3000 without
-# going through Google OAuth. Solves the "can't test locally because
-# OAuth callback isn't configured for localhost" problem once and for all.
+# PURPOSE: Log a real MyJKKN user into http://localhost:${LOCAL_DEV_PORT}
+# (default 3104) without going through Google OAuth. Solves the "can't
+# test locally because OAuth callback isn't configured for localhost"
+# problem once and for all.
+#
+# Why 3104 not 3000: port 3000 is a VERY common dev-server default used
+# by every Next.js starter, React starter, etc. Running MyJKKN on 3104
+# avoids collisions when a director is juggling multiple dev servers
+# across projects. Override with LOCAL_DEV_PORT=3000 if needed.
 #
 # HOW IT WORKS:
 # 1. Read SUPABASE_SERVICE_ROLE_KEY from .env.local
 # 2. Call Supabase auth admin `generate_link` endpoint for the target email
 # 3. Get back a magiclink URL that starts with
 #    https://<project>.supabase.co/auth/v1/verify?token=...&redirect_to=...
-# 4. Rewrite redirect_to to http://localhost:3000/auth/callback
+# 4. Rewrite redirect_to to http://localhost:${LOCAL_DEV_PORT}/auth/dev-login
 # 5. Print the link. Paste into browser → browser exchanges token → session cookie set
-#    for localhost:3000 → fully authenticated local dev
+#    for localhost:${LOCAL_DEV_PORT} → fully authenticated local dev
 #
 # USAGE:
 #   scripts/local-auth.sh [email] [path]
 #
 # DEFAULTS:
-#   email = director@jkkn.ac.in
-#   path  = /  (can be /events/propose, /dashboard, etc.)
+#   email          = director@jkkn.ac.in
+#   path           = /  (can be /events/propose, /dashboard, etc.)
+#   LOCAL_DEV_PORT = 3104 (override via env: LOCAL_DEV_PORT=3000 scripts/local-auth.sh ...)
 #
 # EXAMPLES:
 #   scripts/local-auth.sh
 #   scripts/local-auth.sh director@jkkn.ac.in /events/propose
 #   scripts/local-auth.sh someuser@jkkn.ac.in /staff
+#   LOCAL_DEV_PORT=3000 scripts/local-auth.sh director@jkkn.ac.in /  # if running on 3000
 #
 # REQUIREMENTS:
 #   - .env.local with SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL
 #   - The email must belong to an existing auth.users row on the Supabase project
-#   - Dev server running at http://localhost:3000 (start with `npm run dev`)
+#   - Dev server running at http://localhost:${LOCAL_DEV_PORT} (start with `npm run dev`)
+#   - Supabase dashboard redirect URL allow-list must include
+#     http://localhost:${LOCAL_DEV_PORT}/auth/dev-login — exact match required.
+#     See scripts/README.md for the one-time dashboard setup.
 # -------------------------------------------------------------------
 
 set -euo pipefail
@@ -37,6 +48,7 @@ set -euo pipefail
 EMAIL="${1:-director@jkkn.ac.in}"
 REDIRECT_PATH="${2:-/}"
 ENV_FILE="${ENV_FILE:-.env.local}"
+LOCAL_DEV_PORT="${LOCAL_DEV_PORT:-3104}"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "❌ $ENV_FILE not found. Run from MyJKKN project root." >&2
@@ -61,12 +73,12 @@ fi
 # The query string survives here because Supabase receives redirect_to WITHOUT
 # the ?next (we append it locally after Supabase builds the verify URL).
 TARGET_PATH="${REDIRECT_PATH}"
-LOCAL_REDIRECT="http://localhost:3000/auth/dev-login"
+LOCAL_REDIRECT="http://localhost:${LOCAL_DEV_PORT}/auth/dev-login"
 
 echo "→ Supabase: $SUPABASE_URL"
 echo "→ Email:    $EMAIL"
 echo "→ Callback: $LOCAL_REDIRECT"
-echo "→ Target:   http://localhost:3000${TARGET_PATH}  (navigate after login)"
+echo "→ Target:   http://localhost:${LOCAL_DEV_PORT}${TARGET_PATH}  (navigate after login)"
 echo ""
 
 # Call admin generate_link endpoint — type=magiclink works for existing users
