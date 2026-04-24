@@ -225,7 +225,7 @@ function BriefingPageContent() {
   const canGenerate = canAccess('admission', 'counselors.edit')
     || canAccess('admission', 'counselors.create');
 
-  const { data: briefing, isLoading, refetch, isRefetching } = useLatestBriefing(institutionId);
+  const { data: briefing, isLoading, refetch, isRefetching } = useLatestBriefing(institutionId, profile?.id);
   const generateBriefing = useGenerateBriefing();
 
   const handleGenerate = () => {

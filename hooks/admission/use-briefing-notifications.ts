@@ -28,8 +28,8 @@ export const briefingNotificationsKeys = {
     [...briefingNotificationsKeys.all, 'latest-unread', userId] as const,
   briefing: (briefingId: string) =>
     [...briefingNotificationsKeys.all, 'briefing', briefingId] as const,
-  latestBriefing: (institutionId: string) =>
-    [...briefingNotificationsKeys.all, 'latest-briefing', institutionId] as const,
+  latestBriefing: (institutionId: string, userId?: string) =>
+    [...briefingNotificationsKeys.all, 'latest-briefing', institutionId, userId ?? null] as const,
   todaysBriefing: (institutionId: string) =>
     [...briefingNotificationsKeys.all, 'todays-briefing', institutionId] as const
 };
@@ -94,12 +94,19 @@ export function useBriefing(briefingId: string | undefined) {
 }
 
 /**
- * Get the latest briefing for an institution
+ * Get the latest briefing for the current user within an institution.
+ *
+ * Pass `userId` so Counselor B doesn't see Counselor A's briefing
+ * (briefings are per-user). When `userId` is omitted, falls back to the
+ * institution's latest row (super-admin preview path).
  */
-export function useLatestBriefing(institutionId: string | undefined) {
+export function useLatestBriefing(
+  institutionId: string | undefined,
+  userId?: string
+) {
   return useQuery({
-    queryKey: briefingNotificationsKeys.latestBriefing(institutionId || ''),
-    queryFn: () => BriefingDeliveryService.getLatestBriefing(institutionId),
+    queryKey: briefingNotificationsKeys.latestBriefing(institutionId || '', userId),
+    queryFn: () => BriefingDeliveryService.getLatestBriefing(institutionId, userId),
     enabled: !!institutionId,
   });
 }
