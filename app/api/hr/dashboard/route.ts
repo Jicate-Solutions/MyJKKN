@@ -84,6 +84,21 @@ export async function GET(request: NextRequest) {
       ? 'hr_officer'
       : 'director';
 
+    // display_role gives the UI a human label matching the exact role_key,
+    // since viewer_role normalises hr_head/hr_admin/hr_manager → 'hr_officer'.
+    const ROLE_DISPLAY_LABELS: Record<string, string> = {
+      super_admin: 'Super Admin',
+      hr_head: 'HR Head',
+      hr_admin: 'HR Admin',
+      hr_manager: 'HR Manager',
+      hr_officer: 'HR Officer',
+      director: 'Director',
+      admin: 'Admin',
+    };
+    const display_role =
+      ROLE_DISPLAY_LABELS[role] ??
+      viewer_role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
     const url = new URL(request.url);
     const modeParam = url.searchParams.get('mode') as DashboardMode | null;
     const mode: DashboardMode =
@@ -113,7 +128,7 @@ export async function GET(request: NextRequest) {
       mode: isSuperAdmin ? mode : 'rolled-up',
     });
 
-    return NextResponse.json(payload, {
+    return NextResponse.json({ ...payload, display_role }, {
       headers: {
         // Live queries, no cache (decision #2). Client shows "Refresh" button
         // with generated_at timestamp per decision #9.

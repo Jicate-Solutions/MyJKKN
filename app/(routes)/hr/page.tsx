@@ -81,8 +81,11 @@ export default function HRCommandCenterPage() {
 
   const isSuperAdmin = data?.viewer_role === 'super_admin';
   const showGrid = isSuperAdmin && mode === 'institution-grid';
+  // display_role carries the exact label (e.g. "HR Head") from the API.
+  // Fall back to viewer_role-derived label for payloads pre-dating this field.
   const roleLabel = useMemo(() => {
     if (!data) return '';
+    if (data.display_role) return data.display_role;
     switch (data.viewer_role) {
       case 'super_admin':
         return 'Super Admin';
