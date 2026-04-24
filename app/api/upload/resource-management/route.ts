@@ -3,21 +3,30 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Create server-side Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!; // Use service role key for server-side operations
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
-});
+// Server-side Supabase client (service role for private-bucket uploads).
+// Create lazily inside the handler — top-level createClient() is instantiated
+// during Next's build-time page-data collection, which fails with
+// "@supabase/ssr: Your project's URL and API key are required" in any
+// environment without .env.local (e.g. fresh worktrees).
+function getSupabaseServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    }
+  );
+}
 
 export async function POST(request: Request) {
   await connection();
   try {
     console.log('Resource management upload started');
+
+    const supabase = getSupabaseServiceClient();
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
