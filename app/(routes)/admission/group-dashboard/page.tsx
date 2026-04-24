@@ -1,18 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { AlertCircle, Building2, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
-} from '@/components/ui/select';
 import { useQueryClient } from '@tanstack/react-query';
 import { useGroupDashboard, groupDashboardKeys } from '@/hooks/admission/use-group-dashboard';
 import { admissionAccreditationKeys } from '@/hooks/admission/use-admission-accreditation-report';
-import { useAcademicYears } from '@/hooks/use-academic-years';
 import { InstitutionComparisonTable } from './_components/institution-comparison-table';
 import { CrossCampusDedup } from './_components/cross-campus-dedup';
 import { SeatAnalyticsDashboard } from './_components/seat-analytics-dashboard';
@@ -45,27 +40,12 @@ export default function GroupDashboardPage() {
   const { institutions: accessibleInstitutions, canAccessAllInstitutions } =
     useUserInstitutionAccess();
 
-  const [selectedAcademicYearId, setSelectedAcademicYearId] = useState<string | undefined>(undefined);
-
   const scopedInstitutionIds = useMemo(() => {
     if (canAccessAllInstitutions) return undefined;
     return accessibleInstitutions.map((i) => i.institution_id);
   }, [canAccessAllInstitutions, accessibleInstitutions]);
 
   const { data, isLoading, isFetching, isError, error } = useGroupDashboard(scopedInstitutionIds);
-  const { data: academicYearsResult } = useAcademicYears();
-  const academicYears = academicYearsResult?.data ?? [];
-
-  // Auto-select current academic year once data loads (year whose date range contains today)
-  useEffect(() => {
-    if (!academicYears.length || selectedAcademicYearId !== undefined) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const current = academicYears.find(
-      (ay: any) => ay.start_date <= today && ay.end_date >= today
-    );
-    // Fallback to the first result (sorted by name DESC = most recent)
-    setSelectedAcademicYearId((current ?? academicYears[0])?.id ?? undefined);
-  }, [academicYears]);
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
@@ -115,21 +95,6 @@ export default function GroupDashboardPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {/* Academic year filter — applies to analytics tabs */}
-              <Select
-                value={selectedAcademicYearId ?? 'all'}
-                onValueChange={(v) => setSelectedAcademicYearId(v === 'all' ? undefined : v)}
-              >
-                <SelectTrigger className="h-8 w-[160px] text-xs">
-                  <SelectValue placeholder="All Years" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Years</SelectItem>
-                  {academicYears.map((ay: any) => (
-                    <SelectItem key={ay.id} value={ay.id}>{ay.academic_year_name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <Button size="sm" variant="ghost" onClick={handleRefresh} disabled={isFetching}>
                 <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
               </Button>
@@ -180,22 +145,22 @@ export default function GroupDashboardPage() {
 
             {/* Tab: Seat Analytics */}
             <TabsContent value="seats">
-              <SeatAnalyticsDashboard academicYearId={selectedAcademicYearId} />
+              <SeatAnalyticsDashboard />
             </TabsContent>
 
             {/* Tab: Source Analytics */}
             <TabsContent value="sources">
-              <SourceAnalyticsTab academicYearId={selectedAcademicYearId} />
+              <SourceAnalyticsTab />
             </TabsContent>
 
             {/* Tab: Geography */}
             <TabsContent value="geography">
-              <GeographyAnalyticsTab academicYearId={selectedAcademicYearId} />
+              <GeographyAnalyticsTab />
             </TabsContent>
 
             {/* Tab: Advanced Comparison */}
             <TabsContent value="comparison">
-              <InstitutionComparisonAdvanced academicYearId={selectedAcademicYearId} />
+              <InstitutionComparisonAdvanced />
             </TabsContent>
           </Tabs>
         </div>

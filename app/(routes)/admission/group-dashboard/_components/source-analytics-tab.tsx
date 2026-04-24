@@ -15,7 +15,6 @@ import type { SourceAnalyticsRow } from '@/types/admission-workflow-config';
 
 interface SourceAnalyticsTabProps {
   institutionId?: string;
-  academicYearId?: string;
 }
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -92,8 +91,8 @@ function buildMatrix(rows: SourceAnalyticsRow[]) {
   };
 }
 
-export function SourceAnalyticsTab({ institutionId, academicYearId }: SourceAnalyticsTabProps) {
-  const { data: rows = [], isLoading, isError } = useSourceAnalytics(institutionId, academicYearId);
+export function SourceAnalyticsTab({ institutionId }: SourceAnalyticsTabProps) {
+  const { data: rows = [], isLoading, isError } = useSourceAnalytics(institutionId);
 
   if (isLoading) {
     return (
