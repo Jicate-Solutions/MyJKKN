@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Ellipsis, LogOut, Download } from 'lucide-react';
+import { Ellipsis, LogOut, Download, ChevronDown } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,6 @@ import {
   TooltipContent,
   TooltipProvider
 } from '@/components/ui/tooltip';
-import { CollapseMenuButton } from './CollapseMenuButton';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useMemo } from 'react';
@@ -25,6 +24,7 @@ import { FavoriteStar } from '@/components/Favorites/FavoriteStar';
 import { Search } from 'lucide-react';
 import { getShortcutForPath } from '@/lib/navigation/keyboard-shortcuts';
 import { logSidebarHealthDev } from '@/lib/sidebar-validator';
+import { useSidebarCollapsedSections } from '@/hooks/use-sidebar-collapsed-sections';
 
 interface MenuProps {
   isOpen: boolean | undefined;
@@ -40,6 +40,10 @@ export function Menu({ isOpen }: MenuProps) {
   } = usePermissions();
   const { isInstalled, canInstall, installApp } = usePWA();
   const { open: openCommandPalette } = useCommandPalette();
+  // Wave 2b PR-S2: persist per-section collapsed state to localStorage
+  // under `myjkkn.sidebar.collapsed-sections` (spec D5 + R4).
+  const { isCollapsed: isSectionCollapsed, toggle: toggleSection, hydrated: collapseHydrated } =
+    useSidebarCollapsedSections();
 
   // Check if user is an expo team member (for dynamic sidebar visibility)
   const { data: isExpoTeamMember } = useUserExpoTeamStatus();
@@ -144,15 +148,43 @@ export function Menu({ isOpen }: MenuProps) {
           </div>
         ) : (
           <ul className='flex flex-col min-h-[calc(100vh-48px-36px-16px-32px)] lg:min-h-[calc(100vh-32px-40px-32px)] items-start space-y-1 px-2'>
-            {pages.map(({ groupLabel, menus }, index) => (
+            {pages.map(({ groupLabel, menus }, index) => {
+              // Wave 2b PR-S2: collapsed-section behavior only applies in the
+              // expanded sidebar (isOpen !== false). In the icon-only rail
+              // we always render every module row so the tooltips still work.
+              const collapsed =
+                collapseHydrated && !!groupLabel && isOpen !== false && isSectionCollapsed(groupLabel);
+              // Only truly anonymous groups (no label) can be completely
+              // header-less; labeled groups always render a clickable header.
+              const showClickableHeader = isOpen !== false && !!groupLabel;
+              return (
               <li
                 className={cn('w-full', groupLabel ? 'pt-5' : '')}
                 key={index}
               >
-                {(isOpen && groupLabel) || isOpen === undefined ? (
-                  <p className='text-sm font-medium text-muted-foreground dark:text-white/80 px-4 pb-2 max-w-[248px] truncate'>
-                    {groupLabel}
-                  </p>
+                {showClickableHeader ? (
+                  // Clickable section header — toggles collapsed state (D5, R4)
+                  <button
+                    type='button'
+                    onClick={() => groupLabel && toggleSection(groupLabel)}
+                    aria-expanded={!collapsed}
+                    aria-controls={`sidebar-section-${index}`}
+                    className={cn(
+                      'group/section w-full flex items-center justify-between px-4 pb-2 max-w-[248px]',
+                      'text-sm font-medium text-muted-foreground dark:text-white/80',
+                      'hover:text-foreground dark:hover:text-white transition-colors cursor-pointer'
+                    )}
+                  >
+                    <span className='truncate text-left'>{groupLabel}</span>
+                    <ChevronDown
+                      size={14}
+                      className={cn(
+                        'shrink-0 ml-2 transition-transform duration-200',
+                        collapsed && '-rotate-90'
+                      )}
+                      aria-hidden='true'
+                    />
+                  </button>
                 ) : !isOpen && isOpen !== undefined && groupLabel ? (
                   <TooltipProvider>
                     <Tooltip delayDuration={100}>
@@ -169,12 +201,19 @@ export function Menu({ isOpen }: MenuProps) {
                 ) : (
                   <p className='pb-2'></p>
                 )}
+                {/*
+                  Wave 2b PR-S2: flat rendering only. We always render each
+                  module row as a simple <Link> — submenus[] stays on the data
+                  for PR-S3 (<SidebarFlyout>) to consume but is no longer
+                  expanded inline. Collapse state hides entire sections.
+                */}
+                <div id={`sidebar-section-${index}`} hidden={collapsed}>
                 {menus.map(
-                  ({ href, label, icon: Icon, active, submenus }, index) => {
+                  ({ href, label, icon: Icon, active }, index) => {
                     const iconName = (Icon as { displayName?: string }).displayName || 'Folder';
                     const moduleName = groupLabel || 'General';
 
-                    return submenus.length === 0 ? (
+                    return (
                       <div className='w-full group/row flex items-center' key={index}>
                         <TooltipProvider disableHoverableContent>
                           <Tooltip delayDuration={100}>
@@ -231,25 +270,13 @@ export function Menu({ isOpen }: MenuProps) {
                           />
                         )}
                       </div>
-                    ) : (
-                      <div className='w-full' key={index}>
-                        <CollapseMenuButton
-                          icon={Icon}
-                          label={label}
-                          active={active}
-                          submenus={submenus}
-                          isOpen={isOpen}
-                          shortcut={getShortcutForPath(href)}
-                          module={moduleName}
-                          parentIconName={iconName}
-                          href={href}
-                        />
-                      </div>
                     );
                   }
                 )}
+                </div>
               </li>
-            ))}
+              );
+            })}
             <li className='w-full grow flex items-end'>
               <div className='w-full'>
                 {!isInstalled && canInstall && (

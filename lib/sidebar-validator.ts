@@ -100,44 +100,11 @@ export function validateSidebar(
       });
     }
 
-    // Submenu-level check — parent with too many flat children
-    for (const menu of group.menus) {
-      if (!menu.submenus || menu.submenus.length === 0) continue;
-      const flatChildren = countFlatChildren(menu.submenus);
-      if (flatChildren > WARN_THRESHOLD) {
-        issues.push({
-          severity: flatChildren >= ERROR_THRESHOLD ? 'error' : 'warn',
-          groupLabel,
-          path: `${groupLabel} → ${menu.label}`,
-          count: flatChildren,
-          threshold: WARN_THRESHOLD,
-          message:
-            `Submenu "${menu.label}" under "${groupLabel}" has ${flatChildren} flat children. ` +
-            `Collapse parent to a single sidebar entry and move these tabs IN-PAGE via SectionSubNav — see Learners Council structure/layout.tsx or Campus Living cl-nav.tsx.`,
-        });
-      }
-
-      // Recurse one more level (3rd-tier children under the submenu's submenu)
-      for (const child of menu.submenus) {
-        const grandchildren = (child as { submenus?: Array<unknown> }).submenus;
-        if (!grandchildren || grandchildren.length === 0) continue;
-        const flatGrandchildren = countFlatChildren(
-          grandchildren as Array<{ submenus?: Array<unknown> }>
-        );
-        if (flatGrandchildren > WARN_THRESHOLD) {
-          issues.push({
-            severity: flatGrandchildren >= ERROR_THRESHOLD ? 'error' : 'warn',
-            groupLabel,
-            path: `${groupLabel} → ${menu.label} → ${(child as { label: string }).label}`,
-            count: flatGrandchildren,
-            threshold: WARN_THRESHOLD,
-            message:
-              `3rd-tier submenu "${(child as { label: string }).label}" has ${flatGrandchildren} flat items. ` +
-              `Sidebar should never be this deep — move the entire module to in-page SectionSubNav tabs.`,
-          });
-        }
-      }
-    }
+    // Wave 2b PR-S2 (2026-04-24, spec D2+D4): submenu-level UI checks
+    // retired. Per the flat-sidebar spec, module rows' `submenus[]` arrays
+    // are DATA that feeds the PR-S3 hover flyout — they are no longer
+    // rendered inline in the sidebar. Only the top-level per-section count
+    // still maps to a UI-clutter concern.
   }
 
   return issues;
