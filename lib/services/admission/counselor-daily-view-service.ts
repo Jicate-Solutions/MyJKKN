@@ -576,6 +576,33 @@ export class CounselorDailyViewService {
   }
 
   /**
+   * Get the admission_counselors.id for the currently authenticated user
+   * within a given institution. Returns null if the user is not a counselor
+   * in that institution. Used by counselor-scoped views (reminders, alerts)
+   * to filter down to the current user's assigned leads.
+   */
+  static async getMyCounselorId(institutionId: string | undefined): Promise<string | null> {
+    if (!institutionId) return null;
+    const supabase = createClientSupabaseClient();
+    const { data: { user } } = await (supabase as any).auth.getUser();
+    if (!user) return null;
+
+    const { data, error } = await (supabase as any)
+      .from('admission_counselors')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (error) {
+      // Non-counselors will not have a record — silently return null.
+      return null;
+    }
+    return data?.id ?? null;
+  }
+
+  /**
    * Get list of counselors for the institution (for assignment dropdown)
    */
   static async getCounselors(institutionId: string): Promise<Array<{ id: string; user_id: string | null; name: string; email: string | null }>> {
