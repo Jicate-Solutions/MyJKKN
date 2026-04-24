@@ -37,10 +37,12 @@ interface UseCampaignStatsResult {
 }
 
 export function useCampaignStats(institutionId: string | undefined): UseCampaignStatsResult {
+  // No `enabled: !!institutionId` gate — when institutionId is undefined the user is
+  // a super_admin who legitimately wants the cross-institution view. The service skips
+  // the .eq('institution_id', ...) filter in that case; RLS still enforces access.
   const query = useQuery({
-    queryKey: campaignMonitoringKeys.stats(institutionId || ''),
-    queryFn: () => CampaignMonitoringService.getCampaignStats(institutionId!),
-    enabled: !!institutionId,
+    queryKey: campaignMonitoringKeys.stats(institutionId || 'all'),
+    queryFn: () => CampaignMonitoringService.getCampaignStats(institutionId),
     staleTime: 30000, // 30 seconds - refresh frequently for monitoring
     refetchInterval: 60000, // Auto-refresh every minute
   });
@@ -65,10 +67,10 @@ interface UseDeliveryMetricsResult {
 }
 
 export function useDeliveryMetrics(institutionId: string | undefined): UseDeliveryMetricsResult {
+  // No enabled gate — see useCampaignStats above for super_admin rationale.
   const query = useQuery({
-    queryKey: campaignMonitoringKeys.delivery(institutionId || ''),
-    queryFn: () => CampaignMonitoringService.getDeliveryMetrics(institutionId!),
-    enabled: !!institutionId,
+    queryKey: campaignMonitoringKeys.delivery(institutionId || 'all'),
+    queryFn: () => CampaignMonitoringService.getDeliveryMetrics(institutionId),
     staleTime: 30000,
     refetchInterval: 60000,
   });
@@ -93,10 +95,10 @@ interface UseActiveSequencesResult {
 }
 
 export function useActiveSequences(institutionId: string | undefined): UseActiveSequencesResult {
+  // No enabled gate — super_admin gets cross-institution view (see useCampaignStats).
   const query = useQuery({
-    queryKey: campaignMonitoringKeys.sequences(institutionId || ''),
-    queryFn: () => CampaignMonitoringService.getActiveSequences(institutionId!),
-    enabled: !!institutionId,
+    queryKey: campaignMonitoringKeys.sequences(institutionId || 'all'),
+    queryFn: () => CampaignMonitoringService.getActiveSequences(institutionId),
     staleTime: 30000,
     refetchInterval: 60000,
   });
@@ -124,10 +126,10 @@ export function useExecutionLogs(
   institutionId: string | undefined,
   limit = 50
 ): UseExecutionLogsResult {
+  // No enabled gate — super_admin gets cross-institution view (see useCampaignStats).
   const query = useQuery({
-    queryKey: campaignMonitoringKeys.logs(institutionId || '', limit),
-    queryFn: () => CampaignMonitoringService.getExecutionLogs(institutionId!, limit),
-    enabled: !!institutionId,
+    queryKey: campaignMonitoringKeys.logs(institutionId || 'all', limit),
+    queryFn: () => CampaignMonitoringService.getExecutionLogs(institutionId, limit),
     staleTime: 10000, // 10 seconds - logs should be more fresh
     refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
@@ -158,14 +160,17 @@ export function useRealtimeUpdates(institutionId: string | undefined): UseRealti
     (update: RealtimeUpdate) => {
       setLastUpdate(update);
 
-      // Invalidate relevant queries based on update type
+      // Invalidate relevant queries based on update type. Use 'all' as the
+      // bucket key when institutionId is undefined (super_admin cross-institution view),
+      // matching the keys used by the data-fetching hooks above.
+      const bucket = institutionId || 'all';
       switch (update.type) {
         case 'campaign_status_changed':
           queryClient.invalidateQueries({
-            queryKey: campaignMonitoringKeys.stats(institutionId!),
+            queryKey: campaignMonitoringKeys.stats(bucket),
           });
           queryClient.invalidateQueries({
-            queryKey: campaignMonitoringKeys.campaigns(institutionId!),
+            queryKey: campaignMonitoringKeys.campaigns(bucket),
           });
           if (update.campaignId) {
             queryClient.invalidateQueries({
@@ -175,13 +180,13 @@ export function useRealtimeUpdates(institutionId: string | undefined): UseRealti
           break;
         case 'execution_completed':
           queryClient.invalidateQueries({
-            queryKey: campaignMonitoringKeys.logs(institutionId!),
+            queryKey: campaignMonitoringKeys.logs(bucket),
           });
           queryClient.invalidateQueries({
-            queryKey: campaignMonitoringKeys.delivery(institutionId!),
+            queryKey: campaignMonitoringKeys.delivery(bucket),
           });
           queryClient.invalidateQueries({
-            queryKey: campaignMonitoringKeys.sequences(institutionId!),
+            queryKey: campaignMonitoringKeys.sequences(bucket),
           });
           break;
         case 'stats_updated':
@@ -195,8 +200,8 @@ export function useRealtimeUpdates(institutionId: string | undefined): UseRealti
   );
 
   useEffect(() => {
-    if (!institutionId) return;
-
+    // Subscribe always. When institutionId is undefined, the service uses an 'all' channel key
+    // and RLS still scopes which postgres_changes events the client actually receives.
     setIsConnected(true);
     const unsubscribe = CampaignMonitoringService.subscribeToUpdates(institutionId, handleUpdate);
 
@@ -224,10 +229,10 @@ interface UseCampaignsResult {
 }
 
 export function useCampaigns(institutionId: string | undefined): UseCampaignsResult {
+  // No enabled gate — super_admin gets cross-institution view.
   const query = useQuery({
-    queryKey: campaignMonitoringKeys.campaigns(institutionId || ''),
-    queryFn: () => CampaignMonitoringService.getCampaigns(institutionId!),
-    enabled: !!institutionId,
+    queryKey: campaignMonitoringKeys.campaigns(institutionId || 'all'),
+    queryFn: () => CampaignMonitoringService.getCampaigns(institutionId),
     staleTime: 60000,
   });
 
