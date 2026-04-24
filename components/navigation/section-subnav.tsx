@@ -11,12 +11,19 @@
  *   Tier 1: module-level nav (e.g. LCNav, CLNav) — across-module tabs
  *   Tier 2: SectionSubNav — intra-section tabs (what this component renders)
  *   Tier 3: nested SectionSubNav — drills further within a sub-page
+ *
+ * Permission filtering: tabs are filtered using MENU_PERMISSIONS (same map the
+ * sidebar uses). A tab whose href has no entry in MENU_PERMISSIONS is always
+ * shown. During the async permission load, all tabs are visible to prevent
+ * a flash-of-unauthorized-content/disappearance race.
  */
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { usePermissions } from '@/hooks/use-permissions';
+import { MENU_PERMISSIONS, normalizeRoute } from '@/lib/sidebarMenuLink';
 
 export interface SectionTab {
   href: string;
@@ -30,6 +37,15 @@ export interface SectionTab {
 
 export function SectionSubNav({ tabs }: { tabs: SectionTab[] }) {
   const pathname = usePathname();
+  const { permissions, isSuperAdmin, isLoading } = usePermissions();
+
+  const canShowTab = (href: string): boolean => {
+    if (isLoading) return true;
+    if (isSuperAdmin) return true;
+    const perm = MENU_PERMISSIONS[normalizeRoute(href)];
+    if (!perm) return true;
+    return permissions[perm] === true;
+  };
 
   const isActive = (tab: SectionTab) => {
     if (tab.exact) return pathname === tab.href;
@@ -40,9 +56,11 @@ export function SectionSubNav({ tabs }: { tabs: SectionTab[] }) {
     return false;
   };
 
+  const visibleTabs = tabs.filter((t) => canShowTab(t.href));
+
   return (
     <div className='flex flex-wrap gap-1 p-1 rounded-lg bg-muted/50 border mb-4 max-w-full'>
-      {tabs.map((tab) => {
+      {visibleTabs.map((tab) => {
         const Icon = tab.icon;
         const active = isActive(tab);
         return (

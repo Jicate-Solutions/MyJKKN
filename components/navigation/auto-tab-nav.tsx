@@ -18,6 +18,12 @@
  * Tier 1 (list of all top-level modules) is always skipped — that's the
  * sidebar's job. In-page starts at tier 2.
  *
+ * Permission filtering: chips are filtered using MENU_PERMISSIONS (same map
+ * the sidebar uses). A chip whose href has no entry in MENU_PERMISSIONS is
+ * always shown. During the async permission load, all chips are visible to
+ * prevent a flash-of-disappearance race. TabBar's existing <2-chip guard
+ * still applies after filtering.
+ *
  * Client Component (usePathname + passes lucide icon refs).
  */
 
@@ -28,6 +34,8 @@ import * as Icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { resolveTiers, type Chip } from '@/lib/navigation/tier-rendering';
 import { cn } from '@/lib/utils';
+import { usePermissions } from '@/hooks/use-permissions';
+import { MENU_PERMISSIONS, normalizeRoute } from '@/lib/sidebarMenuLink';
 
 interface AutoTabNavProps {
   maxDepth?: number;
@@ -105,6 +113,8 @@ export function AutoTabNav({
   className,
 }: AutoTabNavProps) {
   const pathname = usePathname();
+  const { permissions, isSuperAdmin, isLoading } = usePermissions();
+
   if (!pathname) return null;
   if (
     pathname === '/' ||
@@ -114,11 +124,21 @@ export function AutoTabNav({
     return null;
   }
 
+  const canShowChip = (href: string): boolean => {
+    if (isLoading) return true;
+    if (isSuperAdmin) return true;
+    const perm = MENU_PERMISSIONS[normalizeRoute(href)];
+    if (!perm) return true;
+    return permissions[perm] === true;
+  };
+
   const allTiers = resolveTiers(pathname);
   // tiers[0] = tier 2, tiers[1] = tier 3, tiers[2] = tier 4
   const sliceStart = Math.max(0, minDepth - 2);
   const sliceEnd = Math.max(0, maxDepth - 1);
-  const visible = allTiers.slice(sliceStart, sliceEnd);
+  const visible = allTiers
+    .slice(sliceStart, sliceEnd)
+    .map((chips) => chips.filter((c) => canShowChip(c.href)));
 
   if (visible.length === 0) return null;
 
