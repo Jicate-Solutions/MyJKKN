@@ -14,26 +14,28 @@ import {
   type ExternalAuditorRow,
 } from '@/lib/services/audit/audit-external-auditor-service';
 
-// Permission gate helper. Super_admin bypass OR audit.external_auditor.manage
-// via merged permissions OR legacy role = registrar.
+// Permission gate helper. Uses the canonical MyJKKN triad:
+//   is_super_admin()  — profiles.is_super_admin flag bypass
+//   is_admin()        — role IN ('admin','super_admin','administrator') legacy coverage
+//   user_has_permission('audit.external_auditor.manage')
+//     — multi-role OR-merge + profiles.role legacy fallback via custom_roles.permissions
+//
+// Matches PR #471's /api/hr/dashboard pattern and CLAUDE.md's standardized RLS policy
+// template. Adding a new role to this gate is now a 1-row grant on
+// `custom_roles.permissions.audit.external_auditor.manage = true` via the Role
+// Management UI — not a code change.
 async function requireManagePermission(supabase: any): Promise<{ ok: true; userId: string } | { ok: false; status: number; error: string }> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError || !userData?.user) return { ok: false, status: 401, error: 'Unauthorized' };
   const userId = userData.user.id as string;
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_super_admin, role')
-    .eq('id', userId)
-    .maybeSingle();
-  if (profile?.is_super_admin === true) return { ok: true, userId };
-  if (profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator' || profile?.role === 'registrar') {
-    return { ok: true, userId };
-  }
+  const [{ data: isSuperAdmin }, { data: isAdmin }, { data: canManage }] = await Promise.all([
+    supabase.rpc('is_super_admin'),
+    supabase.rpc('is_admin'),
+    supabase.rpc('user_has_permission', { permission_name: 'audit.external_auditor.manage' }),
+  ]);
 
-  // Check merged permissions via get_user_merged_permissions RPC
-  const { data: merged } = await supabase.rpc('get_user_merged_permissions', { p_user_id: userId });
-  if (merged && typeof merged === 'object' && merged['audit.external_auditor.manage'] === true) {
+  if (isSuperAdmin === true || isAdmin === true || canManage === true) {
     return { ok: true, userId };
   }
   return { ok: false, status: 403, error: 'Forbidden: requires super_admin or audit.external_auditor.manage' };
