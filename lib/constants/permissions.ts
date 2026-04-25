@@ -1065,7 +1065,18 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.metrics.view', label: 'View Accreditation Metrics Catalog' },
       { key: 'accreditation.metrics.manage', label: 'Manage Accreditation Metrics (add local/supplementary)' },
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
-      { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' }
+      { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
+
+      // IIQA — PR-IIQA-1 (2026-04-25). NAAC IIQA submission workflow.
+      // accreditation_officer (existing system role) is the primary IIQA Coordinator;
+      // principal signs off; super_admin / director submits to NAAC.
+      // external_auditor_timeboxed gets the read_only_external key during peer review.
+      { key: 'accreditation.iiqa.view', label: 'View IIQA Submission Dashboard' },
+      { key: 'accreditation.iiqa.manage', label: 'Edit IIQA Static Facts + Snapshots (IQAC Coordinator)' },
+      { key: 'accreditation.iiqa.submit', label: 'Submit IIQA Pack to NAAC (Director only — locks snapshots)' },
+      { key: 'accreditation.iiqa.read_only_external', label: 'Read IIQA Pack (NAAC Peer Team — time-boxed)' },
+      { key: 'accreditation.certificates.view', label: 'View Accreditation Certificates' },
+      { key: 'accreditation.certificates.manage', label: 'Upload + Manage Accreditation Certificates' }
     ]
   },
   {

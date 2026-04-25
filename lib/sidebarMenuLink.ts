@@ -870,6 +870,16 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/academic' || pathname.startsWith('/academic/'),
           icon: GraduationCap,
           submenus: []
+        },
+        {
+          // Board of Studies — institutional governance + expert management.
+          // Navigation lives in the module's in-page tab bar (BOS_NAV_TABS,
+          // see app/(routes)/bos/layout.tsx) and nav-config.ts.
+          href: '/bos',
+          label: 'Board of Studies',
+          active: pathname === '/bos' || pathname.startsWith('/bos/'),
+          icon: ClipboardList,
+          submenus: []
         }
       ]
     },

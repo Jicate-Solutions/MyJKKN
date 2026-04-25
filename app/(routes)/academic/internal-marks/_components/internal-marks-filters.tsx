@@ -15,6 +15,8 @@ import {
 import { X, Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePrograms } from '@/hooks/organization/use-programs';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useExamSessions, useCiaSettings } from '@/hooks/internal-marks/use-cia-settings';
 import { useCourseMapping, useRegistrations } from '@/hooks/internal-marks/use-cia-marks';
 import { CiaMarksService } from '@/lib/services/internal-marks/cia-marks-service';
@@ -42,6 +44,12 @@ interface Props {
  *   institutionId is passed from parent (from profile.institution_id)
  */
 export function InternalMarksFiltersComponent({ institutionId, filters, onFiltersChange }: Props) {
+  // Super admin can switch institutions; others are locked to their own (resolved by parent)
+  const { isSuperAdmin } = usePermissions();
+  const { institutions, loading: isLoadingInstitutions } = useInstitutionsWithAccess({
+    autoFetch: isSuperAdmin,
+  });
+
   // Exam sessions from COE
   const { data: examSessions, isLoading: isLoadingExam } = useExamSessions(institutionId);
 
@@ -146,6 +154,14 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
   const handleChange = (key: keyof InternalMarksFilterState, value: string) => {
     const updated = { ...filters, [key]: value };
 
+    if (key === 'institution_id') {
+      updated.exam_session_id = '';
+      updated.setting_id = '';
+      updated.program_code = '';
+      updated.semester_code = '';
+      updated.course_code = '';
+      updated.cia_round = undefined;
+    }
     if (key === 'exam_session_id') {
       updated.setting_id = '';
       updated.program_code = '';
@@ -175,7 +191,37 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
 
   return (
     <div className='space-y-4'>
-      <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4'>
+      <div
+        className={cn(
+          'grid grid-cols-1 md:grid-cols-2 gap-4',
+          isSuperAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-5'
+        )}
+      >
+        {/* Institution — super admin only */}
+        {isSuperAdmin && (
+          <div className='space-y-1.5'>
+            <Label className='text-xs font-medium'>Institution</Label>
+            <Select
+              value={filters.institution_id || ''}
+              onValueChange={(v) => handleChange('institution_id', v)}
+              disabled={isLoadingInstitutions}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={isLoadingInstitutions ? 'Loading...' : 'Select Institution'}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>
+                    {inst.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         {/* Exam Session */}
         <div className='space-y-1.5'>
           <Label className='text-xs font-medium'>Exam Session</Label>
@@ -185,7 +231,19 @@ export function InternalMarksFiltersComponent({ institutionId, filters, onFilter
             disabled={!institutionId || isLoadingExam}
           >
             <SelectTrigger>
-              <SelectValue placeholder={isLoadingExam ? 'Loading...' : 'Select Exam Session'} />
+              <SelectValue
+                placeholder={
+                  !institutionId
+                    ? isSuperAdmin
+                      ? 'Select institution first'
+                      : 'No institution assigned'
+                    : isLoadingExam
+                      ? 'Loading...'
+                      : (examSessions ?? []).length === 0
+                        ? 'No exam sessions'
+                        : 'Select Exam Session'
+                }
+              />
             </SelectTrigger>
             <SelectContent>
               {(examSessions ?? []).map((s) => (
