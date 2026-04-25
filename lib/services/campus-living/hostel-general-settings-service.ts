@@ -115,6 +115,7 @@ export class HostelGeneralSettingsService {
   static async upsertSettings(
     institutionId: string,
     payload: HostelGeneralSettingsUpsert,
+    updatedBy: string | null,
   ): Promise<HostelGeneralSettings> {
     if (!institutionId) {
       throw new Error(
@@ -127,6 +128,7 @@ export class HostelGeneralSettingsService {
       const body = {
         institution_id: institutionId,
         ...payload,
+        updated_by: updatedBy,
         updated_at: new Date().toISOString(),
       };
 

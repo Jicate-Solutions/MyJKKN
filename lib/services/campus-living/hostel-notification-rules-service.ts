@@ -113,6 +113,7 @@ export class HostelNotificationRulesService {
   static async upsertRules(
     institutionId: string,
     dirty: HostelNotificationRuleUpsert[],
+    updatedBy: string | null,
   ): Promise<number> {
     if (!institutionId) {
       throw new Error(
@@ -136,6 +137,7 @@ export class HostelNotificationRulesService {
         ...(row.channel_sms !== undefined && { channel_sms: row.channel_sms }),
         ...(row.channel_push !== undefined && { channel_push: row.channel_push }),
         ...(row.is_active !== undefined && { is_active: row.is_active }),
+        updated_by: updatedBy,
         updated_at: new Date().toISOString(),
       }));
 
