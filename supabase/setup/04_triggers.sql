@@ -947,3 +947,10 @@ CREATE TRIGGER trg_admission_leads_auto_assign_counselor
   BEFORE INSERT ON admission_leads
   FOR EACH ROW
   EXECUTE FUNCTION fn_auto_assign_counselor();
+
+-- Updated: 2026-04-25 - decisions-spec.md v1.0 Sprint 0
+-- Keep director_decisions.updated_at in sync on UPDATE.
+DROP TRIGGER IF EXISTS trg_director_decisions_updated_at ON director_decisions;
+CREATE TRIGGER trg_director_decisions_updated_at
+  BEFORE UPDATE ON director_decisions
+  FOR EACH ROW EXECUTE FUNCTION fn_director_decisions_set_updated_at();

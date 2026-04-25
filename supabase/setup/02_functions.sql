@@ -9787,3 +9787,12 @@ END $fn_digest$;
 
 REVOKE ALL ON FUNCTION fn_generate_super_admin_daily_digest() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION fn_generate_super_admin_daily_digest() TO service_role;
+
+-- Updated: 2026-04-25 - decisions-spec.md v1.0 Sprint 0
+-- Trigger function to keep director_decisions.updated_at fresh.
+CREATE OR REPLACE FUNCTION fn_director_decisions_set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at := NOW();
+  RETURN NEW;
+END $$;
