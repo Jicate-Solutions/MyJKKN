@@ -351,6 +351,7 @@ export async function proxy(request: NextRequest) {
         'driver',
         'hod',
         'admission',
+        'registrar',
         'principal'
       ].includes(profile.role)
     ) {
