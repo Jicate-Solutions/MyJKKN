@@ -176,6 +176,11 @@ $$;
 -- Updated: 2026-04-25 - Fixed two bugs: (1) i.institution_name → i.name (column does not exist),
 --   (2) added UNION with profiles.institution_id so own-scoped users (HOD, etc.)
 --   always see their primary institution even with no user_institution_access entries.
+-- Updated: 2026-04-25 - Fixed duplicate-row bug: UNION did not dedupe because
+--   access_type ('primary' vs 'full'/'read_only') differed when the user had
+--   both a primary institution and an explicit user_institution_access row for
+--   the same institution. The second branch now excludes the primary so each
+--   institution_id appears at most once with is_primary_institution=true winning.
 CREATE OR REPLACE FUNCTION public.get_user_accessible_institutions(target_user_id uuid)
 RETURNS TABLE(
     institution_id uuid,
@@ -202,21 +207,26 @@ BEGIN
     AND p.institution_id IS NOT NULL
     AND i.is_active = true
 
-    UNION
+    UNION ALL
 
-    -- Plus explicitly granted cross-institution access
+    -- Plus explicitly granted cross-institution access — but skip the user's
+    -- primary institution to avoid duplicating the row from the first branch.
     SELECT
         i.id,
         i.name::varchar,
         i.counselling_code::varchar,
         uia.access_type::varchar,
-        (p.institution_id = i.id)
+        false
     FROM institutions i
     JOIN user_institution_access uia ON i.id = uia.institution_id
-    LEFT JOIN profiles p ON p.id = target_user_id
     WHERE uia.user_id = target_user_id
     AND uia.is_active = true
-    AND i.is_active = true;
+    AND i.is_active = true
+    AND NOT EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = target_user_id
+        AND p.institution_id = i.id
+    );
 END;
 $$;
 
