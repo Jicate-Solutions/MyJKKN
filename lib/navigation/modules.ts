@@ -63,11 +63,11 @@ export const MODULES: Module[] = [
   // ── Application Management ────────────────────────────────────────────
   { slug: 'applications', label: 'Applications', icon: 'Files', section: 'Application Management', hasNavConfig: false },
 
-  // ── Organization Management ───────────────────────────────────────────
-  { slug: 'organizations', label: 'Organizations', icon: 'Building2', section: 'Organization Management', hasNavConfig: false },
+  // ── Organization ──────────────────────────────────────────────────────
+  { slug: 'organizations', label: 'Organizations', icon: 'Building2', section: 'Organization', hasNavConfig: false },
 
-  // ── Academic Management ───────────────────────────────────────────────
-  { slug: 'academic', label: 'Academic', icon: 'GraduationCap', section: 'Academic Management', hasNavConfig: true },
+  // ── Academic ──────────────────────────────────────────────────────────
+  { slug: 'academic', label: 'Academic', icon: 'GraduationCap', section: 'Academic', hasNavConfig: true },
 
   // ── Campus Living ─────────────────────────────────────────────────────
   { slug: 'campus-living', label: 'Campus Living', icon: 'Home', section: 'Campus Living', hasNavConfig: true },
@@ -78,17 +78,17 @@ export const MODULES: Module[] = [
   // ── Employee Management ───────────────────────────────────────────────
   { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'Employee Management', hasNavConfig: false },
 
-  // ── HR (Sprints 1-3) ──────────────────────────────────────────────────
-  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'HR (Sprints 1-3)', hasNavConfig: false },
+  // ── Human Resources ───────────────────────────────────────────────────
+  { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'Human Resources', hasNavConfig: false },
 
   // ── Learners ──────────────────────────────────────────────────────────
   { slug: 'learners', label: 'Learners', icon: 'GraduationCap', section: 'Learners', hasNavConfig: false },
 
-  // ── Accounts ──────────────────────────────────────────────────────────
-  { slug: 'billing', label: 'Billing', icon: 'Wallet', section: 'Accounts', hasNavConfig: false },
+  // ── Billing & Accounts ────────────────────────────────────────────────
+  { slug: 'billing', label: 'Billing', icon: 'Wallet', section: 'Billing & Accounts', hasNavConfig: false },
 
-  // ── Resource Management ───────────────────────────────────────────────
-  { slug: 'resource-management', label: 'Resources', icon: 'Package', section: 'Resource Management', hasNavConfig: false },
+  // ── Resources ─────────────────────────────────────────────────────────
+  { slug: 'resource-management', label: 'Resources', icon: 'Package', section: 'Resources', hasNavConfig: false },
 
   // ── Service Requests ──────────────────────────────────────────────────
   { slug: 'service-requests', label: 'Service Requests', icon: 'Wrench', section: 'Service Requests', hasNavConfig: false },
@@ -97,8 +97,8 @@ export const MODULES: Module[] = [
   { slug: 'admin', label: 'Administration', icon: 'Shield', section: 'Administration', hasNavConfig: false },
   { slug: 'audit-trail', label: 'Audit Trail', icon: 'ScrollText', section: 'Administration', hasNavConfig: false },
 
-  // ── OKR & Performance ─────────────────────────────────────────────────
-  { slug: 'okr', label: 'OKR & Performance', icon: 'Target', section: 'OKR & Performance', hasNavConfig: true },
+  // ── OKR ───────────────────────────────────────────────────────────────
+  { slug: 'okr', label: 'OKR & Performance', icon: 'Target', section: 'OKR', hasNavConfig: true },
 
   // ── Learning ──────────────────────────────────────────────────────────
   { slug: 'learn', label: 'Learning', icon: 'BookOpen', section: 'Learning', hasNavConfig: false },

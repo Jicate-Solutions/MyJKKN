@@ -833,7 +833,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'Organization Management',
+      groupLabel: 'Organization',
       menus: [
         {
           href: '/organizations',
@@ -855,7 +855,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'Academic Management',
+      groupLabel: 'Academic',
       menus: [
         // Single sidebar entry — all Academic navigation lives in the
         // module's in-page tab bar (AcademicNav, see app/(routes)/academic/
@@ -953,7 +953,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'HR (Sprints 1-3)',
+      groupLabel: 'Human Resources',
       menus: [
         {
           href: '/hr',
@@ -1013,7 +1013,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'Accounts',
+      groupLabel: 'Billing & Accounts',
       menus: [
         {
           href: '/billing',
@@ -1039,7 +1039,7 @@ export function GetPages(pathname: string): MenuGroup[] {
     // "Documents" section removed — `/documents` has no page on prod
     // (flagged in PR #409 sweep; no `app/(routes)/documents` folder).
     {
-      groupLabel: 'Resource Management',
+      groupLabel: 'Resources',
       menus: [
         {
           href: '/resource-management',
@@ -1113,7 +1113,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'OKR & Performance',
+      groupLabel: 'OKR',
       menus: [
         // Single sidebar entry — all OKR navigation lives in the module's
         // in-page tab bar (OKRNav, see app/(routes)/okr/_components/
