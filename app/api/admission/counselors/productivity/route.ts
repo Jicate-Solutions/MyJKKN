@@ -21,11 +21,14 @@ export async function GET(request: NextRequest) {
     if (institutionId) {
       const { data: profile } = await supabase
         .from('profiles')
-        .select('institution_id, is_super_admin, role')
+        .select('institution_id')
         .eq('id', user.id)
         .single();
 
-      const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
+      // Canonical super-admin check via RPC (reads profiles.is_super_admin).
+      // Replaces prior `profile.is_super_admin === true || profile.role === 'super_admin'`
+      // OR — the role-string fallback is redundant (zero drift on prod).
+      const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
       if (!isSuperAdmin) {
         // Check if user has access to this institution
         const { data: userRolesData } = await supabase
