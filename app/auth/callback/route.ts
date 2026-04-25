@@ -144,47 +144,30 @@ export async function GET(request: NextRequest) {
             );
 
             try {
-              // First, delete the old pre-registered profile
-              const { error: deleteError } = await adminClient
+              // Delegate the swap to migrate_pre_registered_profile_to_auth.
+              // The RPC handles staff.profile_id (FK NO ACTION blocks naive delete),
+              // user_roles (CASCADE-deleted on profile delete), and the
+              // trg_sync_staff_to_profiles trigger that would otherwise auto-re-resolve
+              // staff.profile_id back to the orphan profile during detach.
+              const { error: rpcError } = await adminClient.rpc(
+                'migrate_pre_registered_profile_to_auth',
+                {
+                  p_old_profile_id: emailProfile.id,
+                  p_new_auth_id: user.id
+                } as any
+              );
+
+              if (rpcError) {
+                console.error('Migration RPC failed:', rpcError);
+                throw rpcError;
+              }
+
+              // Re-fetch the freshly inserted profile (RPC writes with auth.users id)
+              const { data: newProfile } = (await adminClient
                 .from('profiles')
-                .delete()
-                .eq('id', emailProfile.id);
-
-              if (deleteError) {
-                console.error('Delete failed:', deleteError);
-                throw deleteError;
-              }
-
-              // Then create new profile with Google auth user ID (preserving all fields)
-              const profileInsertData = {
-                id: user.id,
-                email: emailProfile.email ?? null,
-                full_name: emailProfile.full_name ?? null,
-                role: emailProfile.role,
-                phone_number: emailProfile.phone_number ?? null,
-                institution_id: emailProfile.institution_id ?? null,
-                department_id: emailProfile.department_id ?? null,
-                gender: emailProfile.gender ?? null,
-                designation: emailProfile.designation ?? null,
-                profile_completed: true,
-                is_active: emailProfile.is_active ?? true,
-                is_pre_registered: false,
-                bio: emailProfile.bio ?? null,
-                avatar_url: emailProfile.avatar_url ?? null,
-                learner_id: (emailProfile as any).learner_id ?? null
-              };
-
-              const { data: newProfile, error: insertError } =
-                (await adminClient
-                  .from('profiles')
-                  .insert(profileInsertData as any)
-                  .select()
-                  .single()) as { data: Profile | null; error: any };
-
-              if (insertError) {
-                console.error('Insert failed:', insertError);
-                throw insertError;
-              }
+                .select('*')
+                .eq('id', user.id)
+                .maybeSingle()) as { data: Profile | null; error: any };
 
               migratedProfile = newProfile;
 
