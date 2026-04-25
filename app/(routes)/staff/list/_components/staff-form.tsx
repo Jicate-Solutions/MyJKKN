@@ -292,16 +292,26 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     }
   }, [profile, form, isEditing, isInstitutionScoped]);
 
-  // Synchronous auto-select: set institution_id immediately when role scope resolves,
-  // without waiting for the async loadInitialData re-run to complete. This prevents
-  // the validation error that occurs when a fast user submits the form in the brief
-  // window between the roles-loaded re-render (which disables the Select) and the
-  // async effect completing (which calls form.setValue via the list fetch path).
+  // Auto-select institution for own-scoped roles (HOD, principal, etc.).
+  // We re-run on `institutions.length` so the setValue fires AFTER the async
+  // institutions list has loaded — without that dep the Radix Select can't
+  // register a matching <SelectItem> for the value and falls back to the
+  // placeholder while the trigger is disabled.
   useEffect(() => {
-    if (!isEditing && isInstitutionScoped && profile?.institution_id && !form.getValues('institution_id')) {
-      form.setValue('institution_id', profile.institution_id, { shouldDirty: true });
+    if (
+      !isEditing &&
+      isInstitutionScoped &&
+      profile?.institution_id &&
+      institutions.length > 0 &&
+      !form.getValues('institution_id')
+    ) {
+      form.setValue('institution_id', profile.institution_id, {
+        shouldDirty: true,
+        shouldValidate: true,
+        shouldTouch: true,
+      });
     }
-  }, [isInstitutionScoped, profile?.institution_id, isEditing, form]);
+  }, [isInstitutionScoped, profile?.institution_id, isEditing, form, institutions.length]);
 
   // Separate useEffect for loading departments when institution changes
   useEffect(() => {
@@ -894,36 +904,56 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
             <FormField
               control={form.control}
               name='institution_id'
-              render={({ field }) => (
-                <FormItem data-field='institution_id'>
-                  <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                    // Lock institution for users scoped to a single accessible institution
-                    disabled={isInstitutionScoped && institutions.length === 1}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder='Select institution' />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {institutions.map((inst) => (
-                        <SelectItem key={inst.id} value={inst.id}>
-                          {inst.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                  {isInstitutionScoped && institutions.length === 1 && (
-                    <p className="text-xs text-muted-foreground">
-                      Your role is scoped to a single institution.
-                    </p>
-                  )}
-                </FormItem>
-              )}
+              render={({ field }) => {
+                // Radix Select only registers <SelectItem> children once the
+                // popover opens. For users whose Select is disabled (own-scoped
+                // roles like HOD) the popover never opens, so <SelectValue>
+                // never gets a registered name for the controlled value and
+                // falls back to the placeholder. Render our own span with the
+                // looked-up name when there is a selection — and fall back to
+                // <SelectValue> ONLY in the empty state so Radix never owns
+                // both children and a portal ref on the same element (which
+                // crashes under React 19 strict rendering).
+                const selectedInstitution = institutions.find(
+                  (i) => i.id === field.value
+                );
+                return (
+                  <FormItem data-field='institution_id'>
+                    <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      // Lock institution for users scoped to a single accessible institution
+                      disabled={isInstitutionScoped && institutions.length === 1}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          {selectedInstitution ? (
+                            <span className='line-clamp-1 text-left'>
+                              {selectedInstitution.name}
+                            </span>
+                          ) : (
+                            <SelectValue placeholder='Select institution' />
+                          )}
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {institutions.map((inst) => (
+                          <SelectItem key={inst.id} value={inst.id}>
+                            {inst.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                    {isInstitutionScoped && institutions.length === 1 && (
+                      <p className="text-xs text-muted-foreground">
+                        Your role is scoped to a single institution.
+                      </p>
+                    )}
+                  </FormItem>
+                );
+              }}
             />
 
             {isTeachingCategory ? (

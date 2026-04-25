@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3104",
+    "dev": "next dev",
     "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && cross-env NODE_OPTIONS='--max-old-space-size=49152 --max-semi-space-size=128' next build --webpack",
     "start": "next start",
     "lint": "next lint",
