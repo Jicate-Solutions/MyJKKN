@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, connection } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getAuthUser } from '@/lib/supabase/server';
 
 // Server-side Supabase client (service role for private-bucket uploads).
 // Create lazily inside the handler — top-level createClient() is instantiated
@@ -24,6 +25,19 @@ function getSupabaseServiceClient() {
 export async function POST(request: Request) {
   await connection();
   try {
+    // SECURITY: Require authenticated user. The handler uses the SERVICE_ROLE
+    // client (which bypasses RLS), so the route MUST authenticate the caller
+    // itself — otherwise any unauthenticated request can upload to the
+    // private `resource-management` bucket. Mirrors the gate in
+    // app/api/upload/solutions-documents/route.ts.
+    const { user, error: authError } = await getAuthUser();
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      );
+    }
+
     console.log('Resource management upload started');
 
     const supabase = getSupabaseServiceClient();
