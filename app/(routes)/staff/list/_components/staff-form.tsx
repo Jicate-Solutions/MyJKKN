@@ -285,11 +285,16 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       }
     }
 
-    // Only load data when we have a profile to prevent hydration mismatches
+    // Only load data when we have a profile to prevent hydration mismatches.
+    // isInstitutionScoped is also a dependency because usePermissions() fetches roles
+    // asynchronously — on first render it is false (roles not yet loaded), so the
+    // scoped institution query and auto-select are skipped. When roles finish loading
+    // and isInstitutionScoped flips to true, we need to re-run so the correct
+    // institution is fetched and auto-selected for HOD / own-scoped roles.
     if (profile) {
       loadInitialData();
     }
-  }, [profile, form, isEditing]);
+  }, [profile, form, isEditing, isInstitutionScoped]);
 
   // Separate useEffect for loading departments when institution changes
   useEffect(() => {
