@@ -5308,3 +5308,27 @@ FOR DELETE USING (
 );
 
 -- END BUG-003146 expo_event_stalls RLS policies
+
+-- =====================================================================
+-- Updated: 2026-04-25 - decisions-spec.md v1.0 Sprint 0
+-- INTENTIONAL DEVIATION from MyJKKN standard RLS pattern.
+-- Per spec §4 + Round 5 lock, director_decisions is private_to_director
+-- by construction. NO is_super_admin/is_admin bypass.
+-- The Director IS the super_admin (b2bcb548-6b4c-4c75-a6b3-72dd5e9a94f1)
+-- so auth.uid() = director_user_id covers the only legitimate access.
+-- DELETE deliberately omitted — append-only audit trail.
+-- =====================================================================
+DROP POLICY IF EXISTS director_decisions_select_self ON director_decisions;
+CREATE POLICY director_decisions_select_self ON director_decisions
+  FOR SELECT USING (auth.uid() = director_user_id);
+
+DROP POLICY IF EXISTS director_decisions_insert_self ON director_decisions;
+CREATE POLICY director_decisions_insert_self ON director_decisions
+  FOR INSERT WITH CHECK (auth.uid() = director_user_id);
+
+DROP POLICY IF EXISTS director_decisions_update_self ON director_decisions;
+CREATE POLICY director_decisions_update_self ON director_decisions
+  FOR UPDATE USING (auth.uid() = director_user_id)
+              WITH CHECK (auth.uid() = director_user_id);
+
+GRANT SELECT, INSERT, UPDATE ON director_decisions TO service_role;

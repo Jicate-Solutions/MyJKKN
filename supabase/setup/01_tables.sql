@@ -4644,3 +4644,48 @@ CREATE INDEX IF NOT EXISTS idx_admission_leads_stall_id
 ALTER TABLE admission_leads
   ADD COLUMN IF NOT EXISTS visit_type TEXT
   CHECK (visit_type IN ('expo_visit', 'stall_visit'));
+
+-- =====================================================================
+-- Updated: 2026-04-25 - decisions-spec.md v1.0 Sprint 0
+-- Director's Decision Portfolio (private_to_director by construction).
+-- See specs/decisions-spec.md §4 for full schema rationale.
+-- RLS policies in 03_policies.sql; updated_at trigger in 04_triggers.sql;
+-- updated_at trigger function in 02_functions.sql.
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS director_decisions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  director_user_id UUID NOT NULL REFERENCES profiles(id),
+  -- Framing
+  title TEXT NOT NULL,
+  context TEXT NOT NULL,
+  alternatives JSONB NOT NULL,                -- [{label, summary, predicted_outcome_if_chosen}]
+  chosen_alternative_idx INT NOT NULL,
+  rejected_summary TEXT,
+  -- Prediction
+  predicted_outcome TEXT NOT NULL,
+  outcome_metric_query JSONB NOT NULL,        -- {metric, scope, window, baseline_window, target_delta_pct, comparison}
+  outcome_due_at TIMESTAMPTZ NOT NULL,
+  -- State
+  status TEXT NOT NULL DEFAULT 'pending_outcome'
+    CHECK (status IN ('pending_outcome','outcome_recorded','reversed','superseded')),
+  decision_made_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Verdict (filled at 90d by Sprint 1 fn_decision_outcome_check)
+  actual_outcome_value NUMERIC,
+  actual_outcome_recorded_at TIMESTAMPTZ,
+  prediction_correct BOOLEAN,
+  verdict_notes TEXT,
+  -- Privacy lock
+  visibility TEXT NOT NULL DEFAULT 'private_to_director'
+    CHECK (visibility IN ('private_to_director')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_director_decisions_pending
+  ON director_decisions(outcome_due_at)
+  WHERE status = 'pending_outcome';
+
+CREATE INDEX IF NOT EXISTS idx_director_decisions_director
+  ON director_decisions(director_user_id, decision_made_at DESC);
+
+ALTER TABLE director_decisions ENABLE ROW LEVEL SECURITY;
