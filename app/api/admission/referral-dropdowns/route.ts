@@ -14,7 +14,11 @@
 // Auth: any role with admission.leads.create permission, or super_admin / admin.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  getAuthUser,
+  createServerSupabaseClient,
+  createServiceRoleClient,
+} from '@/lib/supabase/server';
 
 type DropdownOption = { id: string; name: string; role?: string; extra?: string };
 
@@ -35,21 +39,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'type is required' }, { status: 400 });
     }
 
-    // Permission gate — either super_admin, admin role, or any custom role with
-    // admission.leads.create. Merges permissions from all user_roles entries.
-    const { data: profile } = await admin
-      .from('profiles')
-      .select('is_super_admin, role')
-      .eq('id', user.id)
-      .single();
+    // Permission gate — either admin (super_admin + admin + administrator via is_admin() RPC),
+    // or any custom role with admission.leads.create. Merges permissions from all user_roles entries.
+    // is_admin() RPC collapses the super_admin/admin/administrator 3-way check into one canonical call.
+    // Note: must call RPC on authed client (has auth.uid() context), not service-role client.
+    const authed = await createServerSupabaseClient();
+    const { data: isAdmin } = await (authed as any).rpc('is_admin');
 
-    const isPrivileged =
-      profile?.is_super_admin === true ||
-      profile?.role === 'super_admin' ||
-      profile?.role === 'admin' ||
-      profile?.role === 'administrator';
-
-    if (!isPrivileged) {
+    if (!isAdmin) {
       const { data: userRoles } = await admin
         .from('user_roles')
         .select('custom_roles!inner(permissions)')
