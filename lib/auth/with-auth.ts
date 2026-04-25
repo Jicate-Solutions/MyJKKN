@@ -69,8 +69,25 @@ interface AuthOptions {
   requiredPermission?: 'read' | 'write'
   /** Allow API key auth. Defaults to true. Set false for portal routes. */
   allowApiKey?: boolean
-  /** Optional role check (e.g., ['admin', 'super_admin']). */
+  /**
+   * Optional hardcoded role check (e.g., ['admin', 'super_admin']).
+   * @deprecated Prefer `requirePermission` — role-string lists drift as new
+   * roles are added. requirePermission delegates to the canonical
+   * `is_super_admin OR is_admin OR user_has_permission(key)` triad and
+   * Role Management UI controls who has the key.
+   */
   requireRole?: string[]
+  /**
+   * Permission key from `custom_roles.permissions` JSONB (e.g.
+   * 'hr.dashboard.view', 'admission.leads.view'). The check runs the canonical
+   * MyJKKN triad — `is_super_admin()` OR `is_admin()` OR
+   * `user_has_permission(key)` — which is the same shape used by every RLS
+   * policy on prod. New roles get access by toggling the key in Role
+   * Management UI; no code change required.
+   *
+   * Use this in preference to `requireRole` for all new and migrated routes.
+   */
+  requirePermission?: string
 }
 
 // ── Postgres Error Mapping ───────────────────────────────────
@@ -157,11 +174,37 @@ export function withAuth(handler: AuthenticatedHandler, options?: AuthOptions) {
         auth = await handleApiKeyAuth(request, authHeader, requiredPermission)
       }
 
-      // ── Step 2: Role check (optional) ───────────────────────
+      // ── Step 2: Role check (optional, deprecated) ───────────
       if (options?.requireRole && options.requireRole.length > 0) {
         if (!options.requireRole.includes(auth.user.role)) {
           return errorResponse(
             `Insufficient role. Required: ${options.requireRole.join(' or ')}`,
+            403
+          )
+        }
+      }
+
+      // ── Step 2b: Permission check (preferred over requireRole) ───────────
+      // Canonical MyJKKN triad: super-admin bypass + is_admin (covers admin /
+      // super_admin / administrator) + user_has_permission (multi-role OR-merge
+      // + legacy fallback). Mirrors the standardized RLS policy pattern.
+      // Only runs for cookie-session flows — API keys carry their own scoping.
+      if (options?.requirePermission && auth.authMethod === 'session') {
+        const supa = auth.supabase
+        const [
+          { data: isSA },
+          { data: isAdmin },
+          { data: canDo },
+        ] = await Promise.all([
+          supa.rpc('is_super_admin'),
+          supa.rpc('is_admin'),
+          supa.rpc('user_has_permission', {
+            permission_name: options.requirePermission,
+          }),
+        ])
+        if (!isSA && !isAdmin && !canDo) {
+          return errorResponse(
+            `Insufficient permission. Required: ${options.requirePermission}`,
             403
           )
         }
