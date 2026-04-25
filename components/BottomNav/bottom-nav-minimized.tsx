@@ -1,40 +1,25 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import {
-  X,
-  Home,
-  Users,
-  TabletSmartphone,
-  Building,
-  GraduationCap,
-  CalendarClock,
-  Package,
-  ClipboardCheck,
-  FileText,
-  Bell,
-  Settings,
-  LucideIcon
-} from 'lucide-react';
+import { X, Home, LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ActivePageInfo } from './types';
+import { ICON_MAP } from '@/lib/navigation/page-registry';
+import { MODULES } from '@/lib/navigation/modules';
 
-// Icon mapping for menu groups (same as in bottom-navbar.tsx)
-const GROUP_ICONS: Record<string, LucideIcon> = {
-  'Overview': Home,
-  'User Management': Users,
-  'Applications': TabletSmartphone,
-  'Application Management': TabletSmartphone,
-  'Organization Management': Building,
-  'Learners Management': GraduationCap,
-  'Employee Management': Users,
-  'Academic Management': CalendarClock,
-  'Resource Management': Package,
-  'Admissions Management': ClipboardCheck,
-  'Billing Management': FileText,
-  'Administration': Bell,
-  'System': Settings
-};
+/**
+ * Resolve a section's icon by deriving from MODULES — single source of truth.
+ * See bottom-navbar.tsx for the cross-paradigmatic justification.
+ *
+ * Pre-2026-04-25 this file had a hardcoded GROUP_ICONS map with 13 entries
+ * keyed on OLD section names. PR #490 renamed sections; the map didn't
+ * track the rename. Replaced with MODULES-derived helper.
+ */
+function getSectionIcon(section: string): LucideIcon {
+  const firstModule = MODULES.find((m) => m.section === section);
+  if (!firstModule) return Home;
+  return ICON_MAP[firstModule.icon] ?? Home;
+}
 
 interface BottomNavMinimizedProps {
   activePage: ActivePageInfo | { href: string; label: string; groupLabel: string };
@@ -60,10 +45,10 @@ export function BottomNavMinimized({
   activePage,
   onExpand
 }: BottomNavMinimizedProps) {
-  // Get icon from activePage or look up from GROUP_ICONS using groupLabel
+  // Get icon from activePage or derive from MODULES via groupLabel
   const Icon = ('icon' in activePage && typeof activePage.icon === 'function')
     ? activePage.icon
-    : GROUP_ICONS[activePage.groupLabel] || Home;
+    : getSectionIcon(activePage.groupLabel);
 
   return (
     <motion.div
