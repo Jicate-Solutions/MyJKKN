@@ -241,7 +241,6 @@ export async function POST(request: NextRequest) {
         institution_id: resolvedInstitutionId,
         first_name: firstName,
         last_name: lastName,
-        full_name: name,
         phone: cleanedPhone,
         parent_name: parentName || null,
         parent_phone: parentPhone ? cleanPhone(parentPhone) : null,
