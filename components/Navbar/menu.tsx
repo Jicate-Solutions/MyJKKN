@@ -13,6 +13,7 @@ import {
   TooltipProvider
 } from '@/components/ui/tooltip';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
+import { getModulesBySection } from '@/lib/navigation/modules';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useMemo } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -91,8 +92,53 @@ export function Menu({ isOpen }: MenuProps) {
     console.log(`[Menu] Role: ${roleData.role_key} | Permissions: ${trueCount}/${permCount} true`);
   }
 
-  // Use the role-based menu with merged permissions
-  const pages = GetRoleBasedPages(pathname, roleData);
+  // Use the role-based menu with merged permissions.
+  //
+  // Wave 2b PR-S5: top-level section ORDER and IDENTITY are sourced from the
+  // `MODULES` constant (via `getModulesBySection`) — the same canonical registry
+  // the mobile bottom-nav uses post-#482. This keeps desktop sidebar and mobile
+  // bottom-nav in lock-step: any change to MODULES (add/rename/reorder a section)
+  // automatically reflects in BOTH surfaces. No more divergent section lists.
+  //
+  // Submenu data per section continues to come from the existing sidebar manifest
+  // since `MODULES` deliberately does not carry submenu data — same trade-off as
+  // bottom-navbar.tsx. Sections with zero accessible menus (after permission
+  // filtering) are dropped, exactly as before.
+  const pagesRaw = GetRoleBasedPages(pathname, roleData);
+  const pages = useMemo(() => {
+    // Index permission-filtered groups by groupLabel for O(1) lookup
+    const byLabel = new Map<string, (typeof pagesRaw)[number]>();
+    for (const g of pagesRaw) {
+      if (g.groupLabel) byLabel.set(g.groupLabel, g);
+    }
+
+    // Walk MODULES section order; emit only sections with at least one
+    // accessible menu in the permission-filtered set.
+    const ordered: typeof pagesRaw = [];
+    const matchedLabels = new Set<string>();
+    for (const [section] of getModulesBySection()) {
+      const matched = byLabel.get(section);
+      if (!matched || matched.menus.length === 0) continue;
+      ordered.push(matched);
+      matchedLabels.add(section);
+    }
+
+    // Preserve any labeled sections that exist in the permission-filtered
+    // set but are NOT yet in MODULES (forward-compat: a new section can ship
+    // in sidebarMenuLink before being added to MODULES, and shouldn't vanish).
+    // These trail at the end. Drop is impossible — surfacing the gap visibly.
+    for (const g of pagesRaw) {
+      if (g.groupLabel && !matchedLabels.has(g.groupLabel)) {
+        ordered.push(g);
+      } else if (!g.groupLabel) {
+        // Anonymous (header-less) groups — pass through at end to preserve
+        // existing rendering for any oddball items without a section.
+        ordered.push(g);
+      }
+    }
+
+    return ordered;
+  }, [pagesRaw]);
 
   // DEV-only: warn if any group exceeds the flat-item thresholds set by the
   // validator (prevents regression back to cluttered flat lists on new modules).
