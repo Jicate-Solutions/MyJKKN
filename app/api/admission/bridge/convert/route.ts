@@ -40,7 +40,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // extra query.
   const { data: lead, error: leadError } = await (svc as any)
     .from('admission_leads')
-    .select('*, admission_year:admission_years(id, program_start_year, program_end_year, admission_year_name)')
+    .select('*, admission_year:admission_years(id, institution_id, program_id, program_start_year, program_end_year, admission_year_name)')
     .eq('id', leadId)
     .eq('institution_id', institutionId)
     .single();
@@ -57,6 +57,53 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { error: 'Already converted', profileId: lead.learner_profile_id },
       { status: 409 }
     );
+  }
+
+  // ── 5a. Resolve a valid admission_year_id for the new learner ───────────────
+  // Why this exists:
+  //   The DB trigger `validate_learner_admission_year_scope` rejects any FK
+  //   attach where the admission_years row's (institution_id, program_id) does
+  //   not match the learner's. We've seen leads carry an admission_year_id
+  //   that belongs to a *duplicate* program (same name+institution, different
+  //   id) — a data-quality bug, but the user-facing conversion shouldn't fail
+  //   on it. If the lead's stored AY does not match this lead's program, we
+  //   re-resolve by (institution_id, program_id, program_start_year). If
+  //   nothing matches, we drop the FK to NULL (legacy integer column still
+  //   propagates so B2A / MCP back-compat keeps working).
+  let resolvedAdmissionYearId: string | null = lead.admission_year_id || null;
+  if (resolvedAdmissionYearId && lead.program_id) {
+    const ay = lead.admission_year;
+    const ayProgramMismatch =
+      !ay || (ay.program_id && ay.program_id !== lead.program_id);
+    const ayInstitutionMismatch =
+      !ay || (ay.institution_id && ay.institution_id !== lead.institution_id);
+
+    if (ayProgramMismatch || ayInstitutionMismatch) {
+      // Try to find the correct admission_year for this lead's actual program.
+      const startYear = ay?.program_start_year;
+      let lookup = (svc as any)
+        .from('admission_years')
+        .select('id')
+        .eq('institution_id', lead.institution_id)
+        .eq('program_id', lead.program_id);
+      if (startYear) lookup = lookup.eq('program_start_year', startYear);
+      const { data: matchAy } = await lookup.limit(1).maybeSingle();
+
+      if (matchAy?.id) {
+        console.log(
+          '[bridge/convert] Re-resolved admission_year_id from',
+          resolvedAdmissionYearId,
+          '→',
+          matchAy.id
+        );
+        resolvedAdmissionYearId = matchAy.id;
+      } else {
+        console.warn(
+          '[bridge/convert] No matching admission_year for program; dropping FK'
+        );
+        resolvedAdmissionYearId = null;
+      }
+    }
   }
 
   // ── 5. Map fields ────────────────────────────────────────────────────────────
@@ -87,7 +134,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     //   - admission_year_id (UUID FK): the new source of truth
     //   - admission_year (INT): legacy column kept for B2A/MCP back-compat
     //                           (6 endpoints expose ?admission_year=N)
-    admission_year_id: lead.admission_year_id || null,
+    admission_year_id: resolvedAdmissionYearId,
     admission_year: lead.admission_year?.program_start_year ?? null,
     // Parent (best-effort)
     father_name: lead.parent_name || '',
@@ -123,10 +170,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   if (insertError || !profile) {
     console.error('[bridge/convert] Failed to create learner profile:', insertError?.message);
-    return NextResponse.json(
-      { error: `Failed to create learner profile: ${insertError?.message}` },
-      { status: 500 }
-    );
+    // The validate_learner_admission_year_scope trigger raises a check_violation
+    // with a fairly technical message. Surface a friendlier one to the UI while
+    // keeping the original detail in the server log.
+    const isAyScopeError =
+      insertError?.code === '23514' ||
+      /admission_year_id .* does not match learner/i.test(
+        insertError?.message || ''
+      );
+    const userMessage = isAyScopeError
+      ? "This lead's admission year doesn't belong to its program. Please correct the lead's program/admission year and try again."
+      : `Failed to create learner profile: ${insertError?.message}`;
+    return NextResponse.json({ error: userMessage }, { status: 500 });
   }
   console.log('[bridge/convert] ✓ Created learner profile:', profile.id);
 
@@ -144,6 +199,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { error: `Failed to link profile to lead: ${updateError.message}` },
       { status: 500 }
     );
+  }
+
+  // ── 8. Self-heal the lead's own admission_year_id when we re-resolved it ───
+  // Best-effort: if the new resolved id differs from what the lead carried,
+  // patch the lead so the UI stops showing the wrong cohort going forward.
+  if (
+    resolvedAdmissionYearId &&
+    resolvedAdmissionYearId !== lead.admission_year_id
+  ) {
+    const { error: ayHealError } = await (svc as any)
+      .from('admission_leads')
+      .update({ admission_year_id: resolvedAdmissionYearId })
+      .eq('id', leadId);
+    if (ayHealError) {
+      // Non-fatal: log only — the conversion has already succeeded.
+      console.warn(
+        '[bridge/convert] Could not self-heal lead admission_year_id:',
+        ayHealError.message
+      );
+    }
   }
 
   console.log('[bridge/convert] ✓ Linked profile to lead. Done.');
