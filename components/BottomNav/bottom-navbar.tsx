@@ -31,31 +31,35 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
-import { getModulesBySection } from '@/lib/navigation/modules';
+import { MODULES, getModulesBySection } from '@/lib/navigation/modules';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu } from './bottom-nav-more-menu';
 import { BottomNavMinimized } from './bottom-nav-minimized';
 import { BottomNavGroup, FlatMenuItem, ActivePageInfo } from './types';
 
-// Icon mapping for menu groups
-const GROUP_ICONS: Record<string, LucideIcon> = {
-  'Overview': Home,
-  'User Management': Users,
-  'Applications': TabletSmartphone,
-  'Application Management': TabletSmartphone,
-  'Organization Management': Building,
-  'Learners': GraduationCap,
-  'Employee Management': Users,
-  'Academic Management': CalendarClock,
-  'Resource Management': Package,
-  'Admissions Management': ClipboardCheck,
-  'Accounts': FileText,
-  'Bugs': Bug,
-  'Administration': Bell,
-  'System': Settings,
-  'Startup Studio': Rocket,
-};
+/**
+ * Resolve a section's icon by deriving from MODULES — single source of truth.
+ *
+ * Pre-2026-04-25 this was a hardcoded `GROUP_ICONS` map that:
+ *   1. Only covered 14 of 28 sections (rest fell to Home → all looked identical)
+ *   2. Used OLD section names as keys, so PR #490's renames silently lost icons
+ *
+ * The cross-paradigmatic fix: MODULES already has `icon: 'IconName'` per
+ * module, and ICON_MAP (lib/navigation/page-registry.ts) already resolves
+ * those name strings to LucideIcon components. Pick the FIRST module of a
+ * section as the section's representative icon. New sections / renames /
+ * reorders propagate automatically — same pattern as PR #482 and #488 made
+ * MODULES the single source of truth for ordering and identity.
+ *
+ * If a section has no module (impossible but defensive) or its first
+ * module's icon string isn't in ICON_MAP, fall back to Home.
+ */
+function getSectionIcon(section: string): LucideIcon {
+  const firstModule = MODULES.find((m) => m.section === section);
+  if (!firstModule) return Home;
+  return ICON_MAP[firstModule.icon] ?? Home;
+}
 
 // Routes that are parent-only (no actual page, only submenus)
 const PARENT_ONLY_ROUTES = new Set([
@@ -217,7 +221,7 @@ export function BottomNavbar() {
       groups.push({
         id: section.toLowerCase().replace(/\s+/g, '-') || 'default',
         groupLabel: section,
-        icon: GROUP_ICONS[section] || Home,
+        icon: getSectionIcon(section),
         menus: flattenMenuItems(matched.menus),
       });
     }

@@ -44,7 +44,12 @@ export function BottomNavItem({
       <motion.button
         onClick={onClick}
         className={cn(
-          'flex flex-col items-center justify-center gap-2 p-2 rounded-xl',
+          // min-h-[100px] keeps the 4-col grid aligned regardless of whether
+          // a label wraps to 1 or 2 lines. Pre-fix tiles ragged in their row.
+          // items-start + justify-start anchors content to the top so icons
+          // line up across all tiles in a row, and the label spans whatever
+          // height it needs without pushing the icon out of position.
+          'flex flex-col items-center justify-start gap-2 p-2 rounded-xl min-h-[100px]',
           'transition-colors duration-150',
           isActive
             ? 'bg-primary/10 ring-1 ring-primary/20'

@@ -8,6 +8,12 @@ import {
   Bell, Gauge, History, BarChart3, Rocket, Activity, Brain, TrendingUp,
   Key, Link2, Bug, Bot, LineChart, Building2, LucideIcon, FileCheck,
   Shirt, ScanLine, MapPin, QrCode,
+  // Added 2026-04-25: icons used by MODULES (lib/navigation/modules.ts)
+  // that were not previously registered. Required so getSectionIcon()
+  // can resolve every section to a distinct icon (was falling to Home for
+  // ~14 sections, leaving the bottom-nav More drawer visually generic).
+  LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
+  Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
 } from 'lucide-react';
 import { MENU_PERMISSIONS, GetPages } from '@/lib/sidebarMenuLink';
 import type { PageEntry } from './types';
@@ -623,6 +629,9 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   Bell, Gauge, History, BarChart3, Rocket, Activity, Brain, TrendingUp,
   Key, Link2, Bug, Bot, LineChart, Building2, FileCheck,
   Shirt, ScanLine, MapPin, QrCode,
+  // Section-icon coverage (used by getSectionIcon in BottomNav)
+  LayoutDashboard, AppWindow, Files, UsersRound, Wallet, ScrollText,
+  Target, HeartPulse, Lightbulb, BookOpenCheck, Vote, Trophy, User,
 };
 
 function getIconName(icon: LucideIcon): string {
