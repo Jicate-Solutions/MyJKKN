@@ -39,8 +39,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No institution found for user' }, { status: 403 });
     }
 
-    // Check if user has broadcast permission (not just super_admin)
-    const isSuperAdmin = profile.is_super_admin === true || profile.role === 'super_admin';
+    // Canonical super-admin check: `is_super_admin()` RPC reads
+    // profiles.is_super_admin = true under the caller's session (auth.uid()).
+    // Replaces the previous `profile.role === 'super_admin'` string fallback,
+    // which duplicated the signal via a role_key anti-pattern.
+    const { data: superAdminRes } = await supabase.rpc('is_super_admin');
+    const isSuperAdmin = superAdminRes === true;
     if (!isSuperAdmin) {
       // Check custom role permissions
       const { data: userRolesData } = await supabase
@@ -173,7 +177,12 @@ export async function GET(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    const isGetSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
+    // Canonical super-admin check: `is_super_admin()` RPC reads
+    // profiles.is_super_admin = true under the caller's session (auth.uid()).
+    // Replaces the previous `profile.role === 'super_admin'` string fallback,
+    // which duplicated the signal via a role_key anti-pattern.
+    const { data: getSuperAdminRes } = await supabase.rpc('is_super_admin');
+    const isGetSuperAdmin = getSuperAdminRes === true;
     if (!isGetSuperAdmin) {
       const { data: getRolesData } = await supabase
         .from('user_roles')
