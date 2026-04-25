@@ -1,5 +1,6 @@
 'use client';
 
+import { Fragment } from 'react';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as HotToaster } from 'react-hot-toast';
 import { Toaster as SonnerToaster } from 'sonner';
@@ -35,16 +36,24 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           <PageBreadcrumb items={[...]} /> calls — a follow-up sweep can
           remove those once this is verified. Skips /, /auth/*, /api/*.
          */}
-        <div className='px-4 md:px-8 pt-3'>
+        {/*
+          NOTE: Each sibling below carries an explicit `key`. AdminPanelLayout
+          wraps `{children}` in a <Suspense>, and React 19's strict offscreen
+          reconciliation warns ("Each child in a list should have a unique
+          'key' prop") when the children array passes through that boundary
+          without keys.
+         */}
+        <div key='auto-breadcrumbs' className='px-4 md:px-8 pt-3'>
           <AutoBreadcrumbs />
         </div>
-        <div className='px-4 md:px-8 pt-2'>
+        <div key='auto-tab-nav' className='px-4 md:px-8 pt-2'>
           <AutoTabNav />
         </div>
-        {children}
-        <Toaster />
-        <SonnerToaster position="top-right" richColors closeButton />
+        <Fragment key='route-children'>{children}</Fragment>
+        <Toaster key='toaster' />
+        <SonnerToaster key='sonner' position="top-right" richColors closeButton />
         <HotToaster
+          key='hot-toaster'
           position="top-right"
           reverseOrder={false}
           gutter={8}
@@ -56,8 +65,8 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
             }
           }}
         />
-        <BugReporterWidget />
-        <WorkPulseFab />
+        <BugReporterWidget key='bug-reporter' />
+        <WorkPulseFab key='work-pulse' />
       </AdminPanelLayout>
       </AcknowledgmentGate>
     </QueryClientProvider>
