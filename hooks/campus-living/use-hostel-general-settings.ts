@@ -52,11 +52,17 @@ export function useUpsertHostelGeneralSettings() {
     mutationFn: async ({
       institutionId,
       payload,
+      updatedBy,
     }: {
       institutionId: string;
       payload: HostelGeneralSettingsUpsert;
+      updatedBy: string | null;
     }) => {
-      return HostelGeneralSettingsService.upsertSettings(institutionId, payload);
+      return HostelGeneralSettingsService.upsertSettings(
+        institutionId,
+        payload,
+        updatedBy,
+      );
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({

@@ -168,7 +168,11 @@ export default function GeneralSettingsPage() {
     };
 
     try {
-      await upsertMut.mutateAsync({ institutionId, payload });
+      await upsertMut.mutateAsync({
+        institutionId,
+        payload,
+        updatedBy: profile?.id ?? null,
+      });
       // No need to clear dirty — the query invalidation re-seeds initialForm.
     } catch {
       // hook handles the toast
