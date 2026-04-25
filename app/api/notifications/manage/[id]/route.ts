@@ -25,24 +25,25 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check permission
-    const { data: userProfile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const { data: rolePermissions } = await supabase
-      .from('custom_roles')
-      .select('permissions')
-      .eq('role_key', userProfile?.role)
-      .single();
+    // Permission gate — canonical MyJKKN pattern: is_super_admin / is_admin / user_has_permission.
+    // Matches the standardized RLS policy pattern (see CLAUDE.md "Role Management & Dynamic
+    // Permission System"). `notifications.manage` is NOT a declared key in
+    // lib/constants/permissions.ts — gate on `notifications.create` OR `notifications.send`
+    // OR `notifications.edit` (the closest declared keys for edit semantics).
+    const [superAdminRes, adminRes, createPermRes, sendPermRes, editPermRes] = await Promise.all([
+      (supabase as any).rpc('is_super_admin'),
+      (supabase as any).rpc('is_admin'),
+      (supabase as any).rpc('user_has_permission', { permission_name: 'notifications.create' }),
+      (supabase as any).rpc('user_has_permission', { permission_name: 'notifications.send' }),
+      (supabase as any).rpc('user_has_permission', { permission_name: 'notifications.edit' })
+    ]);
 
     const hasPermission =
-      userProfile?.role === 'super_admin' ||
-      rolePermissions?.permissions?.['notifications.create'] === true ||
-      rolePermissions?.permissions?.['notifications.send'] === true ||
-      rolePermissions?.permissions?.['notifications.manage'] === true;
+      superAdminRes.data === true ||
+      adminRes.data === true ||
+      createPermRes.data === true ||
+      sendPermRes.data === true ||
+      editPermRes.data === true;
 
     if (!hasPermission) {
       return NextResponse.json(
