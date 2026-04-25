@@ -83,9 +83,10 @@ export async function POST(request: NextRequest) {
         .select('role_id, custom_roles!inner(role_key, permissions)')
         .eq('user_id', capturedBy);
 
+      // Mirror is_admin() SQL function semantics: super_admin column OR role in (admin/super_admin/administrator).
+      // Not using is_admin() RPC directly because this check targets `capturedBy` (may differ from auth.uid()).
       const isAdmin = profileCheck?.is_super_admin === true
-        || profileCheck?.role === 'super_admin'
-        || profileCheck?.role === 'admin';
+        || ['admin', 'super_admin', 'administrator'].includes(profileCheck?.role || '');
 
       const isAdmissionRole = isAdmin || (userRoles || []).some(
         (ur: any) => ur.custom_roles?.permissions?.['admission.leads.create'] === true
