@@ -251,7 +251,7 @@ export function DashboardFilters({
 
   // Lifecycle statuses
   const lifecycleStatuses: { value: LifecycleStatus; label: string }[] = [
-    { value: 'enquiry', label: 'Enquiries' },
+    { value: 'admitted', label: 'Admitted' },
     { value: 'pending', label: 'Pending Approval' },
     { value: 'approved', label: 'Approved' },
     { value: 'active', label: 'Active Students' },

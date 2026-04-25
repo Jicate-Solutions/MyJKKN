@@ -30,16 +30,25 @@ export default async function MembersPage() {
     { data: members }
   ] = await Promise.all([
     supabase.from('lc_terms').select('*').order('start_date', { ascending: false }),
-    supabase.from('lc_positions').select('*').eq('is_active', true).order('sort_order'),
+    // Only tier_1 positions are LC proper; yuva_chapter positions belong to YUVA
+    supabase
+      .from('lc_positions')
+      .select('*')
+      .eq('is_active', true)
+      .eq('tier', 'tier_1')
+      .order('sort_order'),
     supabase.from('institutions').select('id, name').order('name'),
+    // Inner-join + tier filter ensures YUVA Chapter Chairs don't leak into
+    // the LC Member Directory. See /yuva/members for YUVA roster.
     supabase
       .from('lc_members')
       .select(`
         *,
-        position:lc_positions(id, title, category, tier),
+        position:lc_positions!inner(id, title, category, tier),
         user:profiles(id, full_name, email, avatar_url),
         term:lc_terms(id, name, status)
       `)
+      .eq('position.tier', 'tier_1')
       .order('appointed_at', { ascending: false })
   ]);
 

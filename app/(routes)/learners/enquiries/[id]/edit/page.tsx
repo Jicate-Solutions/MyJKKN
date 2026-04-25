@@ -43,7 +43,7 @@ export default function EditEnquiryPage() {
   // (e.g., when id is a DRP placeholder like %%drp:id:xxx%%)
   if (isPending) {
     return (
-      <ContentLayout title="Edit Enquiry">
+      <ContentLayout title="Edit Admitted">
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -57,7 +57,7 @@ export default function EditEnquiryPage() {
   // Error state
   if (error || !learner) {
     return (
-      <ContentLayout title="Edit Enquiry">
+      <ContentLayout title="Edit Admitted">
         <div className="text-center py-8">
           <p className="text-destructive">Failed to load enquiry</p>
           <Button variant="outline" asChild className="mt-4">
@@ -76,7 +76,7 @@ export default function EditEnquiryPage() {
         items={[
           { label: 'Home', href: '/' },
           { label: 'Learners', href: '/learners' },
-          { label: 'Enquiries', href: '/learners/enquiries' },
+          { label: 'Admitted', href: '/learners/enquiries' },
           { label: fullName, href: `/learners/enquiries/${id}` },
           { label: 'Edit' }
         ]}

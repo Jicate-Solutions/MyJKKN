@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { AdmissionYearSelect } from '@/components/admission/admission-year-select';
 import { Textarea } from '@/components/ui/textarea';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import {
@@ -157,6 +158,7 @@ const FUNNEL_STAGES = [
 
 const LEAD_SOURCES = [
   { value: 'website', label: 'Website' },
+  { value: 'admission_form', label: 'Admission Form' },
   { value: 'walk_in', label: 'Walk-in' },
   { value: 'referral', label: 'Referral' },
   { value: 'social_media', label: 'Social Media' },
@@ -491,7 +493,8 @@ function LeadDetailPageContent() {
       ['Parent Name', !!lead.parent_name],
       ['Parent Phone', !!lead.parent_phone],
       ['Parent Email', !!lead.parent_email],
-      ['Interested Programs', !!(lead.interested_programs?.length)],
+      // 2026-04-21 — primary program now lives on program_id (legacy interested_programs kept as fallback for pre-split rows)
+      ['Interested Programs', !!(lead.program_id || lead.interested_programs?.length)],
       ['Source', !!lead.source],
       ['Preferred Channel', !!lead.preferred_channel],
     ];
@@ -828,7 +831,7 @@ function LeadDetailPageContent() {
         }
         throw new Error(json.error || 'Conversion failed');
       }
-      toast.success('Learner enquiry created — redirecting...');
+      toast.success('Admitted created — redirecting...');
       router.push(`/learners/enquiries/${json.profileId}/edit`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Conversion failed');
@@ -840,6 +843,7 @@ function LeadDetailPageContent() {
   // Edit lead dialog state
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editForm, setEditForm] = useState({
+    institution_id: '',
     first_name: '',
     last_name: '',
     email: '',
@@ -856,7 +860,18 @@ function LeadDetailPageContent() {
     parent_phone: '',
     parent_email: '',
     source: '',
+    admission_year_id: '',
+    student_interest_level: '',
+    parent_decision_status: '',
+    notes: '',
   });
+  // Edit form: primary program (single) + alternative programs (multi) — 2026-04-21
+  const [editPrimaryProgramId, setEditPrimaryProgramId] = useState<string>('');
+  const [editAlternativeProgramIds, setEditAlternativeProgramIds] = useState<
+    string[]
+  >([]);
+  // Edit form: admission years cascade is now handled by <AdmissionYearSelect/>
+  // (extracted 2026-04-23). State + fetch + JSX live inside the shared component.
 
   // Fetch institution name for details display
   const [institutionName, setInstitutionName] = useState<string>('');
@@ -922,9 +937,19 @@ function LeadDetailPageContent() {
   const [editReferralType, setEditReferralType] = useState<ReferralType | ''>('');
   const [editReferrerId, setEditReferrerId] = useState('');
 
-  // Map interested program IDs to names
-  const interestedProgramNames = useMemo(() => {
-    const ids = lead?.interested_programs || [];
+  // Primary program display name (from lead.program_id, with join fallback)
+  const primaryProgramName = useMemo(() => {
+    if (!lead) return '';
+    if ((lead as any).program?.program_name) return (lead as any).program.program_name;
+    if (!lead.program_id || !programs.length) return '';
+    return programs.find((p) => p.id === lead.program_id)?.program_name || '';
+  }, [lead, programs]);
+
+  // Alternative program names (from lead.alternative_programs, with legacy
+  // fallback to interested_programs for 350 historical rows).
+  const alternativeProgramNames = useMemo(() => {
+    const ids =
+      (lead as any)?.alternative_programs ?? lead?.interested_programs ?? [];
     if (!ids.length || !programs.length) return [];
     return ids
       .map((id: string) => programs.find((p) => p.id === id)?.program_name)
@@ -936,6 +961,35 @@ function LeadDetailPageContent() {
     return editForm.state ? getDistrictsByState(editForm.state) : [];
   }, [editForm.state]);
 
+  // Edit form: programs driven by the editable institution (lets user change
+  // institution mid-edit and immediately see the right program list).
+  const editProgramsInstitutionId = editForm.institution_id || lead?.institution_id || undefined;
+  const { data: editProgramsData, isLoading: editProgramsLoading } = usePrograms({
+    institution_id: editProgramsInstitutionId,
+  });
+  const editPrograms = editProgramsData?.data || [];
+
+  // (Edit-form admission-years fetch effect removed; lives inside <AdmissionYearSelect/>.)
+
+  // Clear admission_year_id when primary program changes (old value stale)
+  useEffect(() => {
+    setEditForm((prev) =>
+      prev.admission_year_id
+        ? { ...prev, admission_year_id: '' }
+        : prev
+    );
+  }, [editPrimaryProgramId]);
+
+  // Toggle for alternative programs — excludes the chosen primary.
+  const toggleEditAlternativeProgram = (programId: string) => {
+    if (programId === editPrimaryProgramId) return;
+    setEditAlternativeProgramIds((prev) =>
+      prev.includes(programId)
+        ? prev.filter((id) => id !== programId)
+        : [...prev, programId]
+    );
+  };
+
   // Populate edit form when dialog opens
   const openEditDialog = () => {
     if (!lead) return;
@@ -945,6 +999,7 @@ function LeadDetailPageContent() {
     const districts = stateId ? getDistrictsByState(stateId) : [];
     const districtId = districts.find((d) => d.name === l.district)?.id || '';
     setEditForm({
+      institution_id: l.institution_id || '',
       first_name: l.first_name || '',
       last_name: l.last_name || '',
       email: l.email || '',
@@ -961,7 +1016,18 @@ function LeadDetailPageContent() {
       parent_phone: l.parent_phone || '',
       parent_email: l.parent_email || '',
       source: l.source || '',
+      admission_year_id: (l as any).admission_year_id || '',
+      student_interest_level: (l as any).student_interest_level || '',
+      parent_decision_status: (l as any).parent_decision_status || '',
+      notes: (l as any).notes || '',
     });
+    // 2026-04-21 — primary program from program_id; alternatives from new column
+    // with legacy fallback to interested_programs for rows created before the split.
+    setEditPrimaryProgramId(((l as any).program_id as string) || '');
+    const altIds =
+      ((l as any).alternative_programs as string[] | null) ??
+      (Array.isArray(l.interested_programs) ? (l.interested_programs as string[]) : []);
+    setEditAlternativeProgramIds(altIds ?? []);
     // Pre-populate counselor (from assigned_counselor_id which references profiles.id)
     setEditCounselorProfileId(l.assigned_counselor_id || '');
     // Pre-populate referral type and referrer
@@ -976,6 +1042,14 @@ function LeadDetailPageContent() {
   const handleEditChange = (field: string, value: string) => {
     setEditForm((prev) => {
       if (field === 'state') return { ...prev, state: value, district: '' };
+      // Switching institution invalidates programs/academic year (both are per-institution)
+      // and the counselor (counselors are per-institution too)
+      if (field === 'institution_id') {
+        setEditPrimaryProgramId('');
+        setEditAlternativeProgramIds([]);
+        setEditCounselorProfileId('');
+        return { ...prev, institution_id: value, admission_year_id: '' };
+      }
       // When source changes, clear the irrelevant assignment
       if (field === 'source') {
         if (value === 'referral') {
@@ -1001,6 +1075,7 @@ function LeadDetailPageContent() {
       {
         id: lead.id,
         data: {
+          institution_id: editForm.institution_id || lead.institution_id,
           first_name: editForm.first_name.trim(),
           last_name: editForm.last_name.trim() || null,
           email: editForm.email?.trim() || null,
@@ -1017,6 +1092,13 @@ function LeadDetailPageContent() {
           parent_phone: editForm.parent_phone?.trim() || null,
           parent_email: editForm.parent_email?.trim() || null,
           source: editForm.source as any,
+          admission_year_id: editForm.admission_year_id || null,
+          student_interest_level: editForm.student_interest_level || null,
+          parent_decision_status: editForm.parent_decision_status || null,
+          notes: editForm.notes?.trim() || null,
+          program_id: editPrimaryProgramId || null,
+          alternative_programs:
+            editAlternativeProgramIds.length > 0 ? editAlternativeProgramIds : null,
           referral_type: editForm.source === 'referral' && editReferralType ? editReferralType : null,
           referred_by_id: (() => {
             if (editForm.source !== 'referral' || !editReferralType) return null;
@@ -1331,7 +1413,7 @@ function LeadDetailPageContent() {
                 <Star className="h-4 w-4 mr-1" />
                 {lead.is_priority ? 'Priority' : 'Mark Priority'}
               </Button>
-              {/* Convert to Learner Enquiry — shows "View Learner Profile" once converted */}
+              {/* Convert to Admitted — shows "View Learner Profile" once converted */}
               {lead.learner_profile_id ? (
                 <Button variant="outline" size="sm" asChild>
                   <a href={`/learners/profiles/${lead.learner_profile_id}`}>
@@ -1348,7 +1430,7 @@ function LeadDetailPageContent() {
                   className="bg-purple-600 hover:bg-purple-700"
                 >
                   <UserPlus className={`h-4 w-4 mr-2 ${isConverting ? 'animate-pulse' : ''}`} />
-                  {isConverting ? 'Converting...' : 'Convert to Learner Enquiry'}
+                  {isConverting ? 'Converting...' : 'Convert to Admitted'}
                 </Button>
               )}
 
@@ -1800,8 +1882,13 @@ function LeadDetailPageContent() {
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-sm text-muted-foreground">Academic Year</dt>
-                          <dd className="font-medium">{lead.academic_year || '-'}</dd>
+                          <dt className="text-sm text-muted-foreground">Admission Year</dt>
+                          <dd className="font-medium">
+                            {lead.admission_year?.admission_year_name
+                              ? `${lead.admission_year.admission_year_name} (${lead.admission_year.program_start_year}–${lead.admission_year.program_end_year})`
+                              : lead.academic_year /* legacy fallback for historical rows */
+                                || '-'}
+                          </dd>
                         </div>
                        
                         <div>
@@ -1812,14 +1899,24 @@ function LeadDetailPageContent() {
                           <dt className="text-sm text-muted-foreground">Parent Decision Status</dt>
                           <dd className="font-medium capitalize">{(lead.parent_decision_status || '-').replace(/_/g, ' ')}</dd>
                         </div>
-                        <div className="col-span-2">
-                          <dt className="text-sm text-muted-foreground">Interested Programs</dt>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Interested Program</dt>
                           <dd className="font-medium">
                             {programsLoading ? (
                               <span className="text-muted-foreground text-sm">Loading...</span>
-                            ) : interestedProgramNames.length > 0 ? (
+                            ) : primaryProgramName ? (
+                              <Badge variant="default">{primaryProgramName}</Badge>
+                            ) : '-'}
+                          </dd>
+                        </div>
+                        <div className="col-span-2">
+                          <dt className="text-sm text-muted-foreground">Alternative Programs</dt>
+                          <dd className="font-medium">
+                            {programsLoading ? (
+                              <span className="text-muted-foreground text-sm">Loading...</span>
+                            ) : alternativeProgramNames.length > 0 ? (
                               <div className="flex flex-wrap gap-1.5 mt-1">
-                                {interestedProgramNames.map((name: string, i: number) => (
+                                {alternativeProgramNames.map((name: string, i: number) => (
                                   <Badge key={i} variant="secondary">{name}</Badge>
                                 ))}
                               </div>
@@ -2627,6 +2724,47 @@ function LeadDetailPageContent() {
                 <DialogDescription>Update lead information</DialogDescription>
               </DialogHeader>
               <div className="space-y-6 py-4">
+                {/* Institution */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Institution</h4>
+                  <div>
+                    <Label htmlFor="edit-institution">Institution *</Label>
+                    {institutions.length > 1 ? (
+                      <Select
+                        value={editForm.institution_id}
+                        onValueChange={(v) => handleEditChange('institution_id', v)}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select institution" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {institutions.map((inst) => (
+                            <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="edit-institution"
+                        value={
+                          institutions.find((i) => i.id === editForm.institution_id)?.name ||
+                          institutionName ||
+                          ''
+                        }
+                        disabled
+                        className="mt-1 bg-muted"
+                      />
+                    )}
+                    {editForm.institution_id &&
+                      lead?.institution_id &&
+                      editForm.institution_id !== lead.institution_id && (
+                        <p className="mt-1 text-xs text-amber-600">
+                          Changing institution will clear programs, counselor, and academic year.
+                        </p>
+                      )}
+                  </div>
+                </div>
+
                 {/* Personal Info */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">Personal Information</h4>
@@ -2801,6 +2939,153 @@ function LeadDetailPageContent() {
                       />
                     </div>
                   </div>
+                </div>
+
+                {/* Academic & Interest */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Academic & Interest</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <AdmissionYearSelect
+                        institutionId={editProgramsInstitutionId}
+                        programId={editPrimaryProgramId}
+                        value={editForm.admission_year_id}
+                        onChange={(v) => handleEditChange('admission_year_id', v)}
+                        id="edit-admission_year"
+                        placeholderNoProgram="Select the Interested Program first"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-interest_level">Student Interest Level</Label>
+                      <Select
+                        value={editForm.student_interest_level}
+                        onValueChange={(v) => handleEditChange('student_interest_level', v)}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select interest level" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="very_high">Very High</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="undecided">Undecided</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-2">
+                      <Label htmlFor="edit-parent_decision">Parent Decision Status</Label>
+                      <Select
+                        value={editForm.parent_decision_status}
+                        onValueChange={(v) => handleEditChange('parent_decision_status', v)}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select decision status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="supportive">Supportive</SelectItem>
+                          <SelectItem value="considering">Considering</SelectItem>
+                          <SelectItem value="neutral">Neutral</SelectItem>
+                          <SelectItem value="reluctant">Reluctant</SelectItem>
+                          <SelectItem value="opposed">Opposed</SelectItem>
+                          <SelectItem value="unknown">Unknown</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interested Program (single) + Alternative Programs (multi) — 2026-04-21 */}
+                <div className="space-y-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-muted-foreground mb-2">
+                      Interested Program
+                    </h4>
+                    {!editForm.institution_id ? (
+                      <div className="text-sm text-muted-foreground">
+                        Select an institution first to view programs
+                      </div>
+                    ) : editProgramsLoading ? (
+                      <div className="text-sm text-muted-foreground">Loading programs...</div>
+                    ) : editPrograms.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        No programs available for this institution
+                      </div>
+                    ) : (
+                      <Select
+                        value={editPrimaryProgramId}
+                        onValueChange={(v) => setEditPrimaryProgramId(v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select the primary program" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {editPrograms.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.program_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-semibold text-muted-foreground mb-2">
+                      Alternative Programs{' '}
+                      <span className="text-xs font-normal">(optional)</span>
+                    </h4>
+                    {!editPrimaryProgramId ? (
+                      <div className="text-sm text-muted-foreground">
+                        Pick an Interested Program first to add backup options.
+                      </div>
+                    ) : editPrograms.filter((p) => p.id !== editPrimaryProgramId).length === 0 ? (
+                      <div className="text-sm text-muted-foreground">
+                        No other programs available as alternatives.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="max-h-40 overflow-y-auto rounded-md border p-2 space-y-1">
+                          {editPrograms
+                            .filter((p) => p.id !== editPrimaryProgramId)
+                            .map((p) => {
+                              const checked = editAlternativeProgramIds.includes(p.id);
+                              return (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => toggleEditAlternativeProgram(p.id)}
+                                  className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-accent ${
+                                    checked ? 'bg-accent' : ''
+                                  }`}
+                                >
+                                  <span>{p.program_name}</span>
+                                  {checked && <Badge variant="secondary">Selected</Badge>}
+                                </button>
+                              );
+                            })}
+                        </div>
+                        {editAlternativeProgramIds.length > 0 && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {editAlternativeProgramIds.length} alternative
+                            {editAlternativeProgramIds.length === 1 ? '' : 's'} selected
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Notes</h4>
+                  <Textarea
+                    id="edit-notes"
+                    value={editForm.notes}
+                    onChange={(e) => handleEditChange('notes', e.target.value)}
+                    placeholder="Additional notes about this lead"
+                    rows={3}
+                  />
                 </div>
 
                 {/* Source */}

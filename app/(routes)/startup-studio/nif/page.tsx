@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { NifPipeline } from './_components/nif-pipeline';
 
 export const metadata: Metadata = {
-  title: 'NIF Pipeline | Startup Studio',
+  title: 'NIF Pipeline',
 };
 
 export default function NifPage() {

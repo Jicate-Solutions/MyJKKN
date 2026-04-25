@@ -9,7 +9,7 @@ import type {
 export class AntiRaggingService {
   // ── List affidavits ───────────────────────────────────────────────
   static async getAffidavits(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       academic_year_id?: string;
       status?: AffidavitStatus;
@@ -22,9 +22,9 @@ export class AntiRaggingService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('anti_ragging_affidavits')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
@@ -52,13 +52,13 @@ export class AntiRaggingService {
         .from('anti_ragging_affidavits')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/anti-ragging', 'Failed to fetch affidavit', error);
         throw error;
       }
-      return data as AntiRaggingAffidavit;
+      return data as AntiRaggingAffidavit | null;
     } catch (error) {
       logger.error('campus-living/anti-ragging', 'Unexpected error in getAffidavit', error);
       throw error;
@@ -179,7 +179,7 @@ export class AntiRaggingService {
         .from('anti_ragging_affidavits')
         .select('parent_affidavit_submitted')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       const newStatus: AffidavitStatus = current?.parent_affidavit_submitted ? 'complete' : 'partial';
 
@@ -215,7 +215,7 @@ export class AntiRaggingService {
         .from('anti_ragging_affidavits')
         .select('student_affidavit_submitted')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       const newStatus: AffidavitStatus = current?.student_affidavit_submitted ? 'complete' : 'partial';
 
@@ -294,14 +294,15 @@ export class AntiRaggingService {
   }
 
   // ── Compliance status summary ─────────────────────────────────────
-  static async getComplianceStatus(institutionId: string, academicYearId: string) {
+  static async getComplianceStatus(institutionId: string | undefined, academicYearId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('anti_ragging_affidavits')
         .select('status, student_affidavit_submitted, parent_affidavit_submitted')
-        .eq('institution_id', institutionId)
         .eq('academic_year_id', academicYearId);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/anti-ragging', 'Failed to fetch compliance status', error);

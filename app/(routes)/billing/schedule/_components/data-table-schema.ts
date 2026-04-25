@@ -13,7 +13,7 @@ export const billingScheduleSearchParamsSchema = z.object({
   // Custom filters for billing schedule
   institution_id: z.string().optional(),
   student_id: z.string().optional(),
-  category_id: z.string().optional(),
+  item_category_id: z.string().optional(),
   status: z.enum(['paid', 'unpaid', 'partially_paid', 'cancelled', 'overdue', 'refunded']).optional(),
   is_recurring: z.enum(['true', 'false']).optional(),
   amount_from: z.coerce.number().optional(),

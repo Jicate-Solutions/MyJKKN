@@ -35,6 +35,7 @@ export async function GET(request: Request) {
 
     const result = await ServiceRequestApprovalService.getPendingApprovalsForUser(
       profile.role,
+      session.user.id,
       filters
     );
 

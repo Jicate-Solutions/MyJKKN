@@ -2,16 +2,23 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getAuthUser } from '@/lib/supabase/server'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-// SERVICE_ROLE_KEY is required for storage operations (upload to private bucket)
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-})
+// SERVICE_ROLE_KEY is required for storage operations (upload to private bucket).
+// Create lazily inside the handler — top-level createClient() is instantiated
+// during Next's build-time page-data collection, which fails with
+// "@supabase/ssr: Your project's URL and API key are required" in any
+// environment without .env.local (e.g. fresh worktrees).
+function getSupabaseServiceClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  )
+}
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
@@ -39,6 +46,8 @@ export async function POST(request: Request) {
         { status: 401 }
       )
     }
+
+    const supabase = getSupabaseServiceClient()
 
     const formData = await request.formData()
     const file = formData.get('file') as File

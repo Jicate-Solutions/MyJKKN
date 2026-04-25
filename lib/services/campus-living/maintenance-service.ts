@@ -20,7 +20,7 @@ import type {
 export class MaintenanceService {
   // ── List maintenance requests with filters ────────────────────────
   static async getRequests(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: MaintenanceFilters,
     page = 1,
     pageSize = 50
@@ -29,9 +29,9 @@ export class MaintenanceService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_maintenance_requests')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.category) query = query.eq('category', filters.category);
       if (filters?.priority) query = query.eq('priority', filters.priority);
@@ -61,13 +61,13 @@ export class MaintenanceService {
         .from('hostel_maintenance_requests')
         .select('*, hostel_blocks(name, code), hostel_rooms(room_number)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/maintenance', 'Failed to fetch request', error);
         throw error;
       }
-      return data as HostelMaintenanceRequest & Record<string, unknown>;
+      return data as (HostelMaintenanceRequest & Record<string, unknown>) | null;
     } catch (error) {
       logger.error('campus-living/maintenance', 'Unexpected error in getRequest', error);
       throw error;
@@ -293,7 +293,7 @@ export class MaintenanceService {
         .from('hostel_maintenance_requests')
         .select('escalation_level')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (fetchError) throw fetchError;
 
@@ -319,19 +319,20 @@ export class MaintenanceService {
   }
 
   // ── SLA breach check (batch) ──────────────────────────────────────
-  static async checkSlaBreaches(institutionId: string) {
+  static async checkSlaBreaches(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
 
       // Find requests where SLA is breached
-      const { data: breached, error: fetchError } = await supabase
+      let breachQ = supabase
         .from('hostel_maintenance_requests')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('sla_status', 'on_track')
         .in('status', ['open', 'assigned', 'in_progress'])
         .lt('sla_deadline', now);
+      if (institutionId) breachQ = breachQ.eq('institution_id', institutionId);
+      const { data: breached, error: fetchError } = await breachQ;
 
       if (fetchError) {
         logger.error('campus-living/maintenance', 'Failed to check SLA breaches', fetchError);
@@ -349,14 +350,15 @@ export class MaintenanceService {
 
       // Find at-risk requests (within 2 hours of deadline)
       const twoHoursFromNow = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-      const { data: atRisk } = await supabase
+      let atRiskQ = supabase
         .from('hostel_maintenance_requests')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('sla_status', 'on_track')
         .in('status', ['open', 'assigned', 'in_progress'])
         .gt('sla_deadline', now)
         .lt('sla_deadline', twoHoursFromNow);
+      if (institutionId) atRiskQ = atRiskQ.eq('institution_id', institutionId);
+      const { data: atRisk } = await atRiskQ;
 
       if (atRisk && atRisk.length > 0) {
         const ids = atRisk.map((r) => r.id);
@@ -377,16 +379,17 @@ export class MaintenanceService {
   }
 
   // ── Get SLA config ────────────────────────────────────────────────
-  static async getSlaConfig(institutionId: string) {
+  static async getSlaConfig(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let slaQ = supabase
         .from('hostel_maintenance_sla_config')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('is_active', true)
         .order('category')
         .order('priority');
+      if (institutionId) slaQ = slaQ.eq('institution_id', institutionId);
+      const { data, error } = await slaQ;
 
       if (error) {
         logger.error('campus-living/maintenance', 'Failed to fetch SLA config', error);

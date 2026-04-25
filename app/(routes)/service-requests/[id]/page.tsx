@@ -54,13 +54,6 @@ export default function ServiceRequestDetailPage({
 
   const [commentText, setCommentText] = useState('');
 
-  const canApprove = useMemo(() => {
-    if (!request || !profile) return false;
-    if (request.status !== 'in_review' && request.status !== 'submitted') return false;
-    if (isSuperAdmin) return true;
-    return can('service_requests.approve');
-  }, [request, profile, isSuperAdmin, can]);
-
   const currentApprovalStep: ServiceRequestApprovalStep | null = useMemo(() => {
     if (!request?.service_type?.approval_steps) return null;
     return (
@@ -69,6 +62,31 @@ export default function ServiceRequestDetailPage({
       ) || null
     );
   }, [request]);
+
+  // Gate Approve/Reject/Return buttons. We mirror the backend's
+  // authorization check in service-request-approval-service.processApproval
+  // so the buttons only render when clicking them will actually succeed:
+  //   - request status must still be waiting on approval
+  //   - super admin always passes
+  //   - otherwise the caller must hold the service_requests.approve permission
+  //     AND either (a) be explicitly listed in the step's approver_user_ids
+  //     when that array is non-empty, or (b) have a role matching the step's
+  //     approver_role when no explicit user list is configured.
+  const canApprove = useMemo(() => {
+    if (!request || !profile) return false;
+    if (request.status !== 'in_review' && request.status !== 'submitted') return false;
+    if (isSuperAdmin) return true;
+    if (!can('service_requests.approve')) return false;
+    if (!currentApprovalStep) return false;
+
+    const userIds = currentApprovalStep.approver_user_ids ?? [];
+    if (userIds.length > 0) {
+      // Multi-approver mode — role is irrelevant, only the explicit list matters.
+      return userIds.includes(profile.id);
+    }
+    // Legacy role-based mode.
+    return profile.role === currentApprovalStep.approver_role;
+  }, [request, profile, isSuperAdmin, can, currentApprovalStep]);
 
   const isRequester = request?.requester_id === profile?.id;
   const isDraft = request?.status === 'draft';

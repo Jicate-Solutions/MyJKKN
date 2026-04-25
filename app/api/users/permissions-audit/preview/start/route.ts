@@ -37,8 +37,8 @@ import {
 //   9. Audit the start event
 // ============================================================================
 
-// 15 minutes — mirrors the preview JWT exp.
-const PREVIEW_TTL_SECONDS = 15 * 60;
+// 30 minutes — mirrors the preview JWT exp (kept in sync with lib/auth/preview-session.ts).
+const PREVIEW_TTL_SECONDS = 30 * 60;
 
 // NOTE: We no longer back up the admin's auth cookies into `sb-preview-admin-backup`.
 // Previous implementations (PR #181) stored admin's sb-*-auth-token.* cookies as

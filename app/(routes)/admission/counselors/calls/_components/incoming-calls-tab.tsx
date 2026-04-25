@@ -42,12 +42,20 @@ import {
   Phone,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
   Filter,
   X,
   Users,
   MapPin,
   AlertCircle,
+  FileText,
 } from 'lucide-react';
+import type { CallDisposition } from '@/lib/services/telephony/telephony-service';
+import { useUrlState } from '@/components/data-table/utils/url-state';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { maskPhone } from '@/lib/utils/phone-number';
@@ -65,6 +73,86 @@ function getInboundStatusBadge(costAmount: number | null | undefined) {
     return <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-200">Answered</Badge>;
   }
   return <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200">Missed</Badge>;
+}
+
+// Keep the label/color map in sync with /admission/counselors/calls list page.
+// Inbound calls often carry a disposition written post-answer by a counselor.
+const DISPOSITION_STYLE_MAP: Record<string, { label: string; className: string }> = {
+  interested:     { label: 'Interested',     className: 'bg-green-100 text-green-800 border-green-200' },
+  not_interested: { label: 'Not Interested', className: 'bg-red-100 text-red-800 border-red-200' },
+  callback:       { label: 'Callback',       className: 'bg-blue-100 text-blue-800 border-blue-200' },
+  wrong_number:   { label: 'Wrong Number',   className: 'bg-orange-100 text-orange-800 border-orange-200' },
+  not_reachable:  { label: 'Not Reachable',  className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+  switched_off:   { label: 'Switched Off',   className: 'bg-gray-100 text-gray-800 border-gray-200' },
+  busy:           { label: 'Busy',           className: 'bg-orange-100 text-orange-700 border-orange-200' },
+  other:          { label: 'Other',          className: 'bg-gray-100 text-gray-600 border-gray-200' },
+};
+
+function getDispositionBadge(disposition: CallDisposition | null | undefined) {
+  if (!disposition) {
+    return <span className="text-xs text-muted-foreground italic">-</span>;
+  }
+  const cfg = DISPOSITION_STYLE_MAP[disposition] ?? { label: disposition, className: 'bg-gray-100 text-gray-600 border-gray-200' };
+  return (
+    <Badge variant="outline" className={`${cfg.className} text-[11px]`}>
+      {cfg.label}
+    </Badge>
+  );
+}
+
+// Column header with click-to-sort behavior. Three-state: none → desc → asc → none.
+// Matches the project's data-table/column-header convention for familiarity.
+function SortableHeader({
+  columnId,
+  label,
+  currentSortBy,
+  currentSortOrder,
+  onSort,
+  align = 'left',
+}: {
+  columnId: string;
+  label: string;
+  currentSortBy: string;
+  currentSortOrder: 'asc' | 'desc';
+  onSort: (col: string) => void;
+  align?: 'left' | 'right';
+}) {
+  const isActive = currentSortBy === columnId;
+  const Icon = !isActive ? ArrowUpDown : currentSortOrder === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(columnId)}
+      className={`inline-flex items-center gap-1 text-xs font-medium hover:text-primary transition-colors ${
+        align === 'right' ? 'flex-row-reverse' : ''
+      } ${isActive ? 'text-primary' : ''}`}
+    >
+      <span>{label}</span>
+      <Icon className="h-3 w-3 shrink-0" />
+    </button>
+  );
+}
+
+function getNotesIndicator(log: { call_notes?: string | null; cost_amount?: number | null }) {
+  if (log.call_notes && log.call_notes.trim().length > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-green-700" title={log.call_notes}>
+        <FileText className="h-3.5 w-3.5" />
+        <span className="max-w-[120px] truncate">{log.call_notes}</span>
+      </span>
+    );
+  }
+  // Answered but no notes yet — nudge the counselor to add some
+  const wasAnswered = log.cost_amount != null && log.cost_amount > 0;
+  if (wasAnswered) {
+    return (
+      <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 text-[10px]">
+        <AlertTriangle className="h-3 w-3 mr-1" />
+        Add notes
+      </Badge>
+    );
+  }
+  return <span className="text-xs text-muted-foreground">-</span>;
 }
 
 function RecordingPlayer({ url }: { url: string | null }) {
@@ -275,15 +363,40 @@ interface IncomingCallsTabProps {
 export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
   const router = useRouter();
 
-  // View mode: 'all' = individual calls, 'unique' = grouped by caller
-  const [viewMode, setViewMode] = useState<'all' | 'unique'>('all');
+  // All filter/pagination/sort/view state is persisted in URL search params via
+  // the project's useUrlState hook. This guarantees that when a counselor
+  // clicks "Call Back" (tel: link on mobile) or drills into a call detail and
+  // hits the browser back button, they land back on the exact same page +
+  // filter slice + sort they were browsing. Keys are prefixed `inbound_` so
+  // they don't collide with the outbound tab if both ever share a page.
+  const [viewMode, setViewMode] = useUrlState<'all' | 'unique'>('inbound_view', 'all');
+  const [page, setPage] = useUrlState<number>('inbound_page', 1);
+  const [pageSize, setPageSize] = useUrlState<number>('inbound_size', 20);
+  const [statusFilter, setStatusFilter] = useUrlState<string>('inbound_status', '');
+  const [fromDate, setFromDate] = useUrlState<string>('inbound_from', '');
+  const [toDate, setToDate] = useUrlState<string>('inbound_to', '');
+  const [sortBy, setSortBy] = useUrlState<string>('inbound_sort', 'started_at');
+  const [sortOrder, setSortOrder] = useUrlState<'asc' | 'desc'>('inbound_order', 'desc');
 
-  // Filter state
-  const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+
+  // Click-to-sort: same column cycles desc → asc → reset to default;
+  // different column switches to desc on that column.
+  const handleSort = (columnId: string) => {
+    if (sortBy === columnId) {
+      if (sortOrder === 'desc') {
+        setSortOrder('asc');
+      } else {
+        // Reset to default sort
+        setSortBy('started_at');
+        setSortOrder('desc');
+      }
+    } else {
+      setSortBy(columnId);
+      setSortOrder('desc');
+    }
+    setPage(1);
+  };
 
   // Unique callers hook
   const { callers, summary: callerSummary, isLoading: uniqueLoading } = useUniqueCallers(
@@ -300,7 +413,9 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
     from_date: fromDate || undefined,
     to_date: toDate || undefined,
     page,
-    limit: 20,
+    limit: pageSize,
+    sort_by: sortBy,
+    sort_order: sortOrder,
   });
 
   const { stats, isLoading: statsLoading } = useInboundCallStats(institutionId);
@@ -309,10 +424,12 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
     setStatusFilter('');
     setFromDate('');
     setToDate('');
+    setSortBy('started_at');
+    setSortOrder('desc');
     setPage(1);
   };
 
-  const hasFilters = !!statusFilter || !!fromDate || !!toDate;
+  const hasFilters = !!statusFilter || !!fromDate || !!toDate || sortBy !== 'started_at' || sortOrder !== 'desc';
 
   return (
     <div className="space-y-6">
@@ -365,7 +482,7 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <CardDescription>
                 {viewMode === 'all'
                   ? `${total} incoming call${total !== 1 ? 's' : ''}`
-                  : `${callerSummary.unique_callers} unique callers from ${callerSummary.total_calls} calls`
+                  : `${callerSummary.unique_callers} unconverted callers from ${callerSummary.total_calls} calls`
                 }
               </CardDescription>
             </div>
@@ -448,9 +565,12 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               <>
                 {/* Summary Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                  <div
+                    className="p-3 rounded-lg bg-muted/50 text-center"
+                    title="Unique phone numbers (E.164-normalized) whose calls are not yet linked to an admission lead. Converted callers appear in the Leads list instead."
+                  >
                     <p className="text-2xl font-bold">{callerSummary.unique_callers}</p>
-                    <p className="text-xs text-muted-foreground">Unique Callers</p>
+                    <p className="text-xs text-muted-foreground">Unconverted Callers</p>
                   </div>
                   <div className="p-3 rounded-lg bg-muted/50 text-center">
                     <p className="text-2xl font-bold">{callerSummary.avg_attempts_per_caller}</p>
@@ -559,11 +679,12 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           </TableCell>
                           <TableCell>
                             <span className="text-xs text-muted-foreground">
-                              {new Date(caller.last_call_at).toLocaleDateString(undefined, {
+                              {new Date(caller.last_call_at).toLocaleDateString('en-IN', {
                                 month: 'short',
                                 day: 'numeric',
                                 hour: '2-digit',
                                 minute: '2-digit',
+                                timeZone: 'Asia/Kolkata',
                               })}
                             </span>
                           </TableCell>
@@ -616,15 +737,16 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                           </div>
                           <div className="text-right shrink-0">
                             <p className="text-xs font-medium text-muted-foreground">{relTime}</p>
-                            <p className="text-[10px] text-muted-foreground/70">{callTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'UTC' })}</p>
+                            <p className="text-[10px] text-muted-foreground/70">{callTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}</p>
                           </div>
                         </div>
                         <div className="flex items-center justify-between mt-2.5 gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-2 min-w-0 flex-wrap">
                             {isMissed
                               ? <span className="inline-flex items-center text-[11px] font-semibold text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400 px-2 py-0.5 rounded-full"><PhoneMissed className="h-3 w-3 mr-1" />Missed</span>
                               : <span className="inline-flex items-center text-[11px] font-semibold text-emerald-700 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-0.5 rounded-full"><PhoneCall className="h-3 w-3 mr-1" />Answered</span>
                             }
+                            {log.call_disposition && getDispositionBadge(log.call_disposition)}
                             {log.duration_seconds > 0 && <span className="text-xs text-muted-foreground font-mono">{formatDuration(log.duration_seconds)}</span>}
                           </div>
                           <div className="shrink-0" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
@@ -638,6 +760,17 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                             ) : null}
                           </div>
                         </div>
+                        {(log.call_notes && log.call_notes.trim().length > 0) ? (
+                          <p className="mt-2 text-xs text-muted-foreground line-clamp-2 flex items-start gap-1">
+                            <FileText className="h-3 w-3 mt-0.5 shrink-0 text-green-600" />
+                            <span>{log.call_notes}</span>
+                          </p>
+                        ) : !isMissed ? (
+                          <p className="mt-2 text-xs text-orange-600 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            No notes yet
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -645,16 +778,58 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
               </div>
 
               {/* ── DESKTOP: Table layout (≥ md) ── */}
-              <div className="hidden md:block">
-                <Table>
+              <div className="hidden md:block overflow-x-auto">
+                <Table className="min-w-[960px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Caller</TableHead>
+                      <TableHead>
+                        <SortableHeader
+                          columnId="from_number"
+                          label="Caller"
+                          currentSortBy={sortBy}
+                          currentSortOrder={sortOrder}
+                          onSort={handleSort}
+                        />
+                      </TableHead>
                       <TableHead>ExoPhone</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Duration</TableHead>
+                      <TableHead>
+                        <SortableHeader
+                          columnId="cost_amount"
+                          label="Status"
+                          currentSortBy={sortBy}
+                          currentSortOrder={sortOrder}
+                          onSort={handleSort}
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <SortableHeader
+                          columnId="call_disposition"
+                          label="Disposition"
+                          currentSortBy={sortBy}
+                          currentSortOrder={sortOrder}
+                          onSort={handleSort}
+                        />
+                      </TableHead>
+                      <TableHead>
+                        <SortableHeader
+                          columnId="duration_seconds"
+                          label="Duration"
+                          currentSortBy={sortBy}
+                          currentSortOrder={sortOrder}
+                          onSort={handleSort}
+                        />
+                      </TableHead>
                       <TableHead>Recording</TableHead>
-                      <TableHead>Time</TableHead>
+                      <TableHead>
+                        <SortableHeader
+                          columnId="started_at"
+                          label="Time"
+                          currentSortBy={sortBy}
+                          currentSortOrder={sortOrder}
+                          onSort={handleSort}
+                        />
+                      </TableHead>
+                      <TableHead>Notes</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -673,13 +848,15 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                         </TableCell>
                         <TableCell><span className="text-xs text-muted-foreground font-mono">{log.to_number ? `...${log.to_number.slice(-4)}` : '-'}</span></TableCell>
                         <TableCell>{getInboundStatusBadge(log.cost_amount)}</TableCell>
+                        <TableCell>{getDispositionBadge(log.call_disposition)}</TableCell>
                         <TableCell>{log.duration_seconds > 0 ? <span className="text-sm font-mono">{formatDuration(log.duration_seconds)}</span> : <span className="text-xs text-muted-foreground">--</span>}</TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}><RecordingPlayer url={log.recording_url} /></TableCell>
                         <TableCell>
                           <span className="text-xs text-muted-foreground">
-                            {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
+                            {new Date(log.started_at || log.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
                           </span>
                         </TableCell>
+                        <TableCell>{getNotesIndicator(log)}</TableCell>
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           {(!log.cost_amount || log.cost_amount <= 0) && log.from_number && (
                             <a href={`tel:${log.from_number}`} className="inline-flex items-center h-7 px-2 text-xs border rounded-md hover:bg-accent">
@@ -693,22 +870,70 @@ export function IncomingCallsTab({ institutionId }: IncomingCallsTabProps) {
                 </Table>
               </div>
 
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between pt-4 border-t mt-4">
-                  <span className="text-sm text-muted-foreground">
-                    Page {page} of {totalPages} ({total} calls)
+              {/* Advanced pagination: page-size selector + first/prev/next/last */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-4 border-t mt-4">
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <span>
+                    Page <span className="font-medium text-foreground">{page}</span> of{' '}
+                    <span className="font-medium text-foreground">{Math.max(totalPages, 1)}</span>{' '}
+                    <span className="text-muted-foreground">({total} call{total !== 1 ? 's' : ''})</span>
                   </span>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs">Rows</Label>
+                    <Select
+                      value={String(pageSize)}
+                      onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}
+                    >
+                      <SelectTrigger className="h-8 w-[72px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[10, 20, 50, 100].map((n) => (
+                          <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
-              )}
+                <div className="flex gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage(1)}
+                    aria-label="First page"
+                  >
+                    <ChevronsLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage(page - 1)}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage(page + 1)}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage(Math.max(totalPages, 1))}
+                    aria-label="Last page"
+                  >
+                    <ChevronsRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </>
           )
           )}

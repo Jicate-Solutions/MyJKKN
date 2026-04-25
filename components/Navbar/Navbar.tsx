@@ -2,7 +2,7 @@
 
 import { SheetMenu } from './sheet-menu';
 import { Button } from '../ui/button';
-import { LogOut, UserCircle } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { usePathname } from 'next/navigation';
 import { AuthService } from '@/lib/auth/auth-service';
@@ -10,7 +10,7 @@ import { UserNav } from './user-nav';
 import { ModeToggle } from '../theme/mode-toggle';
 import { NotificationBell } from '../notifications/notification-bell';
 import { FavoriteStar } from '../Favorites/FavoriteStar';
-import { getPageByPath } from '@/lib/navigation/page-registry';
+import { derivePageInfo } from '@/lib/navigation/derive-page-info';
 
 interface NavbarProps {
   title: string;
@@ -20,16 +20,16 @@ export function Navbar({ title }: NavbarProps) {
   const { profile } = useAuth();
   const pathname = usePathname();
 
-  // Look up current page for favorite star
-  let currentPage: { path: string; title: string; module: string; iconName: string } | null = null;
-  try {
-    const page = getPageByPath(pathname);
-    if (page) {
-      currentPage = { path: page.path, title: page.title, module: page.module, iconName: page.iconName };
+  // Look up OR derive — every real app route gets a star, even if it's
+  // a dynamic [id] route, a deep-link, or a page added after the static
+  // page-registry was built. See lib/navigation/derive-page-info.ts.
+  const currentPage = (() => {
+    try {
+      return derivePageInfo(pathname);
+    } catch {
+      return null;
     }
-  } catch {
-    // Registry not ready
-  }
+  })();
 
   const handleLogout = async () => {
     try {

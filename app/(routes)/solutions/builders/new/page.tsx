@@ -50,6 +50,16 @@ import { useCreateBuilder, useAddBuilderSkill, useSearchPeople } from '@/hooks/s
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { DepartmentTrackerService } from '@/lib/services/solutions/department-tracker-service';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/builders',
+} as const;
+
+
 const SPECIALIZATION_OPTIONS = [
   'Frontend',
   'Backend',

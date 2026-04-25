@@ -11,13 +11,16 @@ import {
 } from '@/components/ui/select';
 import { IndianRupee, TrendingUp, Users, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function FeeAnalyticsPage() {
+  // SAMPLE DATA — fees analytics hook not yet wired (PreviewBanner shown)
   const [period, setPeriod] = useState('current');
 
   return (
     <ContentLayout title="Fee Analytics">
       <div className="space-y-6">
+        <PreviewBanner feature="fee collection analytics" />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Fee Collection Analytics</h1>

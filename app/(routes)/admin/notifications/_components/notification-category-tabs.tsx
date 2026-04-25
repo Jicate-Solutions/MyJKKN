@@ -1,19 +1,25 @@
 'use client';
 
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Notification } from '@/types/notifications';
+import { getCanonicalCategoryLabel } from '@/lib/constants/notification-categories';
 
-// Category configuration
-export const NOTIFICATION_CATEGORIES = [
-  { key: 'all', label: 'All' },
-  { key: 'announcements', label: 'Announcements' },
-  { key: 'reminders', label: 'Reminders' },
-  { key: 'events', label: 'Events' },
-  { key: 'alerts', label: 'Alerts' },
-  { key: 'general', label: 'General' }
-] as const;
-
-export type CategoryKey = (typeof NOTIFICATION_CATEGORIES)[number]['key'];
+/**
+ * Humanize an ad-hoc category key (one not in the canonical list).
+ * "dashboard:rescue"  → "Dashboard Rescue"
+ * "billing_invoice"   → "Billing Invoice"
+ */
+function prettify(key: string): string {
+  if (!key) return 'Uncategorized';
+  return key
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(/[:_\-\s]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
 
 interface NotificationCategoryTabsProps {
   notifications: Notification[];
@@ -24,28 +30,52 @@ interface NotificationCategoryTabsProps {
 /**
  * Horizontal scrollable category tabs for filtering notifications.
  *
- * Usage:
- * <NotificationCategoryTabs
- *   notifications={notifications}
- *   activeCategory={activeCategory}
- *   onCategoryChange={setActiveCategory}
- * />
+ * Tab composition:
+ *   1. "All" tab always first (total count)
+ *   2. All canonical categories from NOTIFICATION_CATEGORIES (shared with the
+ *      Send Notification form), shown when count > 0 — labels match the form
+ *      dropdown ("Announcement", "Action Required", etc.)
+ *   3. Any organic categories emitted by modules (e.g. "Dashboard:Rescue"
+ *      from the lead-rescue cron) also appear when present — prettified
+ *
+ * Sort within (2)+(3): by count descending so the most common surfaces next.
+ * Category keys are normalized to lowercase so "Alerts" and "alerts" share
+ * a tab.
  */
 export function NotificationCategoryTabs({
   notifications,
   activeCategory,
   onCategoryChange
 }: NotificationCategoryTabsProps) {
-  const getCategoryCount = (categoryKey: string) => {
-    if (categoryKey === 'all') return notifications.length;
-    return notifications.filter((n) => n.category === categoryKey).length;
-  };
+  const categoryTabs = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const n of notifications) {
+      const cat = (n.category || 'uncategorized').toLowerCase();
+      counts.set(cat, (counts.get(cat) || 0) + 1);
+    }
+
+    // Sort by count desc, then alphabetically as tiebreaker
+    const sorted = Array.from(counts.entries()).sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    });
+
+    return [
+      { key: 'all', label: 'All', count: notifications.length },
+      ...sorted.map(([key, count]) => ({
+        key,
+        // Prefer canonical label from the shared constant so the tab reads
+        // exactly like the form's dropdown option (case-for-case)
+        label: getCanonicalCategoryLabel(key) ?? prettify(key),
+        count
+      }))
+    ];
+  }, [notifications]);
 
   return (
     <div className='w-full overflow-x-auto scrollbar-hide -mb-px'>
       <div className='flex items-center gap-1 min-w-max pb-1'>
-        {NOTIFICATION_CATEGORIES.map((category) => {
-          const count = getCategoryCount(category.key);
+        {categoryTabs.map((category) => {
           const isActive = activeCategory === category.key;
 
           return (
@@ -60,7 +90,7 @@ export function NotificationCategoryTabs({
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted'
               )}
               aria-pressed={isActive}
-              aria-label={`${category.label} (${count})`}
+              aria-label={`${category.label} (${category.count})`}
             >
               {category.label}
               <span
@@ -71,7 +101,7 @@ export function NotificationCategoryTabs({
                     : 'bg-muted text-muted-foreground'
                 )}
               >
-                {count}
+                {category.count}
               </span>
             </button>
           );

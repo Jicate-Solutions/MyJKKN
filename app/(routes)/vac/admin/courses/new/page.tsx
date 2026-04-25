@@ -30,6 +30,16 @@ import type { CreateVACCourseInput } from '@/types/vac';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/vac/admin/courses',
+} as const;
+
+
 export default function CreateCoursePage() {
   const router = useRouter();
   const { profile, isLoading: authLoading } = useAuth();

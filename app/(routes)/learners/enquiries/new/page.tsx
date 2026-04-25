@@ -60,7 +60,7 @@ export default function NewEnquiryPage() {
   // Show loading state while permissions are loading
   if (permissionsLoading || !permissionsLoaded) {
     return (
-      <ContentLayout title="Add New Enquiry">
+      <ContentLayout title="Add New Admitted">
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="flex flex-col items-center gap-4">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -74,7 +74,7 @@ export default function NewEnquiryPage() {
   // Permission check (redundant but added for safety)
   if (!canCreateEnquiries) {
     return (
-      <ContentLayout title="Add New Enquiry">
+      <ContentLayout title="Add New Admitted">
         <div className="text-center py-8">
           <p className="text-destructive">
             You don&apos;t have permission to create enquiries
@@ -88,13 +88,13 @@ export default function NewEnquiryPage() {
   }
 
   return (
-    <ContentLayout title="Add New Enquiry">
+    <ContentLayout title="Add New Admitted">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Learners', href: '/learners' },
-          { label: 'Enquiries', href: '/learners/enquiries' },
-          { label: 'New Enquiry' }
+          { label: 'Admitted', href: '/learners/enquiries' },
+          { label: 'New Admitted' }
         ]}
       />
 

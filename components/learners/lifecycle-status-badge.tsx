@@ -25,8 +25,8 @@ const statusConfig: Record<
     icon?: string;
   }
 > = {
-  enquiry: {
-    label: 'Enquiry',
+  admitted: {
+    label: 'Admitted',
     variant: 'outline',
     className: 'bg-gray-100 text-gray-700 border-gray-300',
     icon: '📋',

@@ -7,9 +7,18 @@ import { Plus } from 'lucide-react';
 import { ContentOrdersList } from './_components/content-orders-list';
 
 export const metadata: Metadata = {
-  title: 'Content Orders | Solutions Hub',
+  title: 'Content Orders',
   description: 'Manage content production orders',
 };
+
+/**
+ * navMeta — invoked from the Content Hub overview via an "Orders" CTA /
+ * drill-down card. Nav-coverage detector
+ * (`scripts/assert-nav-coverage.mjs`) reads this to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/content',
+} as const;
 
 export default function ContentOrdersPage() {
   return (

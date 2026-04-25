@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
+import { DashboardErrorBoundary } from '@/components/dashboard/dashboard-error-boundary';
 import { getDashboardMetrics } from '@/lib/services/dashboard/dashboard-metrics-service';
 import { HeroStrip } from '@/components/dashboard/hero-strip';
 import { CounselorHeroStrip } from '@/components/dashboard/counselor-hero-strip';
@@ -45,6 +46,12 @@ import { StreakBadge } from '@/components/dashboard/streak-badge';
 import { ActivityFeed } from '@/components/dashboard/activity-feed';
 import { createClient } from '@/lib/supabase/server';
 import { KeyboardShortcuts } from '@/components/dashboard/keyboard-shortcuts';
+import {
+  TodaysFocusCard,
+  deriveTodaysFocus,
+  deriveTodaysFocusFromQueue
+} from '@/components/dashboard/todays-focus';
+import { listQueueItems } from '@/lib/services/dashboard/decision-queue-service';
 
 const VALID_FILTERS: QueueFilter[] = [
   'all',
@@ -76,6 +83,24 @@ async function LiveHeroStrip({
     ? `/dashboard/i/${institutionId}${departmentId ? `/d/${departmentId}` : ''}`
     : '/dashboard';
   return <HeroStrip metrics={metrics} drillBase={drillBase} />;
+}
+
+// Actionability upgrade #2 (2026-04-21), phase 2 (2026-04-21 evening):
+// Prefer a REAL queue item when one exists. The work-item generators
+// (fn_generate_all_dashboard_work_items) populate dashboard:* notifications
+// from business signals — overdue invoices, stale leads, pending approvals,
+// unmarked attendance. The top-severity item becomes the focus card.
+// Falls back to the aggregate OHS heuristic when the queue is empty.
+async function LiveTodaysFocus() {
+  const [metrics, queue] = await Promise.all([
+    getDashboardMetrics(),
+    listQueueItems('all', 1)
+  ]);
+  const focus =
+    queue.items.length > 0
+      ? deriveTodaysFocusFromQueue(queue.items[0], queue.counts)
+      : deriveTodaysFocus(metrics);
+  return <TodaysFocusCard focus={focus} />;
 }
 
 // Week-2 addition: counselor-scoped hero strip
@@ -271,68 +296,97 @@ export default async function DashboardV2Page({
           ]}
         />
 
-        {/* 8am Morning Brief (spec §7.7) — dismissible per-day, safe for all personas
-            (reads only user's own acked/unacked counts) */}
-        <div data-dashboard-section='morning-brief'>
-          <Suspense fallback={null}>
-            <LiveMorningBrief />
-          </Suspense>
-        </div>
-
-        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Principal / Student / limited safe default) */}
-        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Accounts / Student / limited safe default) */}
-        <Suspense fallback={<HeroSkeleton />}>
-          {isDirector && <LiveHeroStrip />}
-          {isCounselor && <LiveCounselorHero />}
-          {isFaculty && <LiveFacultyHero />}
-          {isHod && <LiveHodHero />}
-          {isPrincipal && <LivePrincipalHero />}
-          {isAccounts && <LiveAccountsHero />}
-          {isStudent && <LiveStudentHero />}
-          {isLimited && <LimitedHero />}
-        </Suspense>
-
-        {/* Streak badge — Director + Counselor only (spec §4.3) */}
-        {(isDirector || isCounselor) && (
-          <Suspense fallback={null}>
-            <StreakBadge />
-          </Suspense>
+        {/* Today's Focus (actionability upgrade #2, 2026-04-21) — director only.
+            Derives the single most-important thing to act on from current OHS
+            components. Sits above the hero strip so the eye lands on it first. */}
+        {isDirector && (
+          <DashboardErrorBoundary label="Today's Focus" mode='silent'>
+            <Suspense fallback={null}>
+              <LiveTodaysFocus />
+            </Suspense>
+          </DashboardErrorBoundary>
         )}
 
-        {/* Institution quick-drill chips — DIRECTOR ONLY (cross-institution scope) */}
-        {isDirector && (
-          <Suspense fallback={null}>
-            <InstitutionChips />
+        {/* 8am Morning Brief (spec §7.7) — dismissible per-day, safe for all personas
+            (reads only user's own acked/unacked counts). Silent boundary: a failure
+            here renders no card (errors go to DevTools + Vercel logs), since the
+            brief is optional UX. */}
+        <div data-dashboard-section='morning-brief'>
+          <DashboardErrorBoundary label='Morning Brief' mode='silent'>
+            <Suspense fallback={null}>
+              <LiveMorningBrief />
+            </Suspense>
+          </DashboardErrorBoundary>
+        </div>
+
+        {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Principal / Student / limited safe default).
+            2026-04-21: wrapped in DashboardErrorBoundary so RPC/auth failures surface as a
+            visible amber card instead of silent zeros. Director sees stack trace inline. */}
+        <DashboardErrorBoundary label='Hero metrics' showDetails={isDirector}>
+          <Suspense fallback={<HeroSkeleton />}>
+            {isDirector && <LiveHeroStrip />}
+            {isCounselor && <LiveCounselorHero />}
+            {isFaculty && <LiveFacultyHero />}
+            {isHod && <LiveHodHero />}
+            {isPrincipal && <LivePrincipalHero />}
+            {isAccounts && <LiveAccountsHero />}
+            {isStudent && <LiveStudentHero />}
+            {isLimited && <LimitedHero />}
           </Suspense>
+        </DashboardErrorBoundary>
+
+        {/* Streak badge — Director + Counselor only (spec §4.3). Silent: non-essential. */}
+        {(isDirector || isCounselor) && (
+          <DashboardErrorBoundary label='Streak' mode='silent'>
+            <Suspense fallback={null}>
+              <StreakBadge />
+            </Suspense>
+          </DashboardErrorBoundary>
+        )}
+
+        {/* Institution quick-drill chips — DIRECTOR ONLY (cross-institution scope). Silent: navigation aid only. */}
+        {isDirector && (
+          <DashboardErrorBoundary label='Institution chips' mode='silent'>
+            <Suspense fallback={null}>
+              <InstitutionChips />
+            </Suspense>
+          </DashboardErrorBoundary>
         )}
 
         {/* Decision Queue — safe for ALL personas (already scoped by auth.uid() in RPC).
-            Hidden for students — they have no actionable queue items. */}
+            Hidden for students — they have no actionable queue items. Loud boundary:
+            queue is load-bearing for the operator persona, failures must be visible. */}
         {!isStudent && (
           <div data-dashboard-section='decision-queue'>
-            <Suspense fallback={<QueueSkeleton />}>
-              <DecisionQueue filter={filter} />
-            </Suspense>
+            <DashboardErrorBoundary label='Decision queue' showDetails={isDirector}>
+              <Suspense fallback={<QueueSkeleton />}>
+                <DecisionQueue filter={filter} />
+              </Suspense>
+            </DashboardErrorBoundary>
           </div>
         )}
 
-        {/* Leaderboards ��� Director + Counselor only (social pressure across counselors).
-            Hidden for students and limited roles (not competing on counselor metrics). */}
-        {/* Team Activity Feed — all personas except student + limited (spec §4.4) */}
+        {/* Team Activity Feed — all personas except student + limited (spec §4.4). Silent: ambient. */}
         {!isStudent && !isLimited && (
-          <Suspense fallback={null}>
-            <ActivityFeed />
-          </Suspense>
+          <DashboardErrorBoundary label='Activity feed' mode='silent'>
+            <Suspense fallback={null}>
+              <ActivityFeed />
+            </Suspense>
+          </DashboardErrorBoundary>
         )}
 
         {(isDirector || isCounselor) && (
           <div data-dashboard-section='leaderboards' className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
-            <Suspense fallback={<LeaderboardSkeleton />}>
-              <LiveSlaLeaderboard />
-            </Suspense>
-            <Suspense fallback={<LeaderboardSkeleton />}>
-              <LiveConversionLeaderboard />
-            </Suspense>
+            <DashboardErrorBoundary label='SLA leaderboard' showDetails={isDirector}>
+              <Suspense fallback={<LeaderboardSkeleton />}>
+                <LiveSlaLeaderboard />
+              </Suspense>
+            </DashboardErrorBoundary>
+            <DashboardErrorBoundary label='Conversion leaderboard' showDetails={isDirector}>
+              <Suspense fallback={<LeaderboardSkeleton />}>
+                <LiveConversionLeaderboard />
+              </Suspense>
+            </DashboardErrorBoundary>
           </div>
         )}
 

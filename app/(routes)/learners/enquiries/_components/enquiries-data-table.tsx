@@ -35,13 +35,13 @@ interface EnquiriesDataTableProps {
   search: EnquiriesSearchParams;
   /**
    * Filter by lifecycle status
-   * - 'enquiry': Only enquiries
+   * - 'admitted': Only enquiries
    * - 'pending': Only pending applications
    * - 'rejected': Only rejected applications
    * - 'waitlisted': Only waitlisted applications
    * - undefined: All admission statuses
    */
-  statusFilter?: 'enquiry' | 'pending' | 'rejected' | 'waitlisted';
+  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted';
 }
 
 /**

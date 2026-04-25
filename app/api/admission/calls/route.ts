@@ -39,6 +39,8 @@ export async function GET(request: NextRequest) {
       search: searchParams.get('search') || undefined,
       page: parseInt(searchParams.get('page') || '1', 10),
       limit: parseInt(searchParams.get('limit') || '20', 10),
+      sort_by: searchParams.get('sort_by') || undefined,
+      sort_order: (searchParams.get('sort_order') as 'asc' | 'desc') || undefined,
     };
 
     const supabase = createServiceRoleClient();

@@ -292,11 +292,12 @@ export class OrganizationService {
         this.supabase.from('bug_reports').delete().eq('institution_id', id)
       ]);
 
-      // Delete billing related data
-      // Updated: 2026-04-15 - Flat billing_categories replaces 3-tier parent/sub/item hierarchy.
+      // Delete billing related data (3-tier categories)
       await Promise.all([
         this.supabase.from('billing_student_bills').delete().eq('institution_id', id),
-        this.supabase.from('billing_categories').delete().eq('institution_id', id)
+        this.supabase.from('billing_item_categories').delete().eq('institution_id', id),
+        this.supabase.from('billing_sub_categories').delete().eq('institution_id', id),
+        this.supabase.from('billing_parent_categories').delete().eq('institution_id', id)
       ]);
 
       // Delete academic structure

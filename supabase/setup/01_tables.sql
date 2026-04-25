@@ -128,8 +128,9 @@ CREATE TABLE IF NOT EXISTS public.institutions (
     institution_type VARCHAR(20),
     pin_code VARCHAR(20),
     -- Updated: 2026-04-14 - Added entity_type to distinguish institutions from admin offices and companies
+    -- Updated: 2026-04-24 - Added 'school' entity type
     entity_type VARCHAR(20) NOT NULL DEFAULT 'institution'
-    CONSTRAINT chk_entity_type CHECK (entity_type IN ('institution', 'admin_office', 'company'))
+    CONSTRAINT chk_entity_type CHECK (entity_type IN ('institution', 'admin_office', 'company', 'school'))
 );
 
 -- Institution Departments (Contact Information)
@@ -433,6 +434,19 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     academic_year_id UUID,
     regulation_id UUID,
     batch_id UUID,
+
+    -- Admission Year (Reconciled: 2026-04-23 — column was added directly via
+    -- Supabase MCP earlier without an explicit migration. Backfilled here for
+    -- canonical-source truth per CLAUDE.md SQL File Management Rules.)
+    -- Legacy integer kept for B2A endpoint back-compat (6 endpoints expose it).
+    admission_year INTEGER,
+    -- Added: 2026-04-23 — shadow FK to admission_years (institution + program scoped cohorts).
+    -- Migration: supabase/migrations/learners_profiles_admission_year_id_shadow_fk.sql
+    -- Backfill: only lifecycle_status='admitted' rows get latest active cohort;
+    --          'active'/'graduated'/etc. left NULL for manual director cleanup.
+    -- Scope: validated by trg_validate_learner_admission_year_scope (04_triggers.sql)
+    --        — rejects FK row whose institution/program does not match the learner.
+    admission_year_id UUID REFERENCES public.admission_years(id) ON DELETE SET NULL,
 
     -- Student-specific fields (unlocked after enrollment)
     roll_number TEXT,
@@ -1871,6 +1885,10 @@ CREATE TABLE service_request_approval_steps (
     step_order INTEGER NOT NULL,
     step_name VARCHAR(255) NOT NULL,
     approver_role VARCHAR(50) NOT NULL,
+    -- Updated 2026-04-22 — multi-approver support. Non-empty = only these
+    -- users can approve (OR logic, first to act wins). Empty array = falls
+    -- back to role-based matching via approver_role.
+    approver_user_ids UUID[] NOT NULL DEFAULT '{}'::UUID[],
     is_required BOOLEAN NOT NULL DEFAULT true,
     on_return_restart_from_step INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1880,6 +1898,8 @@ CREATE TABLE service_request_approval_steps (
 CREATE INDEX idx_sr_approval_steps_type_id ON service_request_approval_steps(service_type_id);
 CREATE INDEX idx_sr_approval_steps_order ON service_request_approval_steps(service_type_id, step_order);
 CREATE INDEX idx_sr_approval_steps_role ON service_request_approval_steps(approver_role);
+CREATE INDEX idx_sr_approval_steps_approver_user_ids
+    ON service_request_approval_steps USING GIN (approver_user_ids);
 
 -- Service Requests: Actual request submissions
 CREATE TABLE service_requests (
@@ -1979,6 +1999,34 @@ ALTER TABLE service_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_request_approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_request_timeline ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_request_attachments ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================
+-- SECTION: ADMISSION SETTINGS - ADMISSION YEARS
+-- Added: 2026-04-21 - Per-program admission year tracking
+-- Purpose: Track admission year per program with program start/end year metadata
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS public.admission_years (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    program_id UUID NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+    admission_year_name VARCHAR(150) NOT NULL,
+    program_start_year INTEGER NOT NULL CHECK (program_start_year BETWEEN 2000 AND 2100),
+    program_end_year INTEGER NOT NULL CHECK (program_end_year BETWEEN 2000 AND 2100),
+    -- Added 2026-04-21 — per-cohort seat allocation (replaces academic-year based intake_history for admission flow)
+    sanctioned_intake INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_by UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    CONSTRAINT admission_years_year_order CHECK (program_end_year >= program_start_year),
+    CONSTRAINT admission_years_unique_per_program UNIQUE (institution_id, program_id, program_start_year),
+    CONSTRAINT admission_years_sanctioned_intake_nonnegative CHECK (sanctioned_intake >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_admission_years_institution ON admission_years(institution_id);
+CREATE INDEX IF NOT EXISTS idx_admission_years_program ON admission_years(program_id);
+CREATE INDEX IF NOT EXISTS idx_admission_years_name ON admission_years(admission_year_name);
 
 -- =====================================================
 -- SECTION: STARTUP STUDIO MODULE
@@ -4154,6 +4202,43 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_idempotency
   ON notifications(idempotency_key) WHERE idempotency_key IS NOT NULL;
 
+-- Updated: 2026-04-24 - Split notifications into announcement vs work_item
+-- Context: /admin/notifications page was being buried under operational cron-
+-- generated work items (1,595 dashboard:* rows / 30d vs 11 real announcements).
+-- 'announcement' = user-composed, meant to be READ (General/Alert/Announcement/
+-- Action Required). 'work_item' = cron-generated operational task, meant to be
+-- ACTED on (dashboard:escalation/rescue/approval/anomaly). Admin notifications
+-- page filters to kind='announcement'; work items surface via dashboard widgets.
+ALTER TABLE notifications
+  ADD COLUMN IF NOT EXISTS kind TEXT;
+
+-- Backfill existing rows based on category prefix (dashboard:* => work_item).
+-- Runs once on deploy; subsequent inserts set kind explicitly.
+UPDATE notifications
+  SET kind = CASE
+    WHEN category LIKE 'dashboard:%' THEN 'work_item'
+    ELSE 'announcement'
+  END
+  WHERE kind IS NULL;
+
+-- Lock the domain after backfill (NOT NULL + CHECK).
+ALTER TABLE notifications
+  ALTER COLUMN kind SET DEFAULT 'announcement',
+  ALTER COLUMN kind SET NOT NULL;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints
+                 WHERE constraint_name = 'notifications_kind_check' AND table_name = 'notifications') THEN
+    ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check
+      CHECK (kind IN ('announcement', 'work_item'));
+  END IF;
+END $$;
+
+-- Covering index so the common admin-page query
+-- (WHERE kind='announcement' ORDER BY sent_at DESC) doesn't full-scan.
+CREATE INDEX IF NOT EXISTS idx_notifications_kind_sent_at
+  ON notifications(kind, sent_at DESC);
+
 -- =====================================================
 -- New table: rescue_broadcasts (Broadcast Rescue claim mutex)
 -- Decisions: Round 2.6 (SELECT FOR UPDATE), Round 3.10 (is_emergency), Round 2.7 (ghost claim)
@@ -4398,3 +4483,164 @@ CREATE INDEX IF NOT EXISTS idx_hr_recruitment_scorecards_recommendation
   ON public.hr_recruitment_scorecards(recommendation);
 
 -- END HR Recruitment Phase 3 tables
+
+-- Updated: 2026-04-18 - Call Notes dialog enrichment
+-- Adds prospect_sentiment, primary_objection, and follow_up_at (timestamptz)
+-- to admission_call_logs so counselors can record richer context when
+-- wrapping a call (sentiment + objection taxonomy + date+time follow-up).
+-- The legacy follow_up_date (DATE) column is kept for backward compatibility.
+ALTER TABLE admission_call_logs
+  ADD COLUMN IF NOT EXISTS prospect_sentiment TEXT,
+  ADD COLUMN IF NOT EXISTS primary_objection TEXT,
+  ADD COLUMN IF NOT EXISTS follow_up_at TIMESTAMPTZ;
+
+-- Backfill follow_up_at from follow_up_date for historical rows (9:00 AM local)
+UPDATE admission_call_logs
+SET follow_up_at = follow_up_date::timestamp AT TIME ZONE 'UTC' + INTERVAL '9 hours'
+WHERE follow_up_at IS NULL AND follow_up_date IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_admission_call_logs_follow_up_at
+  ON admission_call_logs(follow_up_at) WHERE follow_up_at IS NOT NULL;
+
+-- ============================================================================
+-- Updated: 2026-04-21 — Persona Design PR-1 of 4: scope-extension helper tables
+--
+-- Reason: MyJKKN's custom_roles.institution_scope supports only 'all' | 'own'.
+-- Three common scope shapes cannot be expressed today:
+--   • block_scope         — warden, gate_security, housekeeping_staff
+--   • relationship_scope  — parent (sees only their child)
+--   • contract_scope      — mess_caterer, maintenance_vendor (sees only their contract)
+--
+-- These 3 junction tables back the corresponding role_has_*_access() helpers
+-- in 02_functions.sql. They are INERT infrastructure in PR-1 — no code calls
+-- the helpers yet. PR-2 adds roles; PR-3 adds permission keys; PR-4 retrofits
+-- RLS on hostel_*/mess_* tables to use these.
+--
+-- See: docs/persona-design/scope-extension-pr1.md for background + examples.
+-- ============================================================================
+
+-- 1. user_block_access — which users (wardens, gate security, housekeeping)
+-- have access to which hostel blocks. Primary use: block-scoped RLS on all
+-- 39 hostel_* tables.
+CREATE TABLE IF NOT EXISTS public.user_block_access (
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  block_id UUID NOT NULL REFERENCES public.hostel_blocks(id) ON DELETE CASCADE,
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  granted_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  revoked_at TIMESTAMPTZ,
+  notes TEXT,
+  PRIMARY KEY (user_id, block_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_block_access_block
+  ON public.user_block_access(block_id);
+CREATE INDEX IF NOT EXISTS idx_user_block_access_user_active
+  ON public.user_block_access(user_id) WHERE revoked_at IS NULL;
+
+COMMENT ON TABLE public.user_block_access IS
+  'Per-user grants to specific hostel blocks. Used by role_has_block_access(). '
+  'A user with this grant sees hostel_* records where block_id matches. '
+  'revoked_at nullable — set instead of DELETE to preserve audit trail.';
+
+-- 2. user_learner_relationship — which parent/guardian users can see
+-- which learner. Primary use: parent portal (read-only views of their child).
+CREATE TABLE IF NOT EXISTS public.user_learner_relationship (
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  learner_id UUID NOT NULL REFERENCES public.learners_profiles(id) ON DELETE CASCADE,
+  relationship TEXT NOT NULL CHECK (
+    relationship IN ('parent', 'guardian', 'sibling', 'spouse', 'legal_guardian')
+  ),
+  verified_at TIMESTAMPTZ,
+  verified_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked_at TIMESTAMPTZ,
+  PRIMARY KEY (user_id, learner_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_learner_relationship_learner
+  ON public.user_learner_relationship(learner_id);
+CREATE INDEX IF NOT EXISTS idx_user_learner_relationship_user_active
+  ON public.user_learner_relationship(user_id) WHERE revoked_at IS NULL;
+
+COMMENT ON TABLE public.user_learner_relationship IS
+  'Parent/guardian/family access to a specific learner. Used by '
+  'role_has_relationship_access(). Unverified rows are valid for auth but '
+  'should be flagged in UI until verified_at is set. Multi-row supported '
+  '(one learner can have both parents as separate users).';
+
+-- 3. user_contract_access — which external vendor/caterer users can see
+-- records tied to which contract. Primary use: mess caterer portal + vendor
+-- ticket portal where they only see their own contract's data.
+CREATE TABLE IF NOT EXISTS public.user_contract_access (
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  contract_id UUID NOT NULL,
+  contract_type TEXT NOT NULL CHECK (
+    contract_type IN ('caterer', 'maintenance_vendor', 'laundry_vendor', 'amc', 'other')
+  ),
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  granted_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  revoked_at TIMESTAMPTZ,
+  PRIMARY KEY (user_id, contract_id, contract_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_contract_access_contract
+  ON public.user_contract_access(contract_id, contract_type);
+CREATE INDEX IF NOT EXISTS idx_user_contract_access_user_active
+  ON public.user_contract_access(user_id) WHERE revoked_at IS NULL;
+
+COMMENT ON TABLE public.user_contract_access IS
+  'External vendor/caterer user access to a specific contract. Used by '
+  'role_has_contract_access(). contract_id is polymorphic (references '
+  'mess_caterers.id OR resource_vendor_contracts.id depending on '
+  'contract_type) — FK not enforced at DB level because the target table '
+  'varies. Application layer must validate contract existence on INSERT.';
+
+-- END Persona Design PR-1 tables
+
+-- =====================================================================
+-- Updated: 2026-04-21 - BUG-003146 per-stall accountability
+-- Per-stall accountability + operations + lead attribution on expo events.
+-- assigned_staff_id references profiles(id) to match the existing
+-- expo_event_team_members pattern (staff_id UUID REFERENCES profiles(id)).
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS expo_event_stalls (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  expo_event_id uuid NOT NULL REFERENCES expo_events(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES institutions(id) ON DELETE RESTRICT,
+  stall_name text NOT NULL,
+  assigned_staff_id uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  total_expenses numeric(10,2) DEFAULT 0,
+  photos text[] DEFAULT ARRAY[]::text[],
+  -- promotional_materials is an array of { name, quantity, notes? }
+  promotional_materials jsonb DEFAULT '[]'::jsonb,
+  notes text,
+  created_by uuid REFERENCES auth.users(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_expo_event_stalls_expo_event_id
+  ON expo_event_stalls(expo_event_id);
+CREATE INDEX IF NOT EXISTS idx_expo_event_stalls_institution_id
+  ON expo_event_stalls(institution_id);
+CREATE INDEX IF NOT EXISTS idx_expo_event_stalls_assigned_staff_id
+  ON expo_event_stalls(assigned_staff_id)
+  WHERE assigned_staff_id IS NOT NULL;
+
+-- BUG-003146: attribute admission leads to a specific stall (optional).
+ALTER TABLE admission_leads
+  ADD COLUMN IF NOT EXISTS stall_id uuid
+  REFERENCES expo_event_stalls(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_admission_leads_stall_id
+  ON admission_leads(stall_id)
+  WHERE stall_id IS NOT NULL;
+
+-- END BUG-003146 per-stall accountability
+
+-- Added: 2026-04-24 — Expo bulk upload visit type (Expo Visit / Stall Visit).
+-- Populated by the bulk capture template Remarks dropdown.
+ALTER TABLE admission_leads
+  ADD COLUMN IF NOT EXISTS visit_type TEXT
+  CHECK (visit_type IN ('expo_visit', 'stall_visit'));

@@ -10,14 +10,14 @@ export const groupDashboardKeys = {
   overview: (institutionIds?: string[]) =>
     [...groupDashboardKeys.all, 'overview', institutionIds ?? 'all'] as const,
   duplicates: () => [...groupDashboardKeys.all, 'duplicates'] as const,
-  seatAnalytics: (institutionId?: string, academicYearId?: string) =>
-    [...groupDashboardKeys.all, 'seats', institutionId ?? 'all', academicYearId ?? 'all'] as const,
-  sourceAnalytics: (institutionId?: string, academicYearId?: string) =>
-    [...groupDashboardKeys.all, 'sources', institutionId ?? 'all', academicYearId ?? 'all'] as const,
-  geographyAnalytics: (institutionId?: string, academicYearId?: string) =>
-    [...groupDashboardKeys.all, 'geography', institutionId ?? 'all', academicYearId ?? 'all'] as const,
-  institutionComparison: (academicYearId?: string) =>
-    [...groupDashboardKeys.all, 'comparison', academicYearId ?? 'all'] as const,
+  seatAnalytics: (institutionId?: string) =>
+    [...groupDashboardKeys.all, 'seats', institutionId ?? 'all'] as const,
+  sourceAnalytics: (institutionId?: string) =>
+    [...groupDashboardKeys.all, 'sources', institutionId ?? 'all'] as const,
+  geographyAnalytics: (institutionId?: string) =>
+    [...groupDashboardKeys.all, 'geography', institutionId ?? 'all'] as const,
+  institutionComparison: () =>
+    [...groupDashboardKeys.all, 'comparison'] as const,
 };
 
 // Invalidates all seat-analytics queries when learners_profiles changes (near-realtime).
@@ -63,38 +63,38 @@ export function useCrossCampusDuplicates() {
   });
 }
 
-export function useSeatAnalytics(institutionId?: string, academicYearId?: string) {
+export function useSeatAnalytics(institutionId?: string) {
   useSeatsRealtimeInvalidation();
   return useQuery({
-    queryKey: groupDashboardKeys.seatAnalytics(institutionId, academicYearId),
-    queryFn: () => GroupDashboardService.getSeatAnalytics(institutionId, academicYearId),
+    queryKey: groupDashboardKeys.seatAnalytics(institutionId),
+    queryFn: () => GroupDashboardService.getSeatAnalytics(institutionId),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
 }
 
-export function useSourceAnalytics(institutionId?: string, academicYearId?: string) {
+export function useSourceAnalytics(institutionId?: string) {
   return useQuery({
-    queryKey: groupDashboardKeys.sourceAnalytics(institutionId, academicYearId),
-    queryFn: () => GroupDashboardService.getSourceAnalytics(institutionId, academicYearId),
+    queryKey: groupDashboardKeys.sourceAnalytics(institutionId),
+    queryFn: () => GroupDashboardService.getSourceAnalytics(institutionId),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 }
 
-export function useGeographyAnalytics(institutionId?: string, academicYearId?: string) {
+export function useGeographyAnalytics(institutionId?: string) {
   return useQuery({
-    queryKey: groupDashboardKeys.geographyAnalytics(institutionId, academicYearId),
-    queryFn: () => GroupDashboardService.getGeographyAnalytics(institutionId, academicYearId),
+    queryKey: groupDashboardKeys.geographyAnalytics(institutionId),
+    queryFn: () => GroupDashboardService.getGeographyAnalytics(institutionId),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 }
 
-export function useInstitutionComparison(academicYearId?: string) {
+export function useInstitutionComparison() {
   return useQuery({
-    queryKey: groupDashboardKeys.institutionComparison(academicYearId),
-    queryFn: () => GroupDashboardService.getInstitutionComparison(academicYearId),
+    queryKey: groupDashboardKeys.institutionComparison(),
+    queryFn: () => GroupDashboardService.getInstitutionComparison(),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });

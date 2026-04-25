@@ -9,7 +9,7 @@ import type {
 export class InspectionService {
   // ── List inspections with filters ─────────────────────────────────
   static async getInspections(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       block_id?: string;
       inspection_type?: InspectionType;
@@ -24,9 +24,9 @@ export class InspectionService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_inspections')
-        .select('*, hostel_blocks(name, code)', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*, hostel_blocks(name, code)', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.inspection_type) query = query.eq('inspection_type', filters.inspection_type);
       if (filters?.follow_up_required !== undefined) query = query.eq('follow_up_required', filters.follow_up_required);
@@ -56,13 +56,13 @@ export class InspectionService {
         .from('hostel_inspections')
         .select('*, hostel_blocks(name, code)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/inspections', 'Failed to fetch inspection', error);
         throw error;
       }
-      return data as HostelInspection & { hostel_blocks: unknown };
+      return data as (HostelInspection & { hostel_blocks: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/inspections', 'Unexpected error in getInspection', error);
       throw error;
@@ -155,16 +155,17 @@ export class InspectionService {
   }
 
   // ── Pending follow-ups ────────────────────────────────────────────
-  static async getPendingFollowUps(institutionId: string) {
+  static async getPendingFollowUps(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_inspections')
         .select('*, hostel_blocks(name, code)')
-        .eq('institution_id', institutionId)
         .eq('follow_up_required', true)
         .eq('follow_up_completed', false)
         .order('follow_up_deadline');
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/inspections', 'Failed to fetch pending follow-ups', error);
@@ -178,19 +179,20 @@ export class InspectionService {
   }
 
   // ── Overdue follow-ups ────────────────────────────────────────────
-  static async getOverdueFollowUps(institutionId: string) {
+  static async getOverdueFollowUps(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const today = new Date().toISOString().split('T')[0];
 
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_inspections')
         .select('*, hostel_blocks(name, code)')
-        .eq('institution_id', institutionId)
         .eq('follow_up_required', true)
         .eq('follow_up_completed', false)
         .lt('follow_up_deadline', today)
         .order('follow_up_deadline');
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/inspections', 'Failed to fetch overdue follow-ups', error);
@@ -226,15 +228,15 @@ export class InspectionService {
   }
 
   // ── Average scores by block ───────────────────────────────────────
-  static async getAverageScoresByBlock(institutionId: string, dateFrom?: string, dateTo?: string) {
+  static async getAverageScoresByBlock(institutionId: string | undefined, dateFrom?: string, dateTo?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_inspections')
         .select('block_id, score, hostel_blocks(name, code)')
-        .eq('institution_id', institutionId)
         .not('score', 'is', null);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (dateFrom) query = query.gte('inspection_date', dateFrom);
       if (dateTo) query = query.lte('inspection_date', dateTo);
 

@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { ContentQueueList } from './_components/content-queue-list';
 
 export const metadata: Metadata = {
-  title: 'Work Queue | Solutions Hub',
+  title: 'Work Queue',
   description: 'Content deliverables work queue',
 };
 

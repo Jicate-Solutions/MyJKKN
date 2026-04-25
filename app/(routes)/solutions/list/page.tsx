@@ -4,9 +4,18 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SolutionsList } from './_components/solutions-list';
 
 export const metadata: Metadata = {
-  title: 'All Solutions | Solutions Hub',
+  title: 'All Solutions',
   description: 'View and manage all solutions',
 };
+
+/**
+ * navMeta — invoked from the Solutions Hub dashboard via a "View All" / list
+ * CTA. Documented here for the nav-coverage detector
+ * (`scripts/assert-nav-coverage.mjs`).
+ */
+export const navMeta = {
+  invokedFrom: '/solutions',
+} as const;
 
 interface SolutionsListPageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;

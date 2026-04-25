@@ -24,6 +24,7 @@ import { Download, Printer, Users, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function AttendanceRegisterPage() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -31,6 +32,7 @@ export default function AttendanceRegisterPage() {
   const { profile } = useAuth();
   const exportReport = useExportReport();
 
+  // SAMPLE DATA — Print is a no-op placeholder. Export does call the real report endpoint.
   const students = [
     { name: 'Arun Kumar', roll: 'CS2024001', block: 'Block A', room: '101', morning: 'P', night: 'P', remarks: '' },
     { name: 'Priya Sharma', roll: 'EC2024015', block: 'Block B', room: '205', morning: 'P', night: 'P', remarks: '' },
@@ -44,13 +46,22 @@ export default function AttendanceRegisterPage() {
   return (
     <ContentLayout title="Attendance Register">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="attendance register"
+          note="The on-screen table shows illustrative sample students. Use Export to pull the real NCPCR-compliant register from your institution. Print button is a placeholder."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">NCPCR Daily Attendance Register</h1>
             <p className="text-muted-foreground">Daily attendance register as per National Commission for Protection of Child Rights guidelines</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline"><Printer className="mr-2 h-4 w-4" />Print</Button>
+            <Button
+              variant="outline"
+              onClick={() => window.print()}
+            >
+              <Printer className="mr-2 h-4 w-4" />Print
+            </Button>
             <Button
               variant="outline"
               disabled={exportReport.isPending}

@@ -37,6 +37,7 @@ export default function HodHeroStrip() {
   const [cluster, setCluster] = useState<ClusterRankPublic | null>(null);
   const [hodCluster, setHodCluster] = useState<ClusterRankHodsPublic | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,18 +45,31 @@ export default function HodHeroStrip() {
       HodMetricsService.getMetrics(),
       fetch('/api/dashboard/cluster-rank').then((r) => r.json()).catch(() => null),
       fetch('/api/dashboard/cluster-rank/hods').then((r) => r.json()).catch(() => null)
-    ]).then(([m, c, h]) => {
-      if (!cancelled) {
-        setMetrics(m);
-        setCluster(c as ClusterRankPublic | null);
-        setHodCluster(h as ClusterRankHodsPublic | null);
-        setLoading(false);
-      }
-    });
+    ])
+      .then(([m, c, h]) => {
+        if (!cancelled) {
+          setMetrics(m);
+          setCluster(c as ClusterRankPublic | null);
+          setHodCluster(h as ClusterRankHodsPublic | null);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          // 2026-04-21: Rethrown during render so DashboardErrorBoundary can catch.
+          // Without this, promise rejection silently leaves loading=true forever.
+          setError(err instanceof Error ? err : new Error(String(err)));
+          setLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Rethrow during render to trigger the nearest Error Boundary. Without this,
+  // the component would swallow the metrics-service throw into an empty tile.
+  if (error) throw error;
 
   if (loading) {
     return (

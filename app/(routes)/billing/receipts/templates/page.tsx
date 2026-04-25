@@ -9,6 +9,15 @@ import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { useRouter } from 'next/navigation';
 import { BeatLoader } from 'react-spinners';
 
+/**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/billing/receipts',
+} as const;
+
+
 export default function ReceiptTemplatesPage() {
   const router = useRouter();
   const {

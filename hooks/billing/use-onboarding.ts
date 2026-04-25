@@ -38,6 +38,83 @@ export function useMarkAsAccount() {
   });
 }
 
+/** Result of a bulk-generate-bills operation, summarised for the toast. */
+export interface BulkGenerateBillsResult {
+  generated: number;          // learners for whom bills were created
+  skipped: number;            // learners who already had bills (no-op)
+  failed: number;             // learners that errored (e.g. no fee data)
+  totalBillsCreated: number;  // sum of bill rows inserted across all learners
+  errors: { learnerId: string; error: string }[];
+}
+
+/**
+ * Bulk-generate bills for the supplied learner IDs. Sequential to avoid
+ * overwhelming RLS / triggers and to give predictable failure ordering.
+ * Skips learners who already have bills (idempotent at the service level).
+ */
+export function useBulkGenerateBills() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (learnerIds: string[]): Promise<BulkGenerateBillsResult> => {
+      const result: BulkGenerateBillsResult = {
+        generated: 0,
+        skipped: 0,
+        failed: 0,
+        totalBillsCreated: 0,
+        errors: [],
+      };
+      for (const id of learnerIds) {
+        try {
+          const created = await OnboardingService.createBillsFromProfile(id);
+          if (created === 0) {
+            result.skipped += 1;
+          } else {
+            result.generated += 1;
+            result.totalBillsCreated += created;
+          }
+        } catch (err: any) {
+          result.failed += 1;
+          result.errors.push({
+            learnerId: id,
+            error: err?.message || 'Unknown error',
+          });
+        }
+      }
+      return result;
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: onboardingKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: studentBillKeys.lists() });
+
+      const parts: string[] = [];
+      if (result.generated > 0) {
+        parts.push(`${result.generated} learner(s) — ${result.totalBillsCreated} bill(s) created`);
+      }
+      if (result.skipped > 0) {
+        parts.push(`${result.skipped} skipped (already had bills)`);
+      }
+      if (result.failed > 0) {
+        parts.push(`${result.failed} failed`);
+      }
+      const msg = parts.length > 0 ? parts.join(' · ') : 'No learners processed';
+
+      if (result.failed > 0 && result.generated === 0) {
+        toast.error(msg, { duration: 6000 });
+      } else if (result.failed > 0) {
+        toast(msg, { icon: '⚠️', duration: 6000 });
+      } else if (result.generated > 0) {
+        toast.success(msg, { duration: 5000 });
+      } else {
+        toast(msg, { icon: 'ℹ️' });
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(`Bulk generation failed: ${error.message}`);
+    },
+  });
+}
+
 // Hook to mark a learner as approved and activated
 export function useMarkAsApproved() {
   const queryClient = useQueryClient();

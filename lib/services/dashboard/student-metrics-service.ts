@@ -106,23 +106,19 @@ const EMPTY_STUDENT_METRICS: StudentMetrics = {
 
 /**
  * Fetches all 4 student hero tile metrics in a single RPC call.
- * Returns EMPTY_STUDENT_METRICS on error (resilient to DB hiccups).
+ * Throws on error — DashboardErrorBoundary surfaces the failure visibly.
+ * 2026-04-21: Silent-swallow fix.
  */
 export async function getStudentMetrics(): Promise<StudentMetrics> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.rpc('fn_student_metrics');
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('fn_student_metrics');
 
-    if (error) {
-      console.error('[dashboard/student-metrics] RPC error:', error);
-      return EMPTY_STUDENT_METRICS;
-    }
-
-    return (data as StudentMetrics) ?? EMPTY_STUDENT_METRICS;
-  } catch (err) {
-    console.error('[dashboard/student-metrics] unexpected error:', err);
-    return EMPTY_STUDENT_METRICS;
+  if (error) {
+    console.error('[dashboard/student-metrics] RPC error:', error);
+    throw new Error(`fn_student_metrics failed: ${error.message}`);
   }
+
+  return (data as StudentMetrics) ?? EMPTY_STUDENT_METRICS;
 }
 
 /**

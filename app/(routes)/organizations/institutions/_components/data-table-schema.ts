@@ -9,7 +9,7 @@ export const institutionsSearchParamsSchema = z.object({
 
   // Custom filters for institutions
   status: z.enum(['active', 'inactive']).optional(),
-  entity_type: z.enum(['institution', 'admin_office', 'company']).optional()
+  entity_type: z.enum(['institution', 'admin_office', 'company', 'school']).optional()
 });
 
 export type InstitutionsSearchParams = z.infer<

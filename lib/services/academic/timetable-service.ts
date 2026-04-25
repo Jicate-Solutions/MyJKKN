@@ -951,8 +951,14 @@ Please select a different date period that doesn't overlap.`
       );
 
       // Apply filters
+      // Broadened 2026-04-18 — previously search only matched timetable_name,
+      // so users searching for mode keywords like "theory" found nothing.
+      // Now also searches template_name and template_description.
       if (filters.search) {
-        query = query.ilike('timetable_name', `%${filters.search}%`);
+        const term = filters.search.replace(/'/g, "''").replace(/[%_]/g, '');
+        query = query.or(
+          `timetable_name.ilike.%${term}%,template_name.ilike.%${term}%,template_description.ilike.%${term}%`
+        );
       }
 
       if (filters.institution_id) {
@@ -1060,6 +1066,23 @@ Please select a different date period that doesn't overlap.`
   }
 
   static async getTimetable(id: string): Promise<Timetable> {
+    // Defense-in-depth DRP guard — Next.js 16 Cache Components emits opaque
+    // `%%drp:id:xxxxx%%` placeholders before route params hydrate. Hitting
+    // Postgres with one yields `invalid input syntax for type uuid`. Throw
+    // a specific marker error so hook callers can treat it as a loading
+    // state instead of a user-facing "Invalid timetable ID" toast.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!id || !UUID_RE.test(id)) {
+      const isDrp = typeof id === 'string' && id.includes('%%drp:');
+      const err = new Error(
+        isDrp
+          ? 'Timetable id not yet resolved (DRP placeholder)'
+          : 'Invalid timetable id format'
+      );
+      (err as any).code = isDrp ? 'DRP_PLACEHOLDER' : 'INVALID_TIMETABLE_ID';
+      throw err;
+    }
+
     try {
       const { data: timetable, error } = (await this.supabase
         .from('timetables')

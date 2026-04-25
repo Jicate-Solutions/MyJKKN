@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -69,7 +70,13 @@ export default function MessBillingPage() {
               Manage billing periods and student-wise mess charges
             </p>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('Billing generation ships next.', {
+                description: 'The billing-period generator will be available once the calculation engine is wired.',
+              })
+            }
+          >
             <Plus className="mr-2 h-4 w-4" />
             Generate Billing
           </Button>
@@ -157,7 +164,15 @@ export default function MessBillingPage() {
                         <Button variant="ghost" size="sm" asChild>
                           <Link href={`/campus-living/mess/billing/${period.id}`}>View</Link>
                         </Button>
-                        <Button variant="ghost" size="sm">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            toast.info('Period CSV download ships next.', {
+                              description: `Would download invoices for period "${period.period}" once the export endpoint is live.`,
+                            })
+                          }
+                        >
                           <Download className="h-4 w-4" />
                         </Button>
                       </div>

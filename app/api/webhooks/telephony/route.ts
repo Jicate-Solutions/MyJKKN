@@ -1,6 +1,7 @@
 // app/api/webhooks/telephony/route.ts
 // Exotel Call Status Callback Handler
-// POST /api/webhooks/telephony
+// POST  /api/webhooks/telephony  (StatusCallback, DID-level)
+// GET   /api/webhooks/telephony  (Passthru, in-flow applet — metadata in query)
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
@@ -14,7 +15,7 @@ import {
 // WEBHOOK HANDLER
 // ============================================================================
 
-export async function POST(request: NextRequest) {
+async function handleExotelCallback(request: NextRequest) {
   const startTime = Date.now();
 
   try {
@@ -35,23 +36,64 @@ export async function POST(request: NextRequest) {
 
     // ========================================================================
     // STEP 2: Parse Callback Payload
+    //
+    // Exotel delivers call events via two distinct paths, each using a
+    // different payload convention. We MUST handle both.
+    //
+    //   1. StatusCallback (DID-level, configured on each ExoPhone):
+    //        POST with form-encoded body, fields named `From`, `To`, `Status`
+    //   2. Passthru (in-flow applet dropped into an ExoML flow):
+    //        POST with EMPTY body; metadata appended to the URL as query
+    //        params, fields named `CallFrom`, `CallTo`, `CallStatus`
+    //
+    // Previously this handler only read the body + only recognised the
+    // StatusCallback naming — which meant every in-flow Passthru delivery
+    // (the 16 async passthrus set up 2026-04-22/23) was ACK'd with HTTP 200
+    // but silently dropped because the payload came out empty and CallSid
+    // was missing.
+    //
+    // Fix: merge URL query params with body params (body wins on conflict)
+    // and normalise the Passthru `CallX` names into the StatusCallback `X`
+    // names so downstream code keeps working unchanged.
     // ========================================================================
-    let payload: ExotelCallbackPayload;
-
     const contentType = request.headers.get('content-type') || '';
+    const data: Record<string, string> = {};
 
+    // 2a. Start with URL query params (Exotel Passthru puts metadata here).
+    //     Skip the `token` auth param — it's for verifyWebhookAuth, not payload.
+    request.nextUrl.searchParams.forEach((value, key) => {
+      if (key !== 'token') data[key] = value;
+    });
+
+    // 2b. Overlay body params (Exotel StatusCallback puts metadata here).
+    //     Body wins on conflict — StatusCallback values are more authoritative.
     if (contentType.includes('application/x-www-form-urlencoded')) {
-      // Exotel sends as form-encoded data
-      const formData = await request.formData();
-      const data: Record<string, string> = {};
-      formData.forEach((value, key) => {
-        data[key] = value.toString();
-      });
-      payload = data as ExotelCallbackPayload;
-    } else {
-      // JSON fallback
-      payload = await request.json();
+      try {
+        const formData = await request.formData();
+        formData.forEach((value, key) => {
+          data[key] = value.toString();
+        });
+      } catch {
+        // Empty or malformed body is fine — we already have query params.
+      }
+    } else if (contentType.includes('application/json')) {
+      try {
+        const json = await request.json();
+        if (json && typeof json === 'object') {
+          for (const [k, v] of Object.entries(json)) data[k] = String(v);
+        }
+      } catch {
+        // Empty or malformed body is fine — we already have query params.
+      }
     }
+
+    // 2c. Normalise Passthru field names (`CallFrom`, `CallTo`, `CallStatus`)
+    //     to StatusCallback names so the rest of the code is oblivious.
+    if (data.CallFrom && !data.From) data.From = data.CallFrom;
+    if (data.CallTo && !data.To) data.To = data.CallTo;
+    if (data.CallStatus && !data.Status) data.Status = data.CallStatus;
+
+    const payload = data as ExotelCallbackPayload;
 
     logger.info('telephony/webhook', 'Processing callback', {
       callSid: payload.CallSid,
@@ -176,10 +218,45 @@ function verifyWebhookAuth(request: NextRequest): boolean {
 }
 
 // ============================================================================
-// HEALTH CHECK
+// HTTP METHOD WIRING
 // ============================================================================
+//
+// Exotel fires callbacks via two methods depending on which applet delivered:
+//
+//   POST — StatusCallback (DID-level, configured on the ExoPhone). Metadata
+//          in form-encoded body, field names `From`/`To`/`Status`.
+//   GET  — Passthru (in-flow applet). Body EMPTY, metadata auto-appended to
+//          the URL as query params, field names `CallFrom`/`CallTo`/`CallStatus`.
+//          Confirmed via webhook.site capture 2026-04-23 21:13 IST — Exotel
+//          sends User-Agent "Exotel Servers", no body, no content-type,
+//          ~19 query params including CallSid, CallFrom, CallTo, Direction,
+//          DialCallStatus, flow_id, tenant_id, CallType, etc.
+//
+// Before this fix, GET hit a pure health-check handler that returned 200 +
+// status JSON and did NO payload processing — every in-flow Passthru was
+// silently ACK'd and dropped. PR #347 added URL-query-param parsing and
+// CallX→X field-name normalisation to handleExotelCallback, but that was
+// only reachable via POST. Routing GET into the same function closes the
+// loop.
+//
+// Health-check semantics preserved: if GET arrives without any Exotel
+// identifiers (no CallSid/CallFrom/From), we fall through to the status
+// response so external uptime monitors still work.
 
-export async function GET() {
+export async function POST(request: NextRequest) {
+  return handleExotelCallback(request);
+}
+
+export async function GET(request: NextRequest) {
+  // Distinguish real Exotel Passthru (has call metadata) from manual
+  // health-check probes (no metadata).
+  const q = request.nextUrl.searchParams;
+  const looksLikePassthru = q.has('CallSid') || q.has('CallFrom') || q.has('From');
+
+  if (looksLikePassthru) {
+    return handleExotelCallback(request);
+  }
+
   const configured = TelephonyService.isConfigured();
 
   return NextResponse.json(
@@ -187,7 +264,7 @@ export async function GET() {
       service: 'Exotel Telephony Webhook',
       status: configured ? 'active' : 'not_configured',
       endpoint: '/api/webhooks/telephony',
-      methods: ['POST'],
+      methods: ['GET', 'POST'],
       provider: 'exotel',
       webhookUrl: `${process.env.NEXT_PUBLIC_APP_URL || ''}/api/webhooks/telephony`,
     },

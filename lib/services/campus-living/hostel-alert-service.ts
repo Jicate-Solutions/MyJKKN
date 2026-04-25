@@ -15,16 +15,16 @@ export class HostelAlertService {
 
   // ── List alert rules ──────────────────────────────────────────────
   static async getAlertRules(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { alert_type?: AlertType; is_active?: boolean }
   ) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_alert_rules')
-        .select('*')
-        .eq('institution_id', institutionId);
+        .select('*');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.alert_type) query = query.eq('alert_type', filters.alert_type);
       if (filters?.is_active !== undefined) query = query.eq('is_active', filters.is_active);
 
@@ -50,13 +50,13 @@ export class HostelAlertService {
         .from('hostel_alert_rules')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/alerts', 'Failed to fetch alert rule', error);
         throw error;
       }
-      return data as HostelAlertRule;
+      return data as HostelAlertRule | null;
     } catch (error) {
       logger.error('campus-living/alerts', 'Unexpected error in getAlertRule', error);
       throw error;
@@ -141,7 +141,7 @@ export class HostelAlertService {
 
   // ── List risk alerts ──────────────────────────────────────────────
   static async getRiskAlerts(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       alert_type?: AlertType;
       severity?: AlertSeverity;
@@ -156,9 +156,9 @@ export class HostelAlertService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_risk_alerts')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.alert_type) query = query.eq('alert_type', filters.alert_type);
       if (filters?.severity) query = query.eq('severity', filters.severity);
       if (filters?.status) query = query.eq('status', filters.status);
@@ -181,16 +181,17 @@ export class HostelAlertService {
   }
 
   // ── Active risk alerts ────────────────────────────────────────────
-  static async getActiveAlerts(institutionId: string) {
+  static async getActiveAlerts(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_risk_alerts')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('status', 'active')
         .order('severity')
         .order('created_at', { ascending: false });
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/alerts', 'Failed to fetch active alerts', error);
@@ -211,13 +212,13 @@ export class HostelAlertService {
         .from('hostel_risk_alerts')
         .select('*, hostel_alert_rules(*)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/alerts', 'Failed to fetch risk alert', error);
         throw error;
       }
-      return data as HostelRiskAlert & { hostel_alert_rules: HostelAlertRule | null };
+      return data as (HostelRiskAlert & { hostel_alert_rules: HostelAlertRule | null }) | null;
     } catch (error) {
       logger.error('campus-living/alerts', 'Unexpected error in getRiskAlert', error);
       throw error;
@@ -235,7 +236,7 @@ export class HostelAlertService {
           .from('hostel_alert_rules')
           .select('cooldown_hours')
           .eq('id', payload.alert_rule_id)
-          .single();
+          .maybeSingle();
 
         if (rule) {
           const cooldownTime = new Date(Date.now() - rule.cooldown_hours * 60 * 60 * 1000).toISOString();
@@ -402,14 +403,15 @@ export class HostelAlertService {
   }
 
   // ── Alert summary ─────────────────────────────────────────────────
-  static async getAlertSummary(institutionId: string) {
+  static async getAlertSummary(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let sumQ = supabase
         .from('hostel_risk_alerts')
         .select('alert_type, severity, status')
-        .eq('institution_id', institutionId)
         .in('status', ['active', 'acknowledged']);
+      if (institutionId) sumQ = sumQ.eq('institution_id', institutionId);
+      const { data, error } = await sumQ;
 
       if (error) {
         logger.error('campus-living/alerts', 'Failed to fetch alert summary', error);

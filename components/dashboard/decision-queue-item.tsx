@@ -39,6 +39,53 @@ function SeverityPill({ band, priority }: { band: string; priority: string | nul
 }
 
 // ============================================================================
+// Overdue/Due-soon pill — makes stale decisions visually impossible to ignore.
+// Actionability upgrade #5 (2026-04-21).
+// ============================================================================
+type DeadlineStatus = 'overdue' | 'due_soon' | 'on_track';
+
+function computeDeadlineStatus(item: QueueItem): DeadlineStatus {
+  // Auto-escalated = system already flagged it; show OVERDUE regardless of hours.
+  if (item.escalated_at) return 'overdue';
+  const hrs = item.acknowledgment_deadline_hours;
+  if (hrs == null || hrs <= 0) return 'on_track';
+  const deadlineSec = hrs * 3600;
+  if (item.age_seconds >= deadlineSec) return 'overdue';
+  // Within 30 min of deadline → due_soon (1800s buffer)
+  if (item.age_seconds >= deadlineSec - 1800) return 'due_soon';
+  return 'on_track';
+}
+
+function DeadlinePill({ status, item }: { status: DeadlineStatus; item: QueueItem }) {
+  if (status === 'on_track') return null;
+  const hrs = item.acknowledgment_deadline_hours ?? 2;
+  const ageH = (item.age_seconds / 3600).toFixed(1);
+  if (status === 'overdue') {
+    const label = item.escalated_at
+      ? `OVERDUE · escalated lvl ${item.escalation_level ?? 1}`
+      : `OVERDUE · ${ageH}h / ${hrs}h limit`;
+    return (
+      <span
+        className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-rose-600 text-white shadow-sm animate-pulse'
+        aria-label='Overdue'
+        title='This item is past its acknowledgment deadline and will auto-escalate to Chief of Staff.'
+      >
+        ⏰ {label}
+      </span>
+    );
+  }
+  return (
+    <span
+      className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-amber-500 text-white'
+      aria-label='Due soon'
+      title='Acknowledgment deadline approaching (under 30 minutes).'
+    >
+      ⏳ DUE SOON · {ageH}h / {hrs}h
+    </span>
+  );
+}
+
+// ============================================================================
 // Inline action button (submit button inside a form)
 // ============================================================================
 type ActionButtonProps = {
@@ -244,13 +291,17 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
   const ageText = formatRelativeAge(item.age_seconds);
   const typeLabel = queueTypeLabel(item.queue_type);
   const emoji = queueTypeEmoji(item.queue_type);
+  const deadlineStatus = computeDeadlineStatus(item);
 
+  // Overdue items get an extra-strong border to pop visually in a long queue.
   const borderClass =
-    item.severity_band === 'red'
-      ? 'border-l-rose-500 dark:border-l-rose-400'
-      : item.severity_band === 'amber'
-        ? 'border-l-amber-500 dark:border-l-amber-400'
-        : 'border-l-neutral-300 dark:border-l-neutral-700';
+    deadlineStatus === 'overdue'
+      ? 'border-l-rose-600 dark:border-l-rose-500 ring-1 ring-rose-200 dark:ring-rose-900'
+      : item.severity_band === 'red'
+        ? 'border-l-rose-500 dark:border-l-rose-400'
+        : item.severity_band === 'amber'
+          ? 'border-l-amber-500 dark:border-l-amber-400'
+          : 'border-l-neutral-300 dark:border-l-neutral-700';
 
   return (
     <article
@@ -264,6 +315,7 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
               {typeLabel}
             </span>
             <SeverityPill band={item.severity_band} priority={item.priority} />
+            <DeadlinePill status={deadlineStatus} item={item} />
             <span className='tabular-nums font-mono text-[11px] text-neutral-500'>· {ageText}</span>
           </div>
           <h3 className='mt-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100 leading-snug'>

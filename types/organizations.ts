@@ -19,7 +19,7 @@ export interface InstitutionDepartments {
 export type InstitutionType = 'self' | 'autonomous' | 'aided';
 export type InstitutionCategory = 'ug' | 'pg' | 'ug_pg';
 export type TimetableType = 'day_order' | 'week_order';
-export type EntityType = 'institution' | 'admin_office' | 'company';
+export type EntityType = 'institution' | 'admin_office' | 'company' | 'school';
 
 export interface Institution {
   id: string;

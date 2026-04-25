@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SSAnalytics } from './_components/ss-analytics';
 
 export const metadata: Metadata = {
-  title: 'Analytics | Startup Studio',
+  title: 'Analytics',
 };
 
 export default function AnalyticsPage() {

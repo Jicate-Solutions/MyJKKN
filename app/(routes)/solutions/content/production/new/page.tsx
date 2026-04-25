@@ -18,6 +18,16 @@ import { useCreateProductionLearner } from '@/hooks/solutions';
 import type { ContentDivision, SkillLevel } from '@/lib/services/solutions/types';
 import { toast } from 'sonner';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/content/production',
+} as const;
+
+
 const DIVISIONS: { value: ContentDivision; label: string }[] = [
   { value: 'video', label: 'Video Production' },
   { value: 'design', label: 'Graphic Design' },

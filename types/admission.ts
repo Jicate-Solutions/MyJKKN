@@ -110,9 +110,26 @@ export interface AdmissionLead {
   pincode: string | null;
 
   // Academic details
+  // DEPRECATED 2026-04-21 — replaced by program_id (primary) + alternative_programs.
+  // Kept for 350 historical rows' read-path fallback.
   interested_programs: string[] | null;
+  // Resolved program names for legacy `interested_programs` IDs.
+  interested_program_names?: string[];
+  // 2026-04-21 — alternative / backup programs the lead is considering
+  alternative_programs: string[] | null;
+  alternative_program_names?: string[];
   preferred_campus: string | null;
+  // DEPRECATED 2026-04-21 — replaced by admission_year_id. Kept on the type
+  // for backward compat with reads against historical rows (319 existing).
   academic_year: string | null;
+  // 2026-04-21 — FK to admission_years (per-program cohort window)
+  admission_year_id: string | null;
+  admission_year?: {
+    id: string;
+    admission_year_name: string;
+    program_start_year: number;
+    program_end_year: number;
+  } | null;
 
   // Application fields (merged from admission_applications)
   degree_id?: string | null;
@@ -130,6 +147,8 @@ export interface AdmissionLead {
   // Expo Bridge — links lead to exhibition event + team member who captured it
   expo_event_id: string | null;
   captured_by: string | null;
+  // BUG-003146: stall attribution (optional, nullable for legacy + non-expo leads)
+  stall_id: string | null;
 
   // Status & Scoring
   funnel_stage: FunnelStage;
@@ -197,6 +216,7 @@ export interface AdmissionLead {
 
   // Relationships (optional populated)
   counselor?: Counselor;
+  institution?: { id: string; name: string } | null;
 }
 
 export interface CreateLeadInput {
@@ -213,9 +233,12 @@ export interface CreateLeadInput {
   state?: string | null;
   district?: string | null;
   pincode?: string | null;
-  interested_programs?: string[] | null;
+  // Primary interested program (single). Already existed on the DB; now surfaced through the UI.
+  program_id?: string | null;
+  // Backup / alternative programs (multi). Replaces the legacy `interested_programs` multi-select.
+  alternative_programs?: string[] | null;
   preferred_campus?: string | null;
-  academic_year?: string | null;
+  admission_year_id?: string | null;
   source: LeadSource;
   referral_type?: ReferralType | null;
   referred_by_id?: string | null;
@@ -236,6 +259,10 @@ export interface CreateLeadInput {
   // Expo Bridge — optional, set when lead is captured at an exhibition event
   expo_event_id?: string | null;
   captured_by?: string | null;
+  // BUG-003146: stall attribution — set when lead is captured at a specific stall
+  stall_id?: string | null;
+  // Expo visit classification — 'expo_visit' (main floor) | 'stall_visit' (at our stall)
+  visit_type?: 'expo_visit' | 'stall_visit' | null;
   // WhatsApp consent — set during lead capture when visitor opts in
   wa_opt_in?: boolean;
   wa_opt_in_source?: string | null;
@@ -251,7 +278,7 @@ export interface UpdateLeadInput extends Partial<CreateLeadInput> {
   last_contact_at?: string | null;
   student_interest_level?: string | null;
   parent_decision_status?: string | null;
-  academic_year?: string | null;
+  admission_year_id?: string | null;
 }
 
 export interface LeadFilters {
@@ -263,6 +290,9 @@ export interface LeadFilters {
   source?: LeadSource | LeadSource[];
   counselor_id?: string;
   interested_programs?: string;
+  // Course/Program tab filter — matches rows whose interested_programs
+  // uuid[] column contains this program_id.
+  program_id?: string;
   // Expo Bridge — filter leads by exhibition event
   expo_event_id?: string;
   captured_by?: string;
@@ -1237,3 +1267,125 @@ export interface FormDeviceBreakdown {
   count: number;
   percentage: number;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMISSION YEARS (Settings → Admission Years)
+// Added: 2026-04-21 — per-program admission year metadata
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface AdmissionYear {
+  id: string;
+  institution_id: string;
+  program_id: string;
+  admission_year_name: string;
+  program_start_year: number;
+  program_end_year: number;
+  sanctioned_intake: number;
+  is_active: boolean;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  program?: {
+    id: string;
+    program_id: string;
+    program_name: string;
+    program_duration_yrs?: number | null;
+  };
+}
+
+export interface CreateAdmissionYearDto {
+  institution_id: string;
+  program_id: string;
+  admission_year_name: string;
+  program_start_year: number;
+  program_end_year: number;
+  sanctioned_intake?: number;
+  is_active?: boolean;
+}
+
+export interface UpdateAdmissionYearDto extends Partial<CreateAdmissionYearDto> {}
+
+export interface AdmissionYearFilters {
+  search?: string;
+  institution_id?: string;
+  program_id?: string;
+  program_start_year?: number;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface AdmissionYearListResponse {
+  data: AdmissionYear[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BUG-003146: Expo event stalls — per-stall accountability + operations
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * A single promotional material carried/distributed at a stall.
+ * e.g., { name: "Brochure - Engineering", quantity: 200, notes: "A4, colour" }
+ */
+export interface PromotionalMaterial {
+  name: string;
+  quantity: number;
+  notes?: string;
+}
+
+/**
+ * A stall staffed by a specific team at an expo event. JKKN frequently runs
+ * MULTIPLE stalls at the same event (Engineering + Nursing + Dental etc).
+ * Each stall has its own staff accountability, expenses, photos, materials.
+ */
+export interface ExpoEventStall {
+  id: string;
+  expo_event_id: string;
+  institution_id: string;
+  stall_name: string;
+  assigned_staff_id: string | null;
+  /** Optional joined profile for display */
+  assigned_staff?: { id: string; full_name: string } | null;
+  total_expenses: number;
+  photos: string[];
+  promotional_materials: PromotionalMaterial[];
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateExpoStallInput {
+  expo_event_id: string;
+  institution_id: string;
+  stall_name: string;
+  assigned_staff_id?: string | null;
+  total_expenses?: number;
+  photos?: string[];
+  promotional_materials?: PromotionalMaterial[];
+  notes?: string | null;
+}
+
+export interface UpdateExpoStallInput {
+  stall_name?: string;
+  institution_id?: string;
+  assigned_staff_id?: string | null;
+  total_expenses?: number;
+  photos?: string[];
+  promotional_materials?: PromotionalMaterial[];
+  notes?: string | null;
+}
+

@@ -46,7 +46,20 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
         await UserInstitutionAccessService.getUserAccessibleInstitutions(
           profile.id
         );
-      setInstitutions(accessibleInstitutions);
+
+      // The RPC can return the same institution_id twice when a user has
+      // overlapping grants (primary institution + user_institution_access row
+      // and/or role-scoped union). Dedupe here so every consumer (and React
+      // keyed maps / Radix SelectItem values) sees a unique-by-id list.
+      // Prefer the primary copy since it carries authoritative metadata.
+      const dedupedById = new Map<string, AccessibleInstitution>();
+      for (const inst of accessibleInstitutions ?? []) {
+        const existing = dedupedById.get(inst.institution_id);
+        if (!existing || (inst.is_primary_institution && !existing.is_primary_institution)) {
+          dedupedById.set(inst.institution_id, inst);
+        }
+      }
+      setInstitutions(Array.from(dedupedById.values()));
     } catch (err) {
       console.error('Error fetching accessible institutions:', err);
       setError(

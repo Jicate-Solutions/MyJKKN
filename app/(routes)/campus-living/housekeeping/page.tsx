@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,6 +35,17 @@ import { useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useCleaningSchedules } from '@/hooks/campus-living/use-hostel-housekeeping';
 import { BlockSelector } from '@/components/campus-living/block-selector';
+
+
+/**
+ * navMeta — documents that this page is invoked via a button/row-click on
+ * the parent page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ * Added 2026-04-24 in the matchPaths-only sweep (PR follow-up to #408).
+ */
+export const navMeta = {
+  invokedFrom: '/campus-living',
+} as const;
 
 export default function HousekeepingPage() {
   const { profile } = useAuth();
@@ -94,7 +106,13 @@ export default function HousekeepingPage() {
               Recurring cleaning plans across blocks and common areas.
             </p>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('New-schedule dialog ships next.', {
+                description: 'Use the schedules sub-page to create one until the inline form is wired.',
+              })
+            }
+          >
             <Plus className="mr-2 h-4 w-4" />
             New Schedule
           </Button>

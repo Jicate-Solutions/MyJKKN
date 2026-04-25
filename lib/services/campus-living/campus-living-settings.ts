@@ -13,14 +13,15 @@ export class CampusLivingSettings {
   // Leave Type Configuration
   // ══════════════════════════════════════════════════════════════════
 
-  static async getLeaveTypeConfigs(institutionId: string) {
+  static async getLeaveTypeConfigs(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_leave_type_config')
         .select('*')
-        .eq('institution_id', institutionId)
         .order('leave_type');
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/settings', 'Failed to fetch leave type configs', error);
@@ -116,16 +117,17 @@ export class CampusLivingSettings {
   // Maintenance SLA Configuration
   // ══════════════════════════════════════════════════════════════════
 
-  static async getSlaConfigs(institutionId: string) {
+  static async getSlaConfigs(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_maintenance_sla_config')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('is_active', true)
         .order('category')
         .order('priority');
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/settings', 'Failed to fetch SLA configs', error);
@@ -221,15 +223,15 @@ export class CampusLivingSettings {
   // Fee Configuration
   // ══════════════════════════════════════════════════════════════════
 
-  static async getFeeConfigs(institutionId: string, academicYearId?: string) {
+  static async getFeeConfigs(institutionId: string | undefined, academicYearId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_fee_config')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('is_active', true);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (academicYearId) query = query.eq('academic_year_id', academicYearId);
       query = query.order('room_type').order('ac_status');
 
@@ -328,14 +330,14 @@ export class CampusLivingSettings {
   // Curfew Exceptions
   // ══════════════════════════════════════════════════════════════════
 
-  static async getCurfewExceptions(institutionId: string, activeOnly = true) {
+  static async getCurfewExceptions(institutionId: string | undefined, activeOnly = true) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_curfew_exceptions')
-        .select('*, hostel_blocks(name, code)')
-        .eq('institution_id', institutionId);
+        .select('*, hostel_blocks(name, code)');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (activeOnly) query = query.eq('is_active', true);
       query = query.order('start_date', { ascending: false });
 
@@ -434,14 +436,14 @@ export class CampusLivingSettings {
   // Deposits
   // ══════════════════════════════════════════════════════════════════
 
-  static async getDeposits(institutionId: string, learnerId?: string) {
+  static async getDeposits(institutionId: string | undefined, learnerId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_deposits')
-        .select('*')
-        .eq('institution_id', institutionId);
+        .select('*');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (learnerId) query = query.eq('learner_id', learnerId);
       query = query.order('created_at', { ascending: false });
 

@@ -17,6 +17,16 @@ import {
 } from '@/hooks/solutions/use-training';
 import type { CohortTrack } from '@/lib/services/solutions/types';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/training/cohort',
+} as const;
+
+
 export default function NewCohortMemberPage() {
   const router = useRouter();
   const createMember = useCreateCohortMember();

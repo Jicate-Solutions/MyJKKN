@@ -15,6 +15,18 @@ import type {
 } from '@/types/privileges';
 
 /**
+ * Fetch all registered privilege source types.
+ * Stale time 15 min — the registry table rarely changes.
+ */
+export function usePrivilegeSourceTypes() {
+  return useQuery({
+    queryKey: ['privileges', 'source-types'] as const,
+    queryFn: () => PrivilegeService.getSourceTypes(),
+    staleTime: 15 * 60 * 1000,
+  });
+}
+
+/**
  * React Query hooks for the Exceptions & Privileges module.
  * Created: 2026-03-25
  */

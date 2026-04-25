@@ -3,6 +3,9 @@
 
 import { getExotelClient, isExotelConfigured, type ExotelCallRecord } from './exotel-client';
 import { TelephonyService } from './telephony-service';
+import { isAdmissionCall } from './exotel-agent-map';
+import { resolveCounselorIdForCall } from './call-attribution';
+import { exotelTimeToIso } from './exotel-time';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const MODULE = 'telephony/inbound-sync';
@@ -96,6 +99,17 @@ export class InboundCallSyncService {
               latestCallDate = chunkResult.latestCallDate;
             }
           }
+
+          // Persist cursor per-chunk so a mid-run timeout doesn't lose progress.
+          // Next invocation's resolveDateRange() will pick up from this cursor
+          // instead of restarting the full historical backfill.
+          if (latestCallDate) {
+            await InboundCallSyncService.updateSyncMetadata(institutionId, supabase, {
+              status: 'running',
+              last_synced_call_date: latestCallDate,
+              records_synced: result.synced,
+            }).catch(() => {}); // Don't fail the chunk loop on metadata write errors
+          }
         } catch (chunkError) {
           const errMsg = `Chunk ${chunkFrom}–${chunkTo} failed: ${chunkError instanceof Error ? chunkError.message : String(chunkError)}`;
           logger.error(MODULE, errMsg);
@@ -104,13 +118,19 @@ export class InboundCallSyncService {
         }
       }
 
-      // Update sync metadata
-      await InboundCallSyncService.updateSyncMetadata(institutionId, supabase, {
+      // Update sync metadata. Preserve the existing cursor when no records
+      // were processed this run — overwriting with `null` would make the next
+      // run fall back to the 7-day default window, replaying the same records
+      // and hitting the 300s function timeout. See: 2026-04-22 regression.
+      const finalUpdates: Record<string, any> = {
         status: result.errors.length > 0 ? 'partial' : 'success',
-        last_synced_call_date: latestCallDate,
         records_synced: result.synced,
         error_message: result.errors.length > 0 ? result.errors.join('; ') : null,
-      });
+      };
+      if (latestCallDate) {
+        finalUpdates.last_synced_call_date = latestCallDate;
+      }
+      await InboundCallSyncService.updateSyncMetadata(institutionId, supabase, finalUpdates);
 
       logger.info(MODULE, 'Inbound CDR sync completed', {
         institutionId,
@@ -195,11 +215,14 @@ export class InboundCallSyncService {
     const errors: string[] = [];
     let latestCallDate: string | null = null;
 
+    // NOTE: Do NOT pass multi-value Status filter — Exotel's /Calls.json rejects
+    // comma-separated Status with HTTP 400 ("Invalid parameter"). Broke CDR sync
+    // silently 2026-04-11 → 2026-04-21 (10 days of missed webhooks). Exotel's
+    // CDR API only returns terminal-state calls anyway, so this filter is redundant.
     const pages = client.fetchCallRecords({
       direction: 'inbound',
       dateFrom: fromDate,
       dateTo: toDate,
-      status: 'completed,no-answer,busy,failed',
       pageSize: 100,
     });
 
@@ -229,6 +252,18 @@ export class InboundCallSyncService {
           errors.push(msg);
           logger.warn(MODULE, 'Failed to upsert CDR record', { sid: record.Sid, error: msg });
         }
+      }
+
+      // Persist cursor after every page (~100 records) so a mid-chunk timeout
+      // still saves progress. The per-chunk save above only fires after the
+      // whole chunk completes; for a 7-day window that is ONE chunk, so
+      // without this, a timeout anywhere in the page loop wipes all progress.
+      if (latestCallDate) {
+        await InboundCallSyncService.updateSyncMetadata(institutionId, supabase, {
+          status: 'running',
+          last_synced_call_date: latestCallDate,
+          records_synced: synced,
+        }).catch(() => {});
       }
     }
 
@@ -260,7 +295,7 @@ export class InboundCallSyncService {
           duration_seconds: record.Duration ? parseInt(record.Duration, 10) || 0 : null,
           recording_url: record.RecordingUrl || record.PreSignedRecordingUrl || null,
           cost_amount: record.Price ? parseFloat(record.Price) || 0 : null,
-          ended_at: record.EndTime || null,
+          ended_at: exotelTimeToIso(record.EndTime),
           updated_at: new Date().toISOString(),
         })
         .eq('id', existing.id);
@@ -272,6 +307,20 @@ export class InboundCallSyncService {
     const leadId = await TelephonyService.matchLeadByPhone(
       record.From,
       institutionId,
+      supabase
+    );
+
+    // Classify as admission or not, using the same rules the webhook uses
+    // (see exotel-agent-map.isAdmissionCall). Without this, CDR-sourced records
+    // have is_admission_call=null and are invisible to dashboards that filter on
+    // `is_admission_call = true`.
+    const exoPhone = record.PhoneNumber || record.PhoneNumberSid || '';
+    const isAdm = isAdmissionCall(record.To || '', exoPhone);
+
+    // Attribution: resolve counselor_id via lead.assigned_counselor_id first,
+    // then agent-phone → AGENT_MAP → profiles.email. Used to be hardcoded null.
+    const counselorId = await resolveCounselorIdForCall(
+      { leadId, dialWhomNumber: record.To || '' },
       supabase
     );
 
@@ -289,12 +338,13 @@ export class InboundCallSyncService {
         recording_url: record.RecordingUrl || record.PreSignedRecordingUrl || null,
         cost_amount: record.Price ? parseFloat(record.Price) || 0 : null,
         cost_currency: 'INR',
-        started_at: record.StartTime || null,
+        started_at: exotelTimeToIso(record.StartTime),
         answered_at: null,
-        ended_at: record.EndTime || null,
-        created_at: record.StartTime || new Date().toISOString(),
+        ended_at: exotelTimeToIso(record.EndTime),
+        created_at: exotelTimeToIso(record.StartTime) || new Date().toISOString(),
         lead_id: leadId,
-        counselor_id: null,
+        counselor_id: counselorId,
+        is_admission_call: isAdm,
       });
 
     if (error) {
@@ -367,6 +417,14 @@ export class InboundCallSyncService {
 
   /**
    * Chunk a date range into windows of maxDays each (Exotel max is 31 days).
+   *
+   * The range is INCLUSIVE of toStr. Previously used `cursor < to`, which silently
+   * yielded zero chunks when fromStr === toStr — a same-UTC-calendar-day cursor
+   * would cause the cron to report records_synced=0, status=success while Exotel
+   * had unpulled calls. Detected 2026-04-23 after cursor caught up within a single
+   * day (~6h silent run, 43 Apr-23 calls missing). Using `<=` ensures the loop
+   * body runs at least once; Exotel's CDR filter is already inclusive of the
+   * end day (gte:X 00:00:00 ; lte:X 23:59:59 in exotel-client.ts).
    */
   private static *dateChunks(
     fromStr: string,
@@ -376,7 +434,7 @@ export class InboundCallSyncService {
     let cursor = new Date(fromStr);
     const to = new Date(toStr);
 
-    while (cursor < to) {
+    while (cursor <= to) {
       const chunkEnd = new Date(
         Math.min(cursor.getTime() + maxDays * 86400000, to.getTime())
       );

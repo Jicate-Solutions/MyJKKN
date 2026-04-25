@@ -34,9 +34,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const svc = createServiceRoleClient();
 
   // ── 3. Fetch lead ────────────────────────────────────────────────────────────
+  // 2026-04-23: include the admission_year join so we can populate BOTH the FK
+  // (admission_year_id) and the legacy integer (admission_year) on the new
+  // learner profile in one shot — keeps B2A endpoint back-compat without an
+  // extra query.
   const { data: lead, error: leadError } = await (svc as any)
     .from('admission_leads')
-    .select('*')
+    .select('*, admission_year:admission_years(id, program_start_year, program_end_year, admission_year_name)')
     .eq('id', leadId)
     .eq('institution_id', institutionId)
     .single();
@@ -76,6 +80,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     degree_id: lead.degree_id || null,
     department_id: lead.department_id || null,
     program_id: lead.program_id || null,
+    // 2026-04-23: propagate the lead's admission cohort to the new learner.
+    // Before this fix the FK was silently dropped on every conversion (the
+    // very picker a user had filled in on the lead form was thrown away).
+    // We write BOTH columns:
+    //   - admission_year_id (UUID FK): the new source of truth
+    //   - admission_year (INT): legacy column kept for B2A/MCP back-compat
+    //                           (6 endpoints expose ?admission_year=N)
+    admission_year_id: lead.admission_year_id || null,
+    admission_year: lead.admission_year?.program_start_year ?? null,
     // Parent (best-effort)
     father_name: lead.parent_name || '',
     father_mobile: lead.parent_phone || '',
@@ -88,7 +101,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     referred_by_id: lead.referred_by_id || null,
     referred_by_name: lead.referred_by_name || null,
     // Required fields with safe defaults
-    lifecycle_status: 'enquiry',
+    lifecycle_status: 'admitted',
     accommodation_type: 'DAY SCHOLAR',
     entry_type: 'FIRST YEAR',
     last_school: '',

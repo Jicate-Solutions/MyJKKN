@@ -11,7 +11,7 @@ import type {
 export class HostelAllocationService {
   // ── List allocations with filters ─────────────────────────────────
   static async getAllocations(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: AllocationFilters,
     page = 1,
     pageSize = 50
@@ -20,9 +20,9 @@ export class HostelAllocationService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
-        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);
@@ -47,15 +47,15 @@ export class HostelAllocationService {
   }
 
   // ── Active allocations ────────────────────────────────────────────
-  static async getActiveAllocations(institutionId: string, blockId?: string) {
+  static async getActiveAllocations(institutionId: string | undefined, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
         .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)')
-        .eq('institution_id', institutionId)
         .eq('status', 'active');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('allocation_date', { ascending: false });
 

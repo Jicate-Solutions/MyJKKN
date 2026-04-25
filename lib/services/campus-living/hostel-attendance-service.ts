@@ -10,7 +10,7 @@ import type {
 export class HostelAttendanceService {
   // ── List attendance with filters ──────────────────────────────────
   static async getAttendance(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: AttendanceFilters,
     page = 1,
     pageSize = 100
@@ -19,9 +19,9 @@ export class HostelAttendanceService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_attendance')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.date) query = query.eq('date', filters.date);
       if (filters?.status) query = query.eq('evening_status', filters.status);
@@ -42,15 +42,15 @@ export class HostelAttendanceService {
   }
 
   // ── Attendance for a specific date and block ──────────────────────
-  static async getAttendanceByDate(institutionId: string, date: string, blockId?: string) {
+  static async getAttendanceByDate(institutionId: string | undefined, date: string, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_attendance')
         .select('*, learner:profiles!hostel_attendance_learner_id_fkey(id, full_name, email)')
-        .eq('institution_id', institutionId)
         .eq('date', date);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('learner_id');
 
@@ -181,16 +181,16 @@ export class HostelAttendanceService {
   }
 
   // ── Absent learners for a date (absence alerts) ───────────────────
-  static async getAbsentLearners(institutionId: string, date: string, blockId?: string) {
+  static async getAbsentLearners(institutionId: string | undefined, date: string, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_attendance')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('date', date)
         .in('evening_status', ['absent']);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
 
       const { data, error } = await query;
@@ -206,7 +206,7 @@ export class HostelAttendanceService {
   }
 
   // ── Attendance summary for a date ─────────────────────────────────
-  static async getAttendanceSummary(institutionId: string, date: string, blockId?: string) {
+  static async getAttendanceSummary(institutionId: string | undefined, date: string, blockId?: string) {
     try {
       const records = await this.getAttendanceByDate(institutionId, date, blockId);
 
@@ -229,20 +229,21 @@ export class HostelAttendanceService {
 
   // ── Consecutive absence check (for alerts) ────────────────────────
   static async getConsecutiveAbsences(
-    institutionId: string,
+    institutionId: string | undefined,
     learnerId: string,
     days = 3
   ) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_attendance')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('learner_id', learnerId)
         .eq('evening_status', 'absent')
         .order('date', { ascending: false })
         .limit(days);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/attendance', 'Failed to check consecutive absences', error);

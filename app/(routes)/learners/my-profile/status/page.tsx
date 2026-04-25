@@ -6,6 +6,15 @@ import { ProfileStatusClient } from './_components/profile-status-client';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 
+/**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/learners/my-profile',
+} as const;
+
+
 export const metadata = {
   title: 'Profile Change Status | My Profile',
   description: 'View the status and history of your profile change requests',

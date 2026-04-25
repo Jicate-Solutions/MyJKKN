@@ -9,7 +9,7 @@ import type {
 export class MessFeedbackService {
   // ── List feedback ─────────────────────────────────────────────────
   static async getFeedback(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       caterer_id?: string;
       date?: string;
@@ -24,9 +24,9 @@ export class MessFeedbackService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_feedback')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.caterer_id) query = query.eq('caterer_id', filters.caterer_id);
       if (filters?.date) query = query.eq('date', filters.date);
       if (filters?.meal_type) query = query.eq('meal_type', filters.meal_type);
@@ -56,13 +56,13 @@ export class MessFeedbackService {
         .from('mess_feedback')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/feedback', 'Failed to fetch feedback', error);
         throw error;
       }
-      return data as MessFeedback;
+      return data as MessFeedback | null;
     } catch (error) {
       logger.error('campus-living/feedback', 'Unexpected error in getFeedbackById', error);
       throw error;
@@ -199,7 +199,7 @@ export class MessFeedbackService {
 
   // ── Complaints list ───────────────────────────────────────────────
   static async getComplaints(
-    institutionId: string,
+    institutionId: string | undefined,
     page = 1,
     pageSize = 20
   ) {
@@ -207,13 +207,14 @@ export class MessFeedbackService {
       const supabase = createClientSupabaseClient();
       const from = (page - 1) * pageSize;
 
-      const { data, error, count } = await supabase
+      let q = supabase
         .from('mess_feedback')
         .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId)
         .eq('is_complaint', true)
         .order('created_at', { ascending: false })
         .range(from, from + pageSize - 1);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error, count } = await q;
 
       if (error) {
         logger.error('campus-living/feedback', 'Failed to fetch complaints', error);

@@ -57,7 +57,15 @@ export function PushSubscribeButton({
         const reg =
           (await navigator.serviceWorker.getRegistration('/sw-dashboard.js')) ??
           (await navigator.serviceWorker.register('/sw-dashboard.js'));
-        await reg.update();
+        // Best-effort update check. If the registration was invalidated by
+        // another tab or a hot reload between register() and update(), the
+        // browser throws "Not found" — that's transient, not fatal. Push
+        // subscription state is still readable from `reg` below.
+        try {
+          await reg.update();
+        } catch {
+          // ignore — registration is still usable
+        }
 
         if (Notification.permission === 'denied') {
           setState('denied');

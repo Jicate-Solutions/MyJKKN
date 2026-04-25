@@ -292,23 +292,67 @@ export class LeaveOndutyService {
   }
 
   /**
-   * Delete a flow
+   * Delete a flow.
+   *
+   * We can't just count every pending application — applications don't store
+   * which flow handled them (flows are resolved at submit time via
+   * match_leave_onduty_flow). So we replay the flow's own match scope against
+   * pending apps: only block deletion when at least one pending app falls
+   * inside this flow's (institution, dept?, semester?, category?, sub_category?)
+   * envelope. Conditional filters mirror the matcher — a flow with NULL on a
+   * field matches apps with any value for that field.
    */
   static async deleteFlow(flowId: string): Promise<void> {
     const supabase = getSupabase();
 
-    // Check if flow is being used by any pending applications
-    const { count } = await supabase
+    // 1. Load the flow so we know its scope.
+    const { data: flow, error: flowError } = await supabase
+      .from('leave_onduty_approval_flows')
+      .select(
+        'id, institution_id, department_id, semester_id, category, sub_category'
+      )
+      .eq('id', flowId)
+      .maybeSingle();
+
+    if (flowError || !flow) {
+      throw new Error('Flow not found or already deleted.');
+    }
+
+    // 2. Count pending applications that would match this flow's scope.
+    let query = supabase
       .from('leave_onduty_applications')
       .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending');
+      .eq('status', 'pending')
+      .eq('institution_id', flow.institution_id);
 
-    if (count && count > 0) {
+    if (flow.category && flow.category !== 'all') {
+      query = query.eq('category', flow.category);
+    }
+    if (flow.sub_category) {
+      query = query.eq('sub_category', flow.sub_category);
+    }
+    if (flow.department_id) {
+      query = query.eq('department_id', flow.department_id);
+    }
+    if (flow.semester_id) {
+      query = query.eq('semester_id', flow.semester_id);
+    }
+
+    const { count, error: countError } = await query;
+
+    if (countError) {
       throw new Error(
-        'Cannot delete flow that is being used by pending applications. Deactivate instead.'
+        `Failed to check flow usage: ${countError.message}`
       );
     }
 
+    if (count && count > 0) {
+      throw new Error(
+        `Cannot delete flow — ${count} pending application${count === 1 ? '' : 's'} match${count === 1 ? 'es' : ''} its scope. Deactivate the flow instead.`
+      );
+    }
+
+    // 3. Safe to delete.
     const { error } = await supabase
       .from('leave_onduty_approval_flows')
       .delete()
@@ -604,6 +648,18 @@ export class LeaveOndutyService {
       );
     }
 
+    // v2: team OD validation — only onduty can be team, and team ids must be a
+    // non-empty unique set that doesn't include the applicant themselves.
+    const applicableType = data.applicable_type ?? 'individual';
+    if (applicableType === 'team' && data.category !== 'onduty') {
+      throw new Error('Team applications are supported for OnDuty only.');
+    }
+    const teamIds = Array.from(new Set(data.team_member_ids ?? []))
+      .filter((id) => id && id !== learnerId);
+    if (applicableType === 'team' && teamIds.length === 0) {
+      throw new Error('Team application requires at least one team-mate.');
+    }
+
     // Create application
     const { data: application, error: createError } = await supabase
       .from('leave_onduty_applications')
@@ -622,6 +678,7 @@ export class LeaveOndutyService {
         reason: data.reason,
         attachment_url: attachmentUrl,
         status: 'pending',
+        applicable_type: applicableType,
         // When sponsor approval is required, start at step 0 (sponsor gate).
         // The academic chain (HOD → Principal) starts at step 1 once the
         // sponsor approves. This keeps the existing flow unchanged for
@@ -635,6 +692,90 @@ export class LeaveOndutyService {
 
     if (createError) {
       throw new Error(`Failed to create application: ${createError.message}`);
+    }
+
+    // v2: insert team roster. If this fails we roll back the parent application
+    // so we don't leave a half-created team OD hanging around.
+    if (applicableType === 'team' && teamIds.length > 0) {
+      const rows = teamIds.map((lid) => ({
+        application_id: application.id,
+        learner_id: lid,
+      }));
+      const { error: teamError } = await supabase
+        .from('leave_onduty_team_members')
+        .insert(rows);
+
+      if (teamError) {
+        // Best-effort rollback — RLS may prevent the student from deleting
+        // their own application in some edge cases, which is why we log it
+        // explicitly rather than swallowing.
+        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        throw new Error(`Failed to register team members: ${teamError.message}`);
+      }
+    }
+
+    // Seed approval rows from the applicable flow. Without this, the application
+    // sits in pending state forever because approvers query by approver_id on
+    // leave_onduty_approvals. Skip when sponsor pre-approval is required — the
+    // academic chain is seeded after sponsor approves (see processSponsorApproval).
+    if (!requiresSponsor) {
+      const { data: flow } = await supabase
+        .from('leave_onduty_approval_flows')
+        .select('flow_steps')
+        .eq('institution_id', institutionId)
+        .eq('category', data.category)
+        .eq('sub_category', data.sub_category)
+        .eq('is_active', true)
+        .or(`department_id.is.null,department_id.eq.${learner.department_id}`)
+        .order('department_id', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+
+      const steps = (flow?.flow_steps as Array<{ step_order: number; approver_role: string; approver_id?: string | null }> | null) ?? [];
+
+      if (steps.length > 0) {
+        const approvalRows = await Promise.all(
+          steps.map(async (step) => {
+            let approverId = step.approver_id ?? null;
+            if (!approverId) {
+              let q = supabase
+                .from('profiles')
+                .select('id')
+                .eq('role', step.approver_role)
+                .eq('institution_id', institutionId);
+              if (step.approver_role === 'hod' || step.approver_role === 'faculty') {
+                q = q.eq('department_id', learner.department_id);
+              }
+              const { data: approverProfile } = await q
+                .order('created_at', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+              approverId = approverProfile?.id ?? null;
+            }
+            return approverId
+              ? {
+                  application_id: application.id,
+                  approver_id: approverId,
+                  step_order: step.step_order,
+                  approver_role: step.approver_role,
+                  status: 'pending' as const,
+                }
+              : null;
+          })
+        );
+
+        const validRows = approvalRows.filter((r): r is NonNullable<typeof r> => r !== null);
+        if (validRows.length > 0) {
+          const { error: approvalsError } = await supabase
+            .from('leave_onduty_approvals')
+            .insert(validRows);
+
+          if (approvalsError) {
+            await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+            throw new Error(`Failed to seed approvers: ${approvalsError.message}`);
+          }
+        }
+      }
     }
 
     return application;
@@ -839,6 +980,69 @@ export class LeaveOndutyService {
   }
 
   /**
+   * Search team-mates for a team OnDuty application (v2, 2026-04-21).
+   *
+   * Scope: institution-wide ("All Students List" per spec). The applicant
+   * themselves is excluded so they can't add themselves to the roster.
+   * Typical callers: TeamMemberPicker component.
+   */
+  static async searchTeamMembers(params: {
+    institutionId: string;
+    query: string;
+    excludeLearnerId?: string;
+    limit?: number;
+  }): Promise<
+    Array<{
+      id: string;
+      first_name: string;
+      last_name: string;
+      roll_number: string | null;
+      register_number: string | null;
+      student_email: string | null;
+      section_id: string | null;
+      department_id: string | null;
+    }>
+  > {
+    const supabase = getSupabase();
+    const q = params.query.trim();
+    const limit = params.limit ?? 20;
+
+    let query: any = supabase
+      .from('learners_profiles')
+      .select('id, first_name, last_name, roll_number, register_number, student_email, section_id, department_id')
+      .eq('institution_id', params.institutionId)
+      .limit(limit);
+
+    if (params.excludeLearnerId) {
+      query = query.neq('id', params.excludeLearnerId);
+    }
+
+    if (q.length > 0) {
+      // Use or() against name / roll / register / email — wildcard on each side
+      // so the match is substring, case-insensitive.
+      const pattern = `%${q}%`;
+      query = query.or(
+        [
+          `first_name.ilike.${pattern}`,
+          `last_name.ilike.${pattern}`,
+          `roll_number.ilike.${pattern}`,
+          `register_number.ilike.${pattern}`,
+          `student_email.ilike.${pattern}`,
+        ].join(',')
+      );
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('[leave-onduty/team-search] failed', error);
+      throw new Error(`Team member search failed: ${error.message}`);
+    }
+
+    return data || [];
+  }
+
+  /**
    * Get applications by learner with filters
    */
   static async getApplicationsByLearner(
@@ -858,7 +1062,7 @@ export class LeaveOndutyService {
         section:sections(id, section_name),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
         )
       `
       )
@@ -928,7 +1132,7 @@ export class LeaveOndutyService {
         section:sections(id, section_name),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
         )
       `
       )
@@ -991,7 +1195,7 @@ export class LeaveOndutyService {
         section:sections(id, section_name),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
         )
       `
       )
@@ -1637,7 +1841,7 @@ export class LeaveOndutyService {
         section:sections(id, section_name),
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles(id, full_name, email, avatar_url)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email, avatar_url)
         )
       `
       )
@@ -1897,7 +2101,12 @@ export class LeaveOndutyService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Main function to update attendance when application is approved
+   * Main function to update attendance when application is approved.
+   *
+   * v2: for team OnDuty (applicable_type='team'), iterates over every team
+   * member (plus the primary applicant) and marks each one's attendance in
+   * their own section. Team-mates in other sections get their own attendance
+   * record lookup — we don't assume they share a section with the applicant.
    */
   static async updateAttendanceOnApproval(
     applicationId: string
@@ -1932,14 +2141,51 @@ export class LeaveOndutyService {
     // Determine new status based on category
     const newStatus = application.category === 'leave' ? 'absent' : 'onduty';
 
-    // Process each date
-    for (const date of dateRange) {
-      await this.updateAttendanceForDate(
-        application,
-        date,
-        periods,
-        newStatus
-      );
+    // Build the list of (learner_id, section_id) pairs we need to update —
+    // the applicant first, then every team member (for team OD only).
+    const entries: Array<{ learner_id: string; section_id: string | null }> = [
+      { learner_id: application.learner_id, section_id: application.section_id },
+    ];
+
+    if (application.applicable_type === 'team') {
+      // Left join (no !inner) to match CLAUDE.md guidance — a team member
+      // whose learners_profiles row was soft-deleted shouldn't block the rest.
+      const { data: teamRows } = await supabase
+        .from('leave_onduty_team_members')
+        .select('learner_id, learner:learners_profiles(section_id)')
+        .eq('application_id', applicationId);
+
+      if (teamRows && teamRows.length > 0) {
+        for (const row of teamRows as any[]) {
+          entries.push({
+            learner_id: row.learner_id,
+            section_id: row.learner?.section_id ?? null,
+          });
+        }
+      }
+    }
+
+    // Process each member × each date. We pass a "synthetic" application whose
+    // learner_id and section_id reflect the member being processed, since
+    // updateAttendanceForDate reads those fields directly.
+    for (const entry of entries) {
+      if (!entry.section_id) {
+        console.warn('[attendance-integration] Skipping member without section:', entry.learner_id);
+        continue;
+      }
+      const syntheticApp = {
+        ...application,
+        learner_id: entry.learner_id,
+        section_id: entry.section_id,
+      };
+      for (const date of dateRange) {
+        await this.updateAttendanceForDate(
+          syntheticApp as any,
+          date,
+          periods,
+          newStatus
+        );
+      }
     }
   }
 

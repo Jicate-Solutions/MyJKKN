@@ -56,6 +56,7 @@ import {
   useCreateReminder,
   useSearchLeadsForReminder,
 } from '@/hooks/admission/use-reminders';
+import { useMyCounselorId } from '@/hooks/admission/use-counselor-daily-view';
 import type { FollowUpReminder } from '@/lib/services/admission/reminders-service';
 import {
   Bell,
@@ -1104,7 +1105,19 @@ function AdmissionRemindersPageContent() {
   const canCreateReminder = canAccess('admission', 'counselors.create')
     || canAccess('admission', 'counselors.edit');
   const canEditReminder = canAccess('admission', 'counselors.edit');
-  const { reminders, isLoading, refetch } = useFollowUpReminders(institutionId);
+
+  // Scope reminders to the current user's own leads unless they are a manager.
+  // Managers (super admins, admission-global users, users with counselors.performance.view)
+  // see ALL reminders for the institution. Non-manager counselors see ONLY their own.
+  const isManagerView = isSuperAdmin
+    || isAdmissionGlobalUser
+    || canAccess('admission', 'counselors.performance.view');
+  const { data: myCounselorId } = useMyCounselorId(profile?.institution_id);
+  const reminderFilters = !isManagerView && myCounselorId
+    ? { counselorId: myCounselorId }
+    : undefined;
+
+  const { reminders, isLoading, refetch } = useFollowUpReminders(institutionId, reminderFilters);
   const completeReminder = useCompleteReminder();
   const snoozeReminder = useSnoozeReminder();
 

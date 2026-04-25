@@ -121,7 +121,7 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
         {/* Tabs with DataTables */}
         <Tabs defaultValue="enquiries" className="w-full">
           <TabsList>
-            <TabsTrigger value="enquiries">Enquiries</TabsTrigger>
+            <TabsTrigger value="enquiries">Admitted</TabsTrigger>
             <TabsTrigger value="pending">Pending Applications</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="rejected">Rejected</TabsTrigger>
@@ -133,7 +133,7 @@ export default async function EnquiriesPage({ searchParams }: EnquiriesPageProps
               key={`enquiry-${JSON.stringify(params)}`}
               fallback={<TableSkeleton rows={10} columns={8} />}
             >
-              <EnquiriesContent searchParams={params} statusFilter="enquiry" />
+              <EnquiriesContent searchParams={params} statusFilter="admitted" />
             </Suspense>
           </TabsContent>
 

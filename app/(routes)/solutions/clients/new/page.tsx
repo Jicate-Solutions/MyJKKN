@@ -3,8 +3,18 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { NewClientForm } from './_components/new-client-form';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/clients',
+} as const;
+
+
 export const metadata: Metadata = {
-  title: 'Add Client | Solutions Hub',
+  title: 'Add Client',
   description: 'Add a new client to the Solutions Hub',
 };
 

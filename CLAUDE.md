@@ -1,5 +1,11 @@
 # MyJKKN Development Guide
 
+## 🛑 NON-NEGOTIABLE: No Git Worktrees
+
+Never use `git worktree` in this project. Work directly on the main working directory at all times. Do not create, enter, or reference worktrees for any task — bug fixes, features, or experiments.
+
+---
+
 ## 🛑 NON-NEGOTIABLE: Production-Code Sweep Before Any Build Plan
 
 Before proposing ANY build plan, decomposition, 3-PR breakdown, module spec, sprint spec, or routing to `/myjkkn-api`/`/myjkkn-module`: run the production code sweep and include its output in the same response.
@@ -94,14 +100,14 @@ ALTER TABLE students ADD COLUMN new_column TEXT;
 
 ## Supabase MCP
 
-The Supabase MCP server is in **read-only mode** for safety.
+The Supabase MCP server has **full access** (read + write). Use it freely to execute SQL, apply migrations, and manage the database directly.
 
 **Workflow for database changes:**
 1. Check `supabase/SQL_FILE_INDEX.md` before any SQL work
 2. Use Supabase MCP to verify current table structure
 3. Update the appropriate file in `supabase/setup/`
 4. Add comments with date and reason
-5. Test in Supabase Dashboard SQL Editor first
+5. Apply changes directly via Supabase MCP (`execute_sql` or `apply_migration`)
 6. Update `supabase/SQL_FILE_INDEX.md` after changes
 
 **DB conventions:** All tables have `id` (UUID), `created_at`, `updated_at`. Use `snake_case`. Always enable RLS. `institution_id` required for multi-tenant queries.

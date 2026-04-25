@@ -349,7 +349,7 @@ export class LeaveOndutyApprovalService {
         *,
         approvals:leave_onduty_approvals(
           *,
-          approver:profiles(id, full_name, email)
+          approver:profiles!leave_onduty_approvals_approver_id_fkey(id, full_name, email)
         )
       `
       );
@@ -387,6 +387,7 @@ export class LeaveOndutyApprovalService {
         role: step.role,
         description: step.description,
         approver_name: approval?.approver?.full_name || null,
+        approver_email: approval?.approver?.email || null,
         status: approval?.status || 'pending',
         comments: approval?.comments || null,
         action_taken_at: approval?.action_taken_at || null,
@@ -801,5 +802,138 @@ export class LeaveOndutyApprovalService {
       rejected_today: rejectedToday || 0,
       average_turnaround_hours: 0, // TODO: Calculate
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FORWARD (v2, 2026-04-21)
+  // Transfer this step's pending approval to another staff member. The
+  // original approver's row is marked 'forwarded' (audit trail); a NEW
+  // pending row is inserted at the same step_order for the forwarded-to
+  // staff. Application.current_step is unchanged.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Forward a pending approval to another staff member.
+   *
+   * Validation:
+   *   - forwarder must be the currently-pending approver on the application
+   *   - forwarded_to_id must be a profile in the same institution
+   *   - cannot forward to yourself
+   */
+  static async processForward(data: {
+    application_id: string;
+    approver_id: string;
+    forward_to_id: string;
+    comments: string;
+  }): Promise<void> {
+    const supabase = getSupabase();
+
+    if (!data.forward_to_id || data.forward_to_id === data.approver_id) {
+      throw new Error('Please pick a different staff member to forward to.');
+    }
+
+    const { data: application, error: appError } = await supabase
+      .from('leave_onduty_applications')
+      .select('id, institution_id, current_step, status, learner_id, approvals:leave_onduty_approvals(*)')
+      .eq('id', data.application_id)
+      .single();
+
+    if (appError || !application) {
+      throw new Error('Application not found');
+    }
+
+    if (application.status !== 'pending') {
+      throw new Error('Application is not pending approval');
+    }
+
+    const pendingRow = (application.approvals || []).find(
+      (a: any) => a.approver_id === data.approver_id && a.status === 'pending'
+    );
+
+    if (!pendingRow) {
+      throw new Error('You are not the current pending approver for this step.');
+    }
+
+    // Verify the target profile exists in the same institution. Using
+    // maybeSingle so we return a clean error instead of an unhandled rejection
+    // when the id is bogus.
+    const { data: target } = await supabase
+      .from('profiles')
+      .select('id, institution_id, full_name')
+      .eq('id', data.forward_to_id)
+      .maybeSingle();
+
+    if (!target) {
+      throw new Error('Forward target not found.');
+    }
+    if (target.institution_id && target.institution_id !== application.institution_id) {
+      throw new Error('Cannot forward to a staff member outside this institution.');
+    }
+
+    // Mark the current row as forwarded (keeps the audit trail).
+    const { error: markError } = await supabase
+      .from('leave_onduty_approvals')
+      .update({
+        status: 'forwarded',
+        forwarded_to_id: data.forward_to_id,
+        comments: data.comments,
+        action_taken_at: new Date().toISOString(),
+      })
+      .eq('id', pendingRow.id);
+
+    if (markError) {
+      throw new Error(`Failed to mark approval as forwarded: ${markError.message}`);
+    }
+
+    // Insert the new pending row for the forwarded-to staff member at the
+    // same step_order. approver_role inherited from the original row so
+    // downstream logic (dashboard queries, parallel checks) stays consistent.
+    const { error: insertError } = await supabase
+      .from('leave_onduty_approvals')
+      .insert({
+        application_id: data.application_id,
+        step_order: pendingRow.step_order,
+        approver_id: data.forward_to_id,
+        approver_role: pendingRow.approver_role,
+        status: 'pending',
+        forwarded_from_id: data.approver_id,
+      });
+
+    if (insertError) {
+      // Roll the original row back to pending so the application isn't stuck.
+      await supabase
+        .from('leave_onduty_approvals')
+        .update({
+          status: 'pending',
+          forwarded_to_id: null,
+          comments: null,
+          action_taken_at: null,
+        })
+        .eq('id', pendingRow.id);
+      throw new Error(`Failed to forward approval: ${insertError.message}`);
+    }
+
+    // Best-effort activity log — never block the happy path.
+    (async () => {
+      try {
+        const template = AcademicActivityTemplates.leaveOndutyApplicationApproved(
+          application.learner_id || data.application_id
+        );
+        await logActivityClient({
+          userId: data.approver_id,
+          actionType: template.actionType,
+          resourceType: template.resourceType,
+          resourceId: data.application_id,
+          description: `${template.description} (forwarded)`,
+          metadata: {
+            sub_type: template.sub_type,
+            action: 'forwarded',
+            forward_to_id: data.forward_to_id,
+            comments: data.comments,
+          },
+          institutionId: application.institution_id,
+        });
+      } catch { /* never block */ }
+    })();
   }
 }

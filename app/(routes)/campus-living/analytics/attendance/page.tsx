@@ -11,13 +11,16 @@ import {
 } from '@/components/ui/select';
 import { Users, Moon, Sun, Clock } from 'lucide-react';
 import { useState } from 'react';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function AttendanceAnalyticsPage() {
+  // SAMPLE DATA — attendance analytics hook not yet wired (PreviewBanner shown)
   const [period, setPeriod] = useState('30d');
 
   return (
     <ContentLayout title="Attendance Analytics">
       <div className="space-y-6">
+        <PreviewBanner feature="attendance analytics" />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Attendance Pattern Analysis</h1>

@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { AlumniDirectory } from './_components/alumni-directory';
 
 export const metadata: Metadata = {
-  title: 'Alumni Network | Startup Studio',
+  title: 'Alumni Network',
 };
 
 export default function AlumniPage() {

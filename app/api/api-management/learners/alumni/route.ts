@@ -167,6 +167,17 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
+    // 2026-04-23: Deprecation signals when the integer admission_year filter
+    // is used. Consumers should migrate to admission_year_id UUID FK (added
+    // to learners_profiles in same release). Integer retained for ≥1 release.
+    const deprecationHeaders: Record<string, string> = admissionYear
+      ? {
+          Deprecation: 'true',
+          Sunset: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toUTCString(),
+          'X-Deprecation-Notice': 'Filter ?admission_year=INT is deprecated. Use admission_year_id (UUID) in future.',
+        }
+      : {};
+
     // Return response with CORS headers
     return NextResponse.json(
       {
@@ -179,7 +190,7 @@ export async function GET(request: NextRequest) {
           totalPages: count ? Math.ceil(count / limit) : 0
         }
       },
-      { headers: corsHeaders }
+      { headers: { ...corsHeaders, ...deprecationHeaders } }
     );
   } catch (error) {
     console.error('Error fetching alumni:', error);

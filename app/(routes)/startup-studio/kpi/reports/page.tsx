@@ -4,8 +4,17 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { ImpactReportsView } from './_components/impact-reports-view';
 
 export const metadata: Metadata = {
-  title: 'Impact Reports | Startup Studio',
+  title: 'Impact Reports',
 };
+
+/**
+ * navMeta — invoked from the KPI Dashboard via a "View Impact Reports" CTA
+ * for funders / board. Nav-coverage detector
+ * (`scripts/assert-nav-coverage.mjs`) reads this to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/startup-studio/kpi',
+} as const;
 
 export default function ImpactReportsPage() {
   return (

@@ -12,11 +12,8 @@ import {
   Crown,
   Users,
   Network,
-  Building2,
-  ChevronRight,
   Calendar,
-  UserCheck,
-  Layers
+  UserCheck
 } from 'lucide-react';
 
 // Category color map for positions
@@ -53,14 +50,12 @@ export default async function LCStructurePage() {
   let activeTerm: any = null;
   let positions: any[] | null = null;
   let members: any[] | null = null;
-  let chapters: any[] | null = null;
 
   try {
     const [
       termResult,
       positionsResult,
-      membersResult,
-      chaptersResult
+      membersResult
     ] = await Promise.all([
       supabase
         .from('lc_terms')
@@ -71,6 +66,7 @@ export default async function LCStructurePage() {
         .from('lc_positions')
         .select('*')
         .eq('is_active', true)
+        .neq('tier', 'yuva_chapter') // YUVA positions live on the YUVA page, not here
         .order('sort_order', { ascending: true }),
       supabase
         .from('lc_members')
@@ -79,21 +75,12 @@ export default async function LCStructurePage() {
           position:lc_positions(id, title, category, tier),
           user:profiles(id, full_name, email, avatar_url)
         `)
-        .eq('status', 'active'),
-      supabase
-        .from('yuva_chapters')
-        .select(`
-          *,
-          institution:institutions(id, name)
-        `)
-        .eq('is_active', true)
-        .order('name', { ascending: true })
+        .eq('status', 'active')
     ]);
 
     activeTerm = termResult.data;
     positions = positionsResult.data;
     members = membersResult.data;
-    chapters = chaptersResult.data;
   } catch (error) {
     console.error('[learners-council/structure] Error fetching structure data:', error);
   }
@@ -248,68 +235,7 @@ export default async function LCStructurePage() {
         )}
       </div>
 
-      {/* TIER 2: YUVA Chapters */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-blue-600" />
-            Tier 2: YUVA Chapters (Institution-Level)
-          </h2>
-          <Link href="/learners-council/structure/yuva">
-            <Button variant="outline" size="sm">
-              <Layers className="h-4 w-4 mr-1" />
-              Manage YUVA
-            </Button>
-          </Link>
-        </div>
-
-        {chapters && chapters.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {chapters.map((chapter) => (
-              <Link key={chapter.id} href={`/learners-council/structure/yuva/${chapter.id}`}>
-                <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-blue-50 flex items-center justify-center">
-                          <Building2 className="h-5 w-5 text-blue-600" />
-                        </div>
-                        <div>
-                          <h4 className="font-medium text-sm">{chapter.name}</h4>
-                          <p className="text-xs text-muted-foreground">
-                            {(chapter.institution as any)?.name || 'Unknown Institution'}
-                          </p>
-                        </div>
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <Badge variant="outline" className="text-xs">
-                        {chapter.academic_year}
-                      </Badge>
-                      {chapter.is_active && (
-                        <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
-                          Active
-                        </Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <Card className="border-dashed">
-            <CardContent className="py-8 text-center text-muted-foreground">
-              <Building2 className="h-8 w-8 mx-auto mb-2 text-muted-foreground/50" />
-              <p>No YUVA chapters created yet.</p>
-              <Link href="/learners-council/structure/yuva">
-                <Button variant="link" size="sm">Create chapters</Button>
-              </Link>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+      {/* Note: YUVA Chapters is a separate top-level tab — YUVA operates independently from LC */}
     </div>
   );
 }

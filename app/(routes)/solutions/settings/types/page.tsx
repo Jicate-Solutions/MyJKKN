@@ -4,9 +4,18 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SolutionTypesManager } from './_components/solution-types-manager';
 
 export const metadata: Metadata = {
-  title: 'Solution Types | Settings',
+  title: 'Solution Types',
   description: 'Manage solution type categories',
 };
+
+/**
+ * navMeta — invoked from the Solutions Settings landing via a "Manage Types"
+ * CTA. Nav-coverage detector (`scripts/assert-nav-coverage.mjs`) reads this
+ * to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/settings',
+} as const;
 
 export default function SolutionTypesPage() {
   return (

@@ -52,18 +52,11 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { NOTIFICATION_CATEGORIES } from '@/lib/constants/notification-categories';
 
-// Define categories for the dropdown
-const notificationCategories = [
-  'General',
-  'Announcement',
-  'Reminder',
-  'Alert',
-  'Event',
-  'Update',
-  'Maintenance',
-  'Action Required'
-];
+// Use shared canonical list so the filter tabs on /admin/notifications
+// always stay in sync with the options in this dropdown.
+const notificationCategories = NOTIFICATION_CATEGORIES;
 
 const notificationSchema = z.object({
   title: z

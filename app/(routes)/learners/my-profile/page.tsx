@@ -6,7 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 
 export const metadata = {
-  title: 'My Profile | MyJKKN',
+  title: 'My Profile',
   description: 'Manage your profile and account settings',
 };
 

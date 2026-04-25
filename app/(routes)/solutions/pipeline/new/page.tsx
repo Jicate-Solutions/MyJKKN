@@ -3,8 +3,18 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { NewProspectForm } from './_components/new-prospect-form';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/pipeline',
+} as const;
+
+
 export const metadata: Metadata = {
-  title: 'New Prospect | Solutions Hub',
+  title: 'New Prospect',
   description: 'Add a new prospect to the pipeline',
 };
 

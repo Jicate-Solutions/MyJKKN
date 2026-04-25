@@ -37,7 +37,7 @@ export type CreateHealthCaseDTO = Omit<
 
 export class HealthService {
   static async getCases(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: HealthFilters,
     page = 1,
     pageSize = 50
@@ -47,9 +47,9 @@ export class HealthService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let query: any = supabase
         .from('hostel_health_cases')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.severity) query = query.eq('severity', filters.severity);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
@@ -79,12 +79,12 @@ export class HealthService {
         .from('hostel_health_cases')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
       if (error) {
         logger.error('campus-living/health', 'Failed to fetch case', error);
         throw error;
       }
-      return data as HostelHealthCase;
+      return data as HostelHealthCase | null;
     } catch (error) {
       logger.error('campus-living/health', 'Unexpected error in getCase', error);
       throw error;

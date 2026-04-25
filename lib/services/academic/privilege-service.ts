@@ -3,6 +3,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   PrivilegeType,
+  PrivilegeSourceType,
   PrivilegeGroup,
   PrivilegeMember,
   PrivilegeReview,
@@ -76,6 +77,26 @@ export class PrivilegeService {
       logger.error('academic/privileges', 'getPrivilegeTypes error', err);
       throw err;
     }
+  }
+
+  // =====================
+  // SOURCE TYPE REGISTRY
+  // =====================
+
+  /**
+   * Get all registered privilege source types, ordered by sort_order.
+   * Cached 15 min in the hook — this registry rarely changes.
+   */
+  static async getSourceTypes(): Promise<PrivilegeSourceType[]> {
+    const { data, error } = await this.supabase
+      .from('privilege_source_types')
+      .select('*')
+      .order('sort_order');
+    if (error) {
+      logger.error('academic/privileges', 'getSourceTypes failed', error);
+      throw new Error('Failed to load privilege source types');
+    }
+    return (data ?? []) as PrivilegeSourceType[];
   }
 
   // =====================
@@ -232,6 +253,8 @@ export class PrivilegeService {
           is_template: dto.is_template ?? false,
           template_name: dto.template_name ?? null,
           created_by: dto.created_by,
+          source_kind: dto.source_kind ?? 'manual',
+          source_config: dto.source_config ?? {},
         })
         .select()
         .single();
@@ -704,54 +727,68 @@ export class PrivilegeService {
    */
   static async getActivePrivilegesForLearner(learnerId: string): Promise<ActivePrivilegeInfo[]> {
     try {
-      const { data, error } = await this.supabase
-        .from('privilege_members')
-        .select(
-          `id,
-          group_id,
-          status,
-          renewal_status,
-          start_date,
-          end_date,
-          group:privilege_groups!privilege_members_group_id_fkey(
-            id, name, reference_code, status,
-            privilege_group_types(
-              config,
-              privilege_type:privilege_types(key, name, category)
-            )
-          )`
-        )
+      // Read from the unified view: serves manual groups AND lc_members-sourced
+      // groups (e.g. Learners Council) with identical semantics.
+      const { data: memberships, error: mErr } = await this.supabase
+        .from('v_privilege_memberships_effective')
+        .select('id, group_id, status, renewal_status, start_date, end_date')
         .eq('learner_id', learnerId)
         .eq('status', 'active')
         .in('renewal_status', ['active', 'pending_report', 'pending_review', 'paused']);
 
-      if (error) {
-        logger.error('academic/privileges', 'Failed to fetch learner privileges', error);
+      if (mErr) {
+        logger.error('academic/privileges', 'Failed to fetch learner privileges', mErr);
         throw new Error('Failed to fetch learner privileges');
       }
 
-      if (!data || data.length === 0) return [];
+      if (!memberships || memberships.length === 0) return [];
 
-      // Map to ActivePrivilegeInfo shape, filtering to only active groups
-      return data
-        .filter((row: any) => row.group?.status === 'active')
-        .map((row: any) => ({
-          group_id: row.group.id,
-          group_name: row.group.name,
-          reference_code: row.group.reference_code,
-          group_status: row.group.status,
-          member_id: row.id,
-          member_status: row.status,
-          renewal_status: row.renewal_status ?? 'active',
-          start_date: row.start_date,
-          end_date: row.end_date,
-          privilege_types: (row.group.privilege_group_types ?? []).map((gt: any) => ({
-            key: gt.privilege_type?.key ?? '',
-            name: gt.privilege_type?.name ?? '',
-            category: gt.privilege_type?.category ?? 'other',
-            config: gt.config ?? {},
-          })),
-        }));
+      const groupIds: string[] = Array.from(
+        new Set(memberships.map((m: any) => m.group_id).filter(Boolean)),
+      );
+
+      const { data: groups, error: gErr } = await this.supabase
+        .from('privilege_groups')
+        .select(
+          `id, name, reference_code, status,
+          privilege_group_types(
+            config,
+            privilege_type:privilege_types(key, name, category)
+          )`,
+        )
+        .in('id', groupIds)
+        .eq('status', 'active');
+
+      if (gErr) {
+        logger.error('academic/privileges', 'Failed to hydrate privilege groups', gErr);
+        throw new Error('Failed to fetch learner privileges');
+      }
+
+      const groupsById = new Map<string, any>((groups ?? []).map((g: any) => [g.id, g]));
+
+      return memberships
+        .map((row: any) => {
+          const group = groupsById.get(row.group_id);
+          if (!group) return null;
+          return {
+            group_id: group.id,
+            group_name: group.name,
+            reference_code: group.reference_code,
+            group_status: group.status,
+            member_id: row.id,
+            member_status: row.status,
+            renewal_status: row.renewal_status ?? 'active',
+            start_date: row.start_date,
+            end_date: row.end_date,
+            privilege_types: (group.privilege_group_types ?? []).map((gt: any) => ({
+              key: gt.privilege_type?.key ?? '',
+              name: gt.privilege_type?.name ?? '',
+              category: gt.privilege_type?.category ?? 'other',
+              config: gt.config ?? {},
+            })),
+          };
+        })
+        .filter((r: any): r is ActivePrivilegeInfo => r !== null);
     } catch (err) {
       logger.error('academic/privileges', 'getActivePrivilegesForLearner error', err);
       throw err;
@@ -777,43 +814,55 @@ export class PrivilegeService {
     }>
   > {
     try {
-      const { data, error } = await this.supabase
-        .from('privilege_members')
-        .select(
-          `id,
-          group_id,
-          status,
-          renewal_status,
-          start_date,
-          end_date,
-          group:privilege_groups!privilege_members_group_id_fkey(
-            id, name, reference_code, status
-          )`
-        )
+      // Read from unified view — manual + lc_members-sourced surface identically.
+      const { data: memberships, error: mErr } = await this.supabase
+        .from('v_privilege_memberships_effective')
+        .select('id, group_id, status, renewal_status, start_date, end_date')
         .eq('learner_id', learnerId)
-        .eq('status', 'active') // member must not be revoked
+        .eq('status', 'active')
         .in('renewal_status', ['active', 'pending_report', 'pending_review', 'paused']);
 
-      if (error) {
-        logger.error('academic/privileges', 'getLearnerPrivilegeMemberships error', error);
+      if (mErr) {
+        logger.error('academic/privileges', 'getLearnerPrivilegeMemberships error', mErr);
         throw new Error('Failed to fetch learner privilege memberships');
       }
 
-      if (!data || data.length === 0) return [];
+      if (!memberships || memberships.length === 0) return [];
 
-      return data
-        .filter((row: any) => row.group?.status === 'active')
-        .map((row: any) => ({
-          member_id: row.id,
-          group_id: row.group.id,
-          group_name: row.group.name,
-          reference_code: row.group.reference_code,
-          group_status: row.group.status,
-          member_status: row.status,
-          renewal_status: row.renewal_status,
-          start_date: row.start_date,
-          end_date: row.end_date,
-        }));
+      const groupIds: string[] = Array.from(
+        new Set(memberships.map((m: any) => m.group_id).filter(Boolean)),
+      );
+
+      const { data: groups, error: gErr } = await this.supabase
+        .from('privilege_groups')
+        .select('id, name, reference_code, status')
+        .in('id', groupIds)
+        .eq('status', 'active');
+
+      if (gErr) {
+        logger.error('academic/privileges', 'group hydration error', gErr);
+        throw new Error('Failed to fetch learner privilege memberships');
+      }
+
+      const groupsById = new Map<string, any>((groups ?? []).map((g: any) => [g.id, g]));
+
+      return memberships
+        .map((row: any) => {
+          const group = groupsById.get(row.group_id);
+          if (!group) return null;
+          return {
+            member_id: row.id,
+            group_id: group.id,
+            group_name: group.name,
+            reference_code: group.reference_code,
+            group_status: group.status,
+            member_status: row.status,
+            renewal_status: row.renewal_status,
+            start_date: row.start_date,
+            end_date: row.end_date,
+          };
+        })
+        .filter((r: any): r is NonNullable<typeof r> => r !== null);
     } catch (err) {
       logger.error('academic/privileges', 'getLearnerPrivilegeMemberships error', err);
       throw err;
@@ -833,38 +882,48 @@ export class PrivilegeService {
     if (learnerIds.length === 0) return resultMap;
 
     try {
-      const { data, error } = await this.supabase
-        .from('privilege_members')
-        .select(
-          `id,
-          learner_id,
-          group_id,
-          status,
-          renewal_status,
-          start_date,
-          end_date,
-          group:privilege_groups!privilege_members_group_id_fkey(
-            id, name, reference_code, status,
-            privilege_group_types(
-              config,
-              privilege_type:privilege_types(key, name, category)
-            )
-          )`
-        )
+      // Read from unified view — includes lc_members-sourced memberships
+      // (e.g. Learners Council) so attendance OD + dashboard badges see them.
+      const { data: memberships, error: mErr } = await this.supabase
+        .from('v_privilege_memberships_effective')
+        .select('id, learner_id, group_id, status, renewal_status, start_date, end_date')
         .in('learner_id', learnerIds)
         .eq('status', 'active')
         .eq('renewal_status', 'active');
 
-      if (error) {
-        logger.error('academic/privileges', 'Failed to batch fetch learner privileges', error);
+      if (mErr) {
+        logger.error('academic/privileges', 'Failed to batch fetch learner privileges', mErr);
         throw new Error('Failed to fetch learner privileges');
       }
 
-      if (!data || data.length === 0) return resultMap;
+      if (!memberships || memberships.length === 0) return resultMap;
 
-      // Group results by learner_id
-      for (const row of data as any[]) {
-        if (row.group?.status !== 'active') continue;
+      const groupIds: string[] = Array.from(
+        new Set(memberships.map((m: any) => m.group_id).filter(Boolean)),
+      );
+
+      const { data: groups, error: gErr } = await this.supabase
+        .from('privilege_groups')
+        .select(
+          `id, name, reference_code, status,
+          privilege_group_types(
+            config,
+            privilege_type:privilege_types(key, name, category)
+          )`,
+        )
+        .in('id', groupIds)
+        .eq('status', 'active');
+
+      if (gErr) {
+        logger.error('academic/privileges', 'batch group hydration failed', gErr);
+        throw new Error('Failed to fetch learner privileges');
+      }
+
+      const groupsById = new Map<string, any>((groups ?? []).map((g: any) => [g.id, g]));
+
+      for (const row of memberships as any[]) {
+        const group = groupsById.get(row.group_id);
+        if (!group) continue;
 
         const learnerId = row.learner_id as string;
         if (!resultMap.has(learnerId)) {
@@ -872,16 +931,16 @@ export class PrivilegeService {
         }
 
         resultMap.get(learnerId)!.push({
-          group_id: row.group.id,
-          group_name: row.group.name,
-          reference_code: row.group.reference_code,
-          group_status: row.group.status,
+          group_id: group.id,
+          group_name: group.name,
+          reference_code: group.reference_code,
+          group_status: group.status,
           member_id: row.id,
           member_status: row.status,
           renewal_status: row.renewal_status || 'active',
           start_date: row.start_date,
           end_date: row.end_date,
-          privilege_types: (row.group.privilege_group_types ?? []).map((gt: any) => ({
+          privilege_types: (group.privilege_group_types ?? []).map((gt: any) => ({
             key: gt.privilege_type?.key ?? '',
             name: gt.privilege_type?.name ?? '',
             category: gt.privilege_type?.category ?? 'other',

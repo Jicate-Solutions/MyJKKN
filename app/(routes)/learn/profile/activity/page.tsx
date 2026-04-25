@@ -31,6 +31,15 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/learn/profile',
+} as const;
+
+
 // Activity event type configuration
 const EVENT_TYPE_CONFIG: Record<string, { label: string; icon: typeof BookOpen; color: string; bgColor: string }> = {
   lesson: {

@@ -23,7 +23,7 @@ export function useHostelIncidents(institutionId: string | undefined, filters?: 
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelIncidentKeys.list({ institutionId, ...filters }),
-    queryFn: () => IncidentService.getIncidents(institutionId as string, filters),
+    queryFn: () => IncidentService.getIncidents(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

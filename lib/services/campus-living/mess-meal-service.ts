@@ -12,7 +12,7 @@ import type {
 export class MessMealService {
   // ── List meal records with filters ────────────────────────────────
   static async getMealRecords(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: MealRecordFilters,
     page = 1,
     pageSize = 100
@@ -21,9 +21,9 @@ export class MessMealService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_meal_records')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.date) query = query.eq('date', filters.date);
       if (filters?.meal_type) query = query.eq('meal_type', filters.meal_type);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
@@ -51,13 +51,13 @@ export class MessMealService {
         .from('mess_meal_records')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/meals', 'Failed to fetch meal record', error);
         throw error;
       }
-      return data as MessMealRecord;
+      return data as MessMealRecord | null;
     } catch (error) {
       logger.error('campus-living/meals', 'Unexpected error in getMealRecord', error);
       throw error;
@@ -183,16 +183,16 @@ export class MessMealService {
   }
 
   // ── Meal count for a date and meal type ───────────────────────────
-  static async getMealCount(institutionId: string, date: string, mealType?: MealType) {
+  static async getMealCount(institutionId: string | undefined, date: string, mealType?: MealType) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_meal_records')
         .select('*', { count: 'exact', head: true })
-        .eq('institution_id', institutionId)
         .eq('date', date)
         .eq('consumed', true);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (mealType) query = query.eq('meal_type', mealType);
 
       const { count, error } = await query;
@@ -209,16 +209,16 @@ export class MessMealService {
 
   // ── Meal bookings ─────────────────────────────────────────────────
   static async getBookings(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { learner_id?: string; date?: string; meal_type?: MealType; status?: BookingStatus }
   ) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_meal_bookings')
-        .select('*')
-        .eq('institution_id', institutionId);
+        .select('*');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
       if (filters?.date) query = query.eq('date', filters.date);
       if (filters?.meal_type) query = query.eq('meal_type', filters.meal_type);

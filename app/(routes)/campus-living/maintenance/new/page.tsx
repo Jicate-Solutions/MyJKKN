@@ -20,6 +20,16 @@ import { useAuth } from '@/hooks/use-auth';
 import { useCreateHostelMaintenance } from '@/hooks/campus-living/use-hostel-maintenance';
 import type { CreateHostelMaintenanceRequestDTO } from '@/types/campus-living';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/campus-living/maintenance',
+} as const;
+
+
 export default function NewMaintenanceRequestPage() {
   const router = useRouter();
   const { profile } = useAuth();

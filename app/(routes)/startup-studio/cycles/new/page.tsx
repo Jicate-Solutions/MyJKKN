@@ -3,8 +3,18 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { NewCycleForm } from './_components/new-cycle-form';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/startup-studio/cycles',
+} as const;
+
+
 export const metadata: Metadata = {
-  title: 'New Cycle | Startup Studio',
+  title: 'New Cycle',
   description: 'Start a new innovation cycle',
 };
 

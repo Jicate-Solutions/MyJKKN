@@ -58,7 +58,7 @@ export type CreateTaskDTO = Omit<
 export class HousekeepingService {
   // ── Schedules ──────────────────────────────────────────────────────
   static async getSchedules(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: ScheduleFilters,
     page = 1,
     pageSize = 50
@@ -68,9 +68,9 @@ export class HousekeepingService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let query: any = supabase
         .from('hostel_cleaning_schedules')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.is_active !== undefined) query = query.eq('is_active', filters.is_active);
 
@@ -147,7 +147,7 @@ export class HousekeepingService {
 
   // ── Tasks ──────────────────────────────────────────────────────────
   static async getTasks(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: TaskFilters,
     page = 1,
     pageSize = 50
@@ -157,9 +157,9 @@ export class HousekeepingService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let query: any = supabase
         .from('hostel_cleaning_tasks')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.cleaning_type) query = query.eq('cleaning_type', filters.cleaning_type);

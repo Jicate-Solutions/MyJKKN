@@ -1,6 +1,6 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -8,7 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useHostelAllocation } from '@/hooks/campus-living/use-hostel-allocations';
+import { VacateDialog } from '../_components/vacate-dialog';
+import { TransferDialog } from '../_components/transfer-dialog';
+import { EditDetailsDrawer } from '../_components/edit-details-drawer';
 import {
   ArrowLeft,
   User,
@@ -22,7 +26,8 @@ import {
   MapPin,
   Heart,
   AlertTriangle,
-  CreditCard
+  CreditCard,
+  PencilLine
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
@@ -39,7 +44,18 @@ const getJoined = (row: any, relation: string, field: string): string =>
 export default function AllocationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
+  const { permissions, isSuperAdmin } = usePermissions();
   const { data: allocation, isLoading } = useHostelAllocation(id);
+  const [vacateOpen, setVacateOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+
+  // Gate the Edit Details button with the dynamic permission system —
+  // super_admin bypass OR explicit `campus_living.allocations.edit` grant.
+  // Hook returns `permissions` as Record<string, boolean>, not string[] —
+  // use bracket lookup (pattern established in PR #395, fixed in #407).
+  const canEditDetails =
+    isSuperAdmin || !!permissions?.['campus_living.allocations.edit'];
 
   if (isLoading || !allocation) {
     return (
@@ -91,12 +107,18 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
             </div>
           </div>
           {allocation.status === 'active' && (
-            <div className="flex gap-2">
-              <Button variant="outline">
+            <div className="flex flex-wrap gap-2">
+              {canEditDetails && (
+                <Button variant="outline" onClick={() => setEditOpen(true)}>
+                  <PencilLine className="mr-2 h-4 w-4" />
+                  Edit Details
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setTransferOpen(true)}>
                 <ArrowRightLeft className="mr-2 h-4 w-4" />
                 Transfer
               </Button>
-              <Button variant="destructive">
+              <Button variant="destructive" onClick={() => setVacateOpen(true)}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Vacate
               </Button>
@@ -274,6 +296,25 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
           </div>
         </div>
       </div>
+
+      <VacateDialog
+        allocationId={id}
+        open={vacateOpen}
+        onOpenChange={setVacateOpen}
+      />
+      <TransferDialog
+        allocationId={id}
+        currentBlockId={alloc.block_id}
+        currentRoomId={alloc.room_id}
+        currentBedId={alloc.bed_id}
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+      />
+      <EditDetailsDrawer
+        allocation={allocation}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
     </ContentLayout>
   );
 }

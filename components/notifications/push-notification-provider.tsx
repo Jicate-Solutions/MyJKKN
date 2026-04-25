@@ -89,6 +89,16 @@ export function PushNotificationProvider({
   useEffect(() => {
     if (!state.isSupported) return;
 
+    // Serwist only generates a valid /sw.js in production builds. In dev
+    // the file is either missing or a stale artifact from a past prod build
+    // whose precache manifest 404s against the current dev bundle
+    // (bad-precaching-response). Skip registration entirely in dev — push
+    // testing happens in prod/preview deployments.
+    if (process.env.NODE_ENV !== 'production') {
+      setState((prev) => ({ ...prev, isLoading: false }));
+      return;
+    }
+
     const init = async () => {
       try {
         // Get or register service worker
@@ -170,6 +180,12 @@ export function PushNotificationProvider({
   //     but the user previously granted permission.
   useEffect(() => {
     if (!state.isSupported || state.isLoading) return;
+
+    // Match the init effect above: push testing only happens in prod/preview.
+    // In dev there is no registered SW for /sw.js, so subscribe() would loop
+    // forever with AbortError / storage-error spam whenever a user previously
+    // granted notification permission in a prod build.
+    if (process.env.NODE_ENV !== 'production') return;
 
     // Permission granted but no active subscription → re-subscribe silently
     if (state.permission === 'granted' && !state.isSubscribed) {

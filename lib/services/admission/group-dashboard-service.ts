@@ -74,15 +74,45 @@ export class GroupDashboardService {
       throw leadsError;
     }
 
-    // Get seat configs
-    const currentYear = new Date().getFullYear();
-    const academicYear = `${currentYear}-${(currentYear + 1).toString().slice(2)}`;
+    // Seat Configuration writes to `intake_history`. The old code read from a
+    // nonexistent `institution_seat_config` table so totals always came back 0.
+    // The overview tab has no AY filter — users expect to see their *most recently
+    // configured* seats per program. Picking a single "current AY" per institution
+    // is unreliable (institutions commonly have multiple overlapping active AYs
+    // like "2025-2026", "2025-2026 Additional 1", etc.). So instead we read the
+    // latest intake_history row per (institution, program) by updated_at desc and
+    // fall back to programs.sanctioned_intake for programs never configured.
+    const [{ data: programsData }, { data: ihData }] = await Promise.all([
+      (this.supabase as any)
+        .from('programs')
+        .select('id, institution_id, sanctioned_intake')
+        .in('institution_id', resolvedInstitutionIds)
+        .eq('is_active', true),
+      (this.supabase as any)
+        .from('intake_history')
+        .select('program_id, sanctioned_intake, updated_at')
+        .in('institution_id', resolvedInstitutionIds)
+        .order('updated_at', { ascending: false }),
+    ]);
 
-    const { data: seatData } = await (this.supabase as any)
-      .from('institution_seat_config')
-      .select('institution_id, total_seats')
-      .in('institution_id', resolvedInstitutionIds)
-      .eq('academic_year', academicYear);
+    // First row wins per program_id — ordered by updated_at desc above.
+    const ihByProgram = new Map<string, number>();
+    for (const r of (ihData ?? []) as Array<{
+      program_id: string;
+      sanctioned_intake: number;
+    }>) {
+      if (!ihByProgram.has(r.program_id)) ihByProgram.set(r.program_id, r.sanctioned_intake);
+    }
+
+    const seatData: Array<{ institution_id: string; total_seats: number }> = [];
+    for (const p of (programsData ?? []) as Array<{
+      id: string;
+      institution_id: string;
+      sanctioned_intake: number | null;
+    }>) {
+      const seats = ihByProgram.get(p.id) ?? p.sanctioned_intake ?? 0;
+      if (seats > 0) seatData.push({ institution_id: p.institution_id, total_seats: seats });
+    }
 
     // Aggregate by institution
     const leadsByInst = new Map<string, { total: number; applied: number; enrolled: number }>();
@@ -161,12 +191,10 @@ export class GroupDashboardService {
   }
 
   static async getSeatAnalytics(
-    institutionId?: string,
-    academicYearId?: string
+    institutionId?: string
   ): Promise<SeatAnalyticsRow[]> {
     const { data, error } = await (this.supabase as any).rpc('get_seat_analytics', {
       p_institution_id: institutionId ?? null,
-      p_academic_year_id: academicYearId ?? null,
     });
     if (error) {
       console.error('[admission/group] get_seat_analytics failed:', error);
@@ -205,13 +233,11 @@ export class GroupDashboardService {
     return (data ?? []) as GeographyAnalyticsRow[];
   }
 
-  static async getInstitutionComparison(
-    academicYearId?: string
-  ): Promise<InstitutionComparisonRow[]> {
+  static async getInstitutionComparison(): Promise<InstitutionComparisonRow[]> {
     const [seatRows, sourceRows, geoRows] = await Promise.all([
-      this.getSeatAnalytics(undefined, academicYearId),
-      this.getSourceAnalytics(undefined, academicYearId),
-      this.getGeographyAnalytics(undefined, academicYearId),
+      this.getSeatAnalytics(),
+      this.getSourceAnalytics(),
+      this.getGeographyAnalytics(),
     ]);
 
     // Aggregate seat data per institution

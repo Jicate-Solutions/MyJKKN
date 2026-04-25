@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { NextRequest, NextResponse, connection } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { authenticateApiKey, resolveInstitutionId } from '@/lib/api-keys/authenticate';
 import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
@@ -34,21 +34,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Step 3: Resolve institution scope
   const institutionId = resolveInstitutionId(context, request);
 
-  // Step 4: Extract request meta ONCE — used in audit log regardless of outcome
+  // Step 4: Extract request meta ONCE
   const { ipAddress, userAgent } = extractRequestMeta(request);
 
-  // Step 5: Fetch aggregate counts in parallel — one query per status
+  // Step 5: Fetch aggregate counts in parallel — one query per status.
+  // Also emergency + sla_breached counters (NAAC 7.7.1 surfaces these).
   type DashboardData = {
     byStatus: {
-      draft: number;
-      submitted: number;
-      in_review: number;
-      approved: number;
-      rejected: number;
-      returned: number;
-      fulfilled: number;
+      open: number;
+      in_progress: number;
+      pending_info: number;
+      resolved: number;
       closed: number;
-      cancelled: number;
+      reopened: number;
+    };
+    flags: {
+      emergency_open: number;
+      sla_breached: number;
     };
     summary: {
       total: number;
@@ -65,50 +67,61 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const supabase = createServiceRoleClient();
 
-    const makeCountQuery = (status: string) => {
-      let q = supabase
-        .from('service_requests')
+    const makeCountQueryByStatus = (status: string) => {
+      const base = supabase
+        .from('grievance_tickets')
         .select('id', { count: 'exact', head: true })
         .eq('status', status);
-      if (institutionId) {
-        q = q.eq('institution_id', institutionId);
-      }
-      return q;
+      return institutionId ? base.eq('institution_id', institutionId) : base;
     };
 
+    const emergencyOpenQuery = (() => {
+      const base = supabase
+        .from('grievance_tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('is_emergency', true)
+        .not('status', 'in', '(resolved,closed)');
+      return institutionId ? base.eq('institution_id', institutionId) : base;
+    })();
+
+    const slaBreachedQuery = (() => {
+      const base = supabase
+        .from('grievance_tickets')
+        .select('id', { count: 'exact', head: true })
+        .eq('sla_status', 'breached')
+        .not('status', 'in', '(resolved,closed)');
+      return institutionId ? base.eq('institution_id', institutionId) : base;
+    })();
+
     const [
-      draftResult,
-      submittedResult,
-      inReviewResult,
-      approvedResult,
-      rejectedResult,
-      returnedResult,
-      fulfilledResult,
+      openResult,
+      inProgressResult,
+      pendingInfoResult,
+      resolvedResult,
       closedResult,
-      cancelledResult,
+      reopenedResult,
+      emergencyOpenResult,
+      slaBreachedResult,
     ] = await Promise.all([
-      makeCountQuery('draft'),
-      makeCountQuery('submitted'),
-      makeCountQuery('in_review'),
-      makeCountQuery('approved'),
-      makeCountQuery('rejected'),
-      makeCountQuery('returned'),
-      makeCountQuery('fulfilled'),
-      makeCountQuery('closed'),
-      makeCountQuery('cancelled'),
+      makeCountQueryByStatus('open'),
+      makeCountQueryByStatus('in_progress'),
+      makeCountQueryByStatus('pending_info'),
+      makeCountQueryByStatus('resolved'),
+      makeCountQueryByStatus('closed'),
+      makeCountQueryByStatus('reopened'),
+      emergencyOpenQuery,
+      slaBreachedQuery,
     ]);
 
-    // Check ALL 9 results for errors
     const firstError = [
-      draftResult,
-      submittedResult,
-      inReviewResult,
-      approvedResult,
-      rejectedResult,
-      returnedResult,
-      fulfilledResult,
+      openResult,
+      inProgressResult,
+      pendingInfoResult,
+      resolvedResult,
       closedResult,
-      cancelledResult,
+      reopenedResult,
+      emergencyOpenResult,
+      slaBreachedResult,
     ].find(r => r.error)?.error;
 
     if (firstError) {
@@ -118,32 +131,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         { status: 500 }
       );
     } else {
-      const draft = draftResult.count ?? 0;
-      const submitted = submittedResult.count ?? 0;
-      const in_review = inReviewResult.count ?? 0;
-      const approved = approvedResult.count ?? 0;
-      const rejected = rejectedResult.count ?? 0;
-      const returned = returnedResult.count ?? 0;
-      const fulfilled = fulfilledResult.count ?? 0;
+      const open = openResult.count ?? 0;
+      const in_progress = inProgressResult.count ?? 0;
+      const pending_info = pendingInfoResult.count ?? 0;
+      const resolved = resolvedResult.count ?? 0;
       const closed = closedResult.count ?? 0;
-      const cancelled = cancelledResult.count ?? 0;
+      const reopened = reopenedResult.count ?? 0;
+      const emergency_open = emergencyOpenResult.count ?? 0;
+      const sla_breached = slaBreachedResult.count ?? 0;
 
-      const total = draft + submitted + in_review + approved + rejected + returned + fulfilled + closed + cancelled;
-      const active = submitted + in_review;
-      const completed = approved + fulfilled + closed;
+      const total = open + in_progress + pending_info + resolved + closed + reopened;
+      const active = open + in_progress + pending_info + reopened;
+      const completed = resolved + closed;
       const resolutionRate = total > 0 ? Math.round((completed / total) * 1000) / 10 : 0;
 
       dashboardData = {
         byStatus: {
-          draft,
-          submitted,
-          in_review,
-          approved,
-          rejected,
-          returned,
-          fulfilled,
+          open,
+          in_progress,
+          pending_info,
+          resolved,
           closed,
-          cancelled,
+          reopened,
+        },
+        flags: {
+          emergency_open,
+          sla_breached,
         },
         summary: {
           total,

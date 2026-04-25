@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -100,7 +101,14 @@ export default function AttendanceHistoryPage() {
               </p>
             </div>
           </div>
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() =>
+              toast.info('Attendance-history CSV export ships next.', {
+                description: 'CSV download will be available once the export endpoint is live.',
+              })
+            }
+          >
             <Download className="mr-2 h-4 w-4" />
             Export CSV
           </Button>

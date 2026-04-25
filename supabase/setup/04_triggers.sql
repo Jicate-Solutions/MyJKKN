@@ -899,3 +899,51 @@ CREATE TRIGGER trg_notify_push_on_queue_insert
   AFTER INSERT ON public.user_notifications
   FOR EACH ROW
   EXECUTE FUNCTION public.trg_notify_push_on_queue_insert_fn();
+
+-- =====================================================================
+-- Updated: 2026-04-21 - BUG-003146 expo_event_stalls updated_at trigger
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION touch_expo_event_stalls_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_expo_event_stalls_touch ON expo_event_stalls;
+CREATE TRIGGER trg_expo_event_stalls_touch
+  BEFORE UPDATE ON expo_event_stalls
+  FOR EACH ROW
+  EXECUTE FUNCTION touch_expo_event_stalls_updated_at();
+
+-- END BUG-003146 expo_event_stalls trigger
+
+-- =====================================================
+-- learners_profiles admission_year_id scope validator — Added 2026-04-23
+-- Fires BEFORE INSERT/UPDATE OF admission_year_id, institution_id, program_id.
+-- Calls validate_learner_admission_year_scope() (02_functions.sql) which
+-- rejects cross-institution / cross-program FK attachment.
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_validate_learner_admission_year_scope
+  ON public.learners_profiles;
+
+CREATE TRIGGER trg_validate_learner_admission_year_scope
+  BEFORE INSERT OR UPDATE OF admission_year_id, institution_id, program_id
+  ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.validate_learner_admission_year_scope();
+
+-- =====================================================================
+-- Updated: 2026-04-24 - Auto-assign counselor on admission_leads INSERT
+-- Pairs with fn_auto_assign_counselor() in 02_functions.sql.
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_admission_leads_auto_assign_counselor ON admission_leads;
+
+CREATE TRIGGER trg_admission_leads_auto_assign_counselor
+  BEFORE INSERT ON admission_leads
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_auto_assign_counselor();

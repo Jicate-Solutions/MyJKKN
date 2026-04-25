@@ -105,7 +105,7 @@ export function DataTableRowActions<TData>({
       await deleteMutation.mutateAsync(learner.id);
       console.log('[enquiries/row-actions] Delete mutation completed');
 
-      toast.success('Enquiry deleted successfully');
+      toast.success('Admitted deleted successfully');
 
       // Close dialog first to clear component state
       console.log('[enquiries/row-actions] Closing dialog');
@@ -141,7 +141,7 @@ export function DataTableRowActions<TData>({
     });
 
     try {
-      // Use OnboardingService.markAsAccount for 'account' status — validates finance fields & auto-creates bills
+      // Use OnboardingService.markAsAccount for 'account' status — validates finance fields. Bills are NOT auto-created; accounts team creates them manually from the onboarding page.
       if (selectedStatus === 'account') {
         await markAsAccountMutation.mutateAsync(learner.id);
       } else {
@@ -166,7 +166,7 @@ export function DataTableRowActions<TData>({
       }
 
       const statusLabels: Record<string, string> = {
-        enquiry: 'Enquiry',
+        admitted: 'Admitted',
         pending: 'Pending Application',
         account: 'Account (Sent to Billing)',
         rejected: 'Rejected',
@@ -238,8 +238,8 @@ export function DataTableRowActions<TData>({
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   <DropdownMenuItem
-                    onClick={() => handleStatusUpdate('enquiry')}
-                    disabled={learner.lifecycle_status === 'enquiry' || updateMutation.isPending}
+                    onClick={() => handleStatusUpdate('admitted')}
+                    disabled={learner.lifecycle_status === 'admitted' || updateMutation.isPending}
                   >
                     <HelpCircle className="mr-2 h-4 w-4 text-gray-500" />
                     Mark as Enquiry

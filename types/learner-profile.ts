@@ -9,21 +9,35 @@ import { z } from 'zod';
 // ============================================
 
 /**
- * Dynamic fee line item (added 2026-04-15).
+ * Dynamic fee line item.
  * Stored as JSONB array on learners_profiles.fee_items.
- * category_id soft-references billing_categories(id).
- * category_name is a snapshot taken at add-time to survive category renames/deletes.
+ * category_id soft-references billing_item_categories(id) — the leaf level.
+ * parent_category_id / sub_category_id capture the full 3-tier path so reports
+ * and read-only views can pivot without re-querying the joins.
+ * *_name fields are snapshots taken at add-time to survive renames/deletes.
+ * Records written before 2026-04-22 may omit parent/sub IDs (backward compat).
  */
 export interface LearnerFeeItem {
+  parent_category_id?: string;
+  parent_category_name?: string;
+  sub_category_id?: string;
+  sub_category_name?: string;
   category_id: string;
   category_name: string;
   amount: number;
 }
 
 export const learnerFeeItemSchema = z.object({
+  parent_category_id: z.string().uuid('Invalid parent category id').optional(),
+  parent_category_name: z.string().optional(),
+  sub_category_id: z.string().uuid('Invalid sub category id').optional(),
+  sub_category_name: z.string().optional(),
   category_id: z.string().uuid('Invalid category id'),
   category_name: z.string().min(1, 'Category name is required'),
-  amount: z.coerce.number().min(0, 'Amount must be non-negative')
+  amount: z.coerce
+    .number()
+    .int('Amount must be a whole number (no decimals)')
+    .min(0, 'Amount must be non-negative')
 });
 
 /**
@@ -31,7 +45,7 @@ export const learnerFeeItemSchema = z.object({
  * Replaces separate admission.status and student.status
  */
 export type LifecycleStatus =
-  | 'enquiry'      // Initial contact/enquiry stage
+  | 'admitted'      // Initial contact/enquiry stage
   | 'pending'      // Application submitted, pending review
   | 'approved'     // Application approved, ready for enrollment
   | 'account'      // Sent to accounts for billing
@@ -77,7 +91,20 @@ export interface LearnerProfile {
   caste?: string;
   aadhar_number?: string;
   blood_group?: string;
+  // Legacy integer year (e.g. 2026). Kept for B2A endpoint back-compat —
+  // 6 endpoints still expose `?admission_year=` and read this column.
   admission_year?: number;
+  // Added 2026-04-23 — shadow FK to admission_years. Source of truth going
+  // forward; integer above is auto-derived from this on the converter path.
+  // Validated by DB trigger to match learner's institution + program.
+  admission_year_id?: string | null;
+  // Optional joined cohort row (set when query selects admission_years(...)).
+  admission_year_obj?: {
+    id: string;
+    admission_year_name: string;
+    program_start_year: number;
+    program_end_year: number;
+  } | null;
   learner_type?: 'regular' | 'irregular' | 'intern';
 
   // Parent/Guardian Information
@@ -658,7 +685,7 @@ export interface LearnerDashboardStats {
  * Status groups for filtering
  */
 export const STATUS_GROUPS = {
-  ADMISSION_PIPELINE: ['enquiry', 'pending', 'approved', 'account', 'rejected', 'waitlisted'] as LifecycleStatus[],
+  ADMISSION_PIPELINE: ['admitted', 'pending', 'approved', 'account', 'rejected', 'waitlisted'] as LifecycleStatus[],
   ENROLLED: ['active', 'inactive'] as LifecycleStatus[],
   COMPLETED: ['graduated', 'alumni'] as LifecycleStatus[],
   EXITED: ['exited'] as LifecycleStatus[],
@@ -668,7 +695,7 @@ export const STATUS_GROUPS = {
  * Status transitions map (allowed transitions)
  */
 export const STATUS_TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
-  enquiry: ['pending', 'account', 'rejected'],
+  admitted: ['pending', 'account', 'rejected'],
   pending: ['account', 'approved', 'rejected', 'waitlisted'],
   approved: ['account', 'active', 'rejected'],
   account: ['active', 'approved'],
@@ -686,7 +713,7 @@ export const STATUS_TRANSITIONS: Record<LifecycleStatus, LifecycleStatus[]> = {
  * Updated: 2025-01-19 - Removed roll_number from active, added college_email as required
  */
 export const REQUIRED_FIELDS_BY_STATUS: Record<LifecycleStatus, string[]> = {
-  enquiry: ['first_name', 'student_mobile', 'student_email'],
+  admitted: ['first_name', 'student_mobile', 'student_email'],
   pending: ['first_name', 'father_name', 'mother_name', 'date_of_birth', 'tenth_marks', 'twelfth_marks'],
   approved: ['institution_id', 'degree_id', 'department_id', 'program_id'],
   account: ['institution_id', 'degree_id', 'department_id', 'program_id', 'fee_structure_type', 'tuition_fee'],

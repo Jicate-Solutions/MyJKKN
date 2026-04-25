@@ -151,7 +151,7 @@ export class UserService {
         .select(
           `
           *,
-          institutions (
+          institutions:institutions!profiles_institution_id_fkey (
             id,
             name,
             category,
@@ -435,7 +435,7 @@ export class UserService {
         .select(
           `
           *,
-          institutions (
+          institutions:institutions!profiles_institution_id_fkey (
             id,
             name,
             category,

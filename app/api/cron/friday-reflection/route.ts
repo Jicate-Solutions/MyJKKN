@@ -11,7 +11,8 @@
 //   - Same idempotency pattern as Sunday wrap: one card per user per ISO week.
 //   - NO WhatsApp (Doctrines v1 explicit thrash-lock).
 //
-// Auth: CRON_SECRET query parameter.
+// Auth: CRON_SECRET via `Authorization: Bearer <secret>` header (Vercel cron)
+// OR `?secret=` query param (manual runs).
 // =====================================================================
 
 export const dynamic = 'force-dynamic';
@@ -31,8 +32,14 @@ type ReflectionUser = {
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    console.warn('[cron/friday-reflection] CRON_SECRET not configured');
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const authHeader = request.headers.get('authorization');
+  const querySecret = request.nextUrl.searchParams.get('secret');
+  if (authHeader !== `Bearer ${cronSecret}` && querySecret !== cronSecret) {
     console.warn('[cron/friday-reflection] Unauthorized attempt');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -90,6 +97,10 @@ export async function GET(request: NextRequest) {
       targeting: { user_ids: [user.id] },
       priority: 'normal',
       category: `doctrines:${FRIDAY_REFLECTION_ANCHOR.key}`,
+      // 2026-04-25: doctrines:* are cron-emitted operational reminders, not user-composed
+      // announcements. Tagging as work_item keeps them out of /admin/notifications page
+      // (which filters to kind='announcement'). User dashboard surfaces still pick them up.
+      kind: 'work_item',
       idempotency_key: idempKey,
       metadata: {
         role: user.role,

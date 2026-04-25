@@ -20,23 +20,38 @@ import { StaffForm } from '../_components/staff-form';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Loader2 } from 'lucide-react';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/staff/list',
+} as const;
+
+
 export default function NewStaffPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const { canAccess, isSuperAdmin } = usePermissions([], {
+  const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions([], {
     waitForLoad: true
   });
 
   const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
 
   useEffect(() => {
+    // Don't evaluate access until permissions have finished loading.
+    // canAccess() returns false while isLoading=true (by design, to prevent
+    // content flash), so redirecting without this guard sends every non-super-admin
+    // — including HOD — to /unauthorized before their roles are checked.
+    if (permissionsLoading) return;
     setLoading(false);
     if (!canCreateStaff) {
       router.replace('/unauthorized');
     }
-  }, [canCreateStaff, router]);
+  }, [canCreateStaff, permissionsLoading, router]);
 
-  if (loading || !canCreateStaff) {
+  if (loading || permissionsLoading || !canCreateStaff) {
     return (
       <ContentLayout title='New Employee'>
         <div className='flex items-center justify-center min-h-[400px]'>

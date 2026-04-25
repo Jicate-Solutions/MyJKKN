@@ -6,6 +6,115 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-23** — `learners_profiles.admission_year_id` shadow FK (PR-1 of 4-PR plan to wire admission_years into learners profiles)
+  - New migration `supabase/migrations/learners_profiles_admission_year_id_shadow_fk.sql`
+  - `01_tables.sql`: reconciled phantom `admission_year INTEGER` (column existed in prod but not in canonical source — was added directly via Supabase MCP earlier without explicit migration). Added new `admission_year_id UUID REFERENCES admission_years(id) ON DELETE SET NULL` shadow column.
+  - `02_functions.sql`: new `validate_learner_admission_year_scope()` SECURITY DEFINER trigger function — rejects FK rows whose `institution_id` or `program_id` does not match the learner. Closes the cross-institution attach vector PG FK alone cannot enforce.
+  - `04_triggers.sql`: new `trg_validate_learner_admission_year_scope` BEFORE INSERT/UPDATE OF (admission_year_id, institution_id, program_id).
+  - **Scoped backfill**: 133 `lifecycle_status='admitted'` rows auto-filled with the latest active cohort for their (institution, program). 4,054 `active` rows + 440 `graduated` + others left NULL — director will edit manually via admitted-status UI on their schedule. Backfill is idempotent (`WHERE admission_year_id IS NULL`).
+  - **Strategy**: shadow-column, not destructive replace. Legacy `admission_year INTEGER` kept in place for ≥1 release because 6 B2A endpoints (`/api/api-management/learners/*`, `/api/b2a/learners/*`, MCP tool) expose it as integer; breaking those mid-release would page external consumers. Both columns stay in sync — converter (PR-2) writes both.
+  - `lib/types/database.ts`: targeted edit (3 occurrences in learners_profiles Row/Insert/Update) instead of full regenerate.
+  - `types/learner-profile.ts`: added `admission_year_id?: string | null` and optional joined `admission_year_obj`.
+  - Reversibility: column is nullable; trigger DROP recovers prior insert semantics; backfill skips already-filled rows.
+
+- **2026-04-22** — Staff role mirror RPC (HOD still hit `user_roles` RLS even after PR #326)
+  - New migration `supabase/migrations/20260422000004_mirror_staff_role_to_user_roles_rpc.sql`
+  - New function `public.mirror_staff_role_to_user_roles(p_profile_id uuid, p_role_key text)` — SECURITY DEFINER, pinned search_path. Verifies caller has `staff.create` AND target is a real `staff.profile_id` row with matching `role_key` before upserting `user_roles`. `GRANT EXECUTE` to `authenticated`.
+  - Root cause of remaining failure: `staff_insert_permission` RLS allows HOD to INSERT staff directly (they have `staff.create` + `role_has_institution_access`). So `/api/staff` fallback was never triggered, and the client-side `UserRolesService.assignRoles()` call (after successful direct insert) still hit `user_roles_insert_permission` which requires `roles.create`.
+  - Fix: browser now calls the RPC instead of `user_roles.insert()`. Authorization is enforced inside the function (caller must have `staff.create` AND target must be a staff-linked profile with matching `role_key` — no drive-by role assignment possible).
+  - Backfill: 2 orphan staff profiles from earlier HOD attempts had missing `user_roles` rows; backfilled via one-shot INSERT scoped to the last 2 hours (verified recovery for both).
+  - Followup to PR #326 which fixed only the trigger half.
+
+- **2026-04-22** — Staff INSERT fails 42501 "permission denied for table users" for HOD/non-super-admin staff.create
+  - New migration `supabase/migrations/20260422000003_fix_sync_staff_trigger_auth_access.sql`
+  - `02_functions.sql`: `sync_staff_to_profiles()` trigger function switched from SECURITY INVOKER (default) to SECURITY DEFINER with `SET search_path = public`. Body was also updated to mirror the live version that had drifted from source (profile_id-first lookup + auth-linked-first tiebreaker on email collisions).
+  - Root cause: the trigger's email-fallback branch orders by `EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id)` to prefer auth-linked profiles on duplicate emails. `auth.users` grants SELECT only to `postgres` — not to `service_role`/`authenticated`/`anon` — so with SECURITY INVOKER every insert failed unless the caller was the superuser. `POST /api/staff` uses `supabaseAdmin` (service_role) and still tripped it because the trigger ran as the invoker.
+  - Fix: DEFINER makes the function execute as its owner (`postgres`), which has the grant. `search_path` is pinned to close the classic definer hijack vector. No behaviour change for callers.
+  - Reported by director 2026-04-22 ~15:35 IST when HOD test user hit "Failed to create staff record" with server-side `code: 42501, message: 'permission denied for table users'`.
+
+- **2026-04-22** — Service Requests: multi-approver per step (OR logic)
+  - New migration `supabase/migrations/20260422000002_service_request_multi_approver_support.sql`
+  - `01_tables.sql`: adds `approver_user_ids UUID[] NOT NULL DEFAULT '{}'` column to `service_request_approval_steps` + GIN index `idx_sr_approval_steps_approver_user_ids`.
+  - `03_policies.sql`: extends "Approvers can view pending requests" to also match users listed in `approver_user_ids` (not just those whose role matches `approver_role`). Also picks up the institution-scope guard previously only in the migration file.
+  - Semantics: empty array = legacy role-based matching; populated = approval restricted to listed users, first to act wins. `approver_role` stays populated (set to first selected user's role) so legacy inbox queries keep working.
+  - Use case: service-type author wants to pick 2–5 specific users per step (e.g. "HOD Priya OR HOD Rahul OR Principal") instead of "any user with HOD role".
+
+- **2026-04-22** — Hostel leave types seed expansion (+9 defaults) + fix bug in #287 migration
+  - New migration `supabase/migrations/20260422000001_seed_hostel_leave_types_expansion.sql` (~90 lines, atomic BEGIN/COMMIT)
+  - Seeds 9 new system defaults × 11 institutions = 99 rows: festival, family_function, bereavement, clinical_rotation, industrial_visit, internship, training, sports_cultural, convocation. All is_system=true so UI blocks delete (admins can deactivate via is_active toggle instead).
+  - ON CONFLICT (institution_id, leave_type_code) DO NOTHING → re-run safe.
+  - Applied to production via Supabase management API on 2026-04-22 ~10:15 IST. Verification count: 99 new rows confirmed (11 per code × 9 codes).
+  - FIX to `supabase/migrations/20260421000005_hostel_leave_types_crudable.sql` (the original migration from PR #287): two UPDATE statements had invalid references to the UPDATE target `req` — one from a JOIN ON clause, one from a GROUP BY subquery. PG rejects both patterns. Rewritten: (1) moved `req.leave_type_code` condition from JOIN ON to WHERE; (2) replaced the `IN (SELECT ... GROUP BY)` subquery with a scalar `SELECT ... ORDER BY ... LIMIT 1` correlated subquery. Migration is now atomic-clean; applied successfully to prod during the apply flow.
+  - Trigger: director feedback 2026-04-21 ~15:20 IST — "Leave types have to be increased, max days for each leave is not fixed." The CRUDable table (from #287) made this a data seed, not a DDL change.
+  - Principle reference: `~/.claude/skills/myjkkn-chain/SKILL.md` Q1 — Value-list check (added 2026-04-21). This seed is the first test of the principle under fire — adding rows to an already-CRUDable master table instead of another enum migration.
+
+- **2026-04-21** — BUG-003146 Expo per-stall accountability, operations, lead attribution
+  - New migration `supabase/migrations/20260421200000_bug_003146_expo_event_stalls.sql` (~120 lines, atomic BEGIN/COMMIT)
+  - New table `expo_event_stalls` (expo_event_id FK CASCADE, institution_id FK RESTRICT, stall_name, assigned_staff_id → profiles(id) SET NULL, total_expenses numeric, photos text[], promotional_materials jsonb, notes, created_by, created_at, updated_at). 3 indexes (expo_event_id, institution_id, assigned_staff_id partial).
+  - `assigned_staff_id` references `profiles(id)` (matches existing `expo_event_team_members.staff_id` pattern) NOT `staff(id)`.
+  - Adds nullable `admission_leads.stall_id` FK (SET NULL on stall delete) + partial index. Preserves all existing/non-expo leads.
+  - 4 RLS policies using modern pattern: `is_super_admin() OR is_admin() OR (user_has_permission('admission.marketing.expos.{view,create,edit,delete}') AND role_has_institution_access(institution_id))`.
+  - Reuses existing perm keys — no permission catalogue changes needed.
+  - `updated_at` trigger via new `touch_expo_event_stalls_updated_at()` function.
+  - DB migration must be applied manually post-merge (Supabase MCP is read-only).
+
+- **2026-04-21** — Hostel leave types: enum → CRUDable master table (chain Q1 principle, director feedback "can leave types + duration be CRUDable")
+  - New migration `supabase/migrations/20260421000005_hostel_leave_types_crudable.sql` (~320 lines, atomic BEGIN/COMMIT)
+  - PHASE 1: New `public.hostel_leave_types` institution-scoped master table (code, name, description, color, default_max_duration_days, parent_consent/chief_warden/attachment flags, advance_notice_hours, sort_order, is_system, is_active). Unique (institution_id, leave_type_code), check color_code is hex, check durations are positive.
+  - PHASE 2: Seed 7 defaults × every institution with `is_system=true` (home_visit, weekend, vacation, emergency, medical, academic, night_out). ON CONFLICT DO NOTHING = re-run safe.
+  - PHASE 3: Add nullable `leave_type_id UUID FK` to `hostel_leave_type_config` + `hostel_leave_requests`. Backfill from existing enum via JOIN on (institution_id, leave_type_code). Enum column KEPT during transition — drop in future cleanup PR.
+  - PHASE 4: 4 CRUD RLS policies on `hostel_leave_types` using new perms `campus_living.leave_types.{view,create,edit,delete}`. Delete policy includes `AND NOT is_system` so defaults cannot be deleted.
+  - Frontend (PR-3b): replaces the 88-LOC ghost page at `/campus-living/settings/leave-types` with real CRUD consuming the shared `<CrudDataTable>` + `<CrudRowActions>` from PR-3a (#286).
+  - Principle reference: `~/.claude/skills/myjkkn-chain/SKILL.md` Q1 — Value-list check (added 2026-04-21). Value lists masquerading as enums are the failure mode.
+
+- **2026-04-21** — Hostel blocks ↔ multi-college junction (warden feedback follow-up to PR-4)
+  - New migration `supabase/migrations/20260421000004_hostel_blocks_multi_college.sql` (~330 lines, atomic BEGIN/COMMIT)
+  - PHASE 1: New `hostel_block_institutions` M2M (block_id, institution_id, is_primary, learner_year_groups[], floors_assigned[]) with partial unique index on is_primary=true.
+  - PHASE 2: Backfill junction from existing `hostel_blocks.institution_id` (INSERT…ON CONFLICT DO NOTHING).
+  - PHASE 3: `ALTER hostel_blocks.institution_id DROP NOT NULL` (DO block pre-checks is_nullable).
+  - PHASE 4: New helper `role_has_hostel_block_scope(block_id, institution_id)` — super_admin ∪ user_block_access grant ∪ primary institution ∪ ANY junction institution.
+  - PHASE 5: 4 CRUD RLS policies on `hostel_block_institutions` using new helper.
+  - PHASE 6: Swap 4 CRUD policies on `hostel_blocks` from `role_has_institution_access` → `role_has_hostel_block_scope`. `hostel_rooms`/`beds`/`allocations` deliberately out of scope (next PR after junction data populated via xlsx loader — avoids lockout window).
+  - Trigger: warden finding 2026-04-21 12:35 IST — 3 girls' blocks are shared across all 8 colleges, floors separate year-groups. 1-block = 1-college assumption in PR-4 was wrong.
+
+- **2026-04-21** — Persona Design PR-4: Campus Living RLS retrofit + role permission wiring (the big one)
+  - New migration `supabase/migrations/20260421000002_persona_design_pr4_rls_retrofit.sql` (~450 lines, atomic BEGIN/COMMIT)
+  - PHASE 1: Drops 46 legacy `_institution_isolation` policies (FOR ALL + hardcoded 'super_admin' string — CLAUDE.md anti-pattern).
+  - PHASE 2: Creates ~184 new policies (46 tables × 4 = SELECT/INSERT/UPDATE/DELETE) using the standardized pattern: `is_super_admin() OR is_admin() OR (user_has_permission(key) AND role_has_*_access(...))`.
+    - 13 institution-only tables: +role_has_institution_access(institution_id)
+    - 18 block-scoped tables (have block_id): +role_has_block_access(block_id)
+    - 11 block-conceptual tables (no block_id column): app-layer filters block narrowing; RLS uses institution-only
+    - 7 mess contract-scoped tables (have caterer_id): +role_has_contract_access(caterer_id, 'caterer')
+  - PHASE 3: UPDATEs each of the 10 new roles' permissions jsonb with their scaffolding (warden gets 51 keys, chief_warden 84, accreditation_officer 23, etc.)
+  - Atomic cutover — RLS and role perms land together (partial = all-super_admin-only lockout, avoided via BEGIN/COMMIT).
+  - Depends on: #275 (PR-1 scope helpers), #276 (PR-2 10 roles), #277 (PR-3 permission keys)
+
+- **2026-04-21** — Persona Design PR-3: +127 permission keys in PERMISSION_CATEGORIES (TypeScript-only, no DB migration)
+  - `lib/constants/permissions.ts`: replaced 1-key Campus Living stub with 121 granular keys. Submodules: blocks, rooms, beds, allocations, wardens, gate_passes, visitors, leave, attendance, maintenance, housekeeping, laundry, safety (incl. anti_ragging), health, fees, deposits, mess (caterers/menu/meals/billing/feedback/waste), alerts, pulse, wellness, community, analytics, reports (NAAC/NIRF/AICTE/anti-ragging quarterly), parent_portal.
+  - Also added 6 `users.*.access` keys for PR-1's scope-extension junction tables: `users.block_access.{view,manage}`, `users.relationship.{view,manage}`, `users.contract_access.{view,manage}`.
+  - Catalog-sync verified: every MENU_PERMISSIONS campus_living.* key now has a PERMISSION_CATEGORIES home (was: 29 drift warnings; now: 0).
+  - No DB changes — roles still have empty permissions jsonb. PR-4 bulk-updates each role's permissions to wire the new keys alongside RLS retrofit on 48 hostel_*/mess_* tables.
+
+- **2026-04-21** — Persona Design PR-2: 10 new roles for Campus Living + external actors
+  - New migration `supabase/migrations/20260421000001_persona_design_pr2_ten_roles.sql`
+  - Roles seeded: warden, chief_warden, gate_security, housekeeping_staff, parent, mess_caterer, maintenance_vendor, hostel_office, anti_ragging_member, accreditation_officer
+  - All have `permissions='{}'` (empty) and `module_scopes='{}'` — intentional. PR-3 adds catalog keys to `PERMISSION_CATEGORIES`; PR-4 retrofits RLS on 48 hostel_*/mess_* tables AND bulk-updates each role's permissions jsonb to grant its scaffolding.
+  - `accreditation_officer` is the only scope=`all` role (cross-institution evidence pull for NAAC/NIRF/UGC). Nine others are scope=`own`. External actors (parent, mess_caterer, maintenance_vendor) use scope=`own` + row-level checks via PR-1 junction tables (user_block_access, user_learner_relationship, user_contract_access).
+  - Idempotent via `ON CONFLICT (role_key) DO NOTHING`.
+  - Depends on PR-1 (#275 merged 2026-04-21) for scope helpers.
+
+- **2026-04-21** — Persona Design PR-1: scope-extension helpers (block/relationship/contract scopes)
+  - `01_tables.sql`: new junction tables `user_block_access`, `user_learner_relationship`, `user_contract_access`. Each has `revoked_at` for soft-delete + audit trail. `user_contract_access.contract_id` is polymorphic (caterer/maintenance_vendor/laundry_vendor/amc).
+  - `02_functions.sql`: 3 new SECURITY DEFINER helpers — `role_has_block_access(uuid)`, `role_has_relationship_access(uuid)`, `role_has_contract_access(uuid, text DEFAULT NULL)`. All mirror `role_has_institution_access()` pattern: super_admin bypass, NULL target = system-wide, otherwise consult junction table.
+  - `03_policies.sql`: RLS on the 3 junction tables. Standard contract: super_admin/admin full CRUD; users see own grants; delegated via `users.block_access|relationship|contract_access.{view,manage}` permission keys (added in PR-3).
+  - Context: MyJKKN's `institution_scope` supports only 'all'|'own'. Campus Living needs block-level (warden), relationship (parent), and contract (caterer/vendor) scopes. This PR is PR-1 of 4 — INERT infrastructure until PR-2 (roles), PR-3 (permission keys), PR-4 (RLS retrofit on 48 hostel_*/mess_* tables).
+  - See: `docs/persona-design/scope-extension-pr1.md`
+
+- **2026-04-18** — Seat Configuration page invisible to admission role with scope='all' (programs returned 0 rows)
+  - `03_policies.sql`: rewrote SELECT/INSERT/UPDATE/DELETE policies on `programs`, `degrees`, `departments` to use `role_has_institution_access(institution_id)` instead of hardcoded `institution_id = get_current_user_institution_id()`. Added `admission.settings.seats.view` / `admission.settings.seats.manage` as acceptable SELECT permissions for programs/degrees/departments so seat config works without granting Organization module perms.
+  - `03_policies.sql`: rewrote `intake_history` policies — previously required a `user_institution_access` row (locked out super admins who didn't have one). Now uses the standard contract `is_super_admin() OR is_admin() OR (role_has_institution_access(...) AND user_has_permission('admission.settings.seats.*'))`.
+  - Root cause: the legacy own-institution equality check in RLS ignored `institution_scope='all'` on the admission role.
+
 - **2026-04-15** — `get_user_roles_with_details` now returns scope columns (fixes "Employment Information section not hiding for own_records users")
   - `02_functions.sql`: added `institution_scope text` and `module_scopes jsonb` to the function's RETURNS TABLE. Required DROP+CREATE because Postgres can't ALTER return shape. Without these, client-side `usePermissions().getModuleScope()` always read undefined and fell back to defaults.
   - Migration: `user_roles_details_include_scopes`. No client code change required — existing `(r as any).module_scopes` reads now resolve.
@@ -152,7 +261,7 @@ When updating any SQL file:
 | Attendance Validation | setup/04_triggers.sql | 1     | Staff assignment validation  |
 | Other                 | setup/04_triggers.sql | 6     | Various business rules       |
 
-### Views (7 total)
+### Views (8 total)
 
 | View Name                   | Location           | Module      |
 | --------------------------- | ------------------ | ----------- |
@@ -163,6 +272,7 @@ When updating any SQL file:
 | bug_reports_with_details    | setup/05_views.sql | Bug Reports |
 | semester_hierarchy_health   | setup/05_views.sql | Academic    |
 | semester_program_audit_view | setup/05_views.sql | Academic    |
+| hr_leave_types (compat)     | setup/05_views.sql | HR          |
 
 ### Storage Buckets (7 total)
 

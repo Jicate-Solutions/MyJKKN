@@ -22,6 +22,16 @@ import Loading from '@/components/Loading/Loading';
 import { CreateBatchDto } from '@/types/academics';
 import { logger } from '@/lib/utils/enhanced-logger';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/academic/batches',
+} as const;
+
+
 export default function NewBatchPage() {
   const router = useRouter();
   const { createBatch } = useBatches();

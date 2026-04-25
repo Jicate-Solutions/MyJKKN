@@ -18,17 +18,17 @@ export const campusLivingReportKeys = {
 
 // --- Query hooks ---
 
-export function useOccupancyReport(institutionId: string) {
+export function useOccupancyReport(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingReportKeys.occupancy({ institutionId }),
-    queryFn: () => CampusLivingReports.generateOccupancyReport(institutionId),
+    queryFn: () => CampusLivingReports.generateOccupancyReport(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
 
 export function useAttendanceRegisterReport(
-  institutionId: string,
+  institutionId: string | undefined,
   dateFrom: string,
   dateTo: string,
   blockId?: string
@@ -36,13 +36,13 @@ export function useAttendanceRegisterReport(
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingReportKeys.attendance({ institutionId, dateFrom, dateTo, blockId }),
-    queryFn: () => CampusLivingReports.generateAttendanceRegister(institutionId, dateFrom, dateTo, blockId),
+    queryFn: () => CampusLivingReports.generateAttendanceRegister(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo, blockId),
     enabled: (isSuperAdmin || !!institutionId) && !!dateFrom && !!dateTo,
   });
 }
 
 export function useVisitorRegisterReport(
-  institutionId: string,
+  institutionId: string | undefined,
   dateFrom: string,
   dateTo: string,
   blockId?: string
@@ -50,34 +50,34 @@ export function useVisitorRegisterReport(
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingReportKeys.maintenance({ institutionId, dateFrom, dateTo, blockId }),
-    queryFn: () => CampusLivingReports.generateVisitorRegister(institutionId, dateFrom, dateTo, blockId),
+    queryFn: () => CampusLivingReports.generateVisitorRegister(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo, blockId),
     enabled: (isSuperAdmin || !!institutionId) && !!dateFrom && !!dateTo,
   });
 }
 
-export function useAntiRaggingComplianceReport(institutionId: string, academicYearId: string) {
+export function useAntiRaggingComplianceReport(institutionId: string | undefined, academicYearId: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingReportKeys.incidents({ institutionId, academicYearId }),
-    queryFn: () => CampusLivingReports.generateAntiRaggingComplianceReport(institutionId, academicYearId),
+    queryFn: () => CampusLivingReports.generateAntiRaggingComplianceReport(isSuperAdmin ? undefined : institutionId, academicYearId),
     enabled: (isSuperAdmin || !!institutionId) && !!academicYearId,
   });
 }
 
-export function useSafetyAuditReport(institutionId: string, dateFrom: string, dateTo: string) {
+export function useSafetyAuditReport(institutionId: string | undefined, dateFrom: string, dateTo: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingReportKeys.mess({ institutionId, dateFrom, dateTo }),
-    queryFn: () => CampusLivingReports.generateSafetyAuditReport(institutionId, dateFrom, dateTo),
+    queryFn: () => CampusLivingReports.generateSafetyAuditReport(isSuperAdmin ? undefined : institutionId, dateFrom, dateTo),
     enabled: (isSuperAdmin || !!institutionId) && !!dateFrom && !!dateTo,
   });
 }
 
-export function useFeeCollectionReport(institutionId: string, academicYearId?: string) {
+export function useFeeCollectionReport(institutionId: string | undefined, academicYearId?: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: campusLivingReportKeys.financial({ institutionId, academicYearId }),
-    queryFn: () => CampusLivingReports.generateFeeCollectionReport(institutionId, academicYearId),
+    queryFn: () => CampusLivingReports.generateFeeCollectionReport(isSuperAdmin ? undefined : institutionId, academicYearId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

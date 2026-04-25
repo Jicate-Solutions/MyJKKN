@@ -3,13 +3,62 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 export class CampusLivingDashboard {
   // ── Main dashboard aggregation ────────────────────────────────────
-  static async getDashboardData(institutionId: string) {
+  static async getDashboardData(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const today = new Date().toISOString().split('T')[0];
       const now = new Date().toISOString();
 
-      // Run all queries in parallel
+      // Build queries with optional institution scope (super_admin: institutionId='' → no filter)
+      let blocksQ = supabase
+        .from('hostel_blocks')
+        .select('id, name, code, hostel_type, total_capacity, current_occupancy, status')
+        .eq('status', 'active');
+      if (institutionId) blocksQ = blocksQ.eq('institution_id', institutionId);
+
+      let todayAttQ = supabase
+        .from('hostel_attendance')
+        .select('evening_status, is_curfew_violation')
+        .eq('date', today);
+      if (institutionId) todayAttQ = todayAttQ.eq('institution_id', institutionId);
+
+      let pendMaintQ = supabase
+        .from('hostel_maintenance_requests')
+        .select('id, priority, sla_status, status')
+        .in('status', ['open', 'assigned', 'in_progress']);
+      if (institutionId) pendMaintQ = pendMaintQ.eq('institution_id', institutionId);
+
+      let activeIncQ = supabase
+        .from('hostel_incidents')
+        .select('id, severity, status')
+        .in('status', ['reported', 'under_investigation']);
+      if (institutionId) activeIncQ = activeIncQ.eq('institution_id', institutionId);
+
+      let pendLeavesQ = supabase
+        .from('hostel_leave_requests')
+        .select('id, status')
+        .in('status', ['pending_parent', 'pending_warden', 'pending_chief']);
+      if (institutionId) pendLeavesQ = pendLeavesQ.eq('institution_id', institutionId);
+
+      let overdueQ = supabase
+        .from('hostel_gate_passes')
+        .select('id')
+        .eq('status', 'active')
+        .lt('expected_return', now);
+      if (institutionId) overdueQ = overdueQ.eq('institution_id', institutionId);
+
+      let curVisQ = supabase
+        .from('hostel_visitors')
+        .select('id')
+        .eq('status', 'checked_in');
+      if (institutionId) curVisQ = curVisQ.eq('institution_id', institutionId);
+
+      let alertsQ = supabase
+        .from('hostel_risk_alerts')
+        .select('id, severity, alert_type')
+        .eq('status', 'active');
+      if (institutionId) alertsQ = alertsQ.eq('institution_id', institutionId);
+
       const [
         blocksResult,
         todayAttendanceResult,
@@ -20,62 +69,14 @@ export class CampusLivingDashboard {
         currentVisitorsResult,
         alertsResult,
       ] = await Promise.all([
-        // Occupancy summary
-        supabase
-          .from('hostel_blocks')
-          .select('id, name, code, hostel_type, total_capacity, current_occupancy, status')
-          .eq('institution_id', institutionId)
-          .eq('status', 'active'),
-
-        // Today's attendance
-        supabase
-          .from('hostel_attendance')
-          .select('evening_status, is_curfew_violation')
-          .eq('institution_id', institutionId)
-          .eq('date', today),
-
-        // Pending maintenance
-        supabase
-          .from('hostel_maintenance_requests')
-          .select('id, priority, sla_status, status')
-          .eq('institution_id', institutionId)
-          .in('status', ['open', 'assigned', 'in_progress']),
-
-        // Active incidents
-        supabase
-          .from('hostel_incidents')
-          .select('id, severity, status')
-          .eq('institution_id', institutionId)
-          .in('status', ['reported', 'under_investigation']),
-
-        // Pending leave requests
-        supabase
-          .from('hostel_leave_requests')
-          .select('id, status')
-          .eq('institution_id', institutionId)
-          .in('status', ['pending_parent', 'pending_warden', 'pending_chief']),
-
-        // Overdue gate passes
-        supabase
-          .from('hostel_gate_passes')
-          .select('id')
-          .eq('institution_id', institutionId)
-          .eq('status', 'active')
-          .lt('expected_return', now),
-
-        // Current visitors
-        supabase
-          .from('hostel_visitors')
-          .select('id')
-          .eq('institution_id', institutionId)
-          .eq('status', 'checked_in'),
-
-        // Active risk alerts
-        supabase
-          .from('hostel_risk_alerts')
-          .select('id, severity, alert_type')
-          .eq('institution_id', institutionId)
-          .eq('status', 'active'),
+        blocksQ,
+        todayAttQ,
+        pendMaintQ,
+        activeIncQ,
+        pendLeavesQ,
+        overdueQ,
+        curVisQ,
+        alertsQ,
       ]);
 
       // Process blocks
@@ -175,7 +176,7 @@ export class CampusLivingDashboard {
           .from('hostel_blocks')
           .select('*')
           .eq('id', blockId)
-          .single(),
+          .maybeSingle(),
 
         supabase
           .from('hostel_rooms')
@@ -238,9 +239,33 @@ export class CampusLivingDashboard {
   }
 
   // ── Quick stats (lightweight, for sidebar/header) ─────────────────
-  static async getQuickStats(institutionId: string) {
+  static async getQuickStats(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
+
+      let residentsQ = supabase
+        .from('hostel_allocations')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+      if (institutionId) residentsQ = residentsQ.eq('institution_id', institutionId);
+
+      let pendLeavesQ = supabase
+        .from('hostel_leave_requests')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['pending_parent', 'pending_warden', 'pending_chief']);
+      if (institutionId) pendLeavesQ = pendLeavesQ.eq('institution_id', institutionId);
+
+      let openMaintQ = supabase
+        .from('hostel_maintenance_requests')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['open', 'assigned', 'in_progress']);
+      if (institutionId) openMaintQ = openMaintQ.eq('institution_id', institutionId);
+
+      let activeAlertsQ = supabase
+        .from('hostel_risk_alerts')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'active');
+      if (institutionId) activeAlertsQ = activeAlertsQ.eq('institution_id', institutionId);
 
       const [
         { count: totalResidents },
@@ -248,26 +273,10 @@ export class CampusLivingDashboard {
         { count: openMaintenance },
         { count: activeAlerts },
       ] = await Promise.all([
-        supabase
-          .from('hostel_allocations')
-          .select('*', { count: 'exact', head: true })
-          .eq('institution_id', institutionId)
-          .eq('status', 'active'),
-        supabase
-          .from('hostel_leave_requests')
-          .select('*', { count: 'exact', head: true })
-          .eq('institution_id', institutionId)
-          .in('status', ['pending_parent', 'pending_warden', 'pending_chief']),
-        supabase
-          .from('hostel_maintenance_requests')
-          .select('*', { count: 'exact', head: true })
-          .eq('institution_id', institutionId)
-          .in('status', ['open', 'assigned', 'in_progress']),
-        supabase
-          .from('hostel_risk_alerts')
-          .select('*', { count: 'exact', head: true })
-          .eq('institution_id', institutionId)
-          .eq('status', 'active'),
+        residentsQ,
+        pendLeavesQ,
+        openMaintQ,
+        activeAlertsQ,
       ]);
 
       return {

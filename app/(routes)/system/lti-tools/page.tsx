@@ -14,7 +14,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LtiToolsTable } from './_components/lti-tools-table';
 
 export const metadata: Metadata = {
-  title: 'LTI Tools Management | MyJKKN',
+  title: 'LTI Tools Management',
   description: 'Manage LTI 1.3 tool registrations (MATLAB Grader, MATLAB Online, etc.)'
 };
 

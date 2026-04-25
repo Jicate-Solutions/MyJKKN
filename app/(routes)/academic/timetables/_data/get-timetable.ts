@@ -30,10 +30,16 @@ import { notFound } from 'next/navigation';
  * - Timetables are relatively static
  * - Slots may change but timetable metadata doesn't
  */
-export async function getTimetable(id: string): Promise<Timetable> {
-  // Apply cache profile for cold data (1 hour));
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-  // Add cache tags for invalidation););
+export async function getTimetable(id: string): Promise<Timetable> {
+  // DRP guard — Next.js 16 Cache Components may pass `%%drp:id:xxxxx%%`
+  // placeholders before route params hydrate. Forwarding to Postgres yields
+  // `invalid input syntax for type uuid`. Treat unresolved/invalid ids as 404
+  // so Next renders the not-found page cleanly instead of a 500.
+  if (!id || !UUID_RE.test(id)) {
+    notFound();
+  }
 
   const supabase = await createClient();
 

@@ -10,7 +10,7 @@ import type {
 export class MessBillingService {
   // ── List billing periods ──────────────────────────────────────────
   static async getBillingPeriods(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { caterer_id?: string; status?: MessBillingStatus },
     page = 1,
     pageSize = 20
@@ -19,9 +19,9 @@ export class MessBillingService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_billing_periods')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.caterer_id) query = query.eq('caterer_id', filters.caterer_id);
       if (filters?.status) query = query.eq('status', filters.status);
 
@@ -48,13 +48,13 @@ export class MessBillingService {
         .from('mess_billing_periods')
         .select('*, mess_student_billing(*)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/mess-billing', 'Failed to fetch billing period', error);
         throw error;
       }
-      return data as MessBillingPeriod & { mess_student_billing: MessStudentBilling[] };
+      return data as (MessBillingPeriod & { mess_student_billing: MessStudentBilling[] }) | null;
     } catch (error) {
       logger.error('campus-living/mess-billing', 'Unexpected error in getBillingPeriod', error);
       throw error;
@@ -261,9 +261,12 @@ export class MessBillingService {
         .from('mess_billing_periods')
         .select('start_date, end_date, total_days')
         .eq('id', billingPeriodId)
-        .single();
+        .maybeSingle();
 
       if (periodError) throw periodError;
+      if (!period) {
+        throw new Error(`Billing period ${billingPeriodId} not found.`);
+      }
 
       // Count meal records for the learner in the period
       const { count: mealCount, error: mealError } = await supabase

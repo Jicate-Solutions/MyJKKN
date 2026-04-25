@@ -27,6 +27,15 @@ import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useScanMeal, useMessMeals } from '@/hooks/campus-living/use-mess-meals';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/campus-living/mess/meals',
+} as const;
+
 export default function MealScanPage() {
   const [scanMode, setScanMode] = useState<'qr' | 'manual'>('qr');
   const [selectedMeal, setSelectedMeal] = useState('lunch');

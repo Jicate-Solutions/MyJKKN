@@ -139,6 +139,136 @@ export class LCStructureService {
   }
 
   /**
+   * Get positions filtered by a specific category
+   */
+  static async getPositionsByCategory(category: string): Promise<LCPosition[]> {
+    const { data, error } = await this.supabase
+      .from('lc_positions')
+      .select('*')
+      .eq('category', category)
+      .order('sort_order', { ascending: true });
+
+    if (error) {
+      console.error('[lc/structure] Error fetching positions by category:', error);
+      throw new Error(`Failed to fetch positions by category: ${error.message}`);
+    }
+
+    return (data || []) as LCPosition[];
+  }
+
+  /**
+   * Create a new LC position.
+   * Category can be 'executive', 'representative', 'portfolio_head', etc. (DB enum).
+   */
+  static async createPosition(data: {
+    title: string;
+    category: string;
+    tier?: string;
+    institution_id?: string;
+    description?: string;
+    max_holders?: number;
+    sort_order?: number;
+  }): Promise<LCPosition> {
+    const insertPayload = {
+      title: data.title,
+      category: data.category,
+      tier: data.tier || 'jkkn_wide',
+      max_holders: data.max_holders ?? 1,
+      sort_order: data.sort_order ?? 100,
+      is_active: true,
+      ...(data.institution_id ? { institution_id: data.institution_id } : {}),
+      ...(data.description ? { description: data.description } : {}),
+    };
+
+    const { data: position, error } = await this.supabase
+      .from('lc_positions')
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/structure] Error creating position:', error);
+      throw new Error(`Failed to create position: ${error.message}`);
+    }
+
+    return position as LCPosition;
+  }
+
+  /**
+   * Update an LC position.
+   */
+  static async updatePosition(
+    id: string,
+    data: Partial<{
+      title: string;
+      category: string;
+      tier: string;
+      institution_id: string | null;
+      description: string | null;
+      max_holders: number;
+      sort_order: number;
+      is_active: boolean;
+    }>
+  ): Promise<LCPosition> {
+    const { data: position, error } = await this.supabase
+      .from('lc_positions')
+      .update(data)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/structure] Error updating position:', error);
+      throw new Error(`Failed to update position: ${error.message}`);
+    }
+
+    return position as LCPosition;
+  }
+
+  /**
+   * Delete a position:
+   * - Hard delete if NO members reference it
+   * - Soft delete (is_active=false) if members exist
+   */
+  static async deletePosition(id: string): Promise<void> {
+    // Check if any members reference this position
+    const { count, error: countError } = await this.supabase
+      .from('lc_members')
+      .select('*', { count: 'exact', head: true })
+      .eq('position_id', id);
+
+    if (countError) {
+      console.error('[lc/structure] Error checking position members:', countError);
+      throw new Error(`Failed to check position members: ${countError.message}`);
+    }
+
+    if ((count ?? 0) > 0) {
+      // Soft delete
+      const { error } = await this.supabase
+        .from('lc_positions')
+        .update({ is_active: false })
+        .eq('id', id);
+
+      if (error) {
+        console.error('[lc/structure] Error soft-deleting position:', error);
+        throw new Error(`Failed to deactivate position: ${error.message}`);
+      }
+      return;
+    }
+
+    // Hard delete
+    const { error } = await this.supabase
+      .from('lc_positions')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('[lc/structure] Error deleting position:', error);
+      throw new Error(`Failed to delete position: ${error.message}`);
+    }
+  }
+
+  /**
    * Get all holders of a specific position across terms
    */
   static async getPositionHistory(positionId: string): Promise<LCPositionHistory[]> {
@@ -168,17 +298,27 @@ export class LCStructureService {
   /**
    * Get LC members with filters and joined data.
    * institution_id is conditional to support super_admin cross-institution view.
+   *
+   * The `tier` filter selects LC proper ('tier_1') vs YUVA chapter leadership
+   * ('yuva_chapter') — both live in lc_members but are segregated by
+   * lc_positions.tier. When tier is provided, the position join becomes an
+   * inner join so the tier filter can be pushed into PostgREST.
    */
   static async getMembers(filters: {
     term_id?: string;
     status?: string;
     institution_id?: string;
+    tier?: string;
   }): Promise<LCMember[]> {
+    const positionJoin = filters.tier
+      ? 'position:lc_positions!inner(*)'
+      : 'position:lc_positions(*)';
+
     let query = this.supabase
       .from('lc_members')
       .select(`
         *,
-        position:lc_positions(*),
+        ${positionJoin},
         user:profiles(id, full_name, email, avatar_url),
         term:lc_terms(id, name, status)
       `)
@@ -192,6 +332,9 @@ export class LCStructureService {
     }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.tier) {
+      query = query.eq('position.tier', filters.tier);
     }
 
     const { data, error } = await query;

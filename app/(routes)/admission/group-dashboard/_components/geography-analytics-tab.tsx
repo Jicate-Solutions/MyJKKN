@@ -13,7 +13,6 @@ import type { GeographyAnalyticsRow } from '@/types/admission-workflow-config';
 
 interface GeographyAnalyticsTabProps {
   institutionId?: string;
-  academicYearId?: string;
 }
 
 function buildDistrictSummary(rows: GeographyAnalyticsRow[]) {
@@ -51,8 +50,8 @@ function buildInstitutionByDistrict(rows: GeographyAnalyticsRow[]) {
   return map;
 }
 
-export function GeographyAnalyticsTab({ institutionId, academicYearId }: GeographyAnalyticsTabProps) {
-  const { data: rows = [], isLoading, isError } = useGeographyAnalytics(institutionId, academicYearId);
+export function GeographyAnalyticsTab({ institutionId }: GeographyAnalyticsTabProps) {
+  const { data: rows = [], isLoading, isError } = useGeographyAnalytics(institutionId);
 
   if (isLoading) {
     return (

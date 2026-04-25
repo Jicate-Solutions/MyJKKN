@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { PhasesList } from './_components/phases-list';
 
 export const metadata: Metadata = {
-  title: 'Development Phases | Solutions Hub',
+  title: 'Development Phases',
   description: 'Manage software development phases',
 };
 

@@ -1,0 +1,22 @@
+[
+    {"id":"fb949ebf-d5c6-42dd-b3ec-7da68fa24811","bill_id":"21011e80-79e5-4a29-ae71-f904f49c8a83","created_at":"2026-01-03T07:12:17.684424+00:00","receipt_id":"2000f3fe-c5aa-4e0f-bd6f-76cf58734b28","amount_paid":1},
+    {"id":"e5452a9b-56e7-440c-8a1f-e95dd757d30a","bill_id":"1ac7050f-3c7b-4cf7-b06c-fbdf62e5d5c7","created_at":"2026-01-03T10:51:40.30432+00:00","receipt_id":"8f537b93-58fa-4636-8a7f-3de1db33ed97","amount_paid":1},
+    {"id":"a377461a-710f-48e5-9d5e-c138e26afb99","bill_id":"64e46e18-343f-4b73-875e-9ea27b5e996d","created_at":"2026-01-07T09:13:20.434802+00:00","receipt_id":"14b830dc-0add-4af0-9f9d-2fe007e93c36","amount_paid":5000},
+    {"id":"88d037d3-957a-40ee-9972-285dff49f131","bill_id":"64e46e18-343f-4b73-875e-9ea27b5e996d","created_at":"2026-01-07T09:14:31.721876+00:00","receipt_id":"5e4ca8b9-34cc-4cc5-847a-d4e54979d096","amount_paid":250},
+    {"id":"cf86b95d-7ef2-4617-9298-3b90cf754c8e","bill_id":"fd8798d4-d013-4775-bcd5-aa0f4d8f5c7d","created_at":"2026-01-08T06:11:34.57997+00:00","receipt_id":"e3e85eae-d110-42af-a792-2aa0a7cfe768","amount_paid":10000},
+    {"id":"15f0d675-59de-4a1f-8afe-caedfa0a2a9f","bill_id":"9ab89190-2604-4ca0-afb3-115519b5af2c","created_at":"2026-01-08T06:13:01.960134+00:00","receipt_id":"2ebaa164-baec-4b1d-ab43-21b6859f142b","amount_paid":4000},
+    {"id":"4e7bcf3e-51c4-4ff6-b00d-69f9fe5642d9","bill_id":"9ab89190-2604-4ca0-afb3-115519b5af2c","created_at":"2026-01-08T06:13:37.724307+00:00","receipt_id":"c38c994c-acfc-4740-b22f-81a5d3ec0353","amount_paid":1000},
+    {"id":"a31d6ebc-65bb-4d2d-9711-aaab231ac3c6","bill_id":"a4c8664f-6c02-4512-b982-6ab0c5ffc5ac","created_at":"2026-01-27T04:37:19.854479+00:00","receipt_id":"f25376f4-09ee-4c44-a5f9-0925632df2b9","amount_paid":499999.98},
+    {"id":"aadc55b8-2afb-4bef-8a28-1daaa8f18aa2","bill_id":"d1ea58a0-a94e-4ccc-9b2a-4133a62e066d","created_at":"2026-01-27T04:38:09.078844+00:00","receipt_id":"12b05db3-408c-4902-9f3f-8e362d533910","amount_paid":500000},
+    {"id":"8490bdd9-e8b8-4e48-9aaa-beb0a9f99e05","bill_id":"f52b8cb9-7e4d-41a3-a7b5-feb8c0c42bcc","created_at":"2026-01-27T05:13:13.734346+00:00","receipt_id":"781acebd-d41e-4a04-a196-b006ede7bcf3","amount_paid":9.99},
+    {"id":"f9ca7fa3-93d0-4399-b18c-f23f75e0d06d","bill_id":"5592b75a-14f8-4744-9e48-391a73d356a1","created_at":"2026-02-16T04:39:51.28294+00:00","receipt_id":"e17134be-e48c-431f-950e-b63144d7c5a4","amount_paid":1},
+    {"id":"b4d812fb-3469-48d6-920a-4e6895d6ef70","bill_id":"6d0c899a-5316-487d-8504-41488852c4b2","created_at":"2026-04-08T05:47:18.232705+00:00","receipt_id":"00298ff7-ff9f-4cc0-a0c1-ff88a13eff13","amount_paid":1000},
+    {"id":"be68be5c-3d7c-42f4-a21e-3d4071d20e3e","bill_id":"6d0c899a-5316-487d-8504-41488852c4b2","created_at":"2026-04-13T06:15:19.398734+00:00","receipt_id":"1d3e34d5-ccbd-47e9-bd45-6859314686d6","amount_paid":50},
+    {"id":"fc0b3a41-2187-480d-89e7-4196dc67e2f3","bill_id":"6d0c899a-5316-487d-8504-41488852c4b2","created_at":"2026-04-13T06:50:57.201998+00:00","receipt_id":"add2f87f-c638-4a3f-8022-1514c611e3ac","amount_paid":50},
+    {"id":"90f0d21a-626e-45e4-9995-4438565b0a2f","bill_id":"6d0c899a-5316-487d-8504-41488852c4b2","created_at":"2026-04-17T04:56:41.978339+00:00","receipt_id":"896801a5-de90-4af9-b4ec-0e5d114b3960","amount_paid":5000},
+    {"id":"7d3e9350-71e9-4099-b71d-dd3c85410c96","bill_id":"65ad4919-e4ef-4b43-a419-5884d74c4c43","created_at":"2026-04-17T06:18:17.743713+00:00","receipt_id":"0d52f455-aa8c-4452-8b96-cdc13c571f9b","amount_paid":5000},
+    {"id":"2662a0c4-47ee-4599-91c0-c681a0ebbac0","bill_id":"db840667-30bc-41c1-acb6-1e9dfa00ce02","created_at":"2026-04-17T06:21:29.381335+00:00","receipt_id":"d0eee604-724d-46c0-bf69-2880ba733a0f","amount_paid":10000},
+    {"id":"c8b0cc78-e4a2-4166-aa12-3f2466027c0e","bill_id":"db840667-30bc-41c1-acb6-1e9dfa00ce02","created_at":"2026-04-17T06:23:02.248378+00:00","receipt_id":"07532ab6-8e15-40c1-b720-78fc85a8b75d","amount_paid":7000},
+    {"id":"22abbb10-50b3-4b40-a3b8-6df65bd54e4e","bill_id":"c19ccfd7-453e-45c2-be0b-8f26d265f876","created_at":"2026-04-17T06:36:20.723501+00:00","receipt_id":"a7f5cb95-8fed-4b96-b657-a5d189154aab","amount_paid":3000},
+    {"id":"49c885d8-a0b7-4252-af7f-698e1c06573a","bill_id":"646eb05f-74d2-44af-8d03-2d99a081d79a","created_at":"2026-04-21T05:04:15.763997+00:00","receipt_id":"f0aa94f9-732d-4d5b-acd0-c083be9d3123","amount_paid":50000}
+]

@@ -36,6 +36,16 @@ import {
   TableRow
 } from '@/components/ui/table';
 
+
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/billing/discounts',
+} as const;
+
 export default function NewDiscountPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -282,10 +292,18 @@ export default function NewDiscountPage() {
                           <TableCell>
                             <div className='space-y-1'>
                               <div className='text-sm font-medium'>
-                                {(bill as any).category?.category_name}
+                                {bill.item_category?.item_category_name}
                               </div>
-                              <div className='text-xs text-muted-foreground capitalize'>
-                                {(bill as any).category?.frequency || ''}
+                              <div className='text-xs text-muted-foreground'>
+                                {
+                                  bill.item_category?.parent_category
+                                    ?.parent_category_name
+                                }{' '}
+                                →{' '}
+                                {
+                                  bill.item_category?.sub_category
+                                    ?.sub_category_name
+                                }
                               </div>
                             </div>
                           </TableCell>

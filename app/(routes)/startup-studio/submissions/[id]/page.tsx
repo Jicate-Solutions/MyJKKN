@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SubmissionDetail } from './_components/submission-detail';
 
 export const metadata: Metadata = {
-  title: 'Submission Detail | Startup Studio',
+  title: 'Submission Detail',
 };
 
 export default async function SubmissionDetailPage({

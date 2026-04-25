@@ -22,11 +22,14 @@ import {
 } from '@/components/ui/table';
 import { Shield, Search, Download, Send, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function AntiRaggingPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  // SAMPLE DATA — anti-ragging affidavit tracker hook not yet wired (PreviewBanner shown).
   const students = [
     { id: '1', name: 'Arun Kumar', roll: 'CS2024001', year: '2nd Year', block: 'Block A', affidavit: 'submitted', parent_affidavit: 'submitted', submitted_date: '2025-07-15' },
     { id: '2', name: 'Priya Sharma', roll: 'EC2024015', year: '2nd Year', block: 'Block B', affidavit: 'submitted', parent_affidavit: 'submitted', submitted_date: '2025-07-18' },
@@ -51,6 +54,7 @@ export default function AntiRaggingPage() {
   return (
     <ContentLayout title="Anti-Ragging Compliance">
       <div className="space-y-6">
+        <PreviewBanner feature="anti-ragging affidavit tracker" />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Anti-Ragging Affidavit Tracker</h1>
@@ -59,11 +63,25 @@ export default function AntiRaggingPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() =>
+                toast.info('Reminder sender ships next.', {
+                  description: 'Will send affidavit-pending reminders to students/parents once notification engine is wired.',
+                })
+              }
+            >
               <Send className="mr-2 h-4 w-4" />
               Send Reminders
             </Button>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() =>
+                toast.info('Report export ships next.', {
+                  description: 'CSV / PDF export of affidavit status will be available once the report endpoint is live.',
+                })
+              }
+            >
               <Download className="mr-2 h-4 w-4" />
               Export Report
             </Button>

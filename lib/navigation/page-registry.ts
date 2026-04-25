@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { MENU_PERMISSIONS, GetPages } from '@/lib/sidebarMenuLink';
 import type { PageEntry } from './types';
+import { getManifestPages } from './manifest-pages';
 
 // ─── Curated Keywords & Descriptions ─────────────────────────────────────────
 // High-traffic pages get hand-written keywords so users can search by intent
@@ -716,6 +717,30 @@ function buildRegistry(): PageEntry[] {
         permission: mp.permission,
         parentPath: '/events/marathon',
       });
+    }
+  }
+
+  // ── Additively merge in the auto-generated route manifest ─────────────────
+  // Every page.tsx under app/(routes) appears in ROUTE_MANIFEST. We add each
+  // one as a shallow PageEntry (icon+label derived from the route), so that
+  // pages NOT present in the sidebar (e.g. new module landings, deep ops
+  // tools) are still Cmd+K-searchable. Curated entries above win via `seen`
+  // — their hand-written keywords/descriptions are preserved.
+  for (const mp of getManifestPages()) {
+    if (seen.has(mp.path)) continue;
+    seen.add(mp.path);
+
+    // If the path has a curated enrichment block but wasn't in the sidebar,
+    // splice the curated keywords+description onto the shallow entry.
+    const enrichment = PAGE_ENRICHMENTS[mp.path];
+    if (enrichment) {
+      registry.push({
+        ...mp,
+        keywords: enrichment.keywords,
+        description: enrichment.description,
+      });
+    } else {
+      registry.push(mp);
     }
   }
 

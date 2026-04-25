@@ -82,7 +82,15 @@ export function GoogleOneTap() {
         }
       }
 
-      const { error: signInError } = await supabase.auth.signInWithIdToken({
+      // Use the user object returned by signInWithIdToken directly. The
+      // previous implementation threw this away and then called getUser(),
+      // which makes a redundant network round-trip that can race with the
+      // session cookie write under @supabase/ssr + pkce flow type on
+      // localhost HTTP dev, producing "Could not retrieve user after sign-in."
+      const {
+        data: { user, session },
+        error: signInError
+      } = await supabase.auth.signInWithIdToken({
         provider: 'google',
         token: response.credential
       });
@@ -91,12 +99,19 @@ export function GoogleOneTap() {
         throw new Error(`Supabase sign-in error: ${signInError.message}`);
       }
 
-      const {
-        data: { user }
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        throw new Error('Could not retrieve user after sign-in.');
+      if (!user || !session) {
+        // This path only triggers if Supabase returned { error: null,
+        // data: { user: null, session: null } } — which happens when an Auth
+        // Hook configured in the Supabase dashboard silently rejects the
+        // token. Log what we got so the real cause shows up in devtools
+        // rather than hiding behind a generic message.
+        console.error('[One Tap] signInWithIdToken returned no user/session', {
+          userPresent: !!user,
+          sessionPresent: !!session
+        });
+        throw new Error(
+          'Sign-in completed but no session was returned. Please try again or contact support.'
+        );
       }
 
       // Check if profile is completed

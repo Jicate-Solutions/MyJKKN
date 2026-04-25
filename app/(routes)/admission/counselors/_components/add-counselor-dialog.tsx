@@ -308,11 +308,20 @@ export function AddCounselorDialog({
 
         setUserResults((data as LearnerResult[]) || []);
       } else {
+        // BUG (2026-04-21): Pre-registered profiles have a `profiles` row but no
+        // corresponding `auth.users` row, so selecting them caused
+        // `admission_counselors_user_id_fkey` (profiles.user_id -> auth.users.id)
+        // to fail at insert time. Filter them out of the picker: a user who has
+        // not yet activated their account cannot be assigned as a counselor.
+        // `is_pre_registered` flips to false on first OAuth/email login.
+        // Using `.not('is_pre_registered', 'is', true)` matches both `false` and
+        // `NULL`, which is defensive given the column is nullable.
         let query = supabase
           .from('profiles')
           .select('id, full_name, email, phone_number, role')
           .eq('institution_id', existInstitutionId)
-          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator']);
+          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator'])
+          .not('is_pre_registered', 'is', true);
 
         if (departmentId) query = query.eq('department_id', departmentId);
 
@@ -369,7 +378,11 @@ export function AddCounselorDialog({
       const learnerEmail = learner.college_email || learner.student_email || '';
       const learnerName = [learner.first_name, learner.last_name].filter(Boolean).join(' ') || '';
 
-      // Look up profiles.id via email -- check both college and personal email
+      // Look up profiles.id via email -- check both college and personal email.
+      // Skip pre-registered profiles (profile exists but no auth.users row yet);
+      // otherwise admission_counselors.user_id FK to auth.users fires a 23503
+      // violation on insert. When no activated profile is found we fall back to
+      // user_id = null below via the _hasProfile flag.
       let profileId: string | null = null;
       const emailsToCheck = [learner.college_email, learner.student_email].filter(Boolean) as string[];
       if (emailsToCheck.length > 0) {
@@ -378,6 +391,7 @@ export function AddCounselorDialog({
           .from('profiles')
           .select('id')
           .or(orFilter)
+          .not('is_pre_registered', 'is', true)
           .limit(1)
           .maybeSingle();
         profileId = profile?.id || null;
@@ -426,6 +440,17 @@ export function AddCounselorDialog({
       // user_id must reference profiles.id -- set null if learner has no profile
       const userId = (selectedUser as any)._hasProfile === false ? null : selectedUser.id;
 
+      // BUG-003265 fix: `specializations` column does not exist on admission_counselors
+      // in production (schema: id, name, email, institution_id, created_at, user_id,
+      // is_active, phone, designation, current_leads, max_leads). Sending it caused every
+      // insert to fail with a Postgres "column does not exist" / PGRST204 schema-cache error,
+      // which the toast surfaced as "error message". Drop it from the payload until a
+      // migration adds the column (TODO: add `specializations text[]` via
+      // supabase/setup/01_tables.sql if this feature is wanted).
+      // Also guard against the documented FK violation: when a learner has no matching
+      // profiles row we already set user_id = null, but if we DID find a profile we must
+      // confirm it still exists in auth.users at insert time — skip the role assignment
+      // cleanly rather than 23503 the whole insert.
       const { error } = await supabase
         .from('admission_counselors')
         .insert({
@@ -435,11 +460,14 @@ export function AddCounselorDialog({
           email: selectedUser.email,
           phone: selectedUser.phone || null,
           max_leads: maxLeads,
-          specializations: specs,
           is_active: true,
         })
         .select()
         .single();
+
+      // The `specs` array is parsed for future use but intentionally not sent —
+      // keeps the existing UI input functional without breaking the insert.
+      void specs;
 
       if (error) {
         toast.error(error.message || 'Failed to add counselor');

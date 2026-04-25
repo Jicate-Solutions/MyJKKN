@@ -166,6 +166,8 @@ export interface ExotelCallRecord {
   DateCreated: string;
   DateUpdated?: string;
   PhoneNumberSid?: string;
+  /** The Exotel DID (ExoPhone) that received the inbound call, e.g. "04446313503". */
+  PhoneNumber?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -207,11 +209,26 @@ export function getExotelClient() {
 
       while (hasMore) {
         const queryParts: string[] = [`PageSize=${pageSize}`, `Offset=${offset}`];
-        if (params.dateFrom) queryParts.push(`StartTime%3E=${encodeURIComponent(params.dateFrom)}`);
-        if (params.dateTo) queryParts.push(`StartTime%3C=${encodeURIComponent(params.dateTo)}`);
+        // Exotel's /Calls.json expects DateCreated with a semicolon-separated
+        // gte;lte range as a SINGLE parameter. The old `StartTime>=X&StartTime<=Y`
+        // format returns HTTP 400 "Invalid parameter" — silently killed CDR sync
+        // after PR #288 removed the multi-value Status filter.
+        // Verified working format via direct probe 2026-04-21:
+        //   ?DateCreated=gte:2026-04-11 05:55:00;lte:2026-04-21 18:00:00 → 200 + records
+        if (params.dateFrom || params.dateTo) {
+          const rangeParts: string[] = [];
+          if (params.dateFrom) rangeParts.push(`gte:${params.dateFrom} 00:00:00`);
+          if (params.dateTo) rangeParts.push(`lte:${params.dateTo} 23:59:59`);
+          queryParts.push(`DateCreated=${encodeURIComponent(rangeParts.join(';'))}`);
+        }
         if (params.status) queryParts.push(`Status=${encodeURIComponent(params.status)}`);
         if (params.direction) {
-          const dir = params.direction === 'inbound' ? 'incoming' : 'outgoing';
+          // Exotel's valid Direction values: 'inbound', 'outbound-dial', 'outbound-api'
+          // (verified via 2026-04-21 direct API probe: sending 'incoming' returns
+          //  HTTP 400 "valid values for Direction are inbound,outbound-dial,outbound-api")
+          // Our internal 'inbound'/'outbound' maps 1:1 to inbound; outbound uses -api
+          // by default since MyJKKN CTC uses the API-initiated flavor.
+          const dir = params.direction === 'inbound' ? 'inbound' : 'outbound-api';
           queryParts.push(`Direction=${dir}`);
         }
 

@@ -272,7 +272,7 @@ export const B2A_ENDPOINTS: B2AEndpointDef[] = [
         label: 'Status',
         type: 'select',
         options: [
-          'enquiry',
+          'admitted',
           'pending',
           'approved',
           'rejected',

@@ -24,10 +24,13 @@ import {
 import { Download, ArrowLeft, IndianRupee, TrendingUp, AlertCircle, CheckCircle2, Search, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function FeeCollectionReportPage() {
   const { profile } = useAuth();
   const exportReport = useExportReport();
+  // SAMPLE DATA — the on-screen tables are illustrative.
+  // Use Export to download the real fee-collection numbers from your institution.
   const formatCurrency = (amount: number) =>
     amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 
@@ -65,6 +68,10 @@ export default function FeeCollectionReportPage() {
   return (
     <ContentLayout title="Fee Collection Report">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="fee collection report"
+          note="The summary cards and student table show illustrative sample data. Use Export Report to pull real fee-collection numbers from your institution."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center gap-3">
             <Link href="/campus-living/reports">

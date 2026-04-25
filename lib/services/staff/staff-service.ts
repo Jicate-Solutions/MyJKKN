@@ -131,7 +131,7 @@ export class StaffService {
       }
 
       // First attempt: Try with regular authenticated client
-      let { data: staff, error } = await (this.supabase as any) 
+      let { data: staff, error } = await (this.supabase as any)
         .from('staff')
         .insert([
           {
@@ -142,6 +142,11 @@ export class StaffService {
         ])
         .select()
         .single();
+
+      // Track which path produced `staff` so we know whether the server
+      // already handled user_roles assignment (API route does it; the
+      // direct-insert path does not).
+      let usedApiRoute = false;
 
       // If we get a 403/RLS error, try using the API route instead
       if (
@@ -168,6 +173,7 @@ export class StaffService {
 
           staff = await response.json();
           error = null;
+          usedApiRoute = true;
         } catch (apiError) {
           console.error('API route also failed:', apiError);
           // Fall back to original error
@@ -177,28 +183,34 @@ export class StaffService {
       if (error) throw error;
 
       // Assign role to the pre-registered profile via user_roles (multi-role table).
-      // The sync_staff_to_profiles trigger has already created/updated profile and set staff.profile_id
-      // and written profiles.role = NEW.role_key. We now mirror that into user_roles so the
-      // merged-permission flow works for staff even before their first OAuth login.
+      // The sync_staff_to_profiles trigger has already created/updated profile and set
+      // staff.profile_id and written profiles.role = NEW.role_key. We now mirror that
+      // into user_roles so the merged-permission flow works for staff even before their
+      // first OAuth login.
       // Added: 2026-04-14
-      if (staff?.profile_id && staff?.role_key) {
+      //
+      // Updated: 2026-04-22 — switched from the RLS-blocked direct INSERT on
+      // user_roles to the SECURITY DEFINER RPC mirror_staff_role_to_user_roles.
+      // Rationale: the user_roles INSERT policy requires roles.create, but our
+      // staff-creator roles (HOD/administrator/digital_coordinator) only have
+      // staff.create by design. Going through the RPC keeps authorization tight
+      // (it validates caller has staff.create AND target matches a staff row)
+      // while letting the assignment itself bypass RLS.
+      //
+      // Skip when the API route was used: /api/staff already performed the
+      // assignment via supabaseAdmin (signalled by _role_assignment_applied).
+      const serverApplied =
+        usedApiRoute && (staff as any)?._role_assignment_applied === true;
+      if (!serverApplied && staff?.profile_id && staff?.role_key) {
         try {
-          const { data: roleRow } = await this.supabase
-            .from('custom_roles')
-            .select('id')
-            .eq('role_key', staff.role_key)
-            .maybeSingle();
-
-          if (roleRow?.id) {
-            const { UserRolesService } = await import(
-              '@/lib/services/users/user-roles-service'
-            );
-            await UserRolesService.assignRoles(
-              staff.profile_id,
-              [roleRow.id],
-              roleRow.id
-            );
-          }
+          const { error: rpcError } = await (this.supabase as any).rpc(
+            'mirror_staff_role_to_user_roles',
+            {
+              p_profile_id: staff.profile_id,
+              p_role_key: staff.role_key
+            }
+          );
+          if (rpcError) throw rpcError;
         } catch (roleAssignError) {
           // Non-fatal: profile.role still carries the role string; user_roles can be synced later.
           console.warn(

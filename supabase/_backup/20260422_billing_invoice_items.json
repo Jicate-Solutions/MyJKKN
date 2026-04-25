@@ -1,0 +1,5 @@
+[
+    {"id":"dbd70f38-fb7b-4ade-ab97-f6f53ec997a6","amount":10000.00,"created_at":"2026-01-08T06:11:35.68993+00:00","invoice_id":"af2272d8-c142-42e8-b78e-245b10ed400e","receipt_id":"e3e85eae-d110-42af-a792-2aa0a7cfe768"},
+    {"id":"cc5fc3e6-7e25-44e5-8164-0ee7c9851b37","amount":4000.00,"created_at":"2026-01-08T06:13:38.796525+00:00","invoice_id":"2c8895ae-08c3-4f0f-9d93-8380c0904bb7","receipt_id":"2ebaa164-baec-4b1d-ab43-21b6859f142b"},
+    {"id":"5b995111-6f28-4ffa-be2b-da2e7d022dc0","amount":1000.00,"created_at":"2026-01-08T06:13:38.796525+00:00","invoice_id":"2c8895ae-08c3-4f0f-9d93-8380c0904bb7","receipt_id":"c38c994c-acfc-4740-b22f-81a5d3ec0353"}
+]

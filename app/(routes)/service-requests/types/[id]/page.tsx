@@ -199,6 +199,12 @@ export default function ServiceTypeDetailPage({
                         <span className="text-sm font-medium">{step.step_name}</span>
                         <p className="text-xs text-muted-foreground capitalize">
                           Role: {step.approver_role.replace(/_/g, ' ')}
+                          {step.approver_user_ids && step.approver_user_ids.length > 0 && (
+                            <span className="ml-1 normal-case text-muted-foreground">
+                              · {step.approver_user_ids.length} named approver
+                              {step.approver_user_ids.length === 1 ? '' : 's'} (any one can approve)
+                            </span>
+                          )}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">

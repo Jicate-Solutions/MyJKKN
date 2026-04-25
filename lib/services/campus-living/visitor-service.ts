@@ -11,7 +11,7 @@ import type {
 export class VisitorService {
   // ── List visitors with filters ────────────────────────────────────
   static async getVisitors(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: VisitorFilters,
     page = 1,
     pageSize = 50
@@ -20,9 +20,9 @@ export class VisitorService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_visitors')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.date) {
@@ -53,13 +53,13 @@ export class VisitorService {
         .from('hostel_visitors')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/visitors', 'Failed to fetch visitor', error);
         throw error;
       }
-      return data as HostelVisitor;
+      return data as HostelVisitor | null;
     } catch (error) {
       logger.error('campus-living/visitors', 'Unexpected error in getVisitor', error);
       throw error;
@@ -183,15 +183,15 @@ export class VisitorService {
   }
 
   // ── Currently checked-in visitors ─────────────────────────────────
-  static async getCurrentVisitors(institutionId: string, blockId?: string) {
+  static async getCurrentVisitors(institutionId: string | undefined, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_visitors')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('status', 'checked_in');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('check_in_time', { ascending: false });
 
@@ -312,7 +312,7 @@ export class VisitorService {
         .from('hostel_known_visitors')
         .select('visit_count')
         .eq('id', knownVisitorId)
-        .single();
+        .maybeSingle();
 
       if (fetchError) throw fetchError;
 

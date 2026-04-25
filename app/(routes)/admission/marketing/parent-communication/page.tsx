@@ -86,6 +86,17 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 
+
+/**
+ * navMeta — documents that this page is invoked via a button/row-click on
+ * the parent page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ * Added 2026-04-24 in the matchPaths-only sweep (PR follow-up to #408).
+ */
+export const navMeta = {
+  invokedFrom: '/admission/marketing/chat',
+} as const;
+
 // Types for UI display
 interface Parent {
   id: string;

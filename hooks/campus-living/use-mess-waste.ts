@@ -18,11 +18,11 @@ export const messWasteKeys = {
 
 // --- Query hooks ---
 
-export function useMessWasteLogs(institutionId: string, filters?: Record<string, unknown>) {
+export function useMessWasteLogs(institutionId: string | undefined, filters?: Record<string, unknown>) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: messWasteKeys.list({ institutionId, ...filters }),
-    queryFn: () => MessWasteService.getWasteLogs(institutionId, filters),
+    queryFn: () => MessWasteService.getWasteLogs(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

@@ -26,6 +26,10 @@ interface LeadCardProps {
     score_category?: string | null;
     is_hot_lead?: boolean;
     source?: string | null;
+    // 2026-04-21 — new split: primary FK + alternatives multi. Legacy interested_programs kept as fallback.
+    program_id?: string | null;
+    program?: { id: string; program_name: string } | null;
+    alternative_programs?: string[] | null;
     interested_programs?: string[] | null;
     last_contact_at?: string | null;
     next_followup_at?: string | null;
@@ -185,9 +189,17 @@ function getStageStyle(stage: string): string {
 export function LeadCard({ lead }: LeadCardProps) {
   const score = lead.score ?? null;
   const scoreCategory = lead.score_category ?? null;
-  const programs = lead.interested_programs ?? [];
-  const firstProgram = programs[0] ?? null;
-  const moreCount = programs.length > 1 ? programs.length - 1 : 0;
+  // 2026-04-21 — primary program from resolved join; legacy interested_programs[0] as fallback.
+  const primaryProgramLabel =
+    lead.program?.program_name ??
+    (lead.interested_programs && lead.interested_programs.length > 0
+      ? lead.interested_programs[0]
+      : null);
+  // Alternative count = alternative_programs length, OR for legacy rows the
+  // remaining interested_programs entries after the first (which we used as primary fallback).
+  const alternativeCount = lead.alternative_programs
+    ? lead.alternative_programs.length
+    : Math.max(0, (lead.interested_programs?.length ?? 0) - 1);
 
   const followup = lead.next_followup_at
     ? timeUntil(lead.next_followup_at)
@@ -256,16 +268,16 @@ export function LeadCard({ lead }: LeadCardProps) {
           )}
         </div>
 
-        {/* Row 4 — Interested programs */}
-        {firstProgram && (
+        {/* Row 4 — Interested program + alternatives count */}
+        {primaryProgramLabel && (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <GraduationCap className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">
-              {firstProgram}
-              {moreCount > 0 && (
+              {primaryProgramLabel}
+              {alternativeCount > 0 && (
                 <span className="text-muted-foreground/70">
                   {' '}
-                  and {moreCount} more
+                  +{alternativeCount} alternative{alternativeCount === 1 ? '' : 's'}
                 </span>
               )}
             </span>

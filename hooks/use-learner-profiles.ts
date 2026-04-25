@@ -295,12 +295,12 @@ export function useGenerateApplicationId() {
 // ============================================
 
 /**
- * Get enquiries (lifecycle_status = 'enquiry')
+ * Get enquiries (lifecycle_status = 'admitted')
  */
 export function useEnquiries(filters: Omit<LearnerProfileFilters, 'lifecycle_status'> = {}) {
   return useLearnerProfiles({
     ...filters,
-    lifecycle_status: 'enquiry',
+    lifecycle_status: 'admitted',
   });
 }
 
@@ -350,7 +350,7 @@ export function useGraduates(filters: Omit<LearnerProfileFilters, 'lifecycle_sta
 export function useAdmissionPipeline(filters: Omit<LearnerProfileFilters, 'lifecycle_status'> = {}) {
   return useLearnerProfiles({
     ...filters,
-    lifecycle_status: ['enquiry', 'pending', 'approved', 'rejected', 'waitlisted'],
+    lifecycle_status: ['admitted', 'pending', 'approved', 'rejected', 'waitlisted'],
   });
 }
 

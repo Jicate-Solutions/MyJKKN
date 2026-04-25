@@ -88,7 +88,8 @@ async function getEnquiriesInner(
       department:departments(id, department_name),
       program:programs(id, program_name),
       semester:semesters(id, semester_name, semester_code),
-      section:sections(id, section_name)
+      section:sections(id, section_name),
+      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, program_start_year, program_end_year)
     `,
       { count: 'exact' }
     );
@@ -97,7 +98,7 @@ async function getEnquiriesInner(
   if (lifecycle_status) {
     query = query.eq('lifecycle_status', lifecycle_status);
   } else {
-    query = query.in('lifecycle_status', ['enquiry', 'pending']);
+    query = query.in('lifecycle_status', ['admitted', 'pending']);
   }
 
   // Apply filters - Parse advanced search format
@@ -186,7 +187,7 @@ async function getEnquiriesInner(
   if (lifecycle_status) {
     countQuery = countQuery.eq('lifecycle_status', lifecycle_status);
   } else {
-    countQuery = countQuery.in('lifecycle_status', ['enquiry', 'pending']);
+    countQuery = countQuery.in('lifecycle_status', ['admitted', 'pending']);
   }
 
   if (search) {

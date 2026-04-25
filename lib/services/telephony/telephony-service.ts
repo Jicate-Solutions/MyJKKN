@@ -10,6 +10,8 @@ import { ExotelClient, type ExotelCallDetailsResponse } from './exotel-client';
 import { CallPipelineService } from './call-pipeline-service';
 import { PhoneNumberIntelligence } from './phone-number-intelligence';
 import { getCallContext, lookupAgent, isAdmissionCall, getCounselorExoPhone } from './exotel-agent-map';
+import { resolveCounselorIdForCall } from './call-attribution';
+import { exotelTimeToIso } from './exotel-time';
 import { normalizePhone, phoneLastDigits } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { WAEventDispatcher } from '@/lib/services/whatsapp/wa-event-dispatcher';
@@ -58,6 +60,11 @@ export interface CallLog {
   cost_amount: number | null;
   call_notes: string | null;
   follow_up_date: string | null;
+  follow_up_at: string | null;
+  call_outcome: string | null;
+  prospect_sentiment: string | null;
+  primary_objection: string | null;
+  next_action: string | null;
   started_at: string | null;
   ended_at: string | null;
   created_at: string;
@@ -160,6 +167,11 @@ export interface UpdateCallNotesInput {
   call_notes?: string;
   call_disposition?: CallDisposition;
   follow_up_date?: string | null;
+  follow_up_at?: string | null;
+  call_outcome?: string | null;
+  prospect_sentiment?: string | null;
+  primary_objection?: string | null;
+  next_action?: string | null;
   updated_by?: string;
 }
 
@@ -593,6 +605,11 @@ export class TelephonyService {
     if (input.call_notes !== undefined) update.call_notes = input.call_notes;
     if (input.call_disposition !== undefined) update.call_disposition = input.call_disposition;
     if (input.follow_up_date !== undefined) update.follow_up_date = input.follow_up_date;
+    if (input.follow_up_at !== undefined) update.follow_up_at = input.follow_up_at;
+    if (input.call_outcome !== undefined) update.call_outcome = input.call_outcome;
+    if (input.prospect_sentiment !== undefined) update.prospect_sentiment = input.prospect_sentiment;
+    if (input.primary_objection !== undefined) update.primary_objection = input.primary_objection;
+    if (input.next_action !== undefined) update.next_action = input.next_action;
     if (input.updated_by) update.updated_by = input.updated_by;
 
     const { data, error } = await supabase
@@ -729,13 +746,15 @@ export class TelephonyService {
 
       // Timestamps
       if (StartTime && (mappedStatus === 'ringing' || mappedStatus === 'in-progress')) {
-        updateData.started_at = StartTime;
+        const startedAtIso = exotelTimeToIso(StartTime);
+        if (startedAtIso) updateData.started_at = startedAtIso;
       }
       if (mappedStatus === 'in-progress') {
         updateData.answered_at = new Date().toISOString();
       }
       if (EndTime && TERMINAL_STATUSES.includes(mappedStatus)) {
-        updateData.ended_at = EndTime;
+        const endedAtIso = exotelTimeToIso(EndTime);
+        if (endedAtIso) updateData.ended_at = endedAtIso;
       }
 
       const { error } = await supabase
@@ -806,21 +825,14 @@ export class TelephonyService {
         // Non-blocking — agent detection is best-effort
       }
 
+      // Passthru webhooks include DialWhomNumber in query params (the number
+      // the Connect applet actually dialed). Use it as a stronger agent-phone
+      // signal than the StatusCallback-only `To` field.
+      const dialWhomNumber = payload.DialWhomNumber || '';
+      if (!agentPhone && dialWhomNumber) agentPhone = dialWhomNumber;
+
       // Look up agent context from our mapping
       const callContext = getCallContext(agentPhone, exoPhone);
-      const agent = agentPhone ? lookupAgent(agentPhone) : null;
-
-      // ── Counselor Matching ──
-      // Try to find the answering agent's user ID in MyJKKN profiles
-      let counselorId: string | null = null;
-      if (agent?.email) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id')
-          .ilike('email', agent.email)
-          .maybeSingle();
-        if (profile) counselorId = profile.id;
-      }
 
       // ── Lead Matching (E.164 normalized + last-10-digit fallback) ──
       let leadMatch: { id: string; institution_id: string } | null = null;
@@ -863,6 +875,14 @@ export class TelephonyService {
       const mappedStatus = TelephonyService.mapExotelStatus(payload.Status);
       const durationSec = parseInt(payload.ConversationDuration || payload.Duration || '0', 10);
 
+      // ── Counselor Matching ──
+      // Signal 1: lead.assigned_counselor_id (if lead matched above)
+      // Signal 2: dialled agent phone → AGENT_MAP → profiles.email
+      const counselorId = await resolveCounselorIdForCall(
+        { leadId: leadMatch?.id ?? null, dialWhomNumber: agentPhone || dialWhomNumber },
+        supabase
+      );
+
       // ── Build call_notes with context ──
       const contextParts: string[] = [];
       if (callContext.department !== 'general') contextParts.push(`Dept: ${callContext.department}`);
@@ -886,9 +906,9 @@ export class TelephonyService {
           recording_url: payload.RecordingUrl || null,
           call_notes: autoNotes,
           cost_amount: payload.Price ? parseFloat(payload.Price) : null,
-          started_at: payload.StartTime || null,
-          ended_at: payload.EndTime || null,
-          answered_at: durationSec > 0 ? payload.StartTime || new Date().toISOString() : null,
+          started_at: exotelTimeToIso(payload.StartTime),
+          ended_at: exotelTimeToIso(payload.EndTime),
+          answered_at: durationSec > 0 ? (exotelTimeToIso(payload.StartTime) || new Date().toISOString()) : null,
           is_admission_call: isAdmissionCall(agentPhone || exoPhone, exoPhone),
         })
         .select('id, status, institution_id, call_sid')
@@ -1313,6 +1333,46 @@ export class TelephonyService {
       logger.error('telephony', 'Failed to fetch call details from Exotel', { callSid, error: err });
       return null;
     }
+  }
+
+  /**
+   * Match an inbound caller's phone to an admission lead in the given institution.
+   * Tries exact E.164 match first, then falls back to last-10-digits (handles legacy
+   * non-normalized phone data in admission_leads.phone). Returns the lead id or null.
+   *
+   * Extracted from the webhook's createInboundCallLog() so the CDR-sync path and
+   * the matchUnmatchedLeads() batch retry can share the same logic.
+   */
+  static async matchLeadByPhone(
+    phone: string | null | undefined,
+    institutionId: string,
+    supabase: any
+  ): Promise<string | null> {
+    if (!phone) return null;
+
+    const normalized = normalizePhone(phone);
+    if (!normalized) return null;
+
+    const { data: exact } = await supabase
+      .from('admission_leads')
+      .select('id')
+      .eq('institution_id', institutionId)
+      .eq('phone', normalized)
+      .limit(1)
+      .maybeSingle();
+    if (exact) return exact.id;
+
+    const last10 = phoneLastDigits(normalized);
+    if (last10.length < 10) return null;
+
+    const { data: fuzzy } = await supabase
+      .from('admission_leads')
+      .select('id')
+      .eq('institution_id', institutionId)
+      .like('phone', `%${last10}`)
+      .limit(1)
+      .maybeSingle();
+    return fuzzy?.id ?? null;
   }
 
   // ═══════════════════════════════════════════════════════════════════════

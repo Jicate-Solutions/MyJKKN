@@ -71,9 +71,11 @@ function base64ToFile(data: { name: string; type: string; base64: string }): Fil
   return new File([u8arr], data.name, { type: mime });
 }
 import { LeaveOndutyApplicationService } from '@/lib/services/academic/leave-onduty-application-service';
-import { useCreateLeaveOndutyApplication } from '@/hooks/academic/use-leave-onduty';
+import { useCreateLeaveOndutyApplication, TeamMemberSearchResult } from '@/hooks/academic/use-leave-onduty';
 import { useLeaveOndutySubCategories } from '@/hooks/academic/use-leave-onduty-sub-categories';
 import { SponsorPicker } from './sponsor-picker';
+import { TeamMemberPicker } from './team-member-picker';
+import type { ApplicableType } from '@/types/leave-onduty';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -125,6 +127,8 @@ export function ApplicationForm({
 }: ApplicationFormProps) {
   const [category, setCategory] = useState<LeaveOndutyCategory>('leave');
   const [subCategory, setSubCategory] = useState('');
+  const [applicableType, setApplicableType] = useState<ApplicableType>('individual');
+  const [teamMembers, setTeamMembers] = useState<TeamMemberSearchResult[]>([]);
   const [startDate, setStartDate] = useState<Date>();
   const [endDate, setEndDate] = useState<Date>();
   const [periodType, setPeriodType] = useState<PeriodType>('fullday');
@@ -292,6 +296,16 @@ export function ApplicationForm({
     setPrevCategory(category);
   }, [category, isInitialized, prevCategory]);
 
+  // When switching to Leave, force applicable back to individual (team is
+  // OnDuty-only per the v2 spec) and clear any team roster the learner picked
+  // while drafting an OnDuty application.
+  useEffect(() => {
+    if (category === 'leave') {
+      setApplicableType('individual');
+      setTeamMembers([]);
+    }
+  }, [category]);
+
   // Fetch admin-managed sub-categories for this institution
   const { data: dbSubCategories, isLoading: dbSubCategoriesLoading } =
     useLeaveOndutySubCategories(
@@ -374,6 +388,12 @@ export function ApplicationForm({
       return;
     }
 
+    // v2: team OD roster validation
+    if (category === 'onduty' && applicableType === 'team' && teamMembers.length === 0) {
+      toast.error('Please add at least one team-mate, or switch to Individual.');
+      return;
+    }
+
     const formData: ApplicationFormData = {
       category,
       sub_category: subCategory,
@@ -384,6 +404,11 @@ export function ApplicationForm({
       reason,
       attachment_file: attachmentFile,
       sponsor_id: requiresSponsorApproval ? sponsorId : null,
+      applicable_type: category === 'leave' ? 'individual' : applicableType,
+      team_member_ids:
+        category === 'onduty' && applicableType === 'team'
+          ? teamMembers.map((m) => m.id)
+          : [],
     };
 
     createApplication.mutate(
@@ -400,10 +425,15 @@ export function ApplicationForm({
           // Reset form
           setCategory('leave');
           setSubCategory('');
+          setApplicableType('individual');
+          setTeamMembers([]);
           setStartDate(undefined);
           setEndDate(undefined);
           setPeriodType('fullday');
-          setSelectedPeriods([]);
+          // BUG: previously called setSelectedPeriods([]) — selectedPeriods is
+          // a useMemo derived from selectedPeriodsByDate, so it had no setter.
+          // Reset the source-of-truth instead.
+          setSelectedPeriodsByDate({});
           setReason('');
           setAttachmentFile(null);
           setSponsorId(null);
@@ -491,6 +521,63 @@ export function ApplicationForm({
           </SelectContent>
         </Select>
       </div>
+
+      {/* Applicable — visible only for OnDuty (Leave is always individual) */}
+      {category === 'onduty' && (
+        <div className="space-y-3">
+          <Label className="text-sm sm:text-base font-medium">
+            Applicable<span className="text-red-500 ml-1">*</span>
+          </Label>
+          <RadioGroup
+            value={applicableType}
+            onValueChange={(v) => setApplicableType(v as ApplicableType)}
+            className="grid grid-cols-2 gap-2 sm:gap-4"
+          >
+            <label
+              className={cn(
+                'flex items-center gap-2 sm:gap-3 rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all',
+                applicableType === 'individual'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-primary/50'
+              )}
+            >
+              <RadioGroupItem value="individual" id="applicable-individual" className="h-4 w-4" />
+              <div className="min-w-0">
+                <div className="font-medium text-sm sm:text-base">Individual</div>
+                <div className="text-xs sm:text-sm text-muted-foreground truncate">
+                  Just me
+                </div>
+              </div>
+            </label>
+            <label
+              className={cn(
+                'flex items-center gap-2 sm:gap-3 rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all',
+                applicableType === 'team'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-gray-200 dark:border-gray-700 hover:border-primary/50'
+              )}
+            >
+              <RadioGroupItem value="team" id="applicable-team" className="h-4 w-4" />
+              <div className="min-w-0">
+                <div className="font-medium text-sm sm:text-base">Team</div>
+                <div className="text-xs sm:text-sm text-muted-foreground truncate">
+                  Me plus other students
+                </div>
+              </div>
+            </label>
+          </RadioGroup>
+        </div>
+      )}
+
+      {/* Team Member Picker — only when OnDuty + Team */}
+      {category === 'onduty' && applicableType === 'team' && (
+        <TeamMemberPicker
+          institutionId={institutionId}
+          applicantLearnerId={learnerId}
+          value={teamMembers}
+          onChange={setTeamMembers}
+        />
+      )}
 
       {/* Sponsor Picker — only shown when the selected sub-category requires it */}
       {requiresSponsorApproval && subCategory && (

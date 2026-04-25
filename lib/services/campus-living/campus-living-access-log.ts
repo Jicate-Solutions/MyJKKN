@@ -10,7 +10,7 @@ import type {
 export class CampusLivingAccessLog {
   // ── List access logs ──────────────────────────────────────────────
   static async getAccessLogs(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       block_id?: string;
       person_type?: AccessLogPersonType;
@@ -26,9 +26,9 @@ export class CampusLivingAccessLog {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_access_log')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.person_type) query = query.eq('person_type', filters.person_type);
       if (filters?.direction) query = query.eq('direction', filters.direction);
@@ -59,13 +59,13 @@ export class CampusLivingAccessLog {
         .from('hostel_access_log')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/access-log', 'Failed to fetch access log entry', error);
         throw error;
       }
-      return data as HostelAccessLog;
+      return data as HostelAccessLog | null;
     } catch (error) {
       logger.error('campus-living/access-log', 'Unexpected error in getAccessLog', error);
       throw error;
@@ -207,18 +207,19 @@ export class CampusLivingAccessLog {
   }
 
   // ── Flagged entries ───────────────────────────────────────────────
-  static async getFlaggedEntries(institutionId: string, page = 1, pageSize = 50) {
+  static async getFlaggedEntries(institutionId: string | undefined, page = 1, pageSize = 50) {
     try {
       const supabase = createClientSupabaseClient();
       const from = (page - 1) * pageSize;
 
-      const { data, error, count } = await supabase
+      let q = supabase
         .from('hostel_access_log')
         .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId)
         .eq('is_flagged', true)
         .order('timestamp', { ascending: false })
         .range(from, from + pageSize - 1);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error, count } = await q;
 
       if (error) {
         logger.error('campus-living/access-log', 'Failed to fetch flagged entries', error);
@@ -261,16 +262,16 @@ export class CampusLivingAccessLog {
   }
 
   // ── Daily access summary ──────────────────────────────────────────
-  static async getDailyAccessSummary(institutionId: string, date: string, blockId?: string) {
+  static async getDailyAccessSummary(institutionId: string | undefined, date: string, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_access_log')
         .select('direction, person_type, method, is_flagged')
-        .eq('institution_id', institutionId)
         .gte('timestamp', `${date}T00:00:00`)
         .lte('timestamp', `${date}T23:59:59`);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
 
       const { data, error } = await query;

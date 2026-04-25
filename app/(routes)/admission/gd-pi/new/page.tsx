@@ -24,6 +24,16 @@ import { Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { useGDPIMutations } from '@/hooks/admission/use-gdpi';
 import type { GDPIScoringCriterion, GDPISessionType } from '@/types/admission';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/admission/gd-pi',
+} as const;
+
+
 const DEFAULT_CRITERIA: GDPIScoringCriterion[] = [
   { name: 'Communication Skills', max_score: 10, weight: 25 },
   { name: 'Subject Knowledge', max_score: 10, weight: 25 },

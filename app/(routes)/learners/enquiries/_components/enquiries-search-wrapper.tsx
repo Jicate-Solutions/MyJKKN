@@ -11,7 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { LearnerAdvancedSearchShared, type LearnerSearchFilters } from '@/components/learners/learner-advanced-search-shared';
 
 interface EnquiriesSearchWrapperProps {
-  statusFilter?: 'enquiry' | 'pending' | 'rejected' | 'waitlisted' | 'approved' | 'account';
+  statusFilter?: 'admitted' | 'pending' | 'rejected' | 'waitlisted' | 'approved' | 'account';
 }
 
 export function EnquiriesSearchWrapper({ statusFilter }: EnquiriesSearchWrapperProps) {

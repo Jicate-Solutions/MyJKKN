@@ -42,7 +42,8 @@ export async function getLearnerProfile(id: string): Promise<LearnerProfile | nu
       regulation:regulations(id, regulation_code, regulation_year),
       batch:batches(id, batch_name, batch_code),
       created_by_user:profiles!learners_profiles_created_by_fkey(id, email, full_name),
-      updated_by_user:profiles!learners_profiles_updated_by_fkey(id, email, full_name)
+      updated_by_user:profiles!learners_profiles_updated_by_fkey(id, email, full_name),
+      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, program_start_year, program_end_year)
     `
     )
     .eq('id', id)

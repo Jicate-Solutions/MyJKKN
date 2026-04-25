@@ -49,6 +49,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Loading from '@/components/Loading/Loading';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { useTimetables } from '@/hooks/academic/use-timetables';
+import { revalidateTimetables } from '../../_actions/revalidate-timetables';
 import { useAcademicYearsByInstitution } from '@/hooks/academic/use-academic-years';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDegrees } from '@/hooks/organization/use-degrees';
@@ -590,6 +591,15 @@ export default function EditTimetablePage() {
 
       const success = await updateTimetable(timetableId, updateData, isSuperAdmin);
       if (success) {
+        // Invalidate server-rendered list page cache so the edited name/fields
+        // appear immediately on the list without requiring a hard refresh.
+        // The React Query cache is already invalidated inside useTimetables's
+        // update mutation; this covers the RSC list page.
+        try {
+          await revalidateTimetables();
+        } catch (revalidateErr) {
+          logger.warn('academic/timetables', 'Revalidate after edit failed (non-blocking)', revalidateErr);
+        }
         router.push(`/academic/timetables/${timetableId}`);
       }
     } catch (error) {

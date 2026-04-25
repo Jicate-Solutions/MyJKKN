@@ -10,7 +10,7 @@ import type {
 export class MessMenuService {
   // ── List menus with filters ───────────────────────────────────────
   static async getMenus(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       caterer_id?: string;
       block_id?: string;
@@ -25,9 +25,9 @@ export class MessMenuService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_menus')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.caterer_id) query = query.eq('caterer_id', filters.caterer_id);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.week_start_date) query = query.eq('week_start_date', filters.week_start_date);
@@ -61,13 +61,13 @@ export class MessMenuService {
         .from('mess_menus')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/menu', 'Failed to fetch menu', error);
         throw error;
       }
-      return data as MessMenu;
+      return data as MessMenu | null;
     } catch (error) {
       logger.error('campus-living/menu', 'Unexpected error in getMenu', error);
       throw error;
@@ -75,15 +75,15 @@ export class MessMenuService {
   }
 
   // ── Weekly menu for a block ───────────────────────────────────────
-  static async getWeeklyMenu(institutionId: string, weekStartDate: string, blockId?: string) {
+  static async getWeeklyMenu(institutionId: string | undefined, weekStartDate: string, blockId?: string) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_menus')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('week_start_date', weekStartDate);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('day_of_week').order('meal_type');
 
@@ -190,7 +190,7 @@ export class MessMenuService {
   }
 
   // ── Delete entire weekly plan ─────────────────────────────────────
-  static async deleteWeeklyPlan(institutionId: string, weekStartDate: string, catererId: string) {
+  static async deleteWeeklyPlan(institutionId: string | undefined, weekStartDate: string, catererId: string) {
     try {
       const supabase = createClientSupabaseClient();
       const { error } = await supabase
@@ -233,7 +233,7 @@ export class MessMenuService {
   }
 
   // ── Get today's menu for a block ──────────────────────────────────
-  static async getTodaysMenu(institutionId: string, blockId?: string) {
+  static async getTodaysMenu(institutionId: string | undefined, blockId?: string) {
     try {
       const today = new Date();
       const dayOfWeek = today.getDay(); // 0 = Sunday
@@ -247,10 +247,10 @@ export class MessMenuService {
       let query = supabase
         .from('mess_menus')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('week_start_date', weekStartDate)
         .eq('day_of_week', dayOfWeek);
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (blockId) query = query.eq('block_id', blockId);
       query = query.order('meal_type');
 

@@ -38,6 +38,16 @@ import {
 import { useSF100Programs, useCreateSF100Exercise } from '@/hooks/startup-studio';
 import type { SF100ExerciseField } from '@/types/startup-studio/sf100';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/startup-studio/solve-for-100/exercises',
+} as const;
+
+
 type FieldType = SF100ExerciseField['type'];
 
 const FIELD_TYPE_LABELS: Record<FieldType, string> = {

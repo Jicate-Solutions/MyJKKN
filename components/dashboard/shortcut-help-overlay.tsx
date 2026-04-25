@@ -7,12 +7,17 @@ interface ShortcutHelpOverlayProps {
 }
 
 const SHORTCUTS = [
+  { keys: ['.'], description: "Do today's focus action (one-click)" },
+  { keys: ['r'], description: 'Refresh dashboard (reload metrics)' },
+  { keys: ['j'], description: 'Next queue item' },
+  { keys: ['k'], description: 'Previous queue item' },
+  { keys: ['g', 'f'], description: "Scroll to Today's Focus" },
   { keys: ['g', 'q'], description: 'Scroll to Decision Queue' },
   { keys: ['g', 'l'], description: 'Scroll to Leaderboards' },
   { keys: ['g', 'h'], description: 'Scroll to top (Hero Strip)' },
   { keys: ['g', 'c'], description: 'Open Classic Dashboard' },
   { keys: ['?'], description: 'Toggle this help overlay' },
-  { keys: ['Esc'], description: 'Close overlay / dismiss brief' },
+  { keys: ['Esc'], description: 'Close overlay / dismiss brief' }
 ];
 
 export function ShortcutHelpOverlay({ onClose }: ShortcutHelpOverlayProps) {

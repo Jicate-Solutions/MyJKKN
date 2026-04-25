@@ -122,6 +122,7 @@ export class LeadService {
     if (filters.expo_event_id) params.set('expo_event_id', filters.expo_event_id);
     if (filters.captured_by) params.set('captured_by', filters.captured_by);
     if (filters.counselor_id) params.set('counselor_id', filters.counselor_id);
+    if (filters.program_id) params.set('program_id', filters.program_id);
 
     // Funnel stage: support single value (array handled by caller)
     if (filters.funnel_stage) {
@@ -167,7 +168,9 @@ export class LeadService {
     let query = (this.supabase as any).from('admission_leads')
       .select(`
         *,
-        counselor:admission_counselors(id, name, email)
+        counselor:admission_counselors(id, name, email),
+        program:programs!program_id(id, program_name, program_id),
+        admission_year:admission_years(id, admission_year_name, program_start_year, program_end_year)
       `)
       .eq('id', id);
 
@@ -259,8 +262,11 @@ export class LeadService {
     // Add optional columns that exist in the table
     if (leadData.counselor_id) insertData.counselor_id = leadData.counselor_id;
     if (leadData.preferred_channel) insertData.preferred_channel = leadData.preferred_channel;
-    if (leadData.interested_programs && leadData.interested_programs.length > 0) {
-      insertData.interested_programs = leadData.interested_programs;
+    // 2026-04-21 — primary interested program (single) + optional alternatives (multi).
+    // Legacy `interested_programs` array no longer written; kept on DB for historical reads.
+    if (leadData.program_id) insertData.program_id = leadData.program_id;
+    if (leadData.alternative_programs && leadData.alternative_programs.length > 0) {
+      insertData.alternative_programs = leadData.alternative_programs;
     }
     if (leadData.parent_name) insertData.parent_name = leadData.parent_name;
     if (cleanParent) insertData.parent_phone = cleanParent;
@@ -281,7 +287,7 @@ export class LeadService {
     // JKKN Tier-1 fields
     if (leadData.student_interest_level) insertData.student_interest_level = leadData.student_interest_level;
     if (leadData.parent_decision_status) insertData.parent_decision_status = leadData.parent_decision_status;
-    if (leadData.academic_year) insertData.academic_year = leadData.academic_year;
+    if (leadData.admission_year_id) insertData.admission_year_id = leadData.admission_year_id;
     // Expo Bridge — link lead to exhibition event and team member who captured it
     if (leadData.expo_event_id) insertData.expo_event_id = leadData.expo_event_id;
     if (leadData.captured_by) insertData.captured_by = leadData.captured_by;
@@ -476,8 +482,15 @@ export class LeadService {
 
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
-    // Sanitize: strip fields that clients must never override
-    const { id: _stripId, institution_id: _stripInst, created_at: _stripCreated, ...safeData } = leadData as any;
+    // Sanitize: strip fields that clients must never override.
+    // `institution_id` is intentionally NOT stripped — the admission_leads RLS
+    // UPDATE policy already enforces `role_has_institution_access(institution_id)`
+    // on both the old and new row (with_check falls back to using), so users
+    // without cross-institution access cannot move a lead to an institution
+    // they can't see. Stripping it here silently discards legitimate edits
+    // (e.g., a super-admin reassigning a mis-entered lead to the correct
+    // institution) and makes the UI appear to save while the DB doesn't update.
+    const { id: _stripId, created_at: _stripCreated, ...safeData } = leadData as any;
 
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({

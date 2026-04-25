@@ -79,6 +79,22 @@ export const FEATURE_FLAGS = {
    * Security: Validated at authentication layer with lifecycle status checks
    */
   ENABLE_STUDENT_PORTAL: process.env.NEXT_PUBLIC_ENABLE_STUDENT_PORTAL === 'true',
+
+  // ============================================
+  // LTI TEST LOGIN (Added: 2026-04-20)
+  // ============================================
+  /**
+   * Dedicated email+password login route for MathWorks LTI integration testing.
+   * When true: /auth/lti-login accepts credentials for lti.*@jkkn.ac.in accounts
+   *            (bypasses Google OAuth + Workspace MFA for integration partners)
+   * When false: /auth/lti-login returns a "disabled" notice
+   *
+   * The route is ADDITIONALLY restricted to emails matching /^lti\..+@jkkn\.ac\.in$/
+   * so flipping this flag ON does not broaden access to non-LTI accounts.
+   *
+   * Turn OFF after MathWorks integration sign-off and rotate the seeded passwords.
+   */
+  ENABLE_LTI_TEST_LOGIN: process.env.NEXT_PUBLIC_ENABLE_LTI_TEST_LOGIN === 'true',
 } as const;
 
 // ============================================

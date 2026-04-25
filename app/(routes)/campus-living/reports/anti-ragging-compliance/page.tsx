@@ -23,10 +23,13 @@ import {
 import { Download, ArrowLeft, Shield, FileText, AlertTriangle, CheckCircle2, Clock, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function AntiRaggingComplianceReportPage() {
   const { profile } = useAuth();
   const exportReport = useExportReport();
+  // SAMPLE DATA — incident log, committee meetings and compliance checklist are illustrative.
+  // Generate Report does call the real /api/campus-living/reports endpoint for the live data.
   const summaryStats = [
     { label: 'Total Complaints', value: '3', icon: AlertTriangle, color: 'text-orange-600' },
     { label: 'Resolved', value: '2', icon: CheckCircle2, color: 'text-green-600' },
@@ -63,6 +66,10 @@ export default function AntiRaggingComplianceReportPage() {
   return (
     <ContentLayout title="Anti-Ragging Compliance Report">
       <div className="space-y-6">
+        <PreviewBanner
+          feature="anti-ragging compliance report"
+          note="Incident IDs, committee minutes, and the UGC compliance checklist below are illustrative samples. Click Generate Report to download the real UGC-format report from your institution."
+        />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center gap-3">
             <Link href="/campus-living/reports">

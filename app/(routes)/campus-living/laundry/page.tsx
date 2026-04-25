@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -36,6 +37,17 @@ import { useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useLaundryOrders } from '@/hooks/campus-living/use-hostel-laundry';
 import { BlockSelector } from '@/components/campus-living/block-selector';
+
+
+/**
+ * navMeta — documents that this page is invoked via a button/row-click on
+ * the parent page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ * Added 2026-04-24 in the matchPaths-only sweep (PR follow-up to #408).
+ */
+export const navMeta = {
+  invokedFrom: '/campus-living',
+} as const;
 
 export default function LaundryPage() {
   const { profile } = useAuth();
@@ -120,7 +132,13 @@ export default function LaundryPage() {
               Track laundry pickup, processing and delivery.
             </p>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('Inline new-order dialog ships next.', {
+                description: 'Use the orders sub-page to create an order until the inline form is wired.',
+              })
+            }
+          >
             <Plus className="mr-2 h-4 w-4" />
             New Order
           </Button>

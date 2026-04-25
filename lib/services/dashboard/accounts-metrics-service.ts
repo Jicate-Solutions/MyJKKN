@@ -103,21 +103,17 @@ export function formatInrAccounts(amount: number): string {
 
 /**
  * Fetches all 4 accounts hero tile metrics in a single RPC call.
- * Returns EMPTY_ACCOUNTS_METRICS on error (resilient to DB hiccups).
+ * Throws on error — DashboardErrorBoundary surfaces the failure visibly.
+ * 2026-04-21: Silent-swallow fix.
  */
 export async function getAccountsMetrics(): Promise<AccountsMetrics> {
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.rpc('fn_accounts_metrics');
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('fn_accounts_metrics');
 
-    if (error) {
-      console.error('[dashboard/accounts-metrics] RPC error:', error);
-      return EMPTY_ACCOUNTS_METRICS;
-    }
-
-    return (data as AccountsMetrics) ?? EMPTY_ACCOUNTS_METRICS;
-  } catch (err) {
-    console.error('[dashboard/accounts-metrics] unexpected error:', err);
-    return EMPTY_ACCOUNTS_METRICS;
+  if (error) {
+    console.error('[dashboard/accounts-metrics] RPC error:', error);
+    throw new Error(`fn_accounts_metrics failed: ${error.message}`);
   }
+
+  return (data as AccountsMetrics) ?? EMPTY_ACCOUNTS_METRICS;
 }

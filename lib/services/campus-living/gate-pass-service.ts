@@ -9,7 +9,7 @@ import type {
 export class GatePassService {
   // ── List gate passes ──────────────────────────────────────────────
   static async getGatePasses(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { status?: GatePassStatus; learner_id?: string; date?: string },
     page = 1,
     pageSize = 50
@@ -18,9 +18,9 @@ export class GatePassService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_gate_passes')
-        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.status) query = query.eq('status', filters.status as any);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
       if (filters?.date) {
@@ -51,13 +51,13 @@ export class GatePassService {
         .from('hostel_gate_passes')
         .select('*, hostel_leave_requests(*)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch gate pass', error);
         throw error;
       }
-      return data as HostelGatePass & { hostel_leave_requests: unknown };
+      return data as (HostelGatePass & { hostel_leave_requests: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/gate-pass', 'Unexpected error in getGatePass', error);
       throw error;
@@ -72,13 +72,13 @@ export class GatePassService {
         .from('hostel_gate_passes')
         .select('*')
         .eq('qr_code', qrCode)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch gate pass by QR', error);
         throw error;
       }
-      return data as HostelGatePass;
+      return data as HostelGatePass | null;
     } catch (error) {
       logger.error('campus-living/gate-pass', 'Unexpected error in getGatePassByQR', error);
       throw error;
@@ -93,13 +93,13 @@ export class GatePassService {
         .from('hostel_gate_passes')
         .select('*')
         .eq('pass_number', passNumber)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch gate pass by number', error);
         throw error;
       }
-      return data as HostelGatePass;
+      return data as HostelGatePass | null;
     } catch (error) {
       logger.error('campus-living/gate-pass', 'Unexpected error in getGatePassByNumber', error);
       throw error;
@@ -230,17 +230,18 @@ export class GatePassService {
   }
 
   // ── Get overdue passes ────────────────────────────────────────────
-  static async getOverduePasses(institutionId: string) {
+  static async getOverduePasses(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
 
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_gate_passes')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('status', 'active')
         .lt('expected_return', now);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch overdue passes', error);
@@ -254,7 +255,7 @@ export class GatePassService {
   }
 
   // ── Mark overdue (batch update) ───────────────────────────────────
-  static async markOverdue(institutionId: string) {
+  static async markOverdue(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
@@ -435,7 +436,7 @@ export class GatePassService {
       .from('hostel_gate_passes')
       .select('learner_id')
       .eq('id', gatePassId)
-      .single();
+      .maybeSingle();
 
     if (passError || !pass) {
       throw new Error('Gate pass not found');
@@ -604,15 +605,16 @@ export class GatePassService {
   }
 
   // ── Staff views pending requests ────────────────────────────────
-  static async getPendingRequests(institutionId: string) {
+  static async getPendingRequests(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_gate_passes')
         .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)')
-        .eq('institution_id', institutionId)
         .eq('status', 'requested' as any)
         .order('created_at', { ascending: true });
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/gate-pass', 'Failed to fetch pending requests', error);

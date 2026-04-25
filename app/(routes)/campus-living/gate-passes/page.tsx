@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -172,7 +173,14 @@ export default function GatePassesPage() {
               Track student exit and entry with QR-based gate pass system
             </p>
           </div>
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() =>
+              toast.info('Gate-pass export ships next.', {
+                description: 'CSV export of gate-pass logs will be available once the export endpoint is live.',
+              })
+            }
+          >
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>

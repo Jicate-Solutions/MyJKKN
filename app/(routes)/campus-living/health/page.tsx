@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -35,6 +36,17 @@ import { useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useHealthCases } from '@/hooks/campus-living/use-hostel-health';
 import { BlockSelector } from '@/components/campus-living/block-selector';
+
+
+/**
+ * navMeta — documents that this page is invoked via a button/row-click on
+ * the parent page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ * Added 2026-04-24 in the matchPaths-only sweep (PR follow-up to #408).
+ */
+export const navMeta = {
+  invokedFrom: '/campus-living',
+} as const;
 
 export default function HealthPage() {
   const { profile } = useAuth();
@@ -129,7 +141,13 @@ export default function HealthPage() {
               Log illnesses, track treatment and monitor recovery for hostel residents.
             </p>
           </div>
-          <Button>
+          <Button
+            onClick={() =>
+              toast.info('Inline log-case dialog ships next.', {
+                description: 'Health-case logging UI is being wired in a follow-up PR.',
+              })
+            }
+          >
             <Plus className="mr-2 h-4 w-4" />
             Log Case
           </Button>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -101,11 +102,26 @@ export default function AbsenteesPage() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() =>
+                toast.info('Bulk parent notification ships next.', {
+                  description:
+                    'Will send SMS / WhatsApp / email blast to parents of all absentees once notification engine is wired.',
+                })
+              }
+            >
               <Bell className="mr-2 h-4 w-4" />
               Notify Parents
             </Button>
-            <Button variant="outline">
+            <Button
+              variant="outline"
+              onClick={() =>
+                toast.info('Absentee export ships next.', {
+                  description: 'CSV download will be available once export endpoint is live.',
+                })
+              }
+            >
               <Download className="mr-2 h-4 w-4" />
               Export
             </Button>
@@ -242,7 +258,15 @@ export default function AbsenteesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            toast.info('Contact action ships next.', {
+                              description: `Would open the contact dialog (call / WhatsApp / SMS) for ${student.name}.`,
+                            })
+                          }
+                        >
                           Contact
                         </Button>
                       </TableCell>

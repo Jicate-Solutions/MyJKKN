@@ -11,7 +11,7 @@ import type {
 export class MessCatererService {
   // ── List caterers ─────────────────────────────────────────────────
   static async getCaterers(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { status?: CatererStatus; search?: string },
     page = 1,
     pageSize = 50
@@ -20,9 +20,9 @@ export class MessCatererService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('mess_caterers')
-        .select('*, mess_caterer_blocks(*, hostel_blocks(name, code))', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*, mess_caterer_blocks(*, hostel_blocks(name, code))', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.search) {
         query = query.or(`name.ilike.%${filters.search}%,owner_name.ilike.%${filters.search}%`);
@@ -51,13 +51,13 @@ export class MessCatererService {
         .from('mess_caterers')
         .select('*, mess_caterer_blocks(*, hostel_blocks(name, code))')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/caterer', 'Failed to fetch caterer', error);
         throw error;
       }
-      return data as MessCaterer & { mess_caterer_blocks: unknown[] };
+      return data as (MessCaterer & { mess_caterer_blocks: unknown[] }) | null;
     } catch (error) {
       logger.error('campus-living/caterer', 'Unexpected error in getCaterer', error);
       throw error;
@@ -127,20 +127,21 @@ export class MessCatererService {
   }
 
   // ── Contract tracking ─────────────────────────────────────────────
-  static async getExpiringContracts(institutionId: string, withinDays = 30) {
+  static async getExpiringContracts(institutionId: string | undefined, withinDays = 30) {
     try {
       const supabase = createClientSupabaseClient();
       const futureDate = new Date();
       futureDate.setDate(futureDate.getDate() + withinDays);
 
-      const { data, error } = await supabase
+      let q = supabase
         .from('mess_caterers')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('status', 'active')
         .lte('contract_end_date', futureDate.toISOString().split('T')[0])
         .gte('contract_end_date', new Date().toISOString().split('T')[0])
         .order('contract_end_date');
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/caterer', 'Failed to fetch expiring contracts', error);
@@ -177,7 +178,7 @@ export class MessCatererService {
 
   // ── Assign caterer to block ───────────────────────────────────────
   static async assignToBlock(
-    institutionId: string,
+    institutionId: string | undefined,
     catererId: string,
     blockId: string,
     startDate: string,

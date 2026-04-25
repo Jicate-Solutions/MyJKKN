@@ -37,6 +37,8 @@ import {
   initializeLogCapture,
   logger
 } from '@/lib/utils/enhanced-logger';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { dataURLtoFile } from '@/lib/utils/file-converters';
 import toast from 'react-hot-toast';
 
 // Initialize enhanced log capture with deduplication
@@ -405,15 +407,12 @@ export function BugReporterWidget() {
   };
 
   const handleOpenBugReport = async () => {
-    // Open dialog immediately for instant feedback, capture screenshot in background
+    // Capture screenshot FIRST (modal must not be in DOM yet), then open modal.
+    // handleRetakeScreenshot already does this correctly; keep consistent.
     setCapturedScreenshot('');
-    setIsOpen(true);
-    setIsCapturingScreenshot(true);
+    setIsCapturingScreenshot(true); // pulse camera icon on button while capturing
 
     try {
-      // Small delay so the dialog renders before we start heavy work
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
       const screenshot = await capturePageScreenshot();
 
       if (!screenshot || screenshot.length === 0) {
@@ -428,6 +427,7 @@ export function BugReporterWidget() {
       toast.error('Could not auto-capture screenshot. You can add one manually.');
     } finally {
       setIsCapturingScreenshot(false);
+      setIsOpen(true); // open modal only after capture completes (or fails)
     }
   };
 
@@ -680,14 +680,18 @@ export function BugReporterWidget() {
 
       const safeLogs = serializeConsoleArgs(simplifiedLogs);
 
+      // Screenshots are NOT included in the JSON body — the API returns signed upload URLs
+      // and the browser uploads directly to Supabase Storage, avoiding server-side ECONNRESET.
+      const screenshotFmt = capturedScreenshot
+        ? (capturedScreenshot.startsWith('data:image/jpeg') ? 'jpg' : 'png')
+        : undefined;
+
       const payload = {
         page_url: window.location.href,
         description: description.trim(),
         category: category,
-        screenshot_data_url: capturedScreenshot,
-        additional_images_data_urls: additionalImages, // Add multiple images
         console_logs: safeLogs,
-        log_summary: structuredLogs.summary, // Add structured summary
+        log_summary: structuredLogs.summary,
         metadata: {
           userAgent: navigator.userAgent,
           screenResolution: `${screen.width}x${screen.height}`,
@@ -696,29 +700,19 @@ export function BugReporterWidget() {
           captureMethod: capturedScreenshot ? 'html2canvas' : 'none',
           devicePixelRatio: window.devicePixelRatio,
           additionalImagesCount: additionalImages.length,
-          // Add log statistics
           logStats: {
             uniqueEntries: structuredLogs.summary.totalUniqueEntries,
             totalOccurrences: structuredLogs.summary.totalOccurrences,
             topModules: structuredLogs.summary.topModules.slice(0, 5)
           }
-        }
+        },
+        wants_screenshot: !!capturedScreenshot,
+        screenshot_format: screenshotFmt,
+        additional_image_count: additionalImages.length,
+        additional_image_formats: additionalImages.map((img) =>
+          img.startsWith('data:image/jpeg') ? 'jpg' : 'png'
+        )
       };
-
-      // Check payload size before sending (Vercel limit is 4.5MB)
-      const payloadString = JSON.stringify(payload);
-      const payloadSizeKB = payloadString.length / 1024;
-      const payloadSizeMB = payloadSizeKB / 1024;
-
-      // Warn if payload is approaching limit (4MB warning threshold)
-      if (payloadSizeMB > 4) {
-        logger.warn('bug-reports', 'Payload is very large, may fail', { sizeMB: payloadSizeMB.toFixed(2) });
-        // Try to compress screenshot further if it's too large
-        if (payload.screenshot_data_url.length > 1.5 * 1024 * 1024) {
-          const recompressed = await compressScreenshot(payload.screenshot_data_url, 1 * 1024 * 1024);
-          payload.screenshot_data_url = recompressed;
-        }
-      }
 
       const response = await fetch('/api/bug-reports', {
         method: 'POST',
@@ -839,22 +833,55 @@ export function BugReporterWidget() {
 
       const result = await response.json();
 
-      // Handle the new API response structure
-      const successMessage =
-        result.message || 'Thank you for reporting this issue!';
-      const reportData = result.data || result;
+      // Upload screenshot directly from browser to Supabase Storage (browser-direct, no server hop)
+      if (capturedScreenshot && result.signedUploadUrl) {
+        try {
+          const supabaseClient = createClientSupabaseClient();
+          const ext = capturedScreenshot.startsWith('data:image/jpeg') ? 'jpg' : 'png';
+          const screenshotFile = dataURLtoFile(capturedScreenshot, `screenshot.${ext}`);
 
-      toast.success(successMessage);
+          const { error: uploadError } = await supabaseClient.storage
+            .from('bug-reports')
+            .uploadToSignedUrl(
+              result.signedUploadUrl.path,
+              result.signedUploadUrl.token,
+              screenshotFile,
+              { contentType: screenshotFile.type }
+            );
 
-      if (result?.warnings?.screenshotUploadError) {
-        logger.warn('bug-reports', 'Screenshot upload warning', {
-          message: result.warnings.screenshotUploadError
-        });
-        toast(
-          `Bug saved, but the screenshot did not upload: ${result.warnings.screenshotUploadError}`,
-          { icon: '⚠️', duration: 8000 }
+          if (uploadError) {
+            logger.warn('bug-reports', 'Browser screenshot upload failed', uploadError);
+          }
+        } catch (uploadErr) {
+          logger.warn('bug-reports', 'Screenshot upload exception', uploadErr);
+        }
+      }
+
+      // Upload additional images directly from browser
+      if (additionalImages.length > 0 && result.additionalSignedUrls?.length > 0) {
+        const supabaseClient = createClientSupabaseClient();
+        await Promise.allSettled(
+          additionalImages
+            .slice(0, result.additionalSignedUrls.length)
+            .map(async (imgDataUrl: string, i: number) => {
+              const signed = result.additionalSignedUrls[i];
+              if (!signed) return;
+              try {
+                const ext = imgDataUrl.startsWith('data:image/jpeg') ? 'jpg' : 'png';
+                const file = dataURLtoFile(imgDataUrl, `additional-${i + 1}.${ext}`);
+                await supabaseClient.storage
+                  .from('bug-reports')
+                  .uploadToSignedUrl(signed.path, signed.token, file, {
+                    contentType: file.type
+                  });
+              } catch (err) {
+                logger.warn('bug-reports', `Additional image ${i + 1} upload failed`, err);
+              }
+            })
         );
       }
+
+      toast.success(result.message || 'Thank you for reporting this issue!');
 
       setDescription('');
       setCategory('bug');

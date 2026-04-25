@@ -93,7 +93,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(isEditing);
   const [staffPlan, setStaffPlan] = useState<StaffPlan | null>(null);
-  const { userProfile } = usePermissions();
+  const { userProfile, isSuperAdmin } = usePermissions();
 
   // Track if initial data load has completed to prevent re-initialization
   // when userProfile reference changes (e.g., tab switch triggers re-fetch)
@@ -200,6 +200,12 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       if (staffPlan) {
         try {
           // Load all dependent data in parallel
+          // Scope institution list to the current user's accessible institutions.
+          // Super admins pass no userId (direct query returns all institutions).
+          // HODs and other scoped roles pass their userId so only their accessible
+          // institutions are returned via UserInstitutionAccessService. [BUG-002452]
+          const institutionUserId = isSuperAdmin ? undefined : (userProfile?.id ?? undefined);
+
           const [
             institutionsData,
             degreesData,
@@ -209,13 +215,14 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             academicYearsData,
             coursesData
           ] = await Promise.all([
-            OrganizationService.getInstitutionNames(true),
+            OrganizationService.getInstitutionNames(true, institutionUserId),
             DegreeService.getDegreesByInstitution(staffPlan.institution_id),
             DepartmentService.getDepartmentsByDegree(staffPlan.degree_id),
             ProgramService.getProgramsByDepartment(staffPlan.department_id),
             SemesterService.getSemestersByProgram(staffPlan.program_id),
             AcademicYearService.getAcademicYearsByInstitution(
-              staffPlan.institution_id
+              staffPlan.institution_id,
+              true // includeInactive — edit mode must show the year the plan was created with
             ),
             // Try to get courses for specific semester first, fallback to all program courses
             CourseService.getCoursesByMapping(
@@ -304,8 +311,18 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         if (hasInitializedRef.current) return;
         const loadInitialData = async () => {
           try {
+            // Scope institution list to the current user's accessible institutions.
+            // Super admins pass no userId (direct query returns all institutions).
+            // HODs and other scoped roles pass their userId so only their accessible
+            // institutions are returned via UserInstitutionAccessService. [BUG-002452]
+            const institutionUserId = isSuperAdmin ? undefined : (userProfile?.id ?? undefined);
             const institutionsData =
-              await OrganizationService.getInstitutionNames(true);
+              await OrganizationService.getInstitutionNames(true, institutionUserId);
+            logger.dev(
+              'academic/staff-planning',
+              'Loaded institution dropdown',
+              { count: institutionsData.length, scoped: !isSuperAdmin, userId: institutionUserId }
+            );
             setInstitutions(institutionsData);
 
             // Pre-fill form if user has institution_id (HOD, regular users)
@@ -314,10 +331,24 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
               // Load academic years immediately for the user's institution
               try {
-                const academicYearsData = await AcademicYearService.getAcademicYearsByInstitution(
+                let academicYearsData = await AcademicYearService.getAcademicYearsByInstitution(
                   userProfile.institution_id
                 );
-                setAcademicYears(academicYearsData);
+
+                // If no active years, fall back to all years so HODs aren't blocked
+                if (!academicYearsData || academicYearsData.length === 0) {
+                  logger.warn(
+                    'academic/staff-planning',
+                    'No active academic years found for user institution, loading all years',
+                    { institutionId: userProfile.institution_id }
+                  );
+                  academicYearsData = await AcademicYearService.getAcademicYearsByInstitution(
+                    userProfile.institution_id,
+                    true // includeInactive
+                  );
+                }
+
+                setAcademicYears(academicYearsData || []);
               } catch (error) {
                 logger.error('academic/staff-planning', 'Error loading academic years for user institution', error);
                 setAcademicYears([]);
@@ -346,10 +377,24 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     if (!isEditing && watchedInstitutionId) {
       const loadAcademicYears = async () => {
         try {
-          const data = await AcademicYearService.getAcademicYearsByInstitution(
+          let data = await AcademicYearService.getAcademicYearsByInstitution(
             watchedInstitutionId
           );
-          setAcademicYears(data);
+
+          // If no active years, fall back to all years so HODs aren't blocked
+          if (!data || data.length === 0) {
+            logger.warn(
+              'academic/staff-planning',
+              'No active academic years found, loading all years',
+              { institutionId: watchedInstitutionId }
+            );
+            data = await AcademicYearService.getAcademicYearsByInstitution(
+              watchedInstitutionId,
+              true // includeInactive
+            );
+          }
+
+          setAcademicYears(data || []);
         } catch (error) {
           logger.error('academic/staff-planning', 'Error loading academic years', error);
           setAcademicYears([]);

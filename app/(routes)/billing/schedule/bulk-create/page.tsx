@@ -47,19 +47,28 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
+import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
 import { useStudentsForBulkOperations } from '@/hooks/billing/use-student-search';
 import { useBulkCreateStudentBills } from '@/hooks/billing/use-student-bills';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { Institution } from '@/types/organizations';
-import type { BillingCategory } from '@/types/billing';
+import type { BillingItemCategory } from '@/types/billing';
 import type { StudentForBilling } from '@/types/billing-schedule';
+
+/**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/billing/schedule',
+} as const;
+
 
 const bulkBillSchema = z.object({
   institution_id: z.string().min(1, 'Institution is required'),
   department_id: z.string().optional(),
   semester_id: z.string().optional(),
-  category_id: z.string().min(1, 'Category is required'),
+  item_category_id: z.string().min(1, 'Item category is required'),
   bill_description: z.string().optional(),
   due_date: z.date({ required_error: 'Due date is required' }),
   quantity: z.number().min(1, 'Quantity must be at least 1').default(1),
@@ -76,7 +85,9 @@ type BulkBillFormData = z.infer<typeof bulkBillSchema>;
 export default function BulkCreateBillsPage() {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [itemCategories, setItemCategories] = useState<BillingCategory[]>([]);
+  const [itemCategories, setItemCategories] = useState<BillingItemCategory[]>(
+    []
+  );
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(true);
   const [isLoadingItemCategories, setIsLoadingItemCategories] = useState(false);
@@ -141,7 +152,7 @@ export default function BulkCreateBillsPage() {
     try {
       setIsLoadingItemCategories(true);
       const categories =
-        await BillingCategoryService.getBillingCategoriesByInstitution(
+        await BillingItemCategoryService.getBillingItemCategoriesByInstitution(
           institutionId,
           true
         );
@@ -239,7 +250,7 @@ export default function BulkCreateBillsPage() {
                           <Select
                             onValueChange={(value) => {
                               field.onChange(value);
-                              form.setValue('category_id', '');
+                              form.setValue('item_category_id', '');
                               setSelectedStudents([]);
                             }}
                             value={field.value}
@@ -269,10 +280,10 @@ export default function BulkCreateBillsPage() {
 
                     <FormField
                       control={form.control}
-                      name='category_id'
+                      name='item_category_id'
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Category</FormLabel>
+                          <FormLabel>Item Category</FormLabel>
                           <Select
                             onValueChange={field.onChange}
                             value={field.value}
@@ -283,7 +294,7 @@ export default function BulkCreateBillsPage() {
                           >
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder='Select category' />
+                                <SelectValue placeholder='Select item category' />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
@@ -292,7 +303,7 @@ export default function BulkCreateBillsPage() {
                                   key={category.id}
                                   value={category.id}
                                 >
-                                  {category.category_name}
+                                  {category.item_category_name}
                                 </SelectItem>
                               ))}
                             </SelectContent>

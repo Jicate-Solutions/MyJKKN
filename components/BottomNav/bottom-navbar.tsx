@@ -31,6 +31,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useUserExpoTeamStatus } from '@/hooks/admission/use-expo-capture';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
+import { getModulesBySection } from '@/lib/navigation/modules';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu } from './bottom-nav-more-menu';
@@ -185,16 +186,42 @@ export function BottomNavbar() {
     return GetRoleBasedPages(pathname, roleData);
   }, [pathname, roleData]);
 
-  // Transform filtered pages into bottom nav groups
+  // Transform filtered pages into bottom nav groups.
+  //
+  // **Wave 2b PR-S4 Option A**: top-level group ORDER and IDENTITY are now
+  // sourced from `MODULES` (via `getModulesBySection`) — the canonical
+  // module registry introduced by PR #409. Submenu data per group still
+  // comes from the existing sidebar manifest (`filteredPages`) since
+  // `MODULES` deliberately does not carry submenu data.
+  //
+  // Behavioral preservation:
+  //   - `MODULES` section order matches today's `GetPages` group order
+  //     for every section that has nav-config or sidebar menus, so the
+  //     visible top-level chip sequence is unchanged.
+  //   - Sections with zero accessible menus (after permission filtering)
+  //     are dropped, exactly as before.
+  //   - Group icon, label, and id derivation are unchanged.
   const allNavGroups = useMemo((): BottomNavGroup[] => {
-    return filteredPages
-      .filter((group) => group.menus.length > 0)
-      .map((group) => ({
-        id: group.groupLabel?.toLowerCase().replace(/\s+/g, '-') || 'default',
-        groupLabel: group.groupLabel || 'Menu',
-        icon: GROUP_ICONS[group.groupLabel || ''] || Home,
-        menus: flattenMenuItems(group.menus)
-      }));
+    // Index permission-filtered groups by groupLabel for O(1) lookup
+    const filteredByLabel = new Map<string, (typeof filteredPages)[number]>();
+    for (const g of filteredPages) {
+      if (g.groupLabel) filteredByLabel.set(g.groupLabel, g);
+    }
+
+    // Walk MODULES section order; emit a BottomNavGroup for each section
+    // that has at least one accessible menu in `filteredPages`.
+    const groups: BottomNavGroup[] = [];
+    for (const [section] of getModulesBySection()) {
+      const matched = filteredByLabel.get(section);
+      if (!matched || matched.menus.length === 0) continue;
+      groups.push({
+        id: section.toLowerCase().replace(/\s+/g, '-') || 'default',
+        groupLabel: section,
+        icon: GROUP_ICONS[section] || Home,
+        menus: flattenMenuItems(matched.menus),
+      });
+    }
+    return groups;
   }, [filteredPages]);
 
   // Build a favorites nav group from user's favorited pages

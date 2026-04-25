@@ -326,17 +326,27 @@ export class LogManager {
   }
 }
 
-// Global instance
-let globalLogManager: LogManager | null = null;
+// Global instance — must survive HMR re-evaluations, so stored on window
+declare global {
+  interface Window {
+    __jkknLogManager?: LogManager;
+    __jkknLogCaptureInitialized?: boolean;
+  }
+}
 
 /**
- * Get or create the global LogManager instance
+ * Get or create the global LogManager instance.
+ * Stored on window so Hot Module Replacement doesn't lose captured logs.
  */
 export function getLogManager(): LogManager {
-  if (!globalLogManager) {
-    globalLogManager = new LogManager(1000);
+  if (typeof window === 'undefined') {
+    // SSR fallback — ephemeral instance, never stored
+    return new LogManager(1000);
   }
-  return globalLogManager;
+  if (!window.__jkknLogManager) {
+    window.__jkknLogManager = new LogManager(1000);
+  }
+  return window.__jkknLogManager;
 }
 
 /**
@@ -421,23 +431,59 @@ export const logger = {
 };
 
 /**
- * Initialize log capture (called by bug reporter widget)
+ * Initialize log capture (called by bug reporter widget).
+ * Guards against double-initialization so HMR re-evaluations are safe.
+ * Also captures uncaught errors and unhandled promise rejections which
+ * never go through console.error.
  */
 export function initializeLogCapture(): void {
   if (typeof window === 'undefined') return;
+  if (window.__jkknLogCaptureInitialized) return;
+  window.__jkknLogCaptureInitialized = true;
 
   const manager = getLogManager();
-  const originalConsole = { ...console };
+
+  // Snapshot native methods BEFORE any wrapping occurs
+  const nativeLog = console.log.bind(console);
+  const nativeWarn = console.warn.bind(console);
+  const nativeError = console.error.bind(console);
+  const nativeInfo = console.info.bind(console);
+  const nativeDebug = console.debug.bind(console);
+
+  const nativeMethods: Record<LogType, (...args: any[]) => void> = {
+    log: nativeLog,
+    warn: nativeWarn,
+    error: nativeError,
+    info: nativeInfo,
+    debug: nativeDebug
+  };
 
   const logTypes: LogType[] = ['log', 'warn', 'error', 'info', 'debug'];
 
   logTypes.forEach((type) => {
     (console as any)[type] = (...args: any[]) => {
-      // Add to log manager
       manager.addLog(type, args);
-
-      // Call original console method
-      (originalConsole as any)[type](...args);
+      nativeMethods[type](...args);
     };
+  });
+
+  // Capture uncaught synchronous errors (bypass console entirely)
+  window.addEventListener('error', (event) => {
+    const msg = event.error instanceof Error
+      ? `Uncaught ${event.error.name}: ${event.error.message}`
+      : `Uncaught Error: ${event.message}`;
+    manager.addLog('error', [
+      msg,
+      { filename: event.filename, lineno: event.lineno, colno: event.colno, stack: event.error?.stack }
+    ]);
+  });
+
+  // Capture unhandled promise rejections (async throws, failed fetches, etc.)
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    const msg = reason instanceof Error
+      ? `Unhandled Promise Rejection: ${reason.name}: ${reason.message}`
+      : `Unhandled Promise Rejection: ${String(reason)}`;
+    manager.addLog('error', [msg, reason instanceof Error ? { stack: reason.stack } : reason]);
   });
 }

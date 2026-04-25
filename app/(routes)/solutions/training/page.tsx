@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { TrainingOverview } from './_components/training-overview';
 
 export const metadata: Metadata = {
-  title: 'Training Programs | Solutions Hub',
+  title: 'Training Programs',
   description: 'Manage training programs and sessions',
 };
 

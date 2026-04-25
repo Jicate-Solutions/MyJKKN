@@ -29,7 +29,7 @@ import { AnalyticsFilters } from './_components/analytics-filters';
 import { subDays, startOfDay, endOfDay } from 'date-fns';
 
 export const metadata = {
-  title: 'LTI Analytics | MyJKKN',
+  title: 'LTI Analytics',
   description: 'Analytics and monitoring for LTI tool integrations'
 };
 

@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { MentorDirectory } from './_components/mentor-directory';
 
 export const metadata: Metadata = {
-  title: 'Mentor Network | Startup Studio',
+  title: 'Mentor Network',
 };
 
 export default function MentorsPage() {

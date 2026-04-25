@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { UnacknowledgedNotification, VerificationQuestion } from '@/types/notifications';
 
 /**
@@ -27,11 +28,27 @@ import type { UnacknowledgedNotification, VerificationQuestion } from '@/types/n
  * Design principle: Cookie-consent pattern — you must deal with it to proceed.
  */
 export function AcknowledgmentGate({ children }: { children: React.ReactNode }) {
+  if (process.env.NODE_ENV !== 'production') return <>{children}</>;
+  return <AcknowledgmentGateInner>{children}</AcknowledgmentGateInner>;
+}
+
+// Hooks must live in a child component so the dev-bypass early return in
+// AcknowledgmentGate above doesn't violate React's Rules of Hooks.
+function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [acknowledging, setAcknowledging] = useState(false);
 
-  // Fetch unacknowledged notifications
+  // Super admins are exempt from the mandatory-acknowledgment overlay.
+  // Rationale: super_admins are typically platform operators (e.g. Director,
+  // CAIO) who receive cross-institution copies of every required acknowledgment.
+  // Forcing them through the read-timer + scroll gate + quiz on dozens of items
+  // per session is unworkable. The notification is still delivered and counted
+  // in the audit log; the gate just doesn't enforce it for this audience.
+  const { isSuperAdmin } = usePermissions();
+
+  // Fetch unacknowledged notifications — disabled for super admins so we don't
+  // waste a request every 60s for a value we'll never act on.
   const { data, isLoading } = useQuery({
     queryKey: ['unacknowledged-notifications'],
     queryFn: async () => {
@@ -39,6 +56,7 @@ export function AcknowledgmentGate({ children }: { children: React.ReactNode }) 
       if (!res.ok) return { unacknowledged: [], count: 0, has_pending: false };
       return res.json();
     },
+    enabled: !isSuperAdmin,
     refetchInterval: 60000, // Check every minute for new mandatory notifications
     refetchOnWindowFocus: true
   });
@@ -94,6 +112,9 @@ export function AcknowledgmentGate({ children }: { children: React.ReactNode }) 
       setAcknowledging(false);
     }
   }, [notifications, currentIndex, acknowledgeMutation]);
+
+  // Super admin bypass — never gate the platform operator
+  if (isSuperAdmin) return <>{children}</>;
 
   // Don't block while loading
   if (isLoading) return <>{children}</>;

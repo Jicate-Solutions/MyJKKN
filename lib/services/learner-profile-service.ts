@@ -553,7 +553,7 @@ export class LearnerProfileService {
     const { data, error } = await insertQuery
       .insert({
         ...dto,
-        lifecycle_status: (dto.lifecycle_status || 'enquiry') as LifecycleStatus,
+        lifecycle_status: (dto.lifecycle_status || 'admitted') as LifecycleStatus,
         is_profile_complete: isComplete,
         migration_source: 'direct' as const, // Mark as directly created (not migrated)
         created_by: currentUserId,
@@ -1034,7 +1034,7 @@ export class LearnerProfileService {
 
     // Get counts by status
     const statusCounts: Record<LifecycleStatus, number> = {
-      enquiry: 0,
+      admitted: 0,
       pending: 0,
       approved: 0,
       rejected: 0,
@@ -1482,7 +1482,7 @@ export class LearnerProfileService {
 
       // Calculate overview counts from statusCounts query instead of limited profiles array
       // This fixes the issue where only 1000 profiles were being fetched
-      const enquiriesCount = statusCounts.find(s => s.status === 'enquiry')?.count || 0;
+      const enquiriesCount = statusCounts.find(s => s.status === 'admitted')?.count || 0;
       const pendingCount = statusCounts.find(s => s.status === 'pending')?.count || 0;
       const approvedCount = statusCounts.find(s => s.status === 'approved')?.count || 0;
       const activeCount = statusCounts.find(s => s.status === 'active')?.count || 0;
@@ -1969,7 +1969,7 @@ export class LearnerProfileService {
 
       // Ensure all lifecycle statuses are represented (even with 0 count)
       const lifecycleStatuses: import('@/types/learner-profile').LifecycleStatus[] = [
-        'enquiry', 'pending', 'approved', 'active', 'inactive', 'graduated', 'exited'
+        'admitted', 'pending', 'approved', 'active', 'inactive', 'graduated', 'exited'
       ];
 
       const statusCounts = lifecycleStatuses.map((status) => {
@@ -1988,7 +1988,7 @@ export class LearnerProfileService {
       console.error('[learners/analytics] Error in getCountByStatus:', error);
       // Return zero counts for all statuses on error
       return [
-        { status: 'enquiry', count: 0, percentage: 0 },
+        { status: 'admitted', count: 0, percentage: 0 },
         { status: 'pending', count: 0, percentage: 0 },
         { status: 'approved', count: 0, percentage: 0 },
         { status: 'active', count: 0, percentage: 0 },
@@ -2266,8 +2266,8 @@ export class LearnerProfileService {
 
   private static async getEnquiriesTrend(filters: import('@/types/learner-dashboard').LearnerDashboardFilters, supabaseClient?: any): Promise<import('@/types/learner-dashboard').TimeSeriesDataPoint[]> {
     // Fetch ALL records with chunked pagination (fixes 1000-row limit)
-    // Note: Apply lifecycle_status='enquiry' as an additional filter
-    const enquiryFilters = { ...filters, lifecycleStatuses: ['enquiry'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
+    // Note: Apply lifecycle_status='admitted' as an additional filter
+    const enquiryFilters = { ...filters, lifecycleStatuses: ['admitted'] } as import('@/types/learner-dashboard').LearnerDashboardFilters;
     const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'created_at', enquiryFilters, supabaseClient);
 
     // Group by date

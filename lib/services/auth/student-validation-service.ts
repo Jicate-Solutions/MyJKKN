@@ -14,7 +14,7 @@ export interface StudentValidationResult {
 }
 
 type LifecycleStatus =
-  | 'enquiry'
+  | 'admitted'
   | 'pending'
   | 'approved'
   | 'rejected'
@@ -150,7 +150,7 @@ export class StudentValidationService {
    */
   private static getBlockedReasonCode(status: LifecycleStatus): string {
     const reasonMap: Record<LifecycleStatus, string> = {
-      enquiry: 'student_enquiry_only',
+      admitted: 'student_enquiry_only',
       pending: 'student_pending_approval',
       approved: 'student_not_enrolled',
       rejected: 'student_application_rejected',

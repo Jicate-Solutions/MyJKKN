@@ -7,7 +7,7 @@ import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 const VALID_LIFECYCLE_STATUSES = [
-  'enquiry',
+  'admitted',
   'pending',
   'approved',
   'rejected',
@@ -183,6 +183,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         'X-RateLimit-Remaining': String(rateLimitResult.remaining),
         'X-RateLimit-Reset': rateLimitResult.resetAt.toISOString(),
         'Cache-Control': 'no-store',
+        // 2026-04-23: integer admission_year field in response is deprecated.
+        // Consumers should migrate to admission_year_id (UUID FK) which will
+        // be added to this response in a follow-up release.
+        'X-Deprecation-Notice': 'Response field admission_year (int) is deprecated; migrate to admission_year_id (uuid) when it ships.',
       },
     }
   );

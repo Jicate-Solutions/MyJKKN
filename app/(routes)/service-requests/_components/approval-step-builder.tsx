@@ -1,9 +1,10 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
@@ -12,53 +13,179 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, ArrowRight, GitBranch } from 'lucide-react';
-import { useRoles } from '@/hooks/organization/use-roles';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import {
+  Plus,
+  Trash2,
+  ArrowRight,
+  GitBranch,
+  ChevronsUpDown,
+  Check,
+  Search,
+  X,
+  Users,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import {
+  useCustomRolesForApproval,
+  useUsersByRole,
+  type UserWithRole,
+  type CustomRole,
+} from '@/hooks/organization/use-custom-roles';
 import type { CreateApprovalStepDto, ApprovalWorkflowType } from '@/types/service-request';
 
 interface ApprovalStepBuilderProps {
   steps: CreateApprovalStepDto[];
   onChange: (steps: CreateApprovalStepDto[]) => void;
-  availableRoles?: string[];
   workflowType?: ApprovalWorkflowType;
+  /**
+   * Institutions the service type is scoped to. When populated, the approver
+   * combobox shows only users from those institutions. When empty (e.g.
+   * "common" scope), all approver-eligible users are shown.
+   */
+  institutionIds?: string[];
+}
+
+/**
+ * Derives a stable step name from the chosen approvers. The step_name column
+ * is NOT NULL in the DB so we always produce a non-empty string. With
+ * multi-approver support we drop the "Role – Name" encoding (which can't
+ * represent N users) and just use the role label or a "Step N" fallback.
+ */
+function buildStepName(order: number, roleName: string | undefined): string {
+  return roleName?.trim() || `Step ${order}`;
 }
 
 export function ApprovalStepBuilder({
   steps,
   onChange,
-  availableRoles,
   workflowType = 'sequential',
+  institutionIds,
 }: ApprovalStepBuilderProps) {
-  const { data: rolesData } = useRoles();
-  const roles = availableRoles && availableRoles.length > 0
-    ? availableRoles
-    : rolesData?.map((r) => r.role_key) || [];
+  const { data: roles = [], isLoading: rolesLoading } = useCustomRolesForApproval();
 
-  const getRoleLabel = (roleKey: string) => {
-    const role = rolesData?.find((r) => r.role_key === roleKey);
-    return role?.role_name || roleKey.replace(/_/g, ' ');
-  };
+  // Lift the user fetch so all N StepRows share one query. The users are the
+  // same for every step — same role set, same institutions — so querying
+  // per-step would be N identical requests.
+  const roleKeys = useMemo(() => roles.map((r) => r.role_key), [roles]);
+  const { data: allUsers = [], isLoading: usersLoading } = useUsersByRole(
+    roleKeys.length > 0 ? roleKeys : null,
+    institutionIds && institutionIds.length === 1 ? institutionIds[0] : undefined,
+    undefined
+  );
+
+  // For multi-institution scope, useUsersByRole only accepts one institution,
+  // so we fan out and filter client-side.
+  const scopedUsers: UserWithRole[] = useMemo(() => {
+    if (institutionIds && institutionIds.length > 1) {
+      return allUsers.filter(
+        (u) => u.institution_id && institutionIds.includes(u.institution_id)
+      );
+    }
+    return allUsers;
+  }, [allUsers, institutionIds]);
+
+  const rolesByKey = useMemo(() => {
+    const m = new Map<string, CustomRole>();
+    roles.forEach((r) => m.set(r.role_key, r));
+    return m;
+  }, [roles]);
+
+  const usersById = useMemo(() => {
+    const m = new Map<string, UserWithRole>();
+    scopedUsers.forEach((u) => m.set(u.id, u));
+    return m;
+  }, [scopedUsers]);
+
+  const getRoleLabel = (roleKey: string) =>
+    rolesByKey.get(roleKey)?.role_name || roleKey.replace(/_/g, ' ');
 
   const addStep = () => {
+    const order = steps.length + 1;
     const newStep: CreateApprovalStepDto = {
-      step_order: steps.length + 1,
-      step_name: '',
+      step_order: order,
+      step_name: `Step ${order}`,
       approver_role: '',
+      approver_user_ids: [],
       is_required: true,
     };
     onChange([...steps, newStep]);
   };
 
-  const updateStep = (index: number, updates: Partial<CreateApprovalStepDto>) => {
+  const removeStep = (index: number) => {
+    const updated = steps.filter((_, i) => i !== index);
+    updated.forEach((s, i) => {
+      s.step_order = i + 1;
+    });
+    onChange(updated);
+  };
+
+  const updateStep = (
+    index: number,
+    updates: Partial<CreateApprovalStepDto>
+  ) => {
     const updated = [...steps];
     updated[index] = { ...updated[index], ...updates };
     onChange(updated);
   };
 
-  const removeStep = (index: number) => {
-    const updated = steps.filter((_, i) => i !== index);
-    updated.forEach((s, i) => (s.step_order = i + 1));
-    onChange(updated);
+  /**
+   * Toggle a user in a step's approver list.
+   *
+   * approver_role stays populated as a "discovery role" — it's set to the
+   * first selected user's role so legacy inbox-by-role queries still fire.
+   * When the list becomes empty the step is invalid (zod enforces ≥1) and
+   * we clear approver_role too.
+   */
+  const handleToggleUser = (index: number, user: UserWithRole) => {
+    const current = steps[index].approver_user_ids ?? [];
+    const isSelected = current.includes(user.id);
+    const nextIds = isSelected
+      ? current.filter((id) => id !== user.id)
+      : [...current, user.id];
+
+    if (nextIds.length === 0) {
+      updateStep(index, {
+        approver_user_ids: [],
+        approver_role: '',
+        step_name: `Step ${steps[index].step_order}`,
+      });
+      return;
+    }
+
+    // Use the first-selected user's role as the step's representative/
+    // fallback role. Not always meaningful (users may span roles) but keeps
+    // the NOT NULL constraint + legacy role-based match happy.
+    const firstUser = usersById.get(nextIds[0]) ?? user;
+    const role = rolesByKey.get(firstUser.role);
+    updateStep(index, {
+      approver_user_ids: nextIds,
+      approver_role: firstUser.role,
+      step_name: buildStepName(
+        steps[index].step_order,
+        role?.role_name || firstUser.role
+      ),
+    });
+  };
+
+  const handleClearAll = (index: number) => {
+    updateStep(index, {
+      approver_user_ids: [],
+      approver_role: '',
+      step_name: `Step ${steps[index].step_order}`,
+    });
   };
 
   const isSequential = workflowType === 'sequential';
@@ -71,14 +198,25 @@ export function ApprovalStepBuilder({
           {steps.length > 0 && (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
               {isSequential ? (
-                <><ArrowRight className="h-3 w-3" /> Sequential</>
+                <>
+                  <ArrowRight className="h-3 w-3" /> Sequential
+                </>
               ) : (
-                <><GitBranch className="h-3 w-3" /> Parallel</>
+                <>
+                  <GitBranch className="h-3 w-3" /> Parallel
+                </>
               )}
             </span>
           )}
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={addStep} className="gap-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={addStep}
+          className="gap-1"
+          disabled={rolesLoading}
+        >
           <Plus className="h-4 w-4" />
           Add Step
         </Button>
@@ -91,113 +229,27 @@ export function ApprovalStepBuilder({
       )}
 
       {steps.map((step, index) => (
-        <Card key={index}>
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              {/* Step number */}
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold shrink-0 mt-5">
-                {isSequential ? step.step_order : '||'}
-              </div>
-
-              <div className="flex-1 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                  {/* Step name */}
-                  <div className="sm:col-span-5 space-y-1">
-                    <Label className="text-xs">Step Name</Label>
-                    <Input
-                      placeholder="e.g. HOD Approval"
-                      value={step.step_name}
-                      onChange={(e) => updateStep(index, { step_name: e.target.value })}
-                    />
-                  </div>
-
-                  {/* Approver role */}
-                  <div className="sm:col-span-4 space-y-1">
-                    <Label className="text-xs">Approver Role</Label>
-                    <Select
-                      value={step.approver_role}
-                      onValueChange={(v) => updateStep(index, { approver_role: v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {roles.map((role) => (
-                          <SelectItem key={role} value={role}>
-                            {getRoleLabel(role)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Required + Delete */}
-                  <div className="sm:col-span-3 flex items-end gap-2">
-                    <div className="flex items-center gap-1.5 pb-2">
-                      <Checkbox
-                        id={`step-req-${index}`}
-                        checked={step.is_required !== false}
-                        onCheckedChange={(c) => updateStep(index, { is_required: !!c })}
-                      />
-                      <Label htmlFor={`step-req-${index}`} className="text-xs cursor-pointer">
-                        Required
-                      </Label>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-red-500 hover:text-red-700"
-                      onClick={() => removeStep(index)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                {/* On Return: Restart From Step (only for sequential + step > 1) */}
-                {isSequential && steps.length > 1 && (
-                  <div className="flex items-center gap-3">
-                    <Label className="text-xs text-muted-foreground whitespace-nowrap">
-                      On return, restart from:
-                    </Label>
-                    <Select
-                      value={
-                        step.on_return_restart_from_step != null
-                          ? String(step.on_return_restart_from_step)
-                          : 'current'
-                      }
-                      onValueChange={(v) =>
-                        updateStep(index, {
-                          on_return_restart_from_step: v === 'current' ? null : Number(v),
-                        })
-                      }
-                    >
-                      <SelectTrigger className="w-[200px] h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="current">
-                          Current step (resume)
-                        </SelectItem>
-                        {steps
-                          .filter((_, i) => i < index)
-                          .map((s) => (
-                            <SelectItem key={s.step_order} value={String(s.step_order)}>
-                              Step {s.step_order}{s.step_name ? `: ${s.step_name}` : ''}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StepRow
+          key={index}
+          index={index}
+          step={step}
+          steps={steps}
+          isSequential={isSequential}
+          users={scopedUsers}
+          usersById={usersById}
+          usersLoading={usersLoading || rolesLoading}
+          institutionIds={institutionIds}
+          getRoleLabel={getRoleLabel}
+          onToggleUser={(user) => handleToggleUser(index, user)}
+          onClearAll={() => handleClearAll(index)}
+          onRequiredChange={(req) => updateStep(index, { is_required: req })}
+          onRestartFromChange={(val) =>
+            updateStep(index, { on_return_restart_from_step: val })
+          }
+          onRemove={() => removeStep(index)}
+        />
       ))}
 
-      {/* Visual workflow indicator */}
       {steps.length > 1 && (
         <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
           {isSequential ? (
@@ -218,5 +270,332 @@ export function ApprovalStepBuilder({
         </div>
       )}
     </div>
+  );
+}
+
+interface StepRowProps {
+  index: number;
+  step: CreateApprovalStepDto;
+  steps: CreateApprovalStepDto[];
+  isSequential: boolean;
+  users: UserWithRole[];
+  usersById: Map<string, UserWithRole>;
+  usersLoading: boolean;
+  institutionIds?: string[];
+  getRoleLabel: (key: string) => string;
+  onToggleUser: (user: UserWithRole) => void;
+  onClearAll: () => void;
+  onRequiredChange: (required: boolean) => void;
+  onRestartFromChange: (val: number | null) => void;
+  onRemove: () => void;
+}
+
+function StepRow({
+  index,
+  step,
+  steps,
+  isSequential,
+  users,
+  usersById,
+  usersLoading,
+  institutionIds,
+  getRoleLabel,
+  onToggleUser,
+  onClearAll,
+  onRequiredChange,
+  onRestartFromChange,
+  onRemove,
+}: StepRowProps) {
+  const [open, setOpen] = useState(false);
+
+  const selectedIds = step.approver_user_ids ?? [];
+  const selectedUsers = selectedIds
+    .map((id) => usersById.get(id))
+    .filter((u): u is UserWithRole => Boolean(u));
+
+  // IDs present in the step but missing from the current scoped user list.
+  // Happens when a user moved institution, was deleted, or RLS hides them.
+  // We surface them as "unknown" badges so the author can see + remove them.
+  const unknownIds = selectedIds.filter((id) => !usersById.has(id));
+
+  const hasSelection = selectedIds.length > 0;
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold shrink-0 mt-5">
+            {isSequential ? step.step_order : '||'}
+          </div>
+
+          <div className="flex-1 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              {/* Approver multi-select — shows selected users as removable badges. */}
+              <div className="sm:col-span-9 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs">
+                    Approvers <span className="text-red-500">*</span>
+                    {selectedIds.length > 1 && (
+                      <span className="ml-2 text-muted-foreground font-normal">
+                        · Any one of the {selectedIds.length} can approve
+                      </span>
+                    )}
+                  </Label>
+                  {hasSelection && (
+                    <button
+                      type="button"
+                      className="text-[11px] text-muted-foreground hover:text-destructive"
+                      onClick={onClearAll}
+                    >
+                      Clear all
+                    </button>
+                  )}
+                </div>
+
+                {/* Selected approver pills */}
+                {hasSelection && (
+                  <div className="flex flex-wrap gap-1.5 rounded-md border border-dashed p-2 bg-muted/30">
+                    {selectedUsers.map((u) => (
+                      <SelectedApproverPill
+                        key={u.id}
+                        user={u}
+                        roleLabel={getRoleLabel(u.role)}
+                        onRemove={() => onToggleUser(u)}
+                      />
+                    ))}
+                    {unknownIds.map((id) => (
+                      <Badge
+                        key={id}
+                        variant="outline"
+                        className="gap-1 pl-2 pr-1 py-0.5 text-[11px] text-muted-foreground"
+                      >
+                        Unknown user (outside current scope)
+                        <button
+                          type="button"
+                          aria-label="Remove"
+                          className="h-3.5 w-3.5 rounded-sm hover:bg-muted"
+                          onClick={() =>
+                            onToggleUser({
+                              id,
+                              full_name: '',
+                              email: '',
+                              role: '',
+                              avatar_url: null,
+                              institution_id: null,
+                              department_id: null,
+                            })
+                          }
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                <Popover open={open} onOpenChange={setOpen} modal>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={open}
+                      className="w-full justify-between font-normal text-muted-foreground"
+                      disabled={usersLoading}
+                    >
+                      <span className="flex items-center gap-2">
+                        {hasSelection ? (
+                          <>
+                            <Users className="h-4 w-4" />
+                            Add or remove approvers…
+                          </>
+                        ) : (
+                          <>
+                            <Search className="h-4 w-4" />
+                            {usersLoading
+                              ? 'Loading approvers…'
+                              : 'Search by name, email, or role…'}
+                          </>
+                        )}
+                      </span>
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-[min(560px,calc(100vw-2rem))] p-0"
+                    align="start"
+                  >
+                    <Command
+                      filter={(value, search) => {
+                        // CommandItem uses `value` as the search target. We
+                        // concatenated name+email+role there, so a simple
+                        // substring check is enough.
+                        return value.toLowerCase().includes(search.toLowerCase())
+                          ? 1
+                          : 0;
+                      }}
+                    >
+                      <CommandInput placeholder="Search by name, email, or role…" />
+                      <CommandList className="max-h-[320px]">
+                        <CommandEmpty>
+                          {usersLoading
+                            ? 'Loading…'
+                            : institutionIds && institutionIds.length > 0
+                            ? 'No approvers found in the scoped institutions.'
+                            : 'No approvers found.'}
+                        </CommandEmpty>
+                        <CommandGroup
+                          heading={`${users.length} approver${users.length === 1 ? '' : 's'}${
+                            selectedIds.length > 0 ? ` · ${selectedIds.length} selected` : ''
+                          }`}
+                        >
+                          {users.map((u) => {
+                            const isSelected = selectedIds.includes(u.id);
+                            const roleLabel = getRoleLabel(u.role);
+                            return (
+                              <CommandItem
+                                key={u.id}
+                                // Concatenate all searchable text so
+                                // CommandInput filters across them.
+                                value={`${u.full_name} ${u.email} ${u.role} ${roleLabel}`}
+                                onSelect={() => {
+                                  onToggleUser(u);
+                                  // Keep popover open so the author can
+                                  // keep picking additional approvers.
+                                }}
+                              >
+                                <div
+                                  className={cn(
+                                    'mr-2 flex h-4 w-4 items-center justify-center rounded border shrink-0',
+                                    isSelected
+                                      ? 'bg-primary border-primary'
+                                      : 'border-muted-foreground'
+                                  )}
+                                >
+                                  {isSelected && (
+                                    <Check className="h-3 w-3 text-primary-foreground" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium truncate">
+                                      {u.full_name}
+                                    </span>
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] capitalize shrink-0"
+                                    >
+                                      {roleLabel}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    {u.email}
+                                  </p>
+                                </div>
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Required + Delete */}
+              <div className="sm:col-span-3 flex items-end gap-2">
+                <div className="flex items-center gap-1.5 pb-2">
+                  <Checkbox
+                    id={`step-req-${index}`}
+                    checked={step.is_required !== false}
+                    onCheckedChange={(c) => onRequiredChange(!!c)}
+                  />
+                  <Label
+                    htmlFor={`step-req-${index}`}
+                    className="text-xs cursor-pointer"
+                  >
+                    Required
+                  </Label>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-red-500 hover:text-red-700 ml-auto"
+                  onClick={onRemove}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* On Return: Restart From Step (sequential + step > 1 only) */}
+            {isSequential && steps.length > 1 && (
+              <div className="flex items-center gap-3">
+                <Label className="text-xs text-muted-foreground whitespace-nowrap">
+                  On return, restart from:
+                </Label>
+                <Select
+                  value={
+                    step.on_return_restart_from_step != null
+                      ? String(step.on_return_restart_from_step)
+                      : 'current'
+                  }
+                  onValueChange={(v) =>
+                    onRestartFromChange(v === 'current' ? null : Number(v))
+                  }
+                >
+                  <SelectTrigger className="w-[260px] h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="current">Current step (resume)</SelectItem>
+                    {steps
+                      .filter((_, i) => i < index)
+                      .map((s) => (
+                        <SelectItem key={s.step_order} value={String(s.step_order)}>
+                          Step {s.step_order}
+                          {s.approver_role
+                            ? `: ${getRoleLabel(s.approver_role)}`
+                            : ''}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SelectedApproverPill({
+  user,
+  roleLabel,
+  onRemove,
+}: {
+  user: UserWithRole;
+  roleLabel: string;
+  onRemove: () => void;
+}) {
+  return (
+    <Badge
+      variant="secondary"
+      className="gap-1.5 pl-2 pr-1 py-0.5 text-[11px] font-normal max-w-full"
+    >
+      <span className="truncate">{user.full_name}</span>
+      <span className="text-muted-foreground">·</span>
+      <span className="capitalize text-muted-foreground">{roleLabel}</span>
+      <button
+        type="button"
+        aria-label={`Remove ${user.full_name}`}
+        className="h-3.5 w-3.5 rounded-sm hover:bg-muted-foreground/20 flex items-center justify-center shrink-0"
+        onClick={onRemove}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </Badge>
   );
 }

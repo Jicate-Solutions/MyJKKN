@@ -128,6 +128,12 @@ export interface ServiceRequestApprovalStep {
   step_order: number;
   step_name: string;
   approver_role: string;
+  /**
+   * Specific user IDs allowed to approve this step. When non-empty, approval
+   * is restricted to these users (OR logic — any one of them can approve).
+   * When empty, matching falls back to `approver_role`.
+   */
+  approver_user_ids: string[];
   is_required: boolean;
   on_return_restart_from_step: number | null;
   created_at: string;
@@ -265,11 +271,13 @@ export interface CreateApprovalStepDto {
   step_order: number;
   step_name: string;
   approver_role: string;
+  /** Specific users allowed to approve. Empty = any user with approver_role. */
+  approver_user_ids?: string[];
   is_required?: boolean;
   on_return_restart_from_step?: number | null;
 }
 
-export interface UpdateServiceTypeDto extends Partial<Omit<CreateServiceTypeDto, 'slug'>> {
+export interface UpdateServiceTypeDto extends Partial<CreateServiceTypeDto> {
   is_active?: boolean;
 }
 
@@ -360,6 +368,10 @@ export const approvalStepSchema = z.object({
   step_order: z.number().int().min(1),
   step_name: z.string().min(1).max(255),
   approver_role: z.string().min(1),
+  // At least one approver must be picked — the UI enforces this, and this
+  // keeps the zod contract honest (empty-array default would legalize
+  // "no approvers" which would make the step unreachable).
+  approver_user_ids: z.array(z.string().uuid()).min(1, 'At least one approver required').default([]),
   is_required: z.boolean().default(true),
   on_return_restart_from_step: z.number().int().min(1).optional().nullable(),
 });

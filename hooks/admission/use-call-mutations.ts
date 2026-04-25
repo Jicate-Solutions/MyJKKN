@@ -29,6 +29,11 @@ interface UpdateCallNotesInput {
   call_notes?: string;
   call_disposition?: CallDisposition;
   follow_up_date?: string | null;
+  follow_up_at?: string | null;
+  call_outcome?: string | null;
+  prospect_sentiment?: string | null;
+  primary_objection?: string | null;
+  next_action?: string | null;
 }
 
 // ============================================================================
@@ -41,11 +46,19 @@ interface UpdateCallNotesInput {
 export function useCallMutations() {
   const queryClient = useQueryClient();
 
-  const invalidateCallQueries = (institutionId?: string, leadId?: string) => {
+  const invalidateCallQueries = (institutionId?: string, leadId?: string, callId?: string) => {
     queryClient.invalidateQueries({ queryKey: callLogsKeys.lists() });
     queryClient.invalidateQueries({ queryKey: callStatsKeys.all });
     if (leadId) {
       queryClient.invalidateQueries({ queryKey: callLogsKeys.leadCalls(leadId) });
+    }
+    // Detail page reads ['call-detail', id] — invalidate so the Call Details
+    // page picks up the new disposition/notes/etc when the counselor navigates
+    // there after editing through the list dialog.
+    if (callId) {
+      queryClient.invalidateQueries({ queryKey: ['call-detail', callId] });
+    } else {
+      queryClient.invalidateQueries({ queryKey: ['call-detail'] });
     }
     // Also invalidate lead timeline and activity
     queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
@@ -101,9 +114,9 @@ export function useCallMutations() {
       const json = await res.json();
       return json.data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success('Call notes saved');
-      invalidateCallQueries();
+      invalidateCallQueries(undefined, undefined, variables.call_id);
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to save call notes');

@@ -23,7 +23,7 @@ export function useMessMenus(institutionId: string | undefined, filters?: Record
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: messMenuKeys.list({ institutionId, ...filters }),
-    queryFn: () => MessMenuService.getMenus(institutionId as string, filters),
+    queryFn: () => MessMenuService.getMenus(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
@@ -31,8 +31,8 @@ export function useMessMenus(institutionId: string | undefined, filters?: Record
 export function useWeeklyMenu(institutionId: string | undefined, weekStartDate: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: messMenuKeys.weekly(institutionId as string, weekStartDate),
-    queryFn: () => MessMenuService.getWeeklyMenu(institutionId as string, weekStartDate),
+    queryKey: messMenuKeys.weekly(institutionId ?? 'all', weekStartDate),
+    queryFn: () => MessMenuService.getWeeklyMenu(isSuperAdmin ? undefined : institutionId, weekStartDate),
     enabled: (isSuperAdmin || !!institutionId) && !!weekStartDate,
   });
 }

@@ -43,7 +43,7 @@ interface OverviewTabProps {
 
 // Color scheme for lifecycle statuses
 const STATUS_COLORS: Record<string, string> = {
-  enquiry: '#3b82f6',    // blue
+  admitted: '#3b82f6',    // blue
   pending: '#eab308',    // yellow
   approved: '#f97316',   // orange
   active: '#22c55e',     // green
@@ -64,7 +64,7 @@ export function OverviewTab({ data, filters }: OverviewTabProps) {
   // Conversion funnel data
   const funnelData = [
     {
-      stage: 'Enquiries',
+      stage: 'Admitted',
       count: data.conversion.totalEnquiries,
       percentage: 100,
       color: STATUS_COLORS.enquiry

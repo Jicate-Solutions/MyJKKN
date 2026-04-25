@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { AdmissionYearSelect } from '@/components/admission/admission-year-select';
 import {
   Popover,
   PopoverContent,
@@ -60,6 +61,16 @@ import { ArrowLeft, Save, Loader2, ChevronsUpDown, X } from 'lucide-react';
 import Link from 'next/link';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { indianStates, getDistrictsByState } from '@/lib/data/locations';
+
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/admission/leads',
+} as const;
+
 
 // Must match LeadSource type from types/admission.ts
 const LEAD_SOURCES = [
@@ -110,7 +121,7 @@ interface FormData {
   // JKKN Tier-1 fields
   student_interest_level: string;
   parent_decision_status: string;
-  academic_year: string;
+  admission_year_id: string;
 }
 
 interface ProgramOption {
@@ -200,17 +211,22 @@ function NewLeadPageContent() {
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [programsLoading, setProgramsLoading] = useState(false);
-  const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
-  const [programsPopoverOpen, setProgramsPopoverOpen] = useState(false);
+  // 2026-04-21 — single primary interested program + multi alternatives
+  const [selectedProgramId, setSelectedProgramId] = useState<string>(''); // primary
+  const [selectedAlternativeProgramIds, setSelectedAlternativeProgramIds] =
+    useState<string[]>([]);
+  const [alternativesPopoverOpen, setAlternativesPopoverOpen] = useState(false);
 
   // Open-state for the searchable referrer pickers
   const [studentPickerOpen, setStudentPickerOpen] = useState(false);
   const [facultyPickerOpen, setFacultyPickerOpen] = useState(false);
   const [consultantPickerOpen, setConsultantPickerOpen] = useState(false);
 
-  // Academic years loaded based on selected institution
-  const [academicYears, setAcademicYears] = useState<{ id: string; academic_year_name: string; is_active: boolean }[]>([]);
-  const [academicYearsLoading, setAcademicYearsLoading] = useState(false);
+  // Admission years cascade extracted to <AdmissionYearSelect/> (2026-04-23) —
+  // one shared component now serves leads/new, leads/[id] edit, and the
+  // learner enquiry form (PR-3). The per-page useState/useEffect duplication
+  // is gone; the shared <AdmissionYearSelect> owns fetch + placeholder copy +
+  // rich-label rendering.
 
   // Entry date — auto-populated to today (local timezone, not UTC)
   const [entryDate] = useState<string>(() => {
@@ -225,12 +241,14 @@ function NewLeadPageContent() {
   useEffect(() => {
     if (!institutionId) {
       setPrograms([]);
-      setSelectedProgramIds([]);
+      setSelectedProgramId('');
+      setSelectedAlternativeProgramIds([]);
       return;
     }
 
     setProgramsLoading(true);
-    setSelectedProgramIds([]);
+    setSelectedProgramId('');
+    setSelectedAlternativeProgramIds([]);
     const supabase = createClientSupabaseClient();
 
     (supabase as any)
@@ -264,35 +282,15 @@ function NewLeadPageContent() {
       });
   }, [institutionId]);
 
-  // Fetch academic years when institution changes; auto-select the active one
+  // (Admission-years fetch effect removed; lives inside <AdmissionYearSelect/>.)
+
+  // Clear admission_year_id when the primary program changes (old value no longer applies).
   useEffect(() => {
-    if (!institutionId) {
-      setAcademicYears([]);
-      return;
-    }
-    setAcademicYearsLoading(true);
-    const supabase = createClientSupabaseClient();
-    (supabase as any)
-      .from('academic_years')
-      .select('id, academic_year_name, is_active')
-      .eq('institution_id', institutionId)
-      .order('start_date', { ascending: false })
-      .then(({ data, error }: { data: any; error: any }) => {
-        if (error) {
-          console.error('[admission/leads] Failed to fetch academic years:', error.message);
-          setAcademicYears([]);
-        } else {
-          const years = (data || []) as { id: string; academic_year_name: string; is_active: boolean }[];
-          setAcademicYears(years);
-          // Auto-select the active academic year
-          const active = years.find((y) => y.is_active);
-          if (active) {
-            setFormData((prev) => ({ ...prev, academic_year: active.academic_year_name.trim() }));
-          }
-        }
-        setAcademicYearsLoading(false);
-      });
-  }, [institutionId]);
+    setFormData((prev) =>
+      prev.admission_year_id ? { ...prev, admission_year_id: '' } : prev
+    );
+  }, [selectedProgramId]);
+
 
   // Group programs by degree for organized display
   const programsByDegree = useMemo(() => {
@@ -305,18 +303,23 @@ function NewLeadPageContent() {
     return grouped;
   }, [programs]);
 
-  const toggleProgram = (programId: string) => {
-    setSelectedProgramIds((prev) =>
-      prev.includes(programId) ? prev.filter((id) => id !== programId) : [...prev, programId]
+  // Toggle for alternative programs — excludes the currently-selected primary.
+  const toggleAlternativeProgram = (programId: string) => {
+    // Don't let the user also mark the primary as an alternative
+    if (programId === selectedProgramId) return;
+    setSelectedAlternativeProgramIds((prev) =>
+      prev.includes(programId)
+        ? prev.filter((id) => id !== programId)
+        : [...prev, programId]
     );
   };
 
-  const selectedProgramNames = useMemo(() => {
-    return selectedProgramIds
+  const selectedAlternativeProgramNames = useMemo(() => {
+    return selectedAlternativeProgramIds
       .map((id) => programs.find((p) => p.id === id))
       .filter(Boolean)
       .map((p) => p!.display_name || p!.program_name);
-  }, [selectedProgramIds, programs]);
+  }, [selectedAlternativeProgramIds, programs]);
 
   const [formData, setFormData] = useState<FormData>({
     first_name: '',
@@ -338,7 +341,7 @@ function NewLeadPageContent() {
     notes: '',
     student_interest_level: '',
     parent_decision_status: '',
-    academic_year: '',
+    admission_year_id: '',
   });
 
   const [errors, setErrors] = useState<Partial<Record<keyof FormData | 'institution', string>>>({});
@@ -429,9 +432,10 @@ function NewLeadPageContent() {
       notes: '',
       student_interest_level: '',
       parent_decision_status: '',
-      academic_year: '',
+      admission_year_id: '',
     });
-    setSelectedProgramIds([]);
+    setSelectedProgramId('');
+    setSelectedAlternativeProgramIds([]);
     setSelectedCounselorProfileId('');
     setSelectedConsultantId('');
     setReferralType('');
@@ -460,7 +464,11 @@ function NewLeadPageContent() {
       phone: formData.phone.trim(),
       source: formData.first_touch_source as any,
       tags: [] as string[],
-      interested_programs: selectedProgramIds.length > 0 ? selectedProgramIds : null,
+      program_id: selectedProgramId || null,
+      alternative_programs:
+        selectedAlternativeProgramIds.length > 0
+          ? selectedAlternativeProgramIds
+          : null,
       entry_date: new Date(entryDate + 'T00:00:00').toISOString(),
       // Address fields
       address_line1: formData.address_line1?.trim() || null,
@@ -481,7 +489,7 @@ function NewLeadPageContent() {
       // JKKN Tier-1 fields
       student_interest_level: formData.student_interest_level || null,
       parent_decision_status: formData.parent_decision_status || null,
-      academic_year: formData.academic_year?.trim() || null,
+      admission_year_id: formData.admission_year_id || null,
       // Referral fields
       referral_type: formData.first_touch_source === 'referral' && referralType ? referralType : null,
       referred_by_id: (() => {
@@ -759,9 +767,9 @@ function NewLeadPageContent() {
                       )}
                     </div>
 
-                    {/* Interested Programs — Multi-select */}
+                    {/* Interested Program — single select (2026-04-21) */}
                     <div className="space-y-2">
-                      <Label>Interested Programs</Label>
+                      <Label htmlFor="interested_program">Interested Program</Label>
                       {!institutionId ? (
                         <p className="text-sm text-muted-foreground">Select an institution first to view programs</p>
                       ) : programsLoading ? (
@@ -772,59 +780,109 @@ function NewLeadPageContent() {
                       ) : programs.length === 0 ? (
                         <p className="text-sm text-muted-foreground">No programs found for this institution</p>
                       ) : (
+                        <Select
+                          value={selectedProgramId}
+                          onValueChange={(v) => setSelectedProgramId(v)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select the primary program this lead is applying for" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {Object.entries(programsByDegree).map(([degreeName, degreePrograms]) => (
+                              <div key={degreeName}>
+                                <div className="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                  {degreeName}
+                                </div>
+                                {degreePrograms.map((program) => (
+                                  <SelectItem key={program.id} value={program.id}>
+                                    <div className="flex flex-col">
+                                      <span>{program.display_name || program.program_name}</span>
+                                      {program.department_name && (
+                                        <span className="text-xs text-muted-foreground">
+                                          {program.department_name}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </div>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Drives the Admission Year list — only cohorts for this program are shown below.
+                      </p>
+                    </div>
+
+                    {/* Alternative Programs — multi-select (2026-04-21). Excludes the primary. */}
+                    <div className="space-y-2">
+                      <Label>Alternative Programs <span className="text-xs text-muted-foreground font-normal">(optional)</span></Label>
+                      {!institutionId || programs.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          {!institutionId ? 'Select an institution first' : 'No other programs available'}
+                        </p>
+                      ) : !selectedProgramId ? (
+                        <p className="text-sm text-muted-foreground">
+                          Pick an Interested Program first to add backup options.
+                        </p>
+                      ) : (
                         <>
-                          <Popover open={programsPopoverOpen} onOpenChange={setProgramsPopoverOpen}>
+                          <Popover open={alternativesPopoverOpen} onOpenChange={setAlternativesPopoverOpen}>
                             <PopoverTrigger asChild>
                               <Button
                                 variant="outline"
                                 role="combobox"
-                                aria-expanded={programsPopoverOpen}
+                                aria-expanded={alternativesPopoverOpen}
                                 className="w-full justify-between font-normal"
                               >
-                                {selectedProgramIds.length > 0
-                                  ? `${selectedProgramIds.length} program${selectedProgramIds.length > 1 ? 's' : ''} selected`
-                                  : 'Select interested programs'}
+                                {selectedAlternativeProgramIds.length > 0
+                                  ? `${selectedAlternativeProgramIds.length} alternative${selectedAlternativeProgramIds.length > 1 ? 's' : ''} selected`
+                                  : 'Add backup programs the lead is also considering'}
                                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                               </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                               <Command>
-                                <CommandInput placeholder="Search programs..." />
+                                <CommandInput placeholder="Search alternatives..." />
                                 <CommandList>
                                   <CommandEmpty>No programs found.</CommandEmpty>
-                                  {Object.entries(programsByDegree).map(([degreeName, degreePrograms]) => (
-                                    <CommandGroup key={degreeName} heading={degreeName}>
-                                      {degreePrograms.map((program) => (
-                                        <CommandItem
-                                          key={program.id}
-                                          value={program.program_name}
-                                          onSelect={() => toggleProgram(program.id)}
-                                        >
-                                          <Checkbox
-                                            checked={selectedProgramIds.includes(program.id)}
-                                            className="mr-2"
-                                          />
-                                          <div className="flex flex-col">
-                                            <span>{program.display_name || program.program_name}</span>
-                                            {program.department_name && (
-                                              <span className="text-xs text-muted-foreground">
-                                                {program.department_name}
-                                              </span>
-                                            )}
-                                          </div>
-                                        </CommandItem>
-                                      ))}
-                                    </CommandGroup>
-                                  ))}
+                                  {Object.entries(programsByDegree).map(([degreeName, degreePrograms]) => {
+                                    const eligible = degreePrograms.filter(p => p.id !== selectedProgramId);
+                                    if (eligible.length === 0) return null;
+                                    return (
+                                      <CommandGroup key={degreeName} heading={degreeName}>
+                                        {eligible.map((program) => (
+                                          <CommandItem
+                                            key={program.id}
+                                            value={program.program_name}
+                                            onSelect={() => toggleAlternativeProgram(program.id)}
+                                          >
+                                            <Checkbox
+                                              checked={selectedAlternativeProgramIds.includes(program.id)}
+                                              className="mr-2"
+                                            />
+                                            <div className="flex flex-col">
+                                              <span>{program.display_name || program.program_name}</span>
+                                              {program.department_name && (
+                                                <span className="text-xs text-muted-foreground">
+                                                  {program.department_name}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </CommandItem>
+                                        ))}
+                                      </CommandGroup>
+                                    );
+                                  })}
                                 </CommandList>
                               </Command>
                             </PopoverContent>
                           </Popover>
 
-                          {/* Selected programs as badges */}
-                          {selectedProgramNames.length > 0 && (
+                          {selectedAlternativeProgramNames.length > 0 && (
                             <div className="flex flex-wrap gap-1.5 mt-2">
-                              {selectedProgramIds.map((id) => {
+                              {selectedAlternativeProgramIds.map((id) => {
                                 const prog = programs.find((p) => p.id === id);
                                 if (!prog) return null;
                                 return (
@@ -832,7 +890,7 @@ function NewLeadPageContent() {
                                     {prog.display_name || prog.program_name}
                                     <button
                                       type="button"
-                                      onClick={() => toggleProgram(id)}
+                                      onClick={() => toggleAlternativeProgram(id)}
                                       className="ml-0.5 rounded-full hover:bg-muted-foreground/20"
                                     >
                                       <X className="h-3 w-3" />
@@ -846,35 +904,14 @@ function NewLeadPageContent() {
                       )}
                     </div>
 
-                    {/* Academic Year */}
-                    <div className="space-y-2">
-                      <Label htmlFor="academic_year">Academic Year</Label>
-                      <Select
-                        value={formData.academic_year}
-                        onValueChange={(value) => handleChange('academic_year', value)}
-                        disabled={academicYearsLoading || !institutionId}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder={
-                            !institutionId
-                              ? 'Select institution first'
-                              : academicYearsLoading
-                              ? 'Loading...'
-                              : 'Select academic year'
-                          } />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {academicYears.map((year) => (
-                            <SelectItem key={year.id} value={year.academic_year_name.trim()}>
-                              {year.academic_year_name.trim()}
-                              {year.is_active && (
-                                <span className="ml-2 text-xs text-muted-foreground">(Active)</span>
-                              )}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {/* Admission Year — shared cascading picker (2026-04-23) */}
+                    <AdmissionYearSelect
+                      institutionId={institutionId}
+                      programId={selectedProgramId}
+                      value={formData.admission_year_id}
+                      onChange={(value) => handleChange('admission_year_id', value)}
+                      placeholderNoProgram="Select the Interested Program first"
+                    />
                   </CardContent>
                 </Card>
 

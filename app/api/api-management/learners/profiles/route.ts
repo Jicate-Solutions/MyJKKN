@@ -215,6 +215,19 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
+    // 2026-04-23: Deprecation signals for the integer admission_year filter
+    // and response field. Consumers should migrate to admission_year_id (UUID
+    // FK) which was added to learners_profiles in the same release. Integer
+    // will be retained for at least one release cycle; planned removal date
+    // is set to ~90 days out and tracked in docs.
+    const deprecationHeaders: Record<string, string> = admissionYear
+      ? {
+          Deprecation: 'true',
+          Sunset: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toUTCString(),
+          'X-Deprecation-Notice': 'Filter ?admission_year=INT is deprecated. Use ?admission_year_id=UUID once the parameter ships. Response field admission_year (int) will be supplemented by admission_year_id (uuid).',
+        }
+      : {};
+
     // Return response with CORS headers
     return NextResponse.json(
       {
@@ -227,7 +240,7 @@ export async function GET(request: NextRequest) {
           totalPages: count ? Math.ceil(count / limit) : 0
         }
       },
-      { headers: corsHeaders }
+      { headers: { ...corsHeaders, ...deprecationHeaders } }
     );
   } catch (error) {
     console.error('Error fetching learner profiles:', error);

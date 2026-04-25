@@ -25,6 +25,16 @@ import { useClients } from '@/hooks/solutions/use-clients';
 import { useSolutions } from '@/hooks/solutions/use-solutions';
 import type { PaymentType } from '@/lib/services/solutions/types';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/payments',
+} as const;
+
+
 const paymentTypeOptions: { value: PaymentType; label: string }[] = [
   { value: 'milestone', label: 'Milestone Payment' },
   { value: 'advance', label: 'Advance Payment' },

@@ -10,7 +10,7 @@ import type {
 export class HostelWaitlistService {
   // ── List waitlist entries ──────────────────────────────────────────
   static async getWaitlist(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: {
       academic_year_id?: string;
       status?: WaitlistStatus;
@@ -24,9 +24,9 @@ export class HostelWaitlistService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_waitlist')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.academic_year_id) query = query.eq('academic_year_id', filters.academic_year_id);
       if (filters?.status) query = query.eq('status', filters.status);
       if (filters?.preferred_block_id) query = query.eq('preferred_block_id', filters.preferred_block_id);
@@ -55,13 +55,13 @@ export class HostelWaitlistService {
         .from('hostel_waitlist')
         .select('*')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/waitlist', 'Failed to fetch waitlist entry', error);
         throw error;
       }
-      return data as HostelWaitlist;
+      return data as HostelWaitlist | null;
     } catch (error) {
       logger.error('campus-living/waitlist', 'Unexpected error in getWaitlistEntry', error);
       throw error;
@@ -234,7 +234,7 @@ export class HostelWaitlistService {
   }
 
   // ── Mark expired offers ───────────────────────────────────────────
-  static async markExpiredOffers(institutionId: string) {
+  static async markExpiredOffers(institutionId: string | undefined) {
     try {
       const supabase = createClientSupabaseClient();
       const now = new Date().toISOString();
@@ -285,7 +285,7 @@ export class HostelWaitlistService {
 
   // ── Get next in line (highest priority waiting) ───────────────────
   static async getNextInLine(
-    institutionId: string,
+    institutionId: string | undefined,
     academicYearId: string,
     preferredBlockId?: string,
     preferredRoomType?: RoomType
@@ -295,10 +295,10 @@ export class HostelWaitlistService {
       let query = supabase
         .from('hostel_waitlist')
         .select('*')
-        .eq('institution_id', institutionId)
         .eq('academic_year_id', academicYearId)
         .eq('status', 'waiting');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (preferredBlockId) query = query.eq('preferred_block_id', preferredBlockId);
       if (preferredRoomType) query = query.eq('preferred_room_type', preferredRoomType);
 
@@ -317,14 +317,15 @@ export class HostelWaitlistService {
   }
 
   // ── Waitlist summary ──────────────────────────────────────────────
-  static async getWaitlistSummary(institutionId: string, academicYearId: string) {
+  static async getWaitlistSummary(institutionId: string | undefined, academicYearId: string) {
     try {
       const supabase = createClientSupabaseClient();
-      const { data, error } = await supabase
+      let q = supabase
         .from('hostel_waitlist')
         .select('status, preferred_room_type')
-        .eq('institution_id', institutionId)
         .eq('academic_year_id', academicYearId);
+      if (institutionId) q = q.eq('institution_id', institutionId);
+      const { data, error } = await q;
 
       if (error) {
         logger.error('campus-living/waitlist', 'Failed to fetch waitlist summary', error);

@@ -51,12 +51,17 @@ export class StudentBillService {
             name,
             counselling_code
           ),
-          category:billing_categories(
+          item_category:billing_item_categories(
             id,
-            category_name,
-            amount,
-            frequency,
-            description
+            item_category_name,
+            parent_category:billing_parent_categories(
+              id,
+              parent_category_name
+            ),
+            sub_category:billing_sub_categories(
+              id,
+              sub_category_name
+            )
           )
         `
         )
@@ -186,12 +191,17 @@ export class StudentBillService {
             name,
             counselling_code
           ),
-          category:billing_categories(
+          item_category:billing_item_categories(
             id,
-            category_name,
-            amount,
-            frequency,
-            description
+            item_category_name,
+            parent_category:billing_parent_categories(
+              id,
+              parent_category_name
+            ),
+            sub_category:billing_sub_categories(
+              id,
+              sub_category_name
+            )
           )
         `
         )
@@ -265,7 +275,7 @@ export class StudentBillService {
             id,
             student_id,
             institution_id,
-            category_id,
+            item_category_id,
             bill_description,
             due_date,
             quantity,
@@ -300,11 +310,9 @@ export class StudentBillService {
               id,
               name
             ),
-            category:billing_categories(
+            item_category:billing_item_categories(
               id,
-              category_name,
-              amount,
-              frequency
+              item_category_name
             )
           `,
           { count: 'exact' }
@@ -317,7 +325,7 @@ export class StudentBillService {
             id,
             student_id,
             institution_id,
-            category_id,
+            item_category_id,
             bill_description,
             due_date,
             quantity,
@@ -346,11 +354,9 @@ export class StudentBillService {
               id,
               name
             ),
-            category:billing_categories(
+            item_category:billing_item_categories(
               id,
-              category_name,
-              amount,
-              frequency
+              item_category_name
             )
           `,
           { count: 'exact' }
@@ -382,8 +388,8 @@ export class StudentBillService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
-      if (filters.category_id) {
-        query = query.eq('category_id', filters.category_id);
+      if (filters.item_category_id) {
+        query = query.eq('item_category_id', filters.item_category_id);
       }
 
       if (filters.status) {
@@ -481,7 +487,7 @@ export class StudentBillService {
           id: bill.id,
           student_id: bill.student_id,
           institution_id: bill.institution_id,
-          category_id: bill.category_id,
+          item_category_id: bill.item_category_id,
           bill_description: bill.bill_description,
           due_date: bill.due_date,
           quantity: bill.quantity,
@@ -509,9 +515,9 @@ export class StudentBillService {
         const institutionData = Array.isArray(bill.institution)
           ? bill.institution[0]
           : bill.institution;
-        const categoryData = Array.isArray(bill.category)
-          ? bill.category[0]
-          : bill.category;
+        const itemCategoryData = Array.isArray(bill.item_category)
+          ? bill.item_category[0]
+          : bill.item_category;
 
         return {
           ...baseBill,
@@ -530,12 +536,9 @@ export class StudentBillService {
             name: institutionData?.name || '',
             counselling_code: '' // Not queried to keep it light
           },
-          category: {
-            id: bill.category_id,
-            category_name: categoryData?.category_name || '',
-            amount: categoryData?.amount,
-            frequency: categoryData?.frequency,
-            description: categoryData?.description
+          item_category: {
+            id: bill.item_category_id,
+            item_category_name: itemCategoryData?.item_category_name || ''
           }
         };
       });
@@ -578,12 +581,17 @@ export class StudentBillService {
             name,
             counselling_code
           ),
-          category:billing_categories(
+          item_category:billing_item_categories(
             id,
-            category_name,
-            amount,
-            frequency,
-            description
+            item_category_name,
+            parent_category:billing_parent_categories(
+              id,
+              parent_category_name
+            ),
+            sub_category:billing_sub_categories(
+              id,
+              sub_category_name
+            )
           ),
           discounts:billing_discounts(
             *,
@@ -625,12 +633,17 @@ export class StudentBillService {
         .select(
           `
           *,
-          category:billing_categories(
+          item_category:billing_item_categories(
             id,
-            category_name,
-            amount,
-            frequency,
-            description
+            item_category_name,
+            parent_category:billing_parent_categories(
+              id,
+              parent_category_name
+            ),
+            sub_category:billing_sub_categories(
+              id,
+              sub_category_name
+            )
           ),
           discounts:billing_discounts(*),
           receipt_items:billing_receipt_items(
@@ -781,12 +794,17 @@ export class StudentBillService {
         .select(
           `
           *,
-          category:billing_categories(
+          item_category:billing_item_categories(
             id,
-            category_name,
-            amount,
-            frequency,
-            description
+            item_category_name,
+            parent_category:billing_parent_categories(
+              id,
+              parent_category_name
+            ),
+            sub_category:billing_sub_categories(
+              id,
+              sub_category_name
+            )
           )
         `
         )

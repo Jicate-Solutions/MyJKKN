@@ -12,6 +12,16 @@ import {
 } from '@/components/ui/breadcrumb';
 import { CourseMappingForm } from '../_components/course-mapping-form';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/organizations/courses/mappings',
+} as const;
+
+
 export default function NewCourseMappingPage() {
   return (
     <ContentLayout title='New Course Mapping'>

@@ -272,7 +272,7 @@ export class UserDashboardService {
             institution_id,
             role,
             is_active,
-            institutions(name, counselling_code)
+            institutions:institutions!profiles_institution_id_fkey(name, counselling_code)
           `)
           .range(from, from + batchSize - 1);
 
@@ -372,7 +372,7 @@ export class UserDashboardService {
           role,
           last_login,
           created_at,
-          institutions(name)
+          institutions:institutions!profiles_institution_id_fkey(name)
         `
         )
         .limit(limit);

@@ -75,6 +75,16 @@ import { useCreateKeyResult } from '@/hooks/okr/use-key-results';
 // Error Boundary
 import { OKRErrorBoundary } from '../../../_components';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/okr/objectives/create/organization',
+} as const;
+
+
 // ============================================================================
 // ZOD VALIDATION SCHEMA - Full 11-Section Structure
 // ============================================================================

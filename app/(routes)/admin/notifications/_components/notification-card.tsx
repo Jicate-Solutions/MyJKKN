@@ -26,6 +26,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Notification } from '@/types/notifications';
 import { stripHtml } from '@/components/ui/rich-text-editor';
+import { NotificationActionButtons } from './notification-action-buttons';
 
 // ---- Styling helpers ----
 
@@ -174,6 +175,23 @@ export function NotificationCard({
           <Bell className='h-3 w-3 text-muted-foreground/60' aria-label='Notification' />
         </div>
       </Link>
+
+      {/* Action buttons — render whenever action_config is present. Handles
+          both admin-form notifications (action_type='tracked'|'urgent') AND
+          dashboard-cron notifications (action_type='open_url'). The component
+          decides what to render based on the action_config shape; self-hides
+          when nothing is actionable. Lives outside the Link so button clicks
+          don't trigger card navigation. */}
+      {(notification as any).action_config && (
+        <div className='px-4 pb-3'>
+          <NotificationActionButtons
+            notificationId={notification.id}
+            actionType={(notification as any).action_type}
+            actionConfig={(notification as any).action_config}
+            category={notification.category}
+          />
+        </div>
+      )}
 
       {/* Overflow menu — positioned absolute, outside the Link */}
       <div className='absolute top-2 right-2' onClick={(e) => e.stopPropagation()}>

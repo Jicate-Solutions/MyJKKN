@@ -20446,6 +20446,7 @@ export type Database = {
           academic_year_id: string | null
           accommodation_type: string | null
           admission_year: number | null
+          admission_year_id: string | null
           ai_solution_cleared: boolean | null
           ai_solution_cleared_at: string | null
           ai_solution_cleared_by: string | null
@@ -20526,6 +20527,7 @@ export type Database = {
           academic_year_id?: string | null
           accommodation_type?: string | null
           admission_year?: number | null
+          admission_year_id?: string | null
           ai_solution_cleared?: boolean | null
           ai_solution_cleared_at?: string | null
           ai_solution_cleared_by?: string | null
@@ -20606,6 +20608,7 @@ export type Database = {
           academic_year_id?: string | null
           accommodation_type?: string | null
           admission_year?: number | null
+          admission_year_id?: string | null
           ai_solution_cleared?: boolean | null
           ai_solution_cleared_at?: string | null
           ai_solution_cleared_by?: string | null
@@ -48708,7 +48711,7 @@ export type Database = {
         | "cancelled"
         | "expired"
       lifecycle_status:
-        | "enquiry"
+        | "admitted"
         | "pending"
         | "approved"
         | "rejected"
@@ -49900,7 +49903,7 @@ export const Constants = {
         "expired",
       ],
       lifecycle_status: [
-        "enquiry",
+        "admitted",
         "pending",
         "approved",
         "rejected",

@@ -26,6 +26,15 @@ import {
   useProducts,
 } from '@/hooks/solutions/use-products';
 
+/**
+ * navMeta — invoked from the Products list via an "RDIF Readiness" CTA /
+ * KPI card. Nav-coverage detector (`scripts/assert-nav-coverage.mjs`) reads
+ * this to pass discoverability.
+ */
+export const navMeta = {
+  invokedFrom: '/solutions/products',
+} as const;
+
 export default function RDIFDashboardPage() {
   const { data: rdifData, isLoading: rdifLoading, error: rdifError } = useRDIFReadinessScore();
   const { data: bridgeData, isLoading: bridgeLoading } = useThreeYearBridgeStatus();

@@ -144,7 +144,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'roles.create', label: 'Create Roles' },
       { key: 'roles.edit', label: 'Edit Roles' },
       { key: 'roles.delete', label: 'Delete Roles' },
-      { key: 'users.permissions_audit.view', label: 'View Permissions Audit Dashboard' }
+      { key: 'users.permissions_audit.view', label: 'View Permissions Audit Dashboard' },
+      // Added 2026-04-21 — Persona Design PR-3. Keys referenced by RLS on the
+      // 3 scope-extension junction tables (user_block_access,
+      // user_learner_relationship, user_contract_access) introduced in PR-1.
+      // Grant these to hostel_office / chief_warden / super_admin to manage
+      // the per-user grants that back block_scope / relationship_scope /
+      // contract_scope (wired in PR-4).
+      { key: 'users.block_access.view', label: 'View User→Block Access Grants' },
+      { key: 'users.block_access.manage', label: 'Manage User→Block Access Grants' },
+      { key: 'users.relationship.view', label: 'View User→Learner Relationships (Parents)' },
+      { key: 'users.relationship.manage', label: 'Manage User→Learner Relationships (Parents)' },
+      { key: 'users.contract_access.view', label: 'View User→Contract Access Grants (Vendors)' },
+      { key: 'users.contract_access.manage', label: 'Manage User→Contract Access Grants (Vendors)' }
     ]
   },
   {
@@ -668,6 +680,116 @@ export const PERMISSION_CATEGORIES = [
 
       // Checklists
       { key: 'startup_studio.checklists.manage', label: 'Manage Event Checklists' },
+
+      // -----------------------------------------------------------------
+      // NIF Coordinator substrate (PR-0, 2026-04-20)
+      // SF100 granular CRUD + umbrella keys for remaining Studio submodules.
+      // Seeded into custom_roles.nif_coordinator by migration
+      //   20260420000001_nif_coordinator_role_and_audit.sql
+      // -----------------------------------------------------------------
+
+      // SF100 — Programs
+      { key: 'startup_studio.sf100.program.view', label: 'SF100 — View Programs' },
+      { key: 'startup_studio.sf100.program.create', label: 'SF100 — Create Programs' },
+      { key: 'startup_studio.sf100.program.edit', label: 'SF100 — Edit Programs' },
+      { key: 'startup_studio.sf100.program.archive', label: 'SF100 — Archive Programs (soft)' },
+      // Note: startup_studio.sf100.program.delete intentionally reserved for super_admin only
+
+      // SF100 — Teams (Enrollments)
+      { key: 'startup_studio.sf100.team.view', label: 'SF100 — View Teams' },
+      { key: 'startup_studio.sf100.team.create', label: 'SF100 — Create Teams (enroll)' },
+      { key: 'startup_studio.sf100.team.edit', label: 'SF100 — Edit Team Details' },
+      { key: 'startup_studio.sf100.team.archive', label: 'SF100 — Archive Teams (soft delete)' },
+      { key: 'startup_studio.sf100.team.transfer', label: 'SF100 — Approve Team Transfers' },
+      // Note: startup_studio.sf100.team.delete (hard purge) reserved for super_admin only
+
+      // SF100 — Team Members
+      { key: 'startup_studio.sf100.member.view', label: 'SF100 — View Team Members' },
+      { key: 'startup_studio.sf100.member.create', label: 'SF100 — Add Team Members' },
+      { key: 'startup_studio.sf100.member.edit', label: 'SF100 — Edit Team Member Details' },
+      { key: 'startup_studio.sf100.member.remove', label: 'SF100 — Remove Team Members' },
+      { key: 'startup_studio.sf100.member.transfer', label: 'SF100 — Transfer Member Between Teams' },
+
+      // SF100 — Check-ins
+      { key: 'startup_studio.sf100.check_in.view', label: 'SF100 — View Check-ins' },
+      { key: 'startup_studio.sf100.check_in.create', label: 'SF100 — Create Check-ins (incl. on-behalf-of-team)' },
+      { key: 'startup_studio.sf100.check_in.edit', label: 'SF100 — Edit Check-ins' },
+      { key: 'startup_studio.sf100.check_in.delete', label: 'SF100 — Delete Check-ins (triggers metric recompute)' },
+
+      // SF100 — Paid Users
+      { key: 'startup_studio.sf100.paid_user.view', label: 'SF100 — View Paid Users' },
+      { key: 'startup_studio.sf100.paid_user.create', label: 'SF100 — Add Paid Users' },
+      { key: 'startup_studio.sf100.paid_user.edit', label: 'SF100 — Edit Paid Users' },
+      { key: 'startup_studio.sf100.paid_user.delete', label: 'SF100 — Delete Paid Users (triggers revenue recompute)' },
+      { key: 'startup_studio.sf100.paid_user.verify', label: 'SF100 — Verify Paid Users' },
+      { key: 'startup_studio.sf100.paid_user.churn', label: 'SF100 — Mark Paid Users Churned' },
+
+      // SF100 — Customer Interviews
+      { key: 'startup_studio.sf100.interview.view', label: 'SF100 — View Customer Interviews' },
+      { key: 'startup_studio.sf100.interview.create', label: 'SF100 — Create Customer Interviews' },
+      { key: 'startup_studio.sf100.interview.edit', label: 'SF100 — Edit Customer Interviews' },
+      { key: 'startup_studio.sf100.interview.delete', label: 'SF100 — Delete Customer Interviews' },
+
+      // SF100 — Pivots
+      { key: 'startup_studio.sf100.pivot.view', label: 'SF100 — View Pivots' },
+      { key: 'startup_studio.sf100.pivot.create', label: 'SF100 — Record Pivots' },
+      { key: 'startup_studio.sf100.pivot.edit', label: 'SF100 — Edit Pivots' },
+      { key: 'startup_studio.sf100.pivot.delete', label: 'SF100 — Delete Pivots' },
+
+      // SF100 — Exercises
+      { key: 'startup_studio.sf100.exercise.view', label: 'SF100 — View Exercises' },
+      { key: 'startup_studio.sf100.exercise.create', label: 'SF100 — Create Exercises' },
+      { key: 'startup_studio.sf100.exercise.edit', label: 'SF100 — Edit Exercises' },
+      { key: 'startup_studio.sf100.exercise.delete', label: 'SF100 — Delete Exercises' },
+      { key: 'startup_studio.sf100.exercise.respond', label: 'SF100 — Submit Exercise Responses' },
+
+      // SF100 — Roster Changes
+      { key: 'startup_studio.sf100.roster_change.view', label: 'SF100 — View Roster Change Queue' },
+      { key: 'startup_studio.sf100.roster_change.approve', label: 'SF100 — Approve/Reject Roster Changes' },
+      { key: 'startup_studio.sf100.roster_change.cancel', label: 'SF100 — Cancel Pending Roster Change' },
+
+      // SF100 — Audit Log
+      { key: 'startup_studio.sf100.audit_log.view', label: 'SF100 — View Audit Log' },
+
+      // NIF Pipeline (Nattraja Incubation Forum)
+      { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
+      { key: 'startup_studio.nif.manage', label: 'NIF — Manage Candidates' },
+      { key: 'startup_studio.nif.advance', label: 'NIF — Advance Stage' },
+      { key: 'startup_studio.nif.reject', label: 'NIF — Reject Candidate' },
+
+      // Other Studio submodules — umbrella keys (granular refinement as CRUD matures)
+      { key: 'startup_studio.problem_bank.view', label: 'Problem Bank — View' },
+      { key: 'startup_studio.problem_bank.manage', label: 'Problem Bank — Manage' },
+      { key: 'startup_studio.mentors.view', label: 'Mentors — View' },
+      { key: 'startup_studio.mentors.manage', label: 'Mentors — Manage' },
+      { key: 'startup_studio.portfolio.view', label: 'Portfolio — View' },
+      { key: 'startup_studio.portfolio.manage', label: 'Portfolio — Manage' },
+      { key: 'startup_studio.cycles.view', label: 'Cycles — View' },
+      { key: 'startup_studio.cycles.manage', label: 'Cycles — Manage' },
+      { key: 'startup_studio.graduation.view', label: 'Graduation — View' },
+      { key: 'startup_studio.graduation.manage', label: 'Graduation — Manage' },
+      { key: 'startup_studio.trl.view', label: 'TRL — View' },
+      { key: 'startup_studio.trl.manage', label: 'TRL — Manage' },
+      { key: 'startup_studio.kpi.view', label: 'KPI — View' },
+      { key: 'startup_studio.kpi.manage', label: 'KPI — Manage' },
+      { key: 'startup_studio.finance.view', label: 'Finance/Grants — View' },
+      { key: 'startup_studio.finance.manage', label: 'Finance/Grants — Manage' },
+      { key: 'startup_studio.marketing.view', label: 'Marketing — View' },
+      { key: 'startup_studio.marketing.manage', label: 'Marketing — Manage' },
+      { key: 'startup_studio.analytics.view', label: 'Analytics — View' },
+      { key: 'startup_studio.alumni.view', label: 'Alumni — View' },
+      { key: 'startup_studio.alumni.manage', label: 'Alumni — Manage' },
+      { key: 'startup_studio.governance.view', label: 'Governance — View' },
+      { key: 'startup_studio.governance.manage', label: 'Governance — Manage' },
+      { key: 'startup_studio.competitive.view', label: 'Competitive Intel — View' },
+      { key: 'startup_studio.competitive.manage', label: 'Competitive Intel — Manage' },
+      { key: 'startup_studio.risk.view', label: 'Risk Register — View' },
+      { key: 'startup_studio.risk.manage', label: 'Risk Register — Manage' },
+      { key: 'startup_studio.pipeline.view', label: 'Pipeline — View' },
+      { key: 'startup_studio.pipeline.manage', label: 'Pipeline — Manage' },
+      { key: 'startup_studio.teams.view', label: 'Teams — View' },
+      { key: 'startup_studio.teams.manage', label: 'Teams — Manage' },
+      { key: 'startup_studio.notify.send', label: 'Notifications — Send to Studio Participants' },
     ]
   },
   {
@@ -759,7 +881,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.sources.view', label: 'View Lead Sources' },
       { key: 'admission.settings.sources.manage', label: 'Manage Lead Sources' },
       { key: 'admission.settings.whatsapp.view', label: 'View WhatsApp Settings' },
-      { key: 'admission.settings.whatsapp.manage', label: 'Manage WhatsApp Numbers & Settings' }
+      { key: 'admission.settings.whatsapp.manage', label: 'Manage WhatsApp Numbers & Settings' },
+      { key: 'admission.settings.seats.view', label: 'View Seat Configuration' },
+      { key: 'admission.settings.seats.manage', label: 'Manage Seat Configuration' },
+      { key: 'admission.settings.years.view', label: 'View Admission Years' },
+      { key: 'admission.settings.years.create', label: 'Create Admission Years' },
+      { key: 'admission.settings.years.edit', label: 'Edit Admission Years' },
+      { key: 'admission.settings.years.delete', label: 'Delete Admission Years' }
     ]
   },
   {
@@ -930,7 +1058,398 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.inc.view', label: 'View INC Dashboard' },
       { key: 'accreditation.ncte.view', label: 'View NCTE Dashboard' },
       { key: 'accreditation.aicte.view', label: 'View AICTE Dashboard' },
-      { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' }
+      { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' },
+
+      // CRUD retrofit 2026-04-23 — admin UIs for catalog tables (metrics + source registry).
+      // Required for /accreditation/manage/metrics + the source-kind picker in evidence admin.
+      { key: 'accreditation.metrics.view', label: 'View Accreditation Metrics Catalog' },
+      { key: 'accreditation.metrics.manage', label: 'Manage Accreditation Metrics (add local/supplementary)' },
+      { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
+      { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
+
+      // IIQA — PR-IIQA-1 (2026-04-25). NAAC IIQA submission workflow.
+      // accreditation_officer (existing system role) is the primary IIQA Coordinator;
+      // principal signs off; super_admin / director submits to NAAC.
+      // external_auditor_timeboxed gets the read_only_external key during peer review.
+      { key: 'accreditation.iiqa.view', label: 'View IIQA Submission Dashboard' },
+      { key: 'accreditation.iiqa.manage', label: 'Edit IIQA Static Facts + Snapshots (IQAC Coordinator)' },
+      { key: 'accreditation.iiqa.submit', label: 'Submit IIQA Pack to NAAC (Director only — locks snapshots)' },
+      { key: 'accreditation.iiqa.read_only_external', label: 'Read IIQA Pack (NAAC Peer Team — time-boxed)' },
+      { key: 'accreditation.certificates.view', label: 'View Accreditation Certificates' },
+      { key: 'accreditation.certificates.manage', label: 'Upload + Manage Accreditation Certificates' }
+    ]
+  },
+  {
+    // Grievance module — PR-A6a (module live) + CRUD retrofit 2026-04-23.
+    // Categories are managed per-institution; tickets follow modernized RLS
+    // that bypasses hardcoded role names in favor of these permission keys.
+    name: 'Grievance',
+    key: 'grievance',
+    permissions: [
+      { key: 'grievance.tickets.view', label: 'View Grievance Tickets' },
+      { key: 'grievance.tickets.create', label: 'File Grievance Tickets' },
+      { key: 'grievance.tickets.edit', label: 'Update Grievance Tickets (assign/comment/resolve)' },
+      { key: 'grievance.tickets.delete', label: 'Delete Grievance Tickets (super-admin cleanup only)' },
+      { key: 'grievance.categories.view', label: 'View Grievance Categories' },
+      { key: 'grievance.categories.manage', label: 'Manage Grievance Categories (add local categories)' }
+    ]
+  },
+  {
+    // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
+    // for every /solutions/* route on production (jicate/main). Scope is
+    // read/view today — write actions are guarded at the service layer.
+    name: 'Solutions Hub',
+    key: 'solutions',
+    permissions: [
+      // Dashboard
+      { key: 'solutions.dashboard.view', label: 'View Solutions Dashboard' },
+
+      // Pipeline
+      { key: 'solutions.pipeline.view', label: 'View Solutions Pipeline' },
+      { key: 'solutions.pipeline.analytics.view', label: 'View Pipeline Analytics' },
+
+      // Parties
+      { key: 'solutions.clients.view', label: 'View Clients' },
+      { key: 'solutions.builders.view', label: 'View Builders' },
+
+      // Training
+      { key: 'solutions.training.view', label: 'View Training' },
+      { key: 'solutions.training.programs.view', label: 'View Training Programs' },
+      { key: 'solutions.training.sessions.view', label: 'View Training Sessions' },
+      { key: 'solutions.training.cohort.view', label: 'View Training Cohorts' },
+
+      // Content
+      { key: 'solutions.content.view', label: 'View Content' },
+      { key: 'solutions.content.deliverables.view', label: 'View Content Deliverables' },
+      { key: 'solutions.content.production.view', label: 'View Content Production' },
+      { key: 'solutions.content.queue.view', label: 'View Content Queue' },
+
+      // Finance
+      { key: 'solutions.payments.view', label: 'View Payments' },
+      { key: 'solutions.earnings.view', label: 'View Earnings' },
+
+      // Discovery & Outputs
+      { key: 'solutions.discovery.view', label: 'View Discovery' },
+      { key: 'solutions.publications.view', label: 'View Publications' },
+      { key: 'solutions.products.view', label: 'View Products' },
+
+      // Software
+      { key: 'solutions.software.view', label: 'View Software Solutions' },
+      { key: 'solutions.software.builders.view', label: 'View Software Builders' },
+      { key: 'solutions.software.phases.view', label: 'View Software Phases' },
+
+      // Specialty Tracks
+      { key: 'solutions.matlab.view', label: 'View MATLAB Track' },
+      { key: 'solutions.paradigm_shift.view', label: 'View Paradigm Shift' },
+
+      // Compliance
+      { key: 'solutions.compliance.view', label: 'View AI Solution Compliance' }
+    ]
+  },
+  {
+    // Expanded 2026-04-21 — Persona Design PR-3 of 4. Replaces the baseline
+    // `.view`-only stub. Catalogues all Campus Living permission keys so PR-4
+    // can retrofit RLS on the 48 hostel_*/mess_* tables using stable keys.
+    // Key groups below map 1:1 to submodules the module code already surfaces
+    // (see lib/sidebarMenuLink.ts MENU_PERMISSIONS for enforcement points).
+    name: 'Campus Living',
+    key: 'campus_living',
+    permissions: [
+      // Module-level
+      { key: 'campus_living.view', label: 'View Campus Living Module' },
+      { key: 'campus_living.dashboard.view', label: 'View Campus Living Dashboard' },
+      { key: 'campus_living.activity.view', label: 'View Activity Feed' },
+      { key: 'campus_living.calendar.view', label: 'View Calendar' },
+      { key: 'campus_living.settings.view', label: 'View Campus Living Settings' },
+      { key: 'campus_living.settings.edit', label: 'Edit Campus Living Settings' },
+
+      // Physical infrastructure — Blocks
+      { key: 'campus_living.blocks.view', label: 'View Hostel Blocks' },
+      { key: 'campus_living.blocks.create', label: 'Create Hostel Blocks' },
+      { key: 'campus_living.blocks.edit', label: 'Edit Hostel Blocks' },
+      { key: 'campus_living.blocks.delete', label: 'Delete Hostel Blocks' },
+      { key: 'campus_living.blocks.warden_assign', label: 'Assign Warden to Block' },
+
+      // Physical infrastructure — Rooms
+      { key: 'campus_living.rooms.view', label: 'View Rooms' },
+      { key: 'campus_living.rooms.create', label: 'Create Rooms' },
+      { key: 'campus_living.rooms.edit', label: 'Edit Rooms' },
+      { key: 'campus_living.rooms.delete', label: 'Delete Rooms' },
+      { key: 'campus_living.rooms.inspect', label: 'Record Room Inspection' },
+
+      // Physical infrastructure — Beds
+      { key: 'campus_living.beds.view', label: 'View Beds' },
+      { key: 'campus_living.beds.create', label: 'Create Beds' },
+      { key: 'campus_living.beds.edit', label: 'Edit Beds' },
+      { key: 'campus_living.beds.delete', label: 'Delete Beds' },
+      { key: 'campus_living.beds.status_change', label: 'Change Bed Status' },
+
+      // Allocations
+      { key: 'campus_living.allocations.view', label: 'View Hostel Allocations' },
+      { key: 'campus_living.allocations.create', label: 'Create Allocation' },
+      { key: 'campus_living.allocations.edit', label: 'Edit Allocation' },
+      { key: 'campus_living.allocations.transfer', label: 'Transfer Learner Between Rooms' },
+      { key: 'campus_living.allocations.vacate', label: 'Vacate Allocation' },
+      { key: 'campus_living.allocations.approve', label: 'Approve Allocation' },
+
+      // Residents (master data — added 2026-04-22 PR-2, classifies non-learner residents: staff / international / married / visitor / other)
+      { key: 'campus_living.residents.view', label: 'View Hostel Residents' },
+      { key: 'campus_living.residents.create', label: 'Create Hostel Resident Record' },
+      { key: 'campus_living.residents.edit', label: 'Edit Hostel Resident Record' },
+      { key: 'campus_living.residents.delete', label: 'Delete Hostel Resident (no allocation history)' },
+
+      // Approval chains (engine master data — added 2026-04-22 PR-0, drives vacate + future workflows)
+      { key: 'campus_living.approval_chains.view', label: 'View Approval Chain Rules' },
+      { key: 'campus_living.approval_chains.create', label: 'Create Approval Chain Rule' },
+      { key: 'campus_living.approval_chains.edit', label: 'Edit Approval Chain Rule (name / description / active / priority)' },
+      { key: 'campus_living.approval_chains.delete', label: 'Delete Approval Chain Rule (no active runs)' },
+
+      // Vacate requests (workflow — added 2026-04-22 PR-A, student-initiated hostel vacate with parent/warden/chief/dues approval chain)
+      { key: 'campus_living.vacate_requests.view', label: 'View Hostel Vacate Requests' },
+      { key: 'campus_living.vacate_requests.view_own', label: 'View Own Vacate Requests (Student / Resident)' },
+      { key: 'campus_living.vacate_requests.submit', label: 'Submit Own Vacate Request' },
+      { key: 'campus_living.vacate_requests.submit_on_behalf', label: 'Submit Vacate Request on Behalf of Student' },
+      { key: 'campus_living.vacate_requests.approve_warden', label: 'Warden Approve Vacate Request' },
+      { key: 'campus_living.vacate_requests.approve_chief', label: 'Chief Warden Approve Vacate Request' },
+      { key: 'campus_living.vacate_requests.mark_clearance', label: 'Mark Dues Clearance Items' },
+      { key: 'campus_living.vacate_requests.finalize', label: 'Finalize Vacate (trigger hostel_allocations.vacate)' },
+      { key: 'campus_living.vacate_requests.cancel', label: 'Cancel Vacate Request (Admin / Hostel Office)' },
+
+      // Wardens
+      { key: 'campus_living.wardens.view', label: 'View Wardens' },
+      { key: 'campus_living.wardens.assign', label: 'Assign Warden' },
+      { key: 'campus_living.wardens.remove', label: 'Remove Warden' },
+
+      // Gate passes
+      { key: 'campus_living.gate_passes.view', label: 'View Gate Passes' },
+      { key: 'campus_living.gate_passes.view_own', label: 'View Own Gate Passes (Hosteler)' },
+      { key: 'campus_living.gate_passes.view_block', label: 'View Gate Passes for Assigned Block' },
+      { key: 'campus_living.gate_passes.create', label: 'Request Gate Pass' },
+      { key: 'campus_living.gate_passes.approve', label: 'Approve Gate Pass' },
+      { key: 'campus_living.gate_passes.reject', label: 'Reject Gate Pass' },
+      { key: 'campus_living.gate_passes.verify_at_gate', label: 'Verify Gate Pass at Gate' },
+
+      // Visitors
+      { key: 'campus_living.visitors.view', label: 'View Visitors' },
+      { key: 'campus_living.visitors.log', label: 'Log New Visitor' },
+      { key: 'campus_living.visitors.approve', label: 'Approve Visitor' },
+
+      // Leave
+      { key: 'campus_living.leave.view', label: 'View Leave Requests' },
+      { key: 'campus_living.leave.view_own', label: 'View Own Leave (Hosteler)' },
+      { key: 'campus_living.leave.view_block', label: 'View Leave for Assigned Block' },
+      { key: 'campus_living.leave.request', label: 'Request Leave' },
+      { key: 'campus_living.leave.parent_consent', label: 'Provide Parent Consent' },
+      { key: 'campus_living.leave.warden_approve', label: 'Warden Approve Leave' },
+      { key: 'campus_living.leave.chief_approve', label: 'Chief Warden Approve Leave' },
+
+      // Leave Types (master data — added 2026-04-21 PR-3b, replaces enum)
+      { key: 'campus_living.leave_types.view', label: 'View Hostel Leave Types' },
+      { key: 'campus_living.leave_types.create', label: 'Create Hostel Leave Type' },
+      { key: 'campus_living.leave_types.edit', label: 'Edit Hostel Leave Type' },
+      { key: 'campus_living.leave_types.delete', label: 'Delete Hostel Leave Type (non-system only)' },
+
+      // Attendance
+      { key: 'campus_living.attendance.view', label: 'View Hostel Attendance' },
+      { key: 'campus_living.attendance.mark', label: 'Mark Hostel Attendance' },
+      { key: 'campus_living.attendance.edit', label: 'Edit Attendance Record' },
+      { key: 'campus_living.attendance.export', label: 'Export Attendance' },
+
+      // Maintenance
+      { key: 'campus_living.maintenance.view', label: 'View Maintenance Tickets' },
+      { key: 'campus_living.maintenance.create', label: 'Create Maintenance Ticket' },
+      { key: 'campus_living.maintenance.assign', label: 'Assign Maintenance Ticket' },
+      { key: 'campus_living.maintenance.close', label: 'Close Maintenance Ticket' },
+      { key: 'campus_living.maintenance.approve_payment', label: 'Approve Vendor Payment' },
+
+      // Housekeeping
+      { key: 'campus_living.housekeeping.view', label: 'View Housekeeping Schedules' },
+      { key: 'campus_living.housekeeping.schedule', label: 'Create/Edit Schedule' },
+      { key: 'campus_living.housekeeping.mark_done', label: 'Mark Task Done' },
+
+      // Laundry
+      { key: 'campus_living.laundry.view', label: 'View Laundry Config' },
+      { key: 'campus_living.laundry.config', label: 'Configure Laundry Service' },
+      { key: 'campus_living.laundry.orders_manage', label: 'Manage Laundry Orders' },
+
+      // Safety
+      { key: 'campus_living.safety.view', label: 'View Safety Equipment' },
+      { key: 'campus_living.safety.inspect', label: 'Record Safety Inspection' },
+      { key: 'campus_living.safety.record', label: 'Record Safety Event' },
+      { key: 'campus_living.safety.inspections.view', label: 'View Safety Inspections' },
+      { key: 'campus_living.safety.incidents.view', label: 'View Safety Incidents' },
+      { key: 'campus_living.safety.anti_ragging.view', label: 'View Anti-Ragging Incidents' },
+      { key: 'campus_living.safety.anti_ragging.manage', label: 'Manage Anti-Ragging Cases' },
+
+      // Health
+      { key: 'campus_living.health.view', label: 'View Health Cases' },
+      { key: 'campus_living.health.log_case', label: 'Log Health Case' },
+      { key: 'campus_living.health.emergency', label: 'Trigger Health Emergency' },
+
+      // Fees
+      { key: 'campus_living.fees.view', label: 'View Hostel Fees' },
+      { key: 'campus_living.fees.config', label: 'Configure Fee Structure' },
+      { key: 'campus_living.fees.waive', label: 'Waive Fee' },
+      { key: 'campus_living.fees.refund', label: 'Refund Fee' },
+
+      // Deposits
+      { key: 'campus_living.deposits.view', label: 'View Deposits' },
+      { key: 'campus_living.deposits.record', label: 'Record Deposit' },
+      { key: 'campus_living.deposits.refund', label: 'Refund Deposit' },
+
+      // Mess — umbrella
+      { key: 'campus_living.mess.view', label: 'View Mess Module' },
+
+      // Mess — caterers
+      { key: 'campus_living.mess.caterers.view', label: 'View Caterers' },
+      { key: 'campus_living.mess.caterers.onboard', label: 'Onboard Caterer' },
+      { key: 'campus_living.mess.caterers.suspend', label: 'Suspend Caterer' },
+      { key: 'campus_living.mess.caterers.pay', label: 'Process Caterer Payment' },
+
+      // Mess — menus
+      { key: 'campus_living.mess.menu.view', label: 'View Mess Menu' },
+      { key: 'campus_living.mess.menu.publish', label: 'Publish Menu' },
+      { key: 'campus_living.mess.menu.approve', label: 'Approve Menu' },
+
+      // Mess — meals
+      { key: 'campus_living.mess.meals.view', label: 'View Meal Records' },
+      { key: 'campus_living.mess.meals.book', label: 'Book Meal' },
+      { key: 'campus_living.mess.meals.cancel', label: 'Cancel Meal Booking' },
+
+      // Mess — billing
+      { key: 'campus_living.mess.billing.view', label: 'View Mess Billing' },
+      { key: 'campus_living.mess.billing.reconcile', label: 'Reconcile Mess Billing' },
+      { key: 'campus_living.mess.billing.export', label: 'Export Mess Billing' },
+
+      // Mess — feedback + waste
+      { key: 'campus_living.mess.feedback.view', label: 'View Mess Feedback' },
+      { key: 'campus_living.mess.waste.view', label: 'View Mess Waste Log' },
+
+      // Alerts
+      { key: 'campus_living.alerts.view', label: 'View Alert Rules' },
+      { key: 'campus_living.alerts.configure', label: 'Configure Alert Rules' },
+      { key: 'campus_living.alerts.acknowledge', label: 'Acknowledge Alert' },
+
+      // Pulse surveys
+      { key: 'campus_living.pulse.view', label: 'View Pulse Surveys' },
+      { key: 'campus_living.pulse.create', label: 'Create Pulse Survey' },
+      { key: 'campus_living.pulse.respond', label: 'Respond to Pulse Survey' },
+
+      // Wellness
+      { key: 'campus_living.wellness.view', label: 'View Wellness Module' },
+
+      // Community
+      { key: 'campus_living.community.view', label: 'View Community Config' },
+      { key: 'campus_living.community.manage', label: 'Manage Community Config' },
+      { key: 'campus_living.community.post', label: 'Post to Community' },
+      { key: 'campus_living.community.moderate', label: 'Moderate Community' },
+
+      // Analytics
+      { key: 'campus_living.analytics.view', label: 'View Analytics (all)' },
+      { key: 'campus_living.analytics.occupancy', label: 'Analytics: Occupancy' },
+      { key: 'campus_living.analytics.fees', label: 'Analytics: Fees' },
+      { key: 'campus_living.analytics.mess', label: 'Analytics: Mess' },
+      { key: 'campus_living.analytics.maintenance', label: 'Analytics: Maintenance' },
+      { key: 'campus_living.analytics.safety', label: 'Analytics: Safety' },
+      { key: 'campus_living.analytics.cross_domain', label: 'Analytics: Cross-Domain' },
+
+      // Reports (accreditation)
+      { key: 'campus_living.reports.view', label: 'View Reports' },
+      { key: 'campus_living.reports.naac_4_1_4', label: 'NAAC Criterion 4.1.4 (Hostel Infra)' },
+      { key: 'campus_living.reports.nirf_facilities', label: 'NIRF Facilities for Students' },
+      { key: 'campus_living.reports.aicte_eoa', label: 'AICTE EOA Hostel Section' },
+      { key: 'campus_living.reports.anti_ragging_quarterly', label: 'Anti-Ragging Quarterly Report' },
+
+      // Parent portal
+      { key: 'campus_living.parent_portal.view_child', label: 'Parent Portal — View Child' },
+      { key: 'campus_living.parent_portal.consent', label: 'Parent Portal — Provide Consent' },
+      { key: 'campus_living.parent_portal.pay_fee', label: 'Parent Portal — Pay Fee' }
+    ]
+  },
+  {
+    // Baseline-only: app/api/documents/ exists but no documents.* permission
+    // keys are enforced in lib/sidebarMenuLink.ts or in route guards on this
+    // branch. Seeded `.view` until documents module adds enforcement.
+    name: 'Documents',
+    key: 'documents',
+    permissions: [
+      { key: 'documents.view', label: 'View Documents' }
+    ]
+  },
+  {
+    // Baseline-only: app/(routes)/learners-council/ exists but no
+    // learners_council.* keys are enforced in lib/sidebarMenuLink.ts or in
+    // route guards on this branch. Seeded `.view` pending enforcement PR.
+    name: 'Learners Council',
+    key: 'learners_council',
+    permissions: [
+      { key: 'learners_council.view', label: 'View Learners Council' }
+    ]
+  },
+  {
+    // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
+    // for every /learn/* route. PDE is the Personal Development Engine shipped
+    // under the /learn namespace.
+    name: 'PDE (Personal Development Engine)',
+    key: 'pde',
+    permissions: [
+      { key: 'pde.quests.view', label: 'View Quests' },
+      { key: 'pde.capabilities.view', label: 'View Capabilities' },
+      { key: 'pde.build.view', label: 'View Build Hub' },
+      { key: 'pde.channels.view', label: 'View Channels' },
+      { key: 'pde.profile.view', label: 'View Learner Profile' },
+      { key: 'pde.leaderboard.view', label: 'View Leaderboard' }
+    ]
+  },
+  {
+    // Permission keys mirror MENU_PERMISSIONS entries in lib/sidebarMenuLink.ts
+    // for every /vac/* route. Includes the single `.create` key enforced on
+    // /vac/admin/courses/new — every other action is view-only at the sidebar
+    // level (write actions are service-layer guarded).
+    name: 'Value-Added Courses',
+    key: 'vac',
+    permissions: [
+      // Learner-facing
+      { key: 'vac.courses.view', label: 'View VAC Catalogue' },
+      { key: 'vac.my_courses.view', label: 'View My Courses' },
+      { key: 'vac.progress.view', label: 'View My Progress' },
+      { key: 'vac.case.view', label: 'View CASE Track' },
+
+      // Admin
+      { key: 'vac.admin.view', label: 'View VAC Admin' },
+      { key: 'vac.admin.courses.view', label: 'View Admin Courses' },
+      { key: 'vac.admin.courses.create', label: 'Create Admin Course' },
+      { key: 'vac.admin.enrollments.view', label: 'View Enrollments' },
+      { key: 'vac.admin.analytics.view', label: 'View VAC Analytics' },
+      { key: 'vac.admin.settings.view', label: 'View VAC Settings' },
+
+      // CASE admin
+      { key: 'vac.admin.case.view', label: 'View CASE Admin' },
+      { key: 'vac.admin.case.tracks.view', label: 'View CASE Tracks' },
+      { key: 'vac.admin.case.batches.view', label: 'View CASE Batches' },
+      { key: 'vac.admin.case.readiness.view', label: 'View CASE Readiness' }
+    ]
+  },
+  // Added 2026-04-22 — Audit Workflow Sprint 01
+  {
+    name: 'Audit Workflow',
+    key: 'audit',
+    permissions: [
+      { key: 'audit.cycle.view', label: 'View Audit Cycles' },
+      { key: 'audit.cycle.manage', label: 'Create / Manage Audit Cycles' },
+      { key: 'audit.finding.view', label: 'View Audit Findings' },
+      { key: 'audit.finding.log', label: 'Log New Audit Findings' },
+      { key: 'audit.finding.review', label: 'Review Finding Rectifications' },
+      { key: 'audit.finding.rectify', label: 'Rectify Assigned Findings' },
+      { key: 'audit.evidence.upload', label: 'Upload Audit-Finding Evidence' },
+      { key: 'audit.attestation.view', label: 'View Parameter Attestations' },
+      { key: 'audit.attestation.sign', label: 'Sign Parameter Attestations (Lead Auditor)' },
+      { key: 'audit.attestation.cosign', label: 'Co-sign Attestations (CAO / CEO / MD-CAIO)' },
+      { key: 'audit.parameter.view', label: 'View Audit Parameter Catalog' },
+      { key: 'audit.parameter.manage', label: 'Manage Institution-scoped Parameter Overrides' },
+      { key: 'audit.finding_type.manage', label: 'Manage Finding-Type Master' },
+      { key: 'audit.leadership.view', label: 'View In-Progress Findings (CAO / CEO / MD)' },
+      { key: 'audit.external_auditor.manage', label: 'Manage Time-Boxed External Auditors (Admin)' }
     ]
   }
 ];

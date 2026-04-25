@@ -10,7 +10,7 @@ import type {
 export class HostelBedService {
   // ── List beds with optional filters ───────────────────────────────
   static async getBeds(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { room_id?: string; status?: BedStatus },
     page = 1,
     pageSize = 100
@@ -19,9 +19,9 @@ export class HostelBedService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_beds')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.room_id) query = query.eq('room_id', filters.room_id);
       if (filters?.status) query = query.eq('status', filters.status);
 
@@ -69,13 +69,13 @@ export class HostelBedService {
         .from('hostel_beds')
         .select('*, hostel_rooms(room_number, block_id)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/beds', 'Failed to fetch bed', error);
         throw error;
       }
-      return data as HostelBed & { hostel_rooms: unknown };
+      return data as (HostelBed & { hostel_rooms: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/beds', 'Unexpected error in getBed', error);
       throw error;

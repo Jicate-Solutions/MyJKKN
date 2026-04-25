@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { MarketingDashboard } from './_components/marketing-dashboard';
 
 export const metadata: Metadata = {
-  title: 'Marketing & Outreach | Startup Studio',
+  title: 'Marketing & Outreach',
 };
 
 export default function MarketingPage() {

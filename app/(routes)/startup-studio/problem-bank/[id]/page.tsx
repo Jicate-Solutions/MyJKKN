@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { ProblemDetail } from './_components/problem-detail';
 
 export const metadata: Metadata = {
-  title: 'Problem Detail | Startup Studio',
+  title: 'Problem Detail',
 };
 
 export default async function ProblemDetailPage({

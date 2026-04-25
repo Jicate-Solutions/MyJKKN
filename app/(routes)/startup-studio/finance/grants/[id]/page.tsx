@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { GrantDetail } from './_components/grant-detail';
 
 export const metadata: Metadata = {
-  title: 'Grant Detail | Startup Studio',
+  title: 'Grant Detail',
 };
 
 export default async function GrantDetailPage({ params }: { params: Promise<{ id: string }> }) {

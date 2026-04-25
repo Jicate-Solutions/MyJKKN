@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { SF100TeamDetail } from './_components/sf100-team-detail';
 
 export const metadata: Metadata = {
-  title: 'Team Detail | Solve for 100 | Startup Studio',
+  title: 'Team Detail',
 };
 
 type ValidTab = 'overview' | 'check-ins' | 'paid-users' | 'interviews' | 'pivots';

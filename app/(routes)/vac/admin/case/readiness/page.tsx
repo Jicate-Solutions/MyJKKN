@@ -35,6 +35,15 @@ import {
   GraduationCap,
 } from 'lucide-react';
 
+
+/**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/vac/admin/case',
+} as const;
+
 // ── Readiness Bar Chart (dependency-free) ─────────────────────────────────────
 
 function ReadinessChart({ data }: { data: CASEGraduationReadiness[] }) {

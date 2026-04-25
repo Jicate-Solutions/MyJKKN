@@ -22,7 +22,7 @@ export function useAntiRaggingAffidavits(institutionId: string | undefined, filt
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: antiRaggingKeys.list({ institutionId, ...filters }),
-    queryFn: () => AntiRaggingService.getAffidavits(institutionId as string, filters),
+    queryFn: () => AntiRaggingService.getAffidavits(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

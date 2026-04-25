@@ -3,7 +3,6 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, connection } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { dataURLtoFile } from '@/lib/utils/file-converters';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 const BUG_REPORTS_BUCKET = 'bug-reports';
@@ -44,8 +43,11 @@ const createReportSchema = z.object({
     .enum(['bug', 'feature_request', 'ui_design', 'performance', 'security', 'other'])
     .optional()
     .default('bug'),
-  screenshot_data_url: z.string().optional(),
-  additional_images_data_urls: z.array(z.string()).max(5, { message: 'Maximum 5 additional images allowed' }).optional(), // NEW: Multiple images
+  // Screenshot and images are uploaded browser-direct via signed URLs, not through the API body.
+  wants_screenshot: z.boolean().optional().default(false),
+  screenshot_format: z.enum(['jpg', 'png']).optional().default('jpg'),
+  additional_image_count: z.number().int().min(0).max(5).optional().default(0),
+  additional_image_formats: z.array(z.enum(['jpg', 'png'])).max(5).optional().default([]),
   console_logs: z.array(z.any()).optional(),
   metadata: z.record(z.any()).optional(),
   log_summary: z.any().optional()
@@ -261,207 +263,103 @@ export async function POST(request: Request) {
       );
     }
 
-    // Optimize: Handle participant creation and screenshot upload in parallel
-    const tasks = [];
+    // Add participant (sequential — avoids concurrent write contention with signed URL creation)
+    const { error: participantError } = await supabase
+      .from('bug_report_participants')
+      .insert({
+        bug_report_id: newReport.id,
+        user_id: user.id,
+        role: 'reporter',
+        can_view_internal: false,
+        is_active: true,
+        joined_at: new Date().toISOString()
+      });
 
-    // Add participant creation task
-    tasks.push(
-      (async () => {
-        try {
-          const { error } = await supabase
-            .from('bug_report_participants')
-            .insert({
-              bug_report_id: newReport.id,
-              user_id: user.id,
-              role: 'reporter',
-              can_view_internal: false,
-              is_active: true,
-              joined_at: new Date().toISOString()
-            });
-
-          if (error && !error.message.includes('duplicate')) {
-            logger.warn('bug-reports/api', 'Could not add participant', error);
-          }
-          return null;
-        } catch (err) {
-          logger.warn('bug-reports/api', 'Participant creation failed', err);
-          return null;
-        }
-      })()
-    );
-
-    // Handle screenshot upload if provided
-    let screenshotUrl: string | null = null;
-    let screenshotUploadError: string | null = null;
-    if (validatedData.screenshot_data_url) {
-      // Add screenshot upload task
-      tasks.push(
-        (async () => {
-          try {
-            // Determine file extension from data URL (supports both PNG and JPEG)
-            const isJpeg = validatedData.screenshot_data_url!.startsWith('data:image/jpeg');
-            const fileExtension = isJpeg ? 'jpg' : 'png';
-            const screenshotFile = dataURLtoFile(
-              validatedData.screenshot_data_url!,
-              `screenshot.${fileExtension}`
-            );
-            const filePath = `${newReport.id}/screenshot.${fileExtension}`;
-
-            const { error: uploadError } = await supabase.storage
-              .from(BUG_REPORTS_BUCKET)
-              .upload(filePath, screenshotFile, {
-                cacheControl: '3600',
-                upsert: false
-              });
-
-            if (uploadError) {
-              logger.error('bug-reports/api', 'Screenshot upload error', uploadError);
-              screenshotUploadError = uploadError.message || 'Upload failed';
-              return null;
-            }
-
-            const { data: urlData } = supabase.storage
-              .from(BUG_REPORTS_BUCKET)
-              .getPublicUrl(filePath);
-
-            screenshotUrl = urlData.publicUrl;
-            return screenshotUrl;
-          } catch (error) {
-            logger.error('bug-reports/api', 'Screenshot processing error', error);
-            screenshotUploadError =
-              error instanceof Error ? error.message : 'Unknown processing error';
-            return null;
-          }
-        })()
-      );
+    if (participantError && !participantError.message.includes('duplicate')) {
+      logger.warn('bug-reports/api', 'Could not add participant', participantError);
     }
 
-    // Handle additional images upload if provided
-    const attachmentUrls: string[] = [];
-    if (validatedData.additional_images_data_urls && validatedData.additional_images_data_urls.length > 0) {
-      // Add additional images upload task
-      tasks.push(
-        (async () => {
-          const uploadedUrls: string[] = [];
+    // Generate signed upload URLs for browser-direct upload.
+    // Screenshots are never sent through the API body — the browser uploads directly
+    // to Supabase Storage via these signed URLs, eliminating server-side ECONNRESET on
+    // large binary writes.
+    let screenshotSignedData: { path: string; signedUrl: string; token: string } | null = null;
+    const additionalSignedData: Array<{ path: string; signedUrl: string; token: string }> = [];
+    const urlUpdatePayload: { screenshot_url?: string; attachment_urls?: string[] } = {};
 
-          for (let i = 0; i < validatedData.additional_images_data_urls!.length; i++) {
-            try {
-              const imageDataUrl = validatedData.additional_images_data_urls![i];
+    if (validatedData.wants_screenshot) {
+      const ext = validatedData.screenshot_format ?? 'jpg';
+      const screenshotPath = `${newReport.id}/screenshot.${ext}`;
 
-              // Determine file extension from data URL
-              const isJpeg = imageDataUrl.startsWith('data:image/jpeg');
-              const fileExtension = isJpeg ? 'jpg' : 'png';
+      const { data: signedResult, error: signedError } = await supabase.storage
+        .from(BUG_REPORTS_BUCKET)
+        .createSignedUploadUrl(screenshotPath, { upsert: false });
 
-              const imageFile = dataURLtoFile(
-                imageDataUrl,
-                `additional-${i + 1}.${fileExtension}`
-              );
-              const filePath = `${newReport.id}/additional-${i + 1}.${fileExtension}`;
-
-              const { error: uploadError } = await supabase.storage
-                .from(BUG_REPORTS_BUCKET)
-                .upload(filePath, imageFile, {
-                  cacheControl: '3600',
-                  upsert: false
-                });
-
-              if (uploadError) {
-                logger.error('bug-reports/api', `Additional image ${i + 1} upload error`, uploadError);
-                continue; // Skip this image but continue with others
-              }
-
-              const { data: urlData } = supabase.storage
-                .from(BUG_REPORTS_BUCKET)
-                .getPublicUrl(filePath);
-
-              uploadedUrls.push(urlData.publicUrl);
-            } catch (error) {
-              logger.error('bug-reports/api', `Additional image ${i + 1} processing error`, error);
-              continue; // Skip this image but continue with others
-            }
-          }
-
-          return uploadedUrls;
-        })()
-      );
-    }
-
-    // Execute all tasks in parallel
-    const results = await Promise.allSettled(tasks);
-
-    // Process results and update bug report with all image URLs
-    let finalScreenshotUrl: string | null = null;
-    let finalAttachmentUrls: string[] = [];
-
-    // Extract screenshot URL from results (index 1 if screenshot was uploaded)
-    if (validatedData.screenshot_data_url && results.length > 1) {
-      const screenshotResult = results[1];
-      if (screenshotResult.status === 'fulfilled' && screenshotResult.value) {
-        finalScreenshotUrl = screenshotResult.value as string;
+      if (signedResult && !signedError) {
+        screenshotSignedData = { path: screenshotPath, ...signedResult };
+        // Pre-store the public URL — path is deterministic so URL is valid once upload completes
+        const { data: publicData } = supabase.storage
+          .from(BUG_REPORTS_BUCKET)
+          .getPublicUrl(screenshotPath);
+        urlUpdatePayload.screenshot_url = publicData.publicUrl;
+      } else {
+        logger.warn('bug-reports/api', 'Could not create screenshot signed URL', signedError);
       }
     }
 
-    // Extract additional image URLs from results (index 2 if additional images were uploaded)
-    if (validatedData.additional_images_data_urls && validatedData.additional_images_data_urls.length > 0) {
-      const additionalImagesIndex = validatedData.screenshot_data_url ? 2 : 1;
-      if (results.length > additionalImagesIndex) {
-        const additionalImagesResult = results[additionalImagesIndex];
-        if (additionalImagesResult.status === 'fulfilled' && additionalImagesResult.value) {
-          finalAttachmentUrls = additionalImagesResult.value as string[];
+    const additionalCount = validatedData.additional_image_count ?? 0;
+    const additionalFormats = validatedData.additional_image_formats ?? [];
+
+    if (additionalCount > 0) {
+      const attachmentPublicUrls: string[] = [];
+
+      for (let i = 0; i < additionalCount; i++) {
+        const ext = additionalFormats[i] ?? 'jpg';
+        const path = `${newReport.id}/additional-${i + 1}.${ext}`;
+
+        const { data: signedResult, error: signedError } = await supabase.storage
+          .from(BUG_REPORTS_BUCKET)
+          .createSignedUploadUrl(path, { upsert: false });
+
+        if (signedResult && !signedError) {
+          additionalSignedData.push({ path, ...signedResult });
+          const { data: publicData } = supabase.storage
+            .from(BUG_REPORTS_BUCKET)
+            .getPublicUrl(path);
+          attachmentPublicUrls.push(publicData.publicUrl);
         }
+      }
+
+      if (attachmentPublicUrls.length > 0) {
+        urlUpdatePayload.attachment_urls = attachmentPublicUrls;
       }
     }
 
-    // Update the bug report with all image URLs
-    if (finalScreenshotUrl || finalAttachmentUrls.length > 0) {
-      const updateData: any = {};
-      if (finalScreenshotUrl) updateData.screenshot_url = finalScreenshotUrl;
-      if (finalAttachmentUrls.length > 0) updateData.attachment_urls = finalAttachmentUrls;
-
+    // Update report with pre-computed public URLs so they're immediately queryable
+    let finalReport = newReport;
+    if (Object.keys(urlUpdatePayload).length > 0) {
       const { data: updatedReport, error: updateError } = await supabase
         .from('bug_reports')
-        .update(updateData)
+        .update(urlUpdatePayload)
         .eq('id', newReport.id)
         .select()
         .single();
 
       if (updateError) {
-        logger.error('bug-reports/api', 'Failed to update report with image URLs', updateError);
-        return NextResponse.json(
-          {
-            success: true,
-            data: newReport,
-            message: 'Bug report created successfully (images upload pending)',
-            warnings: {
-              screenshotUploadError:
-                screenshotUploadError ?? 'Failed to persist screenshot URL'
-            }
-          },
-          { status: 201 }
-        );
+        logger.warn('bug-reports/api', 'Could not pre-store image URLs', updateError);
+      } else if (updatedReport) {
+        finalReport = updatedReport;
       }
-
-      return NextResponse.json(
-        {
-          success: true,
-          data: updatedReport,
-          message: `Bug report created successfully with ${finalScreenshotUrl ? 'screenshot' : ''}${finalScreenshotUrl && finalAttachmentUrls.length > 0 ? ' and ' : ''}${finalAttachmentUrls.length > 0 ? `${finalAttachmentUrls.length} additional image(s)` : ''}`,
-          ...(screenshotUploadError && !finalScreenshotUrl
-            ? { warnings: { screenshotUploadError } }
-            : {})
-        },
-        { status: 201 }
-      );
     }
 
     return NextResponse.json(
       {
         success: true,
-        data: newReport,
-        message: 'Bug report created successfully',
-        ...(screenshotUploadError
-          ? { warnings: { screenshotUploadError } }
-          : {})
+        data: finalReport,
+        // Signed URLs returned to widget for browser-direct upload
+        signedUploadUrl: screenshotSignedData,
+        additionalSignedUrls: additionalSignedData,
+        message: 'Bug report created successfully'
       },
       { status: 201 }
     );

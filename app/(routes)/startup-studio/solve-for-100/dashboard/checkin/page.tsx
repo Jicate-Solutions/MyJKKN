@@ -3,8 +3,17 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { SF100CheckInForm } from '../../_components/sf100-checkin-form';
 
+/**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/startup-studio/solve-for-100/dashboard',
+} as const;
+
+
 export const metadata: Metadata = {
-  title: 'Submit Check-in | Solve for 100',
+  title: 'Submit Check-in',
 };
 
 interface SF100CheckInPageProps {

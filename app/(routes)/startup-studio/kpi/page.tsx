@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { KpiDashboardView } from './_components/kpi-dashboard-view';
 
 export const metadata: Metadata = {
-  title: 'KPI Dashboard | Startup Studio',
+  title: 'KPI Dashboard',
 };
 
 export default function KpiDashboardPage() {

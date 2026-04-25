@@ -127,19 +127,6 @@ export type {
   LeadScoreFilters,
   BulkScoreResult,
 } from './lead-scoring-engine-service';
-export { DailyBriefingService } from './daily-briefing-service';
-export type {
-  DailyBriefing,
-  BriefingContent,
-  BriefingPriority,
-  BriefingHotLead,
-  BriefingScheduledItem,
-  BriefingMetrics,
-  BriefingYesterdayRecap,
-  TeamPerformance,
-  InstitutionMetrics,
-  BriefingRole,
-} from './daily-briefing-service';
 export { BriefingDeliveryService } from './briefing-delivery-service';
 export type {
   BriefingNotification,

@@ -20,6 +20,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import {
   usePendingApprovals,
   useProcessApproval,
+  useProcessForward,
   useApprovalStatistics,
   useAllApplicationsForSuperAdminByStatus,
   useSuperAdminApprovalStatistics,
@@ -73,6 +74,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 
 import { ApplicationDetailsDialog } from './_components/application-details-dialog';
+import { ForwardDialog } from './_components/forward-dialog';
 
 export default function ApprovalsPage() {
   const router = useRouter();
@@ -80,6 +82,9 @@ export default function ApprovalsPage() {
   const { can, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null);
   const [approvalAction, setApprovalAction] = useState<'approved' | 'rejected' | null>(null);
+  // v2: forward dialog — boolean because the target + comment live in the
+  // ForwardDialog component itself. Only the application_id context lives here.
+  const [isForwardOpen, setIsForwardOpen] = useState(false);
   const [comments, setComments] = useState('');
   const [rowSelection, setRowSelection] = useState({});
   const [bulkAction, setBulkAction] = useState<'approved' | 'rejected' | null>(null);
@@ -150,6 +155,25 @@ export default function ApprovalsPage() {
   const { data: superAdminStats } = useSuperAdminApprovalStatistics(isSuperAdmin);
 
   const processApproval = useProcessApproval();
+  const processForward = useProcessForward();
+
+  const handleForwardSubmit = (forwardToId: string, comments: string) => {
+    if (!selectedApplicationId || !profile?.id) return;
+    processForward.mutate(
+      {
+        application_id: selectedApplicationId,
+        approver_id: profile.id,
+        forward_to_id: forwardToId,
+        comments,
+      },
+      {
+        onSuccess: () => {
+          setIsForwardOpen(false);
+          setSelectedApplicationId(null);
+        },
+      }
+    );
+  };
 
   // Determine which data to use based on role
   const isLoading = isSuperAdmin ? superAdminLoading : institutionLoading;
@@ -158,11 +182,21 @@ export default function ApprovalsPage() {
 
   // Normalize data structure - both super admin and institution return applications directly
   const normalizedApprovals = useMemo(() => {
-    if (isSuperAdmin) {
-      return superAdminApps || [];
-    }
-    return institutionApps || [];
-  }, [isSuperAdmin, superAdminApps, institutionApps]);
+    const raw = isSuperAdmin ? (superAdminApps || []) : (institutionApps || []);
+
+    // On the Pending tab, non-super-admin approvers should only see rows
+    // where THEIR specific step is still pending. Without this the row
+    // stays in the queue after they approve (because the application's
+    // overall status stays 'pending' until all steps finish), inviting a
+    // second click that hits the "not authorized" error.
+    if (statusFilter !== 'pending' || isSuperAdmin || !profile?.id) return raw;
+    return (raw as any[]).filter((app: any) => {
+      const approvals = app.approvals ?? [];
+      return approvals.some(
+        (a: any) => a.approver_id === profile.id && a.status === 'pending'
+      );
+    });
+  }, [isSuperAdmin, superAdminApps, institutionApps, statusFilter, profile?.id]);
 
   const selectedApplication = normalizedApprovals?.find(
     (app: any) => app.id === selectedApplicationId
@@ -257,8 +291,8 @@ export default function ApprovalsPage() {
 
   // Create table columns
   const columns = useMemo(
-    () => createColumns(isSuperAdmin, handleViewDetails, handleApprove, handleReject),
-    [isSuperAdmin]
+    () => createColumns(isSuperAdmin, handleViewDetails, handleApprove, handleReject, profile?.id),
+    [isSuperAdmin, profile?.id]
   );
 
   if (isLoading) {
@@ -807,12 +841,30 @@ export default function ApprovalsPage() {
 
       {/* Application Details Dialog */}
       <ApplicationDetailsDialog
-        isOpen={!!selectedApplicationId && !approvalAction}
+        isOpen={!!selectedApplicationId && !approvalAction && !isForwardOpen}
         onOpenChange={(open) => !open && setSelectedApplicationId(null)}
         application={selectedApplication}
         onApprove={() => setApprovalAction('approved')}
         onReject={() => setApprovalAction('rejected')}
+        onForward={
+          // Forwarding only makes sense while the application is still pending.
+          // For history/other rows we hide the button by not passing the prop.
+          selectedApplication?.status === 'pending' && !isSuperAdmin
+            ? () => setIsForwardOpen(true)
+            : undefined
+        }
         isSuperAdmin={isSuperAdmin}
+        currentUserId={profile?.id}
+      />
+
+      {/* v2: Forward Dialog */}
+      <ForwardDialog
+        open={isForwardOpen}
+        onOpenChange={setIsForwardOpen}
+        institutionId={profile?.institution_id || ''}
+        approverId={profile?.id || ''}
+        isSubmitting={processForward.isPending}
+        onSubmit={handleForwardSubmit}
       />
       </div>
     </ContentLayout>

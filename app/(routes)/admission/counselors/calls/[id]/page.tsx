@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -72,7 +73,13 @@ interface CallDetail {
   call_notes: string | null;
   call_disposition: CallDisposition | null;
   follow_up_date: string | null;
+  follow_up_at: string | null;
+  call_outcome: string | null;
+  prospect_sentiment: string | null;
+  primary_objection: string | null;
+  next_action: string | null;
   created_at: string;
+  updated_at: string | null;
   started_at: string | null;
   ended_at: string | null;
   lead: { id: string; full_name: string; phone: string } | null;
@@ -223,33 +230,45 @@ function CallDetailContent() {
   const { isSuperAdmin } = usePermissions();
   const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
 
-  // Fetch call details
+  // Fetch call details. The list dialog (`/admission/counselors/calls`) can
+  // mutate this record and then the counselor navigates here to review — so we
+  // force a refetch on mount/focus rather than trusting the cached copy. Paired
+  // with explicit invalidation in useCallMutations, this guarantees the form
+  // is populated with the latest server state.
   const { data: call, isLoading, isError } = useQuery<CallDetail>({
     queryKey: ['call-detail', id],
     queryFn: async () => {
-      const res = await fetch(`/api/admission/calls/${id}/details`);
+      const res = await fetch(`/api/admission/calls/${id}/details`, {
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error('Failed to load call details');
       const json = await res.json();
       return json.data;
     },
     enabled: !!id,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
-  // Notes form state
+  // Notes form state — synced to the latest server value by callKey, so that
+  // the form reflects fresh data after saves and on call-id changes, but user
+  // edits in flight are not clobbered mid-keystroke.
   const [notes, setNotes] = useState('');
   const [disposition, setDisposition] = useState('');
   const [followUpDate, setFollowUpDate] = useState('');
-  const [notesInitialized, setNotesInitialized] = useState(false);
-
-  // Initialize form when data loads
+  const callKey = call
+    ? `${id}|${call.updated_at ?? ''}|${call.call_notes ?? ''}|${call.call_disposition ?? ''}|${call.follow_up_date ?? ''}`
+    : null;
+  const lastSyncedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (call && !notesInitialized) {
-      setNotes(call.call_notes || '');
-      setDisposition(call.call_disposition || '');
-      setFollowUpDate(call.follow_up_date || '');
-      setNotesInitialized(true);
-    }
-  }, [call, notesInitialized]);
+    if (!call || !callKey) return;
+    if (lastSyncedKeyRef.current === callKey) return;
+    setNotes(call.call_notes || '');
+    setDisposition(call.call_disposition || '');
+    setFollowUpDate(call.follow_up_date || '');
+    lastSyncedKeyRef.current = callKey;
+  }, [call, callKey]);
 
   // Save notes mutation
   const saveNotes = useMutation({
@@ -263,12 +282,19 @@ function CallDetailContent() {
           follow_up_date: followUpDate || null,
         }),
       });
-      if (!res.ok) throw new Error('Failed to save notes');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Failed to save notes' }));
+        throw new Error(err.message || 'Failed to save notes');
+      }
       return res.json();
     },
     onSuccess: () => {
+      toast.success('Call notes saved');
       queryClient.invalidateQueries({ queryKey: ['call-detail', id] });
       queryClient.invalidateQueries({ queryKey: ['call-logs'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to save call notes');
     },
   });
 
@@ -615,6 +641,64 @@ function CallDetailContent() {
                           weekday: 'short', month: 'short', day: 'numeric'
                         })}
                       </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Structured Call Outcome (from list-dialog enrichment) */}
+              {(call.call_outcome || call.prospect_sentiment || call.primary_objection || call.next_action || call.follow_up_at) && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Outcome Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {call.call_outcome && (
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">Outcome</span>
+                        <span className="font-medium text-right capitalize">
+                          {call.call_outcome.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                    )}
+                    {call.prospect_sentiment && (
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">Sentiment</span>
+                        <Badge variant="outline" className={
+                          call.prospect_sentiment === 'positive' ? 'bg-green-50 text-green-700 border-green-200 text-xs' :
+                          call.prospect_sentiment === 'negative' ? 'bg-red-50 text-red-700 border-red-200 text-xs' :
+                          'bg-gray-50 text-gray-700 border-gray-200 text-xs'
+                        }>
+                          {call.prospect_sentiment}
+                        </Badge>
+                      </div>
+                    )}
+                    {call.primary_objection && (
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">Objection</span>
+                        <span className="font-medium text-right capitalize">
+                          {call.primary_objection.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                    )}
+                    {call.next_action && (
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">Next Action</span>
+                        <span className="font-medium text-right capitalize">
+                          {call.next_action.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                    )}
+                    {call.follow_up_at && (
+                      <div className="flex items-start justify-between gap-3 pt-1 border-t">
+                        <span className="text-xs text-muted-foreground">Follow-up</span>
+                        <span className="font-medium text-right text-xs">
+                          {new Date(call.follow_up_at).toLocaleString(undefined, {
+                            weekday: 'short', month: 'short', day: 'numeric',
+                            hour: '2-digit', minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
                     )}
                   </CardContent>
                 </Card>

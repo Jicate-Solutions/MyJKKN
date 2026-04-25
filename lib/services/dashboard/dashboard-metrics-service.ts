@@ -66,29 +66,29 @@ const EMPTY_METRICS: DashboardMetrics = {
 
 /**
  * Fetches all 4 dashboard hero tile metrics in a single RPC call.
- * Returns EMPTY_METRICS on error (never throws to the UI — resilient to DB hiccups).
+ * Throws on error — caller's <DashboardErrorBoundary> renders a visible error
+ * card instead of silently swallowing into a zero-state blank tile.
+ *
+ * 2026-04-21: Silent-swallow fix. Before: `return EMPTY_METRICS` on both RPC
+ * error and unexpected throw → director dashboard rendered blank zeros when
+ * auth cookie was stale, with no UI signal. Now: throw → boundary surfaces it.
  */
 export async function getDashboardMetrics(
   scope: DashboardScope = {}
 ): Promise<DashboardMetrics> {
-  try {
-    const supabase = await createClient();
+  const supabase = await createClient();
 
-    const { data, error } = await supabase.rpc('fn_dashboard_metrics', {
-      p_institution_id: scope.institutionId ?? null,
-      p_department_id: scope.departmentId ?? null
-    });
+  const { data, error } = await supabase.rpc('fn_dashboard_metrics', {
+    p_institution_id: scope.institutionId ?? null,
+    p_department_id: scope.departmentId ?? null
+  });
 
-    if (error) {
-      console.error('[dashboard/metrics] RPC error:', error);
-      return EMPTY_METRICS;
-    }
-
-    return (data as DashboardMetrics) ?? EMPTY_METRICS;
-  } catch (err) {
-    console.error('[dashboard/metrics] unexpected error:', err);
-    return EMPTY_METRICS;
+  if (error) {
+    console.error('[dashboard/metrics] RPC error:', error);
+    throw new Error(`fn_dashboard_metrics failed: ${error.message}`);
   }
+
+  return (data as DashboardMetrics) ?? EMPTY_METRICS;
 }
 
 /**

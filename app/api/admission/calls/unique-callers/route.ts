@@ -7,7 +7,35 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import { PhoneNumberIntelligence } from '@/lib/services/telephony/phone-number-intelligence';
+import { normalizePhone } from '@/lib/utils/phone';
 import { logger } from '@/lib/utils/enhanced-logger';
+
+// Statuses that mean the call reached a human. We treat any of these as
+// "answered" rather than relying on cost_amount, which Exotel populates
+// asynchronously and is NULL on ~89% of rows (see /api/admission/calls/
+// backfill-cost for the out-of-band backfill). Previously the gate was
+// `cost_amount > 0 AND duration_seconds > 0`, which mislabeled 1,266+ rows
+// with `status='completed' AND duration_seconds > 0` as "missed" whenever
+// cost_amount lagged — producing a ~276 false "Never Reached" count.
+const ANSWERED_STATUSES = new Set(['completed', 'answered', 'in-progress']);
+
+function isCallAnswered(call: {
+  status?: string | null;
+  duration_seconds?: number | null;
+  answered_at?: string | null;
+  cost_amount?: number | null;
+}): boolean {
+  // Positive connection signals, in order of reliability:
+  //   1. status is a terminal "connected" value → the call bridged
+  //   2. answered_at is set → webhook recorded an answer event
+  //   3. duration_seconds > 0 → someone was on the line
+  //   4. cost_amount > 0 → Exotel billed airtime (lagging, last resort)
+  if (call.status && ANSWERED_STATUSES.has(call.status.toLowerCase())) return true;
+  if (call.answered_at) return true;
+  if ((call.duration_seconds ?? 0) > 0) return true;
+  if ((call.cost_amount ?? 0) > 0) return true;
+  return false;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,16 +52,21 @@ export async function GET(request: NextRequest) {
     const institutionId = searchParams.get('institution_id') || undefined;
     const fromDate = searchParams.get('from_date') || undefined;
     const toDate = searchParams.get('to_date') || undefined;
+    // When true, include callers whose calls have already been linked to a
+    // lead. Default behavior unchanged (BUG-003220): exclude them so the
+    // KPI reflects top-of-funnel only.
+    const includeConverted = searchParams.get('include_converted') === 'true';
 
     const supabase = createServiceRoleClient();
 
-    // Fetch all inbound calls with lead + callback queue info
+    // Fetch all inbound calls with lead + callback queue info.
+    // Added `answered_at` so isCallAnswered() can read it.
     let query = supabase
       .from('admission_call_logs')
       .select(`
         id, from_number, lead_id, status, duration_seconds, cost_amount,
-        created_at, auto_sms_sent, caller_location, caller_attempt_number,
-        callback_queued, callback_queue_id,
+        answered_at, created_at, auto_sms_sent, caller_location,
+        caller_attempt_number, callback_queued, callback_queue_id,
         lead:admission_leads(id, full_name, priority)
       `)
       .eq('direction', 'inbound')
@@ -46,9 +79,14 @@ export async function GET(request: NextRequest) {
     const { data: calls, error } = await query;
     if (error) throw new Error(error.message);
 
-    // Group by from_number
+    // Group by NORMALIZED E.164 phone so the same human stored as both
+    // `+919894116664` and `09894116664` aggregates as one caller. Previously
+    // these counted as two distinct entries, inflating "Unique Callers" and
+    // letting the unlinked format survive the lead filter even when the
+    // linked format was excluded.
     const callerMap: Record<string, {
-      from_number: string;
+      from_number: string;           // display-friendly raw (first-seen)
+      phone_key: string;             // normalized E.164 used for grouping
       lead_id: string | null;
       lead_name: string | null;
       caller_location: string | null;
@@ -63,17 +101,21 @@ export async function GET(request: NextRequest) {
     }> = {};
 
     for (const call of (calls || [])) {
-      const phone = call.from_number;
-      if (!phone) continue;
+      if (!call.from_number) continue;
+      const phoneKey = normalizePhone(call.from_number);
+      if (!phoneKey) continue;
 
-      const isAnswered = (call.cost_amount ?? 0) > 0 && (call.duration_seconds ?? 0) > 0;
+      const answered = isCallAnswered(call);
 
-      if (!callerMap[phone]) {
-        // Derive location from phone prefix if not already on the call log
-        const location = call.caller_location || PhoneNumberIntelligence.getLocationFromPhone(phone);
+      if (!callerMap[phoneKey]) {
+        // Derive location from the phone prefix if not on the call log. Use
+        // the normalized form so the lookup works regardless of which raw
+        // format the first-seen call happened to be stored in.
+        const location = call.caller_location || PhoneNumberIntelligence.getLocationFromPhone(phoneKey);
 
-        callerMap[phone] = {
-          from_number: phone,
+        callerMap[phoneKey] = {
+          from_number: call.from_number,
+          phone_key: phoneKey,
           lead_id: call.lead_id ?? (call.lead as any)?.id ?? null,
           lead_name: (call.lead as any)?.full_name ?? null,
           caller_location: location,
@@ -88,20 +130,28 @@ export async function GET(request: NextRequest) {
         };
       }
 
-      const caller = callerMap[phone];
+      const caller = callerMap[phoneKey];
       caller.total_attempts++;
-      if (isAnswered) {
+      if (answered) {
         caller.answered_count++;
       } else {
         caller.missed_count++;
       }
       if (call.auto_sms_sent) caller.auto_sms_sent = true;
 
-      // Update lead info if available (take most recent)
+      // Update lead info if available (take first non-null as we iterate
+      // DESC by created_at, so this is effectively the most-recent lead).
       if (call.lead_id && !caller.lead_id) {
         caller.lead_id = call.lead_id;
         caller.lead_name = (call.lead as any)?.full_name ?? null;
         caller.current_lead_priority = (call.lead as any)?.priority ?? null;
+      }
+
+      // Prefer ANY non-null caller_location seen across the caller's history
+      // (not just the first-seen row). If the first call had caller_location
+      // NULL and a later call had 'Tamil Nadu', take the 'Tamil Nadu' value.
+      if (!caller.caller_location && call.caller_location) {
+        caller.caller_location = call.caller_location;
       }
 
       // Track first/last call timestamps
@@ -135,15 +185,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Build final caller list with callback enrichment
-    // BUG-003220: Exclude callers who have already been converted to leads.
-    // Once any call for a phone number has `lead_id` set, that caller is now a
-    // regular admission lead and should appear in the leads list only — not
-    // duplicated in the "Unique Callers" tab. We filter at the caller level
-    // (post-aggregation) so we naturally hide phones where ANY call was linked
-    // to a lead, even if older calls for the same phone are still `lead_id = null`.
+    // Build final caller list with callback enrichment.
+    // BUG-003220: By default, exclude callers who have already been converted
+    // to leads — they show up in the leads list and would otherwise duplicate
+    // here. Callers can pass `?include_converted=true` to see all.
     const callers = Object.values(callerMap)
-      .filter(caller => !caller.lead_id)
+      .filter(caller => includeConverted || !caller.lead_id)
       .map(caller => {
         const cb = caller.callback_queue_id ? callbackStatusMap[caller.callback_queue_id] : null;
         const firstCall = new Date(caller.first_call_at).getTime();
@@ -161,15 +208,18 @@ export async function GET(request: NextRequest) {
 
     // Sort: callers never reached first, then by attempt count descending
     callers.sort((a, b) => {
-      // Never reached first
       if (a.answered_count === 0 && b.answered_count > 0) return -1;
       if (a.answered_count > 0 && b.answered_count === 0) return 1;
-      // Then by total attempts
       return b.total_attempts - a.total_attempts;
     });
 
-    // Summary
-    const totalCalls = (calls || []).length;
+    // Summary — use the POST-FILTER caller set for BOTH numerator and
+    // denominator. Previously `totalCalls = (calls || []).length` was the
+    // raw fetch count (pre-lead-filter) while `uniqueCallers` was post-filter,
+    // producing a structurally wrong ~2× avg (e.g., 1898/578 = 3.3 instead
+    // of the correct 1.6). The right denominator is the population we're
+    // reporting on.
+    const totalCalls = callers.reduce((sum, c) => sum + c.total_attempts, 0);
     const uniqueCallers = callers.length;
     const callersNeverReached = callers.filter(c => c.answered_count === 0).length;
     const callersWithBreachedSla = callers.filter(c => c.sla_breached).length;
@@ -184,6 +234,7 @@ export async function GET(request: NextRequest) {
           avg_attempts_per_caller: uniqueCallers > 0 ? Math.round((totalCalls / uniqueCallers) * 10) / 10 : 0,
           callers_never_reached: callersNeverReached,
           callers_with_breached_sla: callersWithBreachedSla,
+          include_converted: includeConverted,
         },
       },
     });

@@ -738,7 +738,7 @@ export default function FlowSettingsPage() {
           resetForm();
         }
       }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent key={editingFlowId ?? 'new'} className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingFlowId ? 'Edit Approval Workflow' : 'Create Approval Workflow'}</DialogTitle>
             <DialogDescription>
@@ -763,13 +763,17 @@ export default function FlowSettingsPage() {
                 {/* Institution */}
                 <div className="space-y-2">
                   <Label>Institution *</Label>
-                  <Select value={selectedInstitutionId} onValueChange={(v) => {
-                    setSelectedInstitutionId(v);
-                    setSelectedDegreeId('');
-                    setSelectedDepartmentId('');
-                    setSelectedProgramId('');
-                    setSelectedSemesterId('');
-                  }}>
+                  <Select
+                    key={`inst-${institutions?.length ?? 0}-${selectedInstitutionId}`}
+                    value={selectedInstitutionId}
+                    onValueChange={(v) => {
+                      setSelectedInstitutionId(v);
+                      setSelectedDegreeId('');
+                      setSelectedDepartmentId('');
+                      setSelectedProgramId('');
+                      setSelectedSemesterId('');
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select Institution" />
                     </SelectTrigger>
@@ -787,6 +791,7 @@ export default function FlowSettingsPage() {
                 <div className="space-y-2">
                   <Label>Degree *</Label>
                   <Select
+                    key={`deg-${degrees.length}-${selectedDegreeId}`}
                     value={selectedDegreeId}
                     onValueChange={(v) => {
                       setSelectedDegreeId(v);
@@ -813,6 +818,7 @@ export default function FlowSettingsPage() {
                 <div className="space-y-2">
                   <Label>Department *</Label>
                   <Select
+                    key={`dept-${departments.length}-${selectedDepartmentId}`}
                     value={selectedDepartmentId}
                     onValueChange={(v) => {
                       setSelectedDepartmentId(v);
@@ -838,6 +844,7 @@ export default function FlowSettingsPage() {
                 <div className="space-y-2">
                   <Label>Program *</Label>
                   <Select
+                    key={`prog-${programs.length}-${selectedProgramId}`}
                     value={selectedProgramId}
                     onValueChange={(v) => {
                       setSelectedProgramId(v);
@@ -862,6 +869,7 @@ export default function FlowSettingsPage() {
                 <div className="space-y-2">
                   <Label>Semester *</Label>
                   <Select
+                    key={`sem-${semesters.length}-${selectedSemesterId}`}
                     value={selectedSemesterId}
                     onValueChange={setSelectedSemesterId}
                     disabled={!selectedProgramId}

@@ -251,17 +251,13 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        // For institution-scoped users (any role with institution_scope='own'),
-        // filter institutions to those they have access to.
-        // For unscoped users (super_admin or 'all' scope), load everything.
-        // Pass 'all' so admin offices and companies are included — staff can be
-        // assigned to any entity type, not just academic institutions.
-        const institutionsPromise = isInstitutionScoped && profile?.id
-          ? OrganizationService.getInstitutionNames(true, profile.id, 'all')
-          : OrganizationService.getInstitutionNames(true, undefined, 'all');
-
-        const [institutionsData, categoriesData, rolesData] = await Promise.all([
-          institutionsPromise,
+        // Always use the direct query (RLS handles per-role visibility).
+        // We apply a client-side filter below for own-scoped roles instead of
+        // going through the get_user_accessible_institutions RPC, which avoids
+        // a timing issue where the RPC round-trip completes after the user has
+        // already attempted to submit the form.
+        const [rawInstitutions, categoriesData, rolesData] = await Promise.all([
+          OrganizationService.getInstitutionNames(true, undefined, 'all'),
           // Fixed: 2026-04-16 — CategoryService.getCategories defaults to limit=10,
           // which silently truncated the dropdown when active categories grew past 10.
           // Pass a generous limit so every active category appears in the select.
@@ -269,14 +265,16 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           RoleService.getStaffAssignableRoles()
         ]);
 
+        // For own-scoped roles (HOD, etc.) restrict to the user's primary institution.
+        // The direct SELECT may return extra institutions via legacy RLS policies
+        // (institutions_select_faculty_hod_principal), so we filter client-side.
+        const institutionsData = isInstitutionScoped && profile?.institution_id
+          ? rawInstitutions.filter((i) => i.id === profile.institution_id)
+          : rawInstitutions;
+
         setInstitutions(institutionsData);
         setCategories(categoriesData.data as any);
         setRoles(rolesData);
-
-        // For scoped users with exactly one accessible institution, auto-select it.
-        if (isInstitutionScoped && institutionsData.length === 1 && !isEditing) {
-          form.setValue('institution_id', institutionsData[0].id);
-        }
 
         setIsInitialLoad(false);
       } catch (error) {
@@ -285,11 +283,25 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       }
     }
 
-    // Only load data when we have a profile to prevent hydration mismatches
+    // isInstitutionScoped in deps: usePermissions() fetches roles async, so on first
+    // render isInstitutionScoped=false and the client-side filter above is skipped.
+    // When roles settle and isInstitutionScoped flips to true, we re-run so the
+    // institutions list is properly filtered to the user's own institution.
     if (profile) {
       loadInitialData();
     }
-  }, [profile, form, isEditing]);
+  }, [profile, form, isEditing, isInstitutionScoped]);
+
+  // Synchronous auto-select: set institution_id immediately when role scope resolves,
+  // without waiting for the async loadInitialData re-run to complete. This prevents
+  // the validation error that occurs when a fast user submits the form in the brief
+  // window between the roles-loaded re-render (which disables the Select) and the
+  // async effect completing (which calls form.setValue via the list fetch path).
+  useEffect(() => {
+    if (!isEditing && isInstitutionScoped && profile?.institution_id && !form.getValues('institution_id')) {
+      form.setValue('institution_id', profile.institution_id, { shouldDirty: true });
+    }
+  }, [isInstitutionScoped, profile?.institution_id, isEditing, form]);
 
   // Separate useEffect for loading departments when institution changes
   useEffect(() => {

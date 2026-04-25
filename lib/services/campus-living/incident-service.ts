@@ -12,7 +12,7 @@ import type {
 export class IncidentService {
   // ── List incidents with filters ───────────────────────────────────
   static async getIncidents(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: IncidentFilters,
     page = 1,
     pageSize = 50
@@ -21,9 +21,9 @@ export class IncidentService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_incidents')
-        .select('*', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.incident_type) query = query.eq('incident_type', filters.incident_type);
       if (filters?.severity) query = query.eq('severity', filters.severity);
@@ -52,13 +52,13 @@ export class IncidentService {
         .from('hostel_incidents')
         .select('*, hostel_incident_parties(*), hostel_blocks(name, code)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/incidents', 'Failed to fetch incident', error);
         throw error;
       }
-      return data as HostelIncident & { hostel_incident_parties: HostelIncidentParty[]; hostel_blocks: unknown };
+      return data as (HostelIncident & { hostel_incident_parties: HostelIncidentParty[]; hostel_blocks: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/incidents', 'Unexpected error in getIncident', error);
       throw error;
@@ -96,7 +96,7 @@ export class IncidentService {
 
   // ── Create anonymous report ───────────────────────────────────────
   static async createAnonymousReport(
-    institutionId: string,
+    institutionId: string | undefined,
     blockId: string,
     incidentType: string,
     severity: string,

@@ -220,6 +220,7 @@ function CounselorViewPageContent() {
               year: 'numeric',
               month: 'long',
               day: 'numeric',
+              timeZone: 'Asia/Kolkata',
             })}
           </p>
         </div>

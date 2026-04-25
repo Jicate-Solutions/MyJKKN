@@ -69,6 +69,9 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
       step_order: s.step_order,
       step_name: s.step_name,
       approver_role: s.approver_role,
+      // Older rows may not carry this column (pre-2026-04-22) — default to
+      // empty and let the UI/zod enforce a fresh selection.
+      approver_user_ids: s.approver_user_ids ?? [],
       is_required: s.is_required,
       on_return_restart_from_step: s.on_return_restart_from_step,
     })) || []
@@ -124,7 +127,6 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
   });
 
   const watchedAllowedRoles = watch('allowed_roles');
-  const enableAttachments = watch('enable_attachments');
 
   const handleFormSubmit = (data: CreateServiceTypeDto) => {
     onSubmit({
@@ -154,42 +156,7 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
 
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
-      {/* Service Visibility / Scope */}
-      <ScopeSelector
-        scopeLevel={scopeLevel}
-        institutionIds={scopeInstitutionIds}
-        degreeIds={scopeDegreeIds}
-        departmentIds={scopeDepartmentIds}
-        programIds={scopeProgramIds}
-        onScopeLevelChange={(level) => {
-          setScopeLevel(level);
-          setValue('scope_level', level);
-          clearErrors('scope_level');
-        }}
-        onInstitutionIdsChange={(ids) => {
-          setScopeInstitutionIds(ids);
-          setValue('institution_ids', ids);
-          if (ids.length > 0) clearErrors('scope_level');
-        }}
-        onDegreeIdsChange={(ids) => {
-          setScopeDegreeIds(ids);
-          setValue('degree_ids', ids);
-          if (ids.length > 0) clearErrors('scope_level');
-        }}
-        onDepartmentIdsChange={(ids) => {
-          setScopeDepartmentIds(ids);
-          setValue('department_ids', ids);
-          if (ids.length > 0) clearErrors('scope_level');
-        }}
-        onProgramIdsChange={(ids) => {
-          setScopeProgramIds(ids);
-          setValue('program_ids', ids);
-          if (ids.length > 0) clearErrors('scope_level');
-        }}
-        error={(errors as any).scope_level?.message}
-      />
-
-      {/* Basic Info */}
+      {/* Basic Info (now includes Service Visibility inline) */}
       <Card>
         <CardHeader>
           <CardTitle>Basic Information</CardTitle>
@@ -219,12 +186,23 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
                 id="slug"
                 placeholder="auto-generated"
                 {...register('slug')}
-                readOnly={!!initialData}
-                className={initialData ? 'bg-muted' : ''}
+                readOnly={!!initialData?.is_system_default}
+                className={initialData?.is_system_default ? 'bg-muted' : ''}
               />
               {errors.slug && (
                 <p className="text-xs text-red-500">{errors.slug.message}</p>
               )}
+              {initialData?.is_system_default ? (
+                <p className="text-xs text-muted-foreground">
+                  System-default slugs are wired into integrations (e.g.
+                  transport webhooks) and cannot be changed.
+                </p>
+              ) : initialData ? (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  Changing the slug can break bookmarks and any external system
+                  that references this service type by its slug.
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -237,34 +215,40 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="icon">Icon Name</Label>
-              <Input
-                id="icon"
-                placeholder="e.g. FileText"
-                {...register('icon')}
-              />
-              <p className="text-xs text-muted-foreground">Lucide icon name</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="color">Color</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="color"
-                  type="color"
-                  {...register('color')}
-                  className="w-12 h-10 p-1 cursor-pointer"
-                />
-                <Input
-                  placeholder="#3B82F6"
-                  {...register('color')}
-                  className="flex-1"
-                />
-              </div>
-            </div>
-          </div>
+          {/* Service Visibility — now inline, not a separate card */}
+          <ScopeSelector
+            scopeLevel={scopeLevel}
+            institutionIds={scopeInstitutionIds}
+            degreeIds={scopeDegreeIds}
+            departmentIds={scopeDepartmentIds}
+            programIds={scopeProgramIds}
+            onScopeLevelChange={(level) => {
+              setScopeLevel(level);
+              setValue('scope_level', level);
+              clearErrors('scope_level');
+            }}
+            onInstitutionIdsChange={(ids) => {
+              setScopeInstitutionIds(ids);
+              setValue('institution_ids', ids);
+              if (ids.length > 0) clearErrors('scope_level');
+            }}
+            onDegreeIdsChange={(ids) => {
+              setScopeDegreeIds(ids);
+              setValue('degree_ids', ids);
+              if (ids.length > 0) clearErrors('scope_level');
+            }}
+            onDepartmentIdsChange={(ids) => {
+              setScopeDepartmentIds(ids);
+              setValue('department_ids', ids);
+              if (ids.length > 0) clearErrors('scope_level');
+            }}
+            onProgramIdsChange={(ids) => {
+              setScopeProgramIds(ids);
+              setValue('program_ids', ids);
+              if (ids.length > 0) clearErrors('scope_level');
+            }}
+            error={(errors as any).scope_level?.message}
+          />
 
           <div className="space-y-2">
             <Label>
@@ -423,75 +407,7 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
                 Enable priority
               </Label>
             </div>
-
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="enable_attachments"
-                checked={watch('enable_attachments')}
-                onCheckedChange={(c) => setValue('enable_attachments', !!c)}
-              />
-              <Label htmlFor="enable_attachments" className="cursor-pointer">
-                Enable attachments
-              </Label>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="enable_email"
-                checked={watch('enable_email_notifications')}
-                onCheckedChange={(c) => setValue('enable_email_notifications', !!c)}
-              />
-              <Label htmlFor="enable_email" className="cursor-pointer">
-                Email notifications
-              </Label>
-            </div>
           </div>
-
-          {enableAttachments && (
-            <div className="border rounded-md p-4 space-y-3 bg-muted/30">
-              <Label className="text-sm font-medium">Attachment Configuration</Label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Max Files</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10}
-                    defaultValue={initialData?.attachment_config?.max_files || 5}
-                    onChange={(e) => {
-                      const current = watch('attachment_config') || { max_files: 5, max_size_mb: 10, allowed_types: ['*'] };
-                      setValue('attachment_config', { ...current, max_files: Number(e.target.value) });
-                    }}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Max Size (MB)</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={50}
-                    defaultValue={initialData?.attachment_config?.max_size_mb || 10}
-                    onChange={(e) => {
-                      const current = watch('attachment_config') || { max_files: 5, max_size_mb: 10, allowed_types: ['*'] };
-                      setValue('attachment_config', { ...current, max_size_mb: Number(e.target.value) });
-                    }}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Allowed Types</Label>
-                  <Input
-                    placeholder="pdf, jpg, png"
-                    defaultValue={initialData?.attachment_config?.allowed_types?.join(', ') || '*'}
-                    onChange={(e) => {
-                      const current = watch('attachment_config') || { max_files: 5, max_size_mb: 10, allowed_types: ['*'] };
-                      const types = e.target.value.split(',').map((t) => t.trim()).filter(Boolean);
-                      setValue('attachment_config', { ...current, allowed_types: types });
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -566,8 +482,8 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
               setApprovalSteps(newSteps);
               setValue('approval_steps', newSteps, { shouldValidate: false });
             }}
-            availableRoles={rolesData?.map((r) => r.role_key) || []}
             workflowType={watch('approval_workflow_type') as ApprovalWorkflowType}
+            institutionIds={scopeLevel === 'institution' ? scopeInstitutionIds : []}
           />
           {errors.approval_steps && (
             <p className="text-xs text-red-500 mt-2">{errors.approval_steps.message}</p>

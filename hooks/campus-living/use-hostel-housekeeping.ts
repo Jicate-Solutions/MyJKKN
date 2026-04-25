@@ -27,7 +27,7 @@ export function useCleaningSchedules(
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: housekeepingKeys.schedules({ institutionId, ...filters }),
-    queryFn: () => HousekeepingService.getSchedules(institutionId as string, filters),
+    queryFn: () => HousekeepingService.getSchedules(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
@@ -84,7 +84,7 @@ export function useCleaningTasks(
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: housekeepingKeys.tasks({ institutionId, ...filters }),
-    queryFn: () => HousekeepingService.getTasks(institutionId as string, filters),
+    queryFn: () => HousekeepingService.getTasks(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

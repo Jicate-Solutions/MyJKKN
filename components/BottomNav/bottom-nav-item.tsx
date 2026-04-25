@@ -34,8 +34,57 @@ export function BottomNavItem({
   badgeCount,
   hideIndicator = false,
   customColor,
-  onClick
+  onClick,
+  variant = 'strip',
+  tileGradient
 }: BottomNavItemProps) {
+  // --- TILE VARIANT: 4-col grid tile for the More-drawer ---
+  if (variant === 'tile') {
+    return (
+      <motion.button
+        onClick={onClick}
+        className={cn(
+          'flex flex-col items-center justify-center gap-2 p-2 rounded-xl',
+          'transition-colors duration-150',
+          isActive
+            ? 'bg-primary/10 ring-1 ring-primary/20'
+            : 'active:bg-accent'
+        )}
+        whileTap={{ scale: 0.92 }}
+        transition={tapSpring}
+        aria-label={label}
+        aria-pressed={isActive}
+      >
+        {/* 56×56 gradient icon container — same tapSpring + iconSpring as strip */}
+        <motion.div
+          className={cn(
+            'w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm',
+            tileGradient ?? 'bg-gradient-to-br from-primary/70 to-primary',
+            isActive && 'ring-2 ring-primary/30 ring-offset-1'
+          )}
+          animate={{ scale: isActive ? 1.08 : 1 }}
+          transition={iconSpring}
+        >
+          <Icon
+            className="h-6 w-6 text-white"
+            strokeWidth={isActive ? 2.5 : 2}
+          />
+        </motion.div>
+
+        {/* 2-line label */}
+        <span
+          className={cn(
+            'text-[10px] text-center leading-tight line-clamp-2 w-full',
+            isActive ? 'font-semibold text-primary' : 'text-muted-foreground'
+          )}
+        >
+          {label}
+        </span>
+      </motion.button>
+    );
+  }
+
+  // --- STRIP VARIANT (default): existing bottom-nav strip rendering ---
   // Determine the color class based on custom color or default behavior
   const colorClass = customColor
     ? customColor

@@ -16,26 +16,26 @@ import type {
 export const hostelAllocationKeys = {
   all: ['hostel-allocations'] as const,
   list: (filters: Record<string, unknown>) => ['hostel-allocations', 'list', filters] as const,
-  active: (institutionId: string) => ['hostel-allocations', 'active', institutionId] as const,
+  active: (institutionId: string | undefined) => ['hostel-allocations', 'active', institutionId] as const,
   detail: (id: string) => ['hostel-allocations', 'detail', id] as const,
 };
 
 // --- Query hooks ---
 
-export function useHostelAllocations(institutionId: string, filters?: AllocationFilters) {
+export function useHostelAllocations(institutionId: string | undefined, filters?: AllocationFilters) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelAllocationKeys.list({ institutionId, ...filters }),
-    queryFn: () => HostelAllocationService.getAllocations(institutionId, filters),
+    queryFn: () => HostelAllocationService.getAllocations(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }
 
-export function useActiveAllocations(institutionId: string) {
+export function useActiveAllocations(institutionId: string | undefined) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelAllocationKeys.active(institutionId),
-    queryFn: () => HostelAllocationService.getActiveAllocations(institutionId),
+    queryFn: () => HostelAllocationService.getActiveAllocations(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

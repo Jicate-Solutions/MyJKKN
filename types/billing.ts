@@ -1,21 +1,16 @@
 // types/billing.ts
-// Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into flat BillingCategory.
 
-export type BillingFrequency = 'monthly' | 'quarterly' | 'yearly' | 'one-time';
-
-export interface BillingCategory {
+export interface BillingParentCategory {
   id: string;
   institution_id: string;
-  category_name: string;
-  amount?: number | null;
-  frequency: BillingFrequency;
-  description?: string | null;
+  parent_category_name: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
   created_by?: string;
   updated_by?: string;
 
+  // Include related data
   institution?: {
     id: string;
     name: string;
@@ -23,29 +18,143 @@ export interface BillingCategory {
   };
 }
 
-export interface CreateBillingCategoryDto {
+export interface CreateBillingParentCategoryDto {
   institution_id: string;
-  category_name: string;
-  amount?: number | null;
-  frequency: BillingFrequency;
-  description?: string | null;
+  parent_category_name: string;
   is_active?: boolean;
 }
 
-export interface UpdateBillingCategoryDto
-  extends Partial<CreateBillingCategoryDto> {}
+export interface UpdateBillingParentCategoryDto
+  extends Partial<CreateBillingParentCategoryDto> {}
 
-export interface BillingCategoryFilters {
+export interface BillingParentCategoryFilters {
   search?: string;
   institution_id?: string;
-  frequency?: BillingFrequency;
   isActive?: boolean;
   page?: number;
   limit?: number;
 }
 
-export interface BillingCategoryListResponse {
-  data: BillingCategory[];
+export interface BillingParentCategoryListResponse {
+  data: BillingParentCategory[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// Billing Sub Category Types
+export interface BillingSubCategory {
+  id: string;
+  institution_id: string;
+  parent_category_id: string;
+  sub_category_name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  parent_category?: {
+    id: string;
+    parent_category_name: string;
+  };
+}
+
+export interface CreateBillingSubCategoryDto {
+  institution_id: string;
+  parent_category_id: string;
+  sub_category_name: string;
+  is_active?: boolean;
+}
+
+export interface UpdateBillingSubCategoryDto
+  extends Partial<CreateBillingSubCategoryDto> {}
+
+export interface BillingSubCategoryFilters {
+  search?: string;
+  institution_id?: string;
+  parent_category_id?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface BillingSubCategoryListResponse {
+  data: BillingSubCategory[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// Billing Item Category Types
+export interface BillingItemCategory {
+  id: string;
+  institution_id: string;
+  parent_category_id: string;
+  sub_category_id: string;
+  item_category_name: string;
+  amount?: number | null;
+  frequency: 'monthly' | 'quarterly' | 'yearly' | 'one-time';
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+
+  // Include related data
+  institution?: {
+    id: string;
+    name: string;
+    counselling_code: string;
+  };
+  parent_category?: {
+    id: string;
+    parent_category_name: string;
+  };
+  sub_category?: {
+    id: string;
+    sub_category_name: string;
+  };
+}
+
+export interface CreateBillingItemCategoryDto {
+  institution_id: string;
+  parent_category_id: string;
+  sub_category_id: string;
+  item_category_name: string;
+  amount?: number | null;
+  frequency: 'monthly' | 'quarterly' | 'yearly' | 'one-time';
+  is_active?: boolean;
+}
+
+export interface UpdateBillingItemCategoryDto
+  extends Partial<CreateBillingItemCategoryDto> {}
+
+export interface BillingItemCategoryFilters {
+  search?: string;
+  institution_id?: string;
+  parent_category_id?: string;
+  sub_category_id?: string;
+  frequency?: string;
+  isActive?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface BillingItemCategoryListResponse {
+  data: BillingItemCategory[];
   metadata: {
     total: number;
     page: number;

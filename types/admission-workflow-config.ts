@@ -93,8 +93,10 @@ export interface SeatAnalyticsRow {
   department_name: string;
   program_id: string;
   program_name: string;
-  academic_year_id: string;
-  academic_year_name: string;
+  admission_year_id: string;
+  admission_year_name: string;
+  program_start_year: number;
+  program_end_year: number;
   total_seats: number;
   filled_seats: number;
   balance_seats: number;

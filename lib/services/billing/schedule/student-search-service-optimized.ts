@@ -64,7 +64,7 @@ export class StudentSearchServiceOptimized {
             status,
             due_date,
             created_at,
-            category_id
+            item_category_id
           `
             )
             .eq('student_id', studentId)
@@ -188,23 +188,22 @@ export class StudentSearchServiceOptimized {
     const receiptIds = receipts.map((receipt) => receipt.id);
     const invoiceIds = invoices.map((invoice) => invoice.id);
     const categoryIds = [
-      ...new Set(bills.map((bill) => bill.category_id).filter(Boolean))
+      ...new Set(bills.map((bill) => bill.item_category_id).filter(Boolean))
     ];
 
     const promises = [];
 
-    // Get billing categories (flat) — only if needed
+    // Get item categories (only if needed)
     if (categoryIds.length > 0) {
       promises.push(
         this.supabase
-          .from('billing_categories')
+          .from('billing_item_categories')
           .select(
             `
             id,
-            category_name,
-            amount,
-            frequency,
-            description
+            item_category_name,
+            parent_category:billing_parent_categories(id, parent_category_name),
+            sub_category:billing_sub_categories(id, sub_category_name)
           `
           )
           .in('id', categoryIds)
@@ -328,7 +327,7 @@ export class StudentSearchServiceOptimized {
     // Enrich bills
     return bills.map((bill) => ({
       ...bill,
-      category: categoryMap.get(bill.category_id) || null,
+      item_category: categoryMap.get(bill.item_category_id) || null,
       receipt_items: receiptItemsByBill.get(bill.id) || [],
       discounts: discountsByBill.get(bill.id) || []
     }));

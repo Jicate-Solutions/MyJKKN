@@ -13,6 +13,15 @@ import { Card } from '@/components/ui/card';
 import Link from 'next/link';
 import { ApiNav } from '../_components/api-nav';
 
+/**
+ * navMeta — documents that this page is invoked via a button/link on the
+ * parent listing page. Required by `scripts/assert-nav-coverage.mjs`.
+ */
+export const navMeta = {
+  invokedFrom: '/application-hub/api-guidelines',
+} as const;
+
+
 export const metadata: Metadata = {
   title: 'API Endpoints | Organization Management',
   description: 'Available API endpoints for accessing organization data'

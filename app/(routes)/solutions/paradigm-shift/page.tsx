@@ -4,7 +4,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { OverviewGrid } from './_components/overview-grid';
 
 export const metadata: Metadata = {
-  title: 'Paradigm Shift | Solutions Hub',
+  title: 'Paradigm Shift',
   description: 'Department readiness dashboard for the Research Paradigm Shift',
 };
 

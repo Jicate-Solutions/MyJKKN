@@ -384,14 +384,15 @@ export default function StudentBillDetailPage() {
               <CardContent className='space-y-4'>
                 <div>
                   <label className='text-sm font-medium text-muted-foreground'>
-                    Category
+                    Item Category
                   </label>
                   <p className='font-medium'>
-                    {(bill as any).category?.category_name || 'N/A'}
+                    {bill.item_category?.item_category_name || 'N/A'}
                   </p>
-                  {(bill as any).category?.frequency && (
-                    <p className='text-sm text-muted-foreground capitalize'>
-                      Frequency: {(bill as any).category.frequency}
+                  {bill.item_category?.parent_category && (
+                    <p className='text-sm text-muted-foreground'>
+                      Parent:{' '}
+                      {bill.item_category.parent_category.parent_category_name}
                     </p>
                   )}
                 </div>

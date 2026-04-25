@@ -62,11 +62,14 @@ export function MembersClient({
   const [statusFilter, setStatusFilter] = useState('');
   const [institutionFilter, setInstitutionFilter] = useState('');
 
-  // Live-fetch members with current filters; falls back to server-provided initial data
+  // Live-fetch members with current filters; falls back to server-provided initial data.
+  // tier='tier_1' scopes this directory to LC proper — YUVA Chapter Chairs are
+  // served by /yuva/members instead.
   const { data: liveMembers } = useLCMembers({
     term_id: termFilter || undefined,
     status: statusFilter || undefined,
     institution_id: institutionFilter || undefined,
+    tier: 'tier_1',
   });
 
   const exportMutation = useExportMembers();

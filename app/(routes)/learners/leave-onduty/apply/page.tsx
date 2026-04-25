@@ -54,10 +54,21 @@ export default function LeaveOndutyApplyPage() {
   }, [authLoading, permissionsLoading, can, router]);
 
   useEffect(() => {
+    // Wait for both auth + permissions to resolve before deciding anything.
+    // Without this, the effect fires once with permissionsLoading=true, can()
+    // returns false, we early-return, and the effect never re-fires because
+    // only [profile] was in the deps → page stuck on skeleton forever.
+    if (authLoading || permissionsLoading) return;
+
     async function loadLearnerData() {
       try {
-        // Permission already checked above, verify user profile exists
-        if (!profile || !can('learners.leave_onduty.apply')) {
+        if (!profile) {
+          setIsLoading(false);
+          return;
+        }
+        if (!can('learners.leave_onduty.apply')) {
+          // The redirect effect above will route away; stop showing the skeleton.
+          setIsLoading(false);
           return;
         }
 
@@ -77,12 +88,6 @@ export default function LeaveOndutyApplyPage() {
           .eq('id', profile.learner_id)
           .single();
 
-        console.log('[ApplyPage] Learner data fetched:', {
-          learner,
-          learnerError,
-          profileLearnerId: profile.learner_id,
-        });
-
         if (learnerError || !learner) {
           setError('Failed to load learner profile. Please try again.');
           setIsLoading(false);
@@ -101,13 +106,6 @@ export default function LeaveOndutyApplyPage() {
           return;
         }
 
-        console.log('[ApplyPage] Setting learner data:', {
-          id: learner.id,
-          institutionId: learner.institution_id,
-          sectionId: learner.section_id,
-          semesterId: learner.semester_id,
-        });
-
         setLearnerData({
           id: learner.id,
           institutionId: learner.institution_id,
@@ -123,7 +121,7 @@ export default function LeaveOndutyApplyPage() {
     }
 
     loadLearnerData();
-  }, [profile]);
+  }, [profile, authLoading, permissionsLoading, can]);
 
   const handleSuccess = () => {
     router.push('/learners/leave-onduty/my-applications');

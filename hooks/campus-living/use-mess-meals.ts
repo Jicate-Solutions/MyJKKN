@@ -23,7 +23,7 @@ export function useMessMeals(institutionId: string | undefined, filters?: MealRe
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: messMealKeys.list({ institutionId, ...filters }),
-    queryFn: () => MessMealService.getMealRecords(institutionId as string, filters),
+    queryFn: () => MessMealService.getMealRecords(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

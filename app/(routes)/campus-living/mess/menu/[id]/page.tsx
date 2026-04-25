@@ -2,6 +2,7 @@
 
 import { use } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -82,7 +83,14 @@ export default function MenuDetailPage({ params }: MenuDetailPageProps) {
                   <X className="mr-2 h-4 w-4" />
                   Cancel
                 </Button>
-                <Button size="sm">
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    toast.warning('Menu save not yet wired.', {
+                      description: 'Edits to this menu do not persist. The mess-menu service ships in a follow-up PR.',
+                    })
+                  }
+                >
                   <Save className="mr-2 h-4 w-4" />
                   Save
                 </Button>
@@ -94,7 +102,14 @@ export default function MenuDetailPage({ params }: MenuDetailPageProps) {
                   Edit
                 </Button>
                 {menu.status === 'draft' && (
-                  <Button size="sm">
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      toast.info('Menu publish ships next.', {
+                        description: 'Publishing a draft menu will be available once the mess-menu service is wired.',
+                      })
+                    }
+                  >
                     <Send className="mr-2 h-4 w-4" />
                     Publish
                   </Button>

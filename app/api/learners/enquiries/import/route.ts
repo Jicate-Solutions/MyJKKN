@@ -847,6 +847,25 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
 
     console.log(`[enquiries/import] Validated ${validatedRows.length} rows, inserting...`);
 
+    // 2026-04-23: Resolve admission_year (integer) -> admission_year_id (UUID FK)
+    // for each row in one bulk query (grouped by institution+program) before
+    // building the insert payload. Rows whose (inst, program, year) combo has
+    // no matching admission_years cohort get admission_year_id=null and surface
+    // in scripts/audit-admission-year-backfill.ts for ops review.
+    const admissionYearKey = (r: any) =>
+      `${r.data.admission_year ?? ''}::${r.institutionId ?? ''}::${r.programId ?? ''}`;
+    const admissionYearMap = await (async () => {
+      const { resolveAdmissionYearIdBulk } = await import('@/lib/services/admission/resolve-admission-year');
+      return resolveAdmissionYearIdBulk(
+        supabase as any,
+        validatedRows.map((r) => ({
+          year: r.data.admission_year ?? null,
+          institutionId: r.institutionId,
+          programId: r.programId,
+        }))
+      );
+    })();
+
     // ============================================================
     // 6. INSERT VALID ROWS (BATCH INSERT)
     // ============================================================
@@ -879,6 +898,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       section_id: sectionId,
       academic_year_id: academicYearId,
       admission_year: data.admission_year,
+      // 2026-04-23: new FK — populated from the bulk resolver above.
+      // null when no matching admission_years row exists for the triple.
+      admission_year_id: admissionYearMap.get(
+        `${data.admission_year ?? ''}::${institutionId ?? ''}::${programId ?? ''}`
+      ) ?? null,
 
       // Contact
       student_mobile: data.student_mobile,
@@ -923,8 +947,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       reference_name: data.reference_name,
       reference_contact: data.reference_contact,
 
-      // IMPORTANT: Enquiries start with lifecycle_status='enquiry'
-      lifecycle_status: 'enquiry',
+      // IMPORTANT: Enquiries start with lifecycle_status='admitted'
+      lifecycle_status: 'admitted',
       is_profile_complete: false,
       created_by: user.id,
       updated_by: user.id

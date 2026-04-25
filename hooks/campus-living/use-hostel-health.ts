@@ -26,7 +26,7 @@ export function useHealthCases(
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: hostelHealthKeys.list({ institutionId, ...filters }),
-    queryFn: () => HealthService.getCases(institutionId as string, filters),
+    queryFn: () => HealthService.getCases(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

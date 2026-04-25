@@ -18,11 +18,11 @@ export const roommateMatchingKeys = {
 
 // --- Query hooks ---
 
-export function useRoommatePreferences(institutionId: string, academicYearId?: string) {
+export function useRoommatePreferences(institutionId: string | undefined, academicYearId?: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: roommateMatchingKeys.list({ institutionId, academicYearId }),
-    queryFn: () => RoommateMatchingService.getPreferences(institutionId, academicYearId),
+    queryFn: () => RoommateMatchingService.getPreferences(isSuperAdmin ? undefined : institutionId, academicYearId),
     enabled: isSuperAdmin || !!institutionId,
   });
 }

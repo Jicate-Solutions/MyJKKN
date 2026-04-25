@@ -20,13 +20,27 @@ const getSupabase = async () => await createServerSupabaseClient() as any;
 export class ServiceTypeService {
   /**
    * List service types with their fields and approval steps.
-   * When userRoleKeys is provided (non-superadmin users), only service types
-   * whose allowed_roles overlaps with the user's roles are returned.
+   *
+   * Two distinct read modes:
+   *  - Requester mode (default when userRoleKeys passed): filters by
+   *    `allowed_roles` so a submitter only sees types they're eligible to
+   *    submit. Optional `userScope` narrows to their org.
+   *  - Manager/catalog mode (isManagerMode=true): skips the allowed_roles
+   *    filter because managers configuring the catalog need to see every
+   *    type in their institution regardless of submitter eligibility.
+   *    Scoped by `managerInstitutionId` so HODs/principals see only their
+   *    own institution's types (plus common/cross-institutional types).
+   *
+   * Superadmin passes both filters entirely — see all types.
    */
   static async getServiceTypes(filters?: {
     is_active?: boolean;
     userRoleKeys?: string[];
     isSuperAdmin?: boolean;
+    /** Manager/catalog mode — skip allowed_roles filter, apply institution scope only. */
+    isManagerMode?: boolean;
+    /** Institution id used to scope manager-mode results. */
+    managerInstitutionId?: string;
     /** User's org context — used to filter scoped service types for requesters */
     userScope?: {
       institution_id?: string;
@@ -50,11 +64,16 @@ export class ServiceTypeService {
       query = query.eq('is_active', filters.is_active);
     }
 
-    // Filter by allowed_roles unless the user is a superadmin.
-    // Uses Postgres && (overlaps) operator: returns types where at least
-    // one of the user's role keys is in the service type's allowed_roles array.
-    if (!filters?.isSuperAdmin && filters?.userRoleKeys && filters.userRoleKeys.length > 0) {
-      query = query.overlaps('allowed_roles', filters.userRoleKeys);
+    // Filter by allowed_roles ONLY for requester flows (not superadmin, not
+    // manager mode). Managers need catalog visibility independent of who
+    // is eligible to submit each type.
+    const shouldFilterByAllowedRoles =
+      !filters?.isSuperAdmin
+      && !filters?.isManagerMode
+      && filters?.userRoleKeys
+      && filters.userRoleKeys.length > 0;
+    if (shouldFilterByAllowedRoles) {
+      query = query.overlaps('allowed_roles', filters!.userRoleKeys!);
     }
 
     const { data, error } = await query;
@@ -64,13 +83,43 @@ export class ServiceTypeService {
       throw new Error(`Failed to fetch service types: ${error.message}`);
     }
 
-    // For admin views (superadmin or no userScope), return all types unfiltered
-    if (filters?.isSuperAdmin || !filters?.userScope) {
+    // Super admin: no further filtering.
+    if (filters?.isSuperAdmin) {
       return data || [];
     }
 
-    // For requester views, filter scoped types by user's org context.
-    // Common types always pass. Scoped types only pass if user matches the scope.
+    // Manager/catalog mode: scope to institution. Common types always pass.
+    // Institution-scoped types pass only if the manager's institution is in
+    // the type's institution_ids. Degree/department/program-scoped types are
+    // shown permissively (catalog visibility is about configuration access,
+    // not submitter eligibility — and we don't have cheap access to the
+    // full ancestor chain from degree/department/program back to institution).
+    if (filters?.isManagerMode) {
+      const instId = filters.managerInstitutionId;
+      if (!instId) {
+        // Manager with no institution_id on profile — only show common types.
+        return (data || []).filter((t) => t.scope_level === 'common');
+      }
+      return (data || []).filter((type) => {
+        if (type.scope_level === 'common') return true;
+        if (type.scope_level === 'institution') {
+          return type.institution_ids?.includes(instId) ?? false;
+        }
+        // degree / department / program scoped — permissive for managers
+        return true;
+      });
+    }
+
+    // Requester mode, no explicit userScope: return all types that passed
+    // the allowed_roles filter (existing behavior for request-creation flows
+    // that haven't opted into scope=user).
+    if (!filters?.userScope) {
+      return data || [];
+    }
+
+    // Requester mode with explicit userScope: filter scoped types by user's
+    // org context. Common types always pass. Scoped types only pass if user
+    // matches the scope.
     const scope = filters.userScope;
     return (data || []).filter((type) => {
       if (type.scope_level === 'common') return true;

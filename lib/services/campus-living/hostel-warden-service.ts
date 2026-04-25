@@ -10,16 +10,16 @@ import type {
 export class HostelWardenService {
   // ── List wardens ──────────────────────────────────────────────────
   static async getWardens(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { block_id?: string; designation?: WardenDesignation; is_active?: boolean }
   ) {
     try {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_wardens')
-        .select('*, hostel_blocks(name, code)')
-        .eq('institution_id', institutionId);
+        .select('*, hostel_blocks(name, code)');
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.designation) query = query.eq('designation', filters.designation);
       if (filters?.is_active !== undefined) query = query.eq('is_active', filters.is_active);
@@ -46,13 +46,13 @@ export class HostelWardenService {
         .from('hostel_wardens')
         .select('*, hostel_blocks(name, code, hostel_type)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/wardens', 'Failed to fetch warden', error);
         throw error;
       }
-      return data as HostelWarden & { hostel_blocks: unknown };
+      return data as (HostelWarden & { hostel_blocks: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/wardens', 'Unexpected error in getWarden', error);
       throw error;

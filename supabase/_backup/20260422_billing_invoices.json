@@ -1,0 +1,42 @@
+[
+    {
+        "id": "af2272d8-c142-42e8-b78e-245b10ed400e",
+        "due_date": "2026-01-08",
+        "created_at": "2026-01-08T06:11:35.68993+00:00",
+        "created_by": null,
+        "student_id": "bc69b960-5912-45de-a971-390f86c8005a",
+        "updated_at": "2026-01-08T06:11:35.68993+00:00",
+        "grand_total": 10000.00,
+        "tax_summary": null,
+        "invoice_date": "2026-01-08",
+        "invoice_type": "individual",
+        "payment_terms": "Payment completed",
+        "institution_id": "183847c5-be1b-4903-86eb-bbc20c213071",
+        "invoice_number": "INV-2026-000001",
+        "discount_applied": 0.00,
+        "billing_period_to": null,
+        "additional_charges": 0.00,
+        "billing_period_from": null,
+        "invoice_description": "Payment Invoice for: SEM 1"
+    },
+    {
+        "id": "2c8895ae-08c3-4f0f-9d93-8380c0904bb7",
+        "due_date": "2026-01-08",
+        "created_at": "2026-01-08T06:13:38.796525+00:00",
+        "created_by": null,
+        "student_id": "bc69b960-5912-45de-a971-390f86c8005a",
+        "updated_at": "2026-01-08T06:13:38.796525+00:00",
+        "grand_total": 5000.00,
+        "tax_summary": null,
+        "invoice_date": "2026-01-08",
+        "invoice_type": "individual",
+        "payment_terms": "Payment completed",
+        "institution_id": "183847c5-be1b-4903-86eb-bbc20c213071",
+        "invoice_number": "INV-2026-000000",
+        "discount_applied": 0.00,
+        "billing_period_to": null,
+        "additional_charges": 0.00,
+        "billing_period_from": null,
+        "invoice_description": "Payment Invoice for: SEM 1"
+    }
+]

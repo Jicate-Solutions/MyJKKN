@@ -13,6 +13,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { LeaveForm } from '../_components/leave-form';
 
+/**
+ * navMeta — documents that this page is invoked via a button click on the
+ * parent listing page, not via a nav chip. Required by
+ * `scripts/assert-nav-coverage.mjs` for discoverability tracking.
+ */
+export const navMeta = {
+  invokedFrom: '/academic/leaves',
+} as const;
+
+
 export default function NewLeavePage() {
   return (
     <PermissionGuard module='academic.leaves' action='create'>

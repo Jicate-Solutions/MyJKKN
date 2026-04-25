@@ -24,6 +24,7 @@ export interface FollowupLead {
   full_name: string;
   phone: string;
   email: string | null;
+  // Legacy multi-select (pre 2026-04-21). Kept because the RPC still returns it for historical rows.
   interested_programs: string[] | null;
   funnel_stage: string;
   is_hot_lead: boolean;
@@ -36,7 +37,11 @@ export interface FollowupLead {
   source: string | null;
   student_interest_level: string | null;
   parent_decision_status: string | null;
+  // DEPRECATED 2026-04-21 — kept for legacy row fallback. UI prefers admission_year_name.
   academic_year: string | null;
+  // 2026-04-21 — optional resolved name from admission_years join (RPC enhancement pending).
+  admission_year_name?: string | null;
+  program_name?: string | null;
   last_activity: {
     type: string;
     description: string;
@@ -74,6 +79,7 @@ export interface UnassignedLead {
   full_name: string;
   phone: string;
   email: string | null;
+  // Legacy multi-select (pre 2026-04-21). Kept for legacy-row fallback.
   interested_programs: string[] | null;
   source: string | null;
   score: number | null;
@@ -81,7 +87,11 @@ export interface UnassignedLead {
   funnel_stage: string;
   student_interest_level: string | null;
   parent_decision_status: string | null;
+  // DEPRECATED 2026-04-21 — legacy fallback only.
   academic_year: string | null;
+  // 2026-04-21 — resolved names from joins
+  admission_year_name?: string | null;
+  program_name?: string | null;
 }
 
 // ============================================================================
@@ -289,7 +299,12 @@ export class CounselorDailyViewService {
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any)
       .from('admission_leads')
-      .select('id, full_name, phone, email, interested_programs, source, score, created_at, funnel_stage, student_interest_level, parent_decision_status, academic_year')
+      .select(`
+        id, full_name, phone, email, interested_programs, source, score, created_at,
+        funnel_stage, student_interest_level, parent_decision_status, academic_year,
+        program:programs!program_id(program_name),
+        admission_year:admission_years(admission_year_name)
+      `)
       .eq('institution_id', institutionId)
       .is('counselor_id', null)
       .not('funnel_stage', 'in', '(enrolled,confirmed,declined,withdrew,expired,lost,dormant)')
@@ -301,7 +316,12 @@ export class CounselorDailyViewService {
       throw new Error('Failed to load unassigned leads');
     }
 
-    return data || [];
+    // Flatten joined records onto the UnassignedLead shape so UI doesn't need to dig through nested objects.
+    return (data || []).map((row: any): UnassignedLead => ({
+      ...row,
+      program_name: row.program?.program_name ?? null,
+      admission_year_name: row.admission_year?.admission_year_name ?? null,
+    }));
   }
 
   /**
@@ -553,6 +573,33 @@ export class CounselorDailyViewService {
     if (activityError) {
       console.error('[CounselorDailyViewService] Error logging stage activity:', activityError);
     }
+  }
+
+  /**
+   * Get the admission_counselors.id for the currently authenticated user
+   * within a given institution. Returns null if the user is not a counselor
+   * in that institution. Used by counselor-scoped views (reminders, alerts)
+   * to filter down to the current user's assigned leads.
+   */
+  static async getMyCounselorId(institutionId: string | undefined): Promise<string | null> {
+    if (!institutionId) return null;
+    const supabase = createClientSupabaseClient();
+    const { data: { user } } = await (supabase as any).auth.getUser();
+    if (!user) return null;
+
+    const { data, error } = await (supabase as any)
+      .from('admission_counselors')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (error) {
+      // Non-counselors will not have a record — silently return null.
+      return null;
+    }
+    return data?.id ?? null;
   }
 
   /**

@@ -10,7 +10,7 @@ import type {
 export class HostelRoomService {
   // ── List rooms with filters ───────────────────────────────────────
   static async getRooms(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: RoomFilters,
     page = 1,
     pageSize = 50
@@ -19,9 +19,9 @@ export class HostelRoomService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_rooms')
-        .select('*, hostel_beds(*)', { count: 'exact' })
-        .eq('institution_id', institutionId);
+        .select('*, hostel_beds(*)', { count: 'exact' });
 
+      if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
       if (filters?.room_type) query = query.eq('room_type', filters.room_type);
       if (filters?.ac_status) query = query.eq('ac_status', filters.ac_status);
@@ -73,13 +73,13 @@ export class HostelRoomService {
         .from('hostel_rooms')
         .select('*, hostel_beds(*), hostel_blocks(name, code)')
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/rooms', 'Failed to fetch room', error);
         throw error;
       }
-      return data as HostelRoom & { hostel_beds: unknown[]; hostel_blocks: unknown };
+      return data as (HostelRoom & { hostel_beds: unknown[]; hostel_blocks: unknown }) | null;
     } catch (error) {
       logger.error('campus-living/rooms', 'Unexpected error in getRoom', error);
       throw error;
@@ -156,11 +156,14 @@ export class HostelRoomService {
         .from('hostel_rooms')
         .select('id, room_number, capacity, current_occupancy, status')
         .eq('id', roomId)
-        .single();
+        .maybeSingle();
 
       if (error) {
         logger.error('campus-living/rooms', 'Failed to check availability', error);
         throw error;
+      }
+      if (!data) {
+        throw new Error(`Room ${roomId} not found.`);
       }
 
       return {

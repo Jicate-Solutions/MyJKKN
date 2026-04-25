@@ -137,7 +137,7 @@ export const columns: ColumnDef<StudentBill>[] = [
     }
   },
   {
-    accessorKey: 'category.category_name',
+    accessorKey: 'item_category.item_category_name',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Category' />
     ),
@@ -145,15 +145,15 @@ export const columns: ColumnDef<StudentBill>[] = [
     minSize: 150,
     maxSize: 200,
     cell: ({ row }) => {
-      const bill = row.original as any;
+      const bill = row.original;
       return (
         <div>
           <div className='font-medium'>
-            {bill.category?.category_name || 'N/A'}
+            {bill.item_category?.item_category_name || 'N/A'}
           </div>
-          {bill.category?.frequency && (
-            <div className='text-sm text-muted-foreground capitalize'>
-              {bill.category.frequency}
+          {bill.item_category?.parent_category && (
+            <div className='text-sm text-muted-foreground'>
+              {bill.item_category.parent_category.parent_category_name}
             </div>
           )}
         </div>

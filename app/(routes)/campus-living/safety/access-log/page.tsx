@@ -22,12 +22,15 @@ import {
 import { DoorOpen, Search, LogIn, LogOut, AlertTriangle, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
+import { toast } from 'sonner';
+import { PreviewBanner } from '../../_components/preview-banner';
 
 export default function AccessLogPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // SAMPLE DATA — gate-access-log hook not yet wired (PreviewBanner shown).
   const accessRecords = [
     { id: '1', name: 'Arun Kumar', roll: 'CS2024001', type: 'entry', gate: 'Main Gate', time: '6:45 AM', flagged: false },
     { id: '2', name: 'Priya Sharma', roll: 'EC2024015', type: 'exit', gate: 'Main Gate', time: '8:30 AM', flagged: false },
@@ -46,12 +49,20 @@ export default function AccessLogPage() {
   return (
     <ContentLayout title="Access Log">
       <div className="space-y-6">
+        <PreviewBanner feature="gate access log" />
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Gate Access Log</h1>
             <p className="text-muted-foreground">Entry and exit records for all hostel gates</p>
           </div>
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            onClick={() =>
+              toast.info('Access-log export ships next.', {
+                description: 'CSV export will be available once the report endpoint is live.',
+              })
+            }
+          >
             <Download className="mr-2 h-4 w-4" />
             Export Log
           </Button>
