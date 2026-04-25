@@ -266,6 +266,34 @@ export const academicKeys = {
       [...academicKeys.periods.all, 'list', filters] as const,
     byInstitution: (institutionId: string) =>
       [...academicKeys.periods.all, 'institution', institutionId] as const
+  },
+
+  // Internal Marks (CIA)
+  internalMarks: {
+    all: ['academic', 'internal-marks'] as const,
+
+    settings: {
+      all: ['academic', 'internal-marks', 'settings'] as const,
+      detail: (institutionId: string, examSessionId: string) =>
+        [
+          ...academicKeys.internalMarks.settings.all,
+          'detail',
+          institutionId,
+          examSessionId
+        ] as const
+    },
+
+    marks: {
+      all: ['academic', 'internal-marks', 'marks'] as const,
+      list: (filters?: Record<string, unknown>) =>
+        [...academicKeys.internalMarks.marks.all, 'list', filters] as const
+    },
+
+    report: {
+      all: ['academic', 'internal-marks', 'report'] as const,
+      detail: (filters?: Record<string, unknown>) =>
+        [...academicKeys.internalMarks.report.all, 'detail', filters] as const
+    }
   }
 };
 

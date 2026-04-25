@@ -297,6 +297,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
+  // Internal Marks (CIA) - Mark Entry & Reports
+  '/academic/internal-marks': 'academic.internal-marks.view',
+  '/academic/internal-marks/report': 'academic.internal-marks.view',
+
   // Regulations Management
   '/academic/regulations': 'academic.regulations.view',
   '/academic/regulations/new': 'academic.regulations.create',
