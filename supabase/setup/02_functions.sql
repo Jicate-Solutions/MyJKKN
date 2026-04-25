@@ -9444,3 +9444,346 @@ $func_migrate_prereg$;
 
 GRANT EXECUTE ON FUNCTION public.migrate_pre_registered_profile_to_auth(uuid, uuid)
   TO service_role;
+
+-- =====================================================================
+-- Updated: 2026-04-25 - Wire chat-bypass approval categories into the
+-- decision queue. Three new generators (recruitment, service_requests,
+-- unresolved bugs) emit dashboard:* notifications. Super-admin (Director)
+-- targeting handled via the daily-digest aggregator extension below;
+-- per-item targets are non-super-admin approvers (mirrors the
+-- 2026-04-24 fanout-exclude pattern in fn_generate_overdue_invoice_items).
+--
+-- Filter design notes:
+--   - Recruitment: status='pending_approval' AND submitted >24h ago.
+--   - Service requests: status IN (submitted,in_review,returned)
+--     AND submitted >24h ago. Approver routing via
+--     service_request_approval_steps.approver_user_ids array on the
+--     current step (returned -> requester).
+--   - Unresolved bugs: ALL bugs are priority='medium' so the brief's
+--     high/critical filter doesn't apply. Option A (chosen 2026-04-25):
+--     status='new' AND age >72h AND triage tag NOT IN excluded set
+--     (excludes not_a_bug/duplicate/content_only/obsolete/feature_request).
+--     Per-item path requires assigned_to_user_id; the bulk untriaged
+--     load surfaces to Director via digest only.
+-- =====================================================================
+
+-- Generator 5: recruitment approvals -> dashboard:approval
+CREATE OR REPLACE FUNCTION fn_generate_recruitment_approval_items()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_recruit$
+DECLARE
+  v_created INT := 0; v_cand RECORD; v_key TEXT; v_priority TEXT;
+BEGIN
+  FOR v_cand IN
+    SELECT id, name, role_title, role_category, final_approver_id, submitted_at,
+           is_emergency, is_internal_transfer,
+           EXTRACT(EPOCH FROM (NOW() - submitted_at))/3600 AS hours_pending
+    FROM hr_recruitment_candidates
+    WHERE status = 'pending_approval'
+      AND submitted_at < NOW() - INTERVAL '24 hours'
+      AND submitted_at > NOW() - INTERVAL '90 days'
+    ORDER BY submitted_at ASC
+    LIMIT 100
+  LOOP
+    IF v_cand.final_approver_id IS NULL THEN CONTINUE; END IF;
+    IF EXISTS (SELECT 1 FROM profiles WHERE id = v_cand.final_approver_id AND is_super_admin = TRUE) THEN
+      CONTINUE;
+    END IF;
+    v_priority := CASE WHEN v_cand.is_emergency THEN 'urgent'
+                       WHEN v_cand.hours_pending > 96 THEN 'high'
+                       ELSE 'normal' END;
+    v_key := 'recruitment:' || v_cand.id::text || ':' || CURRENT_DATE::text;
+    v_created := v_created + fn_create_dashboard_work_item(
+      'dashboard:approval', v_priority,
+      'Recruitment approval pending ' || v_cand.hours_pending::INT || 'h — ' || v_cand.role_title,
+      v_cand.name || ' (' || v_cand.role_category || ')' ||
+        CASE WHEN v_cand.is_internal_transfer THEN ' — internal transfer' ELSE '' END,
+      jsonb_build_object('candidate_id', v_cand.id, 'role_title', v_cand.role_title,
+        'is_emergency', v_cand.is_emergency,
+        'url', '/hr/recruitment/candidates/' || v_cand.id::text),
+      v_cand.final_approver_id, v_key,
+      CASE WHEN v_cand.is_emergency THEN 8 ELSE 48 END);
+  END LOOP;
+  RETURN v_created;
+END $fn_recruit$;
+
+-- Generator 6: service-request approvals -> dashboard:approval
+CREATE OR REPLACE FUNCTION fn_generate_service_request_approval_items()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_sr$
+DECLARE
+  v_created INT := 0; v_sr RECORD; v_key TEXT; v_priority TEXT;
+  v_approver UUID; v_step_approvers UUID[];
+BEGIN
+  FOR v_sr IN
+    SELECT sr.id, sr.request_number, sr.service_type_id, sr.requester_id,
+           sr.status::text AS status_text, sr.priority::text AS priority_text,
+           sr.current_approval_step, sr.submitted_at,
+           st.name AS service_type_name,
+           EXTRACT(EPOCH FROM (NOW() - COALESCE(sr.submitted_at, sr.created_at)))/3600 AS hours_pending
+    FROM service_requests sr
+    JOIN service_types st ON st.id = sr.service_type_id
+    WHERE sr.status::text IN ('submitted','in_review','returned')
+      AND COALESCE(sr.submitted_at, sr.created_at) < NOW() - INTERVAL '24 hours'
+      AND COALESCE(sr.submitted_at, sr.created_at) > NOW() - INTERVAL '180 days'
+    ORDER BY sr.submitted_at ASC NULLS LAST
+    LIMIT 100
+  LOOP
+    IF v_sr.status_text = 'returned' THEN
+      v_step_approvers := ARRAY[v_sr.requester_id];
+    ELSE
+      SELECT approver_user_ids INTO v_step_approvers
+      FROM service_request_approval_steps
+      WHERE service_type_id = v_sr.service_type_id
+        AND step_order = COALESCE(v_sr.current_approval_step, 1);
+    END IF;
+    IF v_step_approvers IS NULL OR array_length(v_step_approvers, 1) IS NULL THEN CONTINUE; END IF;
+    v_priority := CASE WHEN v_sr.hours_pending > 168 THEN 'high'
+                       WHEN v_sr.priority_text = 'urgent' THEN 'urgent'
+                       ELSE 'normal' END;
+    v_key := 'service_request:' || v_sr.id::text || ':' || CURRENT_DATE::text;
+    FOREACH v_approver IN ARRAY v_step_approvers
+    LOOP
+      IF EXISTS (SELECT 1 FROM profiles WHERE id = v_approver AND is_super_admin = TRUE) THEN
+        CONTINUE;
+      END IF;
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:approval', v_priority,
+        'SR ' || v_sr.request_number || ' — ' || v_sr.service_type_name || ' (' || v_sr.status_text || ')',
+        v_sr.service_type_name || ' pending ' || v_sr.hours_pending::INT || 'h. Step ' || COALESCE(v_sr.current_approval_step,1)::text,
+        jsonb_build_object('service_request_id', v_sr.id, 'request_number', v_sr.request_number,
+          'service_type_id', v_sr.service_type_id, 'status', v_sr.status_text,
+          'url', '/services/requests/' || v_sr.id::text),
+        v_approver, v_key || ':' || v_approver::text, 72);
+    END LOOP;
+  END LOOP;
+  RETURN v_created;
+END $fn_sr$;
+
+-- Generator 7: unresolved untriaged bugs >72h -> dashboard:rescue
+-- Per-item path only fires when assigned_to_user_id is set (not super_admin).
+-- Bulk untriaged backlog surfaces to Director via the digest aggregator below.
+CREATE OR REPLACE FUNCTION fn_generate_unresolved_bug_items()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_bug$
+DECLARE
+  v_created INT := 0; v_bug RECORD; v_key TEXT; v_target UUID;
+  v_age_days INT; v_priority TEXT;
+BEGIN
+  FOR v_bug IN
+    SELECT id, display_id, page_url, description, priority,
+           assigned_to_user_id, institution_id, module_name,
+           EXTRACT(EPOCH FROM (NOW() - created_at))/3600 AS hours_old
+    FROM bug_reports
+    WHERE status = 'new'
+      AND created_at < NOW() - INTERVAL '72 hours'
+      AND created_at > NOW() - INTERVAL '180 days'
+      AND COALESCE(metadata->'triage'->>'tag', '')
+        NOT IN ('not_a_bug','duplicate','content_only','obsolete','feature_request')
+    ORDER BY created_at ASC
+    LIMIT 100
+  LOOP
+    v_target := v_bug.assigned_to_user_id;
+    IF v_target IS NULL THEN CONTINUE; END IF;
+    IF EXISTS (SELECT 1 FROM profiles WHERE id = v_target AND is_super_admin = TRUE) THEN
+      CONTINUE;
+    END IF;
+    v_age_days := (v_bug.hours_old/24)::INT;
+    v_priority := CASE WHEN v_age_days > 14 THEN 'high' ELSE 'normal' END;
+    v_key := 'unresolved_bug:' || v_bug.id::text || ':' || CURRENT_DATE::text;
+    v_created := v_created + fn_create_dashboard_work_item(
+      'dashboard:rescue', v_priority,
+      'Bug ' || COALESCE(v_bug.display_id, SUBSTR(v_bug.id::text, 1, 8)) || ' aging ' || v_age_days || 'd',
+      LEFT(v_bug.description, 140) || ' | ' || COALESCE(v_bug.module_name, 'unknown module'),
+      jsonb_build_object('bug_id', v_bug.id, 'display_id', v_bug.display_id,
+        'module', v_bug.module_name,
+        'url', '/bug-reports/' || v_bug.id::text),
+      v_target, v_key, 72);
+  END LOOP;
+  RETURN v_created;
+END $fn_bug$;
+
+REVOKE ALL ON FUNCTION fn_generate_recruitment_approval_items() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION fn_generate_service_request_approval_items() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION fn_generate_unresolved_bug_items() FROM PUBLIC, anon, authenticated;
+
+-- Updated: 2026-04-25 - Extend dispatcher with the 3 new generators.
+CREATE OR REPLACE FUNCTION fn_generate_all_dashboard_work_items()
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_all$
+DECLARE r1 INT := 0; e1 TEXT := NULL; r2 INT := 0; e2 TEXT := NULL;
+        r3 INT := 0; e3 TEXT := NULL; r4 INT := 0; e4 TEXT := NULL;
+        r5 INT := 0; e5 TEXT := NULL; r6 INT := 0; e6 TEXT := NULL;
+        r7 INT := 0; e7 TEXT := NULL;
+BEGIN
+  BEGIN r1 := fn_generate_overdue_invoice_items();              EXCEPTION WHEN OTHERS THEN e1 := SQLERRM; END;
+  BEGIN r2 := fn_generate_stale_lead_rescue_items();            EXCEPTION WHEN OTHERS THEN e2 := SQLERRM; END;
+  BEGIN r3 := fn_generate_pending_leave_approval_items();       EXCEPTION WHEN OTHERS THEN e3 := SQLERRM; END;
+  BEGIN r4 := fn_generate_unmarked_attendance_items();          EXCEPTION WHEN OTHERS THEN e4 := SQLERRM; END;
+  BEGIN r5 := fn_generate_recruitment_approval_items();         EXCEPTION WHEN OTHERS THEN e5 := SQLERRM; END;
+  BEGIN r6 := fn_generate_service_request_approval_items();     EXCEPTION WHEN OTHERS THEN e6 := SQLERRM; END;
+  BEGIN r7 := fn_generate_unresolved_bug_items();               EXCEPTION WHEN OTHERS THEN e7 := SQLERRM; END;
+  RETURN jsonb_build_object(
+    'generated_at', NOW(),
+    'overdue_invoices',      jsonb_build_object('count', r1, 'error', e1),
+    'stale_leads',           jsonb_build_object('count', r2, 'error', e2),
+    'pending_leaves',        jsonb_build_object('count', r3, 'error', e3),
+    'unmarked_attendance',   jsonb_build_object('count', r4, 'error', e4),
+    'recruitment_approvals', jsonb_build_object('count', r5, 'error', e5),
+    'service_requests',      jsonb_build_object('count', r6, 'error', e6),
+    'unresolved_bugs',       jsonb_build_object('count', r7, 'error', e7),
+    'total', r1 + r2 + r3 + r4 + r5 + r6 + r7);
+END $fn_all$;
+
+REVOKE ALL ON FUNCTION fn_generate_all_dashboard_work_items() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_generate_all_dashboard_work_items() TO service_role;
+
+-- Updated: 2026-04-25 - Extend super-admin daily digest with 3 new categories.
+-- Director (super_admin) sees one rolled-up row per category per day in the queue.
+-- Combines pending leaves + recruitment + service requests under dashboard:approval.
+-- Adds untriaged-bugs aggregation under dashboard:anomaly.
+CREATE OR REPLACE FUNCTION fn_generate_super_admin_daily_digest()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_digest$
+DECLARE
+  v_created INT := 0;
+  v_user RECORD;
+  v_today TEXT := TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD');
+  v_key TEXT;
+  v_total INT;
+  v_breakdown TEXT;
+  v_body TEXT;
+BEGIN
+  FOR v_user IN SELECT id FROM profiles WHERE is_super_admin = TRUE LOOP
+
+    -- Category 1: dashboard:escalation (overdue invoices >30 days, unpaid)
+    WITH counts AS (
+      SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+      FROM billing_invoices bi
+      JOIN institutions i ON bi.institution_id = i.id
+      WHERE bi.due_date < CURRENT_DATE - INTERVAL '30 days' AND bi.grand_total > 0
+        AND COALESCE((SELECT SUM(br.payment_amount) FROM billing_receipts br
+                      WHERE br.student_id = bi.student_id
+                        AND br.receipt_date >= bi.billing_period_from), 0) < bi.grand_total
+      GROUP BY i.id, i.name
+    )
+    SELECT COALESCE(SUM(cnt), 0),
+           STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+    INTO v_total, v_breakdown FROM counts;
+    IF v_total > 0 THEN
+      v_key := 'digest:' || v_user.id::text || ':dashboard:escalation:' || v_today;
+      v_body := v_total || ' overdue invoice(s). ' || COALESCE(v_breakdown, '') || '.';
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:escalation', 'high',
+        'Daily digest — ' || v_total || ' overdue invoice(s)',
+        v_body,
+        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aescalation',
+          'digest', true, 'total', v_total),
+        v_user.id, v_key, 24);
+    END IF;
+
+    -- Category 2: dashboard:rescue (stale admission leads untouched >24h)
+    WITH counts AS (
+      SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+      FROM admission_leads al
+      JOIN institutions i ON al.institution_id = i.id
+      WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - INTERVAL '24 hours'
+        AND COALESCE(al.last_activity_at, al.created_at) > NOW() - INTERVAL '30 days'
+      GROUP BY i.id, i.name
+    )
+    SELECT COALESCE(SUM(cnt), 0),
+           STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+    INTO v_total, v_breakdown FROM counts;
+    IF v_total > 0 THEN
+      v_key := 'digest:' || v_user.id::text || ':dashboard:rescue:' || v_today;
+      v_body := v_total || ' stale lead(s). ' || COALESCE(v_breakdown, '') || '.';
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:rescue', 'normal',
+        'Daily digest — ' || v_total || ' stale lead(s)',
+        v_body,
+        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Arescue',
+          'digest', true, 'total', v_total),
+        v_user.id, v_key, 24);
+    END IF;
+
+    -- Category 3: dashboard:approval (pending leaves >48h + recruitment + SR)
+    WITH leave_counts AS (
+      SELECT 'leaves' AS src, COUNT(*) AS cnt
+      FROM hr_leave_applications la
+      WHERE la.status = 'pending' AND la.created_at < NOW() - INTERVAL '48 hours'
+        AND la.created_at > NOW() - INTERVAL '30 days' AND la.superseded_by IS NULL
+    ),
+    recruit_counts AS (
+      SELECT 'recruitment' AS src, COUNT(*) AS cnt
+      FROM hr_recruitment_candidates
+      WHERE status = 'pending_approval' AND submitted_at < NOW() - INTERVAL '24 hours'
+        AND submitted_at > NOW() - INTERVAL '90 days'
+    ),
+    sr_counts AS (
+      SELECT 'service_requests' AS src, COUNT(*) AS cnt
+      FROM service_requests sr
+      WHERE sr.status::text IN ('submitted','in_review','returned')
+        AND COALESCE(sr.submitted_at, sr.created_at) < NOW() - INTERVAL '24 hours'
+        AND COALESCE(sr.submitted_at, sr.created_at) > NOW() - INTERVAL '180 days'
+    ),
+    all_counts AS (
+      SELECT src, cnt FROM leave_counts WHERE cnt > 0
+      UNION ALL SELECT src, cnt FROM recruit_counts WHERE cnt > 0
+      UNION ALL SELECT src, cnt FROM sr_counts WHERE cnt > 0
+    )
+    SELECT COALESCE(SUM(cnt), 0),
+           STRING_AGG(src || ': ' || cnt, ', ' ORDER BY cnt DESC)
+    INTO v_total, v_breakdown FROM all_counts;
+    IF v_total > 0 THEN
+      v_key := 'digest:' || v_user.id::text || ':dashboard:approval:' || v_today;
+      v_body := v_total || ' approval(s) pending. ' || COALESCE(v_breakdown, '') || '.';
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:approval', 'normal',
+        'Daily digest — ' || v_total || ' approval(s) pending',
+        v_body,
+        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aapproval',
+          'digest', true, 'total', v_total),
+        v_user.id, v_key, 24);
+    END IF;
+
+    -- Category 4: dashboard:anomaly (unmarked attendance + untriaged bugs >72h)
+    WITH attn AS (
+      SELECT 'unmarked_attendance' AS src, COUNT(*) AS cnt
+      FROM timetables t
+      WHERE t.is_active = TRUE AND t.start_date <= CURRENT_DATE
+        AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
+        AND NOT EXISTS (SELECT 1 FROM student_attendance sa
+          WHERE sa.timetable_id = t.id AND sa.attendance_date = CURRENT_DATE)
+        AND EXISTS (SELECT 1 FROM student_attendance sa2
+          WHERE sa2.timetable_id = t.id
+            AND sa2.attendance_date BETWEEN CURRENT_DATE - INTERVAL '14 days' AND CURRENT_DATE - INTERVAL '1 day')
+    ),
+    bugs AS (
+      SELECT 'untriaged_bugs' AS src, COUNT(*) AS cnt
+      FROM bug_reports
+      WHERE status = 'new'
+        AND created_at < NOW() - INTERVAL '72 hours'
+        AND created_at > NOW() - INTERVAL '180 days'
+        AND COALESCE(metadata->'triage'->>'tag', '')
+          NOT IN ('not_a_bug','duplicate','content_only','obsolete','feature_request')
+    ),
+    all_anomaly AS (
+      SELECT src, cnt FROM attn WHERE cnt > 0
+      UNION ALL SELECT src, cnt FROM bugs WHERE cnt > 0
+    )
+    SELECT COALESCE(SUM(cnt), 0),
+           STRING_AGG(src || ': ' || cnt, ', ' ORDER BY cnt DESC)
+    INTO v_total, v_breakdown FROM all_anomaly;
+    IF v_total > 0 THEN
+      v_key := 'digest:' || v_user.id::text || ':dashboard:anomaly:' || v_today;
+      v_body := v_total || ' anomaly signal(s). ' || COALESCE(v_breakdown, '') || '.';
+      v_created := v_created + fn_create_dashboard_work_item(
+        'dashboard:anomaly', 'normal',
+        'Daily digest — ' || v_total || ' anomaly signal(s)',
+        v_body,
+        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aanomaly',
+          'digest', true, 'total', v_total),
+        v_user.id, v_key, 24);
+    END IF;
+
+  END LOOP;
+  RETURN v_created;
+END $fn_digest$;
+
+REVOKE ALL ON FUNCTION fn_generate_super_admin_daily_digest() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_generate_super_admin_daily_digest() TO service_role;
