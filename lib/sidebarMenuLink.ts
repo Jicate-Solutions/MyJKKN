@@ -440,6 +440,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/group-dashboard': 'admission.group_dashboard.view',
   '/admission/insights': 'admission.insights.view',
   '/admission/insights/status': 'admission.insights.view',
+  '/admission/marketing': 'admission.marketing.view',
+  '/admission/data-quality': 'admission.data_quality.view',
 
   // Admission Leads
   '/admission/leads': 'admission.leads.view',
