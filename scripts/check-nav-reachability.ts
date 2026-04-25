@@ -128,6 +128,11 @@ const NAV_EXCLUDE = new Set<string>([
   '/billing/discounts/new',
   '/billing/refunds/new',
 
+  // Board of Studies /new forms
+  '/bos/compositions/new',
+  '/bos/experts/new',
+  '/bos/meetings/new',
+
   // Campus-living /new forms
   '/campus-living/allocations/new',
   '/campus-living/blocks/new',
