@@ -25,6 +25,10 @@ export interface BottomNavItemProps {
   hideIndicator?: boolean; // Hide the bottom underline indicator
   customColor?: string; // Custom color for icon and label
   onClick: () => void;
+  /** Render mode. 'strip' (default) for the bottom-nav strip; 'tile' for the More-drawer 4-col grid */
+  variant?: 'strip' | 'tile';
+  /** When variant='tile', the Tailwind gradient string for the icon container background */
+  tileGradient?: string;
 }
 
 export interface BottomNavSubmenuProps {
