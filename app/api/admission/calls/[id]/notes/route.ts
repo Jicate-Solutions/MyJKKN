@@ -68,11 +68,14 @@ export async function PUT(
     // Check authorization: super admin, global scope, or same institution
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id, is_super_admin, role')
+      .select('institution_id')
       .eq('id', user.id)
       .single();
 
-    const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
+    // Canonical super-admin check via RPC (reads profiles.is_super_admin).
+    // Replaces prior `profile.is_super_admin === true || profile.role === 'super_admin'`
+    // OR — the role-string fallback is redundant (zero drift on prod).
+    const { data: isSuperAdmin } = await supabase.rpc('is_super_admin');
     if (!isSuperAdmin && callRecord.institution_id !== profile?.institution_id) {
       const { data: userRolesData } = await supabase
         .from('user_roles')
