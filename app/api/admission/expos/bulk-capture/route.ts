@@ -19,11 +19,6 @@ function cleanPhone(raw: string): string {
   return raw.replace(/[\s\-()]/g, '').replace(/^(\+91|0)/, '');
 }
 
-function isValidIndianPhone(phone: string): boolean {
-  const clean = phone.replace(/[\s\-()]/g, '');
-  return /^(\+91|0)?[6-9]\d{9}$/.test(clean);
-}
-
 /** Strip "Institution — " prefix that the Excel dropdown injects into program names */
 function stripInstPrefix(raw: string): string {
   return raw.includes(' — ') ? raw.split(' — ').slice(1).join(' — ').trim() : raw.trim();
@@ -101,14 +96,14 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Pre-fetch lookup tables for name resolution ─────────────────────
+    // Note: existingLeads phone lookup intentionally removed (2026-04-25)
+    // to support "upload everything" mode — duplicates are allowed.
     const [
       { data: allInstitutions },
       { data: allPrograms },
-      { data: existingLeads },
     ] = await Promise.all([
       (supabase as any).from('institutions').select('id, name').eq('is_active', true),
       (supabase as any).from('programs').select('id, program_name, display_name, institution_id').eq('is_active', true),
-      (supabase as any).from('admission_leads').select('phone').eq('institution_id', institutionId),
     ]);
 
     // Build case-insensitive lookup maps
@@ -144,48 +139,26 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    const existingPhones = new Set<string>(
-      (existingLeads || []).map((l: { phone: string }) => cleanPhone(l.phone))
-    );
-
-    // ── Validate and prepare rows ───────────────────────────────────────
+    // ── Prepare rows (validation removed 2026-04-25) ────────────────────
+    // The data-owner explicitly opted out of all app-level validation:
+    // missing name / blank or non-Indian phone / duplicate phone are now
+    // accepted. The DB still enforces NOT NULL on phone & institution_id
+    // and the visit_type enum — those failures (if any) come back from
+    // the batch insert and are reported per-row.
     let inserted = 0;
-    let duplicates = 0;
+    const duplicates = 0;
     const errors: Array<{ row: number; message: string }> = [];
     const validRows: Array<Record<string, unknown>> = [];
 
     for (let i = 0; i < leads.length; i++) {
       const lead = leads[i];
-      const rowNum = i + 2;
 
       const name = (lead.name || '').trim();
       const phone = (lead.phone || '').trim();
       const parentName = (lead.parent_name || '').trim();
       const parentPhone = (lead.parent_phone || '').trim();
 
-      if (!name) {
-        errors.push({ row: rowNum, message: 'Name is required' });
-        continue;
-      }
-      if (!phone) {
-        errors.push({ row: rowNum, message: 'Phone is required' });
-        continue;
-      }
-      if (!isValidIndianPhone(phone)) {
-        errors.push({ row: rowNum, message: `Invalid phone number: ${phone}` });
-        continue;
-      }
-      if (parentPhone && !isValidIndianPhone(parentPhone)) {
-        errors.push({ row: rowNum, message: `Invalid parent phone: ${parentPhone}` });
-        continue;
-      }
-
-      const cleanedPhone = cleanPhone(phone);
-      if (existingPhones.has(cleanedPhone)) {
-        duplicates++;
-        continue;
-      }
-      existingPhones.add(cleanedPhone);
+      const cleanedPhone = phone ? cleanPhone(phone) : '';
 
       // ── Resolve institution ───────────────────────────────────────────
       let resolvedInstitutionId = institutionId; // fallback: expo's institution

@@ -157,13 +157,8 @@ const TEMPLATE_COLUMNS = [
   { header: 'WhatsApp Consent',     key: 'wa_opt_in',        width: 18 },
 ];
 
-/** Validate Indian mobile number: 10 digits starting with 6-9 */
-function isValidIndianPhone(phone: string): boolean {
-  const clean = phone.trim().replace(/[\s\-()]/g, '');
-  return /^(\+91|0)?[6-9]\d{9}$/.test(clean);
-}
-
-/** Clean phone to just digits, strip prefix */
+/** Clean phone to just digits, strip prefix. Whitespace/format normalisation
+ *  only — does NOT validate. Bulk upload trusts the data-owner. */
 function cleanPhone(raw: string): string {
   return raw.replace(/[\s\-()]/g, '').replace(/^(\+91|0)/, '');
 }
@@ -281,18 +276,11 @@ export function BulkCaptureDialog({
             ? true
             : ['yes', 'true', '1', 'y'].includes(waRaw);
 
-          // Validate
-          const errors: string[] = [];
-          if (!mapped.name) errors.push('Name required');
-          if (!mapped.phone) {
-            errors.push('Phone required');
-          } else if (!isValidIndianPhone(mapped.phone)) {
-            errors.push('Invalid phone');
-          }
-          if (mapped.parent_phone && !isValidIndianPhone(mapped.parent_phone)) {
-            errors.push('Invalid parent phone');
-          }
-
+          // Validation intentionally removed (per data-owner requirement,
+          // 2026-04-25): every row is accepted and forwarded to the server
+          // exactly as parsed. The DB still enforces NOT NULL on phone /
+          // institution_id and the visit_type enum — those failures (if any)
+          // come back in the per-row error report after the insert attempt.
           return {
             rowNumber: index + 2,
             name: mapped.name || '',
@@ -309,22 +297,15 @@ export function BulkCaptureDialog({
             visit_type: visitType,
             notes: mapped.notes || '',
             wa_opt_in: waOptIn,
-            errors,
-            isValid: errors.length === 0,
+            errors: [],
+            isValid: true,
           };
         });
 
         setPreviewData(preview);
         setStep('preview');
 
-        const validCount = preview.filter((r) => r.isValid).length;
-        const invalidCount = preview.filter((r) => !r.isValid).length;
-
-        if (invalidCount > 0) {
-          toast.error(`${invalidCount} rows have validation errors`);
-        } else {
-          toast.success(`${validCount} rows ready to import`);
-        }
+        toast.success(`${preview.length} rows ready to import`);
       } catch (error) {
         console.error('[admission/expos] Parse error:', error);
         toast.error('Failed to parse the file. Please check the format.');
