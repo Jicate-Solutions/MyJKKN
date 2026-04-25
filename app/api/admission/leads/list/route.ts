@@ -13,13 +13,50 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
 import { sanitizeSearch } from '@/lib/config/pagination';
 
+// Retry only on undici / Node fetch transient failures (cold-start flakes on
+// Windows + Turbopack). Postgres errors should surface immediately without retry.
+function isTransientFetchError(err: unknown): boolean {
+  const msg =
+    (err as any)?.message ??
+    (err as any)?.details ??
+    (typeof err === 'string' ? err : '');
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|UND_ERR/i.test(String(msg));
+}
+
+async function retryOnFetchFailure<T>(fn: () => Promise<T>): Promise<T> {
+  const attempts = 3;
+  let delay = 200;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isLastAttempt = i === attempts - 1;
+      if (isLastAttempt || !isTransientFetchError(err)) throw err;
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.floor(delay * 1.5);
+    }
+  }
+  // Unreachable, satisfies TS
+  throw new Error('retryOnFetchFailure: exhausted attempts');
+}
+
 export async function GET(request: NextRequest) {
   await connection();
 
-  // 1. Authenticate the user
-  const { user, error: authError } = await getAuthUser();
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // 1. Authenticate the user (wrapped so undici cold-start flakes auto-retry)
+  let user: any = null;
+  try {
+    const result = await retryOnFetchFailure(() => getAuthUser());
+    if (result.error || !result.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    user = result.user;
+  } catch (err) {
+    console.error('[admission/leads/list] Auth fetch failed:', err);
+    return NextResponse.json(
+      { error: 'Authentication temporarily unavailable. Please retry.' },
+      { status: 503 }
+    );
   }
 
   // 2. Check the user has admission lead view access via the dynamic
@@ -28,11 +65,13 @@ export async function GET(request: NextRequest) {
   //    so any custom role granted admission.leads.view works.
   const supabase = createServiceRoleClient();
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, role, institution_id, is_super_admin')
-    .eq('id', user.id)
-    .single();
+  const { data: profile } = await retryOnFetchFailure(() =>
+    supabase
+      .from('profiles')
+      .select('id, role, institution_id, is_super_admin')
+      .eq('id', user.id)
+      .single()
+  );
 
   if (!profile) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
@@ -42,10 +81,12 @@ export async function GET(request: NextRequest) {
 
   let canViewLeads = isSuperAdmin;
   if (!canViewLeads) {
-    const { data: permResult } = await supabase.rpc('user_has_permission', {
-      user_id: user.id,
-      permission_key: 'admission.leads.view'
-    });
+    const { data: permResult } = await retryOnFetchFailure(() =>
+      supabase.rpc('user_has_permission', {
+        user_id: user.id,
+        permission_key: 'admission.leads.view'
+      })
+    );
     canViewLeads = !!permResult;
   }
 
@@ -62,10 +103,12 @@ export async function GET(request: NextRequest) {
   // 'all_institutions' (per-module override).
   let isAdmissionGlobalUser = isSuperAdmin;
   if (!isAdmissionGlobalUser) {
-    const { data: scopedRoles } = await supabase
-      .from('user_roles')
-      .select('custom_roles!inner(institution_scope, module_scopes)')
-      .eq('user_id', user.id);
+    const { data: scopedRoles } = await retryOnFetchFailure(() =>
+      supabase
+        .from('user_roles')
+        .select('custom_roles!inner(institution_scope, module_scopes)')
+        .eq('user_id', user.id)
+    );
     isAdmissionGlobalUser = (scopedRoles || []).some((ur: any) => {
       const cr = ur.custom_roles;
       if (!cr) return false;
@@ -212,7 +255,7 @@ export async function GET(request: NextRequest) {
     const from = (page - 1) * limit;
     query = query.range(from, from + limit - 1);
 
-    const { data, error, count } = await query;
+    const { data, error, count } = await retryOnFetchFailure(() => query);
 
     if (error) throw error;
 
@@ -231,10 +274,12 @@ export async function GET(request: NextRequest) {
 
     let programNameMap = new Map<string, string>();
     if (programIds.length) {
-      const { data: programs } = await supabase
-        .from('programs')
-        .select('id, program_name')
-        .in('id', programIds);
+      const { data: programs } = await retryOnFetchFailure(() =>
+        supabase
+          .from('programs')
+          .select('id, program_name')
+          .in('id', programIds)
+      );
       (programs || []).forEach((p: any) => {
         if (p?.id && p?.program_name) programNameMap.set(p.id, p.program_name);
       });
@@ -260,9 +305,20 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     console.error('[admission/leads/list] API route error:', err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Internal server error' },
-      { status: 500 }
-    );
+    // Postgrest errors are plain objects (not Error instances), so we must dig
+    // into common message-bearing fields before falling back to a generic string.
+    const message =
+      (err as any)?.message ||
+      (err as any)?.details ||
+      (err as any)?.hint ||
+      (err as any)?.error_description ||
+      (typeof err === 'string' ? err : null) ||
+      'Internal server error';
+
+    // Surface a 503 for transient fetch failures so the client knows it's safe
+    // to retry, instead of treating it as a permanent 500 bug.
+    const status = isTransientFetchError(err) ? 503 : 500;
+
+    return NextResponse.json({ error: message }, { status });
   }
 }

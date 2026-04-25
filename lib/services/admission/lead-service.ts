@@ -140,7 +140,16 @@ export class LeadService {
       if (src) params.set('source', src);
     }
 
-    const res = await fetch(`/api/admission/leads/list?${params.toString()}`);
+    const url = `/api/admission/leads/list?${params.toString()}`;
+
+    // The leads route can flake on the very first call after a Turbopack
+    // recompile (Node undici cold-start `TypeError: fetch failed` on Windows),
+    // returning a 503. Retry once before surfacing the error to the user.
+    let res = await fetch(url);
+    if (res.status === 503) {
+      await new Promise((r) => setTimeout(r, 300));
+      res = await fetch(url);
+    }
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
