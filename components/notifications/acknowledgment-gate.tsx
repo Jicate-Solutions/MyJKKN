@@ -28,13 +28,13 @@ import type { UnacknowledgedNotification, VerificationQuestion } from '@/types/n
  * Design principle: Cookie-consent pattern — you must deal with it to proceed.
  */
 export function AcknowledgmentGate({ children }: { children: React.ReactNode }) {
-  // Skip the mandatory-acknowledgment overlay in local development — the
-  // read-timer + scroll gate + quiz slows iteration. NODE_ENV is inlined at
-  // build time, so this branch is compile-time dead code in production.
-  if (process.env.NODE_ENV !== 'production') {
-    return <>{children}</>;
-  }
+  if (process.env.NODE_ENV !== 'production') return <>{children}</>;
+  return <AcknowledgmentGateInner>{children}</AcknowledgmentGateInner>;
+}
 
+// Hooks must live in a child component so the dev-bypass early return in
+// AcknowledgmentGate above doesn't violate React's Rules of Hooks.
+function AcknowledgmentGateInner({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [acknowledging, setAcknowledging] = useState(false);
