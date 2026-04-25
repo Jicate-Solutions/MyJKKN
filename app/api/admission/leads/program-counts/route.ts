@@ -15,7 +15,11 @@ export const dynamic = 'force-dynamic';
 // authenticated role statement timeout.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
-import { createServiceRoleClient, getAuthUser } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient,
+  getAuthUser,
+} from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -39,7 +43,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Profile not found' }, { status: 403 });
   }
 
-  const isSuperAdmin = !!profile.is_super_admin || profile.role === 'super_admin';
+  // Canonical super-admin check: `is_super_admin()` RPC reads
+  // profiles.is_super_admin = true under the caller's session (auth.uid()).
+  // Replaces the previous `profile.role === 'super_admin'` string fallback,
+  // which duplicated the signal via a role_key anti-pattern. Must be called
+  // on the cookie-authenticated client, not the service-role client, so that
+  // auth.uid() resolves to the session user.
+  const authedSupabase = await createServerSupabaseClient();
+  const { data: superAdminRes } = await authedSupabase.rpc('is_super_admin');
+  const isSuperAdmin = superAdminRes === true;
 
   let canViewLeads = isSuperAdmin;
   if (!canViewLeads) {
