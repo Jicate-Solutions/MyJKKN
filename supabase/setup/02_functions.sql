@@ -173,6 +173,9 @@ END;
 $$;
 
 -- Get user accessible institutions
+-- Updated: 2026-04-25 - Fixed two bugs: (1) i.institution_name → i.name (column does not exist),
+--   (2) added UNION with profiles.institution_id so own-scoped users (HOD, etc.)
+--   always see their primary institution even with no user_institution_access entries.
 CREATE OR REPLACE FUNCTION public.get_user_accessible_institutions(target_user_id uuid)
 RETURNS TABLE(
     institution_id uuid,
@@ -186,17 +189,34 @@ SECURITY INVOKER
 AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    -- Always include the user's primary institution from profiles
+    SELECT
         i.id,
-        i.institution_name,
-        i.counselling_code,
-        uia.access_type,
-        (p.institution_id = i.id) as is_primary_institution
+        i.name::varchar,
+        i.counselling_code::varchar,
+        'primary'::varchar,
+        true
+    FROM profiles p
+    JOIN institutions i ON i.id = p.institution_id
+    WHERE p.id = target_user_id
+    AND p.institution_id IS NOT NULL
+    AND i.is_active = true
+
+    UNION
+
+    -- Plus explicitly granted cross-institution access
+    SELECT
+        i.id,
+        i.name::varchar,
+        i.counselling_code::varchar,
+        uia.access_type::varchar,
+        (p.institution_id = i.id)
     FROM institutions i
     JOIN user_institution_access uia ON i.id = uia.institution_id
     LEFT JOIN profiles p ON p.id = target_user_id
     WHERE uia.user_id = target_user_id
-    AND uia.is_active = true;
+    AND uia.is_active = true
+    AND i.is_active = true;
 END;
 $$;
 
