@@ -261,7 +261,7 @@ When updating any SQL file:
 | Attendance Validation | setup/04_triggers.sql | 1     | Staff assignment validation  |
 | Other                 | setup/04_triggers.sql | 6     | Various business rules       |
 
-### Views (7 total)
+### Views (8 total)
 
 | View Name                   | Location           | Module      |
 | --------------------------- | ------------------ | ----------- |
@@ -272,6 +272,7 @@ When updating any SQL file:
 | bug_reports_with_details    | setup/05_views.sql | Bug Reports |
 | semester_hierarchy_health   | setup/05_views.sql | Academic    |
 | semester_program_audit_view | setup/05_views.sql | Academic    |
+| hr_leave_types (compat)     | setup/05_views.sql | HR          |
 
 ### Storage Buckets (7 total)
 

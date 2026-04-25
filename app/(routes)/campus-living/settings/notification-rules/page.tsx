@@ -303,7 +303,11 @@ export default function NotificationRulesPage() {
     });
 
     try {
-      await upsertMut.mutateAsync({ institutionId, rows });
+      await upsertMut.mutateAsync({
+        institutionId,
+        rows,
+        updatedBy: profile?.id ?? null,
+      });
       setDirty(new Set());
     } catch {
       // onError toast is handled in the hook.

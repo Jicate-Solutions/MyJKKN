@@ -52,11 +52,17 @@ export function useUpsertHostelNotificationRules() {
     mutationFn: async ({
       institutionId,
       rows,
+      updatedBy,
     }: {
       institutionId: string;
       rows: HostelNotificationRuleUpsert[];
+      updatedBy: string | null;
     }) => {
-      return HostelNotificationRulesService.upsertRules(institutionId, rows);
+      return HostelNotificationRulesService.upsertRules(
+        institutionId,
+        rows,
+        updatedBy,
+      );
     },
     onSuccess: (count) => {
       queryClient.invalidateQueries({

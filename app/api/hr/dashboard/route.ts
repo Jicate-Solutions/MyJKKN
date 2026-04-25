@@ -67,22 +67,50 @@ export async function GET(request: NextRequest) {
 
     const isSuperAdmin = !!profile?.is_super_admin;
     const role = (profile?.role as string | undefined) ?? '';
-    const isHROfficer =
-      role === 'hr_officer' ||
-      role === 'hr_admin' ||
-      role === 'hr_manager' ||
-      role === 'hr_head';
-    const isDirector = role === 'director' || role === 'admin';
 
-    if (!isSuperAdmin && !isHROfficer && !isDirector) {
-      return NextResponse.json({ error: 'Forbidden — not an HR role' }, { status: 403 });
+    // Gate: use canonical MyJKKN permission helper instead of hardcoding role_keys.
+    // `user_has_permission` includes super-admin bypass + multi-role OR-merge + legacy
+    // profiles.role fallback — matches the standardized RLS policy pattern used across
+    // all MyJKKN modules. Adding a new role to the dashboard is now a 1-row DB grant
+    // (`custom_roles.permissions.hr.dashboard.view = true`), not a code change.
+    const { data: canViewDashboard, error: permError } = await supabase.rpc(
+      'user_has_permission',
+      { permission_name: 'hr.dashboard.view' }
+    );
+    if (permError) {
+      console.error('[hr/dashboard] permission-check RPC failed', permError);
+      return NextResponse.json({ error: 'Permission check failed' }, { status: 500 });
+    }
+    if (!canViewDashboard) {
+      return NextResponse.json({ error: 'Forbidden — hr.dashboard.view required' }, { status: 403 });
     }
 
+    // Layout branching (NOT a gate): which dashboard layout does this role see?
+    // Role-keys that map to the operational HR Officer layout (4 daily quadrants).
+    // Everyone else with the permission sees the strategic Director layout.
+    // `hr_officer` is intentionally absent — no custom_roles row exists on prod; it
+    // only survives here as the internal `ViewerRole` bucket label.
+    const HR_OPERATOR_ROLES = new Set(['hr_admin', 'hr_manager', 'hr_head']);
     const viewer_role: ViewerRole = isSuperAdmin
       ? 'super_admin'
-      : isHROfficer
+      : HR_OPERATOR_ROLES.has(role)
       ? 'hr_officer'
       : 'director';
+
+    // display_role gives the UI a human label matching the exact role_key,
+    // since viewer_role normalises hr_head/hr_admin/hr_manager → 'hr_officer'.
+    const ROLE_DISPLAY_LABELS: Record<string, string> = {
+      super_admin: 'Super Admin',
+      hr_head: 'HR Head',
+      hr_admin: 'HR Admin',
+      hr_manager: 'HR Manager',
+      hr_officer: 'HR Officer',
+      director: 'Director',
+      admin: 'Admin',
+    };
+    const display_role =
+      ROLE_DISPLAY_LABELS[role] ??
+      viewer_role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
     const url = new URL(request.url);
     const modeParam = url.searchParams.get('mode') as DashboardMode | null;
@@ -113,7 +141,7 @@ export async function GET(request: NextRequest) {
       mode: isSuperAdmin ? mode : 'rolled-up',
     });
 
-    return NextResponse.json(payload, {
+    return NextResponse.json({ ...payload, display_role }, {
       headers: {
         // Live queries, no cache (decision #2). Client shows "Refresh" button
         // with generated_at timestamp per decision #9.

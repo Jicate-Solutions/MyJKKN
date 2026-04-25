@@ -172,13 +172,99 @@ export function resolveTiers(pathname: string): Chip[][] {
   }
 
   // Flat fallback (module has no nav-config).
+  // Tier-2 is AUGMENTED with sidebar-declared submenus for the current
+  // module — the sidebar already lists every navigable sub-page, including
+  // deeper URLs (e.g. /hr/leave/apply) and cross-URL entries (e.g.
+  // /my-bug-reports under /admin/bug-reports) that the flat manifest walk
+  // can't surface from a single depth-2 sweep. The permission filter
+  // already applied in AutoTabNav (canShowChip) runs over this merged set.
+  //
+  // Effect on localhost (test.superadmin, before → after this change):
+  //   /hr:                 4 → 13 chips
+  //   /billing/invoices:   9 → 13 chips
+  //   /admin/bug-reports:  9 → 22 chips
+  //   /vac:                4 →  9 chips
+  //   /users, /organizations: ≈ unchanged (manifest + sidebar already agree)
+  //
+  // Deeper tiers (tier-3+) continue to come from manifest walk of the
+  // current pathname — unchanged — so active-state and sub-page drill
+  // behaviour is preserved exactly.
   const out: Chip[][] = [];
   const depth = pathname.split('/').filter(Boolean).length;
-  for (let d = 2; d <= Math.max(depth + 1, 2); d++) {
+  const manifestTier2 = flatTierChips(pathname, 2);
+  const tier2Chips: Chip[] = manifestTier2?.chips ?? [];
+  const seen = new Set(tier2Chips.map((c) => c.href));
+
+  const moduleSlug = pathname.split('/').filter(Boolean)[0];
+  if (moduleSlug) {
+    for (const s of getSidebarSubmenusForModule(moduleSlug)) {
+      if (seen.has(s.href)) continue;
+      seen.add(s.href);
+      tier2Chips.push({
+        href: s.href,
+        label: s.label,
+        iconName: 'FileText', // default — sidebar icons are LucideIcon refs, not strings
+        isActive:
+          pathname === s.href || pathname.startsWith(s.href + '/'),
+      });
+    }
+  }
+  if (tier2Chips.length >= 2) out.push(tier2Chips);
+
+  // Tier-3+ from manifest walk (children of the current pathname).
+  // Intentionally NOT deduped against tier-2: tier-3 represents "sub-pages
+  // of the current URL" (a different semantic layer than "other modules
+  // in this area"), so occasional overlap is acceptable.
+  for (let d = 3; d <= Math.max(depth + 1, 3); d++) {
     const tier = flatTierChips(pathname, d);
     if (!tier) continue;
     if (tier.chips.length < 2) continue;
     out.push(tier.chips);
   }
   return out;
+}
+
+/**
+ * Read the sidebar source's top-level menu for this module and return its
+ * declared `submenus` as flat {href, label} pairs. Lazy-imported to keep
+ * this pure module tree-shakeable for non-browser consumers (the
+ * reachability simulator at build time); the sidebar module imports
+ * lucide icons which the simulator doesn't need. Cached per module slug.
+ */
+const SIDEBAR_SUBMENU_CACHE = new Map<string, Array<{ href: string; label: string }>>();
+function getSidebarSubmenusForModule(
+  moduleSlug: string
+): Array<{ href: string; label: string }> {
+  if (SIDEBAR_SUBMENU_CACHE.has(moduleSlug)) {
+    return SIDEBAR_SUBMENU_CACHE.get(moduleSlug)!;
+  }
+  let result: Array<{ href: string; label: string }> = [];
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('@/lib/sidebarMenuLink');
+    const pages = mod.GetPages('/__derive__') as Array<{
+      menus: Array<{
+        href: string;
+        submenus: Array<{ href: string; label: string }>;
+      }>;
+    }>;
+    const prefix = `/${moduleSlug}`;
+    const matching = pages
+      .flatMap((g) => g.menus)
+      .filter((m) => m.href === prefix || m.href.startsWith(prefix + '/'));
+    const seen = new Set<string>();
+    for (const m of matching) {
+      if (!seen.has(m.href)) seen.add(m.href);
+      for (const s of m.submenus ?? []) {
+        if (!seen.has(s.href)) {
+          seen.add(s.href);
+          result.push({ href: s.href, label: s.label });
+        }
+      }
+    }
+  } catch {
+    result = [];
+  }
+  SIDEBAR_SUBMENU_CACHE.set(moduleSlug, result);
+  return result;
 }
