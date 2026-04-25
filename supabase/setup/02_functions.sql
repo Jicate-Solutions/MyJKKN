@@ -6482,7 +6482,9 @@ BEGIN
       AND (p.role = 'admission' OR p.role = 'admission_staff' OR p.role = 'counselor')
   ),
   broadcast_notif AS (
-    INSERT INTO notifications (title, body, category, priority, requires_acknowledgment,
+    -- 2026-04-25: rescue broadcasts are operational work items (counselor must claim & call).
+    -- Setting kind='work_item' keeps them out of /admin/notifications announcement view.
+    INSERT INTO notifications (title, body, category, kind, priority, requires_acknowledgment,
       acknowledgment_deadline_hours, action_type, action_config, targeting, created_by, metadata)
     VALUES (
       '🔥 Rescue broadcast — ' || COALESCE(v_lead.first_name || ' ' || COALESCE(v_lead.last_name, ''), 'hot lead'),
@@ -6490,6 +6492,7 @@ BEGIN
         COALESCE(v_lead.score::text, '—') || ' · conversion ' ||
         ROUND(COALESCE(v_lead.conversion_probability, 0.5) * 100)::text || '%'),
       'dashboard:rescue',
+      'work_item',
       CASE WHEN p_is_emergency THEN 'urgent' ELSE 'high' END,
       TRUE, 2, 'rescue.claim',
       jsonb_build_object('broadcast_id', v_broadcast_id, 'lead_id', p_lead_id,
