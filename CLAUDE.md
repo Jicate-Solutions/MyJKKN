@@ -1,5 +1,11 @@
 # MyJKKN Development Guide
 
+## 🛑 NON-NEGOTIABLE: No Git Worktrees
+
+Never use `git worktree` in this project. Work directly on the main working directory at all times. Do not create, enter, or reference worktrees for any task — bug fixes, features, or experiments.
+
+---
+
 ## 🛑 NON-NEGOTIABLE: Production-Code Sweep Before Any Build Plan
 
 Before proposing ANY build plan, decomposition, 3-PR breakdown, module spec, sprint spec, or routing to `/myjkkn-api`/`/myjkkn-module`: run the production code sweep and include its output in the same response.
@@ -18,50 +24,6 @@ git worktree list
 **Plan without sweep = plan is invalid.** Caught 5 times in one session (2026-04-17) when this rule was memory-only. Now a CLAUDE.md directive and `/myjkkn-chain` skill gate.
 
 **Sticky test:** If the user has to ask "have you checked production?" — the rule was skipped. Apologize, run the sweep, restart the plan. See `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/feedback_preflight_must_scan_production_code.md`.
-
-## 🛑 NON-NEGOTIABLE: PR Merge Policy (one-click merge — user clicks, agent never does)
-
-Agent's job on every PR: get it to a state where **Omm clicks ONE button** ("Squash and merge") and we're done. No Draft-then-Ready dance, no manual review flip required.
-
-**Standard bug-fix / narrow-change flow:**
-
-| Step | Agent does | Director does |
-|---|---|---|
-| 1. Fix in isolated worktree | ✓ | — |
-| 2. `npm run type-check` (or `build`) passes | ✓ | — |
-| 3. `gh pr create --draft` (start as Draft) | ✓ | — |
-| 4. `gh pr ready <N> --repo Jicate-Solutions/MyJKKN` (flip to Ready when confident) | ✓ | — |
-| 5. Notify: "PR #N ready — one click to merge" | ✓ | — |
-| 6. Click green "Squash and merge" button | ✗ **NEVER** | ✓ |
-| 7. Tell agent "merged" | — | ✓ |
-| 8. Fire Vercel deploy hook + verify | ✓ | — |
-
-**Forbidden actions (agents must never run these against `Jicate-Solutions/MyJKKN`):**
-- `gh pr merge` (with or without `--admin`, `--squash`, `--merge`, `--rebase` — never)
-- Merging via GitHub API curl
-- Clicking a merge button via browser automation
-- Deploying to production before user confirms merge
-
-**Allowed actions (agents should run these to get PR to one-click state):**
-- `gh pr create` — default to `--draft` during development
-- `gh pr ready` — flip Draft → Ready when type-check passes + diff is narrow + agent is confident
-- `gh pr edit` — update title/body/labels
-- `git push` / `git push --force-with-lease` — to update the PR branch (e.g. after rebase)
-- `gh pr close` — ONLY if the PR is definitively wrong; flag to user first
-
-**When to leave as Draft (not Ready):**
-- Investigation is inconclusive (agent couldn't confidently identify root cause)
-- Fix is wider than planned (>50 LOC, multi-file, touches RLS/auth/payments)
-- Agent skipped any verification step (type-check, local build)
-- Agent is opening PR to document investigation notes, not because it has a confident fix
-
-**When to default to Ready (not Draft):**
-- Bug has narrow scope, fix is single-file, diff <50 lines
-- `npm run type-check` passed locally
-- Agent has high confidence in the root cause
-- CI checks (if any) are expected to pass
-
-See: `~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/memory/feedback_never_merge_pr.md` for full history (incidents from 2026-04-11 autonomous-merge mistake and 2026-04-21 one-click-merge refinement).
 
 ## 📚 On-Demand Context Libraries (read when task matches)
 
@@ -138,14 +100,14 @@ ALTER TABLE students ADD COLUMN new_column TEXT;
 
 ## Supabase MCP
 
-The Supabase MCP server is in **read-only mode** for safety.
+The Supabase MCP server has **full access** (read + write). Use it freely to execute SQL, apply migrations, and manage the database directly.
 
 **Workflow for database changes:**
 1. Check `supabase/SQL_FILE_INDEX.md` before any SQL work
 2. Use Supabase MCP to verify current table structure
 3. Update the appropriate file in `supabase/setup/`
 4. Add comments with date and reason
-5. Test in Supabase Dashboard SQL Editor first
+5. Apply changes directly via Supabase MCP (`execute_sql` or `apply_migration`)
 6. Update `supabase/SQL_FILE_INDEX.md` after changes
 
 **DB conventions:** All tables have `id` (UUID), `created_at`, `updated_at`. Use `snake_case`. Always enable RLS. `institution_id` required for multi-tenant queries.
