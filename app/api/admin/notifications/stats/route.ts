@@ -17,27 +17,22 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check permissions (same as notifications list)
-    const { data: userProfileData } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const userProfile = userProfileData as { role: string } | null;
-
-    const { data: rolePermissionsData } = await supabase
-      .from('custom_roles')
-      .select('permissions')
-      .eq('role_key', userProfile?.role || '')
-      .single();
-
-    const rolePermissions = rolePermissionsData as { permissions: Record<string, boolean> } | null;
+    // Permission gate — canonical MyJKKN pattern: is_super_admin / is_admin / user_has_permission.
+    // Matches the standardized RLS policy pattern (see CLAUDE.md "Role Management & Dynamic
+    // Permission System"). Adding a new role here is a 1-row DB grant in Role Management,
+    // not a route.ts edit + deploy.
+    const [superAdminRes, adminRes, viewPermRes, viewAllPermRes] = await Promise.all([
+      (supabase as any).rpc('is_super_admin'),
+      (supabase as any).rpc('is_admin'),
+      (supabase as any).rpc('user_has_permission', { permission_name: 'notifications.view' }),
+      (supabase as any).rpc('user_has_permission', { permission_name: 'notifications.view.all' })
+    ]);
 
     const hasPermission =
-      userProfile?.role === 'super_admin' ||
-      rolePermissions?.permissions?.['notifications.view'] === true ||
-      rolePermissions?.permissions?.['notifications.view.all'] === true;
+      superAdminRes.data === true ||
+      adminRes.data === true ||
+      viewPermRes.data === true ||
+      viewAllPermRes.data === true;
 
     if (!hasPermission) {
       return NextResponse.json(
