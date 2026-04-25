@@ -54,7 +54,7 @@ const contactSchema = z
 
 // Main form schema
 const institutionSchema = z.object({
-  entity_type: z.enum(['institution', 'admin_office', 'company']).default('institution'),
+  entity_type: z.enum(['institution', 'admin_office', 'company', 'school']).default('institution'),
   name: z.string().min(2, 'Name must be at least 2 characters'),
   counselling_code: z
     .string()

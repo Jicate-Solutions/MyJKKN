@@ -128,8 +128,9 @@ CREATE TABLE IF NOT EXISTS public.institutions (
     institution_type VARCHAR(20),
     pin_code VARCHAR(20),
     -- Updated: 2026-04-14 - Added entity_type to distinguish institutions from admin offices and companies
+    -- Updated: 2026-04-24 - Added 'school' entity type
     entity_type VARCHAR(20) NOT NULL DEFAULT 'institution'
-    CONSTRAINT chk_entity_type CHECK (entity_type IN ('institution', 'admin_office', 'company'))
+    CONSTRAINT chk_entity_type CHECK (entity_type IN ('institution', 'admin_office', 'company', 'school'))
 );
 
 -- Institution Departments (Contact Information)

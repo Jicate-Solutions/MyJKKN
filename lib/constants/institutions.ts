@@ -17,11 +17,12 @@ export const TIMETABLE_TYPES = [
   { value: 'week_order', label: 'Week Order' }
 ] as const;
 
-// Entity types: distinguishes educational institutions from admin offices and companies
+// Entity types: distinguishes educational institutions from admin offices, companies, and schools
 export const ENTITY_TYPES = [
   { value: 'institution', label: 'Institution' },
   { value: 'admin_office', label: 'Administration Office' },
-  { value: 'company', label: 'Company' }
+  { value: 'company', label: 'Company' },
+  { value: 'school', label: 'School' }
 ] as const;
 
 export const DEPARTMENT_TYPES = [
