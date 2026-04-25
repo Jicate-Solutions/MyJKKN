@@ -37,14 +37,15 @@ export async function GET(request: NextRequest) {
     // Verify institution access
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id, role')
+      .select('institution_id')
       .eq('id', user.id)
       .single();
 
     const isProfileMatch = profile?.institution_id === institutionId;
-    const isSuperAdmin = profile?.role === 'super_admin';
+    // Canonical super_admin check — RPC reads is_super_admin column via auth.uid().
+    const { data: isSuperAdmin } = await (supabase as any).rpc('is_super_admin');
 
-    let hasAccess = isProfileMatch || isSuperAdmin;
+    let hasAccess = isProfileMatch || isSuperAdmin === true;
 
     // Check custom role permissions for non-super-admins
     if (!hasAccess) {
