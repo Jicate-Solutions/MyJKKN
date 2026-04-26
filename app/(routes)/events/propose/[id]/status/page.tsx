@@ -1,14 +1,16 @@
-// Thin server component — /events/propose/[id]/status
+'use client';
+
+// Thin client wrapper — /events/propose/[id]/status
 // Per Director spec (chat-bypass-workflow-gravity §5):
 //   "Keep [id]/status as separate route, but next/dynamic-load"
 //
-// The timeline is loaded client-side via next/dynamic({ ssr: false }) so the
-// Supabase RLS fetch runs in the browser (uses the authenticated browser client)
-// rather than during SSR where the service-role context isn't available without
-// extra header passing.
+// In Next.js 16 App Router, `next/dynamic({ ssr: false })` must live in a
+// Client Component ('use client'). We use `useParams()` to get the id so
+// the Server Component wrapper is not needed.
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -18,7 +20,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-// Dynamic import: timeline fetches from Supabase browser client, no SSR needed.
+// Dynamic import with ssr: false — timeline fetches via Supabase browser client.
+// Valid here because this is a Client Component.
 const ProposalTimeline = dynamic(
   () => import('./_components/timeline'),
   {
@@ -38,12 +41,9 @@ const ProposalTimeline = dynamic(
   }
 );
 
-interface ProposalStatusPageProps {
-  params: Promise<{ id: string }>;
-}
-
-export default async function ProposalStatusPage({ params }: ProposalStatusPageProps) {
-  const { id } = await params;
+export default function ProposalStatusPage() {
+  const params = useParams();
+  const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
 
   return (
     <ContentLayout title="Proposal Status">
@@ -83,8 +83,12 @@ export default async function ProposalStatusPage({ params }: ProposalStatusPageP
             </p>
           </CardHeader>
           <CardContent>
-            {/* Timeline loads client-side — Supabase RLS browser client */}
-            <ProposalTimeline proposalId={id} />
+            {/* Timeline loads client-side via next/dynamic({ ssr: false }) */}
+            {id ? (
+              <ProposalTimeline proposalId={id} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Proposal ID not found in URL.</p>
+            )}
           </CardContent>
         </Card>
       </div>
