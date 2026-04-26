@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Star, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -10,7 +10,6 @@ import { BottomNavItem } from './bottom-nav-item';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
-import { MODULES } from '@/lib/navigation/modules';
 import {
   Sheet,
   SheetContent,
@@ -102,43 +101,33 @@ export function BottomNavMoreMenu({
   // ONE TILE PER GROUP (phone home-screen pattern).
   // Permission filter is IDENTICAL to before — `groups` is already permission-filtered.
   //
-  // Tap behavior splits by MODULES-section cardinality. Why: MODULES is the
-  // canonical "what counts as a module" registry. Counting MODULES entries
-  // per section captures peer-module semantics exactly:
-  //   - Wave-2 merged sections (Applications=2, HR=2, L&C=2) → multi-module ✓
-  //   - Sections with multiple modules where sidebar collapses some
-  //     (Administration=admin+audit-trail, System=system+my-bug-reports+
-  //     bug-leaderboard, Overview=Dashboard+AI Assistant) → multi-module ✓
-  //   - Single-module groups with deep submenus (Organization, Learners) →
-  //     single-module ✓ (lets the in-page ModuleNav handle deeper nav)
-  //   - Single-module groups with cross-domain convenience links inside
-  //     their sidebar block (Learners → /admission, /alumni links) →
-  //     single-module ✓ (URL-segment counting was wrong here)
+  // Tap behavior + chevron affordance both split by `topLevelPeers.length`:
+  //   - Single-peer group → tile navigates directly to the peer's href. No
+  //     chevron. Peer's in-page ModuleNav handles deeper navigation per
+  //     PR #486's design intent.
+  //   - Multi-peer group  → chevron in tile bottom-right. Tap opens drill-
+  //     down list view containing only the top-level peer modules (NOT
+  //     deep submenus). Mirrors the desktop sidebar grouping pattern: user
+  //     picks a peer, lands on its root, in-page tabs handle the rest.
+  //
+  // `topLevelPeers` is permission-filtered by construction (built from
+  // `matched.menus` which came from `filteredPages`). So the chevron
+  // promises ONLY what the user can actually access.
   //
   // After BOS is added to MODULES (separate PR), Academic auto-becomes
-  // multi-module without changing this code.
-  //
-  //   - Single-module group → tile navigates directly to module 0's href.
-  //   - Multi-module group  → tile opens a drill-down list view showing every
-  //     menu item in the group. Mirrors the strip-chip submenu sheet so
-  //     behavior is consistent across surfaces.
-  const modulesPerSection = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const m of MODULES) {
-      counts.set(m.section, (counts.get(m.section) ?? 0) + 1);
-    }
-    return counts;
-  }, []);
-
+  // multi-peer without changing this code — the criterion is data-driven.
   const groupTiles = groups
     .filter((g) => g.menus.length > 0)
     .map((group) => ({
       key: group.id,
       label: group.groupLabel,
       icon: group.icon,
-      href: group.menus[0].href,
-      hasMultipleModules: (modulesPerSection.get(group.groupLabel) ?? 0) > 1,
-      menus: group.menus,
+      href: group.topLevelPeers[0]?.href ?? group.menus[0].href,
+      hasMultipleModules: group.topLevelPeers.length > 1,
+      // Drill-down content: top-level peers only (Decision C from
+      // /assumption-thrash 2026-04-26). User goes peer → module root →
+      // in-page tabs handle the rest.
+      drillItems: group.topLevelPeers,
       isActive: group.menus.some(
         (m) => pathname === m.href || pathname.startsWith(m.href + '/')
       ),
@@ -183,7 +172,7 @@ export function BottomNavMoreMenu({
                 </SheetTitle>
               </button>
               <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
-                {drillGroup.menus.length} items
+                {drillGroup.drillItems.length} items
               </span>
             </>
           ) : (
@@ -206,11 +195,15 @@ export function BottomNavMoreMenu({
           `}</style>
 
           {drillGroup ? (
-            // DRILL-DOWN LIST VIEW: every module/submenu in the group, mirrors
-            // the strip-chip submenu sheet pattern so the More drawer no longer
-            // hides modules 2..N behind a tile that only navigates to module 1.
+            // DRILL-DOWN LIST VIEW: top-level peer modules only (Decision C
+            // from /assumption-thrash). User picks a peer → navigates to
+            // module root → in-page ModuleNav handles deeper navigation.
+            // This restores PR #486's "in-page tabs handle depth" design
+            // intent while still solving the original gap (peer modules 2..N
+            // were silently unreachable from the More drawer when sidebar
+            // collapsed them under one entry).
             <div className="flex flex-col gap-1">
-              {drillGroup.menus.map((menu, index) => {
+              {drillGroup.drillItems.map((menu, index) => {
                 const Icon = menu.icon;
                 const isActive =
                   pathname === menu.href ||
