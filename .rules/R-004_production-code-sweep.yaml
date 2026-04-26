@@ -1,0 +1,64 @@
+id: R-004
+name: Production-code-sweep-before-plan
+severity: block
+project_filter: MyJKKN
+related_memory: feedback_preflight_must_scan_production_code.md
+
+description: |
+  Before proposing ANY build plan, decomposition, 3-PR breakdown, module spec,
+  sprint spec, or routing to /myjkkn-api or /myjkkn-module, Claude must run the
+  production-code sweep (git ls-tree jicate/main + gh pr list + git worktree
+  list). Plan without sweep = plan is invalid. Caught 5 times in one session
+  on 2026-04-17. Encoded as CLAUDE.md NON-NEGOTIABLE.
+
+triggers:
+  - tool: Bash
+    when:
+      input_regex: "git ls-tree jicate/main.*grep|gh pr list.*Jicate-Solutions/MyJKKN"
+    check: |
+      # Mark sweep as having been run this session.
+      STATE_FILE=~/.claude/state/empirical-first/R-004.json
+      mkdir -p ~/.claude/state/empirical-first
+      [ -f "$STATE_FILE" ] || echo '{"sweeps":[]}' > "$STATE_FILE"
+      jq --arg ts "$(date +%s)" '.sweeps += [{"ts":($ts|tonumber)}]' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+      exit 0
+  - tool: SlashCommand
+    when:
+      input_regex: "(?i)/(myjkkn-chain|myjkkn-module|myjkkn-api)\\b"
+    check: |
+      STATE_FILE=~/.claude/state/empirical-first/R-004.json
+      [ -f "$STATE_FILE" ] || { exit 1; }
+      RECENT_SWEEP=$(jq -r '[.sweeps[] | select(.ts > (now - 3600))] | length' "$STATE_FILE" 2>/dev/null || echo 0)
+      if [ "$RECENT_SWEEP" -gt 0 ]; then
+        exit 0  # swept in last 60 min, allow
+      fi
+      exit 1
+    fail_message: |
+      🚫 R-004 BLOCKED: /myjkkn-{chain,module,api} invoked without production-code sweep.
+
+      CLAUDE.md NON-NEGOTIABLE: Before any build plan, decomposition, sprint
+      spec, or module routing, you must run the production-code sweep.
+
+      Run all 3 in parallel:
+
+        # 1. Code sweep — 5+ domain keywords + synonyms
+        git ls-tree jicate/main -r --name-only | grep -iE "(kw1|kw2|kw3|syn1|syn2)"
+
+        # 2. Recent PR activity
+        gh pr list --repo Jicate-Solutions/MyJKKN --state all --limit 30 \
+          --search "<keywords> in:title"
+
+        # 3. Sibling worktrees
+        git worktree list
+
+      Then INCLUDE THE OUTPUT IN THIS RESPONSE before proceeding.
+
+      Sticky test: if Omm has to ask "have you checked production?" — the rule
+      was skipped. The point is to prove you checked, in the same response as
+      the plan.
+
+      Memory: feedback_preflight_must_scan_production_code.md
+      Caught 5 times in one session (2026-04-17) when this was memory-only.
+      Now a CLAUDE.md directive.
+
+      To bypass for this command (logged): EMPIRICAL_FIRST_BYPASS=1
