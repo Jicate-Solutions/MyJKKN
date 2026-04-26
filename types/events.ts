@@ -259,3 +259,91 @@ export interface RegistrationFilters {
 export type EventsNotificationEventType =
   | 'registration_confirmed'
   | 'event_schedule_changed';
+
+// ============================================================================
+// Event Proposals (added 2026-04-26 — Stream C chat-bypass workflow-gravity)
+// Lightweight proposal intake separate from full `events` records.
+// Approved proposals promote to events rows in Phase 1B.
+// ============================================================================
+
+export type EventProposalStatus =
+  | 'submitted'
+  | 'reviewing'
+  | 'approved'
+  | 'rejected'
+  | 'withdrawn';
+
+export type EventProposalBudgetBand =
+  | '0'
+  | '<10K'
+  | '10K-50K'
+  | '50K-1L'
+  | '>1L';
+
+export type EventProposalAudience =
+  | 'Learners'
+  | 'Staff'
+  | 'Parents'
+  | 'External'
+  | 'Mixed';
+
+/** Matches the event_proposals table schema exactly. */
+export interface EventProposal {
+  id: string;
+  institution_id: string;
+  // Submitter (pre-filled from auth.uid())
+  proposer_id: string;
+  sender_role: string | null;
+  sender_email: string | null;
+  contact_phone: string | null;
+  // Visible fields (3 shown by default per spec §5)
+  title: string;
+  event_date: string | null;  // DATE stored as ISO string
+  venue: string | null;
+  audience: EventProposalAudience[];
+  // Progressive disclosure
+  expected_attendance: number | null;
+  budget_band: EventProposalBudgetBand | null;
+  // Workflow
+  status: EventProposalStatus;
+  source: string;
+  decision_notes: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  // Audit
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Payload sent when submitting a new proposal (proposer_id filled server-side). */
+export interface CreateEventProposalDto {
+  institution_id: string;
+  title: string;
+  event_date?: string;
+  venue?: string;
+  audience?: EventProposalAudience[];
+  expected_attendance?: number;
+  budget_band?: EventProposalBudgetBand;
+  contact_phone?: string;
+}
+
+export const EVENT_PROPOSAL_STATUS_LABELS: Record<EventProposalStatus, string> = {
+  submitted: 'Submitted',
+  reviewing: 'Under Review',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  withdrawn: 'Withdrawn',
+};
+
+export const EVENT_PROPOSAL_AUDIENCE_OPTIONS: EventProposalAudience[] = [
+  'Learners', 'Staff', 'Parents', 'External', 'Mixed',
+];
+
+export const EVENT_PROPOSAL_BUDGET_BANDS: { value: EventProposalBudgetBand; label: string }[] = [
+  { value: '0',       label: 'No budget' },
+  { value: '<10K',    label: 'Under ₹10K' },
+  { value: '10K-50K', label: '₹10K – ₹50K' },
+  { value: '50K-1L',  label: '₹50K – ₹1L' },
+  { value: '>1L',     label: 'Above ₹1L' },
+];
