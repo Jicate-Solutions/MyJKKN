@@ -32,6 +32,10 @@
       "schedule": "3 3 * * *"
     },
     {
+      "path": "/api/dashboard/cron/decisions-verdict-check",
+      "schedule": "0 4 * * *"
+    },
+    {
       "path": "/api/cron/sunday-wrap?secret=${CRON_SECRET}",
       "schedule": "30 15 * * 0"
     },

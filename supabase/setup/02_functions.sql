@@ -9796,3 +9796,489 @@ BEGIN
   NEW.updated_at := NOW();
   RETURN NEW;
 END $$;
+
+-- ================================================================================
+-- Updated: 2026-04-26 - Added decisions-spec Sprint 1 verdict engine
+-- ================================================================================
+-- fn_decision_outcome_check() — Nightly verdict grader for director_decisions.
+-- Reference: specs/decisions-spec.md §5 (90-day outcome verdict — system-computed)
+--            and §9 Sprint 1.
+--
+-- SECURITY-CRITICAL DESIGN:
+--   The `formula` field on outcome_metric_query is Director-authored TEXT inside
+--   JSONB. It is NEVER concatenated into SQL or executed dynamically. Instead this
+--   function dispatches on outcome_metric_query->>'metric' to a HARDCODED CTE per
+--   whitelisted metric. JSONB only supplies parameters (institution_id, scope,
+--   target_value, target_delta_pct, etc.) — never SQL fragments.
+--
+-- Whitelist of metrics handled in v1:
+--   - admission_funnel_conversion_rate
+--   - enrolments_per_counselor_per_month
+--   - median_hours_lead_to_first_activity
+--   - enrolments_from_education_fair_top_tier
+--   - compliance_evidence_coverage_pct_across_10_bodies
+--
+-- Sentinel: any formula containing the literal string 'TBD_AT_VERDICT_TIME' is
+-- the spec §11 bounded-defer marker (D4) — engine emits a "manual verdict
+-- required" work item and KEEPS the row in pending_outcome. It does not flip
+-- to outcome_recorded; Director records the verdict by hand.
+--
+-- INCOMPUTABLE path: unknown metric, missing source column/table, or any
+-- evaluation exception → status stays pending_outcome, verdict_notes records
+-- the failure, work item informs Director.
+--
+-- Composite predictions (e.g. D1) carry `metrics: [...]` plus `composite`
+-- ('all_must_hit' | 'any_must_hit'). Engine resolves each sub-metric, then
+-- combines per the composite rule.
+--
+-- Idempotency: notification idempotency_key is
+--   'decision_verdict:' || decision_id || ':' || to_char(outcome_due_at,'YYYY-MM-DD').
+-- Re-running cron the same day after a successful grade is safe — fn_create_
+-- dashboard_work_item early-returns 0 if the key already exists.
+--
+-- Returns: count of decisions touched (graded OR flagged INCOMPUTABLE OR routed
+-- to manual). A no-op pass returns 0.
+-- ================================================================================
+CREATE OR REPLACE FUNCTION fn_decision_outcome_check()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_verdict$
+DECLARE
+  v_touched INT := 0;
+  v_decision RECORD;
+  v_query JSONB;
+  v_metric TEXT;
+  v_formula TEXT;
+  v_actual NUMERIC;
+  v_correct BOOLEAN;
+  v_notes TEXT;
+  v_idem_key TEXT;
+  v_title TEXT;
+  v_body TEXT;
+  v_priority TEXT;
+  -- Composite handling
+  v_is_composite BOOLEAN;
+  v_composite_rule TEXT;
+  v_sub JSONB;
+  v_sub_metric TEXT;
+  v_sub_formula TEXT;
+  v_sub_actual NUMERIC;
+  v_sub_correct BOOLEAN;
+  v_sub_notes TEXT;
+  v_all_correct BOOLEAN;
+  v_any_correct BOOLEAN;
+  v_sub_count INT;
+  v_aggregate_value NUMERIC;
+  -- Common params extracted from JSONB
+  v_target_value NUMERIC;
+  v_target_delta_pct NUMERIC;
+  v_comparison TEXT;
+  v_scope TEXT;
+  v_institution_id UUID;
+  v_baseline NUMERIC;
+  -- Whitelist enum to keep dispatch readable
+  v_handled BOOLEAN;
+BEGIN
+  FOR v_decision IN
+    SELECT id, director_user_id, outcome_metric_query, outcome_due_at, title
+    FROM director_decisions
+    WHERE status = 'pending_outcome'
+      AND outcome_due_at <= NOW()
+    ORDER BY outcome_due_at ASC
+    LIMIT 100
+  LOOP
+    v_query := v_decision.outcome_metric_query;
+    v_idem_key := 'decision_verdict:' || v_decision.id::text
+                  || ':' || TO_CHAR(v_decision.outcome_due_at, 'YYYY-MM-DD');
+    v_actual := NULL;
+    v_correct := NULL;
+    v_notes := NULL;
+    v_handled := FALSE;
+    v_aggregate_value := NULL;
+
+    -- Manual-verdict sentinel: top-level formula contains 'TBD_AT_VERDICT_TIME'
+    -- per spec §11 bounded-defer pattern. D4 (role-private) uses this. Status
+    -- stays pending_outcome; Director records the verdict by hand.
+    v_formula := COALESCE(v_query->>'formula', '');
+    IF v_formula LIKE '%TBD_AT_VERDICT_TIME%' THEN
+      v_title := 'Manual verdict required — ' || COALESCE(v_decision.title, 'decision');
+      v_body  := 'Manual verdict required for decision ' || v_decision.id::text
+              || ' — formula was intentionally non-computable per spec §11 bounded-defer pattern. '
+              || 'Open the decision and record actual_outcome_value + prediction_correct by hand.';
+      v_priority := 'high';
+      PERFORM fn_create_dashboard_work_item(
+        'dashboard:approval', v_priority, v_title, v_body,
+        jsonb_build_object(
+          'url', '/dashboard',
+          'decision_id', v_decision.id,
+          'kind', 'manual_verdict_required'),
+        v_decision.director_user_id, v_idem_key, 168);
+      UPDATE director_decisions
+      SET verdict_notes = COALESCE(verdict_notes, '')
+                          || E'\n[' || NOW()::text || '] Manual verdict required (TBD_AT_VERDICT_TIME sentinel).'
+      WHERE id = v_decision.id;
+      v_touched := v_touched + 1;
+      CONTINUE;
+    END IF;
+
+    -- Composite vs single
+    v_is_composite := (v_query ? 'metrics') AND jsonb_typeof(v_query->'metrics') = 'array';
+    v_composite_rule := COALESCE(v_query->>'composite', 'all_must_hit');
+
+    -- Common params
+    v_scope            := COALESCE(v_query->>'scope', 'institution');
+    v_institution_id   := NULLIF(v_query->>'institution_id', '')::UUID;
+    v_target_value     := NULLIF(v_query->>'target_value', '')::NUMERIC;
+    v_target_delta_pct := NULLIF(v_query->>'target_delta_pct', '')::NUMERIC;
+    v_comparison       := COALESCE(v_query->>'comparison', 'absolute_gte');
+
+    BEGIN
+      IF NOT v_is_composite THEN
+        v_metric := v_query->>'metric';
+        SELECT * FROM fn_decision_resolve_metric(v_metric, v_query, v_decision.outcome_due_at)
+          INTO v_sub_actual, v_sub_correct, v_sub_notes, v_handled;
+
+        IF NOT v_handled THEN
+          v_notes := 'Verdict INCOMPUTABLE: unknown metric ' || COALESCE(v_metric, '<null>')
+                     || '. Whitelist metrics: admission_funnel_conversion_rate, '
+                     || 'enrolments_per_counselor_per_month, median_hours_lead_to_first_activity, '
+                     || 'enrolments_from_education_fair_top_tier, '
+                     || 'compliance_evidence_coverage_pct_across_10_bodies.';
+        ELSE
+          v_actual := v_sub_actual;
+          v_correct := v_sub_correct;
+          v_notes := v_sub_notes;
+        END IF;
+      ELSE
+        -- Composite: iterate sub-metrics
+        v_all_correct := TRUE;
+        v_any_correct := FALSE;
+        v_sub_count := 0;
+        v_notes := 'Composite (' || v_composite_rule || ') sub-metrics: ';
+        FOR v_sub IN SELECT * FROM jsonb_array_elements(v_query->'metrics') LOOP
+          v_sub_count := v_sub_count + 1;
+          v_sub_metric := v_sub->>'metric';
+          v_sub_formula := COALESCE(v_sub->>'formula', '');
+          IF v_sub_formula LIKE '%TBD_AT_VERDICT_TIME%' THEN
+            -- A sub-metric marked TBD makes the composite incomputable
+            v_notes := v_notes || E'\n  - ' || v_sub_metric || ': TBD_AT_VERDICT_TIME (incomputable)';
+            v_handled := FALSE;
+            v_all_correct := NULL;
+            EXIT;
+          END IF;
+          SELECT * FROM fn_decision_resolve_metric(v_sub_metric, v_sub, v_decision.outcome_due_at)
+            INTO v_sub_actual, v_sub_correct, v_sub_notes, v_handled;
+          IF NOT v_handled THEN
+            v_notes := v_notes || E'\n  - ' || v_sub_metric || ': INCOMPUTABLE (' || COALESCE(v_sub_notes, 'unknown metric') || ')';
+            v_all_correct := NULL;
+            EXIT;
+          END IF;
+          v_notes := v_notes || E'\n  - ' || v_sub_metric || ': actual=' || COALESCE(v_sub_actual::text, 'null')
+                     || ', correct=' || COALESCE(v_sub_correct::text, 'null')
+                     || ' (' || COALESCE(v_sub_notes, '') || ')';
+          IF v_sub_correct IS TRUE THEN
+            v_any_correct := TRUE;
+          ELSIF v_sub_correct IS FALSE THEN
+            v_all_correct := FALSE;
+          END IF;
+          -- For composites, store the LAST sub-metric value as actual_outcome_value
+          -- (advisory only; the verdict is the boolean across all subs)
+          v_aggregate_value := v_sub_actual;
+        END LOOP;
+        IF v_handled AND v_all_correct IS NOT NULL THEN
+          v_correct := CASE v_composite_rule
+                         WHEN 'all_must_hit' THEN v_all_correct
+                         WHEN 'any_must_hit' THEN v_any_correct
+                         ELSE v_all_correct
+                       END;
+          v_actual := v_aggregate_value;
+        ELSE
+          -- Composite was incomputable → INCOMPUTABLE path
+          v_handled := FALSE;
+        END IF;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      v_handled := FALSE;
+      v_notes := 'Verdict INCOMPUTABLE: ' || SQLERRM
+                 || ' (SQLSTATE ' || SQLSTATE || ').';
+    END;
+
+    IF v_handled THEN
+      -- Successful grade — flip to outcome_recorded
+      UPDATE director_decisions
+      SET status                       = 'outcome_recorded',
+          actual_outcome_value         = v_actual,
+          actual_outcome_recorded_at   = NOW(),
+          prediction_correct           = v_correct,
+          verdict_notes                = COALESCE(v_notes, '')
+      WHERE id = v_decision.id;
+
+      v_title := CASE WHEN v_correct IS TRUE THEN 'Verdict: CORRECT — ' ELSE 'Verdict: WRONG — ' END
+                 || COALESCE(v_decision.title, 'decision');
+      v_body  := 'Decision ' || v_decision.id::text || ' graded. '
+              || 'Predicted outcome: ' || COALESCE(v_query->>'comparison', '?')
+              || ' target ' || COALESCE(v_query->>'target_value', v_query->>'target_delta_pct', '?')
+              || '. Actual: ' || COALESCE(v_actual::text, 'null')
+              || '. Verdict: ' || CASE WHEN v_correct IS TRUE THEN 'correct' ELSE 'wrong' END || '.';
+      v_priority := CASE WHEN v_correct IS TRUE THEN 'normal' ELSE 'high' END;
+    ELSE
+      -- INCOMPUTABLE — keep pending_outcome, append diagnostic note
+      UPDATE director_decisions
+      SET verdict_notes = COALESCE(verdict_notes, '')
+                          || E'\n[' || NOW()::text || '] ' || COALESCE(v_notes, 'INCOMPUTABLE')
+      WHERE id = v_decision.id;
+      v_title := 'Verdict INCOMPUTABLE — ' || COALESCE(v_decision.title, 'decision');
+      v_body  := 'Decision ' || v_decision.id::text || ' could not be auto-graded. '
+              || COALESCE(v_notes, 'Unknown error.')
+              || ' Status remains pending_outcome; review and re-frame the metric or record manually.';
+      v_priority := 'high';
+    END IF;
+
+    PERFORM fn_create_dashboard_work_item(
+      'dashboard:approval', v_priority, v_title, v_body,
+      jsonb_build_object(
+        'url', '/dashboard',
+        'decision_id', v_decision.id,
+        'kind', CASE WHEN v_handled THEN 'verdict_recorded' ELSE 'verdict_incomputable' END,
+        'prediction_correct', v_correct),
+      v_decision.director_user_id, v_idem_key, 168);
+
+    v_touched := v_touched + 1;
+  END LOOP;
+
+  RETURN v_touched;
+END $fn_verdict$;
+
+REVOKE ALL ON FUNCTION fn_decision_outcome_check() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_decision_outcome_check() TO service_role;
+
+-- ================================================================================
+-- fn_decision_resolve_metric() — Whitelisted metric resolver for the verdict engine.
+-- Returns (actual NUMERIC, correct BOOLEAN, notes TEXT, handled BOOLEAN).
+-- handled = FALSE means the metric name was not in the whitelist OR a runtime
+-- error caught here propagates as INCOMPUTABLE.
+--
+-- The function is SECURITY DEFINER + search_path=public. JSONB params drive
+-- WHERE filters (institution_id, target_value, target_delta_pct, comparison),
+-- never SQL fragments. Each branch is a hardcoded CTE.
+-- ================================================================================
+CREATE OR REPLACE FUNCTION fn_decision_resolve_metric(
+  p_metric TEXT,
+  p_query  JSONB,
+  p_due_at TIMESTAMPTZ
+) RETURNS TABLE (
+  actual   NUMERIC,
+  correct  BOOLEAN,
+  notes    TEXT,
+  handled  BOOLEAN
+) LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_resolve$
+DECLARE
+  v_actual           NUMERIC;
+  v_correct          BOOLEAN;
+  v_notes            TEXT;
+  v_target_value     NUMERIC;
+  v_target_delta_pct NUMERIC;
+  v_comparison       TEXT;
+  v_institution_id   UUID;
+  v_scope            TEXT;
+  v_baseline         NUMERIC;
+  v_window_start     TIMESTAMPTZ;
+  v_window_end       TIMESTAMPTZ;
+  v_baseline_start   TIMESTAMPTZ;
+  v_baseline_end     TIMESTAMPTZ;
+  v_count_top_tier   INT;
+  v_total_evidence   INT;
+  v_bodies_covered   INT;
+BEGIN
+  v_target_value     := NULLIF(p_query->>'target_value', '')::NUMERIC;
+  v_target_delta_pct := NULLIF(p_query->>'target_delta_pct', '')::NUMERIC;
+  v_comparison       := COALESCE(p_query->>'comparison', 'absolute_gte');
+  v_scope            := COALESCE(p_query->>'scope', 'institution');
+  v_institution_id   := NULLIF(p_query->>'institution_id', '')::UUID;
+
+  -- 30-day window ending at outcome_due_at; baseline 30 days preceding decision.
+  -- If baseline window unspecified, defaults to 30 days before window_start.
+  v_window_end   := p_due_at;
+  v_window_start := p_due_at - INTERVAL '30 days';
+  v_baseline_end := v_window_start;
+  v_baseline_start := v_window_start - INTERVAL '30 days';
+
+  IF p_metric = 'admission_funnel_conversion_rate' THEN
+    -- enrolled / total leads in window. Optionally institution-scoped.
+    WITH leads AS (
+      SELECT COUNT(*) FILTER (WHERE funnel_stage = 'enrolled') AS enrolled,
+             COUNT(*) AS total
+      FROM admission_leads
+      WHERE created_at >= v_window_start AND created_at < v_window_end
+        AND (v_institution_id IS NULL OR institution_id = v_institution_id)
+    ), baseline AS (
+      SELECT COUNT(*) FILTER (WHERE funnel_stage = 'enrolled') AS enrolled,
+             COUNT(*) AS total
+      FROM admission_leads
+      WHERE created_at >= v_baseline_start AND created_at < v_baseline_end
+        AND (v_institution_id IS NULL OR institution_id = v_institution_id)
+    )
+    SELECT
+      CASE WHEN l.total = 0 THEN 0 ELSE ROUND(100.0 * l.enrolled / l.total, 2) END,
+      CASE WHEN b.total = 0 THEN 0 ELSE ROUND(100.0 * b.enrolled / b.total, 2) END
+    INTO v_actual, v_baseline
+    FROM leads l, baseline b;
+
+    IF v_comparison = 'delta_pct_gte' AND v_target_delta_pct IS NOT NULL THEN
+      v_correct := (v_baseline > 0) AND ((v_actual - v_baseline) / v_baseline * 100.0 >= v_target_delta_pct);
+      v_notes := 'admission_funnel_conversion_rate: actual=' || v_actual::text
+              || '%, baseline=' || v_baseline::text || '%, delta_target=' || v_target_delta_pct::text || '%';
+    ELSIF v_comparison = 'absolute_gte' AND v_target_value IS NOT NULL THEN
+      v_correct := (v_actual >= v_target_value);
+      v_notes := 'admission_funnel_conversion_rate: actual=' || v_actual::text || '%, target=' || v_target_value::text || '%';
+    ELSE
+      v_correct := NULL;
+      v_notes := 'admission_funnel_conversion_rate computed (' || v_actual::text || '%) but comparison/target unspecified';
+    END IF;
+    RETURN QUERY SELECT v_actual, v_correct, v_notes, TRUE;
+    RETURN;
+
+  ELSIF p_metric = 'enrolments_per_counselor_per_month' THEN
+    -- enrolments in 30d window / distinct counselors. NULL counselor excluded.
+    WITH src AS (
+      SELECT counselor_id, COUNT(*) AS enrolled
+      FROM admission_leads
+      WHERE funnel_stage = 'enrolled'
+        AND COALESCE(updated_at, created_at) >= v_window_start
+        AND COALESCE(updated_at, created_at) < v_window_end
+        AND counselor_id IS NOT NULL
+        AND (v_institution_id IS NULL OR institution_id = v_institution_id)
+      GROUP BY counselor_id
+    )
+    SELECT COALESCE(ROUND(AVG(enrolled)::numeric, 2), 0) INTO v_actual FROM src;
+
+    IF v_comparison = 'absolute_gte' AND v_target_value IS NOT NULL THEN
+      v_correct := (v_actual >= v_target_value);
+      v_notes := 'enrolments_per_counselor_per_month: actual=' || v_actual::text || ', target=' || v_target_value::text;
+    ELSE
+      v_correct := NULL;
+      v_notes := 'enrolments_per_counselor_per_month computed (' || v_actual::text || ') but comparison/target unspecified';
+    END IF;
+    RETURN QUERY SELECT v_actual, v_correct, v_notes, TRUE;
+    RETURN;
+
+  ELSIF p_metric = 'median_hours_lead_to_first_activity' THEN
+    -- Median hours from lead created → first activity. Uses admission_leads.first_touch_at
+    -- if present; otherwise falls back to MIN(admission_lead_activities.created_at) JOIN.
+    WITH durations AS (
+      SELECT EXTRACT(EPOCH FROM (
+               COALESCE(
+                 al.first_touch_at,
+                 (SELECT MIN(ala.created_at)
+                  FROM admission_lead_activities ala
+                  WHERE ala.lead_id = al.id)
+               ) - al.created_at
+             )) / 3600.0 AS hrs
+      FROM admission_leads al
+      WHERE al.created_at >= v_window_start AND al.created_at < v_window_end
+        AND (v_institution_id IS NULL OR al.institution_id = v_institution_id)
+    )
+    SELECT ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY hrs)::numeric, 2)
+      INTO v_actual
+    FROM durations
+    WHERE hrs IS NOT NULL AND hrs >= 0;
+
+    v_actual := COALESCE(v_actual, 0);
+    IF v_comparison = 'absolute_lte' AND v_target_value IS NOT NULL THEN
+      v_correct := (v_actual <= v_target_value);
+      v_notes := 'median_hours_lead_to_first_activity: actual=' || v_actual::text || 'h, target<=' || v_target_value::text || 'h';
+    ELSIF v_comparison = 'absolute_gte' AND v_target_value IS NOT NULL THEN
+      v_correct := (v_actual >= v_target_value);
+      v_notes := 'median_hours_lead_to_first_activity: actual=' || v_actual::text || 'h, target>=' || v_target_value::text || 'h';
+    ELSE
+      v_correct := NULL;
+      v_notes := 'median_hours_lead_to_first_activity computed (' || v_actual::text || 'h) but comparison/target unspecified';
+    END IF;
+    RETURN QUERY SELECT v_actual, v_correct, v_notes, TRUE;
+    RETURN;
+
+  ELSIF p_metric = 'enrolments_from_education_fair_top_tier' THEN
+    -- D2 metric: enrolments where source='education_fair' AND score in top tier
+    -- (per spec the tier is "top_1500_to_2000_by_score"). admission_leads.score
+    -- is NUMERIC; we use it as the ranking signal. If `triage_score` were the
+    -- intended column it does not exist on prod (validated 2026-04-26) — the
+    -- function falls back to `score` and notes the substitution.
+    BEGIN
+      SELECT COUNT(*) INTO v_count_top_tier
+      FROM (
+        SELECT id, score
+        FROM admission_leads
+        WHERE source = 'education_fair'
+          AND funnel_stage = 'enrolled'
+          AND COALESCE(updated_at, created_at) < v_window_end
+          AND (v_institution_id IS NULL OR institution_id = v_institution_id)
+        ORDER BY score DESC NULLS LAST
+        OFFSET 1500 LIMIT 500
+      ) t;
+      v_actual := COALESCE(v_count_top_tier, 0);
+    EXCEPTION WHEN undefined_column THEN
+      RETURN QUERY SELECT NULL::NUMERIC, NULL::BOOLEAN,
+        'enrolments_from_education_fair_top_tier: source column missing on admission_leads — '
+        || 'spec referenced triage_score which does not exist; verify column inventory.'::TEXT,
+        FALSE;
+      RETURN;
+    END;
+
+    IF v_comparison = 'absolute_gte' AND v_target_value IS NOT NULL THEN
+      v_correct := (v_actual >= v_target_value);
+      v_notes := 'enrolments_from_education_fair_top_tier: actual=' || v_actual::text
+              || ', target>=' || v_target_value::text
+              || ' (ranked by admission_leads.score; triage_score absent on prod)';
+    ELSE
+      v_correct := NULL;
+      v_notes := 'enrolments_from_education_fair_top_tier computed (' || v_actual::text || ') but comparison/target unspecified';
+    END IF;
+    RETURN QUERY SELECT v_actual, v_correct, v_notes, TRUE;
+    RETURN;
+
+  ELSIF p_metric = 'compliance_evidence_coverage_pct_across_10_bodies' THEN
+    -- D3 metric: number of distinct compliance bodies with at least one evidence
+    -- mapping → as % of 10. Spec referenced quality_evidence_mappings +
+    -- accreditation_indicators; the latter does not exist on prod
+    -- (sh_accreditation_metrics is the closest analog). v1 grades by
+    -- distinct body_code presence in quality_evidence_mappings only.
+    BEGIN
+      SELECT COUNT(DISTINCT body_code), COUNT(*) INTO v_bodies_covered, v_total_evidence
+      FROM quality_evidence_mappings
+      WHERE mapped_at < v_window_end
+        AND (v_institution_id IS NULL OR institution_id = v_institution_id);
+    EXCEPTION WHEN undefined_table THEN
+      RETURN QUERY SELECT NULL::NUMERIC, NULL::BOOLEAN,
+        'compliance_evidence_coverage_pct_across_10_bodies: quality_evidence_mappings table missing.'::TEXT,
+        FALSE;
+      RETURN;
+    END;
+
+    v_actual := ROUND(100.0 * COALESCE(v_bodies_covered, 0) / 10.0, 2);
+
+    IF v_comparison = 'delta_pct_gte' AND v_target_delta_pct IS NOT NULL THEN
+      -- For coverage we treat target_delta_pct as "absolute coverage % must be >= this"
+      -- since baseline coverage prior to instrumentation is effectively 0%.
+      v_correct := (v_actual >= v_target_delta_pct);
+      v_notes := 'compliance_evidence_coverage_pct_across_10_bodies: actual=' || v_actual::text
+              || '% (' || COALESCE(v_bodies_covered,0)::text || '/10 bodies, '
+              || COALESCE(v_total_evidence,0)::text || ' rows), target>=' || v_target_delta_pct::text || '%';
+    ELSIF v_comparison = 'absolute_gte' AND v_target_value IS NOT NULL THEN
+      v_correct := (v_actual >= v_target_value);
+      v_notes := 'compliance_evidence_coverage_pct_across_10_bodies: actual=' || v_actual::text
+              || '%, target>=' || v_target_value::text || '%';
+    ELSE
+      v_correct := NULL;
+      v_notes := 'compliance_evidence_coverage_pct_across_10_bodies computed ('
+              || v_actual::text || '%) but comparison/target unspecified';
+    END IF;
+    RETURN QUERY SELECT v_actual, v_correct, v_notes, TRUE;
+    RETURN;
+  END IF;
+
+  -- Unknown metric — caller decides INCOMPUTABLE messaging
+  RETURN QUERY SELECT NULL::NUMERIC, NULL::BOOLEAN,
+    ('unknown metric: ' || COALESCE(p_metric, '<null>'))::TEXT, FALSE;
+  RETURN;
+END $fn_resolve$;
+
+REVOKE ALL ON FUNCTION fn_decision_resolve_metric(TEXT, JSONB, TIMESTAMPTZ) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_decision_resolve_metric(TEXT, JSONB, TIMESTAMPTZ) TO service_role;
