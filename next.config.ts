@@ -93,6 +93,22 @@ const nextConfig: NextConfig = {
     ]
   },
 
+  // 2026-04-26 — Disable webpack persistent (filesystem) cache for production
+  // builds. Vercel restores `.next/cache` from prior deploy; webpack
+  // deserializes, augments, then re-serializes — and the serialized string
+  // exceeds V8's max string length (~512 MB) once compiled output crosses a
+  // threshold, throwing `RangeError: Invalid string length` from
+  // PackFileCacheStrategy. Local builds (no cache restore) succeed; only
+  // restored-cache builds fail. Memory cache is fresh each build, slightly
+  // slower (cold compile every time) but cannot hit string-overflow.
+  // Reference: https://github.com/webpack/webpack/issues/14914
+  webpack: (config, { dev }) => {
+    if (!dev && config.cache) {
+      config.cache = { type: 'memory' };
+    }
+    return config;
+  },
+
   images: {
     remotePatterns: [
       {
