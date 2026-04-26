@@ -110,6 +110,12 @@ const nextConfig: NextConfig = {
   // is OFF — that flag spawns webpack in a worker thread that doesn't
   // receive function-typed config from the main thread.
   webpack: (config, { dev }) => {
+    // Step 2.6 (myjkkn-chain): console.log at top of webpack callback proves
+    // this function is actually running — i.e. webpackBuildWorker is OFF.
+    // If this line does NOT appear in the Vercel build log, the callback is
+    // being silently dropped (worker-thread postMessage strips functions).
+    // See memory: feedback_webpack_build_worker_bypasses_user_callback.md
+    console.log('[webpack-cfg] cache disabled in production — Stream C 2026-04-26');
     if (!dev) {
       config.cache = false;
     }

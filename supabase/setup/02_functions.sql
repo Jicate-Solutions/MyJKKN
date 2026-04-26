@@ -9712,6 +9712,83 @@ END $fn_all$;
 REVOKE ALL ON FUNCTION fn_generate_all_dashboard_work_items() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION fn_generate_all_dashboard_work_items() TO service_role;
 
+-- Updated: 2026-04-26 - Stream C: event proposal queue generator.
+-- Surfaces pending event_proposals to the Director dashboard after a 4-hour
+-- grace window. Urgency tiers: event in ≤3 days → urgent; pending >48h → high.
+-- Idempotency key: event_proposal:<id>:<CURRENT_DATE>
+-- Routes via fn_resolve_dashboard_target (super_admin fallback from Stream A).
+CREATE OR REPLACE FUNCTION fn_generate_event_proposal_items()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_evt$
+DECLARE
+  v_created INT := 0; v_evt RECORD; v_key TEXT; v_target UUID;
+BEGIN
+  FOR v_evt IN
+    SELECT id, title, event_date, venue, proposer_id, institution_id,
+           EXTRACT(EPOCH FROM (NOW() - created_at))/3600 AS hours_pending
+    FROM event_proposals
+    WHERE status IN ('submitted','reviewing')
+      AND created_at < NOW() - INTERVAL '4 hours'
+      AND created_at > NOW() - INTERVAL '60 days'
+    ORDER BY event_date ASC NULLS LAST, created_at ASC
+    LIMIT 50
+  LOOP
+    -- Always route to Director (super_admin) since events propose flow is Director-approved
+    v_target := fn_resolve_dashboard_target(v_evt.institution_id);
+    IF v_target IS NULL THEN CONTINUE; END IF;
+    v_key := 'event_proposal:' || v_evt.id::text || ':' || CURRENT_DATE::text;
+    v_created := v_created + fn_create_dashboard_work_item(
+      'dashboard:approval',
+      CASE WHEN v_evt.event_date <= CURRENT_DATE + 3 THEN 'urgent'
+           WHEN v_evt.hours_pending > 48 THEN 'high'
+           ELSE 'normal' END,
+      'Event proposal: ' || v_evt.title,
+      'Venue: ' || COALESCE(v_evt.venue, 'TBD') || ' | Date: ' || COALESCE(v_evt.event_date::text, 'TBD'),
+      jsonb_build_object('proposal_id', v_evt.id, 'title', v_evt.title,
+        'url', '/events/propose/' || v_evt.id::text || '/status'),
+      v_target, v_key,
+      CASE WHEN v_evt.event_date <= CURRENT_DATE + 3 THEN 4 ELSE 24 END
+    );
+  END LOOP;
+  RETURN v_created;
+END $fn_evt$;
+
+REVOKE ALL ON FUNCTION fn_generate_event_proposal_items() FROM PUBLIC, anon, authenticated;
+
+-- Updated: 2026-04-26 - Wire event proposal generator into orchestrator (Stream C).
+CREATE OR REPLACE FUNCTION fn_generate_all_dashboard_work_items()
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_all$
+DECLARE r1 INT := 0; e1 TEXT := NULL; r2 INT := 0; e2 TEXT := NULL;
+        r3 INT := 0; e3 TEXT := NULL; r4 INT := 0; e4 TEXT := NULL;
+        r5 INT := 0; e5 TEXT := NULL; r6 INT := 0; e6 TEXT := NULL;
+        r7 INT := 0; e7 TEXT := NULL; r8 INT := 0; e8 TEXT := NULL;
+        r9 INT := 0; e9 TEXT := NULL;
+BEGIN
+  BEGIN r1 := fn_generate_overdue_invoice_items();              EXCEPTION WHEN OTHERS THEN e1 := SQLERRM; END;
+  BEGIN r2 := fn_generate_stale_lead_rescue_items();            EXCEPTION WHEN OTHERS THEN e2 := SQLERRM; END;
+  BEGIN r3 := fn_generate_pending_leave_approval_items();       EXCEPTION WHEN OTHERS THEN e3 := SQLERRM; END;
+  BEGIN r4 := fn_generate_unmarked_attendance_items();          EXCEPTION WHEN OTHERS THEN e4 := SQLERRM; END;
+  BEGIN r5 := fn_generate_recruitment_approval_items();         EXCEPTION WHEN OTHERS THEN e5 := SQLERRM; END;
+  BEGIN r6 := fn_generate_service_request_approval_items();     EXCEPTION WHEN OTHERS THEN e6 := SQLERRM; END;
+  BEGIN r7 := fn_generate_unresolved_bug_items();               EXCEPTION WHEN OTHERS THEN e7 := SQLERRM; END;
+  BEGIN r8 := fn_generate_unresolved_grievance_items();         EXCEPTION WHEN OTHERS THEN e8 := SQLERRM; END;
+  BEGIN r9 := fn_generate_event_proposal_items();               EXCEPTION WHEN OTHERS THEN e9 := SQLERRM; END;
+  RETURN jsonb_build_object(
+    'generated_at', NOW(),
+    'overdue_invoices',      jsonb_build_object('count', r1, 'error', e1),
+    'stale_leads',           jsonb_build_object('count', r2, 'error', e2),
+    'pending_leaves',        jsonb_build_object('count', r3, 'error', e3),
+    'unmarked_attendance',   jsonb_build_object('count', r4, 'error', e4),
+    'recruitment_approvals', jsonb_build_object('count', r5, 'error', e5),
+    'service_requests',      jsonb_build_object('count', r6, 'error', e6),
+    'unresolved_bugs',       jsonb_build_object('count', r7, 'error', e7),
+    'grievances',            jsonb_build_object('count', r8, 'error', e8),
+    'event_proposals',       jsonb_build_object('count', r9, 'error', e9),
+    'total', r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8 + r9);
+END $fn_all$;
+
+REVOKE ALL ON FUNCTION fn_generate_all_dashboard_work_items() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_generate_all_dashboard_work_items() TO service_role;
+
 -- Updated: 2026-04-25 - Extend super-admin daily digest with 3 new categories.
 -- Director (super_admin) sees one rolled-up row per category per day in the queue.
 -- Combines pending leaves + recruitment + service requests under dashboard:approval.

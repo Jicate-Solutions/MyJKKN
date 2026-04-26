@@ -4689,3 +4689,61 @@ CREATE INDEX IF NOT EXISTS idx_director_decisions_director
   ON director_decisions(director_user_id, decision_made_at DESC);
 
 ALTER TABLE director_decisions ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================
+-- Updated: 2026-04-26 - Stream C: Events Propose v2 — chat-bypass workflow-gravity
+-- Table: event_proposals
+-- Purpose: Lightweight proposal intake (3-field mobile-first form) feeding
+--          Director approval queue. Separate from `events` (full event record);
+--          approved proposals promote to events rows in Phase 1B.
+-- =====================================================
+CREATE TABLE IF NOT EXISTS event_proposals (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id  UUID NOT NULL REFERENCES institutions(id),
+  -- Submitter (pre-filled from auth.uid())
+  proposer_id     UUID NOT NULL REFERENCES profiles(id),
+  sender_role     VARCHAR(50),
+  sender_email    VARCHAR(255),
+  contact_phone   VARCHAR(50),
+  -- Visible fields (3 shown by default per spec §5)
+  title           VARCHAR(80) NOT NULL,
+  event_date      DATE,
+  venue           VARCHAR(200),
+  audience        TEXT[] DEFAULT '{}',  -- subset of {Learners, Staff, Parents, External, Mixed}
+  -- Progressive disclosure (only shown when asker taps "Add details")
+  expected_attendance INT,
+  budget_band     VARCHAR(20),  -- '0','<10K','10K-50K','50K-1L','>1L'
+  -- Workflow
+  status          VARCHAR(30) NOT NULL DEFAULT 'submitted'
+    CHECK (status IN ('submitted','reviewing','approved','rejected','withdrawn')),
+  source          VARCHAR(50) NOT NULL DEFAULT 'form_intake',
+  decision_notes  TEXT,
+  decided_by      UUID REFERENCES profiles(id),
+  decided_at      TIMESTAMPTZ,
+  -- Audit
+  metadata        JSONB DEFAULT '{}',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_proposals_status ON event_proposals(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_event_proposals_proposer ON event_proposals(proposer_id);
+CREATE INDEX IF NOT EXISTS idx_event_proposals_institution ON event_proposals(institution_id);
+
+-- RLS: standard MyJKKN pattern
+ALTER TABLE event_proposals ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY event_proposals_select ON event_proposals FOR SELECT USING (
+  is_super_admin() OR is_admin()
+  OR proposer_id = auth.uid()
+  OR (user_has_permission('events.proposals.view') AND role_has_institution_access(institution_id))
+);
+
+CREATE POLICY event_proposals_insert ON event_proposals FOR INSERT WITH CHECK (
+  proposer_id = auth.uid()
+);
+
+CREATE POLICY event_proposals_update ON event_proposals FOR UPDATE USING (
+  is_super_admin() OR is_admin()
+  OR (proposer_id = auth.uid() AND status IN ('submitted','reviewing'))
+);
