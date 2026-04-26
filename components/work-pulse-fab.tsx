@@ -97,7 +97,7 @@ export function WorkPulseFab() {
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
                   {/* Q1 */}
                   <div className="space-y-1.5">
-                    <p className="text-xs font-medium">Talent waste this week?</p>
+                    <p className="text-xs font-medium">What could a junior staff or computer have done this week?</p>
                     <Select
                       onValueChange={(val) => form.setValue('talent_waste_category', val)}
                     >
@@ -118,7 +118,7 @@ export function WorkPulseFab() {
                       </SelectContent>
                     </Select>
                     <Textarea
-                      placeholder="Describe..."
+                      placeholder="e.g. 4 hours copying attendance into Excel"
                       {...form.register('talent_waste_description')}
                       className="min-h-[50px] text-xs"
                     />
@@ -126,7 +126,7 @@ export function WorkPulseFab() {
 
                   {/* Q2 */}
                   <div className="space-y-1.5">
-                    <p className="text-xs font-medium">Most repetitive task?</p>
+                    <p className="text-xs font-medium">Most repetitive task that should be automated?</p>
                     <Select
                       onValueChange={(val) => form.setValue('repetition_category', val)}
                     >
@@ -147,7 +147,7 @@ export function WorkPulseFab() {
                       </SelectContent>
                     </Select>
                     <Textarea
-                      placeholder="Describe..."
+                      placeholder="e.g. Manually checking 80 fee payments every Monday"
                       {...form.register('repetition_description')}
                       className="min-h-[50px] text-xs"
                     />

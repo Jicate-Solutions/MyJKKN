@@ -115,8 +115,11 @@ export function WeeklyPulseForm({ hasSubmitted: initialSubmitted }: WeeklyPulseF
           {/* Q1: Talent Waste */}
           <div className="space-y-3">
             <Label className="text-base font-medium">
-              1. What takes too much of your talent this week?
+              1. What did you spend time on this week that a junior staff member or a computer could have done?
             </Label>
+            <p className="text-xs text-muted-foreground">
+              Work that didn&apos;t need your skill, training, or judgement.
+            </p>
             <Select
               onValueChange={(val) => form.setValue('talent_waste_category', val)}
               value={form.watch('talent_waste_category')}
@@ -138,7 +141,7 @@ export function WeeklyPulseForm({ hasSubmitted: initialSubmitted }: WeeklyPulseF
               </p>
             )}
             <Textarea
-              placeholder="Describe the specific task or process..."
+              placeholder="e.g. I spent 4 hours this week copying attendance from the register into Excel for the HOD report"
               {...form.register('talent_waste_description')}
               className="min-h-[80px]"
             />
@@ -152,8 +155,11 @@ export function WeeklyPulseForm({ hasSubmitted: initialSubmitted }: WeeklyPulseF
           {/* Q2: Repetitive Work */}
           <div className="space-y-3">
             <Label className="text-base font-medium">
-              2. What repetitive task wastes the most time?
+              2. What&apos;s the most repetitive task you do every week that feels like it should be automated?
             </Label>
+            <p className="text-xs text-muted-foreground">
+              The same steps, every week, on different rows.
+            </p>
             <Select
               onValueChange={(val) => form.setValue('repetition_category', val)}
               value={form.watch('repetition_category')}
@@ -175,7 +181,7 @@ export function WeeklyPulseForm({ hasSubmitted: initialSubmitted }: WeeklyPulseF
               </p>
             )}
             <Textarea
-              placeholder="Describe the repetitive work..."
+              placeholder="e.g. Every Monday I manually check 80 students' fee payment status one by one in Tally"
               {...form.register('repetition_description')}
               className="min-h-[80px]"
             />
