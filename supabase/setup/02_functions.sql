@@ -9046,6 +9046,49 @@ REVOKE ALL ON FUNCTION fn_generate_unmarked_attendance_items() FROM PUBLIC, anon
 REVOKE ALL ON FUNCTION fn_generate_all_dashboard_work_items() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION fn_generate_all_dashboard_work_items() TO service_role;
 
+-- =====================================================================
+-- Updated: 2026-04-26 - Stream A: queue-generator fallback-target helper
+--
+-- Why: Empirical sweep on 2026-04-26 found that the per-item path of
+-- two queue generators was silently dropping 100% of qualifying source
+-- rows because their target FK was NULL on every row:
+--   - fn_generate_recruitment_approval_items: 19 rows in window, all
+--     with final_approver_id IS NULL.
+--   - fn_generate_unresolved_bug_items: 221 rows in window, all with
+--     assigned_to_user_id IS NULL.
+-- Director's verbatim was "why 0?" — wants per-item alerts surfaced.
+-- The previous design routed unassigned items to a daily digest only
+-- (see comment block above the recruit/bug generators); Director's
+-- direction overrides that design.
+--
+-- This helper returns a Director-level target (super_admin) when the
+-- upstream FK is absent. Prefers super_admin in the target institution;
+-- falls back to any active super_admin globally.
+-- =====================================================================
+CREATE OR REPLACE FUNCTION fn_resolve_dashboard_target(p_institution_id UUID DEFAULT NULL)
+RETURNS UUID LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $fn_resolve$
+DECLARE v_target UUID;
+BEGIN
+  -- Prefer institution-matched super_admin
+  IF p_institution_id IS NOT NULL THEN
+    SELECT id INTO v_target FROM profiles
+    WHERE is_super_admin = TRUE
+      AND institution_id = p_institution_id
+      AND COALESCE(is_active, TRUE) = TRUE
+    ORDER BY created_at ASC LIMIT 1;
+    IF v_target IS NOT NULL THEN RETURN v_target; END IF;
+  END IF;
+  -- Fallback: any active super_admin (deterministic by created_at)
+  SELECT id INTO v_target FROM profiles
+  WHERE is_super_admin = TRUE
+    AND COALESCE(is_active, TRUE) = TRUE
+  ORDER BY created_at ASC LIMIT 1;
+  RETURN v_target;
+END $fn_resolve$;
+
+REVOKE ALL ON FUNCTION fn_resolve_dashboard_target(UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION fn_resolve_dashboard_target(UUID) TO service_role;
+
 -- Updated: 2026-04-23 - Add super-admin daily digest aggregator
 -- Rolls up 4 dashboard categories into 1 digest notification per category per super_admin per day.
 -- Idempotency key: digest:<user_id>:<category>:<YYYY-MM-DD>. Re-running cron same day is safe.
@@ -9468,14 +9511,18 @@ GRANT EXECUTE ON FUNCTION public.migrate_pre_registered_profile_to_auth(uuid, uu
 -- =====================================================================
 
 -- Generator 5: recruitment approvals -> dashboard:approval
+-- Updated: 2026-04-26 - Stream A: fallback-target. Was silently skipping
+-- all 19 rows with NULL final_approver_id; now routes to Director.
+-- Removed the "skip if super_admin" filter — queue surface IS Director's
+-- so super_admin-targeted items SHOULD appear there.
 CREATE OR REPLACE FUNCTION fn_generate_recruitment_approval_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_recruit$
 DECLARE
-  v_created INT := 0; v_cand RECORD; v_key TEXT; v_priority TEXT;
+  v_created INT := 0; v_cand RECORD; v_key TEXT; v_priority TEXT; v_target UUID;
 BEGIN
   FOR v_cand IN
     SELECT id, name, role_title, role_category, final_approver_id, submitted_at,
-           is_emergency, is_internal_transfer,
+           is_emergency, is_internal_transfer, institution_id,
            EXTRACT(EPOCH FROM (NOW() - submitted_at))/3600 AS hours_pending
     FROM hr_recruitment_candidates
     WHERE status = 'pending_approval'
@@ -9484,10 +9531,9 @@ BEGIN
     ORDER BY submitted_at ASC
     LIMIT 100
   LOOP
-    IF v_cand.final_approver_id IS NULL THEN CONTINUE; END IF;
-    IF EXISTS (SELECT 1 FROM profiles WHERE id = v_cand.final_approver_id AND is_super_admin = TRUE) THEN
-      CONTINUE;
-    END IF;
+    -- Fallback: route to Director when upstream HR didn't set final_approver_id.
+    v_target := COALESCE(v_cand.final_approver_id, fn_resolve_dashboard_target(v_cand.institution_id));
+    IF v_target IS NULL THEN CONTINUE; END IF;  -- truly no super_admin exists; cannot route
     v_priority := CASE WHEN v_cand.is_emergency THEN 'urgent'
                        WHEN v_cand.hours_pending > 96 THEN 'high'
                        ELSE 'normal' END;
@@ -9496,11 +9542,13 @@ BEGIN
       'dashboard:approval', v_priority,
       'Recruitment approval pending ' || v_cand.hours_pending::INT || 'h — ' || v_cand.role_title,
       v_cand.name || ' (' || v_cand.role_category || ')' ||
-        CASE WHEN v_cand.is_internal_transfer THEN ' — internal transfer' ELSE '' END,
+        CASE WHEN v_cand.is_internal_transfer THEN ' — internal transfer' ELSE '' END ||
+        CASE WHEN v_cand.final_approver_id IS NULL THEN ' — UNASSIGNED, routed to Director' ELSE '' END,
       jsonb_build_object('candidate_id', v_cand.id, 'role_title', v_cand.role_title,
         'is_emergency', v_cand.is_emergency,
+        'unassigned_fallback', v_cand.final_approver_id IS NULL,
         'url', '/hr/recruitment/candidates/' || v_cand.id::text),
-      v_cand.final_approver_id, v_key,
+      v_target, v_key,
       CASE WHEN v_cand.is_emergency THEN 8 ELSE 48 END);
   END LOOP;
   RETURN v_created;
@@ -9559,8 +9607,10 @@ BEGIN
 END $fn_sr$;
 
 -- Generator 7: unresolved untriaged bugs >72h -> dashboard:rescue
--- Per-item path only fires when assigned_to_user_id is set (not super_admin).
--- Bulk untriaged backlog surfaces to Director via the digest aggregator below.
+-- Updated: 2026-04-26 - Stream A: fallback-target. Was silently skipping
+-- all 221 rows with NULL assigned_to_user_id; now routes to Director.
+-- Removed the "skip if super_admin" filter for symmetry with recruit fix.
+-- Bulk untriaged backlog still surfaces to Director via daily digest below.
 CREATE OR REPLACE FUNCTION fn_generate_unresolved_bug_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_bug$
 DECLARE
@@ -9580,20 +9630,20 @@ BEGIN
     ORDER BY created_at ASC
     LIMIT 100
   LOOP
-    v_target := v_bug.assigned_to_user_id;
-    IF v_target IS NULL THEN CONTINUE; END IF;
-    IF EXISTS (SELECT 1 FROM profiles WHERE id = v_target AND is_super_admin = TRUE) THEN
-      CONTINUE;
-    END IF;
+    -- Fallback: route to Director when bug-report intake didn't set assigned_to_user_id.
+    v_target := COALESCE(v_bug.assigned_to_user_id, fn_resolve_dashboard_target(v_bug.institution_id));
+    IF v_target IS NULL THEN CONTINUE; END IF;  -- truly no super_admin exists; cannot route
     v_age_days := (v_bug.hours_old/24)::INT;
     v_priority := CASE WHEN v_age_days > 14 THEN 'high' ELSE 'normal' END;
     v_key := 'unresolved_bug:' || v_bug.id::text || ':' || CURRENT_DATE::text;
     v_created := v_created + fn_create_dashboard_work_item(
       'dashboard:rescue', v_priority,
       'Bug ' || COALESCE(v_bug.display_id, SUBSTR(v_bug.id::text, 1, 8)) || ' aging ' || v_age_days || 'd',
-      LEFT(v_bug.description, 140) || ' | ' || COALESCE(v_bug.module_name, 'unknown module'),
+      LEFT(v_bug.description, 140) || ' | ' || COALESCE(v_bug.module_name, 'unknown module') ||
+        CASE WHEN v_bug.assigned_to_user_id IS NULL THEN ' — UNASSIGNED, routed to Director' ELSE '' END,
       jsonb_build_object('bug_id', v_bug.id, 'display_id', v_bug.display_id,
         'module', v_bug.module_name,
+        'unassigned_fallback', v_bug.assigned_to_user_id IS NULL,
         'url', '/bug-reports/' || v_bug.id::text),
       v_target, v_key, 72);
   END LOOP;
