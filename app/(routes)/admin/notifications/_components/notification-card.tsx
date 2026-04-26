@@ -121,6 +121,18 @@ export function NotificationCard({
     ? formatDistanceToNow(new Date(notification.sent_at), { addSuffix: true })
     : formatDistanceToNow(new Date(notification.created_at), { addSuffix: true });
 
+  // Card click target: prefer action_config.url (the underlying work-item, e.g.
+  // /hr/recruitment/candidates/<id> from PR #506/#510 queue generators) so a
+  // click jumps Director straight to the actionable entity.
+  // Fallback: /admin/notifications/<id> meta page when no action URL is set.
+  // External URLs (http(s)://) open in a new tab.
+  const _actionConfigUrl = (() => {
+    const cfg = (notification as any).action_config as { url?: string } | null | undefined;
+    return typeof cfg?.url === 'string' && cfg.url.trim() ? cfg.url.trim() : null;
+  })();
+  const _cardHref = _actionConfigUrl ?? `/admin/notifications/${notification.id}`;
+  const _cardIsExternal = /^https?:\/\//i.test(_cardHref);
+
   return (
     <div className='group relative rounded-lg border bg-card text-card-foreground shadow-sm hover:shadow-md transition-shadow overflow-hidden'>
       {/* Category color bar on the left */}
@@ -129,11 +141,14 @@ export function NotificationCard({
         aria-hidden='true'
       />
 
-      {/* Card content — the whole card is a Link, except the overflow menu */}
+      {/* Card content — the whole card is a Link, except the overflow menu.
+          href computed above (action_config.url first, fallback to /admin/notifications/<id>). */}
       <Link
-        href={`/admin/notifications/${notification.id}`}
+        href={_cardHref}
+        target={_cardIsExternal ? '_blank' : undefined}
+        rel={_cardIsExternal ? 'noopener noreferrer' : undefined}
         className='block pl-4 pr-10 pt-3 pb-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset'
-        aria-label={`View notification: ${notification.title}`}
+        aria-label={`Open ${notification.title}${_actionConfigUrl ? '' : ' (notification details)'}`}
       >
         {/* Top row: category pill + relative time */}
         <div className='flex items-center justify-between gap-2 mb-1.5'>
