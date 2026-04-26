@@ -1192,7 +1192,6 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/events' || pathname.startsWith('/events/'),
           icon: Calendar,
           submenus: [
-            { href: '/events/propose', label: 'Propose Event', active: pathname === '/events/propose' || pathname.startsWith('/events/propose/') },
             { href: '/events/marathon', label: 'Marathon · All Events', active: pathname === '/events/marathon' },
             { href: '/events/marathon/new', label: 'Marathon · New Event', active: pathname === '/events/marathon/new' },
           ]
