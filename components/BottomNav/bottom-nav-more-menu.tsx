@@ -28,24 +28,21 @@ const GROUP_TILE_GRADIENTS: Record<string, string> = {
   // Operations / Admin
   'Overview':                'bg-gradient-to-br from-slate-500 to-slate-700',
   'User Management':         'bg-gradient-to-br from-slate-400 to-slate-600',
-  'Organization Management': 'bg-gradient-to-br from-slate-600 to-slate-800',
+  'Organization':            'bg-gradient-to-br from-slate-600 to-slate-800',
   'Administration':          'bg-gradient-to-br from-zinc-500 to-zinc-700',
 
-  // Applications
+  // Applications (Wave 2 merged 'Application Management' into 'Applications')
   'Applications':            'bg-gradient-to-br from-blue-500 to-blue-700',
-  'Application Management':  'bg-gradient-to-br from-blue-600 to-blue-800',
 
-  // Academic family
-  'Academic Management':     'bg-gradient-to-br from-indigo-500 to-indigo-700',
+  // Academic family (Wave 2 merged 'Learning' + 'Value Added Courses' into 'Learning & Courses')
+  'Academic':                'bg-gradient-to-br from-indigo-500 to-indigo-700',
   'Learners':                'bg-gradient-to-br from-indigo-600 to-indigo-800',
   'Faculty':                 'bg-gradient-to-br from-violet-500 to-violet-700',
-  'Learning':                'bg-gradient-to-br from-purple-500 to-purple-700',
-  'Value Added Courses':     'bg-gradient-to-br from-purple-400 to-purple-600',
+  'Learning & Courses':      'bg-gradient-to-br from-purple-500 to-purple-700',
   'Learners Council':        'bg-gradient-to-br from-violet-600 to-violet-800',
 
-  // People / HR
-  'Employee Management':     'bg-gradient-to-br from-rose-500 to-rose-700',
-  'HR (Sprints 1-3)':        'bg-gradient-to-br from-rose-600 to-rose-800',
+  // People / HR (Wave 2 merged 'Employee Management' into 'Human Resources')
+  'Human Resources':         'bg-gradient-to-br from-rose-500 to-rose-700',
 
   // Living / Wellness
   'Campus Living':           'bg-gradient-to-br from-amber-500 to-amber-700',
@@ -59,12 +56,12 @@ const GROUP_TILE_GRADIENTS: Record<string, string> = {
   'Solution Hub':            'bg-gradient-to-br from-pink-400 to-fuchsia-600',
 
   // Finance / Resources
-  'Accounts':                'bg-gradient-to-br from-emerald-500 to-emerald-700',
-  'Resource Management':     'bg-gradient-to-br from-teal-500 to-teal-700',
+  'Billing & Accounts':      'bg-gradient-to-br from-emerald-500 to-emerald-700',
+  'Resources':               'bg-gradient-to-br from-teal-500 to-teal-700',
   'Service Requests':        'bg-gradient-to-br from-sky-500 to-sky-700',
 
   // Performance / Compliance
-  'OKR & Performance':       'bg-gradient-to-br from-cyan-500 to-cyan-700',
+  'OKR':                     'bg-gradient-to-br from-cyan-500 to-cyan-700',
   'Audit Workflow':          'bg-gradient-to-br from-cyan-600 to-cyan-800',
   'Accreditation':           'bg-gradient-to-br from-sky-600 to-sky-800',
 

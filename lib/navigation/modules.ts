@@ -58,10 +58,9 @@ export const MODULES: Module[] = [
   { slug: 'users', label: 'Users', icon: 'Users', section: 'User Management', hasNavConfig: false },
 
   // ── Applications ──────────────────────────────────────────────────────
+  // Wave 2 (PR pending) merged 'Application Management' into 'Applications'.
   { slug: 'application-hub', label: 'Application Hub', icon: 'AppWindow', section: 'Applications', hasNavConfig: false },
-
-  // ── Application Management ────────────────────────────────────────────
-  { slug: 'applications', label: 'Applications', icon: 'Files', section: 'Application Management', hasNavConfig: false },
+  { slug: 'applications', label: 'Applications', icon: 'Files', section: 'Applications', hasNavConfig: false },
 
   // ── Organization ──────────────────────────────────────────────────────
   { slug: 'organizations', label: 'Organizations', icon: 'Building2', section: 'Organization', hasNavConfig: false },
@@ -75,10 +74,9 @@ export const MODULES: Module[] = [
   // ── Admission CRM ─────────────────────────────────────────────────────
   { slug: 'admission', label: 'Admission CRM', icon: 'UserPlus', section: 'Admission CRM', hasNavConfig: true },
 
-  // ── Employee Management ───────────────────────────────────────────────
-  { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'Employee Management', hasNavConfig: false },
-
   // ── Human Resources ───────────────────────────────────────────────────
+  // Wave 2 (PR pending) merged 'Employee Management' into 'Human Resources'.
+  { slug: 'staff', label: 'Staff', icon: 'Briefcase', section: 'Human Resources', hasNavConfig: false },
   { slug: 'hr', label: 'HR', icon: 'UsersRound', section: 'Human Resources', hasNavConfig: false },
 
   // ── Learners ──────────────────────────────────────────────────────────
@@ -100,8 +98,9 @@ export const MODULES: Module[] = [
   // ── OKR ───────────────────────────────────────────────────────────────
   { slug: 'okr', label: 'OKR & Performance', icon: 'Target', section: 'OKR', hasNavConfig: true },
 
-  // ── Learning ──────────────────────────────────────────────────────────
-  { slug: 'learn', label: 'Learning', icon: 'BookOpen', section: 'Learning', hasNavConfig: false },
+  // ── Learning & Courses ────────────────────────────────────────────────
+  // Wave 2 (PR pending) merged 'Value Added Courses' into 'Learning & Courses'.
+  { slug: 'learn', label: 'Learning', icon: 'BookOpen', section: 'Learning & Courses', hasNavConfig: false },
 
   // ── Health & Wellness ─────────────────────────────────────────────────
   { slug: 'health', label: 'Health & Wellness', icon: 'HeartPulse', section: 'Health & Wellness', hasNavConfig: false },
@@ -115,8 +114,8 @@ export const MODULES: Module[] = [
   // ── Solution Hub ──────────────────────────────────────────────────────
   { slug: 'solutions', label: 'Solution Hub', icon: 'Lightbulb', section: 'Solution Hub', hasNavConfig: true },
 
-  // ── Value Added Courses ───────────────────────────────────────────────
-  { slug: 'vac', label: 'Value Added Courses', icon: 'BookOpenCheck', section: 'Value Added Courses', hasNavConfig: false },
+  // (Value Added Courses merged into 'Learning & Courses' above — Wave 2.)
+  { slug: 'vac', label: 'Value Added Courses', icon: 'BookOpenCheck', section: 'Learning & Courses', hasNavConfig: false },
 
   // ── Work Pulse ────────────────────────────────────────────────────────
   { slug: 'work-pulse', label: 'Work Pulse', icon: 'Activity', section: 'Work Pulse', hasNavConfig: false },
