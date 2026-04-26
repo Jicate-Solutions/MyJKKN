@@ -698,6 +698,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
   '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
 
+  // Events — Propose (Stream C, 2026-04-26)
+  '/events/propose': 'events.proposals.view',
+
   // Audit Workflow Sprint 01
   '/audit': 'audit.cycle.view',
   '/audit/dashboard': 'audit.cycle.view',
@@ -1194,6 +1197,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/events/marathon', label: 'Marathon · All Events', active: pathname === '/events/marathon' },
             { href: '/events/marathon/new', label: 'Marathon · New Event', active: pathname === '/events/marathon/new' },
+            // Stream C (2026-04-26): event_proposals workflow — chat-bypass propose intake
+            { href: '/events/propose', label: 'Propose an Event', active: pathname === '/events/propose' || pathname.startsWith('/events/propose/') },
           ]
         }
       ]
