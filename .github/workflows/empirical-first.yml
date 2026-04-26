@@ -1,0 +1,201 @@
+name: Empirical-First Gate
+
+# Reads .rules/*.yaml and evaluates each rule's `layer2_pr` trigger against the
+# PR's diff + title. Posts a comment if violations found. Optionally fails the
+# check if any rule has severity: block.
+#
+# Rules are mirrored from ~/.claude/projects/-Users-omm-PROJECTS-MyJKKN/rules/
+# by the local pre-push hook (see .git/hooks/pre-push).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  empirical-first:
+    name: Empirical-First Rule Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so we can diff against main
+
+      - name: Skip if .rules/ doesn't exist
+        id: check_rules
+        run: |
+          if [ ! -d .rules ]; then
+            echo "no_rules=true" >> $GITHUB_OUTPUT
+            echo "::notice::No .rules/ directory found. Skipping empirical-first gate."
+            exit 0
+          fi
+          echo "no_rules=false" >> $GITHUB_OUTPUT
+
+      - name: Setup Python
+        if: steps.check_rules.outputs.no_rules != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pyyaml
+        if: steps.check_rules.outputs.no_rules != 'true'
+        run: pip install pyyaml
+
+      - name: Evaluate rules against PR
+        if: steps.check_rules.outputs.no_rules != 'true'
+        id: evaluate
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 <<'PY'
+          import os, re, subprocess, sys, json
+          from pathlib import Path
+          import yaml
+
+          PR_TITLE = os.environ.get("PR_TITLE", "")
+          BASE_SHA = os.environ.get("BASE_SHA", "")
+          HEAD_SHA = os.environ.get("HEAD_SHA", "")
+
+          # Get list of changed files in this PR
+          diff = subprocess.run(
+              ["git", "diff", "--name-only", f"{BASE_SHA}...{HEAD_SHA}"],
+              capture_output=True, text=True, check=False,
+          )
+          changed_files = [f for f in diff.stdout.strip().split("\n") if f]
+          print(f"::group::Changed files ({len(changed_files)})")
+          for f in changed_files[:50]:
+              print(f"  {f}")
+          if len(changed_files) > 50:
+              print(f"  ... and {len(changed_files) - 50} more")
+          print("::endgroup::")
+
+          rules_dir = Path(".rules")
+          violations = []  # list of dicts with id, name, severity, message
+
+          for rule_file in sorted(rules_dir.glob("R-*.yaml")):
+              try:
+                  rule = yaml.safe_load(rule_file.read_text())
+              except Exception as e:
+                  print(f"::warning::Failed to parse {rule_file}: {e}")
+                  continue
+
+              rid = rule.get("id", rule_file.stem)
+              rname = rule.get("name", "")
+              severity = rule.get("severity", "warn")
+
+              for trigger in rule.get("triggers", []):
+                  layer2 = trigger.get("layer2_pr") or {}
+                  if not layer2:
+                      continue
+
+                  title_re = layer2.get("pr_title_match")
+                  required_globs = layer2.get("require_diff_includes_one_of", [])
+                  fail_msg = layer2.get("fail_message", trigger.get("fail_message", "Rule violated."))
+
+                  if title_re:
+                      if not re.search(title_re, PR_TITLE, re.IGNORECASE):
+                          continue  # title doesn't match, this trigger doesn't apply
+
+                  # Check that diff includes at least one of the required files
+                  if required_globs:
+                      from pathlib import PurePath
+                      def matches_any(p, globs):
+                          return any(PurePath(p).match(g) or g in p for g in globs)
+                      if any(matches_any(f, required_globs) for f in changed_files):
+                          continue  # required file IS in diff, allow
+                      # Otherwise — required file MISSING → violation
+                      violations.append({
+                          "id": rid,
+                          "name": rname,
+                          "severity": severity,
+                          "message": fail_msg,
+                          "title": PR_TITLE,
+                          "required_globs": required_globs,
+                      })
+
+          # Write output
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"violation_count={len(violations)}\n")
+              # JSON-encode the violations for the comment step
+              f.write(f"violations={json.dumps(violations)}\n")
+
+          # Print human-readable summary
+          if not violations:
+              print("::notice::Empirical-First Gate: no violations.")
+              sys.exit(0)
+
+          print(f"::warning::Empirical-First Gate found {len(violations)} violation(s):")
+          for v in violations:
+              prefix = "::error::" if v["severity"] == "block" else "::warning::"
+              print(f"{prefix}{v['id']} ({v['name']}): {v['message'][:200]}...")
+
+          # Decide exit code: block if any violation has severity:block
+          blocking = [v for v in violations if v["severity"] == "block"]
+          if blocking:
+              sys.exit(1)
+          # warn-only violations: don't fail
+          sys.exit(0)
+          PY
+
+      - name: Comment on PR
+        if: always() && steps.evaluate.outputs.violation_count != '0' && steps.evaluate.outputs.violation_count != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const violations = JSON.parse(`${{ steps.evaluate.outputs.violations }}`);
+            const lines = [
+              "## ⚠️ Empirical-First Gate",
+              "",
+              `Found ${violations.length} rule violation(s):`,
+              "",
+            ];
+            for (const v of violations) {
+              const sev = v.severity === "block" ? "🚫 BLOCK" : "⚠️ WARN";
+              lines.push(`### ${sev} ${v.id} — ${v.name}`);
+              lines.push("");
+              lines.push("```");
+              lines.push(v.message);
+              lines.push("```");
+              lines.push("");
+            }
+            lines.push("---");
+            lines.push("Bypass (logged): comment with `/empirical-first bypass <reason>`");
+            lines.push("");
+            lines.push("See `.rules/README.md` for rule definitions.");
+
+            const body = lines.join("\n");
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === "Bot" && c.body.includes("Empirical-First Gate")
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

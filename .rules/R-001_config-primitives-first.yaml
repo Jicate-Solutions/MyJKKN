@@ -52,3 +52,25 @@ triggers:
       Recovery example: PR #439 (single config edit) eliminated the per-file work in #437/#438.
 
       To bypass for this command (logged): EMPIRICAL_FIRST_BYPASS=1
+
+  # Layer 2 (GitHub Action): post-merge / pre-merge PR check
+  - layer2_pr:
+      pr_title_match: '(?i)^fix.*\b(oom|out.of.memory|build|tsc|typecheck|suspense|cannot.find)\b'
+      require_diff_includes_one_of:
+        - "next.config.ts"
+        - "vercel.json"
+        - "tsconfig.json"
+        - "proxy.ts"
+      fail_message: |
+        Per-file fix without config-primitive change.
+
+        This PR's title matches a systemic build/type symptom (oom/build/tsc/suspense/cannot-find),
+        but the diff does NOT touch any of: next.config.ts, vercel.json, tsconfig.json, proxy.ts.
+
+        Recovery example: PR #439 fixed via serverExternalPackages config after #437/#438 chased
+        per-file fixes for the same OOM root cause.
+
+        Action required: Either touch the config primitive that systemically addresses this symptom,
+        OR add a comment explaining why no primitive applies (then bypass via PR comment).
+
+        Memory: feedback_read_config_primitives_before_per_file_fixes.md
