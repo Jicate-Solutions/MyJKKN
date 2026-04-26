@@ -394,6 +394,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/invoices/[id]/edit': 'billing.invoices.edit',
   '/billing/reports': 'billing.reports.view',
   '/billing/onboarding': 'billing.onboarding.view',
+  '/billing/payment': 'billing.payment.view',
 
 
   // Resource Management
