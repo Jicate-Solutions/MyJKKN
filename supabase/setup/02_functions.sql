@@ -9604,13 +9604,89 @@ REVOKE ALL ON FUNCTION fn_generate_recruitment_approval_items() FROM PUBLIC, ano
 REVOKE ALL ON FUNCTION fn_generate_service_request_approval_items() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION fn_generate_unresolved_bug_items() FROM PUBLIC, anon, authenticated;
 
--- Updated: 2026-04-25 - Extend dispatcher with the 3 new generators.
+-- =====================================================================
+-- Updated: 2026-04-26 - Stream D-2: grievance ticket queue generator
+--
+-- Source: public.grievance_tickets (verified existing schema, 0 rows on
+-- prod 2026-04-26 — generator is prophylactic, will start emitting once
+-- IQAC grievance flow accumulates submissions).
+--
+-- Predicate: status IN ('open','assigned','in_progress','escalated')
+-- AND withdrawn_at IS NULL AND resolved_at IS NULL
+-- AND (sla_deadline < NOW() OR escalation_level > 0 OR is_emergency).
+--
+-- Target: assigned_to (uuid, nullable on schema). Falls back to Director
+-- via fn_resolve_dashboard_target() when unassigned, matching the
+-- Stream A pattern for symmetry.
+--
+-- Idempotency key: grievance_ticket:<id>:<CURRENT_DATE>
+-- Category: dashboard:approval (per /cnext brief).
+-- =====================================================================
+CREATE OR REPLACE FUNCTION fn_generate_unresolved_grievance_items()
+RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_griev$
+DECLARE
+  v_created INT := 0; v_griev RECORD; v_key TEXT; v_target UUID;
+  v_priority TEXT; v_hours_past_sla INT;
+BEGIN
+  FOR v_griev IN
+    SELECT id, ticket_number, subject, description, institution_id,
+           priority, status, sla_deadline, sla_status, escalation_level,
+           is_emergency, assigned_to,
+           CASE WHEN sla_deadline IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (NOW() - sla_deadline))/3600
+                ELSE 0 END AS hours_past_sla
+    FROM grievance_tickets
+    WHERE status IN ('open','assigned','in_progress','escalated')
+      AND created_at > NOW() - INTERVAL '90 days'
+      AND (sla_deadline < NOW() OR escalation_level > 0 OR is_emergency = TRUE)
+      AND withdrawn_at IS NULL
+      AND resolved_at IS NULL
+    ORDER BY escalation_level DESC NULLS LAST, sla_deadline ASC NULLS LAST
+    LIMIT 50
+  LOOP
+    v_target := COALESCE(v_griev.assigned_to, fn_resolve_dashboard_target(v_griev.institution_id));
+    IF v_target IS NULL THEN CONTINUE; END IF;
+    v_hours_past_sla := v_griev.hours_past_sla::INT;
+    v_priority := CASE
+      WHEN v_griev.is_emergency THEN 'urgent'
+      WHEN v_griev.escalation_level >= 2 THEN 'urgent'
+      WHEN v_griev.escalation_level = 1 THEN 'high'
+      WHEN v_hours_past_sla > 24 THEN 'high'
+      ELSE 'normal'
+    END;
+    v_key := 'grievance_ticket:' || v_griev.id::text || ':' || CURRENT_DATE::text;
+    v_created := v_created + fn_create_dashboard_work_item(
+      'dashboard:approval', v_priority,
+      'Grievance ' || v_griev.ticket_number || ' — ' || LEFT(v_griev.subject, 80),
+      LEFT(v_griev.description, 140) ||
+        CASE WHEN v_griev.escalation_level > 0 THEN ' | escalated L' || v_griev.escalation_level::text ELSE '' END ||
+        CASE WHEN v_griev.sla_deadline < NOW() THEN ' | SLA breached ' || v_hours_past_sla::text || 'h' ELSE '' END ||
+        CASE WHEN v_griev.assigned_to IS NULL THEN ' | UNASSIGNED, routed to Director' ELSE '' END,
+      jsonb_build_object(
+        'grievance_id', v_griev.id,
+        'ticket_number', v_griev.ticket_number,
+        'escalation_level', v_griev.escalation_level,
+        'sla_breached', (v_griev.sla_deadline < NOW()),
+        'is_emergency', v_griev.is_emergency,
+        'unassigned_fallback', v_griev.assigned_to IS NULL,
+        'url', '/grievances/' || v_griev.id::text
+      ),
+      v_target, v_key,
+      CASE WHEN v_griev.is_emergency OR v_griev.escalation_level >= 2 THEN 4 ELSE 24 END
+    );
+  END LOOP;
+  RETURN v_created;
+END $fn_griev$;
+
+REVOKE ALL ON FUNCTION fn_generate_unresolved_grievance_items() FROM PUBLIC, anon, authenticated;
+
+-- Updated: 2026-04-26 - Wire grievance generator into orchestrator (Stream D-2).
 CREATE OR REPLACE FUNCTION fn_generate_all_dashboard_work_items()
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_all$
 DECLARE r1 INT := 0; e1 TEXT := NULL; r2 INT := 0; e2 TEXT := NULL;
         r3 INT := 0; e3 TEXT := NULL; r4 INT := 0; e4 TEXT := NULL;
         r5 INT := 0; e5 TEXT := NULL; r6 INT := 0; e6 TEXT := NULL;
-        r7 INT := 0; e7 TEXT := NULL;
+        r7 INT := 0; e7 TEXT := NULL; r8 INT := 0; e8 TEXT := NULL;
 BEGIN
   BEGIN r1 := fn_generate_overdue_invoice_items();              EXCEPTION WHEN OTHERS THEN e1 := SQLERRM; END;
   BEGIN r2 := fn_generate_stale_lead_rescue_items();            EXCEPTION WHEN OTHERS THEN e2 := SQLERRM; END;
@@ -9619,6 +9695,7 @@ BEGIN
   BEGIN r5 := fn_generate_recruitment_approval_items();         EXCEPTION WHEN OTHERS THEN e5 := SQLERRM; END;
   BEGIN r6 := fn_generate_service_request_approval_items();     EXCEPTION WHEN OTHERS THEN e6 := SQLERRM; END;
   BEGIN r7 := fn_generate_unresolved_bug_items();               EXCEPTION WHEN OTHERS THEN e7 := SQLERRM; END;
+  BEGIN r8 := fn_generate_unresolved_grievance_items();         EXCEPTION WHEN OTHERS THEN e8 := SQLERRM; END;
   RETURN jsonb_build_object(
     'generated_at', NOW(),
     'overdue_invoices',      jsonb_build_object('count', r1, 'error', e1),
@@ -9628,7 +9705,8 @@ BEGIN
     'recruitment_approvals', jsonb_build_object('count', r5, 'error', e5),
     'service_requests',      jsonb_build_object('count', r6, 'error', e6),
     'unresolved_bugs',       jsonb_build_object('count', r7, 'error', e7),
-    'total', r1 + r2 + r3 + r4 + r5 + r6 + r7);
+    'grievances',            jsonb_build_object('count', r8, 'error', e8),
+    'total', r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8);
 END $fn_all$;
 
 REVOKE ALL ON FUNCTION fn_generate_all_dashboard_work_items() FROM PUBLIC, anon, authenticated;
