@@ -32,11 +32,14 @@ export default async function WorkPulsePage() {
 
   const showCompliance = COMPLIANCE_ROLES.includes(profile.role);
 
-  const statCards = [
-    { label: 'Total Pulses', value: stats?.total_pulses || 0, icon: Activity },
-    { label: 'Patterns Spotted', value: stats?.patterns_spotted || 0, icon: Sparkles },
-    { label: 'Agents Originated', value: stats?.agents_originated || 0, icon: Bot },
-    { label: 'This Month', value: stats?.this_month || 0, icon: CalendarDays },
+  const yourStatCards = [
+    { label: 'Your Total Pulses', value: stats?.total_pulses || 0, icon: Activity },
+    { label: 'Your Pulses This Month', value: stats?.this_month || 0, icon: CalendarDays },
+  ];
+
+  const institutionStatCards = [
+    { label: 'Patterns Spotted (institution-wide)', value: stats?.patterns_spotted || 0, icon: Sparkles },
+    { label: 'Agents Deployed (institution-wide)', value: stats?.agents_originated || 0, icon: Bot },
   ];
 
   return (
@@ -61,26 +64,54 @@ export default async function WorkPulsePage() {
           <WorkPulseInfoModal />
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {statCards.map((card) => {
-            const Icon = card.icon;
-            return (
-              <Card key={card.label}>
-                <CardContent className="pt-4 pb-3 px-4">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-lg bg-primary/10 p-2">
-                      <Icon className="h-4 w-4 text-primary" />
+        {/* Your Stats */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-muted-foreground">Your stats</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {yourStatCards.map((card) => {
+              const Icon = card.icon;
+              return (
+                <Card key={card.label}>
+                  <CardContent className="pt-4 pb-3 px-4">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg bg-primary/10 p-2">
+                        <Icon className="h-4 w-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold">{card.value}</p>
+                        <p className="text-xs text-muted-foreground">{card.label}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-2xl font-bold">{card.value}</p>
-                      <p className="text-xs text-muted-foreground">{card.label}</p>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Institution Stats */}
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-muted-foreground">Institution stats</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {institutionStatCards.map((card) => {
+              const Icon = card.icon;
+              return (
+                <Card key={card.label}>
+                  <CardContent className="pt-4 pb-3 px-4">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-lg bg-muted p-2">
+                        <Icon className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold">{card.value}</p>
+                        <p className="text-xs text-muted-foreground">{card.label}</p>
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </div>
 
         {/* Badges */}
