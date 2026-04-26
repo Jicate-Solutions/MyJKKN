@@ -802,6 +802,7 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      // Wave 2 merged 'Application Management' into 'Applications'.
       groupLabel: 'Applications',
       menus: [
         {
@@ -813,12 +814,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/application-hub', label: 'Application Hub', active: pathname === '/application-hub' },
             { href: '/application-hub/api-guidelines', label: 'API Guidelines', active: pathname === '/application-hub/api-guidelines' },
           ]
-        }
-      ]
-    },
-    {
-      groupLabel: 'Application Management',
-      menus: [
+        },
         {
           href: '/applications',
           label: 'Applications',
@@ -936,7 +932,8 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
-      groupLabel: 'Employee Management',
+      // Wave 2 merged 'Employee Management' into 'Human Resources'.
+      groupLabel: 'Human Resources',
       menus: [
         {
           href: '/staff',
@@ -949,12 +946,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/staff/list', label: 'Employee List', active: pathname === '/staff/list' },
             { href: '/staff/class-incharges', label: 'Class Incharges', active: pathname.startsWith('/staff/class-incharges') },
           ]
-        }
-      ]
-    },
-    {
-      groupLabel: 'Human Resources',
-      menus: [
+        },
         {
           href: '/hr',
           label: 'HR',
@@ -1132,7 +1124,9 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
-      groupLabel: 'Learning',
+      // Wave 2 merged 'Learning' + 'Value Added Courses' into 'Learning & Courses'.
+      // The /vac entry below was previously its own groupLabel; now folded here.
+      groupLabel: 'Learning & Courses',
       menus: [
         {
           href: '/learn',
@@ -1146,6 +1140,23 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/learn/channels', label: 'Channels', active: pathname.startsWith('/learn/channels') },
             { href: '/learn/profile', label: 'Profile', active: pathname === '/learn/profile' },
             { href: '/learn/leaderboard', label: 'Leaderboard', active: pathname === '/learn/leaderboard' },
+          ]
+        },
+        {
+          href: '/vac',
+          label: 'Value Added Courses',
+          active: pathname === '/vac' || pathname.startsWith('/vac/'),
+          icon: BookOpen,
+          submenus: [
+            { href: '/vac', label: 'Course Catalog', active: pathname === '/vac' },
+            { href: '/vac/my-courses', label: 'My Courses', active: pathname.startsWith('/vac/my-courses') },
+            { href: '/vac/case', label: 'CASE Tracker', active: pathname.startsWith('/vac/case') && !pathname.includes('/admin') },
+            { href: '/vac/admin', label: 'Admin · Dashboard', active: pathname === '/vac/admin' },
+            { href: '/vac/admin/courses', label: 'Admin · Courses', active: pathname.startsWith('/vac/admin/courses') },
+            { href: '/vac/admin/enrollments', label: 'Admin · Enrollments', active: pathname.startsWith('/vac/admin/enrollments') },
+            { href: '/vac/admin/analytics', label: 'Admin · Analytics', active: pathname.startsWith('/vac/admin/analytics') },
+            { href: '/vac/admin/case', label: 'Admin · CASE', active: pathname.startsWith('/vac/admin/case') },
+            { href: '/vac/admin/settings', label: 'Admin · Settings', active: pathname.startsWith('/vac/admin/settings') },
           ]
         }
       ]
@@ -1233,28 +1244,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         }
       ]
     },
-    {
-      groupLabel: 'Value Added Courses',
-      menus: [
-        {
-          href: '/vac',
-          label: 'Value Added Courses',
-          active: pathname === '/vac' || pathname.startsWith('/vac/'),
-          icon: BookOpen,
-          submenus: [
-            { href: '/vac', label: 'Course Catalog', active: pathname === '/vac' },
-            { href: '/vac/my-courses', label: 'My Courses', active: pathname.startsWith('/vac/my-courses') },
-            { href: '/vac/case', label: 'CASE Tracker', active: pathname.startsWith('/vac/case') && !pathname.includes('/admin') },
-            { href: '/vac/admin', label: 'Admin · Dashboard', active: pathname === '/vac/admin' },
-            { href: '/vac/admin/courses', label: 'Admin · Courses', active: pathname.startsWith('/vac/admin/courses') },
-            { href: '/vac/admin/enrollments', label: 'Admin · Enrollments', active: pathname.startsWith('/vac/admin/enrollments') },
-            { href: '/vac/admin/analytics', label: 'Admin · Analytics', active: pathname.startsWith('/vac/admin/analytics') },
-            { href: '/vac/admin/case', label: 'Admin · CASE', active: pathname.startsWith('/vac/admin/case') },
-            { href: '/vac/admin/settings', label: 'Admin · Settings', active: pathname.startsWith('/vac/admin/settings') },
-          ]
-        }
-      ]
-    },
+    // 'Value Added Courses' standalone groupLabel was folded into 'Learning & Courses' above (Wave 2).
     {
       groupLabel: 'Work Pulse',
       menus: [
