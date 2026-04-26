@@ -223,6 +223,16 @@ export function BottomNavbar() {
         groupLabel: section,
         icon: getSectionIcon(section),
         menus: flattenMenuItems(matched.menus),
+        // Top-level peers BEFORE submenu flatten — used by More drawer for
+        // chevron disclosure + drill-down list. Already permission-filtered
+        // because `matched` came from `filteredPages`. See BottomNavGroup
+        // type docstring.
+        topLevelPeers: matched.menus.map((m) => ({
+          href: REDIRECT_ROUTES[m.href] || m.href,
+          label: m.label,
+          icon: m.icon,
+          active: m.active,
+        })),
       });
     }
     return groups;
@@ -236,6 +246,13 @@ export function BottomNavbar() {
       groupLabel: 'Favorites',
       icon: Star,
       menus: favorites.map((fav) => ({
+        href: fav.path,
+        label: fav.title,
+        icon: ICON_MAP[fav.iconName] || Star,
+      })),
+      // Favorites are flat by definition — every favorite is a top-level
+      // peer (no nested submenus). topLevelPeers === menus here.
+      topLevelPeers: favorites.map((fav) => ({
         href: fav.path,
         label: fav.title,
         icon: ICON_MAP[fav.iconName] || Star,

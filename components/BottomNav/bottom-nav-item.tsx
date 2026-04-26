@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BottomNavItemProps } from './types';
 
@@ -63,7 +64,7 @@ export function BottomNavItem({
         {/* 56×56 gradient icon container — same tapSpring + iconSpring as strip */}
         <motion.div
           className={cn(
-            'w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm',
+            'relative w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm',
             tileGradient ?? 'bg-gradient-to-br from-primary/70 to-primary',
             isActive && 'ring-2 ring-primary/30 ring-offset-1'
           )}
@@ -74,6 +75,20 @@ export function BottomNavItem({
             className="h-6 w-6 text-white"
             strokeWidth={isActive ? 2.5 : 2}
           />
+          {/* Multi-module disclosure affordance — tells the user "this tile
+              has multiple modules underneath; tap to drill into the list."
+              Small chevron in the bottom-right corner of the gradient
+              container, white-on-translucent so it reads against any
+              gradient color. Single-module tiles render no chevron and
+              navigate directly on tap (existing behavior). */}
+          {hasSubmenu && (
+            <span
+              className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-white/95 flex items-center justify-center shadow-sm"
+              aria-hidden="true"
+            >
+              <ChevronRight className="h-3 w-3 text-foreground" strokeWidth={2.5} />
+            </span>
+          )}
         </motion.div>
 
         {/* 2-line label */}

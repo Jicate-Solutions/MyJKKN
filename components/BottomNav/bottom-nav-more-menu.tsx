@@ -1,8 +1,9 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Star, Search, X } from 'lucide-react';
+import { Star, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BottomNavMoreMenuProps } from './types';
 import { BottomNavItem } from './bottom-nav-item';
@@ -83,6 +84,15 @@ export function BottomNavMoreMenu({
 
   const { open: openCommandPalette } = useCommandPalette();
 
+  // Drill-down state: when a multi-module group tile is tapped, replace the
+  // tile grid with a list view showing that group's modules. Tap-back returns
+  // to the tile grid. Reset whenever the parent sheet closes so re-opening
+  // always lands on the tile grid (matches phone home-screen mental model).
+  const [drillIntoGroupId, setDrillIntoGroupId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isOpen) setDrillIntoGroupId(null);
+  }, [isOpen]);
+
   const handleItemClick = (href: string) => {
     onItemClick(href);
     onClose();
@@ -90,20 +100,51 @@ export function BottomNavMoreMenu({
 
   // ONE TILE PER GROUP (phone home-screen pattern).
   // Permission filter is IDENTICAL to before — `groups` is already permission-filtered.
-  // Each tile navigates to the group's first menu href (the canonical entry point);
-  // in-page tabs (ModuleNav / SectionSubNav) handle deeper navigation, matching desktop.
+  //
+  // Tap behavior + chevron affordance both split by `topLevelPeers.length`:
+  //   - Single-peer group → tile navigates directly to the peer's href. No
+  //     chevron. Peer's in-page ModuleNav handles deeper navigation per
+  //     PR #486's design intent.
+  //   - Multi-peer group  → chevron in tile bottom-right. Tap opens drill-
+  //     down list view containing only the top-level peer modules (NOT
+  //     deep submenus). Mirrors the desktop sidebar grouping pattern: user
+  //     picks a peer, lands on its root, in-page tabs handle the rest.
+  //
+  // `topLevelPeers` is permission-filtered by construction (built from
+  // `matched.menus` which came from `filteredPages`). So the chevron
+  // promises ONLY what the user can actually access.
+  //
+  // After BOS is added to MODULES (separate PR), Academic auto-becomes
+  // multi-peer without changing this code — the criterion is data-driven.
   const groupTiles = groups
     .filter((g) => g.menus.length > 0)
     .map((group) => ({
       key: group.id,
       label: group.groupLabel,
       icon: group.icon,
-      href: group.menus[0].href,
+      href: group.topLevelPeers[0]?.href ?? group.menus[0].href,
+      hasMultipleModules: group.topLevelPeers.length > 1,
+      // Drill-down content: top-level peers only (Decision C from
+      // /assumption-thrash 2026-04-26). User goes peer → module root →
+      // in-page tabs handle the rest.
+      drillItems: group.topLevelPeers,
       isActive: group.menus.some(
         (m) => pathname === m.href || pathname.startsWith(m.href + '/')
       ),
       tileGradient: GROUP_TILE_GRADIENTS[group.groupLabel] ?? undefined
     }));
+
+  const drillGroup = drillIntoGroupId
+    ? groupTiles.find((t) => t.key === drillIntoGroupId) ?? null
+    : null;
+
+  const handleTileClick = (tile: (typeof groupTiles)[number]) => {
+    if (tile.hasMultipleModules) {
+      setDrillIntoGroupId(tile.key);
+    } else {
+      handleItemClick(tile.href);
+    }
+  };
 
   const handleSearchClick = () => {
     onClose();
@@ -118,13 +159,33 @@ export function BottomNavMoreMenu({
         className="h-[88vh] rounded-t-3xl flex flex-col z-[90] p-0 [&>button]:hidden"
       >
         <SheetHeader className="px-4 pt-3 pb-2 flex-shrink-0 flex flex-row items-center justify-between space-y-0">
-          <SheetTitle className="text-base font-semibold">All Menus</SheetTitle>
-          <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
-            {groupTiles.length} sections
-          </span>
+          {drillGroup ? (
+            <>
+              <button
+                onClick={() => setDrillIntoGroupId(null)}
+                className="flex items-center gap-1 text-base font-semibold -ml-1 px-1 py-0.5 rounded hover:bg-muted/50 active:bg-muted"
+                aria-label="Back to all menus"
+              >
+                <ChevronLeft className="h-5 w-5" strokeWidth={2.25} />
+                <SheetTitle className="text-base font-semibold">
+                  {drillGroup.label}
+                </SheetTitle>
+              </button>
+              <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                {drillGroup.drillItems.length} items
+              </span>
+            </>
+          ) : (
+            <>
+              <SheetTitle className="text-base font-semibold">All Menus</SheetTitle>
+              <span className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                {groupTiles.length} sections
+              </span>
+            </>
+          )}
         </SheetHeader>
 
-        {/* Scrollable tile grid — ONE tile per group */}
+        {/* Scrollable content — tile grid by default, list view when drilled into a group */}
         <div
           className="flex-1 overflow-y-auto px-3 pt-2 pb-2"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
@@ -133,7 +194,50 @@ export function BottomNavMoreMenu({
             div::-webkit-scrollbar { display: none; }
           `}</style>
 
-          {groupTiles.length > 0 ? (
+          {drillGroup ? (
+            // DRILL-DOWN LIST VIEW: top-level peer modules only (Decision C
+            // from /assumption-thrash). User picks a peer → navigates to
+            // module root → in-page ModuleNav handles deeper navigation.
+            // This restores PR #486's "in-page tabs handle depth" design
+            // intent while still solving the original gap (peer modules 2..N
+            // were silently unreachable from the More drawer when sidebar
+            // collapsed them under one entry).
+            <div className="flex flex-col gap-1">
+              {drillGroup.drillItems.map((menu, index) => {
+                const Icon = menu.icon;
+                const isActive =
+                  pathname === menu.href ||
+                  pathname.startsWith(menu.href + '/');
+                return (
+                  <motion.button
+                    key={menu.href}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{
+                      opacity: 1,
+                      x: 0,
+                      transition: { delay: index * 0.02 }
+                    }}
+                    onClick={() => handleItemClick(menu.href)}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-3 rounded-xl border transition-colors',
+                      'active:scale-[0.99]',
+                      isActive
+                        ? 'bg-primary/10 border-primary/30 text-primary'
+                        : 'bg-background border-border/40 text-foreground hover:bg-muted/50'
+                    )}
+                  >
+                    <span className="flex-shrink-0 w-9 h-9 rounded-lg bg-muted/60 flex items-center justify-center">
+                      <Icon className="h-4 w-4" strokeWidth={2} />
+                    </span>
+                    <span className="flex-1 text-left text-sm font-medium truncate">
+                      {menu.label}
+                    </span>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" strokeWidth={2} />
+                  </motion.button>
+                );
+              })}
+            </div>
+          ) : groupTiles.length > 0 ? (
             <div className="grid grid-cols-4 gap-1">
               {groupTiles.map((tile, index) => (
                 <motion.div
@@ -150,11 +254,11 @@ export function BottomNavMoreMenu({
                     icon={tile.icon}
                     label={tile.label}
                     isActive={tile.isActive}
-                    hasSubmenu={false}
+                    hasSubmenu={tile.hasMultipleModules}
                     hideIndicator
                     variant="tile"
                     tileGradient={tile.tileGradient}
-                    onClick={() => handleItemClick(tile.href)}
+                    onClick={() => handleTileClick(tile)}
                   />
                 </motion.div>
               ))}

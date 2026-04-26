@@ -12,7 +12,27 @@ export interface BottomNavGroup {
   id: string;
   groupLabel: string;
   icon: LucideIcon;
+  /**
+   * Flattened menus — module entries + their submenus collapsed into a flat
+   * list. Used by the strip-chip submenu sheet (existing behavior) so deep
+   * navigation works for groups that fit on the bottom strip.
+   */
   menus: FlatMenuItem[];
+  /**
+   * Top-level peer modules under this group, BEFORE submenu flattening but
+   * AFTER permission filtering. Used by the More drawer to:
+   *   (1) determine chevron disclosure affordance (length > 1 = chevron)
+   *   (2) populate the drill-down list view (each entry = one row)
+   *
+   * Length === sidebarMenuLink's `matched.menus.length` for this group, so
+   * a single-module group with deep submenus (e.g. Organization with 9
+   * submenus) yields topLevelPeers.length === 1 (no chevron, direct nav)
+   * — letting the in-page ModuleNav handle deeper navigation per PR #486.
+   *
+   * Being permission-filtered means honest affordance: chevron only shows
+   * when 2+ peer modules are actually accessible to the current user.
+   */
+  topLevelPeers: FlatMenuItem[];
 }
 
 export interface BottomNavItemProps {
