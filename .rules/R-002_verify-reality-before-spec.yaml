@@ -1,0 +1,68 @@
+id: R-002
+name: Verify-reality-before-spec
+severity: block
+project_filter: MyJKKN
+related_memory: feedback_specs_decay_verify_reality.md
+
+description: |
+  Before planning any work that references a spec/memo/PR-body/PHASE document,
+  Claude must run the 4-point staleness sweep (does named code exist? does it
+  match what the spec describes? has the constant been consumed? what does
+  latest PR body say about deferred work?). Code wins on conflict.
+  Caught 2026-04-25 on Wave 2b PR-S4.
+
+triggers:
+  - tool: Read
+    when:
+      file_glob_any:
+        - "specs/**/*.md"
+        - "docs/SPEC.md"
+        - "PRD-*.md"
+        - "**/PHASE-*.md"
+        - "**/MASTER-PLAN.md"
+    check: |
+      # Mark this session as having read a spec — staleness sweep required before next plan.
+      STATE_FILE=~/.claude/state/empirical-first/R-002.json
+      mkdir -p ~/.claude/state/empirical-first
+      [ -f "$STATE_FILE" ] || echo '{"specs_read":[],"sweeps_done":[]}' > "$STATE_FILE"
+      # This trigger only marks state — it doesn't block on Read itself.
+      # The block happens on the next planning tool call (see second trigger below).
+      exit 0
+  - tool: SlashCommand
+    when:
+      input_regex: "(?i)/(myjkkn-chain|myjkkn-module|myjkkn-api|spec|writing-plans|plan)\\b"
+    check: |
+      STATE_FILE=~/.claude/state/empirical-first/R-002.json
+      [ -f "$STATE_FILE" ] || { exit 0; }  # never read a spec, allow
+      SPECS_READ=$(jq '.specs_read | length' "$STATE_FILE" 2>/dev/null || echo 0)
+      SWEEPS_DONE=$(jq '.sweeps_done | length' "$STATE_FILE" 2>/dev/null || echo 0)
+      if [ "$SPECS_READ" -gt "$SWEEPS_DONE" ]; then
+        exit 1  # block: spec read but no staleness sweep recorded
+      fi
+      exit 0
+    fail_message: |
+      🚫 R-002 BLOCKED: Spec referenced but no staleness sweep recorded.
+
+      You read a spec/PRD/PHASE document earlier this session and are now about
+      to plan based on it. Specs decay faster than code. Before planning, run
+      the 4-point sweep:
+
+      1. Does the named code exist?
+         git ls-tree jicate/main -r --name-only | grep -iE "<keyword>"
+      2. Does it match what the spec describes?
+         git show jicate/main:<file>
+      3. Has any constant the spec defines been consumed?
+         git grep -n "<CONSTANT_NAME>"
+      4. What does the latest PR say about deferred work?
+         gh pr list --repo Jicate-Solutions/MyJKKN --search "<keyword>" --limit 10
+
+      Then record the sweep:
+        jq '.sweeps_done += [{"ts":'$(date +%s)',"spec":"<spec-path>"}]' \
+          ~/.claude/state/empirical-first/R-002.json > tmp && \
+          mv tmp ~/.claude/state/empirical-first/R-002.json
+
+      Memory: feedback_specs_decay_verify_reality.md
+      Recovery example: Wave 2b PR-S4 spec wanted MobileBottomNav flat-strip;
+      reality had production BottomNavbar with different UX + dead constant.
+
+      To bypass for this command (logged): EMPIRICAL_FIRST_BYPASS=1
