@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Star, Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -10,6 +10,7 @@ import { BottomNavItem } from './bottom-nav-item';
 import { usePageFavorites } from '@/hooks/use-page-favorites';
 import { useCommandPalette } from '@/components/CommandPalette/CommandPaletteProvider';
 import { ICON_MAP } from '@/lib/navigation/page-registry';
+import { MODULES } from '@/lib/navigation/modules';
 import {
   Sheet,
   SheetContent,
@@ -101,12 +102,34 @@ export function BottomNavMoreMenu({
   // ONE TILE PER GROUP (phone home-screen pattern).
   // Permission filter is IDENTICAL to before — `groups` is already permission-filtered.
   //
-  // Tap behavior splits by group cardinality:
-  //   - Single-module group → tile navigates directly to that module's href.
+  // Tap behavior splits by MODULES-section cardinality. Why: MODULES is the
+  // canonical "what counts as a module" registry. Counting MODULES entries
+  // per section captures peer-module semantics exactly:
+  //   - Wave-2 merged sections (Applications=2, HR=2, L&C=2) → multi-module ✓
+  //   - Sections with multiple modules where sidebar collapses some
+  //     (Administration=admin+audit-trail, System=system+my-bug-reports+
+  //     bug-leaderboard, Overview=Dashboard+AI Assistant) → multi-module ✓
+  //   - Single-module groups with deep submenus (Organization, Learners) →
+  //     single-module ✓ (lets the in-page ModuleNav handle deeper nav)
+  //   - Single-module groups with cross-domain convenience links inside
+  //     their sidebar block (Learners → /admission, /alumni links) →
+  //     single-module ✓ (URL-segment counting was wrong here)
+  //
+  // After BOS is added to MODULES (separate PR), Academic auto-becomes
+  // multi-module without changing this code.
+  //
+  //   - Single-module group → tile navigates directly to module 0's href.
   //   - Multi-module group  → tile opens a drill-down list view showing every
-  //     module + submenu in the group. Mirrors the strip-chip submenu sheet
-  //     pattern so behavior is consistent across surfaces. Closes the
-  //     coverage gap where modules 2..N were unreachable from the More drawer.
+  //     menu item in the group. Mirrors the strip-chip submenu sheet so
+  //     behavior is consistent across surfaces.
+  const modulesPerSection = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of MODULES) {
+      counts.set(m.section, (counts.get(m.section) ?? 0) + 1);
+    }
+    return counts;
+  }, []);
+
   const groupTiles = groups
     .filter((g) => g.menus.length > 0)
     .map((group) => ({
@@ -114,7 +137,7 @@ export function BottomNavMoreMenu({
       label: group.groupLabel,
       icon: group.icon,
       href: group.menus[0].href,
-      hasMultipleModules: group.menus.length > 1,
+      hasMultipleModules: (modulesPerSection.get(group.groupLabel) ?? 0) > 1,
       menus: group.menus,
       isActive: group.menus.some(
         (m) => pathname === m.href || pathname.startsWith(m.href + '/')
