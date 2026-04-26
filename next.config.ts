@@ -61,6 +61,18 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@supabase/ssr', '@supabase/supabase-js'],
 
   experimental: {
+    // 2026-04-26 — Build OOM at 16GB on Vercel Turbo (60GB host, container
+    // appears bound at 16GB regardless). Local build at 16GB cap succeeds
+    // empirically — bundle is fine. Vercel webpack peak crosses ceiling.
+    // These two flags are Next.js's documented memory-pressure relief for
+    // exactly this scenario: webpackMemoryOptimizations rewrites webpack's
+    // internal data structures to use less heap; webpackBuildWorker spawns
+    // webpack in a child process so its peak is isolated from Next.js's
+    // own per-process budget. Combined, ~3-5GB headroom freed.
+    // Source: https://nextjs.org/docs/app/guides/memory-usage
+    webpackMemoryOptimizations: true,
+    webpackBuildWorker: true,
+
     // Optimize large barrel-file packages — tree-shake unused exports.
     // NOTE: Only list barrel-file packages here (ones with a large index.js
     // re-exporting many things). Native ESM packages like @supabase/* belong
