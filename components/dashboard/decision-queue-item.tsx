@@ -7,6 +7,7 @@
  * Spec: specs/myjkkn-dashboard-v2-spec.md §4.2 (4 item types + inline actions)
  */
 
+import Link from 'next/link';
 import {
   QueueItem,
   formatRelativeAge,
@@ -293,6 +294,17 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
   const emoji = queueTypeEmoji(item.queue_type);
   const deadlineStatus = computeDeadlineStatus(item);
 
+  // Card click target: prefer action_config.url (the underlying work-item or
+  // a category-filtered notifications view) so a click jumps Director straight
+  // to the actionable destination. Fallback: /admin/notifications/<id> meta
+  // page when no action URL is set. Same pattern as PR #512's notification-card
+  // fix; applied here so the dashboard Decision Queue cards are also clickable.
+  const cfg = item.action_config as { url?: string } | null | undefined;
+  const _actionConfigUrl =
+    typeof cfg?.url === 'string' && cfg.url.trim() ? cfg.url.trim() : null;
+  const _cardHref = _actionConfigUrl ?? `/admin/notifications/${item.notification_id}`;
+  const _cardIsExternal = /^https?:\/\//i.test(_cardHref);
+
   // Overdue items get an extra-strong border to pop visually in a long queue.
   const borderClass =
     deadlineStatus === 'overdue'
@@ -307,25 +319,35 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
     <article
       className={`border border-neutral-200 dark:border-neutral-800 border-l-4 ${borderClass} rounded-xl p-4 bg-white dark:bg-neutral-900 hover:shadow-md transition-shadow animate-in slide-in-from-bottom-2 duration-300`}
     >
-      <div className='flex items-start justify-between gap-3'>
-        <div className='flex-1 min-w-0'>
-          <div className='flex items-center gap-2 flex-wrap'>
-            <span className='text-base leading-none'>{emoji}</span>
-            <span className='text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wide'>
-              {typeLabel}
-            </span>
-            <SeverityPill band={item.severity_band} priority={item.priority} />
-            <DeadlinePill status={deadlineStatus} item={item} />
-            <span className='tabular-nums font-mono text-[11px] text-neutral-500'>· {ageText}</span>
+      {/* Title + body wrapped in Link → action_config.url. Action buttons
+          stay outside the link (they're forms with their own submit handlers). */}
+      <Link
+        href={_cardHref}
+        target={_cardIsExternal ? '_blank' : undefined}
+        rel={_cardIsExternal ? 'noopener noreferrer' : undefined}
+        aria-label={`Open ${item.title}${_actionConfigUrl ? '' : ' (notification details)'}`}
+        className='block rounded-md -m-1 p-1 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset transition-colors'
+      >
+        <div className='flex items-start justify-between gap-3'>
+          <div className='flex-1 min-w-0'>
+            <div className='flex items-center gap-2 flex-wrap'>
+              <span className='text-base leading-none'>{emoji}</span>
+              <span className='text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wide'>
+                {typeLabel}
+              </span>
+              <SeverityPill band={item.severity_band} priority={item.priority} />
+              <DeadlinePill status={deadlineStatus} item={item} />
+              <span className='tabular-nums font-mono text-[11px] text-neutral-500'>· {ageText}</span>
+            </div>
+            <h3 className='mt-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100 leading-snug group-hover:underline'>
+              {item.title}
+            </h3>
+            <p className='mt-1 text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed line-clamp-3'>
+              {item.body}
+            </p>
           </div>
-          <h3 className='mt-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100 leading-snug'>
-            {item.title}
-          </h3>
-          <p className='mt-1 text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed line-clamp-3'>
-            {item.body}
-          </p>
         </div>
-      </div>
+      </Link>
 
       <div className='mt-3 pt-3 border-t border-neutral-100 dark:border-neutral-800'>
         {item.queue_type === 'approval' && <ApprovalActions item={item} />}
