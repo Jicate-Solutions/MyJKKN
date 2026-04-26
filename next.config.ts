@@ -61,17 +61,17 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@supabase/ssr', '@supabase/supabase-js'],
 
   experimental: {
-    // 2026-04-26 — Build OOM at 16GB on Vercel Turbo (60GB host, container
-    // appears bound at 16GB regardless). Local build at 16GB cap succeeds
-    // empirically — bundle is fine. Vercel webpack peak crosses ceiling.
-    // These two flags are Next.js's documented memory-pressure relief for
-    // exactly this scenario: webpackMemoryOptimizations rewrites webpack's
-    // internal data structures to use less heap; webpackBuildWorker spawns
-    // webpack in a child process so its peak is isolated from Next.js's
-    // own per-process budget. Combined, ~3-5GB headroom freed.
-    // Source: https://nextjs.org/docs/app/guides/memory-usage
+    // 2026-04-26 — webpackMemoryOptimizations rewrites webpack's internal
+    // structures to use less heap during compile. Source:
+    // https://nextjs.org/docs/app/guides/memory-usage
+    //
+    // 2026-04-26 (revised) — webpackBuildWorker REMOVED. It runs webpack in
+    // a worker thread which cannot receive function-typed config from the
+    // main thread (functions don't survive postMessage). That bypasses the
+    // user's `webpack: (config) => {...}` callback below, so cache-control
+    // overrides silently no-op. Empirical evidence: PR #503 set
+    // config.cache = false, build still hit PackFileCacheStrategy crash.
     webpackMemoryOptimizations: true,
-    webpackBuildWorker: true,
 
     // Optimize large barrel-file packages — tree-shake unused exports.
     // NOTE: Only list barrel-file packages here (ones with a large index.js
@@ -94,17 +94,24 @@ const nextConfig: NextConfig = {
   },
 
   // 2026-04-26 — Disable webpack persistent (filesystem) cache for production
-  // builds. Vercel restores `.next/cache` from prior deploy; webpack
-  // deserializes, augments, then re-serializes — and the serialized string
-  // exceeds V8's max string length (~512 MB) once compiled output crosses a
-  // threshold, throwing `RangeError: Invalid string length` from
-  // PackFileCacheStrategy. Local builds (no cache restore) succeed; only
-  // restored-cache builds fail. Memory cache is fresh each build, slightly
-  // slower (cold compile every time) but cannot hit string-overflow.
+  // builds. webpack's PackFileCacheStrategy serializes its internal cache
+  // state to a single JSON string at end of build; once compiled output
+  // crosses a threshold, that string exceeds V8's ~512 MB max-string-length
+  // and JSON.stringify throws `RangeError: Invalid string length` even on a
+  // FRESH build with no cache restore (verified 2026-04-26 with
+  // VERCEL_FORCE_NO_BUILD_CACHE=1 — same crash, no restore involved).
+  //
+  // Setting `cache = false` disables both reads AND writes, preventing
+  // PackFileCacheStrategy from running at all. Tradeoff: no incremental
+  // build benefit, but production builds are infrequent so this is fine.
   // Reference: https://github.com/webpack/webpack/issues/14914
+  //
+  // NOTE: this callback only takes effect because `experimental.webpackBuildWorker`
+  // is OFF — that flag spawns webpack in a worker thread that doesn't
+  // receive function-typed config from the main thread.
   webpack: (config, { dev }) => {
-    if (!dev && config.cache) {
-      config.cache = { type: 'memory' };
+    if (!dev) {
+      config.cache = false;
     }
     return config;
   },
