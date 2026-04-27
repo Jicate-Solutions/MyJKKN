@@ -802,6 +802,68 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // User Management — new user form (creator-only)
   '/users/new': 'users.create',
+
+  // Menu-coverage baseline cleanup (2026-04-27, follow-up to PR #511 / #515).
+  // The check:menu-coverage gate flagged 30 sidebar hrefs with no
+  // MENU_PERMISSIONS entry — without these mappings, every non-super-admin
+  // role saw an empty link list under Administration, Health & Wellness,
+  // Events (marathon submenu), Faculty (PDE submenu), Admin (PDE submenu),
+  // and Board of Studies. Each entry below maps to either an existing
+  // catalogued key or to a key newly added in lib/constants/permissions.ts
+  // in this same PR (Events + Health categories, plus pde.admin.* /
+  // pde.faculty.* sub-keys under existing PDE category).
+
+  // Academic — student-facing "My Privileges" landing (mirrors /learners/privileges/my)
+  '/academic/privileges/my': 'learners.privileges.view',
+
+  // Administration parent landing
+  '/admin': 'admin.view',
+
+  // Administration — LTI Dashboard (admin surface for LTI tools, distinct from
+  // sub-pages /admin/lti/{analytics,grade-sync,launches} which already have entries)
+  '/admin/lti': 'lti.monitor',
+
+  // Administration — PDE admin tree (Super Admin / IQAC / Lifecycle leads)
+  '/admin/pde': 'pde.admin.view',
+  '/admin/pde/assessments': 'pde.admin.assessments.view',
+  '/admin/pde/at-risk': 'pde.admin.at_risk.view',
+  '/admin/pde/capabilities': 'pde.admin.capabilities.view',
+  '/admin/pde/engagement': 'pde.admin.engagement.view',
+  '/admin/pde/lti': 'pde.admin.lti.view',
+  '/admin/pde/quests': 'pde.admin.quests.view',
+
+  // Board of Studies — parent landing (children /bos/{compositions,experts,...} above)
+  '/bos': 'bos.view',
+
+  // Events — Marathon submenu (companion to existing /events/propose entry)
+  '/events/marathon': 'events.marathon.view',
+  '/events/marathon/new': 'events.marathon.create',
+
+  // Faculty — PDE faculty tree (Faculty / HOD / Mentor surface)
+  '/faculty/pde': 'pde.faculty.view',
+  '/faculty/pde/analytics': 'pde.faculty.analytics.view',
+  '/faculty/pde/assessments': 'pde.faculty.assessments.view',
+  '/faculty/pde/dashboard': 'pde.faculty.dashboard.view',
+  '/faculty/pde/demonstrations': 'pde.faculty.demonstrations.view',
+  '/faculty/pde/quests': 'pde.faculty.quests.view',
+
+  // Health & Wellness — 9 tier-2 surfaces (parent /health is a PARENT in the
+  // sidebar so it's auto-shown when any child is grantable)
+  '/health/dashboard': 'health.dashboard.view',
+  '/health/profile': 'health.profile.view',
+  '/health/leaderboard': 'health.leaderboard.view',
+  '/health/sports': 'health.sports.view',
+  '/health/fitness': 'health.fitness.view',
+  '/health/training': 'health.training.view',
+  '/health/achievements': 'health.achievements.view',
+  '/health/assessments': 'health.assessments.view',
+  '/health/counselor': 'health.counselor.view',
+
+  // Learners — Leave/OnDuty parent landing (children /learners/leave-onduty/{apply,my-applications} above)
+  '/learners/leave-onduty': 'learners.leave_onduty.view',
+
+  // Service Requests — All Services chip (admin/staff cross-institution view)
+  '/service-requests/all-services': 'service_requests.view_all',
 };
 
 /**

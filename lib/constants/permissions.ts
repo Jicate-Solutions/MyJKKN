@@ -838,6 +838,11 @@ export const PERMISSION_CATEGORIES = [
     name: 'Administration',
     key: 'admin',
     permissions: [
+      // Added 2026-04-27 — menu-coverage baseline cleanup. The /admin parent
+      // route was hidden for non-super-admins because no MENU_PERMISSIONS
+      // entry existed. Use admin.view as the parent gate; child routes keep
+      // their specific keys (admin.lifecycle.view, lti.monitor, pde.admin.*).
+      { key: 'admin.view', label: 'View Administration Landing' },
       { key: 'admin.lifecycle.view', label: 'View Lifecycle Analytics Dashboard' },
       { key: 'system.bugs.view', label: 'View All Bug Reports (Admin)' },
       { key: 'audit.view', label: 'View Audit Trail' },
@@ -1447,7 +1452,25 @@ export const PERMISSION_CATEGORIES = [
       { key: 'pde.build.view', label: 'View Build Hub' },
       { key: 'pde.channels.view', label: 'View Channels' },
       { key: 'pde.profile.view', label: 'View Learner Profile' },
-      { key: 'pde.leaderboard.view', label: 'View Leaderboard' }
+      { key: 'pde.leaderboard.view', label: 'View Leaderboard' },
+      // Added 2026-04-27 — menu-coverage baseline cleanup. Admin + Faculty
+      // PDE surfaces (under /admin/pde/* and /faculty/pde/*) had no
+      // MENU_PERMISSIONS entries and were hidden for every non-super-admin.
+      // PDE Admin (Super Admin / IQAC / Lifecycle leads)
+      { key: 'pde.admin.view', label: 'View PDE Admin Dashboard' },
+      { key: 'pde.admin.assessments.view', label: 'View PDE Admin Assessments' },
+      { key: 'pde.admin.at_risk.view', label: 'View PDE At-Risk Learners' },
+      { key: 'pde.admin.capabilities.view', label: 'View PDE Admin Capabilities' },
+      { key: 'pde.admin.engagement.view', label: 'View PDE Engagement Analytics' },
+      { key: 'pde.admin.lti.view', label: 'View PDE LTI Configuration' },
+      { key: 'pde.admin.quests.view', label: 'View PDE Admin Quests' },
+      // PDE Faculty (Faculty / HOD / Mentor surface)
+      { key: 'pde.faculty.view', label: 'View PDE Faculty Landing' },
+      { key: 'pde.faculty.analytics.view', label: 'View PDE Faculty Analytics' },
+      { key: 'pde.faculty.assessments.view', label: 'View PDE Faculty Assessments' },
+      { key: 'pde.faculty.dashboard.view', label: 'View PDE Faculty Dashboard' },
+      { key: 'pde.faculty.demonstrations.view', label: 'View PDE Faculty Demonstrations' },
+      { key: 'pde.faculty.quests.view', label: 'View PDE Faculty Quests' }
     ]
   },
   {
@@ -1509,11 +1532,52 @@ export const PERMISSION_CATEGORIES = [
     name: 'Board of Studies',
     key: 'bos',
     permissions: [
+      // Added 2026-04-27 — menu-coverage baseline cleanup. The /bos parent
+      // route was hidden for non-super-admins because no MENU_PERMISSIONS
+      // entry existed. Use bos.view as the parent gate; child routes keep
+      // their specific tier-2 keys (bos.compositions.view, etc.).
+      { key: 'bos.view', label: 'View Board of Studies Landing' },
       { key: 'bos.compositions.view', label: 'View BoS Compositions' },
       { key: 'bos.experts.view', label: 'View BoS Experts' },
       { key: 'bos.meetings.view', label: 'View BoS Meetings' },
       { key: 'bos.reports.view', label: 'View BoS Reports' },
       { key: 'bos.ta_da.view', label: 'View BoS TA/DA Claims' }
+    ]
+  },
+  // Added 2026-04-27 — menu-coverage baseline cleanup (Failure 1 of #511/#515
+  // deferred CI gates). MENU_PERMISSIONS already enforces events.proposals.view
+  // for /events/propose, but the events module had no PERMISSION_CATEGORIES
+  // entry — Role-Management Edit dialog couldn't show toggles for it.
+  // Includes marathon keys for /events/marathon and /events/marathon/new
+  // surfaced by the same baseline sweep.
+  {
+    name: 'Events',
+    key: 'events',
+    permissions: [
+      { key: 'events.view', label: 'View Events Landing' },
+      { key: 'events.proposals.view', label: 'View Event Proposals' },
+      { key: 'events.proposals.create', label: 'Create Event Proposals' },
+      { key: 'events.marathon.view', label: 'View Marathon Events' },
+      { key: 'events.marathon.create', label: 'Create Marathon Events' }
+    ]
+  },
+  // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree
+  // (9 sub-pages) had no MENU_PERMISSIONS entries and no catalog category;
+  // every non-super-admin was hidden from Health & Wellness. Each tier-2
+  // page gets a .view key so Role-Management can toggle granularly per role.
+  {
+    name: 'Health & Wellness',
+    key: 'health',
+    permissions: [
+      { key: 'health.dashboard.view', label: 'View Health Dashboard' },
+      { key: 'health.profile.view', label: 'View My Health Profile' },
+      { key: 'health.leaderboard.view', label: 'View Health Leaderboard' },
+      { key: 'health.sports.view', label: 'View Sports Profile' },
+      { key: 'health.fitness.view', label: 'View Fitness Tests' },
+      { key: 'health.training.view', label: 'View Training Log' },
+      { key: 'health.achievements.view', label: 'View Achievements' },
+      { key: 'health.assessments.view', label: 'View Mental Health Check-In' },
+      { key: 'health.counselor.view', label: 'View Counselor Dashboard' }
     ]
   }
 ];
