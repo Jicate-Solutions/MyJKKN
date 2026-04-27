@@ -320,6 +320,9 @@ function BriefingPageContent() {
     <PermissionGuard module="admission" action="view">
       <ContentLayout title="Daily Briefing">
         <div className="space-y-4 sm:space-y-6 print:space-y-4">
+          {/* Counselor briefing-adoption panel */}
+          <TodayBriefingStatus institutionId={institutionId} className="print:hidden" />
+
           {/* Staleness Warning Banner */}
           {briefing && stalenessInDays > 0 && (
             <Alert
