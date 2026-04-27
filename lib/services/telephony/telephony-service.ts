@@ -910,6 +910,11 @@ export class TelephonyService {
           ended_at: exotelTimeToIso(payload.EndTime),
           answered_at: durationSec > 0 ? (exotelTimeToIso(payload.StartTime) || new Date().toISOString()) : null,
           is_admission_call: isAdmissionCall(agentPhone || exoPhone, exoPhone),
+          // Signal 4 prereq: preserve raw DialWhomNumber from Passthru webhook so the
+          // 712+ ExoPhone-bucket rows can be attributed once the Signal 4 helper lands.
+          // Stored unnormalized (as Exotel delivers it) so no precision is lost.
+          // Do NOT consume this column for attribution in this PR — follow-up only.
+          dial_whom_number: dialWhomNumber || null,
         })
         .select('id, status, institution_id, call_sid')
         .single();
