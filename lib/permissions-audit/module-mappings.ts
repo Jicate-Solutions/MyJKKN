@@ -64,16 +64,37 @@ function deriveCategoryKey(moduleName: string): string | undefined {
 }
 
 /**
- * Pre-built map of every module name returned by getAllModuleNames(). Modules
- * with no resolvable category map to `undefined`, which the API treats as
- * "render an explicit no-category indicator" rather than gray-null.
+ * Modules that exist as PERMISSION_CATEGORIES + sidebar routes BUT do not
+ * have any tables (so they don't appear in `getAllModuleNames()`). The
+ * unified API loop iterates `getAllModuleNames() ∪ CATEGORY_ONLY_MODULES`
+ * so these still show up in the User Resolver Module Access Summary.
+ */
+export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
+  ['Documents', 'documents'],
+];
+
+/**
+ * Pre-built map of every module name returned by getAllModuleNames() PLUS
+ * every CATEGORY_ONLY_MODULES display name. Modules with no resolvable
+ * category map to `undefined`, which the API treats as "render an explicit
+ * no-category indicator" rather than gray-null.
  */
 export const MODULE_TO_CATEGORY_KEY: Record<string, string | undefined> =
-  Object.freeze(
-    Object.fromEntries(
+  Object.freeze({
+    ...Object.fromEntries(
       getAllModuleNames().map((m) => [m, deriveCategoryKey(m)] as const),
     ),
-  );
+    ...Object.fromEntries(CATEGORY_ONLY_MODULES.map(([m, c]) => [m, c])),
+  });
+
+/**
+ * Combined module list that the unified API should iterate over.
+ */
+export function getAllAuditModuleNames(): string[] {
+  const set = new Set(getAllModuleNames());
+  for (const [m] of CATEGORY_ONLY_MODULES) set.add(m);
+  return Array.from(set).sort();
+}
 
 // ── 2. Route prefix → module display name ─────────────────────────────────
 
@@ -106,15 +127,10 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/accreditation', 'System'],
   ['/audit-trail', 'System'],
   ['/work-pulse', 'Work Pulse'],
-  ['/registrations', 'Events'],
-  ['/checklists', 'System'],
-  ['/leaderboard', 'System'],
   ['/my-bug-reports', 'Bug Reports'],
   ['/bug-leaderboard', 'Bug Reports'],
-  ['/my-assignment', 'Academic'],
   ['/admission', 'Admission'],
   ['/organizations', 'Organization'],
-  ['/notifications', 'Notifications'],
   ['/documents', 'Documents'],
   ['/solutions', 'System'],
   ['/learners', 'Learners'],
@@ -127,10 +143,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/staff', 'Staff'],
   ['/users', 'Users'],
   ['/system', 'System'],
-  ['/venues', 'Events'],
   ['/learn', 'PDE Learning'],
-  ['/vote', 'Privileges'],
-  ['/evaluate', 'Academic'],
   ['/profile', 'Users'],
   ['/okr', 'Work Pulse'],
   ['/vac', 'VAC'],

@@ -7,13 +7,14 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 import { parseRlsExpression, wouldPolicyGrantAccess } from '@/lib/utils/rls-expression-parser';
-import { getModuleForTable, getAllModuleNames } from '@/lib/constants/table-module-map';
+import { getModuleForTable } from '@/lib/constants/table-module-map';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import {
   MODULE_TO_CATEGORY_KEY,
   ROUTE_PREFIX_TO_MODULE,
   getModuleForRoute,
+  getAllAuditModuleNames,
 } from '@/lib/permissions-audit/module-mappings';
 import type {
   UnifiedAccessResponse,
@@ -168,7 +169,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Build module access data ──
-    const allModules = getAllModuleNames();
+    const allModules = getAllAuditModuleNames();
     const modules: ModuleAccess[] = [];
 
     for (const moduleName of allModules) {
