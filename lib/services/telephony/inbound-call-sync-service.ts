@@ -345,6 +345,13 @@ export class InboundCallSyncService {
         lead_id: leadId,
         counselor_id: counselorId,
         is_admission_call: isAdm,
+        // TODO(Signal 4): dial_whom_number intentionally omitted here.
+        // Exotel CDR API (/Calls.json) does not expose a per-leg DialWhomNumber
+        // field — the CDR record only has To (the ExoPhone DID, e.g. 04446313503)
+        // and From (caller). The actual agent dialled is only available in the
+        // real-time Passthru webhook payload (persisted by the webhook path above).
+        // Follow-up PR will back-match webhook rows to CDR rows via call_sid and
+        // copy dial_whom_number across where it exists. See: feat/telephony-preserve-dial-whom-number.
       });
 
     if (error) {
