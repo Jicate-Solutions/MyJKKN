@@ -186,3 +186,44 @@ export const MODULE_WITHOUT_CATEGORY = new Set<string>([
   'Expo', // expo tables exist; no permission catalog yet
   'Marathon', // marathon tables exist; no permission catalog yet
 ]);
+
+// ── 4. Permission-key module display helpers ─────────────────────────────
+// Centralised so audit-tab UIs stop carrying duplicated `prettifyKey` +
+// `moduleLabel` heuristics. The matrix API (`/api/users/permissions-audit/
+// matrix/route.ts`) emits permission keys like `admission.leads.view`; the
+// "module" each tab groups by is the first dot-segment (`admission`).
+// These helpers turn that raw key into a human label, with PERMISSION_
+// CATEGORIES as the canonical source and a safe Title-Case fallback for
+// the ~56 of 88 data-discovered modules that aren't catalogued.
+
+/**
+ * Title-case a snake_case identifier for human display.
+ * Examples: `solutions_hub` → "Solutions Hub", `view_dashboard` → "View
+ * Dashboard", `physical_resources` → "Physical Resources".
+ */
+export function prettifyKey(key: string): string {
+  return key
+    .split('_')
+    .map((p) => (p ? p[0].toUpperCase() + p.slice(1) : p))
+    .join(' ');
+}
+
+/**
+ * Display label for a permission-key module (the first dot-segment of a
+ * permission key, e.g. `admission` extracted from `admission.leads.view`).
+ *
+ * Resolution order:
+ *   1. PERMISSION_CATEGORIES.name when the key is catalogued (e.g.
+ *      `admission` → "Admission Module", `users` → "User Management").
+ *   2. prettifyKey() fallback for uncatalogued modules so the picker
+ *      never renders raw `snake_case` to the user.
+ *
+ * This is the single source of truth used by every audit-page surface that
+ * groups permission keys by module (Module → Roles tab, Permission Matrix
+ * tab). Any future tab consuming the matrix endpoint should call this
+ * instead of inventing its own labelling heuristic.
+ */
+export function getDisplayNameForModuleKey(moduleKey: string): string {
+  const cat = PERMISSION_CATEGORIES.find((c) => c.key === moduleKey);
+  return cat?.name ?? prettifyKey(moduleKey);
+}

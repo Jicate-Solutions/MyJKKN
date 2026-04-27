@@ -25,6 +25,9 @@ import {
   Users
 } from 'lucide-react';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
+import {
+  getDisplayNameForModuleKey,
+} from '@/lib/permissions-audit/module-mappings';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -164,22 +167,12 @@ function classifyPerm(permKey: string) {
   };
 }
 
-/** Title-case a snake_case key as a friendly fallback when the module isn't
- *  in PERMISSION_CATEGORIES. Examples: "solutions_hub" → "Solutions Hub",
- *  "view_dashboard" → "View Dashboard", "physical_resources" → "Physical
- *  Resources". The audit data has 88 module keys but the catalog has ~32, so
- *  without this fallback ~56 modules would render as raw snake_case strings. */
-function prettifyKey(key: string): string {
-  return key
-    .split('_')
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(' ');
-}
-
-function moduleLabel(key: string) {
-  const cat = PERMISSION_CATEGORIES.find((c) => c.key === key);
-  return cat?.name ?? prettifyKey(key);
-}
+// `moduleLabel` and the `prettifyKey` fallback now live in
+// `lib/permissions-audit/module-mappings.ts` (added by PR #533's structural
+// fix and extended in this commit). `getDisplayNameForModuleKey` is the
+// single source of truth for "permission-key module → human label" — used
+// by both this tab and Permission Matrix.
+const moduleLabel = getDisplayNameForModuleKey;
 
 function verbFor(action: string): VerbStyle {
   return (

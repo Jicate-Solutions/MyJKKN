@@ -24,6 +24,9 @@ import {
 } from '@/components/ui/sheet';
 import { Check, Download, Search, SlidersHorizontal, X } from 'lucide-react';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
+import {
+  getDisplayNameForModuleKey,
+} from '@/lib/permissions-audit/module-mappings';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,16 +44,6 @@ interface MatrixData {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Title-case a snake_case key as a friendly fallback for modules not in
- *  PERMISSION_CATEGORIES. The data has 88 module keys vs ~32 catalogued, so
- *  without prettification more than half of them render as raw snake_case. */
-function prettifyKey(key: string): string {
-  return key
-    .split('_')
-    .map((p) => (p ? p[0].toUpperCase() + p.slice(1) : p))
-    .join(' ');
-}
-
 /** Module key for a permission = first dot-segment, with a sane fallback
  *  for legacy single-segment keys (e.g. "view_dashboard" → module
  *  "view_dashboard"). */
@@ -58,11 +51,11 @@ function moduleKeyOf(permKey: string): string {
   return permKey.includes('.') ? permKey.split('.', 1)[0] : permKey;
 }
 
-/** Friendly module label: catalogued → category.name, otherwise prettified. */
-function moduleLabel(key: string): string {
-  const cat = PERMISSION_CATEGORIES.find((c) => c.key === key);
-  return cat?.name ?? prettifyKey(key);
-}
+// `moduleLabel` is now sourced from the canonical library (added by
+// PR #533's structural fix). Both this tab and Module → Roles share the
+// same "permission-key module → human label" implementation, so future
+// audit surfaces don't drift.
+const moduleLabel = getDisplayNameForModuleKey;
 
 /** Friendly permission label: look up by key in any category's permissions
  *  array (matches the helper used elsewhere in this dashboard). Falls back
@@ -74,7 +67,7 @@ function labelForPermission(permKey: string): string {
   }
   // Humanise the trailing segment as a last resort.
   const tail = permKey.split('.').pop() ?? permKey;
-  return prettifyKey(tail.replace(/[._]/g, ' '));
+  return moduleLabel(tail.replace(/[._]/g, ' '));
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
