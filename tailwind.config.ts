@@ -95,13 +95,22 @@ const config: Config = {
         shimmer: {
           '0%': { backgroundPosition: '200% 0' },
           '100%': { backgroundPosition: '-200% 0' }
+        },
+        // Tier-D holographic conic-gradient rotation. Used by:
+        //   - components/BottomNav/bottom-nav-item.tsx (PR #539)
+        //   - components/dashboard/todays-focus.tsx (this PR)
+        // 6s linear loop, compositor-only transform. Idempotent across PRs.
+        'holo-spin': {
+          '0%':   { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' }
         }
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         gradient: 'gradient 8s linear infinite',
-        shimmer: 'shimmer 3s ease-in-out infinite'
+        shimmer: 'shimmer 3s ease-in-out infinite',
+        'holo-spin': 'holo-spin 6s linear infinite'
       }
     }
   },
