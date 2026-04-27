@@ -8839,7 +8839,11 @@ BEGIN
     -- widgets + super-admin digest instead.
     gen_random_uuid(), p_title, p_body, p_category, 'work_item', p_priority, FALSE,
     p_deadline_hours, 'open_url', p_action_config, p_idempotency_key,
-    p_target_user, jsonb_build_object('type','user','user_id', p_target_user),
+    -- Updated: 2026-04-27 (Bug B) — canonical targeting shape is
+    -- {type:'user', user_ids:[uuid]} (array). Legacy {user_id: uuid}
+    -- (singular) is still accepted by fn_notification_is_for_user
+    -- for unmigrated rows. Writers should ALWAYS use the array shape.
+    p_target_user, jsonb_build_object('type','user','user_ids', jsonb_build_array(p_target_user)),
     NOW(), NOW()
   ) RETURNING id INTO v_notif_id;
   INSERT INTO user_notifications (id, notification_id, user_id, created_at)
