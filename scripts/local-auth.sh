@@ -105,12 +105,20 @@ if [ -z "$ACTION_LINK" ]; then
   exit 1
 fi
 
-# Append ?next=<target> to the redirect_to embedded in ACTION_LINK so that
-# /auth/dev-login can route the browser to the right page after auth.
-# (Supabase allow-list already accepted the base /auth/dev-login; appending a
-# query after redirect is safe because that param lives INSIDE action_link,
-# not in the outer verify URL that Supabase validates.)
-ENCODED_NEXT=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$TARGET_PATH")
+# Append the post-auth target to ACTION_LINK so /auth/dev-login can route
+# the browser correctly after the OTP exchange.
+#
+# Empirical correction (2026-04-27): adding next= as a QUERY PARAM to redirect_to
+# breaks Supabase's allow-list strict-match — Supabase rejects with
+# access_denied/otp_expired even on fresh tokens (memory:
+# feedback_supabase_generate_link_gotchas.md). Allow-list entries are
+# strict-string-match: the configured entry "http://localhost:3104/auth/dev-login"
+# does NOT match "http://localhost:3104/auth/dev-login?next=/foo".
+#
+# Fix: pass next-path via the URL HASH FRAGMENT instead. Hash is not part of
+# what Supabase validates against the allow-list, but /auth/dev-login can read
+# it from window.location.hash on the client side. Skip entirely when path is
+# the root "/" since dev-login already defaults to / on success.
 FINAL_LINK=$(python3 -c "
 import sys, urllib.parse as u
 link = sys.argv[1]
@@ -119,9 +127,14 @@ parts = u.urlparse(link)
 q = dict(u.parse_qsl(parts.query))
 redir = q.get('redirect_to', '${LOCAL_REDIRECT}')
 redir_parts = u.urlparse(redir)
-redir_q = dict(u.parse_qsl(redir_parts.query))
-redir_q['next'] = next_path
-new_redir = u.urlunparse(redir_parts._replace(query=u.urlencode(redir_q)))
+# Allow-list-safe: keep redirect_to query untouched; encode next_path as a
+# fragment that /auth/dev-login parses client-side.
+if next_path and next_path != '/':
+    # url-fragment encoding — keep slashes readable
+    encoded = u.quote(next_path, safe='/')
+    new_redir = u.urlunparse(redir_parts._replace(fragment=f'next={encoded}'))
+else:
+    new_redir = u.urlunparse(redir_parts)
 q['redirect_to'] = new_redir
 print(u.urlunparse(parts._replace(query=u.urlencode(q))))
 " "$ACTION_LINK" "$TARGET_PATH")
