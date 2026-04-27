@@ -738,6 +738,60 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/okr/elective/[id]': 'okr.elective.view',
   '/okr/elective/[id]/edit': 'okr.elective.edit',
   '/okr/abcd': 'okr.abcd.view',
+
+  // Billing — Payment chip (originally patched by PR #511, included here so
+  // this PR's gate exits 0 regardless of merge order between the two PRs.
+  // Trivial conflict-resolve if both land: identical entry on either side.)
+  '/billing/payment': 'billing.payment.view',
+
+  // Tier-2 chip-leak sweep (2026-04-27, PR follow-up to #511).
+  // The audit `comm -23 <find-pages> <sidebar-keys>` surfaced 23 routes that
+  // had a page.tsx but no MENU_PERMISSIONS entry — AutoTabNav defaults to
+  // "show" when a route has no entry (see auto-tab-nav.tsx:131), so these
+  // chips leaked to every role inside their parent module's tab strip.
+  // Routes considered always-visible (dashboard / notifications) are NOT
+  // mapped here — they go in the AutoTabNav allow-list and the new
+  // tier-2-coverage gate's allow-list. Keys without a catalog entry yet are
+  // added in the same PR to lib/constants/permissions.ts.
+
+  // Academic — Course Grades (Faculty LTI grade view, see comment in page.tsx)
+  '/academic/course-grades': 'academic.course-grades.view',
+
+  // Academic — Leave/OnDuty parent landing (redirects to /approvals)
+  '/academic/leave-onduty': 'academic.leave_onduty.approve',
+
+  // Administration
+  '/admin/reset-driver-passwords': 'admin.reset_driver_passwords.manage',
+  '/admin/saml': 'admin.saml.manage',
+
+  // Audit Workflow — External Auditor admin UI (page.tsx says
+  // "Permission: super_admin or audit.external_auditor.manage")
+  '/audit/external-auditors': 'audit.external_auditor.manage',
+
+  // Board of Studies — five tier-2 sub-pages under /bos
+  '/bos/compositions': 'bos.compositions.view',
+  '/bos/experts': 'bos.experts.view',
+  '/bos/meetings': 'bos.meetings.view',
+  '/bos/reports': 'bos.reports.view',
+  '/bos/ta-da': 'bos.ta_da.view',
+
+  // OKR — admin landing (redirects to /okr/admin/compliance which is gated
+  // by okr.admin.view; reuse the same key on the parent)
+  '/okr/admin': 'okr.admin.view',
+
+  // Solutions Hub
+  '/solutions/new': 'solutions.dashboard.view',
+  '/solutions/settings': 'solutions.settings.view',
+
+  // Startup Studio — five tier-2 sub-pages
+  '/startup-studio/analytics': 'startup_studio.analytics.view',
+  '/startup-studio/cycles': 'startup_studio.cycles.view',
+  '/startup-studio/nif': 'startup_studio.nif.view',
+  '/startup-studio/problem-bank': 'startup_studio.problem_bank.view',
+  '/startup-studio/submissions': 'startup_studio.submissions.view',
+
+  // User Management — new user form (creator-only)
+  '/users/new': 'users.create',
 };
 
 /**
