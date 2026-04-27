@@ -19,6 +19,8 @@ import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useCounselorProductivity } from '@/hooks/admission/use-counselor-productivity';
 import type { CounselorProductivityRow } from '@/hooks/admission/use-counselor-productivity';
+import { useQuery } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   Phone,
   PhoneOff,
@@ -27,8 +29,77 @@ import {
   Clock,
   RefreshCw,
   Users,
+  TriangleAlert,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Attribution caveat banner
+// Renders ONLY when attributed call-log percentage is below 50%.
+// Auto-hides once attribution is healthy (>= 50%).
+// Pattern mirrors PR #457 empty-state Card (border-dashed, CardContent).
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface AttributionStats {
+  attributed: number;
+  total: number;
+  pct: number;
+}
+
+function useCallAttributionStats(): { stats: AttributionStats | null; isLoading: boolean } {
+  const supabase = createClientSupabaseClient();
+  const { data, isLoading } = useQuery<AttributionStats>({
+    queryKey: ['call-attribution-stats'],
+    queryFn: async () => {
+      // Count total call logs marked as admission calls
+      const { count: total } = await supabase
+        .from('admission_call_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_admission_call', true);
+
+      // Count attributed call logs (counselor_id is set)
+      const { count: attributed } = await supabase
+        .from('admission_call_logs')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_admission_call', true)
+        .not('counselor_id', 'is', null);
+
+      const safeTotal = total ?? 0;
+      const safeAttributed = attributed ?? 0;
+      const pct = safeTotal > 0 ? Math.round((safeAttributed / safeTotal) * 100) : 100;
+
+      return { attributed: safeAttributed, total: safeTotal, pct };
+    },
+    staleTime: 60000,
+    refetchInterval: 120000,
+  });
+
+  return { stats: data ?? null, isLoading };
+}
+
+function AttributionCaveatBanner({ stats }: { stats: AttributionStats }) {
+  // Only render when attribution is below the 50% healthy threshold
+  if (stats.pct >= 50) return null;
+
+  return (
+    // Mirror of PR #457 empty-state pattern: Card + border-dashed + CardContent
+    <Card className="border-dashed border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 mb-4">
+      <CardContent className="flex items-start gap-3 py-4 px-5">
+        <TriangleAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+            Productivity metrics show partial data
+          </p>
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            Only {stats.pct}% of calls are attributed to counselors right now ({stats.attributed} of{' '}
+            {stats.total}). Run the attribution rescope to restore full data — until then, treat
+            numbers below as a floor, not the truth.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // KPI Card
@@ -104,6 +175,9 @@ function ProductivityContent() {
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const { data, isLoading, dataUpdatedAt } = useCounselorProductivity(institutionId, date);
 
+  // Attribution caveat: live count from DB, auto-hides when pct >= 50%
+  const { stats: attributionStats } = useCallAttributionStats();
+
   const team = data?.team;
   const counselors = data?.counselors || [];
 
@@ -139,6 +213,11 @@ function ProductivityContent() {
           Auto-refresh 60s {lastUpdated && `· Updated ${lastUpdated}`}
         </div>
       </div>
+
+      {/* Attribution caveat banner — auto-hides when attribution >= 50% */}
+      {attributionStats !== null && (
+        <AttributionCaveatBanner stats={attributionStats} />
+      )}
 
       {/* KPI Cards */}
       {isLoading ? (
