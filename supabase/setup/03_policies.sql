@@ -5332,3 +5332,64 @@ CREATE POLICY director_decisions_update_self ON director_decisions
               WITH CHECK (auth.uid() = director_user_id);
 
 GRANT SELECT, INSERT, UPDATE ON director_decisions TO service_role;
+
+-- ================================================================================
+-- 2026-04-27 — notifications RLS lockdown (Bug B, supersedes PR #517's verbose form)
+-- ================================================================================
+-- Symptom: any authenticated user could SELECT * FROM notifications, exposing
+-- 11,150 rows of personal data (Sunday Wraps, Friday Reflections, dashboard
+-- approvals, anomaly alerts) across all categories.
+--
+-- Root cause: prior policy "Users with notifications.view permissions can view
+-- notification" had USING (auth.uid() IS NOT NULL) — no permission check, no
+-- targeting check. The "permissions" name was misleading; actual gate was
+-- only "is logged in".
+--
+-- Fix: drop both broken policies, install per-user (via fn_notification_is_for_user
+-- helper which honours BOTH legacy singular {user_id} and canonical array
+-- {user_ids: []} shapes plus broadcast flag), super-admin governance view,
+-- and admin-only writes.
+--
+-- This block is the cleaner version of PR #517's verbose 3-clause OR predicate.
+-- Behaviour is identical (singular + array + broadcast all match); the helper
+-- centralises the matcher logic so future shape additions touch one function
+-- not every policy that reads `targeting`.
+-- ================================================================================
+
+DROP POLICY IF EXISTS "Super admins can manage all notifications" ON notifications;
+DROP POLICY IF EXISTS "Users with notifications.view permissions can view notification" ON notifications;
+DROP POLICY IF EXISTS notifications_select_own ON notifications;
+DROP POLICY IF EXISTS notifications_select_super_admin ON notifications;
+DROP POLICY IF EXISTS notifications_insert_admins ON notifications;
+DROP POLICY IF EXISTS notifications_update_admins ON notifications;
+DROP POLICY IF EXISTS notifications_delete_admins ON notifications;
+
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+
+-- Per-user SELECT — delegates to fn_notification_is_for_user which accepts
+-- both legacy {user_id: uuid} and canonical {user_ids: [uuid]} targeting
+-- shapes plus optional {broadcast: true} flag for system-wide notifications.
+CREATE POLICY notifications_select_own ON notifications FOR SELECT USING (
+  auth.uid() IS NOT NULL AND fn_notification_is_for_user(targeting, auth.uid())
+);
+
+-- Governance SELECT — super_admin sees everything for audit/compliance.
+-- Multiple SELECT policies are OR'd together by Postgres, so super_admin
+-- gets union of "their own" + "everything".
+CREATE POLICY notifications_select_super_admin ON notifications FOR SELECT USING (
+  is_super_admin()
+);
+
+-- Writes — super_admin + admin only. Regular users (faculty, learners,
+-- staff) cannot insert/update/delete notifications via PostgREST.
+CREATE POLICY notifications_insert_admins ON notifications FOR INSERT WITH CHECK (
+  is_super_admin() OR is_admin(auth.uid())
+);
+CREATE POLICY notifications_update_admins ON notifications FOR UPDATE USING (
+  is_super_admin() OR is_admin(auth.uid())
+) WITH CHECK (
+  is_super_admin() OR is_admin(auth.uid())
+);
+CREATE POLICY notifications_delete_admins ON notifications FOR DELETE USING (
+  is_super_admin() OR is_admin(auth.uid())
+);
