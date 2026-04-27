@@ -95,13 +95,21 @@ const config: Config = {
         shimmer: {
           '0%': { backgroundPosition: '200% 0' },
           '100%': { backgroundPosition: '-200% 0' }
+        },
+        // Tier D — holographic conic-gradient rotation for BottomNav tiles.
+        // 6s linear loop. Used by bottom-nav-item.tsx tile variant. Compositor-
+        // only transform, no repaint per frame even at 22 tiles. See PR #539.
+        'holo-spin': {
+          '0%':   { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' }
         }
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         gradient: 'gradient 8s linear infinite',
-        shimmer: 'shimmer 3s ease-in-out infinite'
+        shimmer: 'shimmer 3s ease-in-out infinite',
+        'holo-spin': 'holo-spin 6s linear infinite'
       }
     }
   },
