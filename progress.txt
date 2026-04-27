@@ -1,4 +1,67 @@
-## Session: 2026-04-26 → 2026-04-27 (continuation pane ae443c45) — Decision Queue actionable end-to-end
+## Session: 2026-04-15 → 2026-04-27 (See As User feature shipped + reusable skill) — END via /cnext
+
+### Accomplished
+
+**Goal:** Build "See As User" — let super admins preview MyJKKN as another user, with director-only write mode + 15-min TTL + audit trail. Plus distill the architecture into a reusable skill for any Next.js + Supabase + Vercel project.
+
+**Shipped + merged + deployed (all 7 PRs, 2026-04-15):**
+
+- **PR #166** — feat(permissions-audit): See As User v1 (cosmetic preview cookie + middleware mutation gate). Worked at the label level only; the underlying data was still admin's.
+- **PR #168** — feat(permissions-audit): Compliance Report PDF (4-page, audit-logged, downloadable from dashboard header).
+- **PR #169** — fix(permissions-audit): align role_audit_log schema with audit writes (add actor_email/actor_role/target_email/metadata + drop NOT NULL on description). Caught by querying audit log post-deploy and finding zero rows.
+- **PR #170** — feat(permissions-audit): Impact Preview on role edits (delta + affected users + route gains/losses + RLS table impact).
+- **PR #179** — fix(permissions-audit): See As User REAL impersonation via admin.generateLink + verifyOtp + setSession. Cosmetic v1 became real session swap. Greeting/avatar/sidebar/data ALL switch to target user.
+- **PR #180** — fix(permissions-audit): writePreviewAudit populates the new attribution columns (#169 added the columns; this wires up the writes).
+- **PR #181** — fix(permissions-audit): preview exit no signOut + add boobalan.a@jkkn.ac.in to write-mode allowlist. Removed Set-Cookie collision.
+- **PR #185** — fix(permissions-audit): preview exit RE-ISSUES admin session via admin.generateLink (instead of restoring from cookie backup that hit the 4KB cookie size ceiling and was silently truncated). Final architectural fix; admin now lands back on permissions-audit STILL LOGGED IN.
+
+**Reusable skill created (~/.claude/skills/see-as-user/):**
+- `SKILL.md` (20 KB) — full architecture, 5 traps catalog, install procedure, failure-mode table
+- 5 templates (preview-session core module, start route, end route with regen pattern, audit migration, REFERENCE.md pointing at MyJKKN UI files)
+- `scripts/preflight.py` — validates target project (Next.js App Router, @supabase/ssr, jose, service-role key, super-admin signal, no conflicting routes)
+- All templates encode the regen-on-exit pattern from PR #185, NOT the cookie-backup pattern that failed
+
+**Skill chain learnings encoded in ship-myjkkn/SKILL.md:**
+- **Step 2.7** — Audit Write Round-Trip Verification (cross-check insert payloads vs information_schema.columns; query DB after deploy to confirm row landed). Born from PR #166/#168 audit silent failures.
+- **Step 2.8** — Env Var Parity Check (grep `process.env.X` from PR diff, cross-ref `vercel env ls`). Born from PR #166's `SUPABASE_JWT_SECRET` missing in prod, leading to PR #171 fallback fix.
+- **Lessons Learned table** — 2 new rows for the audit-column drift + env-var drift incidents.
+
+### Current Status
+
+- **Branch (this checkout)**: `fix/sentry-lane-2-sort` — UNRELATED parallel-session work; do not modify.
+- **Build**: Latest jicate/main commit `5759600` (Sentry Lane 2 sort fix #532) Ready on jkkn.ai.
+- **Open PRs from this session**: NONE. All 7 See-As-User PRs merged 2026-04-15.
+- **Verified post-deploy**: Director's screenshot (during session) showed "Good Afternoon, Test Admission Officer" + TAO avatar + admission sidebar after PR #179 deployed. Real impersonation confirmed.
+- **NOT verified post-deploy**: PR #185 exit-restore fix (browser session got logged out from earlier broken exit, couldn't re-test in-session). User confirmed boobalan write-mode works; user reported exit-restore still broken before #185 was merged.
+
+### Lessons Learned
+
+- **Cosmetic ≠ real impersonation.** A custom preview cookie that the rest of the app's Supabase clients never read is just a banner, not an identity swap. Real swap requires `admin.generateLink` + `verifyOtp` + `setSession` — Supabase's own primitives.
+- **Cookie size ceiling kills naive backups.** Serializing chunked auth tokens to JSON in a single cookie regularly exceeds the browser's ~4KB single-cookie limit and gets silently truncated. For "save state across a flow" — re-derive instead of store-and-restore. PR #185 lesson.
+- **Audit-log migrations + insert payloads must be re-tested after deploy.** Adding columns + writing to them in 2 separate PRs creates schema drift if one PR forgets. "Row count = 1" is not enough; check that the row's fields are actually populated. Encoded as ship-myjkkn Step 2.7.
+- **`process.env.X!` is a compile-time lie.** Local `.env.local` and Vercel prod env drift silently. Always cross-check before declaring shipped. Encoded as ship-myjkkn Step 2.8.
+- **Symmetric primitives are simpler.** `/preview/start` and `/preview/end` both use `admin.generateLink` + `verifyOtp` + `setSession` — start for target's email, end for admin's email. Same code path twice; no separate "restore from backup" path to maintain.
+
+### Next Session — Tasks (from /cnext interview)
+
+**user_stated_p0:** "Verify See As User in production" — director walks Start → Exit end-to-end and confirms admin session is restored.
+
+1. [P0] **Director verifies See As User end-to-end on prod (jkkn.ai).** Manual steps: (a) log in as director, (b) navigate to /users/permissions-audit → User Resolver → search test.admission → Start Read-only Preview, (c) confirm dashboard shows "Test Admission Officer" greeting + admission sidebar, (d) try a mutation → should 403 with preview-blocked message, (e) click Exit Preview → MUST land back on /users/permissions-audit STILL LOGGED IN as director (not Smart Learning Portal sign-in). (small, ~3 min, requires real Google OAuth)
+2. [P0] **Query role_audit_log post-walkthrough.** `SELECT action_type, actor_email, target_email, metadata, created_at FROM role_audit_log WHERE action_type LIKE 'preview_%' ORDER BY created_at DESC LIMIT 5;` — confirm 1 started + 1 ended row, both with actor_email + target_email populated. (small, ~2 min)
+3. [P1] **If exit-restore still fails:** check Vercel logs of `/api/users/permissions-audit/preview/end` for `admin.generateLink` errors. Most likely cause if it fails: rate limiting on the magic link generation, or admin.generateLink's behaviour for the director's email differing because it was created via Google OAuth (no password to refresh). Fallback in PR #185 wipes cookies for clean logout — that's the user-visible symptom.
+4. [P1] **Boobalan validates his own write-mode access.** Boobalan logs in → opens See As dialog on any user → confirms Write mode radio is enabled (not "Director only" disabled state). (small, ~2 min)
+5. [P2] **Encode see-as-user skill into ~/.claude/CLAUDE.md context library.** It's installed but won't auto-trigger from the chain unless referenced.
+
+**user_stated_drops:** "Nothing — keep all context."
+
+**user_must_read:** "all" — read progress.txt (this entry) + see-as-user SKILL.md + brief.
+
+### Probe verdict
+- skipped (no probe-facts.json found for this session_id; conversation has been resumed many times, can't isolate)
+
+---
+
+
 
 ### Accomplished
 
