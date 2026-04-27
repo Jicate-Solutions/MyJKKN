@@ -332,6 +332,7 @@ export async function GET(request: NextRequest) {
         routeAccess,
         conflicts,
         isConsistent: conflicts.length === 0,
+        hasCategory: matchingCategories.length > 0,
       });
     }
 
