@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -25,12 +26,21 @@ import {
 import { NotificationsPageSkeleton } from './_components/notifications-page-skeleton';
 
 export default function NotificationsPage() {
+  // Honour ?category=<key> from the URL on initial mount so deep-links from
+  // the dashboard Decision Queue (e.g. ?category=dashboard:anomaly emitted by
+  // PR #506/#510 generators and routed via PR #513) land on the right tab
+  // pre-filtered. Tab clicks override via setActiveCategory; URL is not
+  // re-synced on tab change (existing behavior, unchanged).
+  const searchParams = useSearchParams();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [stats, setStats] = useState<NotificationStatsType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('all');
+  const [activeCategory, setActiveCategory] = useState(() => {
+    const fromUrl = searchParams?.get('category')?.trim().toLowerCase();
+    return fromUrl || 'all';
+  });
   const { canAccess } = usePermissions();
 
   const canCreateNotifications = canAccess('notifications', 'create');
