@@ -164,7 +164,7 @@ export async function GET(request: NextRequest) {
       status: 'new',
       category: 'sentry-silent',
       priority,
-      module_name: extractModule(i.culprit),
+      // module_name dropped — Postgres GENERATED column on bug_reports auto-derives it
       institution_id: tagMap.institution_id && tagMap.institution_id !== 'none' ? tagMap.institution_id : null,
       metadata: {
         source: 'sentry-silent',
