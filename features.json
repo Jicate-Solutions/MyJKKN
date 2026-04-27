@@ -1,36 +1,36 @@
 {
   "project": "MyJKKN - HR Module + Exotel",
-  "lastUpdated": "2026-04-16",
+  "lastUpdated": "2026-04-27",
   "features": [
     {
       "id": "hr-sprint-1-foundation",
-      "name": "HR Sprint 1 — Shadow Tenant + Employee Master",
+      "name": "HR Sprint 1 \u2014 Shadow Tenant + Employee Master",
       "status": "self-verified",
       "notes": "PR #163 merged+deployed, PR #165 hotfix (FK disambig) merged. 7 tables live: hr_organizations(11), user_hr_access, hr_cadres(44), hr_designations(187), hr_staff_details(393), hr_employees, hr_additional_roles. Routes /hr, /hr/employees live."
     },
     {
       "id": "hr-sprint-2-policies",
-      "name": "HR Sprint 2 — Policy Management (19 versioned tables)",
+      "name": "HR Sprint 2 \u2014 Policy Management (19 versioned tables)",
       "status": "self-verified",
       "notes": "PR #167 merged+deployed. 19 CRUDable policy tables with edit-as-supersede versioning. 3 SECURITY DEFINER RPCs (history, diff, restore). Generic PolicyEditor drives all 19 routes via registry."
     },
     {
       "id": "hr-sprint-3-leave-workflow",
-      "name": "HR Sprint 3 — Staff Leave Workflow",
+      "name": "HR Sprint 3 \u2014 Staff Leave Workflow",
       "status": "self-verified",
       "notes": "PR #176 merged+deployed+browser-verified. 6 tables + 3 triggers + 1 RPC + 2358 seed rows. 8 pages + 9 API routes + 10 hooks. 28 interview decisions locked in spec."
     },
     {
       "id": "hr-leave-unification",
-      "name": "HR — Unify leave_types ← hr_leave_types (single catalog)",
+      "name": "HR \u2014 Unify leave_types \u2190 hr_leave_types (single catalog)",
       "status": "self-verified",
       "notes": "PR #182 merged+deployed. leave_types now 74 rows (8 learner + 8 cols extended with scope+policy cols + 66 staff migrated with UUID preservation). hr_leave_types dropped, replaced with read-only compat VIEW."
     },
     {
       "id": "hr-sprint-6-command-center",
-      "name": "HR Sprint 6 — Command Center Dashboard",
+      "name": "HR Sprint 6 \u2014 Command Center Dashboard",
       "status": "self-verified",
-      "notes": "PR #204 merged+deployed 2026-04-16 12:11 IST. Rebuilt from spec after Apr-15 revert event. 10 files · 2,244 LOC · 0 TS errors. Verified live on www.jkkn.ai/hr: 11-institution super-admin grid renders; access-log has 39 rows / 3 users (decision #18 working); 4 realtime tables in supabase_realtime publication. Follow-up PR #210 fixes 3 drill-down 404s to non-existent Sprint 2/3 pages."
+      "notes": "PR #204 merged+deployed 2026-04-16 12:11 IST. Rebuilt from spec after Apr-15 revert event. 10 files \u00b7 2,244 LOC \u00b7 0 TS errors. Verified live on www.jkkn.ai/hr: 11-institution super-admin grid renders; access-log has 39 rows / 3 users (decision #18 working); 4 realtime tables in supabase_realtime publication. Follow-up PR #210 fixes 3 drill-down 404s to non-existent Sprint 2/3 pages."
     },
     {
       "id": "pr-preflight-skill",
@@ -40,15 +40,15 @@
     },
     {
       "id": "hr-employees-non-staff-scope",
-      "name": "Kill /hr/employees ↔ /staff/list duplication — scope to non-staff only",
+      "name": "Kill /hr/employees \u2194 /staff/list duplication \u2014 scope to non-staff only",
       "status": "self-verified",
       "notes": "PR #203 merged 2026-04-15. The two URLs were showing the same 393 staff rows because HRPersonService unioned both tables with no opt-out. Added include_staff filter (default true for back-compat; /hr/employees passes false). Renamed sidebar label to 'Non-Staff Workforce'. Split /hr hero CTA into two (Full-Time Staff vs Non-Staff). Bidirectional cross-links. Polymorphic schema untouched."
     },
     {
       "id": "hr-sprint-6-drill-404-fix",
-      "name": "Sprint 6 follow-up — fix 3 drill-down 404s",
+      "name": "Sprint 6 follow-up \u2014 fix 3 drill-down 404s",
       "status": "pending-merge",
-      "notes": "PR #210 open. Post-merge silent-failure sweep caught 3 dead drill_urls: /hr/leave/blackouts (no admin page exists), /hr/policies/leave-types and /hr/policies/approval-flows (dynamic [table] route needs actual table names — leave_types and hr_approval_flows). 1 file · 3 string changes · zero logic."
+      "notes": "PR #210 open. Post-merge silent-failure sweep caught 3 dead drill_urls: /hr/leave/blackouts (no admin page exists), /hr/policies/leave-types and /hr/policies/approval-flows (dynamic [table] route needs actual table names \u2014 leave_types and hr_approval_flows). 1 file \u00b7 3 string changes \u00b7 zero logic."
     },
     {
       "id": "hr-employees-100-cap-fix",
@@ -102,7 +102,7 @@
       "id": "call-details-page",
       "name": "Call Details Page",
       "status": "self-verified",
-      "notes": "PR #11 merged. Clickable rows → detail page with info, audio player, notes editor, lead card, call history."
+      "notes": "PR #11 merged. Clickable rows \u2192 detail page with info, audio player, notes editor, lead card, call history."
     },
     {
       "id": "exotel-price-classification",
@@ -120,13 +120,19 @@
       "id": "call-transcription",
       "name": "Call Recording Transcription",
       "status": "planned",
-      "notes": "Phase 2. Recording URLs IP-restricted. Need whitelist then: download → transcribe → extract intent."
+      "notes": "Phase 2. Recording URLs IP-restricted. Need whitelist then: download \u2192 transcribe \u2192 extract intent."
     },
     {
       "id": "multi-college-leads",
       "name": "Multi-College Lead Architecture",
       "status": "planned",
       "notes": "Phase 2. Leads should belong to admission pipeline before college decided. Needs CRM spec."
+    },
+    {
+      "id": "dashboard-decision-queue-actionable",
+      "name": "Dashboard Decision Queue \u2014 actionable digest cards",
+      "status": "self-verified",
+      "notes": "4-PR wave 2026-04-27: #513 cards link to action_config.url, #522 generators emit actionable URLs (+76 backfilled rows), #518 ?category= filter, #521 ?stale_min_days= filter. Browser-verified on jkkn.ai. PR #418 (cron auth fix) prerequisite landed earlier."
     }
   ]
 }

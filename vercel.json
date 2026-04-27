@@ -62,6 +62,10 @@
     {
       "path": "/api/cron/generate-daily-briefings",
       "schedule": "30 0 * * *"
+    },
+    {
+      "path": "/api/cron/sentry-lane-2?secret=${CRON_SECRET}",
+      "schedule": "29 */6 * * *"
     }
   ]
 }

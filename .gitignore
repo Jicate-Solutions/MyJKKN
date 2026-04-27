@@ -65,3 +65,8 @@ public/swe-worker-*.js
 public/swe-worker-*.js.map
 .worktrees/
 .worktree
+# Auto-generated session context for Claude Code
+.claude/session-context.md
+
+# Sentry Config File
+.env.sentry-build-plugin

@@ -11,6 +11,7 @@ import { WorkPulseFab } from '@/components/work-pulse-fab';
 import { AcknowledgmentGate } from '@/components/notifications/acknowledgment-gate';
 import { AutoTabNav } from '@/components/navigation/auto-tab-nav';
 import { AutoBreadcrumbs } from '@/components/navigation/auto-breadcrumbs';
+import { SentryUserSync } from '@/hooks/use-sentry-user-sync';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -43,6 +44,7 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           'key' prop") when the children array passes through that boundary
           without keys.
          */}
+        <SentryUserSync key='sentry-user-sync' />
         <div key='auto-breadcrumbs' className='px-4 md:px-8 pt-3'>
           <AutoBreadcrumbs />
         </div>

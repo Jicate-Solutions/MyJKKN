@@ -1,3 +1,44 @@
+## Session: 2026-04-26 → 2026-04-27 (continuation pane ae443c45) — Decision Queue actionable end-to-end
+
+### Accomplished
+
+**Goal:** Director's Decision Queue cards on /dashboard were unclickable / clickable-but-not-actionable. Fixed end-to-end with a 4-PR wave + parallel agent fan-out.
+
+**Shipped + merged + deployed to prod (jkkn.ai):**
+
+- **PR #418** — Vercel cron auth bug (fix(cron): accept Bearer header). Root cause: 5 cron routes only checked `?secret=` query param; Vercel sends `Authorization: Bearer <CRON_SECRET>` and does NOT substitute `${CRON_SECRET}` in vercel.json paths. Found via Vercel API showing crons registered with literal `${CRON_SECRET}` string. Auto-fires confirmed at :07 every hour for 3 days post-merge.
+- **PR #513** — fix(dashboard): Decision Queue cards link to action_config.url. Wraps title+body in `<Link>` to action_config.url ?? `/admin/notifications/<notification_id>`. Action buttons stay outside the link (forms can't be nested inside Link).
+- **PR #522** (Agent B) — fix(digest): point digest URLs at actionable destinations. Updated `fn_dispatch_super_admin_digests_v2` so dashboard:anomaly digest → `/academic/attendance/dashboard` and dashboard:rescue digest → `/admission/leads?stale_min_days=30`. Plus 76-row prod backfill via Supabase MCP.
+- **PR #518** — fix(notifications): wire ?category= URL param to filter (Bug A, autonomous loop). Honours `?category=<key>` from deep links so /admin/notifications lands filtered.
+- **PR #521** (Agent C) — feat(admission/leads): honour ?stale_min_days=N filter. Wires stale filter through page → table → service → API. Verified 1064 → 186 stale leads at N=30 via direct DB query.
+
+**Parallel-agent fan-out pattern:**
+- Spawned Agent B (SQL generator URLs) + Agent C (leads stale filter) simultaneously via `Agent` tool with `run_in_background: true`. Both completed in ~30min wall time, each owning one non-overlapping file path.
+- I closed my own duplicate PR #525 when I discovered #518 had already done the Track A work earlier in session.
+
+### Current Status
+
+- **Branch (main checkout)**: `feat/sentry-leverage-lane2` — different parallel session pushed Sentry work; not mine. My fixes all merged to jicate/main.
+- **Build**: Deploy `jyp1q3ebq` Ready 6m. www.jkkn.ai serving.
+- **Browser-verified on prod**: cards render correct hrefs (`/academic/attendance/dashboard`, `/admission/leads?stale_min_days=30`). Same hrefs as localhost + DB-backfilled URLs. All 3 layers agree.
+- **Open PRs from this session**: none. All 4 merged.
+
+### Lessons Learned
+
+- **Click ≠ resolve.** Making cards clickable (link wrapping) is structural; making them ACTIONABLE (correct destination) is the actual goal. Captured in `feedback_action_config_url_target_domain_not_meta.md`. Director gets ONLY digest items; per-entity items target faculty/counselors. So digest URLs MUST point at domain pages where Director can act, not at meta notification lists.
+- **Type-check ≠ tested for UI.** Shipped PR #513 on type-check + reasoning alone; user replied "did you test locally". Captured in `feedback_ui_change_browser_verify_before_ready.md`. Generalizes the discovery-test rule to NEW features where no prior failing test existed.
+- **`gh pr list` before agent spawn.** Spawned Agent C for work PR #521 already had Ready. Captured in `feedback_gh_pr_list_before_agent_spawn.md`. Multiple sessions + autonomous loops can produce overlapping PRs; agents see empty git status and assume no work in flight.
+- **Vercel cron URL substitution is a myth.** `${CRON_SECRET}` in vercel.json is registered as a literal string. Vercel's actual auth mechanism is the auto-injected `Authorization: Bearer <CRON_SECRET>` header. Routes must check the header, not just the query param.
+
+### Next Session — Tasks
+
+1. [P1] Verify the cron `notification-processor` is firing post-PR-#418 deploy. Should fire hourly at :00 UTC. Check logs or DB-side effects of mandatory_notification_reminders processing. (small, ~15 min)
+2. [P1] Audit the remaining digest URLs for the same actionability gap — `dashboard:approval` currently still points at `/admin/notifications?category=dashboard:approval`. That's OK because each individual approval has its own correct deep-link, but verify the per-entity approval cards are visible to Director after clicking through (not just digest summary). (small, ~20 min)
+3. [P2] Consider whether the Decision Queue should hide digest cards once Director has visited the destination at least once (currently digests stay until manually acknowledged). May reduce queue noise. Discuss before building. (decision needed)
+4. [P2] Consolidate the 11 abandoned modules audit (per `reference_abandoned_modules_inventory.md`) — track resurrection priority. (large, defer)
+
+---
+
 ## Session: 2026-04-20 (00:02 → 00:55 IST) — Doctrines v1 PR: 4 more tasks shipped (8 of 11 done), parallel-agent push
 
 ### Accomplished
