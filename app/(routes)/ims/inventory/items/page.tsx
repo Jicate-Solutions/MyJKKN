@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { BeatLoader } from 'react-spinners';
 import { useAuth } from '@/hooks/use-auth';
 import { ImsStockAdjustmentService } from '@/lib/services/ims/stock-adjustment-service';
+import { ImsStockService } from '@/lib/services/ims/stock-service';
 import {
   Card,
   CardContent,
@@ -135,6 +136,8 @@ interface ItemFormData {
   track_expiry: boolean;
   is_sellable_to_students: boolean;
   opening_stock: number; // only used on create
+  opening_batch_number: string; // optional override; auto-generates BTH-YYMMDD-XXXXX if blank
+  opening_expiry_date: string; // only relevant if track_expiry is true
 }
 
 const emptyFormData: ItemFormData = {
@@ -159,6 +162,8 @@ const emptyFormData: ItemFormData = {
   track_expiry: false,
   is_sellable_to_students: false,
   opening_stock: 0,
+  opening_batch_number: '',
+  opening_expiry_date: '',
 };
 
 export default function InventoryItemsPage() {
@@ -258,6 +263,8 @@ export default function InventoryItemsPage() {
       track_expiry: item.track_expiry,
       is_sellable_to_students: item.is_sellable_to_students,
       opening_stock: 0,
+      opening_batch_number: '',
+      opening_expiry_date: '',
     });
     setDialogOpen(true);
   };
@@ -322,19 +329,22 @@ export default function InventoryItemsPage() {
           institution_id: institutionId || null,
         };
         const item = await createItem.mutateAsync(createData);
-        // Apply opening stock if provided
+        // Apply opening stock as a real batch (so /ims/stock/batches and FIFO
+        // issuing work end-to-end). Auto-generates BTH-YYMMDD-XXXXX if the user
+        // didn't enter their own batch number.
         if (formData.opening_stock > 0) {
-          await ImsStockAdjustmentService.createAdjustment(
-            {
-              item_id: item.id,
-              adjustment_type: 'correction',
-              quantity: formData.opening_stock,
-              reason: 'Opening stock',
-              institution_id: institutionId || '',
-              store_id: storeId || undefined,
-            },
-            profile?.id || ''
-          );
+          await ImsStockService.addBatch({
+            item_id: item.id,
+            batch_number: formData.opening_batch_number.trim() || undefined,
+            quantity: formData.opening_stock,
+            cost_price: formData.cost_price,
+            gst_rate: formData.gst_rate,
+            entry_date: new Date().toISOString().split('T')[0],
+            expiry_date: formData.opening_expiry_date || undefined,
+            notes: 'Opening stock',
+            store_id: storeId || undefined,
+            institution_id: institutionId || '',
+          });
         }
         toast.success('Item created successfully');
       }
@@ -847,23 +857,75 @@ export default function InventoryItemsPage() {
 
                 {/* Opening Stock — only shown on create */}
                 {!editingItem && (
-                  <div className="space-y-2 border-t pt-4">
-                    <Label htmlFor="opening_stock">Opening Stock</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Set the initial stock quantity for this item (optional).
-                    </p>
-                    <Input
-                      id="opening_stock"
-                      type="number"
-                      min={0}
-                      value={formData.opening_stock}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          opening_stock: parseInt(e.target.value) || 0,
-                        }))
-                      }
-                    />
+                  <div className="space-y-4 border-t pt-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="opening_stock">Opening Stock</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Set the initial stock quantity for this item (optional).
+                        A batch will be created so this stock is FIFO-trackable.
+                      </p>
+                      <Input
+                        id="opening_stock"
+                        type="number"
+                        min={0}
+                        value={formData.opening_stock}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            opening_stock: parseInt(e.target.value) || 0,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    {formData.opening_stock > 0 && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="opening_batch_number">
+                            Batch Number
+                            <span className="text-muted-foreground font-normal"> (optional)</span>
+                          </Label>
+                          <Input
+                            id="opening_batch_number"
+                            type="text"
+                            placeholder="Auto-generated (e.g. BTH-260427-00001)"
+                            value={formData.opening_batch_number}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                opening_batch_number: e.target.value,
+                              }))
+                            }
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Leave blank to auto-generate, or enter the supplier&apos;s lot number.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="opening_expiry_date">
+                            Expiry Date
+                            <span className="text-muted-foreground font-normal"> (optional)</span>
+                          </Label>
+                          <Input
+                            id="opening_expiry_date"
+                            type="date"
+                            value={formData.opening_expiry_date}
+                            onChange={(e) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                opening_expiry_date: e.target.value,
+                              }))
+                            }
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {formData.track_expiry
+                              ? 'This batch will appear in expiry-soon reports and alerts.'
+                              : 'Leave blank for non-perishable items. Enable "Track expiry dates" above to get alerts.'}
+                          </p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

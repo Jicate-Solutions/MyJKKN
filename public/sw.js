@@ -1,5 +1,5 @@
-const CACHE_NAME = 'myjkkn-v3';
-const STATIC_CACHE = 'myjkkn-static-v3';
+const CACHE_NAME = 'myjkkn-v4';
+const STATIC_CACHE = 'myjkkn-static-v4';
 const urlsToCache = [
   '/',
   '/manifest.json',
@@ -112,30 +112,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigation requests — stale-while-revalidate
-  // Serve cached page instantly, fetch fresh copy in background
+  // Navigation requests — network-only with redirect-following.
+  // Browser navigations default to redirect:'manual'; if the SW returns the
+  // resulting opaqueredirect, the browser fails the request with ERR_FAILED.
+  // Refetch with redirect:'follow' so auth redirects (e.g. / -> /auth/login)
+  // resolve to a real response. Skip caching to avoid leaking authed pages.
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        const fetchPromise = fetch(event.request)
-          .then((response) => {
-            // Update cache with fresh response
-            if (response.status === 200) {
-              const responseToCache = response.clone();
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, responseToCache);
-              });
-            }
-            return response;
-          })
-          .catch(() => {
-            // If network fails and no cache, serve offline page
-            return caches.match('/offline');
-          });
-
-        // Return cached version immediately if available, otherwise wait for network
-        return cached || fetchPromise;
-      })
+      fetch(event.request, { redirect: 'follow' }).catch(() =>
+        caches.match('/offline')
+      )
     );
     return;
   }
