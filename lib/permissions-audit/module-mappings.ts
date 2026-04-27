@@ -48,6 +48,7 @@ const MODULE_CATEGORY_OVERRIDES: Record<string, string> = {
   'Bug Reports': 'system',
   Privileges: 'academic',
   'Lifecycle Analytics': 'admin',
+  'PDE Learning': 'pde',
 };
 
 const PERMISSION_CATEGORY_KEYS = new Set(PERMISSION_CATEGORIES.map((c) => c.key));
