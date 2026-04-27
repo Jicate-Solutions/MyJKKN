@@ -73,7 +73,9 @@ export async function GET(request: NextRequest) {
   //    Sentry's API only accepts statsPeriod values: '', '24h', '14d' — 6h
   //    is rejected with 400. We dedupe against bug_reports.metadata.sentry_issue_id
   //    so the wider 24h window doesn't cause duplicate inserts (idempotent).
-  const sentryUrl = `${SENTRY_API_BASE}/projects/${ORG_SLUG}/${PROJECT_SLUG}/issues/?statsPeriod=24h&query=is:unresolved&sort=created&limit=100`;
+  //    NO sort param — Sentry's API rejects 'created'/'date'/etc inconsistently
+  //    across versions. Default sort (lastSeen DESC) is fine for Lane 2 use.
+  const sentryUrl = `${SENTRY_API_BASE}/projects/${ORG_SLUG}/${PROJECT_SLUG}/issues/?statsPeriod=24h&query=is:unresolved&limit=100`;
   let issues: SentryIssue[] = [];
   try {
     const response = await fetch(sentryUrl, {
