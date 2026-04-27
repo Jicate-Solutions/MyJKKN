@@ -201,6 +201,13 @@ export function BulkCaptureDialog({
     setUploadProgress(0);
     setUploadResult(null);
     setIsDragging(false);
+    // Clear the underlying <input type="file"> value too — without this, the
+    // browser's "same file selected twice" guard suppresses the change event
+    // when a user picks the same workbook again after a successful upload,
+    // making it look like nothing happens. Only state was being cleared.
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   }, []);
 
   const handleClose = useCallback(
@@ -839,36 +846,54 @@ export function BulkCaptureDialog({
           </div>
         )}
 
-        {/* Step: Result */}
+        {/* Step: Result — bulk upload summary */}
         {step === 'result' && uploadResult && (
           <div className="space-y-4">
             <div className="text-center py-4">
               {uploadResult.errors.length === 0 ? (
                 <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-2" />
-              ) : (
+              ) : uploadResult.inserted > 0 ? (
                 <AlertTriangle className="h-12 w-12 mx-auto text-yellow-500 mb-2" />
+              ) : (
+                <XCircle className="h-12 w-12 mx-auto text-red-500 mb-2" />
               )}
               <h3 className="text-lg font-semibold">
                 {uploadResult.errors.length === 0
-                  ? 'Capture Successful!'
-                  : 'Capture Completed with Issues'}
+                  ? 'Bulk upload successful'
+                  : uploadResult.inserted > 0
+                    ? 'Bulk upload completed with issues'
+                    : 'Bulk upload failed'}
               </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Processed {uploadResult.total} row
+                {uploadResult.total === 1 ? '' : 's'} from{' '}
+                <span className="font-medium">{file?.name ?? 'your file'}</span>
+              </p>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 max-w-md mx-auto">
-              <div className="text-center p-3 rounded-lg bg-green-50 dark:bg-green-950/30">
+            {/* 4-card summary: Total / Captured / Duplicates / Errors */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto">
+              <div className="text-center p-3 rounded-lg bg-muted/40 border">
+                <p className="text-2xl font-bold">{uploadResult.total}</p>
+                <p className="text-xs text-muted-foreground">Total rows</p>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
                 <p className="text-2xl font-bold text-green-700 dark:text-green-400">
                   {uploadResult.inserted}
                 </p>
-                <p className="text-xs text-green-600 dark:text-green-500">Captured</p>
+                <p className="text-xs text-green-600 dark:text-green-500">
+                  Captured
+                </p>
               </div>
-              <div className="text-center p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/30">
+              <div className="text-center p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-900">
                 <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">
                   {uploadResult.duplicates}
                 </p>
-                <p className="text-xs text-yellow-600 dark:text-yellow-500">Duplicates</p>
+                <p className="text-xs text-yellow-600 dark:text-yellow-500">
+                  Duplicates
+                </p>
               </div>
-              <div className="text-center p-3 rounded-lg bg-red-50 dark:bg-red-950/30">
+              <div className="text-center p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
                 <p className="text-2xl font-bold text-red-700 dark:text-red-400">
                   {uploadResult.errors.length}
                 </p>
@@ -876,19 +901,40 @@ export function BulkCaptureDialog({
               </div>
             </div>
 
+            {/* Conversion rate */}
+            {uploadResult.total > 0 && (
+              <div className="max-w-2xl mx-auto">
+                <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                  <span>Insertion rate</span>
+                  <span>
+                    {Math.round(
+                      (uploadResult.inserted / uploadResult.total) * 100,
+                    )}
+                    %
+                  </span>
+                </div>
+                <Progress
+                  value={(uploadResult.inserted / uploadResult.total) * 100}
+                  className="h-2"
+                />
+              </div>
+            )}
+
             {uploadResult.errors.length > 0 && (
               <div className="border rounded-lg max-h-[200px] overflow-auto">
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 bg-background">
                     <TableRow>
-                      <TableHead>Row</TableHead>
+                      <TableHead className="w-[80px]">Row</TableHead>
                       <TableHead>Error</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {uploadResult.errors.map((err, i) => (
                       <TableRow key={i}>
-                        <TableCell>{err.row}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {err.row}
+                        </TableCell>
                         <TableCell className="text-sm text-red-600">
                           {err.message}
                         </TableCell>
@@ -899,11 +945,29 @@ export function BulkCaptureDialog({
               </div>
             )}
 
-            <DialogFooter>
+            {/* Two-action footer: Upload Another (stay in dialog, fresh
+                state) vs Done (close dialog entirely). resetDialog() now
+                also clears the file input ref, so re-uploading the same
+                file after Upload Another works correctly. */}
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  // Notify parent so it can refresh the lead list, then
+                  // reset to fresh upload state without closing the dialog.
+                  onSuccess();
+                  resetDialog();
+                }}
+              >
+                <Upload className="h-4 w-4 mr-1" />
+                Upload Another File
+              </Button>
               <Button
                 onClick={() => {
-                  resetDialog();
+                  // Notify parent, then close — handleClose runs
+                  // resetDialog() so reopening starts fresh.
                   onSuccess();
+                  onOpenChange(false);
                 }}
               >
                 Done

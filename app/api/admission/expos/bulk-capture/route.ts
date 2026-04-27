@@ -67,6 +67,18 @@ export async function POST(request: NextRequest) {
     }
 
     if (!teamCheck || teamCheck.length === 0) {
+      // Mirror the 3-step semantics of user_has_permission() in
+      // supabase/setup/02_functions.sql so this check accepts EVERY user the
+      // database itself would let through:
+      //   1. is_super_admin / admin / administrator (full bypass)
+      //   2. any user_roles row whose custom_roles JSONB has the perm = true
+      //   3. legacy: profiles.role joined to a custom_role whose JSONB has it
+      // Step 3 is what was missing — admission/admission_staff users seeded
+      // before the multi-role migration carry their role in profiles.role
+      // only and have no user_roles row, so they were 403'd here despite
+      // user_has_permission('admission.leads.create') returning true for
+      // them at the SQL layer. Confirmed via DB query 2026-04-27 — 2 such
+      // users (1 admission + 1 admission_staff) would fail right now.
       const { data: profileCheck } = await (supabase as any)
         .from('profiles')
         .select('role, is_super_admin')
@@ -78,19 +90,37 @@ export async function POST(request: NextRequest) {
         .select('role_id, custom_roles!inner(role_key, permissions)')
         .eq('user_id', capturedBy);
 
-      const isAdmin = profileCheck?.is_super_admin === true
-        || profileCheck?.role === 'super_admin'
-        || profileCheck?.role === 'admin';
+      const isAdmin =
+        profileCheck?.is_super_admin === true ||
+        profileCheck?.role === 'super_admin' ||
+        profileCheck?.role === 'admin' ||
+        profileCheck?.role === 'administrator';
 
-      const isAdmissionRole = isAdmin || (userRoles || []).some(
-        (ur: any) => ur.custom_roles?.permissions?.['admission.leads.create'] === true
-          || ur.custom_roles?.role_key === 'admission'
+      // Step 2: user_roles → custom_roles permissions JSONB
+      const hasUserRolesGrant = (userRoles || []).some(
+        (ur: any) =>
+          ur.custom_roles?.permissions?.['admission.leads.create'] === true,
       );
 
-      if (!isAdmin && !isAdmissionRole) {
+      // Step 3: legacy fallback — profiles.role → custom_roles permissions
+      let hasLegacyRoleGrant = false;
+      if (!isAdmin && !hasUserRolesGrant && profileCheck?.role) {
+        const { data: legacyRole } = await (supabase as any)
+          .from('custom_roles')
+          .select('permissions')
+          .eq('role_key', profileCheck.role)
+          .maybeSingle();
+        hasLegacyRoleGrant =
+          legacyRole?.permissions?.['admission.leads.create'] === true;
+      }
+
+      if (!isAdmin && !hasUserRolesGrant && !hasLegacyRoleGrant) {
         return NextResponse.json(
-          { error: 'You are not a team member for this expo event' },
-          { status: 403 }
+          {
+            error:
+              'Insufficient permission. You must be on this expo event team or have admission.leads.create permission.',
+          },
+          { status: 403 },
         );
       }
     }
