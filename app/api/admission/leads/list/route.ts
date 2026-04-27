@@ -136,6 +136,11 @@ export async function GET(request: NextRequest) {
   const institutionId = searchParams.get('institution_id') || undefined;
   const waOptIn = searchParams.get('wa_opt_in') || undefined;
   const programId = searchParams.get('program_id') || undefined;
+  // ?stale_min_days=N — return leads with no contact in N+ days. Falls back to
+  // last_activity_at, then created_at, when last_contact_at is null. Used by the
+  // dashboard:rescue daily digest deep-link.
+  const staleMinDaysRaw = searchParams.get('stale_min_days');
+  const staleMinDays = staleMinDaysRaw ? Math.max(1, Math.min(365, parseInt(staleMinDaysRaw, 10))) : undefined;
 
   try {
     // 4. Build the query with service role (no RLS overhead)
@@ -248,6 +253,20 @@ export async function GET(request: NextRequest) {
     }
     if (dateTo) {
       query = query.lte('created_at', dateTo);
+    }
+
+    // Stale filter — leads with no contact in N+ days. PostgREST has no direct
+    // COALESCE-comparison primitive, so emulate it with an OR over three
+    // mutually-exclusive branches: last_contact_at first, then last_activity_at
+    // when contact is null, then created_at when both are null. Cutoff is
+    // computed in JS so the comparison is a literal timestamp PostgREST accepts.
+    if (staleMinDays && staleMinDays > 0) {
+      const cutoff = new Date(Date.now() - staleMinDays * 24 * 60 * 60 * 1000).toISOString();
+      query = query.or(
+        `last_contact_at.lt.${cutoff},` +
+        `and(last_contact_at.is.null,last_activity_at.lt.${cutoff}),` +
+        `and(last_contact_at.is.null,last_activity_at.is.null,created_at.lt.${cutoff})`
+      );
     }
 
     // 7. Sorting and pagination

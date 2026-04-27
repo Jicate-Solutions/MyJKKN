@@ -300,6 +300,10 @@ export interface LeadFilters {
   date_to?: string;
   is_hot_lead?: boolean;
   is_priority?: boolean;
+  // Stale filter — show leads with no contact in N+ days, falling back to
+  // last_activity_at / created_at when last_contact_at is null. Driven by
+  // ?stale_min_days=N on /admission/leads (e.g. dashboard:rescue digest deep-link).
+  stale_min_days?: number;
   page?: number;
   limit?: number;
   sort_by?: string;
