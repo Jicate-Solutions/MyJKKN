@@ -56,7 +56,16 @@ function DevLoginWorker() {
     }
 
     const supabase = createClientSupabaseClient();
-    const nextPath = safeNext(searchParams.get('next'));
+    // Read next-path from BOTH hash fragment (#next=/foo) and query param (?next=/foo).
+    // Hash is preferred because it survives Supabase's allow-list strict-match
+    // for redirect_to (a query string would cause access_denied/otp_expired).
+    // Query param kept for backwards-compat with older bookmarked links.
+    const hashParams = typeof window !== 'undefined' && window.location.hash
+      ? new URLSearchParams(window.location.hash.slice(1))
+      : null;
+    const nextPath = safeNext(
+      (hashParams?.get('next')) ?? searchParams.get('next')
+    );
 
     const run = async () => {
       // Path 1: hash fragment (#access_token=...&refresh_token=...)
