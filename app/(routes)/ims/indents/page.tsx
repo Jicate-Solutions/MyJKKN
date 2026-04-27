@@ -6,7 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useImsIndents, useCancelImsIndent } from '@/hooks/ims/use-ims-indents';
-import { useDepartments } from '@/hooks/organization/use-departments';
+import { useImsDepartmentsForSelect } from '@/hooks/ims/use-ims-departments';
 import {
   INDENT_STATUS_CONFIG,
   INDENT_URGENCY_CONFIG,
@@ -66,12 +66,10 @@ export default function IndentsPage() {
 
   const { data: indentsResponse, isLoading } = useImsIndents(filters);
   const indents = indentsResponse?.data ?? [];
-  const { data: departmentsData } = useDepartments({
-    institution_id: institutionId || '',
-  });
+  const { data: departments = [] } = useImsDepartmentsForSelect(
+    institutionId || null
+  );
   const cancelIndent = useCancelImsIndent();
-
-  const departments = departmentsData?.data || [];
 
   const handleCancel = async () => {
     if (!cancelId) return;
@@ -140,7 +138,7 @@ export default function IndentsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Departments</SelectItem>
-                  {departments.map((dept: { id: string; department_name: string }) => (
+                  {departments.map((dept) => (
                     <SelectItem key={dept.id} value={dept.id}>
                       {dept.department_name}
                     </SelectItem>

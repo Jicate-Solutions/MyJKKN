@@ -8,7 +8,7 @@ import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useCreateImsIndent } from '@/hooks/ims/use-ims-indents';
 import { useImsItemsForSelect } from '@/hooks/ims/use-ims-inventory';
 import { useImsUnitsForSelect } from '@/hooks/ims/use-ims-settings';
-import { useDepartments } from '@/hooks/organization/use-departments';
+import { useImsDepartmentsForSelect } from '@/hooks/ims/use-ims-departments';
 import type { ImsIndentUrgency } from '@/types/ims/indents';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -56,16 +56,16 @@ export default function NewIndentPage() {
   const [items, setItems] = useState<IndentItemRow[]>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const { data: departmentsData } = useDepartments({
-    institution_id: institutionId,
-  });
+  const {
+    data: departments = [],
+    isLoading: departmentsLoading,
+    isError: departmentsError,
+  } = useImsDepartmentsForSelect(institutionId);
   const { data: itemsForSelect, isLoading: itemsLoading } =
     useImsItemsForSelect(storeId ?? '', institutionId);
   const { data: unitsForSelect, isLoading: unitsLoading } =
     useImsUnitsForSelect();
   const createIndent = useCreateImsIndent();
-
-  const departments = departmentsData?.data || [];
 
   const handleAddItem = () => {
     setItems((prev) => [
@@ -180,19 +180,44 @@ export default function NewIndentPage() {
               {/* Department */}
               <div className="space-y-2">
                 <Label htmlFor="department">Department *</Label>
-                <Select value={departmentId} onValueChange={(val) => { setDepartmentId(val); setFieldErrors((e) => ({ ...e, department: '' })); }}>
-                  <SelectTrigger id="department" className={fieldErrors.department ? 'border-destructive' : ''}>
-                    <SelectValue placeholder="Select department" />
+                <Select
+                  value={departmentId}
+                  onValueChange={(val) => {
+                    setDepartmentId(val);
+                    setFieldErrors((e) => ({ ...e, department: '' }));
+                  }}
+                  disabled={departmentsLoading || departmentsError}
+                >
+                  <SelectTrigger
+                    id="department"
+                    className={fieldErrors.department ? 'border-destructive' : ''}
+                  >
+                    <SelectValue
+                      placeholder={
+                        departmentsLoading
+                          ? 'Loading departments...'
+                          : departmentsError
+                            ? 'Failed to load departments'
+                            : departments.length === 0
+                              ? 'No departments available'
+                              : 'Select department'
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    {departments.map((dept: { id: string; department_name: string }) => (
+                    {departments.map((dept) => (
                       <SelectItem key={dept.id} value={dept.id}>
                         {dept.department_name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {fieldErrors.department && (
+                {departmentsError && (
+                  <p className="text-sm text-destructive">
+                    Could not load departments. Check your connection or contact an admin.
+                  </p>
+                )}
+                {!departmentsError && fieldErrors.department && (
                   <p className="text-sm text-destructive">{fieldErrors.department}</p>
                 )}
               </div>
