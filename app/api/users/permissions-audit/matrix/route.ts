@@ -63,24 +63,57 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ roles: [], roleMeta: {}, matrix: {} });
     }
 
-    // 2. Count users per role from user_roles table
-    const { data: userRoleCounts, error: countsError } = await supabase
+    // 2. Count users per role from BOTH user_roles AND legacy profiles.role.
+    // Why both: user_has_permission() in 02_functions.sql falls back to
+    // profiles.role when no user_roles entries exist for the user. Counting
+    // only user_roles understated faculty by 38, hod by 3, admission by 1, etc.
+    // — the audit dashboard needs to reflect EFFECTIVE access. We union both
+    // sources and dedup by user_id so a user with both a user_roles row and
+    // a matching profiles.role isn't double-counted.
+    const userRolesSet: Record<string, Set<string>> = {};
+
+    const { data: userRoleRows, error: countsError } = await supabase
       .from('user_roles')
-      .select('role_id, custom_roles(role_key)');
+      .select('user_id, custom_roles(role_key)');
 
     if (countsError) {
       console.error('[permissions-audit/matrix] Error fetching user role counts:', countsError);
     }
 
-    // Build count map: role_key -> count
-    const roleUserCounts: Record<string, number> = {};
-    if (userRoleCounts) {
-      for (const ur of userRoleCounts) {
-        const roleKey = (ur.custom_roles as any)?.role_key;
-        if (roleKey) {
-          roleUserCounts[roleKey] = (roleUserCounts[roleKey] || 0) + 1;
-        }
+    if (userRoleRows) {
+      for (const ur of userRoleRows as Array<{ user_id: string; custom_roles: { role_key: string } | null }>) {
+        const roleKey = ur.custom_roles?.role_key;
+        if (!roleKey || !ur.user_id) continue;
+        if (!userRolesSet[roleKey]) userRolesSet[roleKey] = new Set();
+        userRolesSet[roleKey].add(ur.user_id);
       }
+    }
+
+    // Pull legacy profiles.role into the same map. Only count where the
+    // legacy role string matches an actual custom_roles.role_key — keeps
+    // typos/orphans out of the count.
+    const knownRoleKeys = new Set(customRoles.map((r) => r.role_key));
+    const { data: legacyRoleRows, error: legacyError } = await supabase
+      .from('profiles')
+      .select('id, role')
+      .not('role', 'is', null);
+
+    if (legacyError) {
+      console.error('[permissions-audit/matrix] Error fetching legacy profile roles:', legacyError);
+    }
+
+    if (legacyRoleRows) {
+      for (const p of legacyRoleRows as Array<{ id: string; role: string | null }>) {
+        if (!p.role || !knownRoleKeys.has(p.role)) continue;
+        if (!userRolesSet[p.role]) userRolesSet[p.role] = new Set();
+        userRolesSet[p.role].add(p.id);
+      }
+    }
+
+    // Build count map: role_key -> distinct-user count
+    const roleUserCounts: Record<string, number> = {};
+    for (const [roleKey, userSet] of Object.entries(userRolesSet)) {
+      roleUserCounts[roleKey] = userSet.size;
     }
 
     // 3. Collect all unique permission keys and build role list + meta

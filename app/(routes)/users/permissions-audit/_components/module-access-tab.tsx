@@ -145,7 +145,18 @@ const ACTION_ORDER = [
  */
 function classifyPerm(permKey: string) {
   const parts = permKey.split('.');
-  if (parts.length < 2) return { module: permKey, submodule: '', action: '' };
+  if (parts.length < 2) {
+    // Legacy single-segment keys like "view_dashboard", "manage_users",
+    // "assign_roles". The data has ~15 of these with active grants. Derive
+    // the action verb from the underscore prefix when it matches a known
+    // verb (view/manage/assign/etc.), otherwise fall back to "manage" so
+    // the perm still groups under a real action card instead of an empty
+    // "(action)" header.
+    const underscore = permKey.indexOf('_');
+    const prefix = underscore > 0 ? permKey.slice(0, underscore) : '';
+    const action = prefix && VERB_STYLES[prefix] ? prefix : 'manage';
+    return { module: permKey, submodule: '', action };
+  }
   return {
     module: parts[0],
     action: parts[parts.length - 1],
@@ -153,9 +164,21 @@ function classifyPerm(permKey: string) {
   };
 }
 
+/** Title-case a snake_case key as a friendly fallback when the module isn't
+ *  in PERMISSION_CATEGORIES. Examples: "solutions_hub" → "Solutions Hub",
+ *  "view_dashboard" → "View Dashboard", "physical_resources" → "Physical
+ *  Resources". The audit data has 88 module keys but the catalog has ~32, so
+ *  without this fallback ~56 modules would render as raw snake_case strings. */
+function prettifyKey(key: string): string {
+  return key
+    .split('_')
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(' ');
+}
+
 function moduleLabel(key: string) {
   const cat = PERMISSION_CATEGORIES.find((c) => c.key === key);
-  return cat?.name ?? key;
+  return cat?.name ?? prettifyKey(key);
 }
 
 function verbFor(action: string): VerbStyle {
@@ -194,17 +217,95 @@ export function ModuleAccessTab() {
     })();
   }, []);
 
-  // Modules present in the matrix (auto-discovered)
+  // Modules in the picker. Source is the UNION of:
+  //   1. Modules discovered in data.matrix (every first-dot-segment of every
+  //      permission key actually present in custom_roles.permissions JSONB).
+  //   2. Modules catalogued in PERMISSION_CATEGORIES — included even when
+  //      no role's JSONB has any of their perm keys yet (so an auditor can
+  //      still inspect "Accreditation has 30 catalogued perms but zero are
+  //      defined on any role" as a finding, instead of the module silently
+  //      disappearing from the picker).
+  //
+  // Earlier this filtered out modules with 0 grants — that hid 39/88 modules.
+  // For an audit dashboard the OPPOSITE is needed: show everything, mark the
+  // dormant ones, and let the auditor decide what's worth investigating. We
+  // sort active first (by total grants desc) so the impactful modules still
+  // float to the top, but dormant entries remain visible at the bottom.
   const modules = useMemo(() => {
-    if (!data) return [] as Array<{ key: string; label: string; count: number }>;
-    const byModule = new Map<string, number>();
-    Object.keys(data.matrix).forEach((k) => {
-      const { module: m } = classifyPerm(k);
-      byModule.set(m, (byModule.get(m) ?? 0) + 1);
+    if (!data) {
+      return [] as Array<{
+        key: string;
+        label: string;
+        count: number;
+        grantCount: number;
+        grantingRoles: number;
+        source: 'data' | 'catalog' | 'both';
+      }>;
+    }
+
+    type ModuleStat = {
+      count: number;
+      grantCount: number;
+      grantingRoles: Set<string>;
+    };
+
+    // 1. Stats from discovered data
+    const stats = new Map<string, ModuleStat>();
+    Object.keys(data.matrix).forEach((permKey) => {
+      const { module: m } = classifyPerm(permKey);
+      let stat = stats.get(m);
+      if (!stat) {
+        stat = { count: 0, grantCount: 0, grantingRoles: new Set() };
+        stats.set(m, stat);
+      }
+      stat.count += 1;
+      const row = data.matrix[permKey] || {};
+      for (const [roleKey, granted] of Object.entries(row)) {
+        if (granted === true) {
+          stat.grantCount += 1;
+          stat.grantingRoles.add(roleKey);
+        }
+      }
     });
-    return Array.from(byModule.entries())
-      .map(([key, count]) => ({ key, label: moduleLabel(key), count }))
-      .sort((a, b) => a.label.localeCompare(b.label));
+
+    const dataKeys = new Set(stats.keys());
+    const catalogKeys = new Set(PERMISSION_CATEGORIES.map((c) => c.key));
+
+    // 2. Inject catalogued modules that didn't appear in data so the auditor
+    // sees them with zeroes rather than nothing at all.
+    catalogKeys.forEach((k) => {
+      if (!stats.has(k)) {
+        stats.set(k, { count: 0, grantCount: 0, grantingRoles: new Set() });
+      }
+    });
+
+    return Array.from(stats.entries())
+      .map(([key, s]) => {
+        const inData = dataKeys.has(key);
+        const inCatalog = catalogKeys.has(key);
+        return {
+          key,
+          label: moduleLabel(key),
+          count: s.count,
+          grantCount: s.grantCount,
+          grantingRoles: s.grantingRoles.size,
+          source: (inData && inCatalog
+            ? 'both'
+            : inCatalog
+            ? 'catalog'
+            : 'data') as 'data' | 'catalog' | 'both',
+        };
+      })
+      // Sort: active modules first (most grants desc); dormant modules
+      // (grantCount=0) fall to the bottom, alpha-sorted there.
+      .sort((a, b) => {
+        if (a.grantCount === 0 && b.grantCount === 0) {
+          return a.label.localeCompare(b.label);
+        }
+        if (a.grantCount === 0) return 1;
+        if (b.grantCount === 0) return -1;
+        return b.grantCount - a.grantCount || a.label.localeCompare(b.label);
+      });
   }, [data]);
 
   // Auto-select first module once data arrives
@@ -241,22 +342,39 @@ export function ModuleAccessTab() {
   }, [data, module, submodule]);
 
   // For a bucket of perm keys: return roles that have ANY of them granted,
-  // sorted by user-count descending (most impactful first).
+  // sorted by user-count descending (most impactful first). Always includes
+  // super_admin as a synthetic entry — they bypass per-permission flags via
+  // is_super_admin() in 02_functions.sql, so they always have effective
+  // access regardless of what's in custom_roles.permissions. Without this
+  // synthesis, super_admin sometimes appeared and sometimes didn't depending
+  // on whether their JSONB happened to contain the key, which made the panel
+  // look inconsistent.
   const rolesWithAccess = (
     permKeys: string[]
-  ): Array<{ role: string; meta: RoleMeta }> => {
+  ): Array<{ role: string; meta: RoleMeta; alwaysGrants?: boolean }> => {
     if (!data) return [];
-    const out: Array<{ role: string; meta: RoleMeta }> = [];
+    const out: Array<{ role: string; meta: RoleMeta; alwaysGrants?: boolean }> = [];
+
+    const superAdminMeta = data.roleMeta['super_admin'];
+    if (superAdminMeta) {
+      out.push({ role: 'super_admin', meta: superAdminMeta, alwaysGrants: true });
+    }
+
     for (const role of data.roles) {
-      const granted = permKeys.some(
-        (pk) => data.matrix[pk]?.[role] === true
-      );
+      if (role === 'super_admin') continue; // already added as synthetic entry
+      const granted = permKeys.some((pk) => data.matrix[pk]?.[role] === true);
       if (granted) {
         const meta = data.roleMeta[role];
         if (meta) out.push({ role, meta });
       }
     }
-    return out.sort((a, b) => b.meta.userCount - a.meta.userCount);
+
+    // Keep super_admin pinned first; sort the rest by user count.
+    return out.sort((a, b) => {
+      if (a.alwaysGrants && !b.alwaysGrants) return -1;
+      if (!a.alwaysGrants && b.alwaysGrants) return 1;
+      return b.meta.userCount - a.meta.userCount;
+    });
   };
 
   // CSV export of the current scope
@@ -373,12 +491,37 @@ export function ModuleAccessTab() {
                     <SelectValue placeholder='Select module' />
                   </SelectTrigger>
                   <SelectContent>
-                    {modules.map((m) => (
-                      <SelectItem key={m.key} value={m.key}>
-                        {m.label}
-                        <span className='text-muted-foreground ml-1'>({m.count})</span>
-                      </SelectItem>
-                    ))}
+                    {modules.length === 0 ? (
+                      <div className='px-2 py-1.5 text-xs text-muted-foreground'>
+                        No modules available.
+                      </div>
+                    ) : (
+                      modules.map((m) => {
+                        const isDormant = m.grantCount === 0;
+                        const sourceTag =
+                          m.source === 'catalog'
+                            ? ' · catalog only'
+                            : m.source === 'data'
+                            ? ' · uncatalogued'
+                            : '';
+                        return (
+                          <SelectItem key={m.key} value={m.key}>
+                            <span
+                              className={
+                                isDormant ? 'text-muted-foreground italic' : ''
+                              }
+                            >
+                              {m.label}
+                            </span>
+                            <span className='text-muted-foreground ml-1 text-[11px]'>
+                              {isDormant
+                                ? `· no grants${sourceTag}`
+                                : `· ${m.grantingRoles} role${m.grantingRoles !== 1 ? 's' : ''}${sourceTag}`}
+                            </span>
+                          </SelectItem>
+                        );
+                      })
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -478,31 +621,45 @@ export function ModuleAccessTab() {
                   </div>
                 </CardHeader>
                 <CardContent className='pt-0'>
-                  {rolesGranted.length === 0 ? (
-                    <div className='text-xs text-muted-foreground italic'>
-                      No roles grant this permission. (Super admins always have access.)
-                    </div>
-                  ) : (
-                    <div className='flex flex-wrap gap-1.5'>
-                      {rolesGranted.map(({ role, meta }) => (
-                        <Link
-                          key={role}
-                          href={`/users/permissions-audit?tab=resolver&role=${encodeURIComponent(
-                            role
-                          )}`}
-                          className='group'
+                  <div className='flex flex-wrap gap-1.5'>
+                    {rolesGranted.map(({ role, meta, alwaysGrants }) => (
+                      <Link
+                        key={role}
+                        href={`/users/permissions-audit?tab=resolver&role=${encodeURIComponent(
+                          role
+                        )}`}
+                        className='group'
+                      >
+                        <Badge
+                          variant={alwaysGrants ? 'default' : 'outline'}
+                          className={`text-xs gap-1 cursor-pointer transition-colors ${
+                            alwaysGrants ? '' : verb.hoverClass
+                          }`}
+                          title={
+                            alwaysGrants
+                              ? 'Super admins bypass per-permission flags via is_super_admin() — always granted regardless of role config'
+                              : undefined
+                          }
                         >
-                          <Badge
-                            variant='outline'
-                            className={`text-xs gap-1 cursor-pointer transition-colors ${verb.hoverClass}`}
+                          {meta.name}
+                          <span
+                            className={
+                              alwaysGrants
+                                ? 'opacity-80'
+                                : 'text-muted-foreground group-hover:text-foreground'
+                            }
                           >
-                            {meta.name}
-                            <span className='text-muted-foreground group-hover:text-foreground'>
-                              ({meta.userCount})
-                            </span>
-                          </Badge>
-                        </Link>
-                      ))}
+                            {alwaysGrants
+                              ? `· always · ${meta.userCount}`
+                              : `(${meta.userCount})`}
+                          </span>
+                        </Badge>
+                      </Link>
+                    ))}
+                  </div>
+                  {rolesGranted.length === 1 && rolesGranted[0]?.alwaysGrants && (
+                    <div className='text-xs text-muted-foreground italic mt-1'>
+                      Only super admins have this. No other role grants it.
                     </div>
                   )}
                   {perms.length > 0 && (
