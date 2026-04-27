@@ -10523,13 +10523,19 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $fn_targeting$
-  SELECT
+  -- COALESCE wraps the result so absent JSONB keys (which yield NULL on
+  -- ->>/-> operators) normalise to FALSE instead of NULL. RLS predicates
+  -- treat NULL as "deny" but ad-hoc callers that test the boolean
+  -- directly need a proper FALSE for "this user is not targeted".
+  SELECT COALESCE(
     -- Legacy singular shape: {"type":"user","user_id":"<uuid>"}
     (p_targeting ->> 'user_id')::uuid = p_user_id
     -- Canonical array shape: {"type":"user","user_ids":["<uuid>", ...]}
     OR (p_targeting -> 'user_ids' ? p_user_id::text)
     -- System-wide broadcast: {"broadcast":"true"}
-    OR p_targeting ->> 'broadcast' = 'true';
+    OR p_targeting ->> 'broadcast' = 'true',
+    FALSE
+  );
 $fn_targeting$;
 
 REVOKE ALL ON FUNCTION fn_notification_is_for_user(JSONB, UUID) FROM PUBLIC, anon;
