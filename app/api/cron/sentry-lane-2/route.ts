@@ -69,9 +69,11 @@ export async function GET(request: NextRequest) {
 
   const supabase = createServiceRoleClient();
 
-  // 1. Fetch unresolved Sentry issues from last 6h.
-  //    statsPeriod=6h is Sentry's window; sort=created shows newest first.
-  const sentryUrl = `${SENTRY_API_BASE}/projects/${ORG_SLUG}/${PROJECT_SLUG}/issues/?statsPeriod=6h&query=is:unresolved&sort=created&limit=100`;
+  // 1. Fetch unresolved Sentry issues from last 24h.
+  //    Sentry's API only accepts statsPeriod values: '', '24h', '14d' — 6h
+  //    is rejected with 400. We dedupe against bug_reports.metadata.sentry_issue_id
+  //    so the wider 24h window doesn't cause duplicate inserts (idempotent).
+  const sentryUrl = `${SENTRY_API_BASE}/projects/${ORG_SLUG}/${PROJECT_SLUG}/issues/?statsPeriod=24h&query=is:unresolved&sort=created&limit=100`;
   let issues: SentryIssue[] = [];
   try {
     const response = await fetch(sentryUrl, {
