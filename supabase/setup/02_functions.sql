@@ -181,6 +181,13 @@ $$;
 --   both a primary institution and an explicit user_institution_access row for
 --   the same institution. The second branch now excludes the primary so each
 --   institution_id appears at most once with is_primary_institution=true winning.
+-- Updated: 2026-04-27 - Added Branch 3 to honor custom_roles.institution_scope='all'.
+--   Previously, scope='all' roles (admission, admission_staff, counselor) were
+--   restricted by service-layer institution filters to only their primary institution
+--   even though Role Management granted them cross-institution access. Symptom:
+--   admission user could not see billing categories despite having full perms.
+--   Branch 3 mirrors role_has_institution_access() — checks user_roles AND legacy
+--   profiles.role -> custom_roles fallback.
 CREATE OR REPLACE FUNCTION public.get_user_accessible_institutions(target_user_id uuid)
 RETURNS TABLE(
     institution_id uuid,
@@ -194,7 +201,7 @@ SECURITY INVOKER
 AS $$
 BEGIN
     RETURN QUERY
-    -- Always include the user's primary institution from profiles
+    -- Branch 1: user's primary institution from profiles
     SELECT
         i.id,
         i.name::varchar,
@@ -204,13 +211,12 @@ BEGIN
     FROM profiles p
     JOIN institutions i ON i.id = p.institution_id
     WHERE p.id = target_user_id
-    AND p.institution_id IS NOT NULL
-    AND i.is_active = true
+      AND p.institution_id IS NOT NULL
+      AND i.is_active = true
 
     UNION ALL
 
-    -- Plus explicitly granted cross-institution access — but skip the user's
-    -- primary institution to avoid duplicating the row from the first branch.
+    -- Branch 2: explicit cross-institution grants (skipping primary to avoid dupes)
     SELECT
         i.id,
         i.name::varchar,
@@ -220,13 +226,55 @@ BEGIN
     FROM institutions i
     JOIN user_institution_access uia ON i.id = uia.institution_id
     WHERE uia.user_id = target_user_id
-    AND uia.is_active = true
-    AND i.is_active = true
-    AND NOT EXISTS (
-        SELECT 1 FROM profiles p
-        WHERE p.id = target_user_id
-        AND p.institution_id = i.id
-    );
+      AND uia.is_active = true
+      AND i.is_active = true
+      AND NOT EXISTS (
+          SELECT 1 FROM profiles p
+          WHERE p.id = target_user_id
+            AND p.institution_id = i.id
+      )
+
+    UNION ALL
+
+    -- Branch 3: if user has any role with institution_scope='all', include
+    -- every active institution. Mirrors role_has_institution_access() — checks both
+    -- user_roles (multi-role) and legacy profiles.role -> custom_roles fallback.
+    -- Skip institutions already returned by branches 1 and 2 to avoid duplicates.
+    SELECT
+        i.id,
+        i.name::varchar,
+        i.counselling_code::varchar,
+        'role_scope_all'::varchar,
+        false
+    FROM institutions i
+    WHERE i.is_active = true
+      AND (
+          EXISTS (
+              SELECT 1
+              FROM user_roles ur
+              JOIN custom_roles cr ON cr.id = ur.role_id
+              WHERE ur.user_id = target_user_id
+                AND cr.institution_scope = 'all'
+          )
+          OR EXISTS (
+              SELECT 1
+              FROM profiles p
+              JOIN custom_roles cr ON p.role = cr.role_key
+              WHERE p.id = target_user_id
+                AND cr.institution_scope = 'all'
+          )
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM profiles p
+          WHERE p.id = target_user_id
+            AND p.institution_id = i.id
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM user_institution_access uia
+          WHERE uia.user_id = target_user_id
+            AND uia.institution_id = i.id
+            AND uia.is_active = true
+      );
 END;
 $$;
 
@@ -9290,6 +9338,77 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.mirror_staff_role_to_user_roles(uuid, text) TO authenticated;
+
+-- ================================================================================
+-- Updated: 2026-04-27 - RPC to assign the counselor role to a user, callable from
+-- the browser by any user with admission.counselors.create permission.
+-- Solves: admission/admission_staff users adding counselors via UI → direct
+-- user_roles INSERT silently failed RLS (requires roles.create, which admission
+-- roles intentionally lack). Two counselors created on 2026-04-27 04:37 UTC
+-- ended up in admission_counselors with no user_roles row because the dialog's
+-- assignCounselorRole() helper never destructured {error} from the insert.
+-- Mirrors mirror_staff_role_to_user_roles() (2026-04-22) for the staff flow.
+-- SECURITY DEFINER bypasses RLS safely; authorization is enforced in-function
+-- (caller must have admission.counselors.create AND target must have an
+-- admission_counselors row, preventing drive-by role assignment).
+-- ================================================================================
+CREATE OR REPLACE FUNCTION public.assign_counselor_role(
+    p_user_id uuid,
+    p_is_primary boolean DEFAULT true
+) RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_role_id uuid;
+    v_caller uuid := auth.uid();
+BEGIN
+    IF NOT (is_super_admin() OR is_admin() OR user_has_permission('admission.counselors.create')) THEN
+        RAISE EXCEPTION 'Insufficient permission to assign counselor role'
+            USING ERRCODE = '42501';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM admission_counselors
+        WHERE user_id = p_user_id
+    ) THEN
+        RAISE EXCEPTION 'No admission_counselors row exists for user_id %', p_user_id
+            USING ERRCODE = '23503';
+    END IF;
+
+    SELECT id INTO v_role_id
+    FROM custom_roles
+    WHERE role_key = 'counselor';
+
+    IF v_role_id IS NULL THEN
+        RAISE EXCEPTION 'No custom_role found for role_key counselor'
+            USING ERRCODE = '23503';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM user_roles
+        WHERE user_id = p_user_id AND role_id = v_role_id
+    ) THEN
+        RETURN;
+    END IF;
+
+    -- Demote any existing primary first to avoid the partial unique index
+    -- idx_user_roles_primary_unique firing before sync_primary_role_trigger
+    -- can do its own AFTER-INSERT demotion.
+    IF COALESCE(p_is_primary, true) = true THEN
+        UPDATE user_roles
+        SET is_primary = false
+        WHERE user_id = p_user_id
+          AND is_primary = true;
+    END IF;
+
+    INSERT INTO user_roles (user_id, role_id, is_primary, assigned_by)
+    VALUES (p_user_id, v_role_id, COALESCE(p_is_primary, true), v_caller);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.assign_counselor_role(uuid, boolean) TO authenticated;
 
 -- =====================================================
 -- validate_learner_admission_year_scope() — Added 2026-04-23
