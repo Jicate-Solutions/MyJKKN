@@ -582,6 +582,11 @@ function CounselorPerformancePageContent() {
             </div>
           </div>
 
+          {/* Unassigned-leads alert banner — live count, always shown above leaderboard */}
+          <UnassignedLeadsBanner />
+
+          {/* TODO(@quickwin-d): briefing-status panel mounts here in follow-up PR */}
+
           {error && (
             <Card className="border-red-200 bg-red-50">
               <CardContent className="pt-4">
