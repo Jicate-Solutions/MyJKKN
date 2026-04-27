@@ -25,52 +25,59 @@ import {
 //   amber/orange=living-wellness · pink/fuchsia=admissions/innovation
 //   emerald/teal/sky=finance-resources · cyan=performance/compliance · zinc=system
 // If a label isn't found, falls back to the default primary gradient in BottomNavItem.
+// Tier-D Holographic gradients — 3-color stops per module (was 2-color flat).
+// Recalibrated 2026-04-27 for Gen Alpha "fall in love at first sight". The
+// `via-` middle stop adds chromatic depth that reads as iridescence under
+// the animated conic-gradient shimmer (see bottom-nav-item.tsx tile variant).
+// Module identity preserved: each gradient anchors on the previous family
+// color but bridges through a complementary hue (e.g. rose → pink → rose,
+// indigo → purple → indigo).
 const GROUP_TILE_GRADIENTS: Record<string, string> = {
-  // Operations / Admin
-  'Overview':                'bg-gradient-to-br from-slate-500 to-slate-700',
-  'User Management':         'bg-gradient-to-br from-slate-400 to-slate-600',
-  'Organization':            'bg-gradient-to-br from-slate-600 to-slate-800',
-  'Administration':          'bg-gradient-to-br from-zinc-500 to-zinc-700',
+  // Operations / Admin — slate family with chromatic accents
+  'Overview':                'bg-gradient-to-br from-slate-400 via-slate-500 to-slate-700',
+  'User Management':         'bg-gradient-to-br from-slate-300 via-blue-400 to-slate-600',
+  'Organization':            'bg-gradient-to-br from-slate-500 via-indigo-500 to-slate-800',
+  'Administration':          'bg-gradient-to-br from-zinc-400 via-purple-500 to-zinc-700',
 
-  // Applications (Wave 2 merged 'Application Management' into 'Applications')
-  'Applications':            'bg-gradient-to-br from-blue-500 to-blue-700',
+  // Applications
+  'Applications':            'bg-gradient-to-br from-blue-400 via-cyan-500 to-blue-700',
 
-  // Academic family (Wave 2 merged 'Learning' + 'Value Added Courses' into 'Learning & Courses')
-  'Academic':                'bg-gradient-to-br from-indigo-500 to-indigo-700',
-  'Learners':                'bg-gradient-to-br from-indigo-600 to-indigo-800',
-  'Faculty':                 'bg-gradient-to-br from-violet-500 to-violet-700',
-  'Learning & Courses':      'bg-gradient-to-br from-purple-500 to-purple-700',
-  'Learners Council':        'bg-gradient-to-br from-violet-600 to-violet-800',
+  // Academic family — indigo / violet / purple
+  'Academic':                'bg-gradient-to-br from-indigo-400 via-purple-500 to-indigo-700',
+  'Learners':                'bg-gradient-to-br from-indigo-500 via-violet-500 to-indigo-800',
+  'Faculty':                 'bg-gradient-to-br from-violet-400 via-fuchsia-500 to-violet-700',
+  'Learning & Courses':      'bg-gradient-to-br from-purple-400 via-pink-500 to-purple-700',
+  'Learners Council':        'bg-gradient-to-br from-violet-500 via-purple-600 to-indigo-700',
 
-  // People / HR (Wave 2 merged 'Employee Management' into 'Human Resources')
-  'Human Resources':         'bg-gradient-to-br from-rose-500 to-rose-700',
+  // People / HR — warm rose
+  'Human Resources':         'bg-gradient-to-br from-rose-400 via-pink-500 to-rose-700',
 
-  // Living / Wellness
-  'Campus Living':           'bg-gradient-to-br from-amber-500 to-amber-700',
-  'Health & Wellness':       'bg-gradient-to-br from-orange-500 to-orange-700',
-  'Work Pulse':              'bg-gradient-to-br from-yellow-500 to-amber-600',
+  // Living / Wellness — amber / orange
+  'Campus Living':           'bg-gradient-to-br from-amber-400 via-orange-500 to-amber-700',
+  'Health & Wellness':       'bg-gradient-to-br from-orange-400 via-rose-500 to-orange-700',
+  'Work Pulse':              'bg-gradient-to-br from-yellow-400 via-amber-500 to-orange-600',
 
-  // Admissions / Innovation
-  'Admission CRM':           'bg-gradient-to-br from-pink-500 to-pink-700',
-  'Events':                  'bg-gradient-to-br from-fuchsia-500 to-fuchsia-700',
-  'Startup Studio':          'bg-gradient-to-br from-fuchsia-600 to-fuchsia-800',
-  'Solution Hub':            'bg-gradient-to-br from-pink-400 to-fuchsia-600',
+  // Admissions / Innovation — pink / fuchsia
+  'Admission CRM':           'bg-gradient-to-br from-pink-400 via-rose-500 to-pink-700',
+  'Events':                  'bg-gradient-to-br from-fuchsia-400 via-pink-500 to-fuchsia-700',
+  'Startup Studio':          'bg-gradient-to-br from-fuchsia-500 via-purple-500 to-fuchsia-800',
+  'Solution Hub':            'bg-gradient-to-br from-pink-400 via-fuchsia-500 to-purple-600',
 
-  // Finance / Resources
-  'Billing & Accounts':      'bg-gradient-to-br from-emerald-500 to-emerald-700',
-  'Resources':               'bg-gradient-to-br from-teal-500 to-teal-700',
-  'Service Requests':        'bg-gradient-to-br from-sky-500 to-sky-700',
+  // Finance / Resources — emerald / teal / sky
+  'Billing & Accounts':      'bg-gradient-to-br from-emerald-400 via-teal-500 to-emerald-700',
+  'Resources':               'bg-gradient-to-br from-teal-400 via-cyan-500 to-teal-700',
+  'Service Requests':        'bg-gradient-to-br from-sky-400 via-blue-500 to-sky-700',
 
-  // Performance / Compliance
-  'OKR':                     'bg-gradient-to-br from-cyan-500 to-cyan-700',
-  'Audit Workflow':          'bg-gradient-to-br from-cyan-600 to-cyan-800',
-  'Accreditation':           'bg-gradient-to-br from-sky-600 to-sky-800',
+  // Performance / Compliance — cyan / sky
+  'OKR':                     'bg-gradient-to-br from-cyan-400 via-blue-500 to-cyan-700',
+  'Audit Workflow':          'bg-gradient-to-br from-cyan-500 via-teal-500 to-cyan-800',
+  'Accreditation':           'bg-gradient-to-br from-sky-500 via-indigo-500 to-sky-800',
 
   // System
-  'System':                  'bg-gradient-to-br from-zinc-700 to-zinc-900',
+  'System':                  'bg-gradient-to-br from-zinc-600 via-slate-600 to-zinc-900',
 
   // Favorites pseudo-key (used by the favorites tile rendering)
-  'Favorites':               'bg-gradient-to-br from-amber-400 to-yellow-600',
+  'Favorites':               'bg-gradient-to-br from-amber-400 via-yellow-500 to-orange-500',
 };
 
 export function BottomNavMoreMenu({

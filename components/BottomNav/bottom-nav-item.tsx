@@ -61,41 +61,50 @@ export function BottomNavItem({
         aria-label={label}
         aria-pressed={isActive}
       >
-        {/* 56×56 Liquid Glass tile — cue-stack approach (UX synthesis 2026-04-27).
-            Goal: trigger the brain's object-recognition pathway via convergent
-            depth cues, achieving "premium polished Apple" perceptual reading
-            at compositor-level GPU cost (works on low-RAM Android targets).
-            Cues layered (bottom → top):
-              1. Base gradient (existing tileGradient or fallback) — the color
-              2. Outer cast shadow → "elevated above surface"
-              3. Inset top-edge sheen → "light hits soft top edge from above"
-              4. 1px white inset ring → crisp luminous boundary, light refraction
-              5. Specular highlight overlay (::before equivalent <span>) →
-                 single static "light source upper-left" — primary depth cue
-              6. Icon with drop-shadow → "icon suspended above the glass"
-              7. whileTap on parent button → tactile press compression
-            No backdrop-blur (catastrophic at 22 tiles × ~5ms on weak GPUs).
-            All cues are GPU-cheap: gradients, static shadows, transforms. */}
+        {/* 56×56 Tier-D Holographic + Glass tile — Gen Alpha "fall in love" calibration.
+            Recalibrated 2026-04-27 from earlier subtle Liquid Glass (was too restrained).
+            Cues layered (bottom → top, all GPU-cheap, compositor-only):
+              1. Base 3-color holographic gradient (from GROUP_TILE_GRADIENTS)
+              2. Outer cast shadow + inset top-edge sheen + inset bottom shade
+              3. Animated conic-gradient shimmer overlay (6s rotation) — brain
+                 reads as "iridescent surface" (peacock feathers / Pokemon holo)
+              4. Static specular highlight (light from upper-left)
+              5. 1px luminous inset border (refraction)
+              6. Icon w/ deep drop-shadow ("suspended above glass")
+              7. whileTap scale (existing) — tactile press compression
+            No backdrop-blur (catastrophic at 22 tiles on Mediatek-class GPUs). */}
         <motion.div
           className={cn(
             'relative w-14 h-14 rounded-2xl flex items-center justify-center',
-            tileGradient ?? 'bg-gradient-to-br from-primary/70 to-primary',
-            'shadow-[0_4px_14px_-2px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.35)]',
-            'ring-1 ring-inset ring-white/15',
-            isActive && 'ring-2 ring-primary/30 ring-offset-1'
+            tileGradient ?? 'bg-gradient-to-br from-primary/70 via-primary to-primary',
+            'shadow-[0_8px_24px_-4px_rgba(0,0,0,0.32),0_2px_8px_-1px_rgba(0,0,0,0.18),inset_0_2px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.1)]',
+            'ring-1 ring-inset ring-white/30',
+            isActive && 'ring-2 ring-primary/40 ring-offset-1'
           )}
           animate={{ scale: isActive ? 1.08 : 1 }}
           transition={iconSpring}
         >
-          {/* Specular highlight — static cue reading as "light source upper-left".
-              Sibling order matters: this paints first, icon paints on top. */}
+          {/* Holographic shimmer overlay — animated conic gradient. Rotates 360°
+              every 6s via `animate-holo-spin` keyframe (tailwind.config.ts).
+              Self-clips via own rounded-2xl, no overflow-hidden needed (so the
+              chevron disclosure can still extend past the tile bounds). */}
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/25 via-white/0 to-transparent"
+            className="pointer-events-none absolute inset-0 rounded-2xl animate-holo-spin"
+            style={{
+              background:
+                'conic-gradient(from 45deg at 50% 50%, rgba(255,255,255,0) 0deg, rgba(255,255,255,0.35) 60deg, rgba(255,255,255,0) 120deg, rgba(255,200,255,0.28) 180deg, rgba(255,255,255,0) 240deg, rgba(200,255,255,0.28) 300deg, rgba(255,255,255,0) 360deg)'
+            }}
+          />
+          {/* Static specular highlight — paints above shimmer so the upper-left
+              light cue stays anchored while iridescence rotates underneath. */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/35 via-white/0 to-transparent"
           />
           <Icon
-            className="relative h-6 w-6 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
-            strokeWidth={isActive ? 2.5 : 2}
+            className="relative z-10 h-6 w-6 text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]"
+            strokeWidth={isActive ? 2.5 : 2.2}
           />
           {/* Multi-module disclosure affordance — tells the user "this tile
               has multiple modules underneath; tap to drill into the list."
