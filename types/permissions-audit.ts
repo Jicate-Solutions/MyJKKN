@@ -43,6 +43,14 @@ export interface ModuleAccess {
   routeAccess: RouteAccess[];
   conflicts: ConflictItem[];
   isConsistent: boolean;
+  /**
+   * `true` when this module has a corresponding entry in
+   * `PERMISSION_CATEGORIES` and we can therefore enumerate per-CRUD code
+   * permissions. `false` when the module is known to lack a permission
+   * catalog yet (e.g. Chatbot, Expo, Marathon) — UI should render an
+   * explicit em-dash with hover hint, not a gray "indeterminate" badge.
+   */
+  hasCategory: boolean;
 }
 
 export interface ConflictItem {
