@@ -269,14 +269,6 @@ export function BottomNavbar() {
     return allNavGroups.slice(0, 4);
   }, [allNavGroups, favoritesNavGroup]);
 
-  // Remaining groups for "More" menu — start from index 3 if favorites took a slot
-  const moreNavGroups = useMemo(() => {
-    if (favoritesNavGroup) {
-      return allNavGroups.slice(3);
-    }
-    return allNavGroups.slice(4);
-  }, [allNavGroups, favoritesNavGroup]);
-
   // All groups including favorites for lookup purposes
   // Regular groups come first so pathname matching prefers module context over favorites
   const allGroupsWithFavorites = useMemo(() => {
@@ -523,25 +515,28 @@ export function BottomNavbar() {
             onClick={openSearch}
           />
 
-          {/* More button if there are additional groups */}
-          {moreNavGroups.length > 0 && (
-            <BottomNavItem
-              id="more"
-              icon={MoreHorizontal}
-              label="More"
-              isActive={true} // Always show as active/highlighted
-              hasSubmenu={true}
-              hideIndicator={true} // Remove underline
-              customColor="text-rose-700" // Dark rose color
-              onClick={handleMoreClick}
-            />
-          )}
+          {/* More button — always visible. Drawer is the menu hub: full module
+              list + favorites + global search. Per UX audit 2026-04-27, hiding
+              it for low-permission users left them with no favorite-management
+              affordance. */}
+          <BottomNavItem
+            id="more"
+            icon={MoreHorizontal}
+            label="More"
+            isActive={true} // Always show as active/highlighted
+            hasSubmenu={true}
+            hideIndicator={true} // Remove underline
+            customColor="text-rose-700" // Dark rose color
+            onClick={handleMoreClick}
+          />
         </div>
       </motion.nav>
 
-      {/* More menu sheet */}
+      {/* More menu sheet — feeds the FULL accessible module list, not the
+          slice past primary. Drawer's own usePageFavorites hook handles
+          favorites; passing allGroupsWithFavorites would double-render. */}
       <BottomNavMoreMenu
-        groups={moreNavGroups}
+        groups={allNavGroups}
         isOpen={isMoreMenuOpen}
         onClose={() => setMoreMenuOpen(false)}
         onItemClick={handleMoreItemClick}
