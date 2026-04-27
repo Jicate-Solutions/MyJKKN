@@ -12,8 +12,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { UserService } from '@/lib/services/users/user-service';
+import { UserRolesService } from '@/lib/services/users/user-roles-service';
 import { UserStats, UserFilters } from '@/types/users';
-import { Profile } from '@/types/auth';
+import { Profile, UserRoleAssignment } from '@/types/auth';
 import { Button } from '@/components/ui/button';
 import { UserList } from './user-list';
 import { UserFiltersComponent } from './user-filters';
@@ -36,6 +37,10 @@ export function UsersClientWrapper({
   const [paginationLoading, setPaginationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
+  // Map of userId -> all role assignments (for the multi-role badge display in
+  // the list table). Sourced from user_roles via getBatchUserRoles, falls back
+  // to the legacy profiles.role single badge when a user has no entries.
+  const [userRolesMap, setUserRolesMap] = useState<Record<string, UserRoleAssignment[]>>({});
   const [stats, setStats] = useState<UserStats>(initialStats);
   const [advancedSearchFilters, setAdvancedSearchFilters] = useState<UserSearchFilters | null>(null);
   const [filters, setFilters] = useState<UserFilters>({
@@ -108,6 +113,25 @@ export function UsersClientWrapper({
         setMetadata(response.metadata);
         if (response.stats) {
           setStats(response.stats);
+        }
+
+        // Batch-fetch every assigned role for the visible page so the list
+        // table can show ALL roles, not just the legacy profiles.role primary.
+        // One round-trip via UserRolesService.getBatchUserRoles — already
+        // RLS-aware (user_roles_select_admin policy gates visibility).
+        const userIds = response.data.map((u) => u.id);
+        if (userIds.length > 0) {
+          try {
+            const rolesByUser = await UserRolesService.getBatchUserRoles(userIds);
+            setUserRolesMap(rolesByUser);
+          } catch (rolesErr) {
+            // Non-fatal: list still renders, just falls back to single
+            // profiles.role badge per user. Surface in console for diagnosis.
+            console.warn('[users/client-wrapper] Batch roles fetch failed:', rolesErr);
+            setUserRolesMap({});
+          }
+        } else {
+          setUserRolesMap({});
         }
       } catch (err) {
         console.error('[users/client-wrapper] Error fetching users:', err);
@@ -250,6 +274,7 @@ export function UsersClientWrapper({
           ) : (
             <UserList
               users={users}
+              userRolesMap={userRolesMap}
               metadata={metadata}
               onPageChange={handlePageChange}
               onPageSizeChange={handlePageSizeChange}

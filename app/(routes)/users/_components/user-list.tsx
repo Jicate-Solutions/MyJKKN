@@ -13,10 +13,11 @@ import {
   UserCheck,
   UserX,
   Copy,
-  Check
+  Check,
+  Star
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { Profile } from '@/types/auth';
+import { Profile, UserRoleAssignment } from '@/types/auth';
 import { UserService } from '@/lib/services/users/user-service';
 import { ROLE_LABELS } from '@/lib/constants/permissions';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -37,6 +38,10 @@ import { DeleteUserDialog } from './delete-user-dialog';
 
 interface UserListProps {
   users: Profile[];
+  // Map of userId -> all assigned roles. Optional — when missing or empty for
+  // a given user, the role column falls back to the legacy single
+  // profiles.role badge.
+  userRolesMap?: Record<string, UserRoleAssignment[]>;
   metadata: {
     total: number;
     page: number;
@@ -93,6 +98,7 @@ function EmailCopyCell({ email }: { email: string }) {
 
 export function UserList({
   users,
+  userRolesMap,
   metadata,
   onPageChange,
   onPageSizeChange,
@@ -263,12 +269,46 @@ export function UserList({
       {
         id: 'role',
         accessorKey: 'role',
-        header: 'Role',
+        header: 'Roles',
         cell: ({ row }) => {
-          const role = row.getValue('role') as string;
+          const user = row.original;
+          // Prefer the multi-role assignments from user_roles. Sort primary
+          // first for visual hierarchy. The Star icon next to the primary
+          // badge only appears when the user has 2+ roles — single-role users
+          // get a plain badge to avoid noise. Falls back to the legacy
+          // profiles.role single badge when no user_roles rows exist (legacy
+          // profiles or users still being migrated).
+          const roles = userRolesMap?.[user.id];
+          if (roles && roles.length > 0) {
+            const sorted = [...roles].sort(
+              (a, b) => Number(b.is_primary) - Number(a.is_primary)
+            );
+            const showStar = sorted.length > 1;
+            return (
+              <div className='flex flex-wrap gap-1 max-w-[260px]'>
+                {sorted.map((r) => (
+                  <Badge
+                    key={r.id}
+                    variant={r.is_primary ? 'default' : 'secondary'}
+                    className='gap-1'
+                    title={r.is_primary ? 'Primary role' : 'Additional role'}
+                  >
+                    {r.is_primary && showStar && (
+                      <Star className='h-3 w-3' />
+                    )}
+                    {r.role_name ||
+                      ROLE_LABELS[r.role_key as keyof typeof ROLE_LABELS] ||
+                      r.role_key}
+                  </Badge>
+                ))}
+              </div>
+            );
+          }
+
+          const legacyRole = (user.role || '') as string;
           return (
             <Badge variant='secondary'>
-              {ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role}
+              {ROLE_LABELS[legacyRole as keyof typeof ROLE_LABELS] || legacyRole || '—'}
             </Badge>
           );
         }
@@ -422,7 +462,8 @@ export function UserList({
       canEditUsers,
       canDeleteUsers,
       handleSingleDelete,
-      handleStatusToggle
+      handleStatusToggle,
+      userRolesMap
     ]
   );
 

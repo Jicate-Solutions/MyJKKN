@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { LogOut, Sun, Moon, Monitor, Download } from 'lucide-react';
+import { LogOut, Sun, Moon, Monitor, Download, Star } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/use-auth';
 import { AuthService } from '@/lib/auth/auth-service';
 import { usePWA } from '@/components/pwa/pwa-provider';
 import { Button } from '@/components/ui/button';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { UserRolesService } from '@/lib/services/users/user-roles-service';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -19,13 +20,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import { CustomRole } from '@/types/auth';
+import { UserRoleAssignment } from '@/types/auth';
 
 export function UserNav() {
   const { profile } = useAuth();
   const { theme, setTheme } = useTheme();
   const { isInstalled, canInstall, installApp } = usePWA();
-  const [roleName, setRoleName] = useState<string | null>(null);
+  // All assigned roles from user_roles. The legacy profile.role field is the
+  // single primary role only — the navbar must reflect the multi-role system
+  // so users with extra roles (e.g. counselor + student, accounts + faculty)
+  // see every role they actually carry.
+  const [userRoles, setUserRoles] = useState<UserRoleAssignment[]>([]);
+  // Legacy fallback: when the user has no user_roles entries (e.g. seeded
+  // before the multi-role migration), look up the role name for profile.role
+  // so we still show *something* sensible.
+  const [legacyRoleName, setLegacyRoleName] = useState<string | null>(null);
+  const [rolesLoading, setRolesLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
 
   // Prevent hydration mismatch for theme
@@ -34,27 +44,40 @@ export function UserNav() {
   }, []);
 
   useEffect(() => {
-    const fetchRoleName = async () => {
-      if (profile?.role) {
-        try {
-          const roles = await RoleService.getAssignableRoles();
-          const role = roles.find((r) => r.role_key === profile.role);
-          if (role) {
-            setRoleName(role.role_name);
-          } else {
-            // Fallback to role key if role not found
-            setRoleName(profile.role);
-          }
-        } catch (error) {
-          console.error('Error fetching role name:', error);
-          // Fallback to role key in case of error
-          setRoleName(profile.role);
+    if (!profile?.id) {
+      setRolesLoading(false);
+      return;
+    }
+    let cancelled = false;
+
+    const fetchRoles = async () => {
+      setRolesLoading(true);
+      try {
+        const roles = await UserRolesService.getUserRoles(profile.id);
+        if (cancelled) return;
+        setUserRoles(roles);
+        // Only resolve the legacy fallback name if user_roles came back empty.
+        if (roles.length === 0 && profile.role) {
+          const allRoles = await RoleService.getAssignableRoles();
+          if (cancelled) return;
+          const found = allRoles.find((r) => r.role_key === profile.role);
+          setLegacyRoleName(found?.role_name ?? profile.role);
         }
+      } catch (err) {
+        console.error('[user-nav] Failed to load user roles:', err);
+        if (!cancelled && profile.role) {
+          setLegacyRoleName(profile.role);
+        }
+      } finally {
+        if (!cancelled) setRolesLoading(false);
       }
     };
 
-    fetchRoleName();
-  }, [profile?.role]);
+    fetchRoles();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.id, profile?.role]);
 
   const handleSignOut = async () => {
     await AuthService.signOut();
@@ -87,18 +110,53 @@ export function UserNav() {
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent className='w-64' align='end' forceMount>
+      <DropdownMenuContent className='w-72' align='end' forceMount>
         <DropdownMenuLabel className='font-normal'>
           <div className='flex flex-col space-y-2'>
             <p className='text-sm font-medium leading-none'>
               {profile.full_name || 'User'}
             </p>
-            <p className='text-xs leading-none text-muted-foreground'>
+            <p className='text-xs leading-none text-muted-foreground break-all'>
               {profile.email}
             </p>
-            <Badge variant='secondary' className='w-fit text-xs'>
-              {roleName || profile.role}
-            </Badge>
+            {/* Multi-role badges. Primary first with star icon (only when
+                there are 2+ roles, to avoid noise for single-role users).
+                Falls back to legacy profile.role badge when user_roles is
+                empty, and to a loading shimmer while the fetch is in
+                flight. */}
+            {userRoles.length > 0 ? (
+              <div className='flex flex-wrap gap-1'>
+                {[...userRoles]
+                  .sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
+                  .map((r) => {
+                    const showStar = r.is_primary && userRoles.length > 1;
+                    return (
+                      <Badge
+                        key={r.id}
+                        variant={r.is_primary ? 'default' : 'secondary'}
+                        className='text-[10px] gap-1'
+                        title={
+                          r.is_primary ? 'Primary role' : 'Additional role'
+                        }
+                      >
+                        {showStar && <Star className='h-2.5 w-2.5' />}
+                        {r.role_name ?? r.role_key}
+                      </Badge>
+                    );
+                  })}
+              </div>
+            ) : legacyRoleName ? (
+              <Badge variant='secondary' className='w-fit text-xs'>
+                {legacyRoleName}
+              </Badge>
+            ) : rolesLoading ? (
+              <Badge
+                variant='secondary'
+                className='w-fit text-xs animate-pulse opacity-60'
+              >
+                Loading…
+              </Badge>
+            ) : null}
           </div>
         </DropdownMenuLabel>
 
