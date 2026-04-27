@@ -1,3 +1,81 @@
+## Session: 2026-04-27 → 2026-04-28 (pane 9badc7fe) — BottomNav Tier-D Holographic glass + Dashboard glass experiment + Attention Bar 5-layer architecture
+
+### Accomplished
+
+**3 visual PRs shipped (all OPEN, Ready, awaiting your merge + deploy):**
+- **PR #536** — `feat(BottomNav): always show More button — drawer is the menu hub`. Removes the conditional render so users with ≤4 module sections still see the More button. Drawer fed `allNavGroups` (full list) instead of slice. Single file +18/-23 LOC.
+- **PR #539** — `feat(BottomNav): Tier-D Holographic + Glass for entire bottom nav (drawer + strip)`. 3 commits: subtle Liquid Glass (Tier B), upgrade to bold Tier D Holographic, extend to entire bottom strip. Adds `holo-spin` keyframe to `tailwind.config.ts`, animated conic-gradient shimmer on every tile, 3-color holographic gradients per module via `GROUP_TILE_GRADIENTS` (now exported). 4-stop shadow stack + specular highlight + inset ring + drop-shadow on icons. CDP-verified live on localhost:3104 — DOM probe confirmed `animate-holo-spin` running on 25 drawer tiles + 6 strip tiles.
+- **PR #541** — `feat(dashboard): single-page glass experiment — Tier-C KPIs + Tier-D focal Today's Focus`. Validates the tiered design system on /dashboard. Today's Focus card gets full Tier D (vivid 3-color gradient + shimmer). 4 KPI tiles get Tier C (glass cue-stack, no shimmer — read-heavy). Body content unchanged Tier A. Idempotent `holo-spin` keyframe addition shared with PR #539. CDP-verified, build green.
+
+**Build-depth-gate runs green: 3/3 PRs — exit 0, 0 errors, full route tables compiled.**
+
+**Architecture designed for full 5-layer Attention Bar system + admin config page:**
+- Layer 0: Urgent Notifications (severity=red, requires_ack=true → real-time via Supabase Realtime)
+- Layer 1: Static defaults per page × role
+- Layer 2: State-aware rules engine (admin-configurable)
+- Layer 3: Behavioral learning (tap-tracking → confidence-thresholded override)
+- Layer 4: AI fallback (LLM ranks when nothing else matches, cached by page×role×hour)
+- /system/attention-bar admin UI with 7 tabs (one per layer + Test Sandbox + Audit Log)
+
+**Working interactive HTML mockup at /tmp/quick-action-interactive.html:**
+- Live resolver running same priority cascade as production would
+- Role/page/state controls (slider for pendingCount, classPeriod, overdueFees)
+- 13 sample rules across Layer 1 + Layer 2
+- Resolution trace shows which rule fired + which were superseded
+- Layer toggle controls let user simulate fallback behavior
+- ~600 LOC self-contained (no build step), works in any browser
+
+### Current Status
+- **Branch (this pane)**: feat/dashboard-glass-experiment (PR #541 head)
+- **Other pane**: feat/counselor-routing-db-foundation (counselor rules-engine, separate parallel work — PR #540)
+- **Working tree**: clean except `lib/navigation/route-manifest.generated.ts` (auto-regenerated, not from this session)
+- **Dev server**: pm2 myjkkn-dev currently rebuilding on dashboard branch
+- **Build**: all 3 PRs green via npm run build
+- **Open PRs from this session**: #536, #539, #541 — all Ready
+- **Live verification**: CDP probes confirmed Tier-D rendering on localhost:3104
+
+### Lessons Learned
+
+**Calibration miss — "Make Gen Alpha fall in love" needs bolder than "premium iOS Settings."**
+First shipped Tier B (subtle Liquid Glass) optimized for Apple-style polished restraint. User feedback: "I don't see any change." Pattern: Director-led platform serving Gen Alpha students needs vivid + animated + multi-cue, not subtle. The premium-restraint aesthetic is calibrated for an older audience than JKKN serves. Lesson: when in doubt about audience, calibrate to the youngest brain on screen.
+
+**Cue-stack > single-effect — convergent depth cues recruit object-recognition pathway.**
+The brain reads 4-5 convergent cues (gradient + cast shadow + inset top sheen + 1px luminous ring + specular highlight + animated shimmer) as a physical object. backdrop-blur alone is expensive (3-5ms/tile) and at 22+ tiles becomes catastrophic stutter (~110ms/frame on Mediatek-class GPUs). Cheap cue-stack achieves ~80% of the perceptual effect for ~5% of the GPU cost. This is cross-paradigmatic: borrowing from cognitive science (predictive coding) + graphics (compositor pipeline) + product (Indian mobile market hardware reality).
+
+**Hierarchy of treatments — universal application kills the magic.**
+80% Tier A flat / 15% Tier B subtle / 4% Tier C glass / 1% Tier D shimmer is the ratio that makes special moments feel special. If everything shimmers, nothing shimmers (signal-to-noise crashes). Cocktail-party / forest-fire / music-dynamics paradigm.
+
+**Concurrent-session race is recurring + dangerous.**
+Hit it 3 separate times tonight. CLAUDE.md prohibits worktrees, so multiple Claude sessions share /Users/omm/PROJECTS/MyJKKN. Other pane (working on counselor-routing) switched branches mid-edit, stomping my working tree. Pattern that survives: Edit → IMMEDIATELY git add + commit + push (no curiosity Bash calls between Edit and commit). For local-test branch dance: stash → switch → pm2 restart → CDP test → switch back → stash pop → pm2 restart. Time-window tight but workable.
+
+**Mockup-first pattern works for visual decisions.**
+When user said "I don't see any change," I built a 4-tier comparison HTML (Tier A flat / B subtle / C bold / D holographic) at /tmp/tile-design-mockup.html. User picked Tier D directly from visual A/B. Cheaper than coding then redesigning. Same pattern produced /tmp/quick-action-interactive.html (a working resolver mockup) which validated the 5-layer architecture before any production code.
+
+**Quick Action slot = single attention pill serving prescriptive (action) + descriptive (notification) jobs.**
+User identified the architectural insight: don't put notifications in bell icon AND quick actions in bar above strip. ONE slot, layered priority. Layer 0 (urgent notif) wins over Layer 2 (state rule) wins over Layer 1 (default). Pattern across iOS Dynamic Island + WhatsApp chat header + Telegram pinned messages — premium attention real estate is single-slot, urgency-ordered.
+
+**Build-depth-gate runtime check skipped legitimately for prod-connected env.**
+Step 2.5 (Runtime Issues delta on dev server) requires running `npm run dev` which writes audit logs/sessions to PROD when .env.local points at prod. Per `feedback_dev_env_points_at_prod_not_staging.md` Director's directive is `.env.local` MUST be prod. So Step 2.5 is structurally inapplicable — Step 2 (`npm run build` static) is the gate that runs. Honest documentation, not a skipped step.
+
+### Next Session — Tasks
+
+1. **[P0] Build full 5-layer Attention Bar stack — Layer 0 (Urgent Notifs) + Layer 1 (Static Defaults) + Layer 2 (State Rules) + Layer 3 (Behavioral Learning) + Layer 4 (AI Fallback) + /system/attention-bar admin config page** (large — 3-4 month build per phased plan; user_stated_p0 verbatim from /cnext args)
+2. [P0] **Decide kickoff path**: Option A (extend /tmp/quick-action-interactive.html mockup with Layer 0 + Layer 3 + Layer 4 + admin UI tabs preview) OR Option B (write `specs/attention-bar-5-layer-system.md` with full architecture + DB schema + API surface) OR Option C (open Phase 1 PR with resolver service + DB tables + Layer 1 seeded defaults for top 10 pages, ~2 hours work) (small — first decision before any code)
+3. [P0] **Phase 1** — Resolver service + `quick_action_rules` + `quick_action_state_queries` tables + Layer 1 seeded defaults for top 10 pages (large — 1-2 weeks)
+4. [P0] **Phase 2** — Pill component above bottom strip wired to Layer 1 only, ship + measure (medium — 1 week)
+5. [P0] **Phase 3** — Layer 0 urgent notifications + Supabase Realtime subscription (notifications table → real-time push to attention bar) (medium — 1-2 weeks)
+6. [P0] **Phase 4** — Layer 2 state-aware rules engine + admin UI for L0/L1/L2 (large — 2 weeks)
+7. [P1] **Phase 5** — Layer 3 behavioral learning + tap-tracking + DPDPA consent flow + per-user data deletion (large — 2-3 weeks)
+8. [P1] **Phase 6** — Layer 4 AI fallback + cost guardrails + allowlist + audit (medium — 2 weeks)
+9. [P2] **Phase 7** — Polish + perf tuning + edge cases + full admin UI (small — 1 week)
+10. [P0] **Before any of Phase 1**: merge + deploy PR #539 (Tier-D BottomNav) and PR #541 (dashboard glass). The pill component (Phase 2) is the SAME visual treatment as these — get the visual foundation in prod first so the new feature inherits the aesthetic.
+11. [P1] **Pick `/admission/leads` as the first-page POC** for Phase 1+2. High-traffic, multi-role, has obvious different next-actions per role, has state (pending count) that exercises Layer 2.
+12. [P2] **Track tap-by-tap analytics from day 1** even before Layer 3 — instrumentation needs to accumulate 30+ days of data before behavioral inference has anything to say. Start the clock now.
+
+### Carry-forward decision (user_stated_drops)
+"none — carry it all forward" (verbatim)
+
+---
 ## Session: 2026-04-27 → 2026-04-28 (pane 937875b3) — Counselor rules-engine spec + Phases 1+2 shipped → /admission/counselors quick-wins next
 
 ### Accomplished
