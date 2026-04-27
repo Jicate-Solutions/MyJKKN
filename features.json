@@ -133,6 +133,12 @@
       "name": "Dashboard Decision Queue \u2014 actionable digest cards",
       "status": "self-verified",
       "notes": "4-PR wave 2026-04-27: #513 cards link to action_config.url, #522 generators emit actionable URLs (+76 backfilled rows), #518 ?category= filter, #521 ?stale_min_days= filter. Browser-verified on jkkn.ai. PR #418 (cron auth fix) prerequisite landed earlier."
+    },
+    {
+      "id": "see-as-user-impersonation",
+      "name": "See As User \u2014 admin impersonation with director-only write mode",
+      "status": "deployed-awaiting-test",
+      "notes": "PRs #166\u2192#185 merged 2026-04-15. Real session swap via admin.generateLink+verifyOtp+setSession (PR #179 architectural fix). Director-only write mode + boobalan.a@jkkn.ac.in allowlist (PR #181). Exit re-issues admin session via generateLink instead of cookie backup (PR #185 \u2014 fixes 4KB cookie size ceiling truncation). Reusable skill at ~/.claude/skills/see-as-user/. NOT yet user-verified post-#185 deploy: needs director to walk Start\u2192Exit end-to-end and confirm admin lands back on permissions-audit STILL LOGGED IN. See progress.txt 2026-04-27 entry P0 task."
     }
   ]
 }
