@@ -10487,3 +10487,46 @@ END $fn_resolve$;
 
 REVOKE ALL ON FUNCTION fn_decision_resolve_metric(TEXT, JSONB, TIMESTAMPTZ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION fn_decision_resolve_metric(TEXT, JSONB, TIMESTAMPTZ) TO service_role;
+
+-- =====================================================================
+-- Updated: 2026-04-27 - Bug B: notifications.targeting JSONB shape unifier.
+--
+-- Two emitter families historically wrote different shapes into the
+-- notifications.targeting column:
+--   1. fn_create_dashboard_work_item (dashboard:* categories) writes
+--      jsonb_build_object('type','user','user_id', uuid)         -- legacy singular
+--   2. doctrines digest emitters (sunday-wrap / friday-reflection)
+--      and other API writers emit
+--      { user_ids: [uuid] }                                       -- canonical array
+--   3. system-wide broadcasts emit { broadcast: true } (or similar)
+--
+-- Cross-shape RLS queries previously had to OR three predicates per row
+-- (see notifications_select_own in 03_policies.sql post-PR #517). This
+-- helper centralises the recognition logic so policies and ad-hoc queries
+-- have a single answer for "is this notification for this user?".
+--
+-- Canonical shape going forward: { type: 'user', user_ids: [uuid, ...] }.
+-- Reads still accept the legacy singular shape; existing rows are left
+-- unmigrated. A future PR may rewrite all rows to the canonical shape.
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION fn_notification_is_for_user(
+  p_targeting JSONB,
+  p_user_id UUID
+) RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn_targeting$
+  SELECT
+    -- Legacy singular shape: {"type":"user","user_id":"<uuid>"}
+    (p_targeting ->> 'user_id')::uuid = p_user_id
+    -- Canonical array shape: {"type":"user","user_ids":["<uuid>", ...]}
+    OR (p_targeting -> 'user_ids' ? p_user_id::text)
+    -- System-wide broadcast: {"broadcast":"true"}
+    OR p_targeting ->> 'broadcast' = 'true';
+$fn_targeting$;
+
+REVOKE ALL ON FUNCTION fn_notification_is_for_user(JSONB, UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authenticated, service_role;
