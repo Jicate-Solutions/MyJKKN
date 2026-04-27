@@ -85,7 +85,7 @@ function AttributionCaveatBanner({ stats }: { stats: AttributionStats }) {
     // Mirror of PR #457 empty-state pattern: Card + border-dashed + CardContent
     <Card className="border-dashed border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 mb-4">
       <CardContent className="flex items-start gap-3 py-4 px-5">
-        <TriangleAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+        <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
         <div className="space-y-1">
           <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
             Productivity metrics show partial data
