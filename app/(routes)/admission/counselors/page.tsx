@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, Suspense, useEffect } from 'react';
+import { useState, useMemo, Suspense } from 'react';
 import { AddCounselorDialog } from './_components/add-counselor-dialog';
 import { CounselorList } from './_components/counselor-list';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -22,14 +22,14 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { DataAlertBanner } from '@/components/shared/data-alert-banner/data-alert-banner';
+import { useUnassignedLeadsCount } from '@/hooks/admission/use-unassigned-leads-count';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useCounselorPerformance } from '@/hooks/admission';
 import type { DateRange } from '@/lib/services/admission';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   TrendingUp,
   TrendingDown,
@@ -46,7 +46,6 @@ import {
   Target,
   Award,
   Loader2,
-  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
@@ -61,87 +60,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-
-// ---------------------------------------------------------------------------
-// Unassigned-leads banner — live count from admission_leads
-// ---------------------------------------------------------------------------
-
-interface UnassignedCounts {
-  unassigned: number;
-  total: number;
-}
-
-function useUnassignedLeadsCount() {
-  const [counts, setCounts] = useState<UnassignedCounts | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    const supabase = createClientSupabaseClient();
-
-    async function fetchCounts() {
-      try {
-        // Use head:true to get only the count header — zero data transfer
-        const [totalRes, unassignedRes] = await Promise.all([
-          supabase
-            .from('admission_leads')
-            .select('*', { count: 'exact', head: true }),
-          supabase
-            .from('admission_leads')
-            .select('*', { count: 'exact', head: true })
-            .is('counselor_id', null)
-        ]);
-
-        if (cancelled) return;
-
-        const total = totalRes.count ?? 0;
-        const unassigned = unassignedRes.count ?? 0;
-        setCounts({ total, unassigned });
-      } catch {
-        // Fail silently — banner simply won't render
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchCounts();
-    return () => { cancelled = true; };
-  }, []);
-
-  return { counts, loading };
-}
-
-function UnassignedLeadsBanner() {
-  const { counts, loading } = useUnassignedLeadsCount();
-
-  if (loading || !counts || counts.unassigned === 0) return null;
-
-  const pct = counts.total > 0 ? Math.round((counts.unassigned / counts.total) * 100) : 0;
-
-  return (
-    <Alert className="border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-700">
-      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-      <AlertTitle className="text-amber-900 dark:text-amber-200 font-semibold">
-        {counts.unassigned.toLocaleString()} leads unassigned ({pct}%)
-      </AlertTitle>
-      <AlertDescription className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-1">
-        <span className="text-amber-800 dark:text-amber-300 text-sm">
-          {counts.unassigned.toLocaleString()} of {counts.total.toLocaleString()} total leads have no counselor assigned.
-          Assign them now so no enquiry goes unattended.
-        </span>
-        <Button
-          size="sm"
-          className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white border-0"
-          asChild
-        >
-          <a href="/admission/leads?filter=unassigned">
-            Bulk-assign &rarr;
-          </a>
-        </Button>
-      </AlertDescription>
-    </Alert>
-  );
-}
 
 // ---------------------------------------------------------------------------
 
@@ -588,6 +506,7 @@ function CounselorPerformancePageContent() {
   // Global users (super admins + admission role) see all institutions by default; can optionally filter.
   // Single-institution users auto-resolve to their own institution.
   const defaultInstitutionId = isGlobalUser ? undefined : profile?.institution_id;
+  const { counts: unassignedCounts, loading: unassignedLoading } = useUnassignedLeadsCount();
   // For global users: no selection or "__all" → undefined (all institutions)
   const resolvedChoice = chosenInstitutionId === '__all' ? undefined : chosenInstitutionId;
   const institutionId = resolvedChoice || (institutions.length === 1 ? institutions[0]?.id : defaultInstitutionId) || undefined;
@@ -704,7 +623,15 @@ function CounselorPerformancePageContent() {
           </div>
 
           {/* Unassigned-leads alert banner — live count, always shown above leaderboard */}
-          <UnassignedLeadsBanner />
+          <DataAlertBanner
+            count={unassignedCounts?.unassigned ?? 0}
+            total={unassignedCounts?.total}
+            loading={unassignedLoading}
+            severity="warning"
+            title="{count} leads unassigned ({pct}%)"
+            description="{count} of {total} total leads have no counselor assigned. Assign them now so no enquiry goes unattended."
+            cta={{ href: '/admission/leads?filter=unassigned', label: 'Bulk-assign →' }}
+          />
 
           {/* TODO(@quickwin-d): briefing-status panel mounts here in follow-up PR */}
 
