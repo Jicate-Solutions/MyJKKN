@@ -200,6 +200,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/change-requests': 'learners.change-requests.view',
   '/learners/change-requests/[id]': 'learners.change-requests.view',
 
+  // Learner Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
+  // Spec: specs/counselor-taxonomy-spec.md. Role seed:
+  // supabase/migrations/20260427_counselor_taxonomy_phase1.sql
+  '/learners/counseling': 'learners.counseling.view',
+
   // Organization Management
   '/organizations/dashboard': 'organizations.dashboard.view',
   '/organizations/institutions': 'organizations.institutions.view',
@@ -246,6 +251,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/recruitment/my': 'hr.recruitment.view',
   '/hr/recruitment/candidates': 'hr.recruitment.view',
   '/hr/recruitment/approvals': 'hr.recruitment.approve',
+
+  // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
+  // Spec: specs/counselor-taxonomy-spec.md. Role seed:
+  // supabase/migrations/20260427_counselor_taxonomy_phase1.sql
+  '/hr/counseling': 'hr.counseling.view',
 
   // Academic Management
   // Added 2026-04-24 (Wave 2b PR-S2): module root for the flat sidebar row.

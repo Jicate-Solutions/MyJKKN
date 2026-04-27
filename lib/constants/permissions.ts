@@ -318,6 +318,24 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Counselor Taxonomy Phase 1 (2026-04-27) — see specs/counselor-taxonomy-spec.md
+    // Permission keys consumed by the new `learner_counselor` role seeded in
+    // supabase/migrations/20260427_counselor_taxonomy_phase1.sql. Module pages
+    // (/learners/counseling/*) land in Phase 2.
+    name: 'Learner Counseling',
+    key: 'learners_counseling',
+    permissions: [
+      { key: 'learners.counseling.view', label: 'View Learner Counseling Queue' },
+      { key: 'learners.counseling.sessions.view', label: 'View Counseling Sessions' },
+      { key: 'learners.counseling.sessions.create', label: 'Schedule & Log Counseling Sessions' },
+      { key: 'learners.counseling.notes.create', label: 'Write Counseling Session Notes' },
+      { key: 'learners.counseling.notes.view_own', label: 'View Own Counseling Notes (Author Only)' },
+      { key: 'learners.at_risk.view', label: 'View At-Risk Learners Dashboard' },
+      { key: 'learners.interventions.create', label: 'Create Learner Interventions' },
+      { key: 'learners.interventions.close', label: 'Close Learner Interventions (Outcome)' }
+    ]
+  },
+  {
     name: 'Employee Management',
     key: 'staff',
     permissions: [
@@ -548,6 +566,24 @@ export const PERMISSION_CATEGORIES = [
       // Dashboard (Sprint 6) — HR Command Center
       { key: 'hr.dashboard.view', label: 'View HR Command Center' },
       { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' }
+    ]
+  },
+  {
+    // Counselor Taxonomy Phase 1 (2026-04-27) — see specs/counselor-taxonomy-spec.md
+    // Permission keys consumed by the new `staff_counselor` role seeded in
+    // supabase/migrations/20260427_counselor_taxonomy_phase1.sql. Module pages
+    // (/hr/counseling/*) land in Phase 2.
+    name: 'Staff Counseling',
+    key: 'hr_counseling',
+    permissions: [
+      { key: 'hr.counseling.view', label: 'View Staff Counseling Queue' },
+      { key: 'hr.counseling.sessions.view', label: 'View Staff Counseling Sessions' },
+      { key: 'hr.counseling.sessions.create', label: 'Schedule & Log Staff Counseling Sessions' },
+      { key: 'hr.counseling.notes.create', label: 'Write Staff Counseling Session Notes' },
+      { key: 'hr.counseling.notes.view_own', label: 'View Own Staff Counseling Notes (Author Only)' },
+      { key: 'hr.grievance.view', label: 'View Staff Grievances Assigned to Counselor' },
+      { key: 'hr.grievance.escalate', label: 'Escalate Grievance to Formal HR Process' },
+      { key: 'hr.career_development.view', label: 'View Staff Career Development Sessions' }
     ]
   },
   {
