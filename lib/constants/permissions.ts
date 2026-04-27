@@ -404,7 +404,9 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.internal-marks.view', label: 'View Internal Marks' },
       { key: 'academic.internal-marks.edit', label: 'Enter/Edit Internal Marks' },
       { key: 'academic.internal-marks.submit', label: 'Submit Internal Marks' },
-      { key: 'academic.internal-marks.reports', label: 'View Internal Marks Reports' }
+      { key: 'academic.internal-marks.reports', label: 'View Internal Marks Reports' },
+      // Course Grades (Faculty LTI grade view) — added 2026-04-27 (tier-2 chip-leak sweep)
+      { key: 'academic.course-grades.view', label: 'View Course Grades (Faculty LTI Grade View)' }
     ]
   },
   {
@@ -804,7 +806,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'system.bugs.view', label: 'View All Bug Reports (Admin)' },
       { key: 'audit.view', label: 'View Audit Trail' },
       { key: 'users.dashboard.view', label: 'View User Analytics Dashboard' },
-      { key: 'ai_query.view', label: 'Access AI Assistant' }
+      { key: 'ai_query.view', label: 'Access AI Assistant' },
+      // Tier-2 chip-leak sweep 2026-04-27 — admin tools surfaced via
+      // `/admin/*` chips that previously default-allowed for every role.
+      { key: 'admin.reset_driver_passwords.manage', label: 'Bulk Reset Driver/Transport Passwords' },
+      { key: 'admin.saml.manage', label: 'Manage SAML SSO Service Providers & Sessions' }
     ]
   },
   {
@@ -1147,7 +1153,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'solutions.paradigm_shift.view', label: 'View Paradigm Shift' },
 
       // Compliance
-      { key: 'solutions.compliance.view', label: 'View AI Solution Compliance' }
+      { key: 'solutions.compliance.view', label: 'View AI Solution Compliance' },
+
+      // Settings (tier-2 chip-leak sweep 2026-04-27)
+      { key: 'solutions.settings.view', label: 'View Solutions Settings' }
     ]
   },
   {
@@ -1454,6 +1463,21 @@ export const PERMISSION_CATEGORIES = [
       { key: 'audit.finding_type.manage', label: 'Manage Finding-Type Master' },
       { key: 'audit.leadership.view', label: 'View In-Progress Findings (CAO / CEO / MD)' },
       { key: 'audit.external_auditor.manage', label: 'Manage Time-Boxed External Auditors (Admin)' }
+    ]
+  },
+  // Added 2026-04-27 — tier-2 chip-leak sweep. The /bos module had no
+  // catalog category, so its chip-level permissions had nowhere to live in
+  // Role-Management UI. Five tier-2 sub-pages exist (compositions, experts,
+  // meetings, reports, ta-da) and are now perm-gated via .view keys here.
+  {
+    name: 'Board of Studies',
+    key: 'bos',
+    permissions: [
+      { key: 'bos.compositions.view', label: 'View BoS Compositions' },
+      { key: 'bos.experts.view', label: 'View BoS Experts' },
+      { key: 'bos.meetings.view', label: 'View BoS Meetings' },
+      { key: 'bos.reports.view', label: 'View BoS Reports' },
+      { key: 'bos.ta_da.view', label: 'View BoS TA/DA Claims' }
     ]
   }
 ];
