@@ -32,7 +32,7 @@ import {
 // Module identity preserved: each gradient anchors on the previous family
 // color but bridges through a complementary hue (e.g. rose → pink → rose,
 // indigo → purple → indigo).
-const GROUP_TILE_GRADIENTS: Record<string, string> = {
+export const GROUP_TILE_GRADIENTS: Record<string, string> = {
   // Operations / Admin — slate family with chromatic accents
   'Overview':                'bg-gradient-to-br from-slate-400 via-slate-500 to-slate-700',
   'User Management':         'bg-gradient-to-br from-slate-300 via-blue-400 to-slate-600',

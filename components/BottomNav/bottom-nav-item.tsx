@@ -135,52 +135,64 @@ export function BottomNavItem({
     );
   }
 
-  // --- STRIP VARIANT (default): existing bottom-nav strip rendering ---
-  // Determine the color class based on custom color or default behavior
-  const colorClass = customColor
-    ? customColor
-    : isActive
-      ? 'text-primary'
-      : 'text-muted-foreground';
-
+  // --- STRIP VARIANT (default): Tier-D glass strip rendering ---
+  // Recalibrated 2026-04-27 to match More-drawer Tier-D treatment.
+  // Each strip item gets a 36x36 glass tile (same cue-stack as 56x56 drawer
+  // tile, just smaller). Always-on shimmer matches drawer for design unity —
+  // user directive: "same effect for entire bottom navigation menu".
+  // Bottom indicator bar removed — the glass tile + scale + ring IS the
+  // active indicator now (multi-cue, accessibility-preserving).
   return (
     <motion.button
       onClick={onClick}
       className={cn(
-        'relative flex flex-col items-center justify-center px-2 py-2 min-w-[64px] flex-1',
-        'transition-colors duration-150',
-        colorClass
+        'relative flex flex-col items-center justify-center px-2 py-2 min-w-[64px] flex-1 gap-1',
+        'transition-colors duration-150'
       )}
       whileTap={{ scale: 0.92 }}
       transition={tapSpring}
     >
       <motion.div
-        className="relative"
+        className={cn(
+          'relative w-9 h-9 rounded-xl flex items-center justify-center',
+          tileGradient ?? 'bg-gradient-to-br from-slate-400 via-slate-500 to-slate-700',
+          'shadow-[0_4px_12px_-2px_rgba(0,0,0,0.22),0_1px_4px_rgba(0,0,0,0.1),inset_0_1px_0_rgba(255,255,255,0.45),inset_0_-1px_0_rgba(0,0,0,0.08)]',
+          'ring-1 ring-inset ring-white/25',
+          isActive && 'ring-2 ring-white/45'
+        )}
         animate={{
-          scale: isActive ? 1.15 : 1,
+          scale: isActive ? 1.12 : 1,
           y: isActive ? -3 : 0
         }}
         transition={iconSpring}
       >
-        <motion.div
-          animate={{
-            rotate: isActive ? [0, -5, 5, 0] : 0
+        {/* Holographic shimmer — same conic-gradient + holo-spin keyframe
+            as drawer tiles, scaled to 36px. Self-clips via own rounded-xl. */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 rounded-xl animate-holo-spin"
+          style={{
+            background:
+              'conic-gradient(from 45deg at 50% 50%, rgba(255,255,255,0) 0deg, rgba(255,255,255,0.32) 60deg, rgba(255,255,255,0) 120deg, rgba(255,200,255,0.26) 180deg, rgba(255,255,255,0) 240deg, rgba(200,255,255,0.26) 300deg, rgba(255,255,255,0) 360deg)'
           }}
-          transition={{
-            duration: 0.3,
-            ease: 'easeOut'
-          }}
-        >
-          <Icon className="h-5 w-5" strokeWidth={isActive ? 2.5 : 2} />
-        </motion.div>
+        />
+        {/* Static specular highlight — anchored upper-left light cue. */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-br from-white/30 via-white/0 to-transparent"
+        />
+        <Icon
+          className="relative z-10 h-5 w-5 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]"
+          strokeWidth={isActive ? 2.5 : 2.2}
+        />
 
-        {/* Badge for notifications */}
+        {/* Badge for notifications — anchored to top-right of glass tile. */}
         {badgeCount !== undefined && badgeCount > 0 && (
           <motion.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 700, damping: 20 }}
-            className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center"
+            className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center z-20"
           >
             {badgeCount > 9 ? '9+' : badgeCount}
           </motion.span>
@@ -189,26 +201,17 @@ export function BottomNavItem({
 
       <motion.span
         className={cn(
-          'text-[10px] mt-1 font-medium truncate max-w-full',
-          isActive && 'font-semibold'
+          'text-[10px] font-medium truncate max-w-full',
+          isActive ? 'font-semibold text-foreground' : 'text-muted-foreground'
         )}
         animate={{
-          opacity: isActive ? 1 : 0.7,
+          opacity: isActive ? 1 : 0.85,
           y: isActive ? 1 : 0
         }}
         transition={{ duration: 0.15 }}
       >
         {label}
       </motion.span>
-
-      {/* Active indicator with smooth slide */}
-      {isActive && !hideIndicator && (
-        <motion.div
-          layoutId="bottomNavActiveIndicator"
-          className="absolute bottom-0 h-0.5 w-8 rounded-full bg-primary"
-          transition={indicatorSpring}
-        />
-      )}
     </motion.button>
   );
 }

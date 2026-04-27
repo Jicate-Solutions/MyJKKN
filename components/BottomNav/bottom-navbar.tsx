@@ -34,7 +34,7 @@ import { ICON_MAP } from '@/lib/navigation/page-registry';
 import { MODULES, getModulesBySection } from '@/lib/navigation/modules';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
-import { BottomNavMoreMenu } from './bottom-nav-more-menu';
+import { BottomNavMoreMenu, GROUP_TILE_GRADIENTS } from './bottom-nav-more-menu';
 import { BottomNavMinimized } from './bottom-nav-minimized';
 import { BottomNavGroup, FlatMenuItem, ActivePageInfo } from './types';
 
@@ -489,7 +489,10 @@ export function BottomNavbar() {
           onItemClick={handleSubmenuClick}
         />
 
-        {/* Nav items */}
+        {/* Nav items — Tier-D glass strip per UX directive 2026-04-27.
+            Every item gets a 3-color holographic gradient via tileGradient.
+            Modules use GROUP_TILE_GRADIENTS by groupLabel; Search + More
+            get utility-color defaults. */}
         <div className="flex items-center justify-around">
           {primaryNavGroups.map((group) => (
             <BottomNavItem
@@ -499,12 +502,12 @@ export function BottomNavbar() {
               label={group.groupLabel}
               isActive={effectiveActiveNavId === group.id}
               hasSubmenu={group.menus.length > 1}
-              customColor={group.id === 'favorites' ? 'text-yellow-600 dark:text-yellow-500' : undefined}
+              tileGradient={GROUP_TILE_GRADIENTS[group.groupLabel] ?? GROUP_TILE_GRADIENTS['Overview']}
               onClick={() => handleNavClick(group.id)}
             />
           ))}
 
-          {/* Search button */}
+          {/* Search button — utility cyan-blue gradient */}
           <BottomNavItem
             id="search"
             icon={Search}
@@ -512,13 +515,13 @@ export function BottomNavbar() {
             isActive={false}
             hasSubmenu={false}
             hideIndicator={true}
+            tileGradient="bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-600"
             onClick={openSearch}
           />
 
           {/* More button — always visible. Drawer is the menu hub: full module
-              list + favorites + global search. Per UX audit 2026-04-27, hiding
-              it for low-permission users left them with no favorite-management
-              affordance. */}
+              list + favorites + global search. Rose-pink-rose holographic
+              gradient (carries forward the previous rose-700 customColor). */}
           <BottomNavItem
             id="more"
             icon={MoreHorizontal}
@@ -526,7 +529,7 @@ export function BottomNavbar() {
             isActive={true} // Always show as active/highlighted
             hasSubmenu={true}
             hideIndicator={true} // Remove underline
-            customColor="text-rose-700" // Dark rose color
+            tileGradient="bg-gradient-to-br from-rose-400 via-pink-500 to-rose-700"
             onClick={handleMoreClick}
           />
         </div>
