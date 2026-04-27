@@ -21,7 +21,8 @@
     "check:audit-coverage": "tsx scripts/check-permission-audit-coverage.ts",
     "check:menus": "npm run check:permissions && npm run check:menu-coverage && npm run check:tier2-coverage && npm run check:audit-coverage",
     "check:nav": "echo '[deprecated] check:nav retired — superseded by check:reachability (#441, #442). Script retained for historical/debug; removed from build gate 2026-04-24.' && node scripts/assert-nav-coverage.mjs --max-unverified 99 --max-orphans 99 || true",
-    "check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 0"
+    "check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 0",
+    "check:attention-bar": "tsx scripts/check-attention-bar-coverage.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
