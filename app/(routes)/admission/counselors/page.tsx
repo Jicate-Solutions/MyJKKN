@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -20,12 +20,14 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useCounselorPerformance } from '@/hooks/admission';
 import type { DateRange } from '@/lib/services/admission';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   TrendingUp,
   TrendingDown,
@@ -40,7 +42,8 @@ import {
   Clock,
   Target,
   Award,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
