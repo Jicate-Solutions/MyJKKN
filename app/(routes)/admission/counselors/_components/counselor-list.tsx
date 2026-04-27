@@ -18,7 +18,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import {
   Search,
@@ -53,6 +52,24 @@ interface CounselorListProps {
   isGlobalUser?: boolean;
 }
 
+// Agent G — mutation guardrails
+interface ImpactPreview {
+  assigned_leads: number;
+  call_logs: number;
+  callback_queue: number;
+  counselor_record_leads: number;
+  counselor_full_name: string | null;
+  counselor_email: string | null;
+}
+
+type GuardrailMode = 'toggle' | 'remove';
+
+interface GuardrailDialogState {
+  open: boolean;
+  mode: GuardrailMode;
+  counselor: CounselorRecord | null;
+}
+
 const ROLE_COLORS: Record<string, string> = {
   student: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   faculty: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -81,6 +98,16 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
   const [searchQuery, setSearchQuery] = useState('');
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
   const [removingId, setRemovingId] = useState<string | null>(null);
+
+  // Agent G — mutation guardrail dialog (Toggle + Remove share one dialog)
+  const [dialog, setDialog] = useState<GuardrailDialogState>({
+    open: false,
+    mode: 'toggle',
+    counselor: null,
+  });
+  const [impact, setImpact] = useState<ImpactPreview | null>(null);
+  const [isLoadingImpact, setIsLoadingImpact] = useState(false);
+  const [confirmInput, setConfirmInput] = useState('');
 
   const fetchCounselors = useCallback(async () => {
     setIsLoading(true);
@@ -146,7 +173,7 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
 
           // Step D: Fetch institution names for these profiles
           const instIds = [...new Set((missingProfiles || []).map((p: any) => p.institution_id).filter(Boolean))];
-          let instMap = new Map<string, string>();
+          const instMap = new Map<string, string>();
           if (instIds.length > 0) {
             const { data: insts } = await supabase
               .from('institutions')
@@ -208,77 +235,16 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         }
       }
 
-      // 5. For counselors without user_id, try to resolve profile by email
-      // This handles cases where counselors were added with personal email
-      // but profiles.email uses college email
-      const noProfileCounselors = records.filter((c) => !c.user_id && !c.profile_role && c.email);
-      if (noProfileCounselors.length > 0) {
-        const emails = noProfileCounselors.map((c) => c.email!);
-
-        // First try direct match on profiles.email
-        const { data: directProfiles } = await supabase
-          .from('profiles')
-          .select('id, role, full_name, email')
-          .in('email', emails);
-
-        const directMap = new Map<string, { id: string; role: string | null; full_name: string | null }>();
-        for (const p of (directProfiles || []) as Array<{ id: string; role: string | null; full_name: string | null; email: string }>) {
-          directMap.set(p.email.toLowerCase(), { id: p.id, role: p.role, full_name: p.full_name });
-        }
-
-        // For remaining unmatched, check learners_profiles to find college_email
-        const unmatchedEmails = emails.filter((e) => !directMap.has(e.toLowerCase()));
-        const emailToCollegeEmail = new Map<string, string>();
-
-        if (unmatchedEmails.length > 0) {
-          const { data: learnerMatches } = await supabase
-            .from('learners_profiles')
-            .select('student_email, college_email')
-            .in('student_email', unmatchedEmails);
-
-          for (const lp of (learnerMatches || []) as Array<{ student_email: string | null; college_email: string | null }>) {
-            if (lp.student_email && lp.college_email) {
-              emailToCollegeEmail.set(lp.student_email.toLowerCase(), lp.college_email);
-            }
-          }
-
-          // Look up profiles by college emails
-          const collegeEmails = [...emailToCollegeEmail.values()];
-          if (collegeEmails.length > 0) {
-            const { data: collegeProfiles } = await supabase
-              .from('profiles')
-              .select('id, role, full_name, email')
-              .in('email', collegeEmails);
-
-            for (const p of (collegeProfiles || []) as Array<{ id: string; role: string | null; full_name: string | null; email: string }>) {
-              directMap.set(p.email.toLowerCase(), { id: p.id, role: p.role, full_name: p.full_name });
-            }
-          }
-        }
-
-        // Apply resolved profiles and patch user_id
-        for (const counselor of noProfileCounselors) {
-          const email = counselor.email!.toLowerCase();
-          let match = directMap.get(email);
-
-          // If no direct match, try via learner college email
-          if (!match) {
-            const collegeEmail = emailToCollegeEmail.get(email);
-            if (collegeEmail) {
-              match = directMap.get(collegeEmail.toLowerCase());
-            }
-          }
-
-          if (match) {
-            counselor.profile_role = match.role;
-            counselor.profile_full_name = match.full_name;
-            // Patch user_id in DB so future loads are faster
-            supabase
-              .from('admission_counselors')
-              .update({ user_id: match.id })
-              .eq('id', counselor.id)
-              .then();
-          }
+      // 5. For unmatched user_ids (orphaned counselor rows), still try to load name fields when available
+      for (const counselor of records) {
+        if (counselor.user_id && !counselor.profile_role) {
+          // Backfill display name only — leave profile_role null to surface "No Profile"
+          supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', counselor.user_id)
+            .single()
+            .then();
         }
       }
 
@@ -297,17 +263,72 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
     fetchCounselors();
   }, [fetchCounselors]);
 
-  const handleToggleActive = async (counselorId: string, currentActive: boolean) => {
-    if (counselorId.startsWith('role-')) {
-      toast.error('This counselor has no table record. Add them via "Add Counselor" first to manage their status.');
-      return;
-    }
-    setTogglingIds((prev) => new Set(prev).add(counselorId));
+  // Agent G — open guardrail dialog instead of mutating immediately
+  const openGuardrailDialog = useCallback(
+    async (mode: GuardrailMode, counselor: CounselorRecord) => {
+      if (mode === 'toggle' && counselor.id.startsWith('role-')) {
+        toast.error('This counselor has no table record. Add them via "Add Counselor" first to manage their status.');
+        return;
+      }
+      setDialog({ open: true, mode, counselor });
+      setConfirmInput('');
+      setImpact(null);
+
+      // Skip impact preview for activate (no destruction) and for role-only rows with no user_id
+      const isActivate = mode === 'toggle' && !counselor.is_active;
+      const isRoleOnly = counselor.id.startsWith('role-');
+      if (isActivate) return;
+      if (isRoleOnly && !counselor.user_id) return;
+
+      setIsLoadingImpact(true);
+      try {
+        const url = `/api/admission/counselors/${encodeURIComponent(counselor.id)}?action=impact${
+          counselor.user_id ? `&user_id=${encodeURIComponent(counselor.user_id)}` : ''
+        }`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const json = (await res.json()) as ImpactPreview;
+          setImpact(json);
+        } else {
+          setImpact({
+            assigned_leads: 0,
+            call_logs: 0,
+            callback_queue: 0,
+            counselor_record_leads: 0,
+            counselor_full_name: counselor.name,
+            counselor_email: counselor.email,
+          });
+        }
+      } catch (err) {
+        console.warn('[admission/counselors] impact preview failed', err);
+        setImpact({
+          assigned_leads: 0,
+          call_logs: 0,
+          callback_queue: 0,
+          counselor_record_leads: 0,
+          counselor_full_name: counselor.name,
+          counselor_email: counselor.email,
+        });
+      } finally {
+        setIsLoadingImpact(false);
+      }
+    },
+    [],
+  );
+
+  const closeGuardrailDialog = useCallback(() => {
+    setDialog({ open: false, mode: 'toggle', counselor: null });
+    setConfirmInput('');
+    setImpact(null);
+  }, []);
+
+  const performToggle = async (counselor: CounselorRecord) => {
+    setTogglingIds((prev) => new Set(prev).add(counselor.id));
     try {
       const { error } = await supabase
         .from('admission_counselors')
-        .update({ is_active: !currentActive })
-        .eq('id', counselorId);
+        .update({ is_active: !counselor.is_active })
+        .eq('id', counselor.id);
 
       if (error) {
         toast.error('Failed to update counselor status');
@@ -315,7 +336,7 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         return;
       }
 
-      toast.success(currentActive ? 'Counselor deactivated' : 'Counselor activated');
+      toast.success(counselor.is_active ? 'Counselor deactivated' : 'Counselor activated');
       await fetchCounselors();
       onRefresh?.();
     } catch {
@@ -323,38 +344,35 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
     } finally {
       setTogglingIds((prev) => {
         const next = new Set(prev);
-        next.delete(counselorId);
+        next.delete(counselor.id);
         return next;
       });
     }
   };
 
-  const handleRemove = async (
-    e: React.MouseEvent,
-    counselorId: string,
-    userId: string | null
-  ) => {
-    e.preventDefault();
-    setRemovingId(counselorId);
+  const performRemove = async (counselor: CounselorRecord) => {
+    setRemovingId(counselor.id);
     try {
-      const isRoleOnly = counselorId.startsWith('role-');
+      const isRoleOnly = counselor.id.startsWith('role-');
 
-      // 1. Delete from admission_counselors (if it's a table record, not role-only)
+      // 1. Soft-delete via API endpoint (replaces hard DELETE).
+      //    Endpoint sets is_active=false, deactivated_at=now(), deactivated_by=auth.uid().
+      //    Audit log trigger fires on UPDATE (admission_counselors_audit_log, PR #516).
       if (!isRoleOnly) {
-        const { error: deleteError } = await supabase
-          .from('admission_counselors')
-          .delete()
-          .eq('id', counselorId);
-
-        if (deleteError) {
-          toast.error('Failed to remove counselor');
-          console.error('[admission/counselors] Failed to delete counselor:', deleteError);
+        const res = await fetch(
+          `/api/admission/counselors/${encodeURIComponent(counselor.id)}`,
+          { method: 'DELETE' },
+        );
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          toast.error(json?.message || 'Failed to remove counselor');
+          console.error('[admission/counselors] Soft-delete failed:', json);
           return;
         }
       }
 
       // 2. Remove counselor role from user_roles
-      if (userId) {
+      if (counselor.user_id) {
         const { data: counselorRole } = await supabase
           .from('custom_roles')
           .select('id')
@@ -365,7 +383,7 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
           await supabase
             .from('user_roles')
             .delete()
-            .eq('user_id', userId)
+            .eq('user_id', counselor.user_id)
             .eq('role_id', counselorRole.id);
         }
 
@@ -373,15 +391,14 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
         const { data: profile } = await supabase
           .from('profiles')
           .select('id, role')
-          .eq('id', userId)
+          .eq('id', counselor.user_id)
           .single();
 
         if (profile?.role === 'counselor') {
-          // Find their next role from user_roles, or set to 'guest' as fallback
           const { data: remainingRoles } = await supabase
             .from('user_roles')
             .select('custom_roles!inner(role_key)')
-            .eq('user_id', userId)
+            .eq('user_id', counselor.user_id)
             .eq('is_primary', true)
             .limit(1);
 
@@ -390,17 +407,29 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
           await supabase
             .from('profiles')
             .update({ role: nextRole })
-            .eq('id', userId);
+            .eq('id', counselor.user_id);
         }
       }
 
-      toast.success('Counselor removed');
+      toast.success('Counselor removed (soft-delete + audit logged)');
       await fetchCounselors();
       onRefresh?.();
     } catch {
       toast.error('Failed to remove counselor');
     } finally {
       setRemovingId(null);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!dialog.counselor) return;
+    const counselor = dialog.counselor;
+    const mode = dialog.mode;
+    closeGuardrailDialog();
+    if (mode === 'toggle') {
+      await performToggle(counselor);
+    } else {
+      await performRemove(counselor);
     }
   };
 
@@ -549,15 +578,13 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
                     <Progress value={Math.min(leadsPercent, 100)} className="h-1.5" />
                   </div>
 
-                  {/* Actions */}
+                  {/* Actions — Toggle and Remove both go through guardrail dialog */}
                   <div className="flex items-center gap-2 pt-1">
                     <Button
                       variant="outline"
                       size="sm"
                       className="flex-1 text-xs"
-                      onClick={() =>
-                        handleToggleActive(counselor.id, counselor.is_active)
-                      }
+                      onClick={() => openGuardrailDialog('toggle', counselor)}
                       disabled={isToggling || isRemoving}
                     >
                       {isToggling ? (
@@ -571,48 +598,20 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
                     </Button>
 
                     {canDelete && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
-                            disabled={isRemoving}
-                          >
-                            {isRemoving ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
-                            )}
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Remove Counselor</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to remove{' '}
-                              <span className="font-medium text-foreground">
-                                {counselor.name}
-                              </span>
-                              ? This will delete their counselor record
-                              {counselor.user_id &&
-                                ' and remove the counselor role from their profile'}
-                              . This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-red-600 hover:bg-red-700"
-                              onClick={(e) =>
-                                handleRemove(e, counselor.id, counselor.user_id)
-                              }
-                            >
-                              Remove
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                        disabled={isRemoving || isToggling}
+                        onClick={() => openGuardrailDialog('remove', counselor)}
+                        aria-label={`Remove counselor ${counselor.name}`}
+                      >
+                        {isRemoving ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
                     )}
                   </div>
                 </CardContent>
@@ -621,6 +620,183 @@ export function CounselorList({ onRefresh, institutionId, isGlobalUser }: Counse
           })}
         </div>
       )}
+
+      {/* Agent G — Centralized mutation guardrail dialog (typed-confirm) */}
+      <AlertDialog
+        open={dialog.open}
+        onOpenChange={(open) => {
+          if (!open) closeGuardrailDialog();
+        }}
+      >
+        <AlertDialogContent>
+          {dialog.counselor &&
+            (() => {
+              const counselor = dialog.counselor;
+              const mode = dialog.mode;
+              const isToggleMode = mode === 'toggle';
+              const willActivate = isToggleMode && !counselor.is_active;
+              const requiredKeyword = isToggleMode
+                ? willActivate
+                  ? 'ACTIVATE'
+                  : 'DEACTIVATE'
+                : 'REMOVE';
+              const isConfirmed = confirmInput === requiredKeyword;
+              const title = isToggleMode
+                ? willActivate
+                  ? 'Activate Counselor'
+                  : 'Deactivate Counselor'
+                : 'Remove Counselor';
+              const actionWord = isToggleMode
+                ? willActivate
+                  ? 'activate'
+                  : 'deactivate'
+                : 'remove';
+              const showImpact = !willActivate;
+              const totalImpact =
+                (impact?.assigned_leads ?? 0) +
+                (impact?.call_logs ?? 0) +
+                (impact?.callback_queue ?? 0) +
+                (impact?.counselor_record_leads ?? 0);
+
+              return (
+                <>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{title}</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="space-y-3">
+                        <div>
+                          You are about to {actionWord}{' '}
+                          <span className="font-medium text-foreground">
+                            {counselor.name}
+                          </span>
+                          {counselor.email && (
+                            <>
+                              {' '}
+                              <span className="text-muted-foreground">
+                                ({counselor.email})
+                              </span>
+                            </>
+                          )}
+                          .
+                        </div>
+
+                        {/* Impact preview — only for destructive flows */}
+                        {showImpact && (
+                          <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1">
+                            <div className="font-medium text-foreground">
+                              Impact preview
+                            </div>
+                            {isLoadingImpact ? (
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                <span>Calculating impact…</span>
+                              </div>
+                            ) : impact ? (
+                              <ul className="space-y-0.5 text-muted-foreground list-disc list-inside">
+                                <li>
+                                  <span className="text-foreground font-medium">
+                                    {impact.assigned_leads}
+                                  </span>{' '}
+                                  assigned lead{impact.assigned_leads === 1 ? '' : 's'}{' '}
+                                  will lose their counselor link
+                                </li>
+                                <li>
+                                  <span className="text-foreground font-medium">
+                                    {impact.call_logs}
+                                  </span>{' '}
+                                  historical call log
+                                  {impact.call_logs === 1 ? '' : 's'} reference this counselor
+                                </li>
+                                <li>
+                                  <span className="text-foreground font-medium">
+                                    {impact.callback_queue}
+                                  </span>{' '}
+                                  callback queue item
+                                  {impact.callback_queue === 1 ? '' : 's'} assigned to them
+                                </li>
+                                {impact.counselor_record_leads > 0 && (
+                                  <li>
+                                    <span className="text-foreground font-medium">
+                                      {impact.counselor_record_leads}
+                                    </span>{' '}
+                                    lead{impact.counselor_record_leads === 1 ? '' : 's'} linked via counselor record
+                                  </li>
+                                )}
+                                {totalImpact === 0 && (
+                                  <li className="list-none text-muted-foreground italic">
+                                    No active leads or recent activity will be affected.
+                                  </li>
+                                )}
+                              </ul>
+                            ) : (
+                              <div className="text-muted-foreground italic">
+                                Impact data unavailable.
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Audit notice */}
+                        <div className="text-xs text-muted-foreground">
+                          {isToggleMode
+                            ? 'This change is recorded in the counselors audit log.'
+                            : 'This is a soft-delete: the record is retained, marked inactive, and recorded in the counselors audit log. Lead history remains queryable.'}
+                        </div>
+
+                        {/* Type-to-confirm */}
+                        <div className="space-y-1.5 pt-1">
+                          <label
+                            htmlFor="counselor-guardrail-confirm"
+                            className="text-sm font-medium text-foreground block"
+                          >
+                            Type{' '}
+                            <span className="font-mono font-semibold">
+                              {requiredKeyword}
+                            </span>{' '}
+                            to confirm
+                          </label>
+                          <Input
+                            id="counselor-guardrail-confirm"
+                            value={confirmInput}
+                            onChange={(e) => setConfirmInput(e.target.value)}
+                            placeholder={requiredKeyword}
+                            autoComplete="off"
+                            spellCheck={false}
+                            className="font-mono"
+                          />
+                        </div>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel autoFocus>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className={
+                        willActivate
+                          ? ''
+                          : 'bg-red-600 hover:bg-red-700 disabled:bg-red-300'
+                      }
+                      disabled={!isConfirmed}
+                      onClick={(e) => {
+                        if (!isConfirmed) {
+                          e.preventDefault();
+                          return;
+                        }
+                        handleConfirm();
+                      }}
+                    >
+                      {isToggleMode
+                        ? willActivate
+                          ? 'Activate'
+                          : 'Deactivate'
+                        : 'Remove'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </>
+              );
+            })()}
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
