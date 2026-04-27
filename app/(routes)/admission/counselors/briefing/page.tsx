@@ -19,6 +19,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useLatestBriefing, useGenerateBriefing } from '@/hooks/admission/use-briefing-notifications';
+import { TodayBriefingStatus } from '@/components/admission/counselors/today-briefing-status';
 import {
   Sparkles,
   TrendingUp,
