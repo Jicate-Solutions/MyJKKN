@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -25,13 +26,38 @@ import {
 import { NotificationsPageSkeleton } from './_components/notifications-page-skeleton';
 
 export default function NotificationsPage() {
+  // URL state for category filter — Bug A fix (2026-04-27).
+  // Director's "/admin/notifications?category=dashboard:approval" was being
+  // ignored: activeCategory was pure React state defaulting to 'all'. Other
+  // categories (especially doctrines:sunday-wrap) bled through.
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const urlCategory = searchParams?.get('category') ?? 'all';
+
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [stats, setStats] = useState<NotificationStatsType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('all');
+  const [activeCategory, setActiveCategory] = useState(urlCategory);
   const { canAccess } = usePermissions();
+
+  // Sync state when URL changes (back/forward, paste a new ?category=)
+  useEffect(() => {
+    if (urlCategory !== activeCategory) setActiveCategory(urlCategory);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlCategory]);
+
+  // Tab click → push the new category to the URL so the filter is shareable
+  const handleCategoryChange = useCallback((category: string) => {
+    setActiveCategory(category);
+    const params = new URLSearchParams(searchParams?.toString() ?? '');
+    if (category === 'all') params.delete('category');
+    else params.set('category', category);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [searchParams, router, pathname]);
 
   const canCreateNotifications = canAccess('notifications', 'create');
 
@@ -146,7 +172,7 @@ export default function NotificationsPage() {
                     <NotificationCategoryTabs
                       notifications={notifications}
                       activeCategory={activeCategory}
-                      onCategoryChange={setActiveCategory}
+                      onCategoryChange={handleCategoryChange}
                     />
                     <NotificationsCardGrid
                       notifications={notifications}

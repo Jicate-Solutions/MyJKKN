@@ -107,6 +107,16 @@ export function LeadsDataTable() {
   const [collegeFilter, setCollegeFilter] = useState<string | null>(
     searchParams.get('institution_id') || null
   );
+  // Stale filter — driven by ?stale_min_days=N (e.g. dashboard:rescue daily
+  // digest deep-link sends 30). When set, only leads with no contact in N+
+  // days are shown. User clears with the X button on the badge.
+  const initialStaleMinDays = (() => {
+    const raw = searchParams.get('stale_min_days');
+    if (!raw) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? Math.min(365, n) : null;
+  })();
+  const [staleMinDays, setStaleMinDays] = useState<number | null>(initialStaleMinDays);
   // Advanced filters panel toggle
   const [showAdvanced, setShowAdvanced] = useState(false);
   const { data: expoEvents = [] } = useExpoEvents();
@@ -162,6 +172,8 @@ export function LeadsDataTable() {
   expoFilterRef.current = expoFilter;
   const programFilterRef = useRef(programFilter);
   programFilterRef.current = programFilter;
+  const staleMinDaysRef = useRef(staleMinDays);
+  staleMinDaysRef.current = staleMinDays;
   const myCounselorIdRef = useRef(myCounselorId);
   myCounselorIdRef.current = myCounselorId;
 
@@ -181,6 +193,7 @@ export function LeadsDataTable() {
       const currentCounselorFilter = counselorFilterRef.current;
       const currentExpoFilter = expoFilterRef.current;
       const currentProgramFilter = programFilterRef.current;
+      const currentStaleMinDays = staleMinDaysRef.current;
 
       const result = await LeadService.getLeads({
         institution_id: institutionId || '',
@@ -213,6 +226,10 @@ export function LeadsDataTable() {
             ? currentExpoFilter
             : undefined,
         program_id: currentProgramFilter || undefined,
+        stale_min_days:
+          currentStaleMinDays && currentStaleMinDays > 0
+            ? currentStaleMinDays
+            : undefined,
       });
 
       const leads = result.data || [];
@@ -312,6 +329,7 @@ export function LeadsDataTable() {
     setCounselorFilter('_all');
     setExpoFilter('_all');
     setProgramFilter(null);
+    setStaleMinDays(null);
     // Only clear college filter for users who can change it (global users);
     // for non-global users the base institution stays in place via profile.
     if (isSuperAdmin || isAdmissionGlobalUser) {
@@ -319,6 +337,11 @@ export function LeadsDataTable() {
     }
     setRefetchKey((prev) => prev + 1);
   }, [isSuperAdmin, isAdmissionGlobalUser]);
+
+  const clearStaleFilter = useCallback(() => {
+    setStaleMinDays(null);
+    setRefetchKey((prev) => prev + 1);
+  }, []);
 
   const handleProgramSelect = useCallback((programId: string | null) => {
     setProgramFilter(programId);
@@ -460,7 +483,7 @@ export function LeadsDataTable() {
               )}
             </Button>
 
-            {(stageFilter !== '_all' || priorityFilter !== '_all' || sourceFilter !== '_all' || counselorFilter !== '_all' || expoFilter !== '_all' || programFilter || collegeFilter) && (
+            {(stageFilter !== '_all' || priorityFilter !== '_all' || sourceFilter !== '_all' || counselorFilter !== '_all' || expoFilter !== '_all' || programFilter || collegeFilter || staleMinDays) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -481,6 +504,26 @@ export function LeadsDataTable() {
         onSelect={handleProgramSelect}
         refetchKey={refetchKey}
       />
+
+      {/* Stale filter pill — visible whenever ?stale_min_days=N is active.
+          Driven by the dashboard:rescue daily-digest deep-link. Click X to
+          clear and see all leads again. */}
+      {staleMinDays && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+          <span className="text-xs font-medium">
+            Showing leads with no contact in {staleMinDays}+ days
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 w-5 p-0 text-amber-900 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-900"
+            onClick={clearStaleFilter}
+            aria-label="Clear stale filter"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
 
       {/* Bulk action bar */}
       {props.selectedRows.length > 0 && canBulkDelete && (

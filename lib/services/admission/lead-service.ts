@@ -123,6 +123,9 @@ export class LeadService {
     if (filters.captured_by) params.set('captured_by', filters.captured_by);
     if (filters.counselor_id) params.set('counselor_id', filters.counselor_id);
     if (filters.program_id) params.set('program_id', filters.program_id);
+    if (filters.stale_min_days && filters.stale_min_days > 0) {
+      params.set('stale_min_days', String(filters.stale_min_days));
+    }
 
     // Funnel stage: support single value (array handled by caller)
     if (filters.funnel_stage) {

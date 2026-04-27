@@ -8839,7 +8839,11 @@ BEGIN
     -- widgets + super-admin digest instead.
     gen_random_uuid(), p_title, p_body, p_category, 'work_item', p_priority, FALSE,
     p_deadline_hours, 'open_url', p_action_config, p_idempotency_key,
-    p_target_user, jsonb_build_object('type','user','user_id', p_target_user),
+    -- Updated: 2026-04-27 (Bug B) — canonical targeting shape is
+    -- {type:'user', user_ids:[uuid]} (array). Legacy {user_id: uuid}
+    -- (singular) is still accepted by fn_notification_is_for_user
+    -- for unmigrated rows. Writers should ALWAYS use the array shape.
+    p_target_user, jsonb_build_object('type','user','user_ids', jsonb_build_array(p_target_user)),
     NOW(), NOW()
   ) RETURNING id INTO v_notif_id;
   INSERT INTO user_notifications (id, notification_id, user_id, created_at)
@@ -9150,12 +9154,14 @@ BEGIN
     IF v_total > 0 THEN
       v_key := 'digest:' || v_user.id::text || ':dashboard:rescue:' || v_today;
       v_body := v_total || ' stale lead(s). ' || COALESCE(v_breakdown, '') || '.';
+      -- Updated: 2026-04-27 - digest URL points at filtered leads list (Agent B / digest-actionable-urls).
+      -- Was meta page /admin/notifications?category=...; now the actual list with stale filter applied.
       v_created := v_created + fn_create_dashboard_work_item(
         'dashboard:rescue', 'normal',
         'Daily digest — ' || v_total || ' stale lead(s)',
         v_body,
         jsonb_build_object(
-          'url', '/admin/notifications?category=dashboard%3Arescue',
+          'url', '/admission/leads?stale_min_days=30',
           'digest', true, 'total', v_total),
         v_user.id, v_key, 24);
     END IF;
@@ -9210,12 +9216,14 @@ BEGIN
     IF v_total > 0 THEN
       v_key := 'digest:' || v_user.id::text || ':dashboard:anomaly:' || v_today;
       v_body := v_total || ' timetable(s) missing attendance today. ' || COALESCE(v_breakdown, '') || '.';
+      -- Updated: 2026-04-27 - digest URL points at attendance overview (Agent B / digest-actionable-urls).
+      -- Was meta page /admin/notifications?category=...; now the attendance dashboard where Director can drill in.
       v_created := v_created + fn_create_dashboard_work_item(
         'dashboard:anomaly', 'normal',
         'Daily digest — ' || v_total || ' timetable(s) missing attendance',
         v_body,
         jsonb_build_object(
-          'url', '/admin/notifications?category=dashboard%3Aanomaly',
+          'url', '/academic/attendance/dashboard',
           'digest', true, 'total', v_total),
         v_user.id, v_key, 24);
     END IF;
@@ -9897,11 +9905,13 @@ BEGIN
     IF v_total > 0 THEN
       v_key := 'digest:' || v_user.id::text || ':dashboard:rescue:' || v_today;
       v_body := v_total || ' stale lead(s). ' || COALESCE(v_breakdown, '') || '.';
+      -- Updated: 2026-04-27 - digest URL points at filtered leads list (Agent B / digest-actionable-urls).
+      -- Was meta page /admin/notifications?category=...; now the actual list with stale filter applied.
       v_created := v_created + fn_create_dashboard_work_item(
         'dashboard:rescue', 'normal',
         'Daily digest — ' || v_total || ' stale lead(s)',
         v_body,
-        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Arescue',
+        jsonb_build_object('url', '/admission/leads?stale_min_days=30',
           'digest', true, 'total', v_total),
         v_user.id, v_key, 24);
     END IF;
@@ -9977,11 +9987,14 @@ BEGIN
     IF v_total > 0 THEN
       v_key := 'digest:' || v_user.id::text || ':dashboard:anomaly:' || v_today;
       v_body := v_total || ' anomaly signal(s). ' || COALESCE(v_breakdown, '') || '.';
+      -- Updated: 2026-04-27 - digest URL points at attendance overview (Agent B / digest-actionable-urls).
+      -- Was meta page /admin/notifications?category=...; now the attendance dashboard where Director can drill in.
+      -- Body is multi-source (attendance + bugs); attendance dashboard chosen as the dominant signal landing page.
       v_created := v_created + fn_create_dashboard_work_item(
         'dashboard:anomaly', 'normal',
         'Daily digest — ' || v_total || ' anomaly signal(s)',
         v_body,
-        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aanomaly',
+        jsonb_build_object('url', '/academic/attendance/dashboard',
           'digest', true, 'total', v_total),
         v_user.id, v_key, 24);
     END IF;
@@ -10534,3 +10547,52 @@ COMMENT ON FUNCTION public.fn_admission_counselor_impact_preview(UUID, UUID) IS
   'Returns row counts that will lose counselor link when counselor is deactivated/removed. Used by Toggle/Remove confirmation dialogs.';
 
 GRANT EXECUTE ON FUNCTION public.fn_admission_counselor_impact_preview(UUID, UUID) TO authenticated;
+
+-- =====================================================================
+-- Updated: 2026-04-27 - Bug B: notifications.targeting JSONB shape unifier.
+--
+-- Two emitter families historically wrote different shapes into the
+-- notifications.targeting column:
+--   1. fn_create_dashboard_work_item (dashboard:* categories) writes
+--      jsonb_build_object('type','user','user_id', uuid)         -- legacy singular
+--   2. doctrines digest emitters (sunday-wrap / friday-reflection)
+--      and other API writers emit
+--      { user_ids: [uuid] }                                       -- canonical array
+--   3. system-wide broadcasts emit { broadcast: true } (or similar)
+--
+-- Cross-shape RLS queries previously had to OR three predicates per row
+-- (see notifications_select_own in 03_policies.sql post-PR #517). This
+-- helper centralises the recognition logic so policies and ad-hoc queries
+-- have a single answer for "is this notification for this user?".
+--
+-- Canonical shape going forward: { type: 'user', user_ids: [uuid, ...] }.
+-- Reads still accept the legacy singular shape; existing rows are left
+-- unmigrated. A future PR may rewrite all rows to the canonical shape.
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION fn_notification_is_for_user(
+  p_targeting JSONB,
+  p_user_id UUID
+) RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn_targeting$
+  -- COALESCE wraps the result so absent JSONB keys (which yield NULL on
+  -- ->>/-> operators) normalise to FALSE instead of NULL. RLS predicates
+  -- treat NULL as "deny" but ad-hoc callers that test the boolean
+  -- directly need a proper FALSE for "this user is not targeted".
+  SELECT COALESCE(
+    -- Legacy singular shape: {"type":"user","user_id":"<uuid>"}
+    (p_targeting ->> 'user_id')::uuid = p_user_id
+    -- Canonical array shape: {"type":"user","user_ids":["<uuid>", ...]}
+    OR (p_targeting -> 'user_ids' ? p_user_id::text)
+    -- System-wide broadcast: {"broadcast":"true"}
+    OR p_targeting ->> 'broadcast' = 'true',
+    FALSE
+  );
+$fn_targeting$;
+
+REVOKE ALL ON FUNCTION fn_notification_is_for_user(JSONB, UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION fn_notification_is_for_user(JSONB, UUID) TO authenticated, service_role;
