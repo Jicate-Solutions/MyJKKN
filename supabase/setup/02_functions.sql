@@ -9150,12 +9150,14 @@ BEGIN
     IF v_total > 0 THEN
       v_key := 'digest:' || v_user.id::text || ':dashboard:rescue:' || v_today;
       v_body := v_total || ' stale lead(s). ' || COALESCE(v_breakdown, '') || '.';
+      -- Updated: 2026-04-27 - digest URL points at filtered leads list (Agent B / digest-actionable-urls).
+      -- Was meta page /admin/notifications?category=...; now the actual list with stale filter applied.
       v_created := v_created + fn_create_dashboard_work_item(
         'dashboard:rescue', 'normal',
         'Daily digest — ' || v_total || ' stale lead(s)',
         v_body,
         jsonb_build_object(
-          'url', '/admin/notifications?category=dashboard%3Arescue',
+          'url', '/admission/leads?stale_min_days=30',
           'digest', true, 'total', v_total),
         v_user.id, v_key, 24);
     END IF;
@@ -9210,12 +9212,14 @@ BEGIN
     IF v_total > 0 THEN
       v_key := 'digest:' || v_user.id::text || ':dashboard:anomaly:' || v_today;
       v_body := v_total || ' timetable(s) missing attendance today. ' || COALESCE(v_breakdown, '') || '.';
+      -- Updated: 2026-04-27 - digest URL points at attendance overview (Agent B / digest-actionable-urls).
+      -- Was meta page /admin/notifications?category=...; now the attendance dashboard where Director can drill in.
       v_created := v_created + fn_create_dashboard_work_item(
         'dashboard:anomaly', 'normal',
         'Daily digest — ' || v_total || ' timetable(s) missing attendance',
         v_body,
         jsonb_build_object(
-          'url', '/admin/notifications?category=dashboard%3Aanomaly',
+          'url', '/academic/attendance/dashboard',
           'digest', true, 'total', v_total),
         v_user.id, v_key, 24);
     END IF;
@@ -9897,11 +9901,13 @@ BEGIN
     IF v_total > 0 THEN
       v_key := 'digest:' || v_user.id::text || ':dashboard:rescue:' || v_today;
       v_body := v_total || ' stale lead(s). ' || COALESCE(v_breakdown, '') || '.';
+      -- Updated: 2026-04-27 - digest URL points at filtered leads list (Agent B / digest-actionable-urls).
+      -- Was meta page /admin/notifications?category=...; now the actual list with stale filter applied.
       v_created := v_created + fn_create_dashboard_work_item(
         'dashboard:rescue', 'normal',
         'Daily digest — ' || v_total || ' stale lead(s)',
         v_body,
-        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Arescue',
+        jsonb_build_object('url', '/admission/leads?stale_min_days=30',
           'digest', true, 'total', v_total),
         v_user.id, v_key, 24);
     END IF;
@@ -9977,11 +9983,14 @@ BEGIN
     IF v_total > 0 THEN
       v_key := 'digest:' || v_user.id::text || ':dashboard:anomaly:' || v_today;
       v_body := v_total || ' anomaly signal(s). ' || COALESCE(v_breakdown, '') || '.';
+      -- Updated: 2026-04-27 - digest URL points at attendance overview (Agent B / digest-actionable-urls).
+      -- Was meta page /admin/notifications?category=...; now the attendance dashboard where Director can drill in.
+      -- Body is multi-source (attendance + bugs); attendance dashboard chosen as the dominant signal landing page.
       v_created := v_created + fn_create_dashboard_work_item(
         'dashboard:anomaly', 'normal',
         'Daily digest — ' || v_total || ' anomaly signal(s)',
         v_body,
-        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aanomaly',
+        jsonb_build_object('url', '/academic/attendance/dashboard',
           'digest', true, 'total', v_total),
         v_user.id, v_key, 24);
     END IF;
