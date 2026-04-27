@@ -257,6 +257,9 @@ function BriefingPageContent() {
       <PermissionGuard module="admission" action="view">
         <ContentLayout title="Daily Briefing">
           <div className="space-y-6">
+            {/* Counselor briefing-adoption panel */}
+            <TodayBriefingStatus institutionId={institutionId} />
+
             {/* Breadcrumb */}
             <Breadcrumb>
               <BreadcrumbList>
