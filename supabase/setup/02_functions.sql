@@ -10487,3 +10487,50 @@ END $fn_resolve$;
 
 REVOKE ALL ON FUNCTION fn_decision_resolve_metric(TEXT, JSONB, TIMESTAMPTZ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION fn_decision_resolve_metric(TEXT, JSONB, TIMESTAMPTZ) TO service_role;
+
+-- =====================================================================
+-- Updated: 2026-04-27 - Agent G: counselor mutation impact-preview RPC
+-- Returns row counts that will lose counselor link when a counselor is
+-- deactivated/removed. Powers the Toggle/Remove confirmation dialog.
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.fn_admission_counselor_impact_preview(
+  p_counselor_id UUID,
+  p_user_id UUID DEFAULT NULL
+)
+RETURNS TABLE (
+  assigned_leads BIGINT,
+  call_logs BIGINT,
+  callback_queue BIGINT,
+  counselor_record_leads BIGINT,
+  counselor_full_name TEXT,
+  counselor_email TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT (
+    is_super_admin()
+    OR is_admin()
+    OR user_has_permission('admission.counselors.delete')
+    OR user_has_permission('admission.counselors.edit')
+  ) THEN
+    RAISE EXCEPTION 'Insufficient permission to preview counselor impact';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    COALESCE((SELECT COUNT(*) FROM admission_leads WHERE assigned_counselor_id = p_user_id), 0)::BIGINT,
+    COALESCE((SELECT COUNT(*) FROM admission_call_logs WHERE counselor_id = p_user_id), 0)::BIGINT,
+    COALESCE((SELECT COUNT(*) FROM admission_callback_queue WHERE assigned_counselor_id = p_user_id), 0)::BIGINT,
+    COALESCE((SELECT COUNT(*) FROM admission_leads WHERE counselor_id = p_counselor_id), 0)::BIGINT,
+    (SELECT name FROM admission_counselors WHERE id = p_counselor_id),
+    (SELECT email FROM admission_counselors WHERE id = p_counselor_id);
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_admission_counselor_impact_preview(UUID, UUID) IS
+  'Returns row counts that will lose counselor link when counselor is deactivated/removed. Used by Toggle/Remove confirmation dialogs.';
+
+GRANT EXECUTE ON FUNCTION public.fn_admission_counselor_impact_preview(UUID, UUID) TO authenticated;

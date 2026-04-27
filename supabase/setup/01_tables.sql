@@ -4747,3 +4747,13 @@ CREATE POLICY event_proposals_update ON event_proposals FOR UPDATE USING (
   is_super_admin() OR is_admin()
   OR (proposer_id = auth.uid() AND status IN ('submitted','reviewing'))
 );
+
+-- Updated: 2026-04-27 - Agent G: counselor mutation guardrails (soft-delete columns)
+-- Toggle/Remove become symmetric soft-state changes. Audit trail kept via
+-- admission_counselors_audit_log (PR #516).
+ALTER TABLE admission_counselors
+  ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS deactivated_by UUID REFERENCES profiles(id) ON DELETE SET NULL;
+
+COMMENT ON COLUMN admission_counselors.deactivated_at IS 'Set when counselor row was soft-deleted via DELETE endpoint. NULL = never soft-deleted.';
+COMMENT ON COLUMN admission_counselors.deactivated_by IS 'User who triggered soft-delete (super-admin / admin / privileged staff).';
