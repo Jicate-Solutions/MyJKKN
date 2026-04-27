@@ -7,9 +7,14 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 import { parseRlsExpression, wouldPolicyGrantAccess } from '@/lib/utils/rls-expression-parser';
-import { getModuleForTable, getAllModuleNames } from '@/lib/constants/table-module-map';
+import { getModuleForTable, getSubModuleForTable } from '@/lib/constants/table-module-map';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
+import {
+  MODULE_TO_CATEGORY_KEY,
+  getModuleForRoute,
+  getAllAuditModuleNames,
+} from '@/lib/permissions-audit/module-mappings';
 import type {
   UnifiedAccessResponse,
   ModuleAccess,
@@ -20,61 +25,12 @@ import type {
   RlsPolicy
 } from '@/types/permissions-audit';
 
-// ── Module display name -> PERMISSION_CATEGORIES key mapping ──
-
-const MODULE_TO_CATEGORY_KEY: Record<string, string> = {
-  Users: 'users',
-  Organization: 'organizations',
-  Learners: 'learners',
-  Academic: 'academic',
-  Staff: 'staff',
-  Billing: 'billing',
-  Resources: 'resources',
-  'Service Requests': 'service_requests',
-  Admission: 'admission',
-  Notifications: 'notifications',
-  System: 'system',
-  'Bug Reports': 'system',
-  Events: 'events',
-  VAC: 'vac',
-  Privileges: 'academic',
-  'Lifecycle Analytics': 'admin',
-};
-
-// ── Route prefix -> module mapping ──
-
-const ROUTE_PREFIX_TO_MODULE: [string, string][] = [
-  ['/admin/bug-reports', 'Bug Reports'],
-  ['/admin/notifications', 'Notifications'],
-  ['/admin/lifecycle', 'Lifecycle Analytics'],
-  ['/admin/lti', 'System'],
-  ['/users', 'Users'],
-  ['/organizations', 'Organization'],
-  ['/learners', 'Learners'],
-  ['/academic', 'Academic'],
-  ['/staff', 'Staff'],
-  ['/billing', 'Billing'],
-  ['/resource-management', 'Resources'],
-  ['/service-requests', 'Service Requests'],
-  ['/admission', 'Admission'],
-  ['/system', 'System'],
-  ['/work-pulse', 'System'],
-  ['/vac', 'VAC'],
-  ['/events', 'Events'],
-  ['/documents', 'Documents'],
-  ['/profile', 'Users'],
-];
-
 const ALL_OPERATIONS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
 
-function getModuleForRoute(route: string): string | null {
-  for (const [prefix, mod] of ROUTE_PREFIX_TO_MODULE) {
-    if (route.startsWith(prefix)) {
-      return mod;
-    }
-  }
-  return null;
-}
+// MODULE_TO_CATEGORY_KEY, ROUTE_PREFIX_TO_MODULE, getModuleForRoute moved
+// to lib/permissions-audit/module-mappings.ts so the CI gate
+// (scripts/check-permission-audit-coverage.ts) can verify drift in one
+// canonical place. See that file for the derivation rules.
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -186,6 +142,7 @@ export async function GET(request: NextRequest) {
         withCheckExpression: p.with_check_expression,
         parsed: parseRlsExpression(p.using_expression ?? p.with_check_expression),
         module: getModuleForTable(p.tablename),
+        subModule: getSubModuleForTable(p.tablename),
         permissive: p.permissive !== 'RESTRICTIVE',
       })
     );
@@ -212,7 +169,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Build module access data ──
-    const allModules = getAllModuleNames();
+    const allModules = getAllAuditModuleNames();
     const modules: ModuleAccess[] = [];
 
     for (const moduleName of allModules) {
@@ -376,6 +333,7 @@ export async function GET(request: NextRequest) {
         routeAccess,
         conflicts,
         isConsistent: conflicts.length === 0,
+        hasCategory: matchingCategories.length > 0,
       });
     }
 

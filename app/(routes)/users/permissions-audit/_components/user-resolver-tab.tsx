@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
-import type { UnifiedAccessResponse, CrudAccess } from '@/types/permissions-audit';
+import type { UnifiedAccessResponse } from '@/types/permissions-audit';
 import { SeeAsUserButton } from './see-as-user-button';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -696,66 +696,114 @@ export function UserResolverTab() {
           </Card>
 
           {/* Module Access Summary — Tri-Layer View */}
-          {unifiedData && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-semibold">
-                  Module Access Summary
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="grid gap-2">
-                    {unifiedData.modules.map(mod => (
-                      <div
-                        key={mod.moduleName}
-                        className={`flex items-center justify-between p-3 rounded-lg border ${
-                          mod.conflicts.length > 0 ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20' : 'border-border'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="font-medium text-sm">{mod.moduleName}</span>
-                          {mod.conflicts.length > 0 && (
-                            <Badge variant="destructive" className="text-xs">
-                              {mod.conflicts.length} conflict{mod.conflicts.length !== 1 ? 's' : ''}
-                            </Badge>
-                          )}
-                          {mod.isConsistent && (mod.codePermissions.create || mod.codePermissions.read || mod.codePermissions.update || mod.codePermissions.delete) && (
-                            <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300">
-                              Consistent
-                            </Badge>
-                          )}
+          {unifiedData && (() => {
+            const filteredModules = unifiedData.modules.filter((mod) => {
+              if (permissionFilter === 'all') return true;
+              const ops = ['create', 'read', 'update', 'delete'] as const;
+              if (permissionFilter === 'granted') {
+                return ops.some((op) => mod.codePermissions[op] === true);
+              }
+              // 'denied' → keep modules where every CRUD is explicitly denied
+              // (i.e. the module has a permission catalog and the role was
+              // granted nothing). Drop indeterminate (null) cells from the
+              // count so a single granted op also drops the row.
+              if (!mod.hasCategory) return false;
+              return ops.every((op) => mod.codePermissions[op] === false);
+            });
+
+            return (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold">
+                    Module Access Summary
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      ({filteredModules.length}/{unifiedData.modules.length})
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="grid gap-2">
+                      {filteredModules.length === 0 ? (
+                        <div className="text-xs text-muted-foreground italic px-3 py-4">
+                          No modules match the current filter.
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                          {/* Code CRUD */}
-                          <div className="flex gap-1">
-                            {(['create', 'read', 'update', 'delete'] as const).map(op => (
-                              <span
-                                key={op}
-                                className={`w-5 h-5 inline-flex items-center justify-center rounded font-mono font-bold text-[10px] ${
-                                  mod.codePermissions[op] === true
-                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                    : mod.codePermissions[op] === false
-                                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                                      : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'
-                                }`}
+                      ) : (
+                        filteredModules.map(mod => (
+                        <div
+                          key={mod.moduleName}
+                          className={`flex items-center justify-between p-3 rounded-lg border ${
+                            mod.conflicts.length > 0 ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20' : 'border-border'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="font-medium text-sm">{mod.moduleName}</span>
+                            {!mod.hasCategory && (
+                              <Badge
+                                variant="outline"
+                                className="text-xs text-muted-foreground border-dashed"
+                                title="No permission category defined for this module yet"
                               >
-                                {op[0].toUpperCase()}
-                              </span>
-                            ))}
+                                no catalog
+                              </Badge>
+                            )}
+                            {mod.conflicts.length > 0 && (
+                              <Badge variant="destructive" className="text-xs">
+                                {mod.conflicts.length} conflict{mod.conflicts.length !== 1 ? 's' : ''}
+                              </Badge>
+                            )}
+                            {mod.hasCategory && mod.isConsistent && (mod.codePermissions.create || mod.codePermissions.read || mod.codePermissions.update || mod.codePermissions.delete) && (
+                              <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-300">
+                                Consistent
+                              </Badge>
+                            )}
                           </div>
-                          {/* Table count */}
-                          <span>{mod.tableAccess.length} tables</span>
-                          {/* Route count */}
-                          <span>{mod.routeAccess.filter(r => r.hasPermission).length}/{mod.routeAccess.length} routes</span>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            {/* Code CRUD */}
+                            <div className="flex gap-1">
+                              {(['create', 'read', 'update', 'delete'] as const).map(op => {
+                                if (!mod.hasCategory) {
+                                  return (
+                                    <span
+                                      key={op}
+                                      title="No permission category defined for this module"
+                                      className="w-5 h-5 inline-flex items-center justify-center rounded font-mono font-bold text-[10px] bg-muted text-muted-foreground border border-dashed"
+                                    >
+                                      —
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span
+                                    key={op}
+                                    title={`${op}: ${mod.codePermissions[op] === true ? 'granted' : mod.codePermissions[op] === false ? 'denied' : 'indeterminate'}`}
+                                    className={`w-5 h-5 inline-flex items-center justify-center rounded font-mono font-bold text-[10px] ${
+                                      mod.codePermissions[op] === true
+                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                        : mod.codePermissions[op] === false
+                                          ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                          : 'bg-gray-100 text-gray-400 dark:bg-gray-800 dark:text-gray-500'
+                                    }`}
+                                  >
+                                    {op[0].toUpperCase()}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            {/* Table count */}
+                            <span>{mod.tableAccess.length} tables</span>
+                            {/* Route count */}
+                            <span>{mod.routeAccess.filter(r => r.hasPermission).length}/{mod.routeAccess.length} routes</span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                        ))
+                      )}
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                </CardContent>
+              </Card>
+            );
+          })()}
         </>
       )}
 
