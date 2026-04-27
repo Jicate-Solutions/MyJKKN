@@ -78,38 +78,32 @@ export function AddCounselorDialog({
   const { institutions } = useInstitutionsWithAccess();
   const supabase = createClientSupabaseClient();
 
-  // Auto-assign counselor role to a user (non-blocking -- best effort)
-  const assignCounselorRole = async (profileId: string) => {
-    try {
-      // Get the counselor role ID
-      const { data: counselorRole } = await supabase
-        .from('custom_roles')
-        .select('id')
-        .eq('role_key', 'counselor')
-        .single();
-
-      if (!counselorRole) return;
-
-      // Check if user already has this role
-      const { data: existing } = await supabase
-        .from('user_roles')
-        .select('id')
-        .eq('user_id', profileId)
-        .eq('role_id', counselorRole.id)
-        .maybeSingle();
-
-      if (existing) return; // Already has the role
-
-      // Assign the counselor role (not as primary -- keep their existing primary role)
-      await supabase.from('user_roles').insert({
-        user_id: profileId,
-        role_id: counselorRole.id,
-        is_primary: false,
-      });
-    } catch (err) {
-      // Non-blocking -- counselor record was already created, role assignment is best-effort
-      console.warn('[admission/counselors] Failed to auto-assign counselor role:', err);
+  // Assigns the counselor role via the SECURITY DEFINER RPC introduced 2026-04-27
+  // (migration 20260427_add_assign_counselor_role_rpc.sql). A direct user_roles
+  // INSERT from the browser is RLS-blocked for admission/admission_staff/counselor
+  // users (the user_roles INSERT policy needs roles.create, which those roles
+  // intentionally lack). The RPC bypasses RLS but re-checks authorization
+  // internally — the caller must have admission.counselors.create and the target
+  // must already have an admission_counselors row.
+  //
+  // Two counselors created on 2026-04-27 04:37 UTC ended up with NO user_roles
+  // entry because the previous "non-blocking best-effort" implementation never
+  // destructured {error} from .insert() — Supabase returns RLS denials in the
+  // result, not as a thrown exception, so the catch block never fired. Returns
+  // {ok, message} so the submit handler can surface failures via toast.
+  const assignCounselorRole = async (
+    profileId: string,
+  ): Promise<{ ok: boolean; message?: string }> => {
+    // Cast: the generated supabase types don't include this RPC name yet, same
+    // pattern as lib/services/staff/staff-service.ts:206 for mirror_staff_role.
+    const { error } = await (supabase as any).rpc('assign_counselor_role', {
+      p_user_id: profileId,
+    });
+    if (error) {
+      console.error('[admission/counselors] assign_counselor_role RPC failed:', error);
+      return { ok: false, message: error.message ?? String(error) };
     }
+    return { ok: true };
   };
 
   // ---------- State ----------
@@ -474,9 +468,20 @@ export function AddCounselorDialog({
         return;
       }
 
-      // Auto-assign counselor role if user has a profile
+      // Auto-assign counselor role if user has a profile. We surface failures
+      // via toast — no longer a silent best-effort. Counselor record stays
+      // (it's a successful partial create) so the admin can retry role
+      // assignment from the Manage tab without re-entering the form.
       if (userId) {
-        await assignCounselorRole(userId);
+        const roleResult = await assignCounselorRole(userId);
+        if (!roleResult.ok) {
+          toast.error(
+            `Counselor created, but role assignment failed: ${roleResult.message ?? 'unknown error'}. Ask an admin to assign the counselor role manually.`,
+          );
+          onSuccess?.();
+          onOpenChange(false);
+          return;
+        }
       }
 
       toast.success('Counselor added successfully');
