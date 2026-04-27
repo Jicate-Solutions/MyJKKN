@@ -9970,6 +9970,14 @@ GRANT EXECUTE ON FUNCTION fn_generate_all_dashboard_work_items() TO service_role
 -- Director (super_admin) sees one rolled-up row per category per day in the queue.
 -- Combines pending leaves + recruitment + service requests under dashboard:approval.
 -- Adds untriaged-bugs aggregation under dashboard:anomaly.
+-- Updated: 2026-04-27 - Multi-role digest fan-out (super_admin + 10 oversight roles).
+-- Migration `multi_role_digest_subset_v2` applied via Supabase MCP same day.
+-- Spec: per-role category matrix locked by Director 2026-04-27 IST 15:30.
+-- Roles already receiving per-entity items (hod, principal, admission, accounts,
+-- faculty, student) are SKIPPED to avoid duplicate-noise.
+--
+-- Long-term V2: replace hardcoded role list with `notification_audience_rules`
+-- table — `(role, category, scope_filter)` rows so Role Management UI can toggle.
 CREATE OR REPLACE FUNCTION fn_generate_super_admin_daily_digest()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_digest$
 DECLARE
@@ -9980,142 +9988,167 @@ DECLARE
   v_total INT;
   v_breakdown TEXT;
   v_body TEXT;
+  v_emit_escalation BOOLEAN;
+  v_emit_rescue BOOLEAN;
+  v_emit_approval BOOLEAN;
+  v_emit_anomaly BOOLEAN;
 BEGIN
-  FOR v_user IN SELECT id FROM profiles WHERE is_super_admin = TRUE LOOP
+  -- Fan-out roster: super_admin (full set) + 10 oversight roles (relevant subsets).
+  FOR v_user IN
+    SELECT id, role, is_super_admin
+    FROM profiles
+    WHERE is_super_admin = TRUE
+       OR role IN (
+         'ceo','cao','cbo','executive_admin_officer','registrar',
+         'hr_admin','system_admin','counselor','admission_staff','accountant_assistant'
+       )
+  LOOP
+    -- Per-role category gating. super_admin = full 4 categories; oversight roles = subset.
+    v_emit_escalation := v_user.is_super_admin
+                      OR v_user.role IN ('ceo','cbo','accountant_assistant');
+    v_emit_rescue     := v_user.is_super_admin
+                      OR v_user.role IN ('cbo','counselor','admission_staff');
+    v_emit_approval   := v_user.is_super_admin
+                      OR v_user.role IN ('ceo','cao','executive_admin_officer','registrar','hr_admin');
+    v_emit_anomaly    := v_user.is_super_admin
+                      OR v_user.role IN ('cao','registrar','system_admin');
 
     -- Category 1: dashboard:escalation (overdue invoices >30 days, unpaid)
-    WITH counts AS (
-      SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
-      FROM billing_invoices bi
-      JOIN institutions i ON bi.institution_id = i.id
-      WHERE bi.due_date < CURRENT_DATE - INTERVAL '30 days' AND bi.grand_total > 0
-        AND COALESCE((SELECT SUM(br.payment_amount) FROM billing_receipts br
-                      WHERE br.student_id = bi.student_id
-                        AND br.receipt_date >= bi.billing_period_from), 0) < bi.grand_total
-      GROUP BY i.id, i.name
-    )
-    SELECT COALESCE(SUM(cnt), 0),
-           STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
-    INTO v_total, v_breakdown FROM counts;
-    IF v_total > 0 THEN
-      v_key := 'digest:' || v_user.id::text || ':dashboard:escalation:' || v_today;
-      v_body := v_total || ' overdue invoice(s). ' || COALESCE(v_breakdown, '') || '.';
-      v_created := v_created + fn_create_dashboard_work_item(
-        'dashboard:escalation', 'high',
-        'Daily digest — ' || v_total || ' overdue invoice(s)',
-        v_body,
-        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aescalation',
-          'digest', true, 'total', v_total),
-        v_user.id, v_key, 24);
+    IF v_emit_escalation THEN
+      WITH counts AS (
+        SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+        FROM billing_invoices bi
+        JOIN institutions i ON bi.institution_id = i.id
+        WHERE bi.due_date < CURRENT_DATE - INTERVAL '30 days' AND bi.grand_total > 0
+          AND COALESCE((SELECT SUM(br.payment_amount) FROM billing_receipts br
+                        WHERE br.student_id = bi.student_id
+                          AND br.receipt_date >= bi.billing_period_from), 0) < bi.grand_total
+        GROUP BY i.id, i.name
+      )
+      SELECT COALESCE(SUM(cnt), 0),
+             STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+      INTO v_total, v_breakdown FROM counts;
+      IF v_total > 0 THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:escalation:' || v_today;
+        v_body := v_total || ' overdue invoice(s). ' || COALESCE(v_breakdown, '') || '.';
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:escalation', 'high',
+          'Daily digest — ' || v_total || ' overdue invoice(s)',
+          v_body,
+          jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aescalation',
+            'digest', true, 'total', v_total),
+          v_user.id, v_key, 24);
+      END IF;
     END IF;
 
     -- Category 2: dashboard:rescue (stale admission leads untouched >24h)
-    WITH counts AS (
-      SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
-      FROM admission_leads al
-      JOIN institutions i ON al.institution_id = i.id
-      WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - INTERVAL '24 hours'
-        AND COALESCE(al.last_activity_at, al.created_at) > NOW() - INTERVAL '30 days'
-      GROUP BY i.id, i.name
-    )
-    SELECT COALESCE(SUM(cnt), 0),
-           STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
-    INTO v_total, v_breakdown FROM counts;
-    IF v_total > 0 THEN
-      v_key := 'digest:' || v_user.id::text || ':dashboard:rescue:' || v_today;
-      v_body := v_total || ' stale lead(s). ' || COALESCE(v_breakdown, '') || '.';
-      -- Updated: 2026-04-27 - digest URL points at filtered leads list (Agent B / digest-actionable-urls).
-      -- Was meta page /admin/notifications?category=...; now the actual list with stale filter applied.
-      v_created := v_created + fn_create_dashboard_work_item(
-        'dashboard:rescue', 'normal',
-        'Daily digest — ' || v_total || ' stale lead(s)',
-        v_body,
-        jsonb_build_object('url', '/admission/leads?stale_min_days=30',
-          'digest', true, 'total', v_total),
-        v_user.id, v_key, 24);
+    IF v_emit_rescue THEN
+      WITH counts AS (
+        SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+        FROM admission_leads al
+        JOIN institutions i ON al.institution_id = i.id
+        WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - INTERVAL '24 hours'
+          AND COALESCE(al.last_activity_at, al.created_at) > NOW() - INTERVAL '30 days'
+        GROUP BY i.id, i.name
+      )
+      SELECT COALESCE(SUM(cnt), 0),
+             STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+      INTO v_total, v_breakdown FROM counts;
+      IF v_total > 0 THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:rescue:' || v_today;
+        v_body := v_total || ' stale lead(s). ' || COALESCE(v_breakdown, '') || '.';
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:rescue', 'normal',
+          'Daily digest — ' || v_total || ' stale lead(s)',
+          v_body,
+          jsonb_build_object('url', '/admission/leads?stale_min_days=30',
+            'digest', true, 'total', v_total),
+          v_user.id, v_key, 24);
+      END IF;
     END IF;
 
     -- Category 3: dashboard:approval (pending leaves >48h + recruitment + SR)
-    WITH leave_counts AS (
-      SELECT 'leaves' AS src, COUNT(*) AS cnt
-      FROM hr_leave_applications la
-      WHERE la.status = 'pending' AND la.created_at < NOW() - INTERVAL '48 hours'
-        AND la.created_at > NOW() - INTERVAL '30 days' AND la.superseded_by IS NULL
-    ),
-    recruit_counts AS (
-      SELECT 'recruitment' AS src, COUNT(*) AS cnt
-      FROM hr_recruitment_candidates
-      WHERE status = 'pending_approval' AND submitted_at < NOW() - INTERVAL '24 hours'
-        AND submitted_at > NOW() - INTERVAL '90 days'
-    ),
-    sr_counts AS (
-      SELECT 'service_requests' AS src, COUNT(*) AS cnt
-      FROM service_requests sr
-      WHERE sr.status::text IN ('submitted','in_review','returned')
-        AND COALESCE(sr.submitted_at, sr.created_at) < NOW() - INTERVAL '24 hours'
-        AND COALESCE(sr.submitted_at, sr.created_at) > NOW() - INTERVAL '180 days'
-    ),
-    all_counts AS (
-      SELECT src, cnt FROM leave_counts WHERE cnt > 0
-      UNION ALL SELECT src, cnt FROM recruit_counts WHERE cnt > 0
-      UNION ALL SELECT src, cnt FROM sr_counts WHERE cnt > 0
-    )
-    SELECT COALESCE(SUM(cnt), 0),
-           STRING_AGG(src || ': ' || cnt, ', ' ORDER BY cnt DESC)
-    INTO v_total, v_breakdown FROM all_counts;
-    IF v_total > 0 THEN
-      v_key := 'digest:' || v_user.id::text || ':dashboard:approval:' || v_today;
-      v_body := v_total || ' approval(s) pending. ' || COALESCE(v_breakdown, '') || '.';
-      v_created := v_created + fn_create_dashboard_work_item(
-        'dashboard:approval', 'normal',
-        'Daily digest — ' || v_total || ' approval(s) pending',
-        v_body,
-        jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aapproval',
-          'digest', true, 'total', v_total),
-        v_user.id, v_key, 24);
+    IF v_emit_approval THEN
+      WITH leave_counts AS (
+        SELECT 'leaves' AS src, COUNT(*) AS cnt
+        FROM hr_leave_applications la
+        WHERE la.status = 'pending' AND la.created_at < NOW() - INTERVAL '48 hours'
+          AND la.created_at > NOW() - INTERVAL '30 days' AND la.superseded_by IS NULL
+      ),
+      recruit_counts AS (
+        SELECT 'recruitment' AS src, COUNT(*) AS cnt
+        FROM hr_recruitment_candidates
+        WHERE status = 'pending_approval' AND submitted_at < NOW() - INTERVAL '24 hours'
+          AND submitted_at > NOW() - INTERVAL '90 days'
+      ),
+      sr_counts AS (
+        SELECT 'service_requests' AS src, COUNT(*) AS cnt
+        FROM service_requests sr
+        WHERE sr.status::text IN ('submitted','in_review','returned')
+          AND COALESCE(sr.submitted_at, sr.created_at) < NOW() - INTERVAL '24 hours'
+          AND COALESCE(sr.submitted_at, sr.created_at) > NOW() - INTERVAL '180 days'
+      ),
+      all_counts AS (
+        SELECT src, cnt FROM leave_counts WHERE cnt > 0
+        UNION ALL SELECT src, cnt FROM recruit_counts WHERE cnt > 0
+        UNION ALL SELECT src, cnt FROM sr_counts WHERE cnt > 0
+      )
+      SELECT COALESCE(SUM(cnt), 0),
+             STRING_AGG(src || ': ' || cnt, ', ' ORDER BY cnt DESC)
+      INTO v_total, v_breakdown FROM all_counts;
+      IF v_total > 0 THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:approval:' || v_today;
+        v_body := v_total || ' approval(s) pending. ' || COALESCE(v_breakdown, '') || '.';
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:approval', 'normal',
+          'Daily digest — ' || v_total || ' approval(s) pending',
+          v_body,
+          jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aapproval',
+            'digest', true, 'total', v_total),
+          v_user.id, v_key, 24);
+      END IF;
     END IF;
 
     -- Category 4: dashboard:anomaly (unmarked attendance + untriaged bugs >72h)
-    WITH attn AS (
-      SELECT 'unmarked_attendance' AS src, COUNT(*) AS cnt
-      FROM timetables t
-      WHERE t.is_active = TRUE AND t.start_date <= CURRENT_DATE
-        AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
-        AND NOT EXISTS (SELECT 1 FROM student_attendance sa
-          WHERE sa.timetable_id = t.id AND sa.attendance_date = CURRENT_DATE)
-        AND EXISTS (SELECT 1 FROM student_attendance sa2
-          WHERE sa2.timetable_id = t.id
-            AND sa2.attendance_date BETWEEN CURRENT_DATE - INTERVAL '14 days' AND CURRENT_DATE - INTERVAL '1 day')
-    ),
-    bugs AS (
-      SELECT 'untriaged_bugs' AS src, COUNT(*) AS cnt
-      FROM bug_reports
-      WHERE status = 'new'
-        AND created_at < NOW() - INTERVAL '72 hours'
-        AND created_at > NOW() - INTERVAL '180 days'
-        AND COALESCE(metadata->'triage'->>'tag', '')
-          NOT IN ('not_a_bug','duplicate','content_only','obsolete','feature_request')
-    ),
-    all_anomaly AS (
-      SELECT src, cnt FROM attn WHERE cnt > 0
-      UNION ALL SELECT src, cnt FROM bugs WHERE cnt > 0
-    )
-    SELECT COALESCE(SUM(cnt), 0),
-           STRING_AGG(src || ': ' || cnt, ', ' ORDER BY cnt DESC)
-    INTO v_total, v_breakdown FROM all_anomaly;
-    IF v_total > 0 THEN
-      v_key := 'digest:' || v_user.id::text || ':dashboard:anomaly:' || v_today;
-      v_body := v_total || ' anomaly signal(s). ' || COALESCE(v_breakdown, '') || '.';
-      -- Updated: 2026-04-27 - digest URL points at attendance overview (Agent B / digest-actionable-urls).
-      -- Was meta page /admin/notifications?category=...; now the attendance dashboard where Director can drill in.
-      -- Body is multi-source (attendance + bugs); attendance dashboard chosen as the dominant signal landing page.
-      v_created := v_created + fn_create_dashboard_work_item(
-        'dashboard:anomaly', 'normal',
-        'Daily digest — ' || v_total || ' anomaly signal(s)',
-        v_body,
-        jsonb_build_object('url', '/academic/attendance/dashboard',
-          'digest', true, 'total', v_total),
-        v_user.id, v_key, 24);
+    IF v_emit_anomaly THEN
+      WITH attn AS (
+        SELECT 'unmarked_attendance' AS src, COUNT(*) AS cnt
+        FROM timetables t
+        WHERE t.is_active = TRUE AND t.start_date <= CURRENT_DATE
+          AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
+          AND NOT EXISTS (SELECT 1 FROM student_attendance sa
+            WHERE sa.timetable_id = t.id AND sa.attendance_date = CURRENT_DATE)
+          AND EXISTS (SELECT 1 FROM student_attendance sa2
+            WHERE sa2.timetable_id = t.id
+              AND sa2.attendance_date BETWEEN CURRENT_DATE - INTERVAL '14 days' AND CURRENT_DATE - INTERVAL '1 day')
+      ),
+      bugs AS (
+        SELECT 'untriaged_bugs' AS src, COUNT(*) AS cnt
+        FROM bug_reports
+        WHERE status = 'new'
+          AND created_at < NOW() - INTERVAL '72 hours'
+          AND created_at > NOW() - INTERVAL '180 days'
+          AND COALESCE(metadata->'triage'->>'tag', '')
+            NOT IN ('not_a_bug','duplicate','content_only','obsolete','feature_request')
+      ),
+      all_anomaly AS (
+        SELECT src, cnt FROM attn WHERE cnt > 0
+        UNION ALL SELECT src, cnt FROM bugs WHERE cnt > 0
+      )
+      SELECT COALESCE(SUM(cnt), 0),
+             STRING_AGG(src || ': ' || cnt, ', ' ORDER BY cnt DESC)
+      INTO v_total, v_breakdown FROM all_anomaly;
+      IF v_total > 0 THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:anomaly:' || v_today;
+        v_body := v_total || ' anomaly signal(s). ' || COALESCE(v_breakdown, '') || '.';
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:anomaly', 'normal',
+          'Daily digest — ' || v_total || ' anomaly signal(s)',
+          v_body,
+          jsonb_build_object('url', '/academic/attendance/dashboard',
+            'digest', true, 'total', v_total),
+          v_user.id, v_key, 24);
+      END IF;
     END IF;
 
   END LOOP;
