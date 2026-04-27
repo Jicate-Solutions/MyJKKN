@@ -1957,7 +1957,9 @@ CREATE POLICY "Authenticated users can delete ims_item_categories"
 -- -------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.ims_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code TEXT NOT NULL UNIQUE,
+    -- Updated: 2026-04-27 - Code is unique per institution, not globally.
+    -- Constraint moved to a composite below so two institutions can use the same SKU.
+    code TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
     company_name TEXT,
@@ -1980,7 +1982,8 @@ CREATE TABLE IF NOT EXISTS public.ims_items (
     -- Updated: 2026-02-18 - Made nullable for super_admin users without institution assignment
     institution_id UUID,
     created_at TIMESTAMPTZ DEFAULT now(),
-    updated_at TIMESTAMPTZ DEFAULT now()
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT ims_items_institution_code_unique UNIQUE (institution_id, code)
 );
 
 CREATE INDEX IF NOT EXISTS idx_ims_items_institution_id ON public.ims_items(institution_id);

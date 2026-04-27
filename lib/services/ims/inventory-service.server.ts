@@ -262,6 +262,9 @@ export class ImsInventoryServiceServer {
     });
 
     // ── Duplicate detection against DB ──────────────────────────────────────
+    // Codes are unique per institution (constraint: ims_items_institution_code_unique).
+    // Filter the pre-flight check by institution so we match the constraint scope —
+    // otherwise the check passes but the INSERT collides with rows from another store.
     const codesToCheck = deduped.map((i) => i.code.toUpperCase());
 
     let dbDupQuery = supabase
@@ -269,8 +272,7 @@ export class ImsInventoryServiceServer {
       .select('code')
       .in('code', codesToCheck);
 
-    if (storeId) dbDupQuery = dbDupQuery.eq('store_id', storeId);
-    else if (institutionId) dbDupQuery = dbDupQuery.eq('institution_id', institutionId);
+    if (institutionId) dbDupQuery = dbDupQuery.eq('institution_id', institutionId);
 
     const { data: existingItems, error: dupError } = await dbDupQuery;
 
@@ -287,7 +289,7 @@ export class ImsInventoryServiceServer {
         allErrors.push({
           row: idx + 2,
           field: 'code',
-          message: `Row ${idx + 2}: Code "${item.code}" already exists in the store`,
+          message: `Row ${idx + 2}: Code "${item.code}" already exists in this institution`,
         });
         duplicateCodes.push(item.code);
         return false;
@@ -319,6 +321,35 @@ export class ImsInventoryServiceServer {
 
     if (insertError) {
       console.error('[ImsInventoryServiceServer] bulkImport insert error:', insertError);
+
+      // Postgres 23505 = unique_violation. Extract the offending code so the
+      // user sees which row to fix instead of the opaque "Row 0" message.
+      if ((insertError as any).code === '23505') {
+        const detail = (insertError as any).details || insertError.message || '';
+        const codeMatch = detail.match(/=\([^,]*,\s*([^)]+)\)/);
+        const offending = codeMatch?.[1]?.trim();
+        if (offending) {
+          const offenderRow = itemsToInsert.findIndex(
+            (it) => it.code.toUpperCase() === offending.toUpperCase()
+          );
+          allErrors.push({
+            row: offenderRow >= 0 ? offenderRow + 2 : 0,
+            field: 'code',
+            message: offenderRow >= 0
+              ? `Row ${offenderRow + 2}: Code "${offending}" already exists in this institution`
+              : `Code "${offending}" already exists in this institution`,
+          });
+          return {
+            success: false,
+            successCount: 0,
+            errorCount: allErrors.length,
+            totalRows,
+            errors: allErrors,
+            duplicateCodes: [...new Set([...duplicateCodes, offending])],
+          };
+        }
+      }
+
       throw new Error(`Failed to insert items: ${insertError.message}`);
     }
 

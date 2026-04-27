@@ -241,7 +241,9 @@
       "Bash(tasklist:*)",
       "Bash(sed:*)",
       "Bash(Remove-Item:*)",
-      "Read(//c/Users/Admin/Documents/GitHub/MyJKKN/.git/**)"
+      "Read(//c/Users/Admin/Documents/GitHub/MyJKKN/.git/**)",
+      "Bash(node\" | head -5)",
+      "Read(//tmp/**)"
     ],
     "deny": [],
     "ask": []
