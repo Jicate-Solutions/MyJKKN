@@ -1,3 +1,74 @@
+## Session: 2026-04-27 → 2026-04-28 (pane 937875b3) — Counselor rules-engine spec + Phases 1+2 shipped → /admission/counselors quick-wins next
+
+### Accomplished
+
+**Counselor categorization + rules-engine substrate (3 PRs Open + Ready, all CLEAN/MERGEABLE):**
+- **PR #537** — `specs/admission-counselor-rules-engine-spec.md` (580 LOC, docs-only). 20 decisions locked from 16-question /interview thrash via `/myjkkn-chain assumption-thrash`. Decomposed into 7 phases.
+- **PR #538** — Phase 1: reassigned 14 'counselor' role users to correct categories. Migration applied to prod via Supabase MCP (idempotent + reversible). Counts verified: counselor=4 (admission cell), learner_counselor=9 (student peers, 7 Pharmacy + 2 Nursing), staff_counselor=1 (test.faculty), health_counselor=1.
+- **PR #540** — Phase 2: DB foundation. 5 new tables (admission_lead_sources_master, admission_counselor_institutions, admission_counselor_sources, admission_counselor_schedules, admission_lead_cascade_history) + 2 col adds on admission_counselors (emergency_off_today, emergency_off_set_at) + 10 RLS policies + 2 perm keys (admission.counselors.team.{view,manage}) added to PERMISSION_CATEGORIES. 10 source seeds populated. All structural checks green.
+- **PR #539** — feat(BottomNav): Liquid Glass cue-stack — separate parallel work, also OPEN+CLEAN.
+
+**Audit of /admission/counselors revealed operational gaps:**
+- 89% of leads (12,726 / 14,294) are unassigned
+- Only 5.9% of call logs (129 / 2,184) have counselor_id (Stream Y bug from prior session — Task #11 unfixed)
+- Today's briefing: 1 of 4 active counselors (25% adoption)
+- 4 counselors total post-reassignment (admission cell only — student peers and faculty moved to learner_counselor / staff_counselor)
+
+**Schema bugs caught + corrected via MCP-apply-first pattern:**
+- Phase 1: assumed `user_roles.created_at` (real schema: `assigned_at` + `is_primary` + `assigned_by`). Caught at apply time.
+- Phase 2: INSERT VALUES column order swapped (display_order/is_system pair). Caught by Postgres BOOLEAN←→INT type-cast error.
+
+### Current Status
+- **Feature**: Counselor rules-engine substrate — Phase 1+2 shipped and DB-applied; awaiting Omm's merge of #537/538/540
+- **Build**: passing (no Vercel build needed for SQL/docs PRs; #539 is type-only)
+- **Branch**: feat/counselor-routing-db-foundation (committed locally; remote has #540)
+- **Phases pending**: 3 (routing engine v2 rewrite of fn_auto_assign_counselor), 4 (cron + cascade), 5 (/admission/counselors/team UI), 6 (handover banner), 7 (default seeds)
+
+### Lessons Learned
+- INSERT VALUES with 5+ mixed-type columns: align column list with values position-by-position. Postgres caught the boolean/int swap this time, but if both columns had been the same type the bug would have shipped silently.
+- MCP-apply-first reveals schema assumptions in seconds, not the minutes-to-hours of CI roundtrip. Caught 2 schema bugs this session.
+- Specs decay fast — verify reality (DB schema, existing functions, prod tables) before treating spec SQL as source of truth.
+- (3 specific lesson proposals were drafted via /session-learn but not formally approved before user pivoted; preserved in session transcript for next session to revisit if desired.)
+
+### Next Session — Tasks (P0 verbatim from user_stated_p0)
+
+**P0:** "FOCUS ON IMPROVING THE https://www.jkkn.ai/admission/counselors . IGNORE GITHUB ISSUE"
+
+Decomposed into 4 ship-able quick-wins (all file-disjoint, can ship in any order):
+
+1. **[P0] Quick-win B — counselor_id backfill rescope** (small, ~30 LOC SQL)
+   - Re-runs PR #435's backfill scoped via `admission_counselors.user_id` instead of `profiles.role='counselor'` (which was empty at backfill time). Fixes call attribution from 5.9% → expected ~80%+. Apply via Supabase MCP.
+   - Closes Task #11 from prior session.
+
+2. **[P0] Quick-win A — unassigned-leads alert banner** on /admission/counselors landing (small, ~60 LOC TS)
+   - Prominent banner: "12,726 leads unassigned (89%). [Bulk-assign →]" linking to bulk-assignment surface. Reframes leaderboard as secondary, operational truth as primary.
+   - Edits `app/(routes)/admission/counselors/page.tsx`.
+
+3. **[P0] Quick-win C — limited-attribution caveat** on productivity widget (tiny, ~25 LOC TS)
+   - Banner when `call_logs_with_counselor_id / total < 50%`: "Productivity metrics are based on partial call attribution. Run the rescope migration to restore full data." Same pattern as PR #457's "no campaigns launched yet" empty state.
+   - Edits `app/(routes)/admission/counselors/productivity/page.tsx`.
+
+4. **[P0] Quick-win D — today's briefing status panel** (small, ~80 LOC TS)
+   - Shows which of the 4 active counselors have/haven't received today's briefing. Surfaces 25% adoption gap.
+   - New component on landing or briefing page.
+
+**[P1] After PRs #537/538/540 merge:** Resume Phase 3 of spec (routing engine v2 — rewrite `fn_auto_assign_counselor` to consume admission_assignment_rules + new junction tables) — medium.
+
+**[P1] Phase 5:** Build `/admission/counselors/team` page (5 tabs: Members + Roster + Allocation + Rules + Activity) — large (~600 LOC).
+
+**[P2] Remaining Phases 4 + 6 + 7** (cron + cascade, handover banner, default seeds) — see spec PR #537 §"PR decomposition (7 PRs)".
+
+### Drops (per user_stated_drops)
+
+GitHub Pull Requests outage workaround thread — auto-resolves when GitHub recovers. Skip:
+- `.command` file unblock pattern (Downloads/merge-counselor-prs.command)
+- githubstatus.com debugging steps
+- Account-switch / mobile-app retry recipes
+
+If the user-blocked-from-UI scenario recurs in the next session, re-derive from githubstatus.com check; don't carry forward the verbose thread from THIS session.
+
+---
+
 ## Session: 2026-04-15 → 2026-04-27 (See As User feature shipped + reusable skill) — END via /cnext
 
 ### Accomplished
