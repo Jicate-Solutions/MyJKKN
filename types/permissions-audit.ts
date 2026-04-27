@@ -1,4 +1,4 @@
-import type { AccessType, ParsedExpression } from '@/lib/utils/rls-expression-parser';
+import type { ParsedExpression } from '@/lib/utils/rls-expression-parser';
 
 // ── RLS Policy Types ──
 

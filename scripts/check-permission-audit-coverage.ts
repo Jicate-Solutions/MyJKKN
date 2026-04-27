@@ -28,11 +28,9 @@ import {
   ROUTE_PREFIX_TO_MODULE,
   ROUTE_EXCLUDE,
   MODULE_WITHOUT_CATEGORY,
-  CATEGORY_ONLY_MODULES,
   getModuleForRoute,
   getAllAuditModuleNames,
 } from '../lib/permissions-audit/module-mappings';
-import { getAllModuleNames } from '../lib/constants/table-module-map';
 import { PERMISSION_CATEGORIES } from '../lib/constants/permissions';
 import { MENU_PERMISSIONS } from '../lib/sidebarMenuLink';
 

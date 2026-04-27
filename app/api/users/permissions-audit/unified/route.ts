@@ -7,12 +7,11 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 import { parseRlsExpression, wouldPolicyGrantAccess } from '@/lib/utils/rls-expression-parser';
-import { getModuleForTable } from '@/lib/constants/table-module-map';
+import { getModuleForTable, getSubModuleForTable } from '@/lib/constants/table-module-map';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 import {
   MODULE_TO_CATEGORY_KEY,
-  ROUTE_PREFIX_TO_MODULE,
   getModuleForRoute,
   getAllAuditModuleNames,
 } from '@/lib/permissions-audit/module-mappings';
@@ -143,6 +142,7 @@ export async function GET(request: NextRequest) {
         withCheckExpression: p.with_check_expression,
         parsed: parseRlsExpression(p.using_expression ?? p.with_check_expression),
         module: getModuleForTable(p.tablename),
+        subModule: getSubModuleForTable(p.tablename),
         permissive: p.permissive !== 'RESTRICTIVE',
       })
     );

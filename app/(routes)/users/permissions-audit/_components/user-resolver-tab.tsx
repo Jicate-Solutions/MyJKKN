@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import BeatLoader from 'react-spinners/BeatLoader';
 import { PERMISSION_CATEGORIES } from '@/lib/constants/permissions';
-import type { UnifiedAccessResponse, CrudAccess } from '@/types/permissions-audit';
+import type { UnifiedAccessResponse } from '@/types/permissions-audit';
 import { SeeAsUserButton } from './see-as-user-button';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
