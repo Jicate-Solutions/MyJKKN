@@ -10,7 +10,11 @@ import type {
   LeadFilters,
   LeadListResponse,
   FunnelStage,
-  LeadPriority
+  LeadPriority,
+  LeadSourceCapture,
+  CaptureMetaInput,
+  CaptureAction,
+  CaptureLeadResult,
 } from '@/types/admission';
 
 import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
@@ -204,18 +208,43 @@ export class LeadService {
   }
 
   /**
-   * Create a new lead
+   * Create a new lead.
    *
-   * @param supabaseOverride - Optional Supabase client to use instead of the
-   *   shared static client. Pass a service-role client from server-side routes
-   *   (e.g. the inbound webhook) to bypass RLS without mutating shared state.
-   *   Each call receives its own scope — safe for concurrent serverless requests.
+   * Backward-compatible wrapper around `captureLead`. Where the legacy path
+   * threw 409 on a duplicate active phone, this wrapper now silently absorbs
+   * the duplicate as a new source-capture row on the existing lead. Callers
+   * who need to know whether a create or a merge happened should call
+   * `captureLead` directly and inspect `result.action`.
    */
   static async createLead(leadData: CreateLeadInput, user?: User, supabaseOverride?: any): Promise<AdmissionLead> {
-    // Use the injected client when provided; fall back to the shared static client.
+    const result = await this.captureLead(leadData, undefined, user, supabaseOverride);
+    return result.lead;
+  }
+
+  /**
+   * Atomic capture entry point. Either creates a new lead OR locks an existing
+   * matching lead (last-10-digits phone match within institution) and appends
+   * a source-capture row to it. Side effects (counselor auto-assign, expo
+   * lead-count increment, WhatsApp `lead_created` dispatch) run only on the
+   * `created` path so they don't double-fire on re-captures.
+   *
+   * @param leadData      Standard CreateLeadInput. Validation matches createLead.
+   * @param captureMeta   Optional overrides for the capture row itself
+   *                      (utm_*, raw_payload, alternate captured_by, ...).
+   *                      Defaults to {source: leadData.source, captured_by: user.id}.
+   * @param user          Optional pre-resolved auth user (skips db.auth.getUser).
+   * @param supabaseOverride  Optional service-role client for server-side routes
+   *                      (e.g. inbound webhook). Each call receives its own scope.
+   */
+  static async captureLead(
+    leadData: CreateLeadInput,
+    captureMeta?: CaptureMetaInput,
+    user?: User,
+    supabaseOverride?: any,
+  ): Promise<CaptureLeadResult> {
     const db = (supabaseOverride ?? LeadService.supabase) as any;
 
-    // SECURITY: Validate required fields
+    // ─── SECURITY: Validate required fields ─────────────────────────
     if (!leadData.institution_id) {
       throw new Error('Institution ID is required');
     }
@@ -225,13 +254,11 @@ export class LeadService {
     if (!leadData.phone?.trim()) {
       throw new Error('Phone number is required');
     }
-    // Validate Indian mobile number format (10 digits, first digit 6–9, optional +91/0 prefix)
     const cleanPhone = leadData.phone.trim().replace(/[\s\-()]/g, '');
     const phoneRegex = /^(\+91|0)?[6-9]\d{9}$/;
     if (!phoneRegex.test(cleanPhone)) {
       throw new Error('Invalid phone number. Must be a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
     }
-    // Validate optional phone fields if provided
     const cleanAlt = leadData.alternate_phone
       ? leadData.alternate_phone.trim().replace(/[\s\-()]/g, '')
       : undefined;
@@ -248,108 +275,126 @@ export class LeadService {
       throw new Error('Lead source is required');
     }
 
-    // Get current user for created_by (skip auth call when user is passed in directly)
     if (!user) {
       const { data: { user: authUser } } = await db.auth.getUser();
       user = authUser ?? undefined;
     }
 
-    // Only include columns that exist in admission_leads table
-    const insertData: any = {
+    // ─── Build p_lead JSONB for the RPC ─────────────────────────────
+    const p_lead: Record<string, any> = {
       institution_id: leadData.institution_id,
-      first_name: leadData.first_name?.trim() ?? '',
+      first_name: leadData.first_name.trim(),
       last_name: leadData.last_name?.trim() || null,
       email: leadData.email || null,
       phone: cleanPhone,
       source: leadData.source,
-      funnel_stage: 'new' as FunnelStage,
+      funnel_stage: 'new',
       is_hot_lead: false,
       is_priority: false,
       score: 0,
       tags: leadData.tags || [],
       created_by: user?.id || null,
-      is_active: true
+      is_active: true,
     };
-
-    // Add optional columns that exist in the table
-    if (leadData.counselor_id) insertData.counselor_id = leadData.counselor_id;
-    if (leadData.preferred_channel) insertData.preferred_channel = leadData.preferred_channel;
-    // 2026-04-21 — primary interested program (single) + optional alternatives (multi).
-    // Legacy `interested_programs` array no longer written; kept on DB for historical reads.
-    if (leadData.program_id) insertData.program_id = leadData.program_id;
+    if (leadData.counselor_id) p_lead.counselor_id = leadData.counselor_id;
+    if (leadData.preferred_channel) p_lead.preferred_channel = leadData.preferred_channel;
+    if (leadData.program_id) p_lead.program_id = leadData.program_id;
     if (leadData.alternative_programs && leadData.alternative_programs.length > 0) {
-      insertData.alternative_programs = leadData.alternative_programs;
+      p_lead.alternative_programs = leadData.alternative_programs;
     }
-    if (leadData.parent_name) insertData.parent_name = leadData.parent_name;
-    if (cleanParent) insertData.parent_phone = cleanParent;
-    if (leadData.parent_email) insertData.parent_email = leadData.parent_email;
-    if (leadData.entry_date) insertData.entry_date = leadData.entry_date;
-    // BUG-003222: 12th group / stream captured at expo stall
-    if (leadData.twelfth_group) insertData.twelfth_group = leadData.twelfth_group;
-    if (leadData.notes) insertData.notes = leadData.notes;
-    // Address fields
-    if (cleanAlt) insertData.alternate_phone = cleanAlt;
-    if (leadData.date_of_birth) insertData.date_of_birth = leadData.date_of_birth;
-    if (leadData.gender) insertData.gender = leadData.gender;
-    if (leadData.address_line1) insertData.address_line1 = leadData.address_line1;
-    if (leadData.state) insertData.state = leadData.state;
-    if (leadData.district) insertData.district = leadData.district;
-    if (leadData.city) insertData.city = leadData.city;
-    if (leadData.pincode) insertData.pincode = leadData.pincode;
-    // JKKN Tier-1 fields
-    if (leadData.student_interest_level) insertData.student_interest_level = leadData.student_interest_level;
-    if (leadData.parent_decision_status) insertData.parent_decision_status = leadData.parent_decision_status;
-    if (leadData.admission_year_id) insertData.admission_year_id = leadData.admission_year_id;
-    // Expo Bridge — link lead to exhibition event and team member who captured it
-    if (leadData.expo_event_id) insertData.expo_event_id = leadData.expo_event_id;
-    if (leadData.captured_by) insertData.captured_by = leadData.captured_by;
-    // WhatsApp consent — set during lead capture (expo form or bulk upload)
+    if (leadData.parent_name) p_lead.parent_name = leadData.parent_name;
+    if (cleanParent) p_lead.parent_phone = cleanParent;
+    if (leadData.parent_email) p_lead.parent_email = leadData.parent_email;
+    if (leadData.entry_date) p_lead.entry_date = leadData.entry_date;
+    if (leadData.twelfth_group) p_lead.twelfth_group = leadData.twelfth_group;
+    if (leadData.notes) p_lead.notes = leadData.notes;
+    if (cleanAlt) p_lead.alternate_phone = cleanAlt;
+    if (leadData.date_of_birth) p_lead.date_of_birth = leadData.date_of_birth;
+    if (leadData.gender) p_lead.gender = leadData.gender;
+    if (leadData.address_line1) p_lead.address_line1 = leadData.address_line1;
+    if (leadData.state) p_lead.state = leadData.state;
+    if (leadData.district) p_lead.district = leadData.district;
+    if (leadData.city) p_lead.city = leadData.city;
+    if (leadData.pincode) p_lead.pincode = leadData.pincode;
+    if (leadData.student_interest_level) p_lead.student_interest_level = leadData.student_interest_level;
+    if (leadData.parent_decision_status) p_lead.parent_decision_status = leadData.parent_decision_status;
+    if (leadData.admission_year_id) p_lead.admission_year_id = leadData.admission_year_id;
+    if (leadData.expo_event_id) p_lead.expo_event_id = leadData.expo_event_id;
+    if (leadData.captured_by) p_lead.captured_by = leadData.captured_by;
+    if (leadData.stall_id) p_lead.stall_id = leadData.stall_id;
+    if (leadData.visit_type) p_lead.visit_type = leadData.visit_type;
+    if (leadData.referral_type) p_lead.referral_type = leadData.referral_type;
+    if (leadData.referred_by_id) p_lead.referred_by_id = leadData.referred_by_id;
+    if (leadData.referred_by_name) p_lead.referred_by_name = leadData.referred_by_name;
     if (leadData.wa_opt_in != null) {
-      insertData.wa_opt_in = leadData.wa_opt_in;
+      p_lead.wa_opt_in = leadData.wa_opt_in;
       if (leadData.wa_opt_in) {
-        insertData.wa_opt_in_at = new Date().toISOString();
-        insertData.wa_opt_in_source = leadData.wa_opt_in_source || 'lead_creation';
+        p_lead.wa_opt_in_at = new Date().toISOString();
+        p_lead.wa_opt_in_source = leadData.wa_opt_in_source || 'lead_creation';
       }
     }
 
-    // Check for duplicate: same phone in same institution (re-engagement exception: lost/dormant allowed)
-    const { data: existing, error: dupError } = await db
+    // ─── Build p_capture JSONB ──────────────────────────────────────
+    const p_capture: Record<string, any> = {
+      source: captureMeta?.source ?? leadData.source,
+      source_detail: captureMeta?.source_detail ?? null,
+      captured_at: captureMeta?.captured_at ?? null,
+      captured_by: captureMeta?.captured_by ?? leadData.captured_by ?? user?.id ?? null,
+      expo_event_id: captureMeta?.expo_event_id ?? leadData.expo_event_id ?? null,
+      stall_id: captureMeta?.stall_id ?? leadData.stall_id ?? null,
+      utm_source: captureMeta?.utm_source ?? null,
+      utm_medium: captureMeta?.utm_medium ?? null,
+      utm_campaign: captureMeta?.utm_campaign ?? null,
+      referrer_id: captureMeta?.referrer_id ?? leadData.referred_by_id ?? null,
+      raw_payload: captureMeta?.raw_payload ?? {},
+    };
+
+    // ─── Atomic RPC: lock existing or create new ────────────────────
+    const { data: rpcRes, error: rpcErr } = await db.rpc('capture_admission_lead', {
+      p_lead,
+      p_capture,
+    });
+    if (rpcErr) {
+      console.error('[LeadService] capture_admission_lead RPC failed:', rpcErr);
+      throw new Error(`Failed to capture lead: ${rpcErr.message}`);
+    }
+    const result = rpcRes as { lead_id: string; capture_id: string; action: CaptureAction; reactivated: boolean };
+
+    // ─── Fetch the resulting lead row for the caller ────────────────
+    const { data: leadRow, error: fetchErr } = await db
       .from('admission_leads')
-      .select('id, full_name, funnel_stage')
-      .eq('institution_id', leadData.institution_id)
-      .eq('phone', cleanPhone)
-      .not('funnel_stage', 'in', '(lost,dormant)')
-      .limit(1);
-
-    if (dupError) {
-      console.warn('[admission/leads] Duplicate check query failed (proceeding with insert):', dupError);
-    }
-
-    if (!dupError && existing && existing.length > 0) {
-      console.warn('[admission/leads] Duplicate lead rejected:', {
-        phone: cleanPhone,
-        existingId: existing[0].id,
-        existingStage: existing[0].funnel_stage,
-      });
-      throw new Error(
-        'Duplicate lead: A lead with this phone number already exists for this institution. ' +
-        'Update the existing lead or mark it as lost before creating a new one.'
-      );
-    }
-
-    const { data, error } = await db.from('admission_leads')
-      .insert(insertData)
       .select('*')
+      .eq('id', result.lead_id)
       .single();
-
-    if (error) {
-      console.error('[LeadService] Error creating lead:', error);
-      throw new Error(`Failed to create lead: ${error.message}`);
+    if (fetchErr) {
+      throw new Error(`Failed to fetch captured lead: ${fetchErr.message}`);
     }
 
-    // Log stage history
-    await this.logStageHistory(data.id, null, 'new', user?.id, undefined, db);
+    // ─── Side effects (only on 'created'; never on plain 'merged') ──
+    if (result.action === 'created') {
+      await this.runCreateSideEffects(leadRow, user, db);
+    } else {
+      // 'merged' — log a soft activity so counselors see the re-touch.
+      await this.logRecaptureActivity(leadRow, p_capture, user, db, result.reactivated);
+    }
 
+    return {
+      lead: this.normalizeLead(leadRow),
+      action: result.action,
+      reactivated: result.reactivated,
+      capture_id: result.capture_id,
+    };
+  }
+
+  /**
+   * Run the side effects that should fire only when a brand-new lead is
+   * created: expo lead-count increment, auto-schedule follow-up, expo
+   * capture activity, counselor auto-assign + notify, WhatsApp dispatch.
+   * All best-effort — none of these failures roll back the lead.
+   * Note: stage history for the initial 'new' state is logged inside the
+   * capture_admission_lead RPC, so the TS path no longer logs it here.
+   */
+  private static async runCreateSideEffects(data: any, user: any, db: any): Promise<void> {
     // Expo Bridge — increment total_leads_collected on the linked expo event (best-effort)
     if (data.expo_event_id) {
       try {
@@ -370,14 +415,11 @@ export class LeadService {
       try {
         const now = new Date();
         const followup = new Date(now);
-        // Next day
         followup.setDate(followup.getDate() + 1);
-        // Skip weekends (Saturday → Monday, Sunday → Monday)
         const dayOfWeek = followup.getDay();
         if (dayOfWeek === 0) followup.setDate(followup.getDate() + 1); // Sunday → Monday
         if (dayOfWeek === 6) followup.setDate(followup.getDate() + 2); // Saturday → Monday
-        // Set to 10:00 AM IST (04:30 UTC)
-        followup.setUTCHours(4, 30, 0, 0);
+        followup.setUTCHours(4, 30, 0, 0); // 10:00 AM IST
 
         await db.from('admission_leads')
           .update({ next_followup_at: followup.toISOString() })
@@ -477,9 +519,53 @@ export class LeadService {
       leadId: data.id,
       leadPhone: data.phone || '',
       leadName: data.full_name || data.first_name || undefined,
-    }).catch(() => {}); // Never block lead creation
+    }).catch(() => {});
+  }
 
-    return this.normalizeLead(data);
+  /**
+   * Best-effort soft activity logging when an existing lead is re-captured
+   * from a new source. The RPC has already inserted the source-capture row
+   * and (if the lead was lost/dormant) reactivated the funnel stage.
+   */
+  private static async logRecaptureActivity(
+    leadRow: any,
+    capture: any,
+    user: any,
+    db: any,
+    reactivated: boolean,
+  ): Promise<void> {
+    try {
+      const sourceLabel = capture.source ?? 'unknown';
+      const detailSuffix = capture.source_detail ? ` — ${capture.source_detail}` : '';
+      await db.from('admission_lead_activities').insert({
+        lead_id: leadRow.id,
+        activity_type: 'note',
+        subject: reactivated ? 'Lead Re-captured (reactivated)' : 'Lead Re-captured',
+        description: `Lead re-captured from ${sourceLabel}${detailSuffix}.${reactivated ? ' Stage reactivated to "new".' : ''}`,
+        created_by: user?.id || null,
+      });
+    } catch (e) {
+      console.warn('[LeadService] Could not log re-capture activity:', e);
+    }
+  }
+
+  /**
+   * Fetch the source-capture timeline for a lead, newest first.
+   * Used by the "Sources Captured" panel on the lead detail page.
+   */
+  static async getSourceCaptures(leadId: string): Promise<LeadSourceCapture[]> {
+    const { data, error } = await (this.supabase as any)
+      .from('admission_lead_source_captures')
+      .select('*')
+      .eq('lead_id', leadId)
+      .order('captured_at', { ascending: false });
+
+    if (error) {
+      console.error('[LeadService] Error fetching source captures:', error);
+      throw new Error(`Failed to fetch source captures: ${error.message}`);
+    }
+
+    return (data || []) as LeadSourceCapture[];
   }
 
   /**

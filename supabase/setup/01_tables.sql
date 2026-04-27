@@ -4757,3 +4757,58 @@ ALTER TABLE admission_counselors
 
 COMMENT ON COLUMN admission_counselors.deactivated_at IS 'Set when counselor row was soft-deleted via DELETE endpoint. NULL = never soft-deleted.';
 COMMENT ON COLUMN admission_counselors.deactivated_by IS 'User who triggered soft-delete (super-admin / admin / privileged staff).';
+
+-- =====================================================
+-- 2026-04-27 — admission_lead_source_captures
+-- Append-only history of every source-channel capture event for a lead.
+-- Lets a single lead surface every source that captured it (website +
+-- walk_in + edu_fair + ...) instead of creating duplicate lead rows.
+-- Companion: LeadService.captureLead() writes one row here per capture.
+-- =====================================================
+CREATE TABLE IF NOT EXISTS public.admission_lead_source_captures (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  lead_id         UUID NOT NULL REFERENCES public.admission_leads(id) ON DELETE CASCADE,
+  institution_id  UUID NOT NULL REFERENCES public.institutions(id) ON DELETE RESTRICT,
+  source          public.lead_source NOT NULL,
+  source_detail   TEXT,
+  captured_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  captured_by     UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  expo_event_id   UUID REFERENCES public.expo_events(id) ON DELETE SET NULL,
+  stall_id        UUID REFERENCES public.expo_event_stalls(id) ON DELETE SET NULL,
+  utm_source      TEXT,
+  utm_medium      TEXT,
+  utm_campaign    TEXT,
+  referrer_id     UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  raw_payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+COMMENT ON TABLE public.admission_lead_source_captures IS
+  'One row per source-channel touch on an admission_leads row. Append-only history. Lets a single lead surface every source that captured it.';
+
+CREATE INDEX IF NOT EXISTS idx_alsc_lead_captured_at
+  ON public.admission_lead_source_captures (lead_id, captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alsc_institution
+  ON public.admission_lead_source_captures (institution_id);
+CREATE INDEX IF NOT EXISTS idx_alsc_institution_source
+  ON public.admission_lead_source_captures (institution_id, source);
+CREATE INDEX IF NOT EXISTS idx_alsc_expo_event
+  ON public.admission_lead_source_captures (expo_event_id)
+  WHERE expo_event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_alsc_captured_at
+  ON public.admission_lead_source_captures (captured_at DESC);
+
+ALTER TABLE public.admission_lead_source_captures ENABLE ROW LEVEL SECURITY;
+
+-- 2026-04-27 — close FK + self-ref gap on legacy admission_leads.duplicate_of
+-- column (added historically with no FK and no self-ref CHECK; verified
+-- pre-migration: 0 orphans, 0 self-references). Policies for the captures
+-- table live in 03_policies.sql.
+ALTER TABLE public.admission_leads
+  ADD CONSTRAINT admission_leads_duplicate_of_fkey
+  FOREIGN KEY (duplicate_of) REFERENCES public.admission_leads(id) ON DELETE SET NULL;
+
+ALTER TABLE public.admission_leads
+  ADD CONSTRAINT admission_leads_duplicate_of_not_self
+  CHECK (duplicate_of IS NULL OR duplicate_of <> id);

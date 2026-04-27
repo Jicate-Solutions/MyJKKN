@@ -5393,3 +5393,67 @@ CREATE POLICY notifications_update_admins ON notifications FOR UPDATE USING (
 CREATE POLICY notifications_delete_admins ON notifications FOR DELETE USING (
   is_super_admin() OR is_admin(auth.uid())
 );
+
+-- =====================================================
+-- 2026-04-27 — admission_lead_source_captures policies
+-- Mirror admission_leads RLS shape. Counselor branch in SELECT lets an
+-- assigned counselor read captures for their lead even without an
+-- explicit admission.leads.view perm.
+-- =====================================================
+CREATE POLICY alsc_select_permission
+ON public.admission_lead_source_captures
+FOR SELECT
+USING (
+  public.is_super_admin()
+  OR public.is_admin()
+  OR (
+    public.user_has_permission('admission.leads.view')
+    AND public.role_has_institution_access(institution_id)
+  )
+  OR EXISTS (
+    SELECT 1 FROM public.admission_leads l
+    WHERE l.id = admission_lead_source_captures.lead_id
+      AND l.assigned_counselor_id = auth.uid()
+  )
+);
+
+CREATE POLICY alsc_insert_permission
+ON public.admission_lead_source_captures
+FOR INSERT
+WITH CHECK (
+  public.is_super_admin()
+  OR public.is_admin()
+  OR public.user_has_permission('admission.leads.create')
+);
+
+CREATE POLICY alsc_update_permission
+ON public.admission_lead_source_captures
+FOR UPDATE
+USING (
+  public.is_super_admin()
+  OR public.is_admin()
+  OR (
+    public.user_has_permission('admission.leads.edit')
+    AND public.role_has_institution_access(institution_id)
+  )
+)
+WITH CHECK (
+  public.is_super_admin()
+  OR public.is_admin()
+  OR (
+    public.user_has_permission('admission.leads.edit')
+    AND public.role_has_institution_access(institution_id)
+  )
+);
+
+CREATE POLICY alsc_delete_permission
+ON public.admission_lead_source_captures
+FOR DELETE
+USING (
+  public.is_super_admin()
+  OR public.is_admin()
+  OR (
+    public.user_has_permission('admission.leads.delete')
+    AND public.role_has_institution_access(institution_id)
+  )
+);

@@ -5,16 +5,13 @@ import {
   ResponsiveContainer, Cell
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Loader2, Settings } from 'lucide-react';
 import Link from 'next/link';
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
-} from '@/components/ui/table';
 import { useSeatAnalytics } from '@/hooks/admission/use-group-dashboard';
 import type { SeatAnalyticsRow } from '@/types/admission-workflow-config';
+import { SeatDetailsTable } from './seat-details-table';
 
 interface SeatAnalyticsDashboardProps {
   institutionId?: string;
@@ -25,13 +22,6 @@ function fillColor(pct: number) {
   if (pct >= 70) return '#f59e0b';
   if (pct >= 50) return '#3b82f6';
   return '#ef4444';
-}
-
-function FillBadge({ pct }: { pct: number }) {
-  if (pct >= 90) return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{pct}%</Badge>;
-  if (pct >= 70) return <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">{pct}%</Badge>;
-  if (pct >= 50) return <Badge variant="outline">{pct}%</Badge>;
-  return <Badge variant="destructive">{pct}%</Badge>;
 }
 
 // Aggregate to institution-level for the bar chart
@@ -153,46 +143,13 @@ export function SeatAnalyticsDashboard({ institutionId }: SeatAnalyticsDashboard
         </Card>
       )}
 
-      {/* Hierarchy table */}
+      {/* Advanced details table */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">Admission Year — Seat Details</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-auto max-h-[420px]">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Institution</TableHead>
-                  <TableHead>Degree</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Program</TableHead>
-                  <TableHead>Admission Year</TableHead>
-                  <TableHead className="text-right">Seats</TableHead>
-                  <TableHead className="text-right">Filled</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
-                  <TableHead className="text-right">Fill %</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((r, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="text-xs font-medium max-w-[120px] truncate">{r.institution_name}</TableCell>
-                    <TableCell className="text-xs">{r.degree_name}</TableCell>
-                    <TableCell className="text-xs">{r.department_name}</TableCell>
-                    <TableCell className="text-xs font-medium">{r.program_name}</TableCell>
-                    <TableCell className="text-xs whitespace-nowrap">{r.admission_year_name}</TableCell>
-                    <TableCell className="text-right text-xs">{r.total_seats}</TableCell>
-                    <TableCell className="text-right text-xs">{Number(r.filled_seats)}</TableCell>
-                    <TableCell className="text-right text-xs">{r.balance_seats}</TableCell>
-                    <TableCell className="text-right">
-                      <FillBadge pct={Number(r.fill_percentage)} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+        <CardContent>
+          <SeatDetailsTable rows={rows} />
         </CardContent>
       </Card>
     </div>

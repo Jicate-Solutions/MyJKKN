@@ -248,7 +248,8 @@
       "mcp__exotel__getBulkCallDetails",
       "mcp__plugin_vercel_vercel__list_teams",
       "mcp__plugin_vercel_vercel__list_projects",
-      "Bash(2>/dev/null)"
+      "Bash(2>/dev/null)",
+      "Bash([ -s \"C:\\\\\\\\Users\\\\\\\\Admin\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\D--Projects-MyJKKN\\\\\\\\58d2f4a6-0fcd-4fa5-b009-cd255cbcf3b6\\\\\\\\tasks\\\\\\\\bmby5z7ua.output\" ])"
     ],
     "deny": [],
     "ask": []

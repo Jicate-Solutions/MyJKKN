@@ -45,6 +45,7 @@ import { useDegrees } from '@/hooks/organization/use-degrees';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
+import { SourcesCapturedCard } from './_components/sources-captured-card';
 import { LogCallDialog } from '@/components/admission/log-call-dialog';
 import { QuickActionsBar } from '@/components/admission/quick-actions-bar';
 import { useExpoEvent } from '@/hooks/admission/use-expos';
@@ -1863,6 +1864,9 @@ function LeadDetailPageContent() {
                       </dl>
                     </CardContent>
                   </Card>
+
+                  {/* Sources Captured — full multi-source touch timeline */}
+                  <SourcesCapturedCard leadId={lead.id} />
 
                   {/* Academic Details */}
                   <Card>

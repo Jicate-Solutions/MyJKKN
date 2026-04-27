@@ -281,6 +281,54 @@ export interface UpdateLeadInput extends Partial<CreateLeadInput> {
   admission_year_id?: string | null;
 }
 
+// ─── Multi-source capture (added 2026-04-27) ────────────────────────────────
+// Append-only history of every source-channel touch on a lead. The lead
+// row's primary `source` field stays singular (first capture wins); the
+// captures table records the full timeline.
+export interface LeadSourceCapture {
+  id: string;
+  lead_id: string;
+  institution_id: string;
+  source: LeadSource;
+  source_detail: string | null;
+  captured_at: string;
+  captured_by: string | null;
+  expo_event_id: string | null;
+  stall_id: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  referrer_id: string | null;
+  raw_payload: Record<string, unknown>;
+  created_at: string;
+  created_by: string | null;
+}
+
+// Optional override fields for the capture row itself. Most callers will
+// pass nothing — the RPC defaults to the lead's source/captured_by/expo_event_id.
+export interface CaptureMetaInput {
+  source?: LeadSource;
+  source_detail?: string | null;
+  captured_at?: string | null;
+  captured_by?: string | null;
+  expo_event_id?: string | null;
+  stall_id?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  referrer_id?: string | null;
+  raw_payload?: Record<string, unknown> | null;
+}
+
+export type CaptureAction = 'created' | 'merged';
+
+export interface CaptureLeadResult {
+  lead: AdmissionLead;
+  action: CaptureAction;
+  reactivated: boolean;
+  capture_id: string;
+}
+
 export interface LeadFilters {
   search?: string;
   institution_id?: string;
