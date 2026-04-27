@@ -61,18 +61,40 @@ export function BottomNavItem({
         aria-label={label}
         aria-pressed={isActive}
       >
-        {/* 56×56 gradient icon container — same tapSpring + iconSpring as strip */}
+        {/* 56×56 Liquid Glass tile — cue-stack approach (UX synthesis 2026-04-27).
+            Goal: trigger the brain's object-recognition pathway via convergent
+            depth cues, achieving "premium polished Apple" perceptual reading
+            at compositor-level GPU cost (works on low-RAM Android targets).
+            Cues layered (bottom → top):
+              1. Base gradient (existing tileGradient or fallback) — the color
+              2. Outer cast shadow → "elevated above surface"
+              3. Inset top-edge sheen → "light hits soft top edge from above"
+              4. 1px white inset ring → crisp luminous boundary, light refraction
+              5. Specular highlight overlay (::before equivalent <span>) →
+                 single static "light source upper-left" — primary depth cue
+              6. Icon with drop-shadow → "icon suspended above the glass"
+              7. whileTap on parent button → tactile press compression
+            No backdrop-blur (catastrophic at 22 tiles × ~5ms on weak GPUs).
+            All cues are GPU-cheap: gradients, static shadows, transforms. */}
         <motion.div
           className={cn(
-            'relative w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm',
+            'relative w-14 h-14 rounded-2xl flex items-center justify-center',
             tileGradient ?? 'bg-gradient-to-br from-primary/70 to-primary',
+            'shadow-[0_4px_14px_-2px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.35)]',
+            'ring-1 ring-inset ring-white/15',
             isActive && 'ring-2 ring-primary/30 ring-offset-1'
           )}
           animate={{ scale: isActive ? 1.08 : 1 }}
           transition={iconSpring}
         >
+          {/* Specular highlight — static cue reading as "light source upper-left".
+              Sibling order matters: this paints first, icon paints on top. */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/25 via-white/0 to-transparent"
+          />
           <Icon
-            className="h-6 w-6 text-white"
+            className="relative h-6 w-6 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
             strokeWidth={isActive ? 2.5 : 2}
           />
           {/* Multi-module disclosure affordance — tells the user "this tile
