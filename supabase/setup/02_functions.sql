@@ -10951,3 +10951,403 @@ GRANT EXECUTE ON FUNCTION public.capture_admission_lead(JSONB, JSONB) TO authent
 
 COMMENT ON FUNCTION public.capture_admission_lead(JSONB, JSONB) IS
   'Atomic capture entry point for admission leads. Either creates a new lead or locks an existing matching one and appends a source-capture row. Returns {lead_id, capture_id, action: created|merged, reactivated}.';
+
+-- ================================================================================
+-- SECTION: ATTENTION BAR — Layer 2 State-Query Functions
+-- Added: 2026-04-28
+-- PR: phase-4a/attention-bar-state-query-functions
+-- Spec: specs/attention-bar-5-layer-system.md §3 Layer 2
+-- Purpose: 5 SECURITY DEFINER functions that the Layer 2 rules engine calls
+--   via quick_action_state_queries registry to evaluate when_clause conditions.
+--   Each returns a JSONB blob; the resolver passes this into rule evaluation.
+-- Schema discoveries (verified against prod DB before authoring):
+--   - student_attendance has NO marked_by; compliance is section-level
+--   - timetables.selected_days is JSONB array of uppercase day names
+--   - staff_plan_courses has no section_id; staff_plans has no staff_id
+--   - billing_invoices has no status column; use billing_student_bills
+-- ================================================================================
+
+-- ────────────────────────────────────────────────────────────────────────────────
+-- fn_aqs_counselor_pending_leads
+-- query_key: 'counselor.pending_leads'
+-- Returns: { count, oldest_lead_id, oldest_lead_days, oldest_lead_full_name }
+-- ────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_aqs_counselor_pending_leads(
+    p_user_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+STABLE
+AS $$
+DECLARE
+    v_count          INT;
+    v_oldest_id      UUID;
+    v_oldest_days    INT;
+    v_oldest_name    TEXT;
+    v_counselor_id   UUID;
+BEGIN
+    SELECT id INTO v_counselor_id
+    FROM public.admission_counselors
+    WHERE user_id = p_user_id
+      AND is_active = true
+    LIMIT 1;
+
+    IF v_counselor_id IS NULL THEN
+        RETURN jsonb_build_object('count', 0);
+    END IF;
+
+    SELECT
+        COUNT(*)::INT,
+        (ARRAY_AGG(al.id ORDER BY al.created_at ASC))[1],
+        CEIL(EXTRACT(EPOCH FROM (NOW() - MIN(al.created_at))) / 86400.0)::INT,
+        (ARRAY_AGG(COALESCE(al.full_name, al.first_name) ORDER BY al.created_at ASC))[1]
+    INTO v_count, v_oldest_id, v_oldest_days, v_oldest_name
+    FROM public.admission_leads al
+    WHERE al.assigned_counselor_id = v_counselor_id
+      AND al.funnel_stage::text IN (
+            'new', 'contacted', 'qualified', 'follow_up', 'follow_up_scheduled',
+            'engaged', 'not_reachable', 'application_started'
+          )
+      AND al.is_active = true
+      AND al.is_lost  = false;
+
+    IF COALESCE(v_count, 0) = 0 THEN
+        RETURN jsonb_build_object('count', 0);
+    END IF;
+
+    RETURN jsonb_build_object(
+        'count',                  v_count,
+        'oldest_lead_id',         v_oldest_id,
+        'oldest_lead_days',       v_oldest_days,
+        'oldest_lead_full_name',  COALESCE(v_oldest_name, '')
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_aqs_counselor_pending_leads(UUID) IS
+    'AQS Layer-2 state query. Returns count of active pending leads assigned to a counselor '
+    'and the identity + age of the oldest one. Resolves user → admission_counselors via user_id FK.';
+
+GRANT EXECUTE ON FUNCTION public.fn_aqs_counselor_pending_leads(UUID) TO authenticated, service_role;
+
+
+-- ────────────────────────────────────────────────────────────────────────────────
+-- fn_aqs_attendance_unmarked_periods_today
+-- query_key: 'attendance.unmarked_periods_today'
+-- Returns: { count, sample_period_ids }
+-- NOTE: student_attendance has no marked_by; timetables.selected_days is JSONB.
+-- ────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_aqs_attendance_unmarked_periods_today(
+    p_user_id        UUID,
+    p_institution_id UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+STABLE
+AS $$
+DECLARE
+    v_is_super_admin  BOOLEAN;
+    v_institution_id  UUID;
+    v_department_id   UUID;
+    v_role            TEXT;
+    v_count           INT := 0;
+    v_sample_ids      UUID[];
+    v_today_dow       TEXT;
+BEGIN
+    SELECT p.is_super_admin, p.role, p.institution_id
+    INTO v_is_super_admin, v_role, v_institution_id
+    FROM public.profiles p
+    WHERE p.id = p_user_id;
+
+    IF p_institution_id IS NOT NULL THEN
+        v_institution_id := p_institution_id;
+    END IF;
+
+    IF v_is_super_admin AND p_institution_id IS NULL THEN
+        v_institution_id := NULL;
+    END IF;
+
+    SELECT s.department_id
+    INTO v_department_id
+    FROM public.staff s
+    WHERE (s.profile_id = p_user_id
+       OR s.institution_email = (SELECT email FROM public.profiles WHERE id = p_user_id))
+      AND s.is_active = true
+    ORDER BY CASE WHEN s.profile_id = p_user_id THEN 0 ELSE 1 END
+    LIMIT 1;
+
+    -- TO_CHAR pads with spaces; trim to match timetables.selected_days values
+    v_today_dow := TRIM(UPPER(TO_CHAR(CURRENT_DATE, 'DAY')));
+
+    -- NOTE: Missing index on student_attendance(section_id, attendance_date, institution_id).
+    -- Flagged for dedicated index PR.
+
+    SELECT
+        COUNT(DISTINCT t.section_id)::INT,
+        ARRAY(
+            SELECT DISTINCT t2.section_id
+            FROM public.timetables t2
+            WHERE t2.is_active = true
+              AND t2.section_id IS NOT NULL
+              AND (v_institution_id IS NULL OR t2.institution_id = v_institution_id)
+              AND (v_department_id IS NULL OR t2.department_id = v_department_id)
+              AND t2.selected_days ? v_today_dow
+              AND NOT EXISTS (
+                  SELECT 1 FROM public.student_attendance sa2
+                  WHERE sa2.section_id      = t2.section_id
+                    AND sa2.attendance_date = CURRENT_DATE
+                    AND (v_institution_id IS NULL OR sa2.institution_id = v_institution_id)
+              )
+            LIMIT 10
+        )
+    INTO v_count, v_sample_ids
+    FROM public.timetables t
+    WHERE t.is_active = true
+      AND t.section_id IS NOT NULL
+      AND (v_institution_id IS NULL OR t.institution_id = v_institution_id)
+      AND (v_department_id IS NULL OR t.department_id = v_department_id)
+      AND t.selected_days ? v_today_dow
+      AND NOT EXISTS (
+          SELECT 1 FROM public.student_attendance sa
+          WHERE sa.section_id      = t.section_id
+            AND sa.attendance_date = CURRENT_DATE
+            AND (v_institution_id IS NULL OR sa.institution_id = v_institution_id)
+      );
+
+    RETURN jsonb_build_object(
+        'count',             COALESCE(v_count, 0),
+        'sample_period_ids', COALESCE(to_jsonb(v_sample_ids), '[]'::jsonb)
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_aqs_attendance_unmarked_periods_today(UUID, UUID) IS
+    'AQS Layer-2 state query. Sections with active timetables scheduled today (selected_days) '
+    'but no student_attendance row yet. Compliance is section-level (no marked_by column). '
+    'sample_period_ids: up to 10 section UUIDs. Faculty/HOD scoped by department.';
+
+GRANT EXECUTE ON FUNCTION public.fn_aqs_attendance_unmarked_periods_today(UUID, UUID) TO authenticated, service_role;
+
+
+-- ────────────────────────────────────────────────────────────────────────────────
+-- fn_aqs_billing_overdue_invoices
+-- query_key: 'billing.overdue_invoices'
+-- Returns: { count, total_overdue_amount, oldest_invoice_days }
+-- NOTE: Uses billing_student_bills; billing_invoices has no status column.
+-- ────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_aqs_billing_overdue_invoices(
+    p_user_id        UUID,
+    p_institution_id UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+STABLE
+AS $$
+DECLARE
+    v_is_super_admin  BOOLEAN;
+    v_user_role       TEXT;
+    v_institution_id  UUID;
+    v_count           INT;
+    v_total_amount    NUMERIC(15,2);
+    v_oldest_days     INT;
+BEGIN
+    SELECT p.is_super_admin, p.role, p.institution_id
+    INTO v_is_super_admin, v_user_role, v_institution_id
+    FROM public.profiles p
+    WHERE p.id = p_user_id;
+
+    IF v_is_super_admin OR v_user_role IN ('super_admin', 'admin') THEN
+        v_institution_id := p_institution_id;
+    ELSIF p_institution_id IS NOT NULL THEN
+        NULL; -- keep own institution (security clamp for non-admins)
+    END IF;
+
+    -- NOTE: Missing index on billing_student_bills(due_date, status, institution_id).
+    -- Flagged for dedicated billing index PR.
+
+    SELECT
+        COUNT(*)::INT,
+        COALESCE(SUM(bsb.final_amount - COALESCE(bsb.balance_amount, 0)), 0)::NUMERIC(15,2),
+        CEIL(EXTRACT(EPOCH FROM (NOW() - MIN(bsb.due_date::TIMESTAMPTZ))) / 86400.0)::INT
+    INTO v_count, v_total_amount, v_oldest_days
+    FROM public.billing_student_bills bsb
+    WHERE bsb.status IN ('unpaid', 'pending')
+      AND bsb.due_date < CURRENT_DATE
+      AND (v_institution_id IS NULL OR bsb.institution_id = v_institution_id);
+
+    RETURN jsonb_build_object(
+        'count',                COALESCE(v_count, 0),
+        'total_overdue_amount', COALESCE(v_total_amount, 0),
+        'oldest_invoice_days',  COALESCE(v_oldest_days, 0)
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_aqs_billing_overdue_invoices(UUID, UUID) IS
+    'AQS Layer-2 state query. Counts billing_student_bills (unpaid/pending) past due_date. '
+    'Returns count, total rupee exposure, oldest bill age. Institution-scoped by role.';
+
+GRANT EXECUTE ON FUNCTION public.fn_aqs_billing_overdue_invoices(UUID, UUID) TO authenticated, service_role;
+
+
+-- ────────────────────────────────────────────────────────────────────────────────
+-- fn_aqs_admission_leads_unassigned_count
+-- query_key: 'admission.leads.unassigned_count'
+-- Returns: { count, oldest_unassigned_days }
+-- Rate limit: 60/min
+-- ────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_aqs_admission_leads_unassigned_count(
+    p_institution_id UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+STABLE
+AS $$
+DECLARE
+    v_is_super_admin  BOOLEAN;
+    v_user_role       TEXT;
+    v_institution_id  UUID;
+    v_caller_inst_id  UUID;
+    v_count           INT;
+    v_oldest_days     INT;
+BEGIN
+    -- auth.uid() preserved in connection context even inside SECURITY DEFINER
+    SELECT p.is_super_admin, p.role, p.institution_id
+    INTO v_is_super_admin, v_user_role, v_caller_inst_id
+    FROM public.profiles p
+    WHERE p.id = auth.uid();
+
+    IF v_is_super_admin OR v_user_role IN ('super_admin', 'admin', 'admission') THEN
+        v_institution_id := p_institution_id;
+    ELSE
+        v_institution_id := v_caller_inst_id;
+    END IF;
+
+    SELECT
+        COUNT(*)::INT,
+        CEIL(EXTRACT(EPOCH FROM (NOW() - MIN(al.created_at))) / 86400.0)::INT
+    INTO v_count, v_oldest_days
+    FROM public.admission_leads al
+    WHERE al.assigned_counselor_id IS NULL
+      AND al.funnel_stage::text NOT IN (
+            'lost', 'converted', 'enrolled', 'confirmed',
+            'declined', 'withdrew', 'expired', 'dormant'
+          )
+      AND al.is_active = true
+      AND al.is_lost   = false
+      AND (v_institution_id IS NULL OR al.institution_id = v_institution_id);
+
+    RETURN jsonb_build_object(
+        'count',                  COALESCE(v_count, 0),
+        'oldest_unassigned_days', COALESCE(v_oldest_days, 0)
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_aqs_admission_leads_unassigned_count(UUID) IS
+    'AQS Layer-2 state query. Counts admission_leads with no counselor assignment in active '
+    'funnel stages. 14,253 unassigned as of 2026-04-28. Uses auth.uid() for caller scope. '
+    'Rate limited to 60/min (director-level dashboard query).';
+
+GRANT EXECUTE ON FUNCTION public.fn_aqs_admission_leads_unassigned_count(UUID) TO authenticated, service_role;
+
+
+-- ────────────────────────────────────────────────────────────────────────────────
+-- fn_aqs_attendance_faculty_compliance_today
+-- query_key: 'attendance.faculty_compliance_today'
+-- Returns: { total_faculty, compliant_count, non_compliant_count, non_compliant_user_ids }
+-- NOTE: compliance is section-level; non_compliant_user_ids = section UUIDs.
+-- ────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_aqs_attendance_faculty_compliance_today(
+    p_user_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+STABLE
+AS $$
+DECLARE
+    v_department_id      UUID;
+    v_institution_id     UUID;
+    v_total_sections     INT := 0;
+    v_marked_sections    INT := 0;
+    v_unmarked_sections  INT := 0;
+    v_unmarked_ids       UUID[];
+    v_today_dow          TEXT;
+BEGIN
+    SELECT s.department_id, s.institution_id
+    INTO v_department_id, v_institution_id
+    FROM public.staff s
+    WHERE (s.profile_id = p_user_id
+       OR s.institution_email = (SELECT email FROM public.profiles WHERE id = p_user_id))
+      AND s.is_active = true
+    ORDER BY CASE WHEN s.profile_id = p_user_id THEN 0 ELSE 1 END
+    LIMIT 1;
+
+    IF v_institution_id IS NULL THEN
+        SELECT institution_id INTO v_institution_id
+        FROM public.profiles
+        WHERE id = p_user_id;
+    END IF;
+
+    v_today_dow := TRIM(UPPER(TO_CHAR(CURRENT_DATE, 'DAY')));
+
+    -- NOTE: Missing index on student_attendance(section_id, attendance_date, institution_id).
+    -- Flagged for dedicated index PR.
+
+    WITH dept_sections AS (
+        SELECT DISTINCT t.section_id
+        FROM public.timetables t
+        WHERE t.is_active = true
+          AND t.section_id IS NOT NULL
+          AND t.institution_id = v_institution_id
+          AND (v_department_id IS NULL OR t.department_id = v_department_id)
+          AND t.selected_days ? v_today_dow
+    ),
+    marked AS (
+        SELECT DISTINCT sa.section_id
+        FROM public.student_attendance sa
+        WHERE sa.attendance_date = CURRENT_DATE
+          AND sa.institution_id  = v_institution_id
+          AND sa.section_id IN (SELECT section_id FROM dept_sections)
+    )
+    SELECT
+        COUNT(d.section_id)::INT,
+        COUNT(m.section_id)::INT,
+        (COUNT(d.section_id) - COUNT(m.section_id))::INT,
+        ARRAY(
+            SELECT d2.section_id
+            FROM dept_sections d2
+            LEFT JOIN marked m2 ON m2.section_id = d2.section_id
+            WHERE m2.section_id IS NULL
+            ORDER BY d2.section_id
+            LIMIT 10
+        )
+    INTO v_total_sections, v_marked_sections, v_unmarked_sections, v_unmarked_ids
+    FROM dept_sections d
+    LEFT JOIN marked m ON m.section_id = d.section_id;
+
+    RETURN jsonb_build_object(
+        'total_faculty',           COALESCE(v_total_sections, 0),
+        'compliant_count',         COALESCE(v_marked_sections, 0),
+        'non_compliant_count',     COALESCE(v_unmarked_sections, 0),
+        'non_compliant_user_ids',  COALESCE(to_jsonb(v_unmarked_ids), '[]'::jsonb)
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_aqs_attendance_faculty_compliance_today(UUID) IS
+    'AQS Layer-2 state query. For HOD: sections with timetables scheduled today that have/have not '
+    'had attendance marked. non_compliant_user_ids = section UUIDs (no marked_by in schema), '
+    'capped at 10. HOD dept via staff.profile_id FK or institution_email fallback.';
+
+GRANT EXECUTE ON FUNCTION public.fn_aqs_attendance_faculty_compliance_today(UUID) TO authenticated, service_role;

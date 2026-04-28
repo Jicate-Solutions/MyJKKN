@@ -6,6 +6,14 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-28** — Attention Bar Phase 4a — 5 SECURITY DEFINER state-query functions for Layer 2 rules engine
+  - Migration: `attention_bar_state_query_functions_v1.sql`. Applied via Supabase Management API. Verified: 5 functions created + 5 registry rows seeded.
+  - `02_functions.sql`: 5 new functions appended — `fn_aqs_counselor_pending_leads`, `fn_aqs_attendance_unmarked_periods_today`, `fn_aqs_billing_overdue_invoices`, `fn_aqs_admission_leads_unassigned_count`, `fn_aqs_attendance_faculty_compliance_today`. All `SECURITY DEFINER SET search_path = public, pg_catalog`.
+  - Registry seeds inserted into `quick_action_state_queries` for all 5 query_keys: `counselor.pending_leads` (30/min), `attendance.unmarked_periods_today` (30/min), `billing.overdue_invoices` (30/min), `admission.leads.unassigned_count` (60/min), `attendance.faculty_compliance_today` (30/min).
+  - Schema discoveries verified against prod DB: `student_attendance` has no `marked_by` column (compliance is section-level); `timetables.selected_days` is JSONB array of uppercase day names; `staff_plan_courses` has no `section_id`; `billing_invoices` has no status column (use `billing_student_bills`).
+  - Test verification: fn4 returned 14,253 unassigned leads (oldest 61 days); fn2 returned 83 sections unmarked today. All 5 functions confirmed STABLE + prosecdef=true in pg_proc.
+  - Missing indexes flagged (not added — separate PR): `student_attendance(section_id, attendance_date, institution_id)`, `billing_student_bills(due_date, status, institution_id)`.
+
 - **2026-04-28** — Attention Bar Phase 1 — DB foundation for the 5-layer resolver system
   - Spec: `specs/attention-bar-5-layer-system.md` (PR #542); architecture validated via interactive mockup at `/tmp/quick-action-interactive.html`.
   - Migration applied via Supabase MCP: `attention_bar_phase_1_tables`. Verified: 7 tables · 15 RLS policies · 11 config rows seeded.
