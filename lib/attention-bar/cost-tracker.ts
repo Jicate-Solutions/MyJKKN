@@ -153,7 +153,7 @@ export async function getUserCallsToday(userId: string): Promise<number> {
     .gte('rendered_at', start);
 
   if (error) {
-    throw new Error(`[cost-tracker] getUserCallsToday failed: ${error.message}`);
+    throw new Error(`[cost-tracker] getUserCallsToday failed: ${error.message || error.code || JSON.stringify(error)}`);
   }
 
   return count ?? 0;
