@@ -320,6 +320,13 @@ export default async function DashboardV2Page({
           </DashboardErrorBoundary>
         </div>
 
+        {/* Counselor Staffing Alert — Director + Counselor/Admission.
+            Client component: self-fetches via Supabase client, renders only when
+            top_load > 3× median OR orphan institutions > 0. No SSR penalty. */}
+        {(isDirector || isCounselor) && (
+          <CounselorStaffingAlert />
+        )}
+
         {/* Hero — role-aware (§7.1 Director / §5+§8 Counselor / Faculty / Principal / Student / limited safe default).
             2026-04-21: wrapped in DashboardErrorBoundary so RPC/auth failures surface as a
             visible amber card instead of silent zeros. Director sees stack trace inline. */}
