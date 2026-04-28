@@ -52,6 +52,7 @@ import {
   deriveTodaysFocusFromQueue
 } from '@/components/dashboard/todays-focus';
 import { listQueueItems } from '@/lib/services/dashboard/decision-queue-service';
+import { CounselorStaffingAlert } from '@/components/admission/counselor-staffing-alert';
 
 const VALID_FILTERS: QueueFilter[] = [
   'all',
