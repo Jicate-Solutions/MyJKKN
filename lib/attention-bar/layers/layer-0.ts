@@ -122,7 +122,7 @@ export async function evaluateLayer0(ctx: ResolverContext): Promise<LayerResult>
     id: string;
     notification_id: string;
     acknowledged_at: string | null;
-    notifications: {
+    notification: {
       id: string;
       title: string;
       body: string | null;
@@ -137,7 +137,7 @@ export async function evaluateLayer0(ctx: ResolverContext): Promise<LayerResult>
     } | null;
   };
 
-  const notif = row.notifications;
+  const notif = row.notification;
   if (!notif) {
     // Shouldn't happen with !inner join, but guard anyway.
     return { matched: false, reason: 'notification join returned null' };
