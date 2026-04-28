@@ -1,35 +1,32 @@
 'use client';
 
 /**
- * Tab 4 - Layer 3 Behavior (placeholder stub).
+ * Tab 4 — Layer 3 Behavior
  *
- * Wave 4 implementation: per-user tap counters, confidence engine output,
- * consent rate breakdown, and per-rule rolling averages.
+ * Aggregate-only stats for Layer 3 behavioral learning. Ships in Phase 5.
+ * This stub satisfies the import in attention-bar-admin-client.tsx.
  *
- * This stub exists so attention-bar-admin-client.tsx compiles after Wave 3
- * which only ships Tabs 3 and 5.
+ * Spec: specs/attention-bar-5-layer-system.md §6 Tab 4
+ * Permission: attention_bar.audit.view
+ * DPDPA note: per-user tap data is NEVER shown to admins — aggregate only.
  */
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Sparkles } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Brain } from 'lucide-react';
 
 export function TabBehavior() {
   return (
-    <div className='space-y-6 py-4'>
-      <h3 className='text-lg font-semibold flex items-center gap-2'>
-        <Sparkles className='h-5 w-5 text-teal-500' />
-        Layer 3 — Behavior
-      </h3>
+    <div className='space-y-4 py-4'>
       <Card>
-        <CardHeader>
-          <CardTitle className='text-base'>Coming in Wave 4</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className='text-sm text-muted-foreground'>
-            This tab will show consent stats, per-user tap counters, and the
-            confidence engine&apos;s rolling averages. Backend hooks already
-            exist in <code>lib/attention-bar/tap-tracker.ts</code> and{' '}
-            <code>lib/attention-bar/confidence-engine.ts</code>.
+        <CardContent className='py-12 flex flex-col items-center gap-3 text-center'>
+          <Brain className='h-10 w-10 text-muted-foreground' />
+          <p className='font-medium text-muted-foreground'>
+            Layer 3 — Behavioral Learning
+          </p>
+          <p className='text-sm text-muted-foreground max-w-sm'>
+            Aggregate consent stats and confidence-score distribution ship in
+            Phase 5 after DPDPA legal review. Per-user tap data is never
+            visible to admins.
           </p>
         </CardContent>
       </Card>

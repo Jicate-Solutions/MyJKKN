@@ -1,35 +1,31 @@
 'use client';
 
 /**
- * Tab 6 - Audit log (placeholder stub).
+ * Tab 6 — Audit Log
  *
- * Wave 4 implementation: paginated table over quick_action_audit with
- * filters (user, page, layer, time range) and trace expansion.
+ * Filterable table of quick_action_audit rows. Ships in Phase 4.
+ * This stub satisfies the import in attention-bar-admin-client.tsx.
  *
- * This stub exists so attention-bar-admin-client.tsx compiles after Wave 3
- * which only ships Tabs 3 and 5.
+ * Spec: specs/attention-bar-5-layer-system.md §6 Tab 6
+ * Permission: attention_bar.audit.view
  */
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { ClipboardList } from 'lucide-react';
 
 export function TabAudit() {
   return (
-    <div className='space-y-6 py-4'>
-      <h3 className='text-lg font-semibold flex items-center gap-2'>
-        <ClipboardList className='h-5 w-5 text-slate-500' />
-        Audit Log
-      </h3>
+    <div className='space-y-4 py-4'>
       <Card>
-        <CardHeader>
-          <CardTitle className='text-base'>Coming in Wave 4</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className='text-sm text-muted-foreground'>
-            This tab will show the paginated{' '}
-            <code>quick_action_audit</code> table with filters per user, page,
-            layer, and time range. Backend route already exists at
-            <code className='ml-1'>/api/attention-bar/admin/audit</code>.
+        <CardContent className='py-12 flex flex-col items-center gap-3 text-center'>
+          <ClipboardList className='h-10 w-10 text-muted-foreground' />
+          <p className='font-medium text-muted-foreground'>
+            Audit Log
+          </p>
+          <p className='text-sm text-muted-foreground max-w-sm'>
+            Filterable table of resolve audit rows (date, user, page,
+            fired_layer) ships in Phase 4 alongside the rules engine.
+            Every render already writes to the audit table.
           </p>
         </CardContent>
       </Card>
