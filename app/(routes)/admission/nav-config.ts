@@ -133,6 +133,18 @@ const config: ModuleNavConfig = {
           matchPaths: ['/admission/counselors/productivity'],
         },
         {
+          label: 'Team',
+          icon: 'Users',
+          href: '/admission/counselors/team',
+          matchPaths: [
+            '/admission/counselors/team',
+            '/admission/counselors/team/roster',
+            '/admission/counselors/team/allocation',
+            '/admission/counselors/team/rules',
+            '/admission/counselors/team/activity',
+          ],
+        },
+        {
           label: 'Consultants',
           icon: 'Handshake',
           href: '/admission/consultants',

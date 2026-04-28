@@ -220,18 +220,58 @@ const TONE_STYLES: Record<Tone, ToneStyle> = {
 
 export function AttentionBar() {
   const pathname = usePathname() ?? '/';
-  const { data, isLoading } = useAttentionBar(pathname);
+  const { data, isLoading, isError } = useAttentionBar(pathname);
 
-  // Empty state covers four cases:
-  //  1. Initial load (no data yet) — avoid layout flash before resolver replies
-  //  2. Unauthenticated (resolver returns null)
-  //  3. Cascade-failed (every layer including catch-all returned null)
-  //  4. Pathname not yet hydrated (defensive — shouldn't happen in App Router)
-  // In all four, render NOTHING for the visible pill so the bottom-nav strip
-  // stays anchored — but we ALWAYS mount <RealtimeListener/> so the channel
-  // is open even when no action is currently displayed (an urgent could
-  // arrive during the empty state and must trigger an immediate re-resolve).
-  if (isLoading) return <RealtimeListener />;
+  // ───────────────────────────────────────────────────────────────────────
+  // Empty + loading + error states
+  //
+  // Spec §6 + Phase 7 polish notes — render NOTHING (height 0) in three cases
+  // so the bottom-nav strip stays anchored at viewport-bottom unchanged:
+  //   1. Slow/failed network (isError)        — render skeleton-free empty state
+  //   2. Initial load (isLoading + no cache)  — render subtle skeleton
+  //   3. Cascade returned null / unauthed     — render nothing
+  //
+  // <RealtimeListener/> mounts in ALL three cases so an urgent (Layer 0) push
+  // can arrive mid-empty-state and trigger an immediate re-resolve.
+  //
+  // The skeleton is intentionally minimal — same height + radius as the real
+  // pill so the layout doesn't shift when the resolved action arrives. The
+  // pulse animation is shipped via tailwind's animate-pulse (compositor-only,
+  // GPU-cheap, no CSS file changes needed).
+  // ───────────────────────────────────────────────────────────────────────
+  if (isError) {
+    // Network/resolver failure — render nothing visible, keep listener mounted.
+    return <RealtimeListener />;
+  }
+
+  if (isLoading) {
+    return (
+      <>
+        <div
+          // data-* hooks for QA + monitoring scrapers; mirror the real pill
+          // so a smoke-test can detect either state without traversal.
+          data-attention-bar
+          data-attention-bar-state="loading"
+          aria-hidden="true"
+          className="pointer-events-none fixed left-0 right-0 z-[75] px-2 lg:hidden"
+          style={{
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 64px + 8px)',
+          }}
+        >
+          <div
+            className={cn(
+              'block min-h-[48px] w-full rounded-2xl px-3 py-2',
+              'animate-pulse bg-gradient-to-br from-slate-200/70 via-slate-300/70 to-slate-200/70',
+              'ring-1 ring-inset ring-slate-300/40',
+              'dark:from-slate-800/60 dark:via-slate-700/60 dark:to-slate-800/60 dark:ring-slate-600/40',
+            )}
+          />
+        </div>
+        <RealtimeListener />
+      </>
+    );
+  }
+
   const action = data?.resolved;
   if (!action) return <RealtimeListener />;
 
@@ -241,6 +281,12 @@ export function AttentionBar() {
   return (
     <div
       data-attention-bar
+      // Canonical attribute for external monitoring/QA — the layer that fired
+      // for this render. Phase 7 polish: scrapers must not need to traverse
+      // classNames or guess from tone/icon. `data-fired-layer` is kept as an
+      // alias for backward-compat with anything that already shipped against
+      // the early Phase 2 attribute name.
+      data-attention-bar-layer={action.firedLayer}
       data-fired-layer={action.firedLayer}
       data-tone={action.tone}
       // Fixed positioning, anchored above the bottom-nav strip.

@@ -680,6 +680,37 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Reminders",
             "iconName": "FileText",
             "children": []
+          },
+          {
+            "path": "/admission/counselors/team",
+            "label": "Team",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/admission/counselors/team/activity",
+                "label": "Activity",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/team/allocation",
+                "label": "Allocation",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/team/roster",
+                "label": "Roster",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
+                "path": "/admission/counselors/team/rules",
+                "label": "Rules",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
           }
         ]
       },
@@ -1291,6 +1322,64 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/bos",
+    "label": "Bos",
+    "iconName": "FileText",
+    "children": [
+      {
+        "path": "/bos/compositions",
+        "label": "Compositions",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/bos/compositions/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/bos/experts",
+        "label": "Experts",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/bos/experts/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/bos/meetings",
+        "label": "Meetings",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/bos/meetings/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/bos/reports",
+        "label": "Reports",
+        "iconName": "FileBarChart",
+        "children": []
+      },
+      {
+        "path": "/bos/ta-da",
+        "label": "Ta Da",
+        "iconName": "FileText",
+        "children": []
+      }
+    ]
+  },
+  {
     "path": "/bug-leaderboard",
     "label": "Bug Leaderboard",
     "iconName": "FileText",
@@ -1865,6 +1954,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/events/propose",
+        "label": "Propose",
+        "iconName": "FileText",
+        "children": []
       }
     ]
   },
@@ -3284,6 +3379,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/system/api-management",
         "label": "Api Management",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/system/attention-bar",
+        "label": "Attention Bar",
         "iconName": "FileText",
         "children": []
       },
