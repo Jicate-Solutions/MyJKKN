@@ -6,7 +6,7 @@
  * Last-24h metrics: renders/layer, top-firing rules, AI cost, consent stats.
  * Data source: GET /api/attention-bar/admin/metrics?range=24h|7d|30d
  *
- * Q2 twin-check: tab-overview.tsx — no existing file in system/*/_components/. Bespoke justified.
+ * Q2 twin-check: tab-overview.tsx — no existing file in system/[module]/_components/. Bespoke justified.
  */
 
 import { useState } from 'react';
