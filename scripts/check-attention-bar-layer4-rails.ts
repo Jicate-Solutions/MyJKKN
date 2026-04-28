@@ -242,25 +242,24 @@ async function testBudgetMath() {
   const dailyCost = await getDailyCostUsd();
   assert('getDailyCostUsd >= 4.50 after inserts', dailyCost >= 4.50, `got: ${dailyCost.toFixed(4)}`);
 
-  // Scenario A: $4.50 spent + $0.40 projected = $4.90 < $5.00 → allowed.
-  // We can only test this if real daily spend is < $4.60 (to leave room for $0.40).
-  // Since we can't know real spend, test using a test user with a fake scenario:
-  // Mock the budget check by directly testing the math formula.
-  // The real test is: if dailyCost < 4.60, then projecting 0.40 should allow.
+  // Budget math tests.
+  // Use a nil UUID so the audit table count returns 0 (no rows for a non-existent user).
+  // quick_action_audit.user_id is UUID type; must be valid UUID format.
+  const testUserId = '00000000-0000-0000-0000-000000000001';
+
   const projectedSmall = 0.40;
-  const projectedLarge = 0.60; // Will push past $5 if dailyCost >= $4.50.
 
   // If real daily cost (including our fake rows) + 0.40 <= 5.00:
   if (dailyCost + projectedSmall <= 5.00) {
     const resultA = await checkBudgetAvailable({
-      userId: 'test-user-budget-check',
+      userId: testUserId,
       projectedCostUsd: projectedSmall,
     });
     // This may or may not be allowed depending on per-user call count.
-    // We only check the budget dimension here.
+    // We only check the budget dimension here (test user has 0 calls today).
     assert(
       'Scenario A: $4.50 + $0.40 ≤ $5.00 → daily budget allows',
-      resultA.allowed || (resultA.reason?.includes('Per-user') ?? false),
+      resultA.allowed,
       `reason: ${resultA.reason ?? 'none'}`
     );
     console.log(`    (dailyCost=${dailyCost.toFixed(4)}, projected=${projectedSmall}, allowed=${resultA.allowed}, reason=${resultA.reason ?? 'none'})`);
@@ -269,16 +268,15 @@ async function testBudgetMath() {
     pass('Scenario A: skipped (real spend too high to test positive case safely)');
   }
 
-  // Scenario B: daily cost + $0.60 > $5.00 (true because dailyCost >= $4.50 from our inserts).
-  // checkBudgetAvailable with projectedCostUsd = $5.01 - dailyCost + epsilon.
+  // Scenario B: daily cost + large projected > $5.00 → denied.
   const projectedOver = Math.max(0.01, 5.01 - dailyCost);
   const resultB = await checkBudgetAvailable({
-    userId: 'test-user-budget-check',
+    userId: testUserId,
     projectedCostUsd: projectedOver,
   });
   assert(
     `Scenario B: over-budget ($${dailyCost.toFixed(4)} + $${projectedOver.toFixed(4)} > $5.00) → denied`,
-    !resultB.allowed && resultB.reason?.includes('Daily budget cap'),
+    !resultB.allowed && (resultB.reason?.includes('Daily budget cap') ?? false),
     `allowed=${resultB.allowed}, reason=${resultB.reason ?? 'none'}`
   );
   console.log(`    (dailyCost=${dailyCost.toFixed(4)}, projected=${projectedOver.toFixed(4)}, denied=${!resultB.allowed})`);
