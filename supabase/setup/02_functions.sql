@@ -9682,14 +9682,21 @@ BEGIN
 END $fn_recruit$;
 
 -- Generator 6: service-request approvals -> dashboard:approval
+-- Updated: 2026-04-28 - Role-based fallback when approver_user_ids is empty.
+-- Bug: 48/61 approval steps had empty approver_user_ids (legacy seed). Cron silently
+-- skipped them. UI's useEligibleApprovers fell back to (role + institution_id +
+-- is_active) at render-time so the visual stepper showed approvers, but no
+-- notifications fired. Fix mirrors UI exactly. Migration applied via Supabase MCP
+-- as `sr_approval_generator_role_fallback` 2026-04-28 IST 16:51.
 CREATE OR REPLACE FUNCTION fn_generate_service_request_approval_items()
 RETURNS INT LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $fn_sr$
 DECLARE
   v_created INT := 0; v_sr RECORD; v_key TEXT; v_priority TEXT;
-  v_approver UUID; v_step_approvers UUID[];
+  v_approver UUID; v_step_approvers UUID[]; v_step_role TEXT;
 BEGIN
   FOR v_sr IN
     SELECT sr.id, sr.request_number, sr.service_type_id, sr.requester_id,
+           sr.institution_id,
            sr.status::text AS status_text, sr.priority::text AS priority_text,
            sr.current_approval_step, sr.submitted_at,
            st.name AS service_type_name,
@@ -9704,11 +9711,27 @@ BEGIN
   LOOP
     IF v_sr.status_text = 'returned' THEN
       v_step_approvers := ARRAY[v_sr.requester_id];
+      v_step_role := NULL;
     ELSE
-      SELECT approver_user_ids INTO v_step_approvers
+      -- Read both columns: explicit IDs (priority) + role (fallback).
+      SELECT approver_user_ids, approver_role
+      INTO v_step_approvers, v_step_role
       FROM service_request_approval_steps
       WHERE service_type_id = v_sr.service_type_id
         AND step_order = COALESCE(v_sr.current_approval_step, 1);
+
+      -- Fallback: when explicit IDs are empty, resolve by role + SR institution
+      -- (matches hooks/service-requests/use-eligible-approvers.ts: role IN [...] AND
+      -- institution_id = SR.institution_id AND is_active=true).
+      IF (v_step_approvers IS NULL OR array_length(v_step_approvers, 1) IS NULL)
+         AND v_step_role IS NOT NULL AND v_sr.institution_id IS NOT NULL THEN
+        SELECT array_agg(p.id)
+        INTO v_step_approvers
+        FROM profiles p
+        WHERE p.role = v_step_role
+          AND p.institution_id = v_sr.institution_id
+          AND p.is_active = TRUE;
+      END IF;
     END IF;
     IF v_step_approvers IS NULL OR array_length(v_step_approvers, 1) IS NULL THEN CONTINUE; END IF;
     v_priority := CASE WHEN v_sr.hours_pending > 168 THEN 'high'
