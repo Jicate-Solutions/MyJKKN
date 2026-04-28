@@ -293,7 +293,7 @@ export function BillingScheduleDataTable({
             student_name: 'Student',
             'institution.name': 'Institution',
             department_semester: 'Department / Semester',
-            'item_category.item_category_name': 'Category',
+            'item_category.category_name': 'Category',
             due_date: 'Due Date',
             final_amount: 'Amount',
             status: 'Status',

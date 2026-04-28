@@ -318,17 +318,16 @@ export class OnboardingService {
       const { data: userData } = await supabase.auth.getUser();
       const currentUserId = userData?.user?.id ?? null;
 
-      // Fetch billing item categories for this institution (used as fallback for legacy columns)
+      // Fetch billing categories (global, no institution filter as of 2026-04-28)
       const { data: itemCategories } = await supabase
-        .from('billing_item_categories')
-        .select('id, item_category_name, institution_id')
-        .eq('institution_id', learner.institution_id)
+        .from('billing_categories')
+        .select('id, category_name')
         .eq('is_active', true);
 
       const categoryLookup: Record<string, string> = {};
       if (itemCategories) {
         for (const cat of itemCategories) {
-          categoryLookup[cat.item_category_name] = cat.id;
+          categoryLookup[cat.category_name] = cat.id;
         }
       }
 

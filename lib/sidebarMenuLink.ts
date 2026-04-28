@@ -367,15 +367,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Billing Management - Admin/Staff Views
   // 3-tier categories. RLS uses 4 keys (billing.categories.{view,create,edit,delete})
   // for all 3 tables, so all 9 paths below check the same 4 keys.
-  '/billing/categories/parent-categories': 'billing.categories.view',
-  '/billing/categories/parent-categories/new': 'billing.categories.create',
-  '/billing/categories/parent-categories/[id]/edit': 'billing.categories.edit',
-  '/billing/categories/sub-categories': 'billing.categories.view',
-  '/billing/categories/sub-categories/new': 'billing.categories.create',
-  '/billing/categories/sub-categories/[id]/edit': 'billing.categories.edit',
-  '/billing/categories/item-categories': 'billing.categories.view',
-  '/billing/categories/item-categories/new': 'billing.categories.create',
-  '/billing/categories/item-categories/[id]/edit': 'billing.categories.edit',
+  '/billing/categories': 'billing.categories.view',
+  '/billing/categories/new': 'billing.categories.create',
+  '/billing/categories/[id]/edit': 'billing.categories.edit',
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
@@ -1149,20 +1143,67 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/billing' || pathname.startsWith('/billing/'),
           icon: Wallet,
           submenus: [
-            { href: '/billing/categories/parent-categories', label: 'Categories · Parents', active: pathname === '/billing/categories/parent-categories' },
-            { href: '/billing/categories/sub-categories', label: 'Categories · Subs', active: pathname === '/billing/categories/sub-categories' },
-            { href: '/billing/categories/item-categories', label: 'Categories · Items', active: pathname === '/billing/categories/item-categories' },
-            { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
-            { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
-            { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
-            { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
-            { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
-            { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
-            { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
-            { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
-          ]
-        }
-      ]
+            // Tier 1: Setup — master data and one-time configuration
+            {
+              href: '/billing/categories',
+              label: 'Setup',
+              icon: FolderTree,
+              active:
+                pathname.startsWith('/billing/categories') ||
+                pathname.startsWith('/billing/onboarding'),
+              submenus: [
+                {
+                  href: '/billing/categories',
+                  label: 'Categories',
+                  icon: Tags,
+                  active: pathname.startsWith('/billing/categories'),
+                },
+                { href: '/billing/onboarding', label: 'Learner Onboarding', icon: UserCheck, active: pathname.startsWith('/billing/onboarding') },
+              ],
+            },
+
+            // Tier 1: Operations — day-to-day billing actions
+            {
+              href: '/billing/schedule',
+              label: 'Operations',
+              icon: Activity,
+              active:
+                pathname.startsWith('/billing/schedule') ||
+                pathname.startsWith('/billing/invoices') ||
+                pathname.startsWith('/billing/receipts') ||
+                pathname.startsWith('/billing/discounts') ||
+                pathname.startsWith('/billing/refunds'),
+              submenus: [
+                {
+                  href: '/billing/schedule',
+                  label: 'Bill Schedule',
+                  icon: CalendarClock,
+                  active: pathname.startsWith('/billing/schedule'),
+                  submenus: [
+                    { href: '/billing/schedule', label: 'All Bills', active: pathname === '/billing/schedule' },
+                    { href: '/billing/schedule/students', label: 'Student Search', active: pathname.startsWith('/billing/schedule/students') },
+                  ],
+                },
+                { href: '/billing/invoices', label: 'Invoices', icon: FileText, active: pathname.startsWith('/billing/invoices') },
+                { href: '/billing/receipts', label: 'Receipts', icon: FileCheck, active: pathname.startsWith('/billing/receipts') },
+                { href: '/billing/discounts', label: 'Scholarships', icon: Award, active: pathname.startsWith('/billing/discounts') },
+                { href: '/billing/refunds', label: 'Refunds', icon: RefreshCw, active: pathname.startsWith('/billing/refunds') },
+              ],
+            },
+
+            // Tier 1: Analytics — reporting and insights
+            {
+              href: '/billing/reports',
+              label: 'Analytics',
+              icon: BarChart3,
+              active: pathname.startsWith('/billing/reports'),
+              submenus: [
+                { href: '/billing/reports', label: 'Reports', icon: PieChart, active: pathname.startsWith('/billing/reports') },
+              ],
+            },
+          ],
+        },
+      ],
     },
     // "Documents" section removed — `/documents` has no page on prod
     // (flagged in PR #409 sweep; no `app/(routes)/documents` folder).
@@ -1528,6 +1569,50 @@ export function normalizeRoute(href: string): string {
   return href.replace(UUID_SEGMENT_REGEX, '[id]');
 }
 
+// Recursive helper: returns true if the user has permission for any leaf
+// in this submenu subtree. Used so a parent group (e.g. Billing > Setup)
+// stays visible whenever ANY descendant leaf is accessible — even when
+// the parent's own href maps to a permission the user lacks.
+type SubmenuLike = {
+  href: string;
+  submenus?: SubmenuLike[];
+};
+
+function hasAccessibleDescendant(
+  submenu: SubmenuLike,
+  permissions: Record<string, boolean>
+): boolean {
+  if (!submenu.submenus || submenu.submenus.length === 0) {
+    const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
+    return !!requiredPermission && permissions[requiredPermission] === true;
+  }
+  return submenu.submenus.some((child) =>
+    hasAccessibleDescendant(child, permissions)
+  );
+}
+
+// Recursive helper: deep-clone a submenu tree, dropping leaves the user
+// can't see and dropping branches whose children all got dropped. Returns
+// null when the entire subtree is empty after filtering. Preserves the
+// branch's own metadata (label, icon, active) for surviving children.
+function filterSubmenuTree<T extends SubmenuLike>(
+  submenu: T,
+  permissions: Record<string, boolean>
+): T | null {
+  if (!submenu.submenus || submenu.submenus.length === 0) {
+    const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
+    if (!requiredPermission || permissions[requiredPermission] !== true) {
+      return null;
+    }
+    return submenu;
+  }
+  const filteredChildren = submenu.submenus
+    .map((child) => filterSubmenuTree(child, permissions))
+    .filter((c): c is T => c !== null);
+  if (filteredChildren.length === 0) return null;
+  return { ...submenu, submenus: filteredChildren };
+}
+
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
   pathname: string,
@@ -1635,14 +1720,12 @@ export function GetRoleBasedPages(
 
           // Special handling for parent menus with submenus
           if (menu.submenus.length > 0) {
-            // Show parent if any submenu is accessible
-            return menu.submenus.some((submenu) => {
-              const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
-              return (
-                requiredPermission &&
-                userRole.permissions[requiredPermission] === true
-              );
-            });
+            // Show parent if any LEAF in the subtree is accessible.
+            // hasAccessibleDescendant recurses so nested groups (e.g. Billing
+            // > Setup > Categories > Parents) are checked correctly.
+            return menu.submenus.some((submenu) =>
+              hasAccessibleDescendant(submenu, userRole.permissions)
+            );
           }
 
           // Check if user has permission for this menu
@@ -1676,7 +1759,22 @@ export function GetRoleBasedPages(
             return menu;
           }
 
-          const filteredSubmenus = menu.submenus.filter((submenu) => {
+          const filteredSubmenus = menu.submenus.map((submenu) => {
+            // Branch submenu (has its own children) — recurse via filterSubmenuTree.
+            // None of the leaf-level special cases below apply to branch nodes;
+            // grandchildren get the standard MENU_PERMISSIONS lookup recursively.
+            if (submenu.submenus && submenu.submenus.length > 0) {
+              return filterSubmenuTree(submenu, userRole.permissions);
+            }
+            return submenu;
+          }).filter((submenu): submenu is NonNullable<typeof submenu> => {
+            if (submenu === null) return false;
+
+            // Branch survivors (already filtered by filterSubmenuTree) pass through
+            if (submenu.submenus && submenu.submenus.length > 0) return true;
+
+            // ----- Leaf-only special cases below -----
+
             // Bug report submenus: My Bug Reports and Leaderboard are always visible for all users
             // But All Bug Reports (admin page) requires permission
             if (submenu.href === '/my-bug-reports' || submenu.href === '/bug-leaderboard') {

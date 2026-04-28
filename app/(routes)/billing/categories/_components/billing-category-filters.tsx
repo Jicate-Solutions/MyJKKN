@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -12,33 +11,30 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import { usePermissions } from '@/hooks/use-permissions';
-import type { BillingParentCategoryFilters } from '@/types/billing';
+import type {
+  BillingCategoryFilters as Filters,
+  BillingCategoryFrequency
+} from '@/types/billing';
 
-interface ParentCategoryFiltersProps {
-  filters: BillingParentCategoryFilters;
-  onFilterChange: (filters: Partial<BillingParentCategoryFilters>) => void;
+interface BillingCategoryFiltersProps {
+  filters: Filters;
+  onFilterChange: (filters: Partial<Filters>) => void;
 }
 
-export function ParentCategoryFilters({
+export function BillingCategoryFilters({
   filters,
   onFilterChange
-}: ParentCategoryFiltersProps) {
-  const { institutions, loading: isLoadingInstitutions } =
-    useUserInstitutionAccess();
-  const { isSuperAdmin } = usePermissions();
-
+}: BillingCategoryFiltersProps) {
   const handleClearFilters = () => {
     onFilterChange({
       search: '',
-      institution_id: undefined,
+      frequency: undefined,
       isActive: undefined
     });
   };
 
   const hasActiveFilters =
-    filters.search || filters.institution_id || filters.isActive !== undefined;
+    filters.search || filters.frequency || filters.isActive !== undefined;
 
   return (
     <div className='space-y-4 p-4 bg-muted/50 rounded-lg'>
@@ -58,7 +54,6 @@ export function ParentCategoryFilters({
       </div>
 
       <div className='grid grid-cols-1 md:grid-cols-3 gap-4'>
-        {/* Search Filter */}
         <div className='space-y-2'>
           <Label htmlFor='search'>Search</Label>
           <div className='relative'>
@@ -73,43 +68,32 @@ export function ParentCategoryFilters({
           </div>
         </div>
 
-        {/* Institution Filter */}
         <div className='space-y-2'>
-          <Label htmlFor='institution'>Institution</Label>
+          <Label htmlFor='frequency'>Frequency</Label>
           <Select
-            value={filters.institution_id || ''}
+            value={filters.frequency || 'all'}
             onValueChange={(value) =>
               onFilterChange({
-                institution_id: value === 'all' ? undefined : value
+                frequency:
+                  value === 'all'
+                    ? undefined
+                    : (value as BillingCategoryFrequency)
               })
             }
-            disabled={isLoadingInstitutions}
           >
-            <SelectTrigger id='institution'>
-              <SelectValue
-                placeholder={
-                  isLoadingInstitutions
-                    ? 'Loading institutions...'
-                    : 'All institutions'
-                }
-              />
+            <SelectTrigger id='frequency'>
+              <SelectValue placeholder='All frequencies' />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value='all'>All institutions</SelectItem>
-              {institutions.map((institution) => (
-                <SelectItem
-                  key={institution.institution_id}
-                  value={institution.institution_id}
-                >
-                  {institution.institution_name} ({institution.counselling_code}
-                  )
-                </SelectItem>
-              ))}
+              <SelectItem value='all'>All frequencies</SelectItem>
+              <SelectItem value='one-time'>One-time</SelectItem>
+              <SelectItem value='monthly'>Monthly</SelectItem>
+              <SelectItem value='quarterly'>Quarterly</SelectItem>
+              <SelectItem value='yearly'>Yearly</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        {/* Status Filter */}
         <div className='space-y-2'>
           <Label htmlFor='status'>Status</Label>
           <Select

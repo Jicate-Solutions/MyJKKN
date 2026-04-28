@@ -24,7 +24,7 @@ const CONTEXTUAL_MAP: Record<string, string[]> = {
   // Billing pages
   '/billing/invoices': ['/billing/receipts', '/billing/schedule', '/billing/reports', '/billing/discounts'],
   '/billing/receipts': ['/billing/invoices', '/billing/schedule', '/billing/reports'],
-  '/billing/schedule': ['/billing/invoices', '/billing/receipts', '/billing/categories/parent-categories'],
+  '/billing/schedule': ['/billing/invoices', '/billing/receipts', '/billing/categories'],
   '/billing/reports': ['/billing/invoices', '/billing/receipts', '/billing/refunds'],
   '/billing/discounts': ['/billing/invoices', '/billing/schedule'],
 

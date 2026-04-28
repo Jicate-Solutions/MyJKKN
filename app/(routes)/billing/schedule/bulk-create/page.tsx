@@ -47,12 +47,12 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { useStudentsForBulkOperations } from '@/hooks/billing/use-student-search';
 import { useBulkCreateStudentBills } from '@/hooks/billing/use-student-bills';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { Institution } from '@/types/organizations';
-import type { BillingItemCategory } from '@/types/billing';
+import type { BillingCategory } from '@/types/billing';
 import type { StudentForBilling } from '@/types/billing-schedule';
 
 /**
@@ -85,9 +85,7 @@ type BulkBillFormData = z.infer<typeof bulkBillSchema>;
 export default function BulkCreateBillsPage() {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [itemCategories, setItemCategories] = useState<BillingItemCategory[]>(
-    []
-  );
+  const [itemCategories, setItemCategories] = useState<BillingCategory[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(true);
   const [isLoadingItemCategories, setIsLoadingItemCategories] = useState(false);
@@ -127,12 +125,8 @@ export default function BulkCreateBillsPage() {
   }, []);
 
   useEffect(() => {
-    if (watchedValues.institution_id) {
-      loadItemCategories(watchedValues.institution_id);
-    } else {
-      setItemCategories([]);
-    }
-  }, [watchedValues.institution_id]);
+    loadItemCategories();
+  }, []);
 
   const loadInstitutions = async () => {
     try {
@@ -148,17 +142,13 @@ export default function BulkCreateBillsPage() {
     }
   };
 
-  const loadItemCategories = async (institutionId: string) => {
+  const loadItemCategories = async () => {
     try {
       setIsLoadingItemCategories(true);
-      const categories =
-        await BillingItemCategoryService.getBillingItemCategoriesByInstitution(
-          institutionId,
-          true
-        );
+      const categories = await BillingCategoryService.getActiveBillingCategories();
       setItemCategories(categories);
     } catch (error) {
-      console.error('Error loading item categories:', error);
+      console.error('Error loading billing categories:', error);
     } finally {
       setIsLoadingItemCategories(false);
     }
@@ -303,7 +293,7 @@ export default function BulkCreateBillsPage() {
                                   key={category.id}
                                   value={category.id}
                                 >
-                                  {category.item_category_name}
+                                  {category.category_name}
                                 </SelectItem>
                               ))}
                             </SelectContent>

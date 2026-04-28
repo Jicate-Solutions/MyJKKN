@@ -525,6 +525,57 @@ END;
 $$;
 
 -- ================================================================================
+-- BILLING AI RPC FUNCTIONS
+-- Added: 2026-04-28 - Folded back from migration into canonical setup file.
+-- ================================================================================
+
+-- ai_rpc_billing_categories: AI-callable read RPC over the global flat billing_categories.
+-- p_institution_id is retained for RPC signature stability but is ignored (categories are global).
+CREATE OR REPLACE FUNCTION public.ai_rpc_billing_categories(
+    p_user_id uuid,
+    p_institution_id uuid DEFAULT NULL,
+    p_limit integer DEFAULT 100,
+    p_offset integer DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_result jsonb;
+BEGIN
+  SELECT jsonb_build_object(
+    'success', true,
+    'data', COALESCE(jsonb_agg(row_to_json(t)), '[]'::jsonb),
+    'metadata', jsonb_build_object(
+      'total_count', COUNT(*) OVER(),
+      'returned_count', COUNT(*),
+      'has_more', COUNT(*) OVER() > p_offset + p_limit,
+      'filters_applied', jsonb_build_object('institution_id', p_institution_id)
+    )
+  )
+  INTO v_result
+  FROM (
+    SELECT
+      bc.id,
+      bc.category_name,
+      bc.amount,
+      bc.frequency,
+      bc.description,
+      bc.is_active,
+      bc.created_at
+    FROM billing_categories bc
+    ORDER BY bc.category_name
+    LIMIT p_limit
+    OFFSET p_offset
+  ) t;
+
+  RETURN v_result;
+END;
+$function$;
+
+-- ================================================================================
 -- BILLING TRIGGER FUNCTIONS
 -- Added: 2025-01-08 - Missing trigger functions for automatic bill status updates
 -- ================================================================================

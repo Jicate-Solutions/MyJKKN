@@ -58,7 +58,7 @@ import {
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
-import { BillingItemCategoryService } from '@/lib/services/billing/categories/billing-item-category-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import {
   useSearchStudentsByQuery,
   useStudentForBilling
@@ -68,7 +68,7 @@ import {
   useUpdateStudentBill
 } from '@/hooks/billing/use-student-bills';
 import type { Institution } from '@/types/organizations';
-import type { BillingItemCategory } from '@/types/billing';
+import type { BillingCategory } from '@/types/billing';
 import type {
   StudentBill,
   CreateStudentBillDto,
@@ -112,7 +112,7 @@ export function StudentBillForm({
 }: StudentBillFormProps) {
   const router = useRouter();
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [itemCategories, setItemCategories] = useState<BillingItemCategory[]>(
+  const [itemCategories, setItemCategories] = useState<BillingCategory[]>(
     []
   );
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
@@ -322,17 +322,15 @@ export function StudentBillForm({
     }
   };
 
-  const loadItemCategories = async (institutionId: string) => {
+  const loadItemCategories = async (_institutionId: string) => {
     try {
       setIsLoadingItemCategories(true);
+      // 2026-04-28: Categories are now global; institution arg ignored.
       const categories =
-        await BillingItemCategoryService.getBillingItemCategoriesByInstitution(
-          institutionId,
-          true
-        );
+        await BillingCategoryService.getActiveBillingCategories();
       setItemCategories(categories);
     } catch (error) {
-      console.error('Error loading item categories:', error);
+      console.error('Error loading billing categories:', error);
     } finally {
       setIsLoadingItemCategories(false);
     }
@@ -356,7 +354,7 @@ export function StudentBillForm({
     const selectedCategory = itemCategories.find(
       (cat) => cat.id === item.item_category_id
     );
-    const defaultDescription = selectedCategory?.item_category_name || 'Billing Item';
+    const defaultDescription = selectedCategory?.category_name || 'Billing Item';
     const taxAmount = item.tax_amount || 0;
 
     return {
@@ -819,7 +817,7 @@ export function StudentBillForm({
                                     key={category.id}
                                     value={category.id}
                                   >
-                                    {category.item_category_name}
+                                    {category.category_name}
                                   </SelectItem>
                                 ))}
                               </SelectContent>

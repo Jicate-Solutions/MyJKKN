@@ -1497,34 +1497,31 @@ CREATE POLICY "refunds_all_billing" ON billing_refunds
 
 -- BILLING CATEGORIES (4 policies)
 -- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into flat billing_categories.
+-- Updated: 2026-04-28 - Removed role_has_institution_access(); categories are global, permission-only check.
 ALTER TABLE billing_categories ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "billing_categories_select" ON billing_categories
     FOR SELECT USING (
         is_super_admin() OR is_admin()
-        OR (user_has_permission('billing.categories.view')
-            AND role_has_institution_access(institution_id))
+        OR user_has_permission('billing.categories.view')
     );
 
 CREATE POLICY "billing_categories_insert" ON billing_categories
     FOR INSERT WITH CHECK (
         is_super_admin() OR is_admin()
-        OR (user_has_permission('billing.categories.create')
-            AND role_has_institution_access(institution_id))
+        OR user_has_permission('billing.categories.create')
     );
 
 CREATE POLICY "billing_categories_update" ON billing_categories
     FOR UPDATE USING (
         is_super_admin() OR is_admin()
-        OR (user_has_permission('billing.categories.edit')
-            AND role_has_institution_access(institution_id))
+        OR user_has_permission('billing.categories.edit')
     );
 
 CREATE POLICY "billing_categories_delete" ON billing_categories
     FOR DELETE USING (
         is_super_admin() OR is_admin()
-        OR (user_has_permission('billing.categories.delete')
-            AND role_has_institution_access(institution_id))
+        OR user_has_permission('billing.categories.delete')
     );
 
 -- ================================================================================

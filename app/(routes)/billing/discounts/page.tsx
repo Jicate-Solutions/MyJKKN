@@ -99,7 +99,7 @@ export default function BillingDiscountsPage() {
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
-          { label: 'Billing', href: '/billing/schedule' },
+          { label: 'Billing', href: '/billing' },
           { label: 'Scholarships', href: '/billing/discounts' }
         ]}
       />

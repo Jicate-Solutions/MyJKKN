@@ -804,11 +804,11 @@ CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
 -- SECTION 8: BILLING AND FINANCE
 -- =====================================================
 
--- Billing Categories (flat, dynamic)
+-- Billing Categories (flat, dynamic, GLOBAL across institutions)
 -- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into a single flat table.
+-- Updated: 2026-04-28 - Removed institution_id; categories are now common across all institutions.
 CREATE TABLE IF NOT EXISTS public.billing_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL,
     category_name VARCHAR(150) NOT NULL,
     amount NUMERIC(15,2),
     frequency VARCHAR(20) NOT NULL,
@@ -818,15 +818,19 @@ CREATE TABLE IF NOT EXISTS public.billing_categories (
     updated_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID,
     updated_by UUID,
-    CONSTRAINT uq_billing_categories_name_per_institution UNIQUE (institution_id, category_name)
+    CONSTRAINT uq_billing_categories_name UNIQUE (category_name),
+    CONSTRAINT chk_billing_categories_frequency CHECK (frequency IN ('monthly','quarterly','yearly','one-time'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_billing_categories_is_active ON public.billing_categories(is_active);
+CREATE INDEX IF NOT EXISTS idx_billing_categories_frequency ON public.billing_categories(frequency);
 
 -- Billing Student Bills
 CREATE TABLE IF NOT EXISTS public.billing_student_bills (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    category_id UUID,  -- Renamed 2026-04-15 from item_category_id (flat billing_categories)
+    item_category_id UUID,  -- FK to billing_categories(id); kept name 2026-04-28 (per D10)
     bill_description TEXT NOT NULL,
     due_date DATE NOT NULL,
     quantity INTEGER DEFAULT 1,

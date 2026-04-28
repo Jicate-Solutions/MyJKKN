@@ -193,19 +193,12 @@ export class StudentSearchServiceOptimized {
 
     const promises = [];
 
-    // Get item categories (only if needed)
+    // Get billing categories (global, flat as of 2026-04-28)
     if (categoryIds.length > 0) {
       promises.push(
         this.supabase
-          .from('billing_item_categories')
-          .select(
-            `
-            id,
-            item_category_name,
-            parent_category:billing_parent_categories(id, parent_category_name),
-            sub_category:billing_sub_categories(id, sub_category_name)
-          `
-          )
+          .from('billing_categories')
+          .select('id, category_name, amount, frequency')
           .in('id', categoryIds)
       );
     } else {

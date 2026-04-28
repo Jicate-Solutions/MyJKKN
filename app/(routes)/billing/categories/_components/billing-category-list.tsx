@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
@@ -8,11 +10,11 @@ import {
   RefreshCw,
   CheckSquare,
   Square,
-  Building2
+  Tags
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { BillingSubCategory } from '@/types/billing';
-import { BillingSubCategoryService } from '@/lib/services/billing/categories/billing-sub-category-service';
+import type { BillingCategory } from '@/types/billing';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -44,8 +46,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Pagination } from '@/components/pagination';
 
-interface SubCategoryListProps {
-  subCategories: BillingSubCategory[];
+interface BillingCategoryListProps {
+  categories: BillingCategory[];
   metadata: {
     total: number;
     page: number;
@@ -56,75 +58,80 @@ interface SubCategoryListProps {
   onRefresh: () => void;
 }
 
-export function SubCategoryList({
-  subCategories,
+const frequencyLabel: Record<BillingCategory['frequency'], string> = {
+  'one-time': 'One-time',
+  monthly: 'Monthly',
+  quarterly: 'Quarterly',
+  yearly: 'Yearly'
+};
+
+export function BillingCategoryList({
+  categories,
   metadata,
   onPageChange,
   onRefresh
-}: SubCategoryListProps) {
+}: BillingCategoryListProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [subCategoryToDelete, setSubCategoryToDelete] =
-    useState<BillingSubCategory | null>(null);
-  const [selectedSubCategories, setSelectedSubCategories] = useState<string[]>(
-    []
-  );
+  const [categoryToDelete, setCategoryToDelete] =
+    useState<BillingCategory | null>(null);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
 
   const { canAccess, isSuperAdmin } = usePermissions();
-
-  const canViewSubCategories =
-    isSuperAdmin || canAccess('billing.categories', 'view');
-  const canEditSubCategories =
+  const canEditCategories =
     isSuperAdmin || canAccess('billing.categories', 'edit');
-  const canDeleteSubCategories =
+  const canDeleteCategories =
     isSuperAdmin || canAccess('billing.categories', 'delete');
+  const canViewCategories =
+    isSuperAdmin || canAccess('billing.categories', 'view');
 
   const handleDelete = async () => {
-    if (!subCategoryToDelete) return;
-
+    if (!categoryToDelete) return;
     try {
       setIsLoading(true);
-      await BillingSubCategoryService.deleteBillingSubCategory(
-        subCategoryToDelete.id
-      );
-      toast.success('Sub category deleted successfully');
+      await BillingCategoryService.deleteBillingCategory(categoryToDelete.id);
+      toast.success('Billing category deleted successfully');
       onRefresh();
     } catch (error) {
-      console.error('Error deleting sub category:', error);
+      console.error('[billing/categories] Error deleting category:', error);
       toast.error(
-        error instanceof Error ? error.message : 'Failed to delete sub category'
+        error instanceof Error ? error.message : 'Failed to delete category'
       );
     } finally {
       setIsLoading(false);
-      setSubCategoryToDelete(null);
+      setCategoryToDelete(null);
     }
   };
 
   const handleBulkDelete = async () => {
-    if (selectedSubCategories.length === 0) return;
-
+    if (selectedCategories.length === 0) return;
     try {
       setIsLoading(true);
       const result =
-        await BillingSubCategoryService.bulkDeleteBillingSubCategories(
-          selectedSubCategories
+        await BillingCategoryService.bulkDeleteBillingCategories(
+          selectedCategories
         );
 
       if (result.success.length > 0) {
         toast.success(
-          `${result.success.length} sub categories deleted successfully`
+          `${result.success.length} categor${
+            result.success.length === 1 ? 'y' : 'ies'
+          } deleted successfully`
+        );
+      }
+      if (result.failed.length > 0) {
+        toast.error(
+          `Failed to delete ${result.failed.length} categor${
+            result.failed.length === 1 ? 'y' : 'ies'
+          } — ${result.failed[0].error}`
         );
       }
 
-      if (result.failed.length > 0) {
-        toast.error(`Failed to delete ${result.failed.length} sub categories`);
-      }
-
-      setSelectedSubCategories([]);
+      setSelectedCategories([]);
       onRefresh();
     } catch (error) {
-      console.error('Error deleting sub categories:', error);
-      toast.error('Failed to delete sub categories');
+      console.error('[billing/categories] Error in bulk delete:', error);
+      toast.error('Failed to delete categories');
     } finally {
       setIsLoading(false);
       setShowBulkDeleteDialog(false);
@@ -132,48 +139,49 @@ export function SubCategoryList({
   };
 
   const toggleSelectAll = () => {
-    if (selectedSubCategories.length === subCategories.length) {
-      setSelectedSubCategories([]);
+    if (selectedCategories.length === categories.length) {
+      setSelectedCategories([]);
     } else {
-      setSelectedSubCategories(subCategories.map((cat) => cat.id));
+      setSelectedCategories(categories.map((cat) => cat.id));
     }
   };
 
-  const toggleSelectSubCategory = (id: string) => {
-    if (selectedSubCategories.includes(id)) {
-      setSelectedSubCategories(
-        selectedSubCategories.filter((catId) => catId !== id)
-      );
-    } else {
-      setSelectedSubCategories([...selectedSubCategories, id]);
-    }
+  const toggleSelectCategory = (id: string) => {
+    setSelectedCategories((prev) =>
+      prev.includes(id) ? prev.filter((cid) => cid !== id) : [...prev, id]
+    );
   };
 
-  const formatDate = (date: string) => {
-    return format(new Date(date), 'MMM d, yyyy');
-  };
+  const formatDate = (date: string) => format(new Date(date), 'MMM d, yyyy');
+  const formatAmount = (amount: number | null) =>
+    amount === null
+      ? '—'
+      : new Intl.NumberFormat('en-IN', {
+          style: 'currency',
+          currency: 'INR',
+          minimumFractionDigits: 2
+        }).format(amount);
 
   return (
     <div className='space-y-4'>
       <div className='flex justify-between items-center'>
-        {selectedSubCategories.length > 0 && (
+        {selectedCategories.length > 0 && (
           <Button
             variant='destructive'
             size='sm'
             onClick={() => setShowBulkDeleteDialog(true)}
-            disabled={!canDeleteSubCategories || isLoading}
+            disabled={!canDeleteCategories || isLoading}
           >
             <Trash2 className='mr-2 h-4 w-4' />
-            Delete Selected ({selectedSubCategories.length})
+            Delete Selected ({selectedCategories.length})
           </Button>
         )}
-
         <Button
           variant='outline'
           size='sm'
           onClick={onRefresh}
-          className={selectedSubCategories.length > 0 ? 'ml-auto' : 'ml-auto'}
-          disabled={!canViewSubCategories}
+          className='ml-auto'
+          disabled={!canViewCategories}
         >
           <RefreshCw className='mr-2 h-4 w-4' />
           Refresh
@@ -184,11 +192,11 @@ export function SubCategoryList({
         <Table>
           <TableHeader>
             <TableRow>
-              {canDeleteSubCategories && (
+              {canDeleteCategories && (
                 <TableHead className='w-12'>
                   <div className='flex items-center' onClick={toggleSelectAll}>
-                    {selectedSubCategories.length === subCategories.length &&
-                    subCategories.length > 0 ? (
+                    {selectedCategories.length === categories.length &&
+                    categories.length > 0 ? (
                       <CheckSquare className='h-4 w-4 cursor-pointer' />
                     ) : (
                       <Square className='h-4 w-4 cursor-pointer' />
@@ -196,39 +204,39 @@ export function SubCategoryList({
                   </div>
                 </TableHead>
               )}
-              <TableHead>Sub Category Name</TableHead>
-              <TableHead>Parent Category</TableHead>
-              <TableHead>Institution</TableHead>
+              <TableHead>Category Name</TableHead>
+              <TableHead>Frequency</TableHead>
+              <TableHead>Default Amount</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Created Date</TableHead>
+              <TableHead>Created</TableHead>
               <TableHead className='text-right'>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {subCategories.length === 0 ? (
+            {categories.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={canDeleteSubCategories ? 7 : 6}
+                  colSpan={canDeleteCategories ? 7 : 6}
                   className='text-center py-8'
                 >
                   <div className='flex flex-col items-center space-y-3'>
-                    <Building2 className='h-8 w-8 text-muted-foreground' />
+                    <Tags className='h-8 w-8 text-muted-foreground' />
                     <p className='text-muted-foreground'>
-                      No sub categories found
+                      No billing categories found
                     </p>
                   </div>
                 </TableCell>
               </TableRow>
             ) : (
-              subCategories.map((subCategory) => (
-                <TableRow key={subCategory.id}>
-                  {canDeleteSubCategories && (
+              categories.map((category) => (
+                <TableRow key={category.id}>
+                  {canDeleteCategories && (
                     <TableCell>
                       <div
                         className='flex items-center'
-                        onClick={() => toggleSelectSubCategory(subCategory.id)}
+                        onClick={() => toggleSelectCategory(category.id)}
                       >
-                        {selectedSubCategories.includes(subCategory.id) ? (
+                        {selectedCategories.includes(category.id) ? (
                           <CheckSquare className='h-4 w-4 cursor-pointer' />
                         ) : (
                           <Square className='h-4 w-4 cursor-pointer' />
@@ -237,31 +245,29 @@ export function SubCategoryList({
                     </TableCell>
                   )}
                   <TableCell className='font-medium'>
-                    {subCategory.sub_category_name}
-                  </TableCell>
-                  <TableCell>
-                    <span className='font-medium'>
-                      {subCategory.parent_category?.parent_category_name}
-                    </span>
-                  </TableCell>
-                  <TableCell>
                     <div className='flex flex-col'>
-                      <span className='font-medium'>
-                        {subCategory.institution?.name}
-                      </span>
-                      <span className='text-sm text-muted-foreground'>
-                        {subCategory.institution?.counselling_code}
-                      </span>
+                      <span>{category.category_name}</span>
+                      {category.description && (
+                        <span className='text-xs text-muted-foreground line-clamp-1'>
+                          {category.description}
+                        </span>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      variant={subCategory.is_active ? 'default' : 'secondary'}
-                    >
-                      {subCategory.is_active ? 'Active' : 'Inactive'}
+                    <Badge variant='outline'>
+                      {frequencyLabel[category.frequency]}
                     </Badge>
                   </TableCell>
-                  <TableCell>{formatDate(subCategory.created_at)}</TableCell>
+                  <TableCell>{formatAmount(category.amount)}</TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={category.is_active ? 'default' : 'secondary'}
+                    >
+                      {category.is_active ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{formatDate(category.created_at)}</TableCell>
                   <TableCell className='text-right'>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -273,22 +279,20 @@ export function SubCategoryList({
                       <DropdownMenuContent align='end'>
                         <DropdownMenuLabel>Actions</DropdownMenuLabel>
                         <DropdownMenuSeparator />
-
-                        {canEditSubCategories && (
+                        {canEditCategories && (
                           <DropdownMenuItem asChild>
                             <Link
-                              href={`/billing/categories/sub-categories/${subCategory.id}/edit`}
+                              href={`/billing/categories/${category.id}/edit`}
                             >
                               <Edit className='mr-2 h-4 w-4' />
                               Edit
                             </Link>
                           </DropdownMenuItem>
                         )}
-
-                        {canDeleteSubCategories && (
+                        {canDeleteCategories && (
                           <DropdownMenuItem
                             className='text-destructive'
-                            onClick={() => setSubCategoryToDelete(subCategory)}
+                            onClick={() => setCategoryToDelete(category)}
                           >
                             <Trash2 className='mr-2 h-4 w-4' />
                             Delete
@@ -312,18 +316,17 @@ export function SubCategoryList({
         />
       )}
 
-      {/* Delete confirmation dialog */}
       <AlertDialog
-        open={!!subCategoryToDelete}
-        onOpenChange={() => setSubCategoryToDelete(null)}
+        open={!!categoryToDelete}
+        onOpenChange={() => setCategoryToDelete(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Delete this category?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the sub
-              category &quot;{subCategoryToDelete?.sub_category_name}
-              &quot;.
+              This will permanently delete &quot;
+              {categoryToDelete?.category_name}&quot;. The action will fail if
+              any student bill still references this category.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -339,17 +342,17 @@ export function SubCategoryList({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Bulk delete confirmation dialog */}
       <AlertDialog
         open={showBulkDeleteDialog}
         onOpenChange={setShowBulkDeleteDialog}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Multiple Sub Categories</AlertDialogTitle>
+            <AlertDialogTitle>Delete multiple categories?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {selectedSubCategories.length} sub
-              categories? This action cannot be undone.
+              You are about to delete {selectedCategories.length} categor
+              {selectedCategories.length === 1 ? 'y' : 'ies'}. Any that are
+              referenced by existing bills will be skipped.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

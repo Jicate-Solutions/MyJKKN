@@ -1,54 +1,48 @@
 'use client';
 
-
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
-import { BillingSubCategoryForm } from '@/app/(routes)/billing/categories/sub-categories/_components/billing-sub-category-form';
-import { BillingSubCategoryService } from '@/lib/services/billing/categories/billing-sub-category-service';
+import { BillingCategoryForm } from '@/app/(routes)/billing/categories/_components/billing-category-form';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { BeatLoader } from 'react-spinners';
 import { Button } from '@/components/ui/button';
 import { AlertCircle } from 'lucide-react';
-import type { BillingSubCategory } from '@/types/billing';
+import type { BillingCategory } from '@/types/billing';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 
-export default function EditBillingSubCategoryPage() {
+export default function EditBillingCategoryPage() {
   const router = useRouter();
   const params = useParams();
-  const subCategoryId = params.id as string;
+  const categoryId = params.id as string;
 
-  const [subCategory, setSubCategory] = useState<BillingSubCategory | null>(
-    null
-  );
+  const [category, setCategory] = useState<BillingCategory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSubCategory = useCallback(async () => {
+  const fetchCategory = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const subCategoryData =
-        await BillingSubCategoryService.getBillingSubCategory(subCategoryId);
-      setSubCategory(subCategoryData);
+      const categoryData =
+        await BillingCategoryService.getBillingCategory(categoryId);
+      setCategory(categoryData);
     } catch (err) {
-      console.error('Error fetching sub category:', err);
-      setError(
-        err instanceof Error ? err.message : 'Failed to load sub category'
-      );
+      console.error('[billing/categories] Error fetching category:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load category');
     } finally {
       setLoading(false);
     }
-  }, [subCategoryId]);
+  }, [categoryId]);
 
   useEffect(() => {
-    if (subCategoryId) {
-      fetchSubCategory();
+    if (categoryId) {
+      fetchCategory();
     }
-  }, [subCategoryId, fetchSubCategory]);
+  }, [categoryId, fetchCategory]);
 
   const handleSuccess = () => {
-    router.push('/billing/categories/sub-categories');
+    router.push('/billing/categories');
   };
 
   const handleCancel = () => {
@@ -57,7 +51,7 @@ export default function EditBillingSubCategoryPage() {
 
   if (loading) {
     return (
-      <ContentLayout title='Edit Billing Sub Category'>
+      <ContentLayout title='Edit Billing Category'>
         <div className='flex justify-center items-center min-h-[400px]'>
           <BeatLoader color='#00e902' />
         </div>
@@ -65,23 +59,23 @@ export default function EditBillingSubCategoryPage() {
     );
   }
 
-  if (error || !subCategory) {
+  if (error || !category) {
     return (
-      <ContentLayout title='Edit Billing Sub Category'>
+      <ContentLayout title='Edit Billing Category'>
         <div className='flex flex-col items-center justify-center min-h-[400px] space-y-4'>
           <AlertCircle className='h-12 w-12 text-destructive' />
           <div className='text-center'>
-            <h3 className='text-lg font-semibold'>Sub Category Not Found</h3>
+            <h3 className='text-lg font-semibold'>Category Not Found</h3>
             <p className='text-muted-foreground mt-2'>
               {error ||
-                'The requested billing sub category could not be found.'}
+                'The requested billing category could not be found.'}
             </p>
           </div>
           <div className='flex gap-2'>
             <Button variant='outline' onClick={() => router.back()}>
               Go Back
             </Button>
-            <Button onClick={fetchSubCategory}>Try Again</Button>
+            <Button onClick={fetchCategory}>Try Again</Button>
           </div>
         </div>
       </ContentLayout>
@@ -89,24 +83,18 @@ export default function EditBillingSubCategoryPage() {
   }
 
   return (
-    <ContentLayout title='Edit Billing Sub Category'>
+    <ContentLayout title='Edit Billing Category'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Billing', href: '/billing' },
-          {
-            label: 'Sub Categories',
-            href: '/billing/categories/sub-categories'
-          },
-          {
-            label: `Edit ${subCategory.sub_category_name}`,
-            href: `/billing/categories/sub-categories/${subCategory.id}/edit`
-          }
+          { label: 'Categories', href: '/billing/categories' },
+          { label: `Edit ${category.category_name}`, href: '' }
         ]}
       />
       <div className='mt-6'>
-        <BillingSubCategoryForm
-          subCategory={subCategory}
+        <BillingCategoryForm
+          category={category}
           onSuccess={handleSuccess}
           onCancel={handleCancel}
         />

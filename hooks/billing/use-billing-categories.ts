@@ -1,20 +1,24 @@
 import { useState, useCallback, useEffect } from 'react';
 import type {
-  BillingParentCategory,
-  BillingParentCategoryFilters
+  BillingCategory,
+  BillingCategoryFilters
 } from '@/types/billing';
-import { BillingParentCategoryService } from '@/lib/services/billing/categories/billing-parent-category-service';
+import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 
-export function useBillingParentCategories(
-  initialFilters: BillingParentCategoryFilters = {}
+// 2026-04-28: Replaces useBillingParentCategories / useBillingSubCategories /
+// useBillingItemCategories. Categories are global — no user-aware variant needed,
+// the table-level RLS already gates access by billing.categories.view.
+
+export function useBillingCategories(
+  initialFilters: BillingCategoryFilters = {}
 ) {
-  const [categories, setCategories] = useState<BillingParentCategory[]>([]);
+  const [categories, setCategories] = useState<BillingCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] =
-    useState<BillingParentCategoryFilters>(initialFilters);
+    useState<BillingCategoryFilters>(initialFilters);
   const [metadata, setMetadata] = useState({
     total: 0,
     page: 1,
@@ -22,20 +26,12 @@ export function useBillingParentCategories(
     totalPages: 0
   });
 
-  const { profile, isLoading: authLoading } = useAuth();
-  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { isLoading: authLoading } = useAuth();
+  const { isLoading: permissionsLoading } = usePermissions();
 
   const fetchCategories = useCallback(
-    async (newFilters?: BillingParentCategoryFilters) => {
-      // Wait for auth and permissions to load before proceeding
+    async (newFilters?: BillingCategoryFilters) => {
       if (authLoading || permissionsLoading) {
-        return;
-      }
-
-      // For non-super admin users, we need profile data
-      if (!isSuperAdmin && !profile?.id) {
-        setLoading(false);
-        setError('User profile not available');
         return;
       }
 
@@ -44,15 +40,9 @@ export function useBillingParentCategories(
         setError(null);
         const currentFilters = newFilters || filters;
 
-        // Use user-aware service for non-super-admin users
-        const result = isSuperAdmin
-          ? await BillingParentCategoryService.getBillingParentCategories(
-              currentFilters
-            )
-          : await BillingParentCategoryService.getBillingParentCategoriesForUser(
-              profile!.id,
-              currentFilters
-            );
+        const result = await BillingCategoryService.getBillingCategories(
+          currentFilters
+        );
 
         setCategories(result.data);
         setMetadata(result.metadata);
@@ -61,28 +51,28 @@ export function useBillingParentCategories(
           setFilters(newFilters);
         }
       } catch (err) {
-        console.error('Error fetching billing parent categories:', err);
+        console.error('[billing/categories] Error fetching categories:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
       }
     },
-    [filters, profile?.id, isSuperAdmin, authLoading, permissionsLoading]
+    [filters, authLoading, permissionsLoading]
   );
 
-  // Auto-fetch when auth and permissions are ready
   useEffect(() => {
     if (!authLoading && !permissionsLoading) {
       fetchCategories();
     }
-  }, [authLoading, permissionsLoading, fetchCategories]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, permissionsLoading]);
 
   const updateFilters = useCallback(
-    (newFilters: Partial<BillingParentCategoryFilters>) => {
+    (newFilters: Partial<BillingCategoryFilters>) => {
       const updatedFilters = {
         ...filters,
         ...newFilters,
-        page: 1 // Reset to first page when filters change
+        page: 1
       };
       setFilters(updatedFilters);
       fetchCategories(updatedFilters);
