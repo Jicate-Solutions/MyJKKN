@@ -11656,13 +11656,8 @@ AS $$
     pp.program_id,
     pp.program_short,
     pp.program_name,
-    CASE
-      WHEN pp.program_name ~ '^[A-Z]\.[A-Za-z]+\.?\s'
-        THEN regexp_replace(pp.program_name, '^([A-Z]\.[A-Za-z]+)\.?\s.*$', '\1')
-             || CASE WHEN pp.department_code IS NOT NULL AND pp.department_code <> ''
-                     THEN ' - ' || pp.department_code ELSE '' END
-      ELSE pp.program_short
-    END                                                       AS course_short,
+    -- Use the full programs.program_name as the user-facing course label.
+    pp.program_name                                           AS course_short,
     COALESCE(_admission_stream_label(pp.counselling_code), pp.institution_name) AS stream,
     UPPER(COALESCE(pp.degree_type, ''))                      AS level,
     pp.has_lateral_row                                        AS is_lateral,
