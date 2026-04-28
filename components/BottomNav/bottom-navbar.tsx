@@ -37,6 +37,7 @@ import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu, GROUP_TILE_GRADIENTS } from './bottom-nav-more-menu';
 import { BottomNavMinimized } from './bottom-nav-minimized';
 import { BottomNavGroup, FlatMenuItem, ActivePageInfo } from './types';
+import { AttentionBar } from '@/components/attention-bar';
 
 /**
  * Resolve a section's icon by deriving from MODULES — single source of truth.
@@ -443,6 +444,12 @@ export function BottomNavbar() {
   // Always show full navbar - never minimized
   return (
     <>
+      {/* Attention Bar — Phase 2 pill above the bottom-nav strip.
+          Self-contained: fixed positioning, hidden on lg+, renders nothing
+          when the resolver returns null. Sits at z-[75] (BELOW the nav at
+          z-[80]) so the More-drawer backdrop covers it during nav interactions. */}
+      <AttentionBar />
+
       {/* Backdrop when submenu expanded - only for submenu, not More menu */}
       <AnimatePresence>
         {isExpanded && !isMoreMenuOpen && (
