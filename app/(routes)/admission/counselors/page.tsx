@@ -22,6 +22,8 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { DataAlertBanner } from '@/components/shared/data-alert-banner/data-alert-banner';
+import { useUnassignedLeadsCount } from '@/hooks/admission/use-unassigned-leads-count';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -43,7 +45,7 @@ import {
   Clock,
   Target,
   Award,
-  Loader2
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
@@ -58,6 +60,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+
+// ---------------------------------------------------------------------------
 
 const DATE_RANGES = [
   { value: '7', label: 'Last 7 days' },
@@ -502,6 +506,7 @@ function CounselorPerformancePageContent() {
   // Global users (super admins + admission role) see all institutions by default; can optionally filter.
   // Single-institution users auto-resolve to their own institution.
   const defaultInstitutionId = isGlobalUser ? undefined : profile?.institution_id;
+  const { counts: unassignedCounts, loading: unassignedLoading } = useUnassignedLeadsCount();
   // For global users: no selection or "__all" → undefined (all institutions)
   const resolvedChoice = chosenInstitutionId === '__all' ? undefined : chosenInstitutionId;
   const institutionId = resolvedChoice || (institutions.length === 1 ? institutions[0]?.id : defaultInstitutionId) || undefined;
@@ -616,6 +621,19 @@ function CounselorPerformancePageContent() {
               </div>
             </div>
           </div>
+
+          {/* Unassigned-leads alert banner — live count, always shown above leaderboard */}
+          <DataAlertBanner
+            count={unassignedCounts?.unassigned ?? 0}
+            total={unassignedCounts?.total}
+            loading={unassignedLoading}
+            severity="warning"
+            title="{count} leads unassigned ({pct}%)"
+            description="{count} of {total} total leads have no counselor assigned. Assign them now so no enquiry goes unattended."
+            cta={{ href: '/admission/leads?filter=unassigned', label: 'Bulk-assign →' }}
+          />
+
+          {/* TODO(@quickwin-d): briefing-status panel mounts here in follow-up PR */}
 
           {/* View Toggle */}
           <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit">
