@@ -314,7 +314,7 @@ export function AddCounselorDialog({
           .from('profiles')
           .select('id, full_name, email, phone_number, role')
           .eq('institution_id', existInstitutionId)
-          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator'])
+          .in('role', ['faculty', 'hod', 'staff', 'digital_coordinator', 'counselor'])
           .not('is_pre_registered', 'is', true);
 
         if (departmentId) query = query.eq('department_id', departmentId);
