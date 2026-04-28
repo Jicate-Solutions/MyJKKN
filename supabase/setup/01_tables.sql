@@ -4812,3 +4812,134 @@ ALTER TABLE public.admission_leads
 ALTER TABLE public.admission_leads
   ADD CONSTRAINT admission_leads_duplicate_of_not_self
   CHECK (duplicate_of IS NULL OR duplicate_of <> id);
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Updated: 2026-04-28 — Attention Bar Phase 1 — DB Foundation
+-- Spec: specs/attention-bar-5-layer-system.md (PR #542)
+-- 7 tables for the 5-layer Attention Bar resolver system.
+-- All idempotent (IF NOT EXISTS) so re-runs are safe.
+-- Applied to prod via Supabase MCP 2026-04-28 (verified 7 tables, 11 config rows).
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- 1) quick_action_rules — Layer 2 admin-configurable rules
+CREATE TABLE IF NOT EXISTS public.quick_action_rules (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rule_name       VARCHAR(200) NOT NULL,
+    description     TEXT,
+    page            VARCHAR(200) NOT NULL,
+    role            VARCHAR(50)  NOT NULL,
+    when_clause     JSONB        NOT NULL,
+    action_template JSONB        NOT NULL,
+    priority        INTEGER      NOT NULL DEFAULT 0,
+    is_active       BOOLEAN      NOT NULL DEFAULT true,
+    institution_id  UUID REFERENCES public.institutions(id),
+    created_by      UUID REFERENCES public.profiles(id),
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT chk_qar_priority CHECK (priority BETWEEN 0 AND 1000)
+);
+CREATE INDEX IF NOT EXISTS idx_qar_page_role_active
+    ON public.quick_action_rules (page, role, is_active, priority DESC);
+COMMENT ON TABLE public.quick_action_rules IS
+    'Layer 2 (state-aware) rules for the Attention Bar resolver. Admin-configurable via /system/attention-bar.';
+
+-- 2) quick_action_state_queries — registry of named state queries
+CREATE TABLE IF NOT EXISTS public.quick_action_state_queries (
+    id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    query_key             VARCHAR(100) UNIQUE NOT NULL,
+    description           TEXT,
+    sql_function_name     VARCHAR(100) NOT NULL,
+    return_shape          JSONB NOT NULL,
+    rate_limit_per_minute INTEGER NOT NULL DEFAULT 30,
+    is_active             BOOLEAN NOT NULL DEFAULT true,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE public.quick_action_state_queries IS
+    'Registry of named state queries that Layer 2 rules can reference. Indirection means rule editors do not need SQL access.';
+
+-- 3) quick_action_taps — Layer 3 behavioral data (impressions + taps + dismissals)
+CREATE TABLE IF NOT EXISTS public.quick_action_taps (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    page         VARCHAR(200) NOT NULL,
+    role         VARCHAR(50)  NOT NULL,
+    fired_layer  SMALLINT NOT NULL,
+    rule_id      UUID REFERENCES public.quick_action_rules(id) ON DELETE SET NULL,
+    action_id    VARCHAR(200) NOT NULL,
+    event_type   VARCHAR(20) NOT NULL,
+    context      JSONB,
+    occurred_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_qat_event_type CHECK (event_type IN ('impression','tap','dismiss')),
+    CONSTRAINT chk_qat_fired_layer CHECK (fired_layer BETWEEN 0 AND 4)
+);
+CREATE INDEX IF NOT EXISTS idx_qat_user_page_role_action
+    ON public.quick_action_taps (user_id, page, role, action_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_qat_pruning ON public.quick_action_taps (occurred_at);
+COMMENT ON TABLE public.quick_action_taps IS
+    'Layer 3 behavioral data. Impressions + taps + dismissals. 90-day retention via nightly cron.';
+
+-- 4) quick_action_user_consent — DPDPA opt-in state
+CREATE TABLE IF NOT EXISTS public.quick_action_user_consent (
+    user_id              UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+    layer_3_consent      BOOLEAN NOT NULL DEFAULT false,
+    consented_at         TIMESTAMPTZ,
+    revoked_at           TIMESTAMPTZ,
+    consent_text_version VARCHAR(20)
+);
+COMMENT ON TABLE public.quick_action_user_consent IS
+    'Per-user DPDPA consent state for Layer 3 behavioral learning. Default opt-in = false.';
+
+-- 5) quick_action_ai_cache — Layer 4 cached LLM responses
+CREATE TABLE IF NOT EXISTS public.quick_action_ai_cache (
+    cache_key  VARCHAR(300) PRIMARY KEY,
+    response   JSONB NOT NULL,
+    model      VARCHAR(50) NOT NULL,
+    cost_usd   NUMERIC(10,6) NOT NULL,
+    cached_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qac_expires ON public.quick_action_ai_cache (expires_at);
+COMMENT ON TABLE public.quick_action_ai_cache IS
+    'Layer 4 AI fallback cache keyed by page|role|hour_bucket. 1-hour TTL, 90% hit-rate target.';
+
+-- 6) quick_action_audit — universal audit trail of every render
+CREATE TABLE IF NOT EXISTS public.quick_action_audit (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+    page        VARCHAR(200) NOT NULL,
+    role        VARCHAR(50)  NOT NULL,
+    fired_layer SMALLINT NOT NULL,
+    rule_id     UUID REFERENCES public.quick_action_rules(id) ON DELETE SET NULL,
+    action_id   VARCHAR(200),
+    trace       JSONB,
+    rendered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_qau_fired_layer CHECK (fired_layer BETWEEN 0 AND 4)
+);
+CREATE INDEX IF NOT EXISTS idx_qau_rendered_at ON public.quick_action_audit (rendered_at DESC);
+COMMENT ON TABLE public.quick_action_audit IS
+    'Audit log of every Attention Bar render. 30-day retention then aggregate-only via nightly cron.';
+
+-- 7) quick_action_config — system-wide configuration
+CREATE TABLE IF NOT EXISTS public.quick_action_config (
+    key        VARCHAR(100) PRIMARY KEY,
+    value      JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by UUID REFERENCES public.profiles(id)
+);
+COMMENT ON TABLE public.quick_action_config IS
+    'System config for Attention Bar. Daily budgets, thresholds, kill-switches per layer.';
+
+-- Seed default config (idempotent)
+INSERT INTO public.quick_action_config (key, value) VALUES
+    ('layer_0.enabled',                'true'::jsonb),
+    ('layer_1.enabled',                'true'::jsonb),
+    ('layer_2.enabled',                'true'::jsonb),
+    ('layer_3.enabled',                'true'::jsonb),
+    ('layer_4.enabled',                'true'::jsonb),
+    ('layer_3.min_impressions',        '30'::jsonb),
+    ('layer_3.confidence_threshold',   '0.7'::jsonb),
+    ('layer_4.daily_budget_usd',       '5'::jsonb),
+    ('layer_4.per_user_daily_calls',   '50'::jsonb),
+    ('layer_4.cache_ttl_minutes',      '60'::jsonb),
+    ('layer_0.queue_pip_visible_at',   '1'::jsonb)
+ON CONFLICT (key) DO NOTHING;

@@ -98,7 +98,7 @@ const config: Config = {
         },
         // Tier-D holographic conic-gradient rotation. Used by:
         //   - components/BottomNav/bottom-nav-item.tsx (PR #539)
-        //   - components/dashboard/todays-focus.tsx (this PR)
+        //   - components/dashboard/todays-focus.tsx (PR #541)
         // 6s linear loop, compositor-only transform. Idempotent across PRs.
         'holo-spin': {
           '0%':   { transform: 'rotate(0deg)' },

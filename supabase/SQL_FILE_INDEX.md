@@ -6,6 +6,16 @@
 
 ## 📝 Recent Changes
 
+- **2026-04-28** — Attention Bar Phase 1 — DB foundation for the 5-layer resolver system
+  - Spec: `specs/attention-bar-5-layer-system.md` (PR #542); architecture validated via interactive mockup at `/tmp/quick-action-interactive.html`.
+  - Migration applied via Supabase MCP: `attention_bar_phase_1_tables`. Verified: 7 tables · 15 RLS policies · 11 config rows seeded.
+  - `01_tables.sql`: appended 7 new tables — `quick_action_rules` (Layer 2 rules), `quick_action_state_queries` (registry of named state queries), `quick_action_taps` (Layer 3 behavioral data, 90-day retention), `quick_action_user_consent` (DPDPA opt-in state, default false), `quick_action_ai_cache` (Layer 4 LLM cache, 1-hour TTL), `quick_action_audit` (universal audit, 30-day retention), `quick_action_config` (system-wide config). All idempotent (`IF NOT EXISTS` + `ON CONFLICT DO NOTHING`).
+  - `03_policies.sql`: appended RLS policies for all 7 tables. Standard pattern `(is_super_admin OR is_admin) OR (user_has_permission AND institution_access)`. Self-read/write policies for taps/consent/audit gated by `user_id = auth.uid()`.
+  - 5 new permission keys added to `lib/constants/permissions.ts`: `attention_bar.{rules.view, rules.manage, audit.view, config.manage, test_sandbox.use}`.
+  - Default config seeded (kill-switches per layer + DPDPA thresholds + AI budget caps): `layer_N.enabled = true`, `layer_3.min_impressions = 30`, `layer_3.confidence_threshold = 0.7`, `layer_4.daily_budget_usd = 5`, `layer_4.per_user_daily_calls = 50`, `layer_4.cache_ttl_minutes = 60`.
+  - FK convention follows existing project standard: all `user_id`/`created_by` references point at `public.profiles(id)`, not `auth.users(id)`. Cascade-delete on user removal for all per-user data tables (taps, consent, audit).
+  - Phase 1 of 7-PR decomposition. Phase 2 (pill component) needs PR #541 dashboard glass merged first to inherit Tier-D visual aesthetic. Phases 3-7 build on this DB foundation incrementally.
+
 - **2026-04-27** — Admission CRM: lead dedup multi-source — Stage 4 (verification + RPC bugfix)
   - New migration `fix_capture_admission_lead_dedupe_reactivation_history` applied via Supabase MCP. Removed the explicit `INSERT INTO admission_lead_stage_history` from the reactivation branch of `capture_admission_lead`. Pre-existing trigger `trigger_log_lead_stage_change` AFTER UPDATE on `admission_leads` already auto-logs the lost->new transition; the explicit insert was producing a duplicate row. Caught by Stage 4 scenario verification — the bug was harmless (extra audit row, no data loss) but worth removing to keep stage_history clean. CREATE-path explicit INSERT (null->new) stays — the trigger only fires on UPDATE.
   - **End-to-end scenarios verified live**: (S1) create new lead, (S2) merge across phone-format normalization (`+919000099999` ≡ `90000-99999`), (S3) force lost stage manually, (S4) re-capture while lost → reactivated=true with funnel_stage flipped to 'new'. Final state: 1 lead, 3 captures (website/walk_in/referral), `previous_stage='lost'` preserved. Post-fix verification: stage_history rows = 3 (was 4 before fix).

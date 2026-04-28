@@ -887,6 +887,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.counselors.edit', label: 'Edit Counselors' },
       { key: 'admission.counselors.delete', label: 'Delete Counselors' },
       { key: 'admission.counselors.performance.view', label: 'View Counselor Performance' },
+      // Counselor team management (per spec PR #537 — rules-engine substrate). Decision #20:
+      // Principal/HOD get .view (read-only on own institution via role_has_institution_access RLS).
+      // .manage gates schedule edits, source/institution mappings, reassignments, emergency-off forced toggles.
+      { key: 'admission.counselors.team.view', label: 'View Counselor Team Page' },
+      { key: 'admission.counselors.team.manage', label: 'Manage Counselor Team (reassign, schedule, allocate)' },
 
       // Consultant Management
       { key: 'admission.consultants.view', label: 'View Education Consultants' },
