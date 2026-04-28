@@ -175,6 +175,7 @@ export function AttentionBarAdminClient() {
             <TabDefaults />
           </TabsContent>
 
+          {/* TAB-3:RULES */}
           <TabsContent value='rules'>
             <TabRules />
           </TabsContent>
@@ -183,6 +184,7 @@ export function AttentionBarAdminClient() {
             <TabBehavior />
           </TabsContent>
 
+          {/* TAB-5:AI */}
           <TabsContent value='ai'>
             <TabAi isSuperAdmin={isSuperAdmin} />
           </TabsContent>
