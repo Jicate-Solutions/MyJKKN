@@ -74,8 +74,14 @@ export async function evaluateLayer0(ctx: ResolverContext): Promise<LayerResult>
 
   // Join user_notifications ⨝ notifications for the current user.
   // Filter to urgent + ack-required + unacknowledged. We rely on the
-  // unacknowledged partial index for the user_id branch and post-filter
-  // priority/ack-required client-side via the embedded select.
+  // unacknowledged partial index `idx_user_notifications_unacknowledged`
+  // for the user_id branch and apply embedded-table filters for priority
+  // and ack-required. The `!inner` qualifier elevates these to a true
+  // INNER JOIN so rows without a matching urgent/ack notification drop.
+  //
+  // Embedded FK alias `notification:notifications!user_notifications_notification_id_fkey`
+  // matches the canonical pattern in lib/services/notification/notification-service.ts
+  // — keeps PostgREST resolution unambiguous when prod adds more FKs.
   const { data, error } = await supabase
     .from('user_notifications')
     .select(
@@ -83,7 +89,7 @@ export async function evaluateLayer0(ctx: ResolverContext): Promise<LayerResult>
         id,
         notification_id,
         acknowledged_at,
-        notifications!inner (
+        notification:notifications!user_notifications_notification_id_fkey!inner (
           id,
           title,
           body,
@@ -100,9 +106,9 @@ export async function evaluateLayer0(ctx: ResolverContext): Promise<LayerResult>
     )
     .eq('user_id', ctx.userId)
     .is('acknowledged_at', null)
-    .eq('notifications.priority', 'urgent')
-    .eq('notifications.requires_acknowledgment', true)
-    .order('created_at', { ascending: false, foreignTable: 'notifications' })
+    .eq('notification.priority', 'urgent')
+    .eq('notification.requires_acknowledgment', true)
+    .order('created_at', { ascending: false, referencedTable: 'notification' })
     .limit(1);
 
   if (error) {
