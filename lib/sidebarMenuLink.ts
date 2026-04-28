@@ -480,6 +480,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/counselors/calls': 'admission.counselors.view',
   '/admission/counselors/daily-view': 'admission.counselors.view',
   '/admission/counselors/reminders': 'admission.counselors.view',
+  // Team management (Phase 5) — 5 in-page tabs under one sidebar entry
+  '/admission/counselors/team': 'admission.counselors.view',
+  '/admission/counselors/team/roster': 'admission.counselors.view',
+  '/admission/counselors/team/allocation': 'admission.counselors.view',
+  '/admission/counselors/team/rules': 'admission.counselors.view',
+  '/admission/counselors/team/activity': 'admission.counselors.view',
 
   // Admission Consultants
   '/admission/consultants': 'admission.consultants.view',
