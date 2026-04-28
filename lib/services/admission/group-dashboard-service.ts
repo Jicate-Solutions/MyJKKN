@@ -225,26 +225,49 @@ export class GroupDashboardService {
     }));
   }
 
+  /**
+   * AY-scoped geographic distribution. Backed by fn_geography_analytics.
+   * Replaces legacy get_geography_analytics(uuid, uuid).
+   */
   static async getGeographyAnalytics(
-    institutionId?: string,
-    academicYearId?: string
+    institutionIds: string[] | undefined,
+    admissionYear: number | null
   ): Promise<GeographyAnalyticsRow[]> {
-    const { data, error } = await (this.supabase as any).rpc('get_geography_analytics', {
-      p_institution_id: institutionId ?? null,
-      p_academic_year_id: academicYearId ?? null,
+    let resolved = institutionIds;
+    if (resolved === undefined) {
+      const { data: insts, error: instErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id');
+      if (instErr) {
+        console.error('[admission/group] Failed to resolve institutions for geography:', instErr);
+        throw instErr;
+      }
+      resolved = ((insts ?? []) as Array<{ id: string }>).map((i) => i.id);
+    }
+    if (resolved.length === 0) return [];
+
+    const { data, error } = await (this.supabase as any).rpc('fn_geography_analytics', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
     });
     if (error) {
-      console.error('[admission/group] get_geography_analytics failed:', error);
+      console.error('[admission/group] fn_geography_analytics failed:', error);
       throw error;
     }
-    return (data ?? []) as GeographyAnalyticsRow[];
+    return ((data ?? []) as any[]).map((r): GeographyAnalyticsRow => ({
+      ...r,
+      active_learners: Number(r.active_learners),
+    }));
   }
 
   static async getInstitutionComparison(): Promise<InstitutionComparisonRow[]> {
+    // Note: this fan-out is scheduled for replacement by fn_institution_comparison
+    // RPC in the next commit. The (undefined, null) calls give all-time, all-
+    // institution data which preserves current Comparison-tab behavior.
     const [seatRows, sourceRows, geoRows] = await Promise.all([
       this.getSeatAnalytics(),
-      this.getSourceAnalytics(),
-      this.getGeographyAnalytics(),
+      this.getSourceAnalytics(undefined, null),
+      this.getGeographyAnalytics(undefined, null),
     ]);
 
     // Aggregate seat data per institution

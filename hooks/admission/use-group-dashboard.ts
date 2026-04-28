@@ -32,8 +32,13 @@ export const groupDashboardKeys = {
       institutionIds ?? 'all',
       admissionYear ?? 'no-year',
     ] as const,
-  geographyAnalytics: (institutionId?: string) =>
-    [...groupDashboardKeys.all, 'geography', institutionId ?? 'all'] as const,
+  geographyAnalytics: (institutionIds?: string[], admissionYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'geography',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+    ] as const,
   institutionComparison: () =>
     [...groupDashboardKeys.all, 'comparison'] as const,
 };
@@ -129,12 +134,19 @@ export function useSourceAnalytics(
   });
 }
 
-export function useGeographyAnalytics(institutionId?: string) {
+export function useGeographyAnalytics(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null
+) {
+  useSeatsRealtimeInvalidation();
   return useQuery({
-    queryKey: groupDashboardKeys.geographyAnalytics(institutionId),
-    queryFn: () => GroupDashboardService.getGeographyAnalytics(institutionId),
+    queryKey: groupDashboardKeys.geographyAnalytics(institutionIds, admissionYear),
+    queryFn: () => GroupDashboardService.getGeographyAnalytics(institutionIds, admissionYear),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
   });
 }
 

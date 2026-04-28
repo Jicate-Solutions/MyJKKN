@@ -180,7 +180,10 @@ export default function GroupDashboardPage() {
 
             {/* Tab: Geography */}
             <TabsContent value="geography">
-              <GeographyAnalyticsTab />
+              <GeographyAnalyticsTab
+                institutionIds={scopedInstitutionIds}
+                programStartYear={selectedYear}
+              />
             </TabsContent>
 
             {/* Tab: Advanced Comparison */}

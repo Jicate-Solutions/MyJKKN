@@ -11776,3 +11776,63 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION public.fn_source_analytics(uuid[], integer) TO authenticated, service_role;
+
+-- =============================================================================
+-- fn_geography_analytics — AY-scoped geographic distribution
+-- Added: 2026-04-28 (migration 20260428_fn_geography_analytics)
+-- =============================================================================
+-- Replaces get_geography_analytics(uuid, uuid). Normalizes state/district/taluk
+-- (case + whitespace), DISTINCT learners only, lifecycle_status broadened to
+-- match the Seat Analytics gold standard.
+-- =============================================================================
+CREATE OR REPLACE FUNCTION public.fn_geography_analytics(
+  p_institution_ids uuid[],
+  p_admission_year  integer DEFAULT NULL
+)
+RETURNS TABLE (
+  institution_id    uuid,
+  institution_name  text,
+  state             text,
+  district          text,
+  taluk             text,
+  active_learners   bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  WITH eligible_institutions AS (
+    SELECT id FROM institutions
+    WHERE id = ANY(p_institution_ids) AND role_has_institution_access(id)
+  ),
+  normalized AS (
+    SELECT
+      lp.id                                                                AS learner_id,
+      lp.institution_id,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_state,    ''), '\s+', ' ', 'g')), '')) AS state_norm,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_district, ''), '\s+', ' ', 'g')), '')) AS district_norm,
+      INITCAP(NULLIF(TRIM(REGEXP_REPLACE(COALESCE(lp.permanent_address_taluk,    ''), '\s+', ' ', 'g')), '')) AS taluk_norm
+    FROM learners_profiles lp
+    WHERE lp.institution_id IS NOT NULL
+      AND lp.institution_id IN (SELECT id FROM eligible_institutions)
+      AND lp.lifecycle_status::text IN ('admitted','active','graduated')
+      AND lp.permanent_address_district IS NOT NULL
+      AND TRIM(lp.permanent_address_district) <> ''
+      AND (p_admission_year IS NULL OR lp.admission_year = p_admission_year)
+  )
+  SELECT
+    n.institution_id,
+    i.name::text                       AS institution_name,
+    n.state_norm                       AS state,
+    n.district_norm                    AS district,
+    n.taluk_norm                       AS taluk,
+    COUNT(DISTINCT n.learner_id)::bigint AS active_learners
+  FROM normalized n
+  JOIN institutions i ON i.id = n.institution_id
+  GROUP BY n.institution_id, i.name, n.state_norm, n.district_norm, n.taluk_norm
+  HAVING COUNT(DISTINCT n.learner_id) > 0
+  ORDER BY i.name, n.state_norm, n.district_norm, n.taluk_norm;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.fn_geography_analytics(uuid[], integer) TO authenticated, service_role;

@@ -12,7 +12,10 @@ import { useGeographyAnalytics } from '@/hooks/admission/use-group-dashboard';
 import type { GeographyAnalyticsRow } from '@/types/admission-workflow-config';
 
 interface GeographyAnalyticsTabProps {
-  institutionId?: string;
+  /** Institution scope passed from the page; undefined => RLS-resolved super-admin all-access. */
+  institutionIds?: string[];
+  /** Selected admission year (cohort). When null the query is disabled until resolved. */
+  programStartYear: number | null;
 }
 
 function buildDistrictSummary(rows: GeographyAnalyticsRow[]) {
@@ -50,8 +53,8 @@ function buildInstitutionByDistrict(rows: GeographyAnalyticsRow[]) {
   return map;
 }
 
-export function GeographyAnalyticsTab({ institutionId }: GeographyAnalyticsTabProps) {
-  const { data: rows = [], isLoading, isError } = useGeographyAnalytics(institutionId);
+export function GeographyAnalyticsTab({ institutionIds, programStartYear }: GeographyAnalyticsTabProps) {
+  const { data: rows = [], isLoading, isError } = useGeographyAnalytics(institutionIds, programStartYear);
 
   if (isLoading) {
     return (
@@ -61,13 +64,21 @@ export function GeographyAnalyticsTab({ institutionId }: GeographyAnalyticsTabPr
     );
   }
 
-  if (isError || rows.length === 0) {
+  if (isError) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          {isError
-            ? 'Failed to load geography data.'
-            : 'No address data available. Ensure learner profiles have permanent_address_district filled.'}
+          Failed to load geography data.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          No address data for the selected admission year. Ensure learner profiles have permanent_address_district filled.
         </CardContent>
       </Card>
     );
