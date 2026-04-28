@@ -96,9 +96,10 @@ const config: Config = {
           '0%': { backgroundPosition: '200% 0' },
           '100%': { backgroundPosition: '-200% 0' }
         },
-        // Tier D — holographic conic-gradient rotation for BottomNav tiles.
-        // 6s linear loop. Used by bottom-nav-item.tsx tile variant. Compositor-
-        // only transform, no repaint per frame even at 22 tiles. See PR #539.
+        // Tier-D holographic conic-gradient rotation. Used by:
+        //   - components/BottomNav/bottom-nav-item.tsx (PR #539)
+        //   - components/dashboard/todays-focus.tsx (PR #541)
+        // 6s linear loop, compositor-only transform. Idempotent across PRs.
         'holo-spin': {
           '0%':   { transform: 'rotate(0deg)' },
           '100%': { transform: 'rotate(360deg)' }

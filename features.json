@@ -1,7 +1,19 @@
 {
   "project": "MyJKKN - HR Module + Exotel",
-  "lastUpdated": "2026-04-27",
+  "lastUpdated": "2026-04-28",
   "features": [
+    {
+      "id": "counselor-rules-engine-substrate",
+      "name": "Counselor rules-engine — spec + 7-phase build (Phases 1+2 shipped)",
+      "status": "in-progress",
+      "notes": "Spec PR #537 (580 LOC docs) + Phase 1 PR #538 (10-user reassignment, DB-applied) + Phase 2 PR #540 (5 new tables + 2 col adds + 10 RLS + 2 perm keys, DB-applied) all OPEN+Ready+CLEAN/MERGEABLE. 20 decisions locked from 16-Q /assumption-thrash interview. Counselor counts post-reassignment: counselor=4 (admission cell), learner_counselor=9 (student peers), staff_counselor=1 (test.faculty), health_counselor=1. Phases 3-7 pending: routing engine v2, cron+cascade, /admission/counselors/team UI, handover banner, default seeds. ~1,000 LOC remaining across 5 PRs."
+    },
+    {
+      "id": "admission-counselors-quickwins",
+      "name": "/admission/counselors quick-wins (4 ship-able fixes pre-Phase-3)",
+      "status": "in-progress",
+      "notes": "P0 next session per user_stated_p0. Audit revealed 89% leads unassigned, 5.9% call attribution, 25% briefing adoption. Quick-wins: (B) counselor_id backfill rescope ~30 LOC SQL, (A) unassigned-leads banner ~60 LOC TS, (C) limited-attribution caveat ~25 LOC TS, (D) today's briefing status panel ~80 LOC TS. ~205 LOC across 4 disjoint PRs, ~3-4hr work. Closes Task #11 from prior session."
+    },
     {
       "id": "hr-sprint-1-foundation",
       "name": "HR Sprint 1 \u2014 Shadow Tenant + Employee Master",
