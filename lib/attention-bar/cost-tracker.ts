@@ -128,17 +128,18 @@ export async function getDailyCostUsd(): Promise<number> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Count uncached Layer 4 calls made by a given user today.
+ * Count Layer 4 calls made by a given user today.
  *
  * Reads from `quick_action_audit` where:
  *  - `fired_layer = 4`
  *  - `user_id = userId`
  *  - `rendered_at >= todayStartUtc()`
- *  - `trace` does NOT contain `cache_hit: true` (i.e., actual LLM calls only)
  *
- * NOTE: the trace JSONB column is queried for `cache_hit` flag. Phase 6 main
- * sets `trace->>'cache_hit' = 'true'` on hits. Until then, all audit rows
- * count as uncached calls (conservative — correct direction for budget).
+ * Counts ALL Layer 4 audit rows (cache hits + misses alike). The per-user
+ * budget guards total AI-layer exposure, not just actual LLM calls. This is
+ * also simpler and avoids complex JSONB PostgREST filter syntax. Phase 6 main
+ * can tighten this to uncached-only if the spec requires it by filtering
+ * `trace->>cache_hit != 'true'` in a raw RPC call.
  */
 export async function getUserCallsToday(userId: string): Promise<number> {
   const supabase = createServiceRoleClient();
@@ -149,9 +150,7 @@ export async function getUserCallsToday(userId: string): Promise<number> {
     .select('*', { count: 'exact', head: true })
     .eq('fired_layer', 4)
     .eq('user_id', userId)
-    .gte('rendered_at', start)
-    // Only count rows where cache_hit is not true (actual LLM calls).
-    .or('trace->cache_hit.is.null,trace->cache_hit.neq.true');
+    .gte('rendered_at', start);
 
   if (error) {
     throw new Error(`[cost-tracker] getUserCallsToday failed: ${error.message}`);
