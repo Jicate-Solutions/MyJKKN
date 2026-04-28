@@ -1543,10 +1543,32 @@ export const PERMISSION_CATEGORIES = [
       // their specific tier-2 keys (bos.compositions.view, etc.).
       { key: 'bos.view', label: 'View Board of Studies Landing' },
       { key: 'bos.compositions.view', label: 'View BoS Compositions' },
+      { key: 'bos.compositions.create', label: 'Create BoS Compositions' },
+      { key: 'bos.compositions.edit', label: 'Edit BoS Compositions' },
+      { key: 'bos.compositions.delete', label: 'Delete BoS Compositions' },
       { key: 'bos.experts.view', label: 'View BoS Experts' },
+      { key: 'bos.experts.create', label: 'Create BoS Experts' },
+      { key: 'bos.experts.edit', label: 'Edit BoS Experts' },
+      { key: 'bos.experts.delete', label: 'Delete BoS Experts' },
       { key: 'bos.meetings.view', label: 'View BoS Meetings' },
+      { key: 'bos.meetings.create', label: 'Create BoS Meetings' },
+      { key: 'bos.meetings.edit', label: 'Edit BoS Meetings' },
+      { key: 'bos.meetings.delete', label: 'Delete BoS Meetings' },
+      { key: 'bos.meetings.approve', label: 'Approve BoS Meetings' },
       { key: 'bos.reports.view', label: 'View BoS Reports' },
-      { key: 'bos.ta_da.view', label: 'View BoS TA/DA Claims' }
+      { key: 'bos.reports.create', label: 'Create BoS Reports' },
+      { key: 'bos.reports.edit', label: 'Edit BoS Reports' },
+      { key: 'bos.reports.delete', label: 'Delete BoS Reports' },
+      { key: 'bos.reports.export', label: 'Export BoS Reports' },
+      { key: 'bos.ta_da.view', label: 'View BoS TA/DA Claims' },
+      { key: 'bos.ta_da.create', label: 'Create BoS TA/DA Claims' },
+      { key: 'bos.ta_da.edit', label: 'Edit BoS TA/DA Claims' },
+      { key: 'bos.ta_da.delete', label: 'Delete BoS TA/DA Claims' },
+      { key: 'bos.ta_da.approve', label: 'Approve BoS TA/DA Claims' },
+      { key: 'bos.members.view', label: 'View BoS Members' },
+      { key: 'bos.members.create', label: 'Create BoS Members' },
+      { key: 'bos.members.edit', label: 'Edit BoS Members' },
+      { key: 'bos.members.delete', label: 'Delete BoS Members' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup (Failure 1 of #511/#515

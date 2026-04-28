@@ -303,7 +303,7 @@ function ClaimRow({
 export default function TaDaPage() {
   const { profile } = useAuth();
   const { canAccess, isSuperAdmin } = usePermissions();
-  const canEdit = isSuperAdmin || canAccess('academic.bos-ta-da', 'create');
+  const canEdit = isSuperAdmin || canAccess('bos.ta_da', 'create');
   const [addOpen, setAddOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<BosClaimStatus | 'all'>('all');
 

@@ -47,23 +47,23 @@ ALTER TABLE bos_external_experts ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_experts_select" ON bos_external_experts FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-experts.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.experts.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_experts_insert" ON bos_external_experts FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-experts.create')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.experts.create')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_experts_update" ON bos_external_experts FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-experts.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.experts.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_experts_delete" ON bos_external_experts FOR DELETE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-experts.delete')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.experts.delete')
+      AND role_has_institution_access(institutions_id))
 );
 
 CREATE TRIGGER update_bos_experts_updated_at
@@ -103,23 +103,23 @@ ALTER TABLE bos_compositions ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_compositions_select" ON bos_compositions FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-compositions.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.compositions.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_compositions_insert" ON bos_compositions FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-compositions.create')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.compositions.create')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_compositions_update" ON bos_compositions FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-compositions.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.compositions.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_compositions_delete" ON bos_compositions FOR DELETE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-compositions.delete')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.compositions.delete')
+      AND role_has_institution_access(institutions_id))
 );
 
 CREATE TRIGGER update_bos_compositions_updated_at
@@ -175,23 +175,23 @@ ALTER TABLE bos_members ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_members_select" ON bos_members FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-compositions.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.members.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_members_insert" ON bos_members FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-compositions.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.members.create')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_members_update" ON bos_members FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-compositions.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.members.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_members_delete" ON bos_members FOR DELETE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-compositions.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.members.delete')
+      AND role_has_institution_access(institutions_id))
 );
 
 CREATE TRIGGER update_bos_members_updated_at
@@ -262,23 +262,23 @@ ALTER TABLE bos_meetings ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_meetings_select" ON bos_meetings FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_meetings_insert" ON bos_meetings FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.create')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.create')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_meetings_update" ON bos_meetings FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_meetings_delete" ON bos_meetings FOR DELETE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.delete')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.delete')
+      AND role_has_institution_access(institutions_id))
 );
 
 CREATE TRIGGER update_bos_meetings_updated_at
@@ -313,23 +313,23 @@ ALTER TABLE bos_meeting_attendees ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_attendees_select" ON bos_meeting_attendees FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_attendees_insert" ON bos_meeting_attendees FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_attendees_update" ON bos_meeting_attendees FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_attendees_delete" ON bos_meeting_attendees FOR DELETE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 
 CREATE TRIGGER update_bos_attendees_updated_at
@@ -367,23 +367,23 @@ ALTER TABLE bos_agenda_items ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_agenda_select" ON bos_agenda_items FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_agenda_insert" ON bos_agenda_items FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_agenda_update" ON bos_agenda_items FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_agenda_delete" ON bos_agenda_items FOR DELETE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 
 CREATE TRIGGER update_bos_agenda_updated_at
@@ -415,23 +415,23 @@ ALTER TABLE bos_resolution_actions ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_actions_select" ON bos_resolution_actions FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_actions_insert" ON bos_resolution_actions FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_actions_update" ON bos_resolution_actions FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_actions_delete" ON bos_resolution_actions FOR DELETE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 
 CREATE TRIGGER update_bos_resolution_actions_updated_at
@@ -470,23 +470,23 @@ ALTER TABLE bos_course_reviews ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_course_reviews_select" ON bos_course_reviews FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_course_reviews_insert" ON bos_course_reviews FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_course_reviews_update" ON bos_course_reviews FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_course_reviews_delete" ON bos_course_reviews FOR DELETE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 
 CREATE TRIGGER update_bos_course_reviews_updated_at
@@ -541,18 +541,18 @@ ALTER TABLE bos_ta_da_claims ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_tada_select" ON bos_ta_da_claims FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-tada.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.ta_da.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_tada_insert" ON bos_ta_da_claims FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-tada.create')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.ta_da.create')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_tada_update" ON bos_ta_da_claims FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-tada.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.ta_da.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_tada_delete" ON bos_ta_da_claims FOR DELETE USING (
   is_super_admin() OR is_admin()
@@ -594,18 +594,18 @@ ALTER TABLE bos_documents ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "bos_documents_select" ON bos_documents FOR SELECT USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.view')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.view')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_documents_insert" ON bos_documents FOR INSERT WITH CHECK (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_documents_update" ON bos_documents FOR UPDATE USING (
   is_super_admin() OR is_admin()
-  OR (user_has_permission('academic.bos-meetings.edit')
-      AND role_has_institution_access(institution_id))
+  OR (user_has_permission('bos.meetings.edit')
+      AND role_has_institution_access(institutions_id))
 );
 CREATE POLICY "bos_documents_delete" ON bos_documents FOR DELETE USING (
   is_super_admin() OR is_admin()

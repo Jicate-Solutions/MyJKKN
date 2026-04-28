@@ -45,15 +45,15 @@ export function MeetingDataTable({ search }: MeetingDataTableProps) {
   const isReady = !permissionsLoading && !!userProfile;
 
   const canCreate = useMemo(
-    () => isSuperAdmin || canAccess('academic.bos-meetings', 'create'),
+    () => isSuperAdmin || canAccess('bos.meetings', 'create'),
     [isSuperAdmin, canAccess]
   );
   const canEdit = useMemo(
-    () => isSuperAdmin || canAccess('academic.bos-meetings', 'edit'),
+    () => isSuperAdmin || canAccess('bos.meetings', 'edit'),
     [isSuperAdmin, canAccess]
   );
   const canDelete = useMemo(
-    () => isSuperAdmin || canAccess('academic.bos-meetings', 'delete'),
+    () => isSuperAdmin || canAccess('bos.meetings', 'delete'),
     [isSuperAdmin, canAccess]
   );
 
