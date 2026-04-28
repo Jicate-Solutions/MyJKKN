@@ -17,6 +17,14 @@ export const groupDashboardKeys = {
     ] as const,
   seatAnalytics: (institutionId?: string) =>
     [...groupDashboardKeys.all, 'seats', institutionId ?? 'all'] as const,
+  seatDailyPivot: (institutionIds?: string[], admissionYear?: number, excludeBulkMigrated?: boolean) =>
+    [
+      ...groupDashboardKeys.all,
+      'seat-daily-pivot',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+      excludeBulkMigrated ?? false,
+    ] as const,
   sourceAnalytics: (institutionId?: string) =>
     [...groupDashboardKeys.all, 'sources', institutionId ?? 'all'] as const,
   geographyAnalytics: (institutionId?: string) =>
@@ -75,6 +83,22 @@ export function useSeatAnalytics(institutionId?: string) {
     queryFn: () => GroupDashboardService.getSeatAnalytics(institutionId),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+  });
+}
+
+export function useSeatDailyPivot(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null,
+  excludeBulkMigrated = false
+) {
+  useSeatsRealtimeInvalidation();
+  return useQuery({
+    queryKey: groupDashboardKeys.seatDailyPivot(institutionIds, admissionYear ?? undefined, excludeBulkMigrated),
+    queryFn: () =>
+      GroupDashboardService.getSeatDailyPivot(institutionIds ?? [], admissionYear!, excludeBulkMigrated),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    enabled: !!institutionIds && institutionIds.length > 0 && admissionYear !== null && admissionYear !== undefined,
   });
 }
 

@@ -6,6 +6,7 @@ import type {
   GroupDashboardData,
   InstitutionAdmissionSummary,
   SeatAnalyticsRow,
+  SeatPivotRow,
   SourceAnalyticsRow,
   GeographyAnalyticsRow,
   InstitutionComparisonRow,
@@ -132,6 +133,37 @@ export class GroupDashboardService {
       throw error;
     }
     return (data ?? []) as SeatAnalyticsRow[];
+  }
+
+  /**
+   * Daily admission pivot — one row per (institution, program) for a given
+   * admission_year, with daily_counts JSONB keyed by IST date.
+   * Backed by fn_seat_analytics_daily_pivot (added 2026-04-28).
+   */
+  static async getSeatDailyPivot(
+    institutionIds: string[],
+    admissionYear: number,
+    excludeBulkMigrated = false
+  ): Promise<SeatPivotRow[]> {
+    if (institutionIds.length === 0) return [];
+    const { data, error } = await (this.supabase as any).rpc('fn_seat_analytics_daily_pivot', {
+      p_institution_ids: institutionIds,
+      p_admission_year: admissionYear,
+      p_exclude_bulk_migrated: excludeBulkMigrated,
+    });
+    if (error) {
+      console.error('[admission/group] fn_seat_analytics_daily_pivot failed:', error);
+      throw error;
+    }
+    // Coerce numeric strings (Postgres NUMERIC arrives as string in JS)
+    return ((data ?? []) as any[]).map((r): SeatPivotRow => ({
+      ...r,
+      intake: Number(r.intake),
+      filled: Number(r.filled),
+      balance: Number(r.balance),
+      fill_percentage: Number(r.fill_percentage),
+      daily_counts: (r.daily_counts ?? {}) as Record<string, number>,
+    }));
   }
 
   static async getSourceAnalytics(

@@ -61,6 +61,28 @@ export interface SLAConfig {
   token_payment_days?: number;
 }
 
+// Daily admission pivot row — from fn_seat_analytics_daily_pivot RPC.
+// Powers the Daily Pivot sub-tab inside Seat Analytics.
+export interface SeatPivotRow {
+  institution_id: string;
+  institution_name: string;
+  program_id: string;
+  program_short: string;        // e.g. "CSE", "MBA", "ECE-SH"
+  program_name: string;
+  course_short: string;         // e.g. "B.E - CSE", "MBA"
+  stream: string;               // e.g. "ENGINEERING"
+  level: string;                // "UG" | "PG" | ""
+  is_lateral: boolean;
+  study_year: string;           // "I YEAR" | "II YEAR"
+  group_label: string;          // e.g. "UG ENGINEERING - I YEAR"
+  group_sort_key: string;
+  intake: number;
+  filled: number;
+  balance: number;
+  fill_percentage: number;
+  daily_counts: Record<string, number>; // { "2026-03-25": 2, "2026-03-28": 1, ... }
+}
+
 // Group dashboard types
 // Updated 2026-04-28: source is now fn_group_dashboard_overview RPC. Counts are
 // admission-year-scoped. `applied` & `enrolled` semantics changed:

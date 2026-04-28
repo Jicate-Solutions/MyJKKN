@@ -164,7 +164,10 @@ export default function GroupDashboardPage() {
 
             {/* Tab: Seat Analytics */}
             <TabsContent value="seats">
-              <SeatAnalyticsDashboard />
+              <SeatAnalyticsDashboard
+                institutionIds={scopedInstitutionIds}
+                programStartYear={selectedYear}
+              />
             </TabsContent>
 
             {/* Tab: Source Analytics */}
