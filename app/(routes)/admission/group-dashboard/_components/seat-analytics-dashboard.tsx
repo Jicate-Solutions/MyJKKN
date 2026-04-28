@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -7,9 +8,10 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Settings, Download } from 'lucide-react';
+import { Loader2, Settings, Download, X } from 'lucide-react';
 import Link from 'next/link';
 import { useSeatAnalytics, useSeatDailyPivot } from '@/hooks/admission/use-group-dashboard';
 import type { SeatAnalyticsRow, SeatPivotRow } from '@/types/admission-workflow-config';
@@ -47,12 +49,21 @@ function aggregateByInstitution(rows: SeatAnalyticsRow[]) {
 }
 
 // XLSX export of the daily pivot — preserves group rows + per-day columns.
-function exportPivotToXlsx(rows: SeatPivotRow[], programStartYear: number | null) {
+// Honors the same date-range filter as the on-screen grid so what-you-see is
+// what-you-download.
+function exportPivotToXlsx(
+  rows: SeatPivotRow[],
+  programStartYear: number | null,
+  dateFrom: string | null,
+  dateTo: string | null
+) {
   if (rows.length === 0) return;
 
   const dateSet = new Set<string>();
   for (const r of rows) for (const k of Object.keys(r.daily_counts)) dateSet.add(k);
-  const dates = Array.from(dateSet).sort();
+  const dates = Array.from(dateSet)
+    .filter((d) => (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo))
+    .sort();
 
   const groups = new Map<string, SeatPivotRow[]>();
   const groupOrder: string[] = [];
@@ -77,17 +88,33 @@ function exportPivotToXlsx(rows: SeatPivotRow[], programStartYear: number | null
 
     for (const r of groupRows) {
       serial += 1;
+      // When a date range is active, sum only the visible dates; otherwise
+      // use the RPC-precomputed totals. Same logic as SeatPivotGrid.
+      const isFiltered = !!dateFrom || !!dateTo;
+      let rowFilled = 0;
+      for (const [d, c] of Object.entries(r.daily_counts)) {
+        if (dateFrom && d < dateFrom) continue;
+        if (dateTo && d > dateTo) continue;
+        rowFilled += c;
+      }
+      const filled = isFiltered ? rowFilled : r.filled;
+      const balance = Math.max(r.intake - filled, 0);
+      const pct = r.intake === 0 ? 0 : Math.round((filled / r.intake) * 10000) / 100;
       gIntake += r.intake;
-      gFilled += r.filled;
-      for (const [d, c] of Object.entries(r.daily_counts)) gDaily[d] = (gDaily[d] ?? 0) + c;
+      gFilled += filled;
+      for (const [d, c] of Object.entries(r.daily_counts)) {
+        if (dateFrom && d < dateFrom) continue;
+        if (dateTo && d > dateTo) continue;
+        gDaily[d] = (gDaily[d] ?? 0) + c;
+      }
 
       const row: (string | number)[] = [
         serial,
         r.course_short,
         r.intake,
-        r.filled,
-        r.balance,
-        `${r.fill_percentage}%`,
+        filled,
+        balance,
+        `${pct}%`,
         ...dates.map((d) => r.daily_counts[d] ?? ''),
       ];
       aoa.push(row);
@@ -104,11 +131,18 @@ function exportPivotToXlsx(rows: SeatPivotRow[], programStartYear: number | null
     ]);
   }
 
-  // Grand total
+  // Grand total — also filtered.
   const grandIntake = rows.reduce((s, r) => s + r.intake, 0);
-  const grandFilled = rows.reduce((s, r) => s + r.filled, 0);
+  let grandFilled = 0;
   const grandDaily: Record<string, number> = {};
-  for (const r of rows) for (const [d, c] of Object.entries(r.daily_counts)) grandDaily[d] = (grandDaily[d] ?? 0) + c;
+  for (const r of rows) {
+    for (const [d, c] of Object.entries(r.daily_counts)) {
+      if (dateFrom && d < dateFrom) continue;
+      if (dateTo && d > dateTo) continue;
+      grandFilled += c;
+      grandDaily[d] = (grandDaily[d] ?? 0) + c;
+    }
+  }
   aoa.push([
     '',
     'GRAND TOTAL',
@@ -133,6 +167,12 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
     isLoading: pivotLoading,
     isError: pivotError,
   } = useSeatDailyPivot(institutionIds, programStartYear);
+
+  // Date-range filter for the Daily Pivot. ISO YYYY-MM-DD strings or null.
+  // Empty input = open bound on that side.
+  const [dateFrom, setDateFrom] = useState<string | null>(null);
+  const [dateTo, setDateTo] = useState<string | null>(null);
+  const filterActive = !!dateFrom || !!dateTo;
 
   if (isLoading) {
     return (
@@ -247,21 +287,53 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
 
         {/* Daily Pivot — new tab */}
         <TabsContent value="daily-pivot" className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="text-xs text-muted-foreground">
               Daily admissions per program for {programStartYear ?? '—'}–
               {programStartYear ? (programStartYear + 1).toString().slice(2) : '—'}.
               SH (first-year shared) sections are merged into their base programs.
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={pivotRows.length === 0}
-              onClick={() => exportPivotToXlsx(pivotRows, programStartYear)}
-            >
-              <Download className="h-4 w-4 mr-1" />
-              Export XLSX
-            </Button>
+
+            <div className="flex items-center gap-2">
+              {/* Date range filter */}
+              <div className="flex items-center gap-1 text-xs">
+                <span className="text-muted-foreground">From</span>
+                <Input
+                  type="date"
+                  value={dateFrom ?? ''}
+                  onChange={(e) => setDateFrom(e.target.value || null)}
+                  className="h-8 w-[140px]"
+                />
+                <span className="text-muted-foreground">To</span>
+                <Input
+                  type="date"
+                  value={dateTo ?? ''}
+                  onChange={(e) => setDateTo(e.target.value || null)}
+                  className="h-8 w-[140px]"
+                />
+                {filterActive && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={() => { setDateFrom(null); setDateTo(null); }}
+                    title="Clear date filter"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pivotRows.length === 0}
+                onClick={() => exportPivotToXlsx(pivotRows, programStartYear, dateFrom, dateTo)}
+              >
+                <Download className="h-4 w-4 mr-1" />
+                Export XLSX
+              </Button>
+            </div>
           </div>
 
           {pivotLoading ? (
@@ -275,7 +347,7 @@ export function SeatAnalyticsDashboard({ institutionIds, programStartYear }: Sea
               </CardContent>
             </Card>
           ) : (
-            <SeatPivotGrid rows={pivotRows} />
+            <SeatPivotGrid rows={pivotRows} dateFrom={dateFrom} dateTo={dateTo} />
           )}
         </TabsContent>
       </Tabs>

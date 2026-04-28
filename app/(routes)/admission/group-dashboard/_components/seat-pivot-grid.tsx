@@ -22,6 +22,26 @@ interface SeatPivotGridProps {
   rows: SeatPivotRow[];
   /** When true, show every date in the cohort even if some columns are empty. Default false (sparse). */
   showAllDates?: boolean;
+  /** ISO YYYY-MM-DD inclusive lower bound. null/undefined disables the lower bound. */
+  dateFrom?: string | null;
+  /** ISO YYYY-MM-DD inclusive upper bound. null/undefined disables the upper bound. */
+  dateTo?: string | null;
+}
+
+// Sum the values of daily_counts entries whose date is within [from, to]
+// (inclusive). Either bound may be null/undefined to leave that side open.
+function sumWithinRange(
+  daily: Record<string, number>,
+  from: string | null | undefined,
+  to: string | null | undefined
+): number {
+  let s = 0;
+  for (const [d, c] of Object.entries(daily)) {
+    if (from && d < from) continue;
+    if (to && d > to) continue;
+    s += c;
+  }
+  return s;
 }
 
 // Format an ISO date string (YYYY-MM-DD) as DD/MM/YY for the column header.
@@ -44,15 +64,38 @@ interface GroupBlock {
   rows: SeatPivotRow[];
 }
 
-export function SeatPivotGrid({ rows, showAllDates = false }: SeatPivotGridProps) {
-  // 1. Compute the union of dates across all rows (sparse mode).
+export function SeatPivotGrid({
+  rows,
+  showAllDates = false,
+  dateFrom = null,
+  dateTo = null,
+}: SeatPivotGridProps) {
+  const isFiltered = !!dateFrom || !!dateTo;
+
+  // 1. Union of dates across all rows, then filter by [dateFrom, dateTo] if set.
   const dateColumns = useMemo(() => {
     const set = new Set<string>();
     for (const r of rows) {
       for (const k of Object.keys(r.daily_counts)) set.add(k);
     }
-    return Array.from(set).sort();
-  }, [rows]);
+    return Array.from(set)
+      .filter((d) => (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo))
+      .sort();
+  }, [rows, dateFrom, dateTo]);
+
+  // Per-row filtered totals: when a filter is active, recompute filled/balance/%
+  // from the visible date columns only. When no filter, fall back to the
+  // RPC-precomputed values for stable rendering.
+  const perRowTotals = useMemo(() => {
+    const map = new Map<string, { filled: number; balance: number; pct: number }>();
+    for (const r of rows) {
+      const filled = isFiltered ? sumWithinRange(r.daily_counts, dateFrom, dateTo) : r.filled;
+      const balance = Math.max(r.intake - filled, 0);
+      const pct = r.intake === 0 ? 0 : Math.round((filled / r.intake) * 10000) / 100;
+      map.set(r.program_id, { filled, balance, pct });
+    }
+    return map;
+  }, [rows, dateFrom, dateTo, isFiltered]);
 
   // 2. Group rows by group_label, preserving stable order via group_sort_key.
   const groups = useMemo<GroupBlock[]>(() => {
@@ -74,14 +117,19 @@ export function SeatPivotGrid({ rows, showAllDates = false }: SeatPivotGridProps
     );
   }, [rows]);
 
-  // 3. Per-group subtotal + grand totals.
+  // 3. Per-group subtotal + grand totals — filtered by date range if active.
   const groupTotals = useMemo(() => {
     return groups.map((g) => {
       const intake = g.rows.reduce((s, r) => s + r.intake, 0);
-      const filled = g.rows.reduce((s, r) => s + r.filled, 0);
+      const filled = g.rows.reduce(
+        (s, r) => s + (perRowTotals.get(r.program_id)?.filled ?? 0),
+        0
+      );
       const dailyTotals: Record<string, number> = {};
       for (const r of g.rows) {
         for (const [d, c] of Object.entries(r.daily_counts)) {
+          if (dateFrom && d < dateFrom) continue;
+          if (dateTo && d > dateTo) continue;
           dailyTotals[d] = (dailyTotals[d] ?? 0) + c;
         }
       }
@@ -93,14 +141,19 @@ export function SeatPivotGrid({ rows, showAllDates = false }: SeatPivotGridProps
         dailyTotals,
       };
     });
-  }, [groups]);
+  }, [groups, perRowTotals, dateFrom, dateTo]);
 
   const grandTotal = useMemo(() => {
     const intake = rows.reduce((s, r) => s + r.intake, 0);
-    const filled = rows.reduce((s, r) => s + r.filled, 0);
+    const filled = rows.reduce(
+      (s, r) => s + (perRowTotals.get(r.program_id)?.filled ?? 0),
+      0
+    );
     const dailyTotals: Record<string, number> = {};
     for (const r of rows) {
       for (const [d, c] of Object.entries(r.daily_counts)) {
+        if (dateFrom && d < dateFrom) continue;
+        if (dateTo && d > dateTo) continue;
         dailyTotals[d] = (dailyTotals[d] ?? 0) + c;
       }
     }
@@ -111,12 +164,20 @@ export function SeatPivotGrid({ rows, showAllDates = false }: SeatPivotGridProps
       pct: intake === 0 ? 0 : Math.round((filled / intake) * 10000) / 100,
       dailyTotals,
     };
-  }, [rows]);
+  }, [rows, perRowTotals, dateFrom, dateTo]);
 
   if (rows.length === 0) {
     return (
       <div className="border rounded-md p-8 text-center text-sm text-muted-foreground">
         No admission data for the selected admission year.
+      </div>
+    );
+  }
+
+  if (isFiltered && dateColumns.length === 0) {
+    return (
+      <div className="border rounded-md p-8 text-center text-sm text-muted-foreground">
+        No admissions in the selected date range.
       </div>
     );
   }
@@ -172,6 +233,11 @@ export function SeatPivotGrid({ rows, showAllDates = false }: SeatPivotGridProps
                 {/* Program rows */}
                 {g.rows.map((r) => {
                   serialCounter += 1;
+                  const rowTotals = perRowTotals.get(r.program_id) ?? {
+                    filled: r.filled,
+                    balance: r.balance,
+                    pct: r.fill_percentage,
+                  };
                   return (
                     <tr key={r.program_id} className="hover:bg-muted/40">
                       <td className={`sticky left-0 z-10 ${stickyCellBg} border-b border-r px-2 py-1 text-center text-muted-foreground`}>
@@ -181,11 +247,11 @@ export function SeatPivotGrid({ rows, showAllDates = false }: SeatPivotGridProps
                         {r.course_short}
                       </td>
                       <td className="border-b border-r px-2 py-1 text-right">{r.intake}</td>
-                      <td className="border-b border-r px-2 py-1 text-right">{r.filled}</td>
-                      <td className="border-b border-r px-2 py-1 text-right">{r.balance}</td>
+                      <td className="border-b border-r px-2 py-1 text-right">{rowTotals.filled}</td>
+                      <td className="border-b border-r px-2 py-1 text-right">{rowTotals.balance}</td>
                       <td className="border-b border-r px-2 py-1 text-right">
-                        <span className={`inline-block px-1.5 py-0.5 rounded ${fillBadgeClass(r.fill_percentage)}`}>
-                          {r.fill_percentage}%
+                        <span className={`inline-block px-1.5 py-0.5 rounded ${fillBadgeClass(rowTotals.pct)}`}>
+                          {rowTotals.pct}%
                         </span>
                       </td>
                       {dateColumns.map((d) => {
