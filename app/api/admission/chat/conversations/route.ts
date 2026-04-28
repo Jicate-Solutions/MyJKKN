@@ -2,46 +2,33 @@ export const dynamic = 'force-dynamic';
 
 // GET /api/admission/chat/conversations
 // List conversations with filters and pagination
+//
+// Permission gate is delegated to withAuth({ requirePermission:
+// 'admission.marketing.chat.view' }).
 
-import { NextRequest, NextResponse , connection } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { NextResponse, connection } from 'next/server';
+import { withAuth } from '@/lib/auth/with-auth';
 import { WhatsAppChatService } from '@/lib/services/whatsapp/whatsapp-chat-service';
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, auth) => {
   await connection();
   try {
-    const supabase = await createServerSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = auth.supabase;
+    const user = auth.user;
 
-    // Get user's institution
+    // Permission gate is enforced in the wrapper.
+    // Still need user's institution_id to default the query when no
+    // institution_id query param is provided.
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id, is_super_admin, role')
+      .select('institution_id')
       .eq('id', user.id)
       .single();
-
-    const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
-
-    // Check custom role permissions for non-super-admins
-    let hasAccess = isSuperAdmin;
-    if (!hasAccess) {
-      const { data: userRolesData } = await supabase
-        .from('user_roles')
-        .select('role_id, custom_roles!inner(role_key, permissions, institution_scope)')
-        .eq('user_id', user.id);
-
-      hasAccess = (userRolesData || []).some(
-        (ur: any) => ur.custom_roles?.permissions?.['admission.marketing.chat.view'] === true
-      );
-    }
 
     const { searchParams } = new URL(request.url);
     const institutionId = searchParams.get('institution_id') || profile?.institution_id;
 
-    if (!hasAccess && !institutionId) {
+    if (!institutionId) {
       return NextResponse.json({ error: 'No institution assigned' }, { status: 403 });
     }
 
@@ -65,4 +52,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'admission.marketing.chat.view' });
