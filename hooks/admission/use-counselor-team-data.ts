@@ -281,6 +281,47 @@ export function useToggleCounselorActive() {
 }
 
 /**
+ * Mutation: create a new admission_counselors row.
+ * Used by AddCounselorDialog when opened from the Members tab.
+ * Invalidates the members query on success so the list refreshes.
+ */
+export interface CreateCounselorPayload {
+  user_id: string | null;
+  institution_id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  max_leads?: number;
+  is_active?: boolean;
+}
+
+export function useCreateCounselor() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: CreateCounselorPayload) => {
+      const supabase = createClientSupabaseClient();
+      const { error } = await (supabase as any)
+        .from('admission_counselors')
+        .insert({
+          user_id: payload.user_id,
+          institution_id: payload.institution_id,
+          name: payload.name,
+          email: payload.email,
+          phone: payload.phone ?? null,
+          max_leads: payload.max_leads ?? 100,
+          is_active: payload.is_active ?? true,
+        });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: counselorTeamKeys.all });
+      toast.success('Counselor added successfully');
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to add counselor'),
+  });
+}
+
+/**
  * Mutation: toggle schedule slot on/off for a counselor + day.
  */
 export function useToggleScheduleSlot() {
