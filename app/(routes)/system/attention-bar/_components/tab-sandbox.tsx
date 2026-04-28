@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Tab 7 — Test Sandbox  {/* TAB-7:SANDBOX */}
+ * Tab 7 — Test Sandbox  [TAB-7:SANDBOX]
  *
  * Resolver tester: pick role + page + mock state JSON → POST to resolve API
  * (as GET with override params) → render resolution trace + live AttentionBar preview.
