@@ -3,20 +3,25 @@
  *
  * Spec §2 Architecture: priority order is 0 → 2 → 3 → 1 → 4. First match wins.
  *
- * Phase 1 ships only Layer 1 with stubs for Layers 0/2/3/4. The stubs return
- * `null` (no match) and emit `'skipped'` trace entries. Subsequent phases
- * replace each stub independently:
- *   - Phase 3 → Layer 0 (Supabase Realtime urgent notifications)
- *   - Phase 4 → Layer 2 (rules engine + state queries)
- *   - Phase 5 → Layer 3 (behavioral learning, DPDPA-gated)
- *   - Phase 6 → Layer 4 (AI fallback, allowlisted, cached)
+ * Layer evaluators live in lib/attention-bar/layers/ — one file per layer so
+ * each can be independently replaced as phases land:
+ *   - Phase 3 → layers/layer-0.ts (Supabase Realtime urgent notifications)
+ *   - Phase 4-main → layers/layer-2.ts (rules engine + state queries)
+ *   - Phase 5 → layers/layer-3.ts (behavioral learning, DPDPA-gated)
+ *   - Phase 6-main → layers/layer-4.ts (AI fallback, allowlisted, cached)
+ *
+ * This file is the orchestrator only. Per-layer logic does NOT belong here.
  */
 
-import { findStaticDefault } from './static-defaults';
+import { evaluateLayer0 } from './layers/layer-0';
+import { evaluateLayer1 } from './layers/layer-1';
+import { evaluateLayer2 } from './layers/layer-2';
+import { evaluateLayer3 } from './layers/layer-3';
+import { evaluateLayer4 } from './layers/layer-4';
+import type { LayerResult } from './layers/layer-result';
 import type {
   Layer,
   ResolveResult,
-  ResolvedAction,
   ResolverContext,
   TraceEntry,
 } from './types';
@@ -28,45 +33,6 @@ import type {
  * ─────────────────────────────────────────────────────────────── */
 
 const PRIORITY_ORDER: readonly Layer[] = [0, 2, 3, 1, 4];
-
-/* ─────────────────────────────────────────────────────────────────
- * Layer evaluators. Return ActionTemplate (without firedLayer/trace) on hit,
- * or null on no-match. Resolver wraps the result with bookkeeping.
- * ─────────────────────────────────────────────────────────────── */
-
-type LayerResult =
-  | { matched: true; action: Omit<ResolvedAction, 'firedLayer' | 'trace'> }
-  | { matched: false; reason?: string };
-
-async function evaluateLayer0(_ctx: ResolverContext): Promise<LayerResult> {
-  // Phase 3 plugs in Supabase Realtime listener for severity=red notifications.
-  return { matched: false, reason: 'Layer 0 not yet implemented (Phase 3)' };
-}
-
-async function evaluateLayer2(_ctx: ResolverContext): Promise<LayerResult> {
-  // Phase 4 reads quick_action_rules + evaluates when_clause against state.
-  return { matched: false, reason: 'Layer 2 not yet implemented (Phase 4)' };
-}
-
-async function evaluateLayer3(ctx: ResolverContext): Promise<LayerResult> {
-  // Phase 5 reads quick_action_taps + computes confidence.
-  // Until then: even if consent is on, no inference is possible.
-  if (!ctx.preferences.layer3Consent) {
-    return { matched: false, reason: 'Layer 3 — user has not opted in' };
-  }
-  return { matched: false, reason: 'Layer 3 not yet implemented (Phase 5)' };
-}
-
-async function evaluateLayer1(ctx: ResolverContext): Promise<LayerResult> {
-  const def = findStaticDefault(ctx.page, ctx.role);
-  if (!def) return { matched: false, reason: 'No Layer 1 default registered' };
-  return { matched: true, action: def.build(ctx) };
-}
-
-async function evaluateLayer4(_ctx: ResolverContext): Promise<LayerResult> {
-  // Phase 6 wires Claude Haiku 4.5 with allowlist + cache + cost guardrails.
-  return { matched: false, reason: 'Layer 4 not yet implemented (Phase 6)' };
-}
 
 const LAYER_EVALUATORS: Record<Layer, (ctx: ResolverContext) => Promise<LayerResult>> = {
   0: evaluateLayer0,
