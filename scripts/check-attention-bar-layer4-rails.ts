@@ -24,7 +24,11 @@
  * Exits 0 on full pass, 1 on any failure.
  */
 
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
+import { resolve } from 'path';
+// Load from the monorepo root .env.local (one level up from scripts/).
+dotenvConfig({ path: resolve(process.cwd(), '.env.local') });
+dotenvConfig({ path: resolve(process.cwd(), '.env') });
 import { createClient } from '@supabase/supabase-js';
 import {
   buildCacheKey,
