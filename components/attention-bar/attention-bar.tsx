@@ -227,10 +227,13 @@ export function AttentionBar() {
   //  2. Unauthenticated (resolver returns null)
   //  3. Cascade-failed (every layer including catch-all returned null)
   //  4. Pathname not yet hydrated (defensive — shouldn't happen in App Router)
-  // In all four, render NOTHING so the bottom-nav strip stays anchored.
-  if (isLoading) return null;
+  // In all four, render NOTHING for the visible pill so the bottom-nav strip
+  // stays anchored — but we ALWAYS mount <RealtimeListener/> so the channel
+  // is open even when no action is currently displayed (an urgent could
+  // arrive during the empty state and must trigger an immediate re-resolve).
+  if (isLoading) return <RealtimeListener />;
   const action = data?.resolved;
-  if (!action) return null;
+  if (!action) return <RealtimeListener />;
 
   const styles = TONE_STYLES[action.tone];
   const Icon = resolveIcon(action.icon);
