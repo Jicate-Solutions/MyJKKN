@@ -172,8 +172,10 @@ export function GeographyAnalyticsTab({ institutionIds, programStartYear }: Geog
         </CardContent>
       </Card>
 
-      {/* Institution × District breakdown (if multi-institution) */}
-      {instByDistrict.size > 0 && !institutionId && (
+      {/* Institution × District breakdown — show only when more than one
+          institution actually has data in scope. Derives from the rendered
+          rows themselves, so it self-hides when filtered to a single inst. */}
+      {instByDistrict.size > 0 && new Set(rows.map((r) => r.institution_id)).size > 1 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">District Overlap Across Institutions</CardTitle>
