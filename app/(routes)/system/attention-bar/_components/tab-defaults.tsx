@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Tab 2 — Layer 1 Defaults  {/* TAB-2:DEFAULTS */}
+ * Tab 2 — Layer 1 Defaults  [TAB-2:DEFAULTS]
  *
  * Read-only coverage matrix: rows = 10 spec'd pages, cols = 5 spec'd roles.
  * Cell = action label from STATIC_DEFAULTS registry (exact match only).
