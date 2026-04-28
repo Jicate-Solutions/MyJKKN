@@ -70,6 +70,10 @@
     {
       "path": "/api/cron/sentry-lane-2?secret=${CRON_SECRET}",
       "schedule": "29 */6 * * *"
+    },
+    {
+      "path": "/api/cron/attention-bar-prune?secret=${CRON_SECRET}",
+      "schedule": "47 18 * * *"
     }
   ]
 }
