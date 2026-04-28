@@ -184,19 +184,45 @@ export class GroupDashboardService {
     }));
   }
 
+  /**
+   * AY-scoped source breakdown. Backed by fn_source_analytics RPC.
+   * Replaces the legacy get_source_analytics(uuid, uuid) — which used the
+   * sparse academic_year_id FK and lacked role_has_institution_access().
+   *
+   * @param institutionIds  scope; undefined => super-admin all-accessible
+   * @param admissionYear   cohort year integer (e.g. 2026); null => all-time
+   */
   static async getSourceAnalytics(
-    institutionId?: string,
-    academicYearId?: string
+    institutionIds: string[] | undefined,
+    admissionYear: number | null
   ): Promise<SourceAnalyticsRow[]> {
-    const { data, error } = await (this.supabase as any).rpc('get_source_analytics', {
-      p_institution_id: institutionId ?? null,
-      p_academic_year_id: academicYearId ?? null,
+    let resolved = institutionIds;
+    if (resolved === undefined) {
+      const { data: insts, error: instErr } = await (this.supabase as any)
+        .from('institutions')
+        .select('id');
+      if (instErr) {
+        console.error('[admission/group] Failed to resolve institutions for sources:', instErr);
+        throw instErr;
+      }
+      resolved = ((insts ?? []) as Array<{ id: string }>).map((i) => i.id);
+    }
+    if (resolved.length === 0) return [];
+
+    const { data, error } = await (this.supabase as any).rpc('fn_source_analytics', {
+      p_institution_ids: resolved,
+      p_admission_year: admissionYear ?? null,
     });
     if (error) {
-      console.error('[admission/group] get_source_analytics failed:', error);
+      console.error('[admission/group] fn_source_analytics failed:', error);
       throw error;
     }
-    return (data ?? []) as SourceAnalyticsRow[];
+    return ((data ?? []) as any[]).map((r): SourceAnalyticsRow => ({
+      ...r,
+      lead_count: Number(r.lead_count),
+      enrolled_count: Number(r.enrolled_count),
+      conversion_rate: Number(r.conversion_rate),
+    }));
   }
 
   static async getGeographyAnalytics(

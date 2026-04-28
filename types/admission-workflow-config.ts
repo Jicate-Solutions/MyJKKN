@@ -137,14 +137,14 @@ export interface SeatAnalyticsRow {
   last_filled_at: string | null;
 }
 
-// Source analytics — from get_source_analytics RPC
+// Source analytics — from fn_source_analytics RPC.
+// Updated 2026-04-28: dropped academic_year_id / academic_year_name (legacy
+// from the old academic-year-FK design); RPC now takes p_admission_year integer.
 export interface SourceAnalyticsRow {
   institution_id: string;
   institution_name: string;
   source: string | null;
   referral_type: string | null;
-  academic_year_id: string | null;
-  academic_year_name: string | null;
   lead_count: number;
   enrolled_count: number;
   conversion_rate: number;

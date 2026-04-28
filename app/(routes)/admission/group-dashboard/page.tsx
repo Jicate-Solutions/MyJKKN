@@ -172,7 +172,10 @@ export default function GroupDashboardPage() {
 
             {/* Tab: Source Analytics */}
             <TabsContent value="sources">
-              <SourceAnalyticsTab />
+              <SourceAnalyticsTab
+                institutionIds={scopedInstitutionIds}
+                programStartYear={selectedYear}
+              />
             </TabsContent>
 
             {/* Tab: Geography */}

@@ -25,8 +25,13 @@ export const groupDashboardKeys = {
       admissionYear ?? 'no-year',
       excludeBulkMigrated ?? false,
     ] as const,
-  sourceAnalytics: (institutionId?: string) =>
-    [...groupDashboardKeys.all, 'sources', institutionId ?? 'all'] as const,
+  sourceAnalytics: (institutionIds?: string[], admissionYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'sources',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+    ] as const,
   geographyAnalytics: (institutionId?: string) =>
     [...groupDashboardKeys.all, 'geography', institutionId ?? 'all'] as const,
   institutionComparison: () =>
@@ -108,12 +113,19 @@ export function useSeatDailyPivot(
   });
 }
 
-export function useSourceAnalytics(institutionId?: string) {
+export function useSourceAnalytics(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null
+) {
+  useSeatsRealtimeInvalidation();
   return useQuery({
-    queryKey: groupDashboardKeys.sourceAnalytics(institutionId),
-    queryFn: () => GroupDashboardService.getSourceAnalytics(institutionId),
+    queryKey: groupDashboardKeys.sourceAnalytics(institutionIds, admissionYear),
+    queryFn: () => GroupDashboardService.getSourceAnalytics(institutionIds, admissionYear),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
   });
 }
 
