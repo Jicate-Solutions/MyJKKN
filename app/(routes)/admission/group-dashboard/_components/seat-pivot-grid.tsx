@@ -15,7 +15,7 @@
 // Visual pattern follows app/(routes)/academic/timetables/[id]/_components/timetable-grid.tsx
 // (sticky-left columns + horizontal-scroll right columns).
 
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import type { SeatPivotRow } from '@/types/admission-workflow-config';
 
 interface SeatPivotGridProps {
@@ -158,9 +158,9 @@ export function SeatPivotGrid({ rows, showAllDates = false }: SeatPivotGridProps
           {groups.map((g, gi) => {
             const totals = groupTotals[gi];
             return (
-              <>
+              <Fragment key={g.group_sort_key}>
                 {/* Group header row */}
-                <tr key={`grp-${g.group_sort_key}`} className={GROUP_BG}>
+                <tr className={GROUP_BG}>
                   <td
                     className={`sticky left-0 z-20 ${GROUP_BG} border-b px-2 py-1 font-semibold`}
                     colSpan={6 + dateColumns.length}
@@ -217,7 +217,7 @@ export function SeatPivotGrid({ rows, showAllDates = false }: SeatPivotGridProps
                     );
                   })}
                 </tr>
-              </>
+              </Fragment>
             );
           })}
 
