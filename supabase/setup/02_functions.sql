@@ -12211,3 +12211,150 @@ END $fn_all$;
 
 REVOKE ALL ON FUNCTION fn_generate_all_dashboard_work_items() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION fn_generate_all_dashboard_work_items() TO service_role;
+
+-- =====================================================
+-- 2026-04-29: HR Sprint 5 Attendance — recompute + purge functions
+-- (per specs/hrapp-sprint-5-attendance-spec.md, Round 3.2 + 3.3 + 3.4)
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION fn_recompute_attendance_on_holiday_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_holiday_status_id UUID;
+  v_absent_status_id UUID;
+  v_inst_id UUID;
+  v_start DATE;
+  v_end DATE;
+  v_event_id UUID := gen_random_uuid();
+  v_cutoff DATE := CURRENT_DATE - INTERVAL '90 days';
+BEGIN
+  IF (TG_OP = 'DELETE') THEN
+    v_inst_id := OLD.institution_id;
+    v_start   := GREATEST(OLD.start_date, v_cutoff);
+    v_end     := OLD.end_date;
+  ELSE
+    v_inst_id := NEW.institution_id;
+    v_start   := GREATEST(NEW.start_date, v_cutoff);
+    v_end     := NEW.end_date;
+  END IF;
+
+  IF v_inst_id IS NULL OR v_start IS NULL OR v_end IS NULL OR v_start > v_end THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
+  SELECT id INTO v_holiday_status_id FROM hr_attendance_status_types WHERE code = 'HOLIDAY' AND institution_id IS NULL LIMIT 1;
+  SELECT id INTO v_absent_status_id  FROM hr_attendance_status_types WHERE code = 'ABSENT'  AND institution_id IS NULL LIMIT 1;
+
+  IF v_holiday_status_id IS NULL OR v_absent_status_id IS NULL THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
+  INSERT INTO hr_attendance_audit_log (
+    attendance_record_id, employee_id, institution_id, actor_id, action,
+    before_state, after_state, reason, created_at
+  )
+  SELECT
+    r.id, r.employee_id, r.institution_id, NULL, 'recompute',
+    jsonb_build_object('status_type_id', r.status_type_id, 'status_code', 'ABSENT'),
+    jsonb_build_object('status_type_id', v_holiday_status_id, 'status_code', 'HOLIDAY', 'event_id', v_event_id),
+    'Holiday added/changed in institution_leaves; ABSENT -> HOLIDAY',
+    NOW()
+  FROM hr_attendance_records r
+  WHERE r.institution_id = v_inst_id
+    AND r.work_date BETWEEN v_start AND v_end
+    AND r.status_type_id = v_absent_status_id;
+
+  UPDATE hr_attendance_records r
+    SET status_type_id = v_holiday_status_id,
+        recomputed_from_event_id = v_event_id,
+        updated_at = NOW()
+  WHERE r.institution_id = v_inst_id
+    AND r.work_date BETWEEN v_start AND v_end
+    AND r.status_type_id = v_absent_status_id;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION fn_recompute_attendance_on_leave_approval()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_leave_status_id UUID;
+  v_event_id UUID := gen_random_uuid();
+BEGIN
+  IF (TG_OP = 'UPDATE'
+      AND NEW.status = 'approved'
+      AND COALESCE(OLD.status, '') <> 'approved') THEN
+
+    SELECT id INTO v_leave_status_id FROM hr_attendance_status_types WHERE code = 'LEAVE' AND institution_id IS NULL LIMIT 1;
+    IF v_leave_status_id IS NULL THEN RETURN NEW; END IF;
+
+    INSERT INTO hr_attendance_audit_log (
+      attendance_record_id, employee_id, institution_id, actor_id, action,
+      before_state, after_state, reason, created_at
+    )
+    SELECT
+      r.id, r.employee_id, r.institution_id, NEW.final_approver_id, 'recompute',
+      jsonb_build_object('status_type_id', r.status_type_id),
+      jsonb_build_object('status_type_id', v_leave_status_id, 'status_code', 'LEAVE', 'event_id', v_event_id, 'leave_application_id', NEW.id),
+      'Leave application approved; previous status -> LEAVE',
+      NOW()
+    FROM hr_attendance_records r
+    WHERE r.employee_id = NEW.employee_id
+      AND r.work_date BETWEEN NEW.start_date AND NEW.end_date
+      AND r.status_type_id <> v_leave_status_id;
+
+    UPDATE hr_attendance_records r
+      SET status_type_id = v_leave_status_id,
+          recomputed_from_event_id = v_event_id,
+          updated_at = NOW()
+    WHERE r.employee_id = NEW.employee_id
+      AND r.work_date BETWEEN NEW.start_date AND NEW.end_date
+      AND r.status_type_id <> v_leave_status_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION fn_purge_attendance_audit_log()
+RETURNS INT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_total INT := 0;
+  v_org RECORD;
+  v_deleted INT;
+BEGIN
+  FOR v_org IN
+    SELECT institution_id, MIN(audit_retention_years) AS years
+    FROM hr_organizations
+    WHERE institution_id IS NOT NULL
+    GROUP BY institution_id
+  LOOP
+    DELETE FROM hr_attendance_audit_log
+      WHERE institution_id = v_org.institution_id
+        AND created_at < NOW() - (COALESCE(v_org.years, 7) || ' years')::INTERVAL;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    v_total := v_total + v_deleted;
+  END LOOP;
+
+  DELETE FROM hr_attendance_audit_log
+    WHERE institution_id IS NULL
+      AND created_at < NOW() - INTERVAL '7 years';
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  v_total := v_total + v_deleted;
+
+  RETURN v_total;
+END;
+$fn$;

@@ -5561,3 +5561,203 @@ CREATE POLICY qaconf_read ON public.quick_action_config
 DROP POLICY IF EXISTS qaconf_write ON public.quick_action_config;
 CREATE POLICY qaconf_write ON public.quick_action_config
     FOR ALL USING (is_super_admin());
+
+-- =====================================================
+-- 2026-04-29: HR Sprint 5 Attendance — RLS policies
+-- (per specs/hrapp-sprint-5-attendance-spec.md)
+-- =====================================================
+
+ALTER TABLE hr_attendance_status_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hr_regularization_reasons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hr_attendance_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hr_attendance_regularizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hr_attendance_exceptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hr_attendance_audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hr_biometric_devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hr_biometric_punches ENABLE ROW LEVEL SECURITY;
+
+-- ---------- hr_attendance_status_types ----------
+DROP POLICY IF EXISTS hr_status_types_select ON hr_attendance_status_types;
+CREATE POLICY hr_status_types_select ON hr_attendance_status_types
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR is_system = TRUE
+    OR (user_has_permission('hr.attendance.view_all') AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
+    OR (user_has_permission('hr.attendance.view_self') AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
+  );
+DROP POLICY IF EXISTS hr_status_types_insert ON hr_attendance_status_types;
+CREATE POLICY hr_status_types_insert ON hr_attendance_status_types
+  FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_status_types_update ON hr_attendance_status_types;
+CREATE POLICY hr_status_types_update ON hr_attendance_status_types
+  FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_status_types_delete ON hr_attendance_status_types;
+CREATE POLICY hr_status_types_delete ON hr_attendance_status_types
+  FOR DELETE USING (is_super_admin() OR (is_admin() AND is_system = FALSE));
+
+-- ---------- hr_regularization_reasons ----------
+DROP POLICY IF EXISTS hr_reg_reasons_select ON hr_regularization_reasons;
+CREATE POLICY hr_reg_reasons_select ON hr_regularization_reasons
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR is_system = TRUE
+    OR ((user_has_permission('hr.attendance.view_self') OR user_has_permission('hr.attendance.view_all'))
+        AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
+  );
+DROP POLICY IF EXISTS hr_reg_reasons_insert ON hr_regularization_reasons;
+CREATE POLICY hr_reg_reasons_insert ON hr_regularization_reasons
+  FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_reg_reasons_update ON hr_regularization_reasons;
+CREATE POLICY hr_reg_reasons_update ON hr_regularization_reasons
+  FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_reg_reasons_delete ON hr_regularization_reasons;
+CREATE POLICY hr_reg_reasons_delete ON hr_regularization_reasons
+  FOR DELETE USING (is_super_admin() OR (is_admin() AND is_system = FALSE));
+
+-- ---------- hr_attendance_records ----------
+DROP POLICY IF EXISTS hr_attendance_records_select ON hr_attendance_records;
+CREATE POLICY hr_attendance_records_select ON hr_attendance_records
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.view_all') AND role_has_institution_access(institution_id))
+    OR (user_has_permission('hr.attendance.view_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
+  );
+DROP POLICY IF EXISTS hr_attendance_records_insert ON hr_attendance_records;
+CREATE POLICY hr_attendance_records_insert ON hr_attendance_records
+  FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
+    OR (user_has_permission('hr.attendance.mark_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
+  );
+DROP POLICY IF EXISTS hr_attendance_records_update ON hr_attendance_records;
+CREATE POLICY hr_attendance_records_update ON hr_attendance_records
+  FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_attendance_records_delete ON hr_attendance_records;
+CREATE POLICY hr_attendance_records_delete ON hr_attendance_records
+  FOR DELETE USING (is_super_admin() OR (is_admin() AND user_has_permission('hr.attendance.override')));
+
+-- ---------- hr_attendance_regularizations ----------
+DROP POLICY IF EXISTS hr_attendance_regs_select ON hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_select ON hr_attendance_regularizations
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.attendance.view_all')
+    OR user_has_permission('hr.attendance.regularize_approve')
+    OR user_has_permission('hr.attendance.approve_team')
+    OR (user_has_permission('hr.attendance.regularize_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
+  );
+DROP POLICY IF EXISTS hr_attendance_regs_insert ON hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_insert ON hr_attendance_regularizations
+  FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.attendance.override')
+    OR (user_has_permission('hr.attendance.regularize_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
+  );
+DROP POLICY IF EXISTS hr_attendance_regs_update ON hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_update ON hr_attendance_regularizations
+  FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.attendance.regularize_approve')
+    OR user_has_permission('hr.attendance.approve_team')
+    OR user_has_permission('hr.attendance.override')
+  );
+DROP POLICY IF EXISTS hr_attendance_regs_delete ON hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_delete ON hr_attendance_regularizations
+  FOR DELETE USING (is_super_admin() OR (is_admin() AND user_has_permission('hr.attendance.override')));
+
+-- ---------- hr_attendance_exceptions ----------
+DROP POLICY IF EXISTS hr_attendance_excs_select ON hr_attendance_exceptions;
+CREATE POLICY hr_attendance_excs_select ON hr_attendance_exceptions
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.view_all') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_attendance_excs_insert ON hr_attendance_exceptions;
+CREATE POLICY hr_attendance_excs_insert ON hr_attendance_exceptions
+  FOR INSERT WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('hr.attendance.override'));
+DROP POLICY IF EXISTS hr_attendance_excs_update ON hr_attendance_exceptions;
+CREATE POLICY hr_attendance_excs_update ON hr_attendance_exceptions
+  FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_attendance_excs_delete ON hr_attendance_exceptions;
+CREATE POLICY hr_attendance_excs_delete ON hr_attendance_exceptions
+  FOR DELETE USING (is_super_admin() OR (is_admin() AND user_has_permission('hr.attendance.override')));
+
+-- ---------- hr_attendance_audit_log ----------
+DROP POLICY IF EXISTS hr_attendance_audit_select ON hr_attendance_audit_log;
+CREATE POLICY hr_attendance_audit_select ON hr_attendance_audit_log
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR ((user_has_permission('hr.attendance.view_all') OR user_has_permission('hr.attendance.audit_export'))
+        AND (institution_id IS NULL OR role_has_institution_access(institution_id)))
+  );
+DROP POLICY IF EXISTS hr_attendance_audit_insert ON hr_attendance_audit_log;
+CREATE POLICY hr_attendance_audit_insert ON hr_attendance_audit_log
+  FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.attendance.override')
+    OR user_has_permission('hr.attendance.mark_self')
+    OR user_has_permission('hr.attendance.regularize_approve')
+    OR user_has_permission('hr.attendance.approve_team')
+  );
+DROP POLICY IF EXISTS hr_attendance_audit_delete ON hr_attendance_audit_log;
+CREATE POLICY hr_attendance_audit_delete ON hr_attendance_audit_log
+  FOR DELETE USING (is_super_admin());
+
+-- ---------- hr_biometric_devices ----------
+DROP POLICY IF EXISTS hr_biometric_devices_select ON hr_biometric_devices;
+CREATE POLICY hr_biometric_devices_select ON hr_biometric_devices
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.view_all') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_biometric_devices_insert ON hr_biometric_devices;
+CREATE POLICY hr_biometric_devices_insert ON hr_biometric_devices
+  FOR INSERT WITH CHECK (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_biometric_devices_update ON hr_biometric_devices;
+CREATE POLICY hr_biometric_devices_update ON hr_biometric_devices
+  FOR UPDATE USING (
+    is_super_admin() OR is_admin()
+    OR (user_has_permission('hr.attendance.override') AND role_has_institution_access(institution_id))
+  );
+DROP POLICY IF EXISTS hr_biometric_devices_delete ON hr_biometric_devices;
+CREATE POLICY hr_biometric_devices_delete ON hr_biometric_devices
+  FOR DELETE USING (is_super_admin() OR (is_admin() AND user_has_permission('hr.attendance.override')));
+
+-- ---------- hr_biometric_punches ----------
+DROP POLICY IF EXISTS hr_biometric_punches_select ON hr_biometric_punches;
+CREATE POLICY hr_biometric_punches_select ON hr_biometric_punches
+  FOR SELECT USING (
+    is_super_admin() OR is_admin()
+    OR user_has_permission('hr.attendance.view_all')
+    OR (user_has_permission('hr.attendance.view_self') AND auth.uid() = (SELECT user_id FROM hr_employees WHERE id = employee_id))
+  );
+DROP POLICY IF EXISTS hr_biometric_punches_insert ON hr_biometric_punches;
+CREATE POLICY hr_biometric_punches_insert ON hr_biometric_punches
+  FOR INSERT WITH CHECK (is_super_admin() OR is_admin() OR user_has_permission('hr.attendance.override'));
+DROP POLICY IF EXISTS hr_biometric_punches_update ON hr_biometric_punches;
+CREATE POLICY hr_biometric_punches_update ON hr_biometric_punches
+  FOR UPDATE USING (is_super_admin() OR is_admin() OR user_has_permission('hr.attendance.override'));
+DROP POLICY IF EXISTS hr_biometric_punches_delete ON hr_biometric_punches;
+CREATE POLICY hr_biometric_punches_delete ON hr_biometric_punches
+  FOR DELETE USING (is_super_admin());
