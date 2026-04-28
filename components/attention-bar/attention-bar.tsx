@@ -81,6 +81,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useAttentionBar } from '@/hooks/use-attention-bar';
 import type { Tone } from '@/lib/attention-bar/types';
+import { RealtimeListener } from './realtime-listener'; // PHASE3:REALTIME — DO NOT DELETE
 
 // ─────────────────────────────────────────────────────────────────
 // Icon resolver
