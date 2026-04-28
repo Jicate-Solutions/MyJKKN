@@ -25,10 +25,23 @@
  */
 
 import { config as dotenvConfig } from 'dotenv';
-import { resolve } from 'path';
-// Load from the monorepo root .env.local (one level up from scripts/).
+import { resolve, dirname } from 'path';
+import { execSync } from 'child_process';
+
+// Resolve env from the git worktree root (where .env.local lives on this machine).
+// Falls back to process.cwd() if git is not available.
+function gitRoot(): string {
+  try {
+    return execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim();
+  } catch {
+    return process.cwd();
+  }
+}
+
+const root = gitRoot();
+dotenvConfig({ path: resolve(root, '.env.local') });
+dotenvConfig({ path: resolve(root, '.env') });
 dotenvConfig({ path: resolve(process.cwd(), '.env.local') });
-dotenvConfig({ path: resolve(process.cwd(), '.env') });
 import { createClient } from '@supabase/supabase-js';
 import {
   buildCacheKey,
