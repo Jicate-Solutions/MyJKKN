@@ -1,55 +1,19 @@
 export const dynamic = 'force-dynamic';
 
-import { NextRequest, NextResponse, connection } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { NextResponse, connection } from 'next/server';
+import { withAuth } from '@/lib/auth/with-auth';
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const GET = withAuth(async (request, auth, context) => {
   await connection();
-  const { id } = await params;
+  const params = (await context?.params) as { id?: string } | undefined;
+  const id = params?.id;
   try {
-    const supabase = await createServerSupabaseClient();
-
-    // Get the current user
-    const {
-      data: { user },
-      error: authError
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!id) {
+      return NextResponse.json({ error: 'Notification id is required' }, { status: 400 });
     }
+    const supabase = auth.supabase;
 
-    // Check permissions (same as notifications list)
-    const { data: userProfileData } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const userProfile = userProfileData as { role: string } | null;
-
-    const { data: rolePermissionsData } = await supabase
-      .from('custom_roles')
-      .select('permissions')
-      .eq('role_key', userProfile?.role || '')
-      .single();
-
-    const rolePermissions = rolePermissionsData as { permissions: Record<string, boolean> } | null;
-
-    const hasPermission =
-      userProfile?.role === 'super_admin' ||
-      rolePermissions?.permissions?.['notifications.view'] === true ||
-      rolePermissions?.permissions?.['notifications.view.all'] === true;
-
-    if (!hasPermission) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions' },
-        { status: 403 }
-      );
-    }
+    // Permission gate is enforced in the wrapper (notifications.view).
 
     // Fetch the notification with creator profile
     const { data: notification, error } = await supabase
@@ -192,56 +156,20 @@ export async function GET(
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'notifications.view' });
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const DELETE = withAuth(async (_request, auth, context) => {
   await connection();
-  const { id } = await params;
+  const params = (await context?.params) as { id?: string } | undefined;
+  const id = params?.id;
 
   try {
-    const supabase = await createServerSupabaseClient();
-
-    // Get the current user
-    const {
-      data: { user },
-      error: authError
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!id) {
+      return NextResponse.json({ error: 'Notification id is required' }, { status: 400 });
     }
+    const supabase = auth.supabase;
 
-    // Check permissions (same as notifications list)
-    const { data: userProfileData } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const userProfileDelete = userProfileData as { role: string } | null;
-
-    const { data: rolePermissionsData } = await supabase
-      .from('custom_roles')
-      .select('permissions')
-      .eq('role_key', userProfileDelete?.role || '')
-      .single();
-
-    const rolePermissionsDelete = rolePermissionsData as { permissions: Record<string, boolean> } | null;
-
-    const hasPermission =
-      userProfileDelete?.role === 'super_admin' ||
-      rolePermissionsDelete?.permissions?.['notifications.delete'] === true ||
-      rolePermissionsDelete?.permissions?.['notifications.delete.all'] === true;
-
-    if (!hasPermission) {
-      return NextResponse.json(
-        { error: 'Insufficient permissions' },
-        { status: 403 }
-      );
-    }
+    // Permission gate is enforced in the wrapper (notifications.delete).
 
     // Delete the notification
     const { error: deleteError } = await supabase
@@ -265,4 +193,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'notifications.delete' });

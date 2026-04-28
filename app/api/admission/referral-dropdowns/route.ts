@@ -11,19 +11,22 @@
 //   institution_id: required for type=departments|students|staff
 //   department_id:  optional for type=staff
 //
-// Auth: any role with admission.leads.create permission, or super_admin / admin.
+// Permission gate is delegated to withAuth({ requirePermission:
+// 'admission.leads.create' }) — the wrapper triad covers super_admin /
+// is_admin (admin/administrator) bypass + user_has_permission. The previous
+// hardcoded `all`/`admission.leads.manage` extras don't exist as canonical
+// permission keys; users who need this endpoint should be granted
+// admission.leads.create via Role Management UI.
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
+import { NextResponse } from 'next/server';
+import { withAuth } from '@/lib/auth/with-auth';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 type DropdownOption = { id: string; name: string; role?: string; extra?: string };
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, _auth) => {
   try {
-    const { user, error: authError } = await getAuthUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Permission gate is enforced in the wrapper.
 
     const admin = createServiceRoleClient();
     const url = new URL(request.url);
@@ -33,40 +36,6 @@ export async function GET(request: NextRequest) {
 
     if (!type) {
       return NextResponse.json({ error: 'type is required' }, { status: 400 });
-    }
-
-    // Permission gate — either super_admin, admin role, or any custom role with
-    // admission.leads.create. Merges permissions from all user_roles entries.
-    const { data: profile } = await admin
-      .from('profiles')
-      .select('is_super_admin, role')
-      .eq('id', user.id)
-      .single();
-
-    const isPrivileged =
-      profile?.is_super_admin === true ||
-      profile?.role === 'super_admin' ||
-      profile?.role === 'admin' ||
-      profile?.role === 'administrator';
-
-    if (!isPrivileged) {
-      const { data: userRoles } = await admin
-        .from('user_roles')
-        .select('custom_roles!inner(permissions)')
-        .eq('user_id', user.id);
-
-      const hasLeadsCreate = (userRoles || []).some((ur: any) => {
-        const p = ur.custom_roles?.permissions || {};
-        return (
-          p['all'] === true ||
-          p['admission.leads.create'] === true ||
-          p['admission.leads.manage'] === true
-        );
-      });
-
-      if (!hasLeadsCreate) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
     }
 
     let options: DropdownOption[] = [];
@@ -142,4 +111,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'admission.leads.create' });

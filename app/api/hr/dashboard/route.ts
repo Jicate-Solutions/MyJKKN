@@ -11,79 +11,34 @@ export const dynamic = 'force-dynamic';
  * Role detection is server-side via profiles.role (+ is_super_admin).
  * Non-HR users → 403 (route-level gate; page-level redirect to /dashboard
  * with toast is the UX per decision #13, but the API is still denied).
+ *
+ * Permission gate is delegated to the canonical withAuth({ requirePermission })
+ * triad (is_super_admin + is_admin + user_has_permission('hr.dashboard.view')).
+ * Adding a new role to the dashboard is now a 1-row DB grant
+ * (`custom_roles.permissions['hr.dashboard.view'] = true`), not a code change.
  */
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { NextResponse, connection } from 'next/server';
-import type { NextRequest } from 'next/server';
-import type { CookieOptions } from '@supabase/ssr';
+import { withAuth } from '@/lib/auth/with-auth';
 import { HRDashboardService } from '@/lib/services/hr/dashboard-service';
 import type { DashboardMode, ViewerRole } from '@/types/hr-dashboard';
 
-async function getClient() {
-  const cookieStore = await cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          try {
-            cookieStore.set({ name, value, ...options });
-          } catch {}
-        },
-        remove(name: string, options: CookieOptions) {
-          try {
-            cookieStore.set({ name, value: '', ...options });
-          } catch {}
-        },
-      },
-    }
-  );
-}
-
-export async function GET(request: NextRequest) {
+export const GET = withAuth(async (request, auth) => {
   await connection();
   try {
-    const supabase = await getClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const supabase = auth.supabase;
+    const userId = auth.user.id;
 
-    // Resolve viewer role from profile
+    // Resolve viewer role from profile (auth.user.role is the legacy single-role
+    // string; we still need is_super_admin from profiles for layout branching).
     const { data: profile } = await supabase
       .from('profiles')
       .select('role, is_super_admin, institution_id')
-      .eq('id', user.id)
+      .eq('id', userId)
       .maybeSingle();
 
     const isSuperAdmin = !!profile?.is_super_admin;
     const role = (profile?.role as string | undefined) ?? '';
-
-    // Gate: use canonical MyJKKN permission helper instead of hardcoding role_keys.
-    // `user_has_permission` includes super-admin bypass + multi-role OR-merge + legacy
-    // profiles.role fallback — matches the standardized RLS policy pattern used across
-    // all MyJKKN modules. Adding a new role to the dashboard is now a 1-row DB grant
-    // (`custom_roles.permissions.hr.dashboard.view = true`), not a code change.
-    const { data: canViewDashboard, error: permError } = await supabase.rpc(
-      'user_has_permission',
-      { permission_name: 'hr.dashboard.view' }
-    );
-    if (permError) {
-      console.error('[hr/dashboard] permission-check RPC failed', permError);
-      return NextResponse.json({ error: 'Permission check failed' }, { status: 500 });
-    }
-    if (!canViewDashboard) {
-      return NextResponse.json({ error: 'Forbidden — hr.dashboard.view required' }, { status: 403 });
-    }
 
     // Layout branching (NOT a gate): which dashboard layout does this role see?
     // Role-keys that map to the operational HR Officer layout (4 daily quadrants).
@@ -124,7 +79,7 @@ export async function GET(request: NextRequest) {
       const { data: access } = await supabase
         .from('user_hr_access')
         .select('hr_organization_id')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .limit(1)
         .maybeSingle();
       hrOrgId = (access?.hr_organization_id as string | null) ?? null;
@@ -155,4 +110,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+}, { allowApiKey: false, requirePermission: 'hr.dashboard.view' });
