@@ -840,6 +840,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/counselors/briefing',
               label: 'Daily Briefing',
               active: pathname === '/admission/counselors/briefing'
+            },
+            {
+              href: '/admission/counselors/team',
+              label: 'Team',
+              active: pathname.startsWith('/admission/counselors/team')
             }
           ]
         },
