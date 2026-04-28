@@ -345,7 +345,11 @@ export class LeadService {
       utm_source: captureMeta?.utm_source ?? null,
       utm_medium: captureMeta?.utm_medium ?? null,
       utm_campaign: captureMeta?.utm_campaign ?? null,
-      referrer_id: captureMeta?.referrer_id ?? leadData.referred_by_id ?? null,
+      referrer_id:
+        captureMeta?.referrer_id
+        ?? (leadData.referral_type && leadData.referral_type !== 'consultant'
+              ? (leadData.referred_by_id ?? null)
+              : null),
       raw_payload: captureMeta?.raw_payload ?? {},
     };
 
