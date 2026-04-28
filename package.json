@@ -12,7 +12,9 @@
     "typecheck:watch": "tsc --noEmit --watch",
     "clean": "rimraf .next/cache node_modules/.cache .tsbuildinfo",
     "clean:all": "rimraf .next node_modules/.cache .tsbuildinfo",
-    "clear-cache": "node scripts/clear-cache.bat"
+    "clear-cache": "node scripts/clear-cache.bat",
+    "check:attention-bar": "tsx scripts/check-attention-bar-coverage.ts",
+    "check:attention-bar-layer4": "tsx scripts/check-attention-bar-layer4-rails.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

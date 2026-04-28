@@ -1,0 +1,64 @@
+id: R-003
+name: Discovery-test-IS-verification-test
+severity: block
+project_filter: MyJKKN
+related_memory: feedback_discovery_test_is_verification_test.md
+
+description: |
+  When a bug was found by an empirical test (browser/cdp/curl/script), the SAME
+  test must be re-run against the fix BEFORE flipping a PR from Draft→Ready.
+  Static substitutes (typecheck, code review, pattern match) don't count.
+  Caught 2026-04-25 on PR #475.
+
+triggers:
+  - tool: Bash
+    when:
+      input_regex: "cdp\\.py|curl.*localhost:3104|playwright|selenium|browser-use"
+    check: |
+      # Mark that an empirical discovery test ran this session.
+      STATE_FILE=~/.claude/state/empirical-first/R-003.json
+      mkdir -p ~/.claude/state/empirical-first
+      [ -f "$STATE_FILE" ] || echo '{"discovery_tests":[],"verification_tests":[]}' > "$STATE_FILE"
+      jq --arg ts "$(date +%s)" '.discovery_tests += [{"ts":($ts|tonumber)}]' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+      exit 0
+  - tool: Bash
+    when:
+      input_regex: "gh pr ready\\b|gh pr edit.*--remove-label.*draft|gh pr edit.*--add-label.*ready"
+    check: |
+      STATE_FILE=~/.claude/state/empirical-first/R-003.json
+      [ -f "$STATE_FILE" ] || { exit 0; }  # no discovery test ever ran, allow
+      DISCOVERY_COUNT=$(jq '.discovery_tests | length' "$STATE_FILE" 2>/dev/null || echo 0)
+      VERIFICATION_COUNT=$(jq '.verification_tests | length' "$STATE_FILE" 2>/dev/null || echo 0)
+      if [ "$DISCOVERY_COUNT" -eq 0 ]; then
+        exit 0  # no discovery test => this isn't a bug-fix-PR, allow
+      fi
+      if [ "$VERIFICATION_COUNT" -ge "$DISCOVERY_COUNT" ]; then
+        exit 0  # verification has been re-run, allow
+      fi
+      exit 1  # block: bug was found via empirical test but fix not verified
+    fail_message: |
+      🚫 R-003 BLOCKED: Flipping PR Ready without re-running the discovery test.
+
+      Earlier this session, an empirical test (cdp.py/curl/browser-use/playwright)
+      surfaced a bug. You're about to mark the PR Ready, but the SAME test has
+      not been re-run against the fix.
+
+      Static substitutes (typecheck pass, code review, pattern match) DO NOT
+      satisfy this rule.
+
+      Run the same empirical test against the fix:
+        # Whatever discovery test you ran, run it again with the fix applied
+        python3 ~/.claude/scripts/cdp.py navigate <url>
+        python3 ~/.claude/scripts/cdp.py eval "document.querySelectorAll('...').length"
+        # OR: PORT=3104 npm run dev + curl + click-test
+
+      Then record the verification:
+        jq --arg ts "$(date +%s)" '.verification_tests += [{"ts":($ts|tonumber)}]' \
+          ~/.claude/state/empirical-first/R-003.json > tmp && \
+          mv tmp ~/.claude/state/empirical-first/R-003.json
+
+      Memory: feedback_discovery_test_is_verification_test.md
+      Recovery example: PR #475 — agent shipped Ready without re-running the
+      student-on-/admission chip-count test that surfaced the bug.
+
+      To bypass for this command (logged): EMPIRICAL_FIRST_BYPASS=1
