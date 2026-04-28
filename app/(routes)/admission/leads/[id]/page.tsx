@@ -123,6 +123,8 @@ import type { FunnelStage } from '@/types/admission';
 import { ALLOWED_STAGE_TRANSITIONS } from '@/lib/services/admission/lead-service';
 import { SendPersonalMessageDialog } from '@/components/whatsapp/send-personal-message-dialog';
 import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
+import { HandoverBanner } from '@/components/admission/leads/handover-banner';
+import { useLeadCascadeHistory } from '@/hooks/admission/use-lead-cascade-history';
 // BUG-003016: centralised DD/MM/YYYY formatter — replaces bare
 // toLocaleDateString() calls that were rendering ambiguously depending
 // on the runtime locale. Extended 2026-04-16 to also route the timeline,
@@ -435,6 +437,23 @@ function LeadDetailPageContent() {
 
   // Personal WhatsApp status — super admins (no department) use 'any' to find any ready connection
   const personalWaDepartmentId = profile?.department_id || 'any';
+
+  // --- Phase 6: Cascade history + readonly detection (spec decisions #13, #14) ---
+  // Fetch the reassignment trail for this lead.
+  const { history: cascadeHistory, latest: latestCascade } = useLeadCascadeHistory(
+    isValidId ? leadId : undefined
+  );
+  // The current user is the FROM-counselor if their email matches the most-recent
+  // cascade entry's from_counselor_email. We use email (from profile join) because
+  // profiles.id → admission_counselors.user_id requires a second lookup.
+  // Per spec #14: no auto-clawback — this is visual + interaction-disable only.
+  const isReadonlyCascadedView =
+    !!latestCascade &&
+    !!profile?.email &&
+    latestCascade.from_counselor_email?.toLowerCase() === profile.email.toLowerCase();
+  const readonlyReassignedTo = isReadonlyCascadedView
+    ? (latestCascade?.to_counselor_name ?? 'another counselor')
+    : null;
   const { data: waStatus } = usePersonalWhatsAppStatus(personalWaDepartmentId, { pollWhileConnecting: false });
 
   // Compute lead scores on-the-fly from available data
@@ -1354,6 +1373,9 @@ function LeadDetailPageContent() {
             </BreadcrumbList>
           </Breadcrumb>
 
+          {/* Phase 6: Handover history banner (spec #13, #14) — renders only when history exists */}
+          <HandoverBanner leadId={leadId} />
+
           {/* Header */}
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-4">
@@ -1365,7 +1387,7 @@ function LeadDetailPageContent() {
               <div>
                 <div className="flex items-center gap-3">
                   <h1 className="text-2xl font-bold">{lead.full_name || 'Unknown'}</h1>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 flex-wrap">
                     {lead.is_hot_lead && (
                       <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
                         <Flame className="h-3 w-3 mr-1" />
@@ -1376,6 +1398,12 @@ function LeadDetailPageContent() {
                       <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
                         <Star className="h-3 w-3 mr-1 fill-current" />
                         Priority
+                      </Badge>
+                    )}
+                    {/* Phase 6 spec #14: readonly badge when this user is the FROM-counselor */}
+                    {isReadonlyCascadedView && (
+                      <Badge variant="outline" className="bg-slate-100 text-slate-700 border-slate-300">
+                        Reassigned to {readonlyReassignedTo} — read-only
                       </Badge>
                     )}
                   </div>
@@ -1397,7 +1425,10 @@ function LeadDetailPageContent() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* Phase 6 spec #14: disable all write-actions for the cascaded-away FROM-counselor.
+                pointer-events-none + opacity-50 communicate read-only visually.
+                No data-level enforcement here — that lives in RLS. */}
+            <div className={`flex items-center gap-2 ${isReadonlyCascadedView ? 'pointer-events-none opacity-50' : ''}`}>
               <Button
                 variant={lead.is_hot_lead ? 'default' : 'outline'}
                 size="sm"
@@ -1469,8 +1500,8 @@ function LeadDetailPageContent() {
             </div>
           </div>
 
-          {/* Stage Selector */}
-          <Card>
+          {/* Stage Selector — disabled for cascaded-away FROM-counselor */}
+          <Card className={isReadonlyCascadedView ? 'pointer-events-none opacity-60' : ''}>
             <CardContent className="py-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
